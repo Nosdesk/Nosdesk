@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
@@ -123,15 +123,11 @@ async fn check_for_updates() -> Option<(String, String)> {
 pub async fn get_system_info(
     req: HttpRequest,
     system_state: web::Data<SystemState>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Version / environment / uptime is operator info: useful for
     // fingerprinting against known CVEs, so gate it to admins. See
     // security-audit-2026-06.
-    if let Err(resp) =
-        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-    {
-        return resp.error_response();
-    }
+    crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
     let current_version = get_current_version();
     let uptime = system_state.start_time.elapsed();
 
@@ -147,18 +143,14 @@ pub async fn get_system_info(
         uptime_formatted: format_uptime(uptime),
     };
 
-    HttpResponse::Ok().json(response)
+    Ok(HttpResponse::Ok().json(response))
 }
 
 // GET /api/admin/system/updates
-pub async fn check_system_updates(req: HttpRequest) -> impl Responder {
+pub async fn check_system_updates(req: HttpRequest) -> actix_web::Result<HttpResponse> {
     // Admin-only: this triggers an outbound GitHub request and reveals
     // the running version. See security-audit-2026-06.
-    if let Err(resp) =
-        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-    {
-        return resp.error_response();
-    }
+    crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
     let current_version = get_current_version();
 
     let (update_available, latest_version, release_url) = match check_for_updates().await {
@@ -176,5 +168,5 @@ pub async fn check_system_updates(req: HttpRequest) -> impl Responder {
         release_url,
     };
 
-    HttpResponse::Ok().json(response)
+    Ok(HttpResponse::Ok().json(response))
 }

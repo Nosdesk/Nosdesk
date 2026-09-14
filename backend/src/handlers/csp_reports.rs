@@ -293,16 +293,17 @@ pub async fn report_violation(
 }
 
 /// Admin: list recent aggregated violations.
-pub async fn list_violations(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+pub async fn list_violations(
+    req: HttpRequest,
+    mut tc: TenantConn,
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     match tc.run(|conn| repo::list_recent(conn, 200)) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(rows) => Ok(HttpResponse::Ok().json(rows)),
         Err(e) => {
             warn!(error = ?e, "Failed to list CSP reports");
-            errors::internal("Failed to list CSP reports")
+            Ok(errors::internal("Failed to list CSP reports"))
         }
     }
 }

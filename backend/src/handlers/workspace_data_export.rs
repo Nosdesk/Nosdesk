@@ -12,7 +12,7 @@
 //!   export never needs password hashes; an optional password only SEALS the zip.
 
 use actix_web::http::header;
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use chrono::{Duration, Utc};
 use serde::Deserialize;
 use serde_json::json;
@@ -80,10 +80,8 @@ pub async fn request_export(
     ws: WorkspaceContext,
     req: HttpRequest,
     body: web::Json<RequestExportBody>,
-) -> impl Responder {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Owner) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Owner)?;
     let workspace_id = ws.workspace_id;
     let requested_by = req
         .extensions()
@@ -93,22 +91,22 @@ pub async fn request_export(
 
     // Rate limit 1: at most one in-flight export.
     match tc.run(|conn| export_repo::has_active(conn, workspace_id)) {
-        Ok(true) => return errors::conflict("An export is already in progress."),
+        Ok(true) => return Ok(errors::conflict("An export is already in progress.")),
         Ok(false) => {}
-        Err(e) => return errors::internal(format!("export check: {e}")),
+        Err(e) => return Ok(errors::internal(format!("export check: {e}"))),
     }
     // Rate limit 2: one completed export per day (a completed export can be
     // re-downloaded within its window, so this bounds the work, not access).
     let since = (Utc::now() - Duration::hours(MIN_HOURS_BETWEEN_EXPORTS)).naive_utc();
     match tc.run(|conn| export_repo::last_completed_at(conn, workspace_id)) {
         Ok(Some(last)) if last > since => {
-            return errors::too_many_requests(
+            return Ok(errors::too_many_requests(
                 "You can request one export per day. Download your latest export, or try again later.",
                 MIN_HOURS_BETWEEN_EXPORTS as u64 * 3600,
-            );
+            ));
         }
         Ok(_) => {}
-        Err(e) => return errors::internal(format!("export rate check: {e}")),
+        Err(e) => return Ok(errors::internal(format!("export rate check: {e}"))),
     }
 
     let new_job = NewWorkspaceExportJob {
@@ -118,7 +116,7 @@ pub async fn request_export(
     };
     let job = match tc.run(|conn| export_repo::create(conn, new_job)) {
         Ok(j) => j,
-        Err(e) => return errors::internal(format!("create export job: {e}")),
+        Err(e) => return Ok(errors::internal(format!("create export job: {e}"))),
     };
     let job_id = job.id;
 
@@ -129,7 +127,7 @@ pub async fn request_export(
         run_export(pool_clone, job_id, workspace_id, password).await;
     });
 
-    HttpResponse::Accepted().json(job_view(&job))
+    Ok(HttpResponse::Accepted().json(job_view(&job)))
 }
 
 /// GET /api/workspace/export — the workspace's most recent export (or `null`),
@@ -139,14 +137,12 @@ pub async fn list_latest_export(
     mut tc: TenantConn,
     ws: WorkspaceContext,
     req: HttpRequest,
-) -> impl Responder {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Owner) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Owner)?;
     match tc.run(|conn| export_repo::latest_for_workspace(conn, ws.workspace_id)) {
-        Ok(Some(job)) => HttpResponse::Ok().json(job_view(&job)),
-        Ok(None) => HttpResponse::Ok().json(serde_json::Value::Null),
-        Err(e) => errors::internal(format!("latest export: {e}")),
+        Ok(Some(job)) => Ok(HttpResponse::Ok().json(job_view(&job))),
+        Ok(None) => Ok(HttpResponse::Ok().json(serde_json::Value::Null)),
+        Err(e) => Ok(errors::internal(format!("latest export: {e}"))),
     }
 }
 
@@ -156,15 +152,13 @@ pub async fn get_export_status(
     ws: WorkspaceContext,
     req: HttpRequest,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Owner) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Owner)?;
     let id = path.into_inner();
     match tc.run(|conn| export_repo::get_owned(conn, id, ws.workspace_id)) {
-        Ok(Some(job)) => HttpResponse::Ok().json(job_view(&job)),
-        Ok(None) => errors::not_found("export"),
-        Err(e) => errors::internal(format!("export status: {e}")),
+        Ok(Some(job)) => Ok(HttpResponse::Ok().json(job_view(&job))),
+        Ok(None) => Ok(errors::not_found("export")),
+        Err(e) => Ok(errors::internal(format!("export status: {e}"))),
     }
 }
 
@@ -175,36 +169,34 @@ pub async fn download_export(
     ws: WorkspaceContext,
     req: HttpRequest,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Owner) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Owner)?;
     let id = path.into_inner();
     let job = match tc.run(|conn| export_repo::get_owned(conn, id, ws.workspace_id)) {
         Ok(Some(j)) => j,
-        Ok(None) => return errors::not_found("export"),
-        Err(e) => return errors::internal(format!("export lookup: {e}")),
+        Ok(None) => return Ok(errors::not_found("export")),
+        Err(e) => return Ok(errors::internal(format!("export lookup: {e}"))),
     };
     if job.status != "completed" {
-        return errors::not_found("export");
+        return Ok(errors::not_found("export"));
     }
     let now = Utc::now().naive_utc();
     if job.expires_at.map(|e| e < now).unwrap_or(true) {
-        return errors::gone("This export has expired. Request a new one.");
+        return Ok(errors::gone("This export has expired. Request a new one."));
     }
     let Some(key) = job.file_path else {
-        return errors::not_found("export");
+        return Ok(errors::not_found("export"));
     };
 
     let scoped = WorkspaceScopedStorage::arc(process_storage(), ws.workspace_id);
     let bytes = match scoped.get_file(&key).await {
         Ok(b) => b,
-        Err(e) => return errors::internal(format!("read export artifact: {e:?}")),
+        Err(e) => return Ok(errors::internal(format!("read export artifact: {e:?}"))),
     };
     // The artifact is the whole tenant's data: no-store, no CORS wildcard, and an
     // attachment disposition (NOT the generic file proxy, which sets public
     // caching + ACAO:*).
-    HttpResponse::Ok()
+    Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
         .insert_header((
             header::CONTENT_DISPOSITION,
@@ -214,7 +206,7 @@ pub async fn download_export(
             ),
         ))
         .insert_header((header::CACHE_CONTROL, "no-store"))
-        .body(bytes)
+        .body(bytes))
 }
 
 /// Run the export end to end and record the terminal status. Never panics the

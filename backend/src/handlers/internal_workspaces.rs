@@ -13,7 +13,7 @@
 //! (enforced via an explicit check, not relying on middleware
 //! semantics, so the contract is clear from the handler signature).
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{error, info, warn};
@@ -157,14 +157,14 @@ pub async fn create_workspace(
     _: PlatformAuth,
     pool: web::Data<Pool>,
     body: web::Json<CreateWorkspaceRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Enforce the Idempotency-Key contract here even though the
     // middleware will also see it. The middleware's "no header =
     // pass through" semantics is fine for non-critical routes but
     // wrong for provisioning, where a missing header means the
     // caller has bypassed retry safety and we'd rather refuse.
     if let Some(resp) = require_idempotency_key(&req) {
-        return resp;
+        return Ok(resp);
     }
 
     let CreateWorkspaceRequest {
@@ -177,16 +177,13 @@ pub async fn create_workspace(
     } = body.into_inner();
 
     if let Err(e) = validate_slug(&slug) {
-        return errors::bad_request(e.as_message());
+        return Ok(errors::bad_request(e.as_message()));
     }
     if name.trim().is_empty() {
-        return errors::bad_request("name must not be empty");
+        return Ok(errors::bad_request("name must not be empty"));
     }
 
-    let mut conn = match pool_conn(&pool, "workspaces/create") {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = pool_conn(&pool, "workspaces/create")?;
 
     // Pre-mint the UUID so the response (and the eventual
     // control-plane mirror row) both reference the same identity.
@@ -233,11 +230,11 @@ pub async fn create_workspace(
                 slug = %ws.slug,
                 "workspaces/create: provisioned + seeded"
             );
-            HttpResponse::Created().json(CreateWorkspaceResponse {
+            Ok(HttpResponse::Created().json(CreateWorkspaceResponse {
                 workspace_uuid: ws.uuid,
                 slug: ws.slug,
                 created_at: ws.created_at,
-            })
+            }))
         }
         Err(CreateWorkspaceError::SlugTaken) => {
             // Ensure-exists: a *live* workspace with this slug means a prior
@@ -256,28 +253,28 @@ pub async fn create_workspace(
                         slug = %ws.slug,
                         "workspaces/create: ensure-exists hit, returning existing workspace"
                     );
-                    HttpResponse::Ok().json(CreateWorkspaceResponse {
+                    Ok(HttpResponse::Ok().json(CreateWorkspaceResponse {
                         workspace_uuid: ws.uuid,
                         slug: ws.slug,
                         created_at: ws.created_at,
-                    })
+                    }))
                 }
                 Ok(None) => {
                     warn!(slug = %slug, "workspaces/create: slug reserved (archived or retired)");
-                    HttpResponse::Conflict().json(json!({
+                    Ok(HttpResponse::Conflict().json(json!({
                         "error": "slug_taken",
                         "message": format!("slug '{slug}' is unavailable, please choose another"),
-                    }))
+                    })))
                 }
                 Err(e) => {
                     error!(error = ?e, slug = %slug, "workspaces/create: find_by_slug after SlugTaken failed");
-                    errors::internal("Failed to create workspace")
+                    Ok(errors::internal("Failed to create workspace"))
                 }
             }
         }
         Err(CreateWorkspaceError::Db(e)) => {
             error!(error = ?e, "workspaces/create: db insert failed");
-            errors::internal("Failed to create workspace")
+            Ok(errors::internal("Failed to create workspace"))
         }
     }
 }
@@ -313,22 +310,21 @@ pub async fn deprovision_workspace(
     _: PlatformAuth,
     pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let slug = path.into_inner();
-    let mut conn = match pool_conn(&pool, "workspaces/deprovision") {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = pool_conn(&pool, "workspaces/deprovision")?;
 
     let ws = match workspaces::find_by_slug_any_state(&mut conn, &slug) {
         Ok(Some(ws)) => ws,
         Ok(None) => {
             warn!(slug = %slug, "workspaces/deprovision: slug not found");
-            return errors::not_found_msg(format!("workspace '{slug}' not found"));
+            return Ok(errors::not_found_msg(format!(
+                "workspace '{slug}' not found"
+            )));
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/deprovision: lookup failed");
-            return errors::internal("Workspace lookup failed");
+            return Ok(errors::internal("Workspace lookup failed"));
         }
     };
 
@@ -336,7 +332,7 @@ pub async fn deprovision_workspace(
     // archive clock and delay the scheduler's hard delete.
     if ws.archived_at.is_some() {
         info!(slug = %slug, "workspaces/deprovision: already archived, no-op");
-        return lifecycle_response(&ws);
+        return Ok(lifecycle_response(&ws));
     }
 
     // UPDATE workspaces runs under the BYPASSRLS role (nosdesk_app has
@@ -351,15 +347,17 @@ pub async fn deprovision_workspace(
     match result {
         Ok(Some(archived)) => {
             info!(slug = %slug, workspace_id = archived.id, "workspaces/deprovision: archived");
-            lifecycle_response(&archived)
+            Ok(lifecycle_response(&archived))
         }
         Ok(None) => {
             warn!(slug = %slug, "workspaces/deprovision: row vanished mid-archive");
-            errors::not_found_msg(format!("workspace '{slug}' not found"))
+            Ok(errors::not_found_msg(format!(
+                "workspace '{slug}' not found"
+            )))
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/deprovision: archive failed");
-            errors::internal("Failed to deprovision workspace")
+            Ok(errors::internal("Failed to deprovision workspace"))
         }
     }
 }
@@ -374,28 +372,27 @@ pub async fn restore_workspace(
     _: PlatformAuth,
     pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let slug = path.into_inner();
-    let mut conn = match pool_conn(&pool, "workspaces/restore") {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = pool_conn(&pool, "workspaces/restore")?;
 
     let ws = match workspaces::find_by_slug_any_state(&mut conn, &slug) {
         Ok(Some(ws)) => ws,
         Ok(None) => {
             warn!(slug = %slug, "workspaces/restore: slug not found");
-            return errors::not_found_msg(format!("workspace '{slug}' not found"));
+            return Ok(errors::not_found_msg(format!(
+                "workspace '{slug}' not found"
+            )));
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/restore: lookup failed");
-            return errors::internal("Workspace lookup failed");
+            return Ok(errors::internal("Workspace lookup failed"));
         }
     };
 
     if ws.archived_at.is_none() {
         info!(slug = %slug, "workspaces/restore: already active, no-op");
-        return lifecycle_response(&ws);
+        return Ok(lifecycle_response(&ws));
     }
 
     let actor = crate::sync::actor::ActorContext::system("workspace:restore");
@@ -408,15 +405,17 @@ pub async fn restore_workspace(
     match result {
         Ok(Some(restored)) => {
             info!(slug = %slug, workspace_id = restored.id, "workspaces/restore: restored");
-            lifecycle_response(&restored)
+            Ok(lifecycle_response(&restored))
         }
         Ok(None) => {
             warn!(slug = %slug, "workspaces/restore: row vanished mid-restore");
-            errors::not_found_msg(format!("workspace '{slug}' not found"))
+            Ok(errors::not_found_msg(format!(
+                "workspace '{slug}' not found"
+            )))
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/restore: restore failed");
-            errors::internal("Failed to restore workspace")
+            Ok(errors::internal("Failed to restore workspace"))
         }
     }
 }
@@ -438,14 +437,11 @@ pub async fn set_seat_limit(
     pool: web::Data<Pool>,
     path: web::Path<String>,
     body: web::Json<SetSeatLimitRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let slug = path.into_inner();
     let seat_limit = body.into_inner().seat_limit;
 
-    let mut conn = match pool_conn(&pool, "workspaces/seat_limit") {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = pool_conn(&pool, "workspaces/seat_limit")?;
 
     // `workspaces` is BYPASSRLS-only (`nosdesk_app` has SELECT only), so the
     // UPDATE runs under `nosdesk_admin` like the create insert.
@@ -459,18 +455,18 @@ pub async fn set_seat_limit(
     match result {
         Ok(0) => {
             warn!(slug = %slug, "workspaces/seat_limit: unknown workspace");
-            HttpResponse::NotFound().json(json!({
+            Ok(HttpResponse::NotFound().json(json!({
                 "error": "workspace_not_found",
                 "message": format!("workspace '{slug}' not found"),
-            }))
+            })))
         }
         Ok(_) => {
             info!(slug = %slug, seat_limit = ?seat_limit, "workspaces/seat_limit: updated");
-            HttpResponse::Ok().json(json!({ "slug": slug, "seat_limit": seat_limit }))
+            Ok(HttpResponse::Ok().json(json!({ "slug": slug, "seat_limit": seat_limit })))
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/seat_limit: update failed");
-            errors::internal("Failed to update seat limit")
+            Ok(errors::internal("Failed to update seat limit"))
         }
     }
 }
@@ -557,9 +553,9 @@ pub async fn upsert_projected_user(
     search_service: Option<web::Data<Arc<SearchService>>>,
     path: web::Path<String>,
     body: web::Json<UpsertProjectedUserRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     if let Some(resp) = require_idempotency_key(&req) {
-        return resp;
+        return Ok(resp);
     }
 
     let slug = path.into_inner();
@@ -575,27 +571,23 @@ pub async fn upsert_projected_user(
     } = body.into_inner();
 
     if iss.trim().is_empty() || sub.trim().is_empty() {
-        return errors::bad_request("iss and sub must both be non-empty");
+        return Ok(errors::bad_request("iss and sub must both be non-empty"));
     }
     if email.trim().is_empty() {
-        return errors::bad_request("email must be non-empty");
+        return Ok(errors::bad_request("email must be non-empty"));
     }
     if !valid_role(&role) {
-        return errors::bad_request("role must be one of: owner, admin, agent, member");
+        return Ok(errors::bad_request(
+            "role must be one of: owner, admin, agent, member",
+        ));
     }
 
-    let mut conn = match pool_conn(&pool, "upsert_projected_user") {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = pool_conn(&pool, "upsert_projected_user")?;
 
     // Resolve workspace by slug. Done first so the 404 path is
     // distinct from "we tried but failed downstream"; matches the
     // handoff's "unknown workspace returns 404" acceptance.
-    let workspace = match resolve_workspace_or_respond(&mut conn, &slug, "upsert_projected_user") {
-        Ok(ws) => ws,
-        Err(resp) => return resp.error_response(),
-    };
+    let workspace = resolve_workspace_or_respond(&mut conn, &slug, "upsert_projected_user")?;
 
     let input = ProjectedUserInput {
         iss,
@@ -694,14 +686,14 @@ pub async fn upsert_projected_user(
                 created,
             };
             if created {
-                HttpResponse::Created().json(payload)
+                Ok(HttpResponse::Created().json(payload))
             } else {
-                HttpResponse::Ok().json(payload)
+                Ok(HttpResponse::Ok().json(payload))
             }
         }
         Err(e) => {
             error!(error = %e, slug = %slug, "upsert_projected_user: provisioning failed");
-            errors::internal("Failed to project user")
+            Ok(errors::internal("Failed to project user"))
         }
     }
 }
@@ -755,26 +747,22 @@ pub async fn set_member_role(
     pool: web::Data<Pool>,
     path: web::Path<String>,
     body: web::Json<SetMemberRoleRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let slug = path.into_inner();
     let SetMemberRoleRequest { iss, sub, role } = body.into_inner();
 
     if iss.trim().is_empty() || sub.trim().is_empty() {
-        return errors::bad_request("iss and sub must both be non-empty");
+        return Ok(errors::bad_request("iss and sub must both be non-empty"));
     }
     if !valid_settable_role(&role) {
-        return errors::bad_request("role must be one of: admin, agent, member");
+        return Ok(errors::bad_request(
+            "role must be one of: admin, agent, member",
+        ));
     }
 
-    let mut conn = match pool_conn(&pool, "set_member_role") {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = pool_conn(&pool, "set_member_role")?;
 
-    let workspace = match resolve_workspace_or_respond(&mut conn, &slug, "set_member_role") {
-        Ok(ws) => ws,
-        Err(resp) => return resp.error_response(),
-    };
+    let workspace = resolve_workspace_or_respond(&mut conn, &slug, "set_member_role")?;
 
     // Resolve the member from (iss, sub). A miss is a 404, same as an
     // unknown membership below — the control plane treats both as
@@ -785,11 +773,11 @@ pub async fn set_member_role(
             Ok(Some(u)) => u,
             Ok(None) => {
                 warn!(slug = %slug, "set_member_role: no user for (iss, sub)");
-                return errors::not_found_msg("member not found");
+                return Ok(errors::not_found_msg("member not found"));
             }
             Err(e) => {
                 error!(error = ?e, slug = %slug, "set_member_role: identity lookup failed");
-                return errors::internal("Failed to resolve member");
+                return Ok(errors::internal("Failed to resolve member"));
             }
         };
 
@@ -840,26 +828,26 @@ pub async fn set_member_role(
     match outcome {
         Ok(SetMemberRoleOutcome::Applied) => {
             info!(workspace_id = workspace.id, %user_uuid, role = %role, "set_member_role: applied");
-            HttpResponse::Ok().json(SetMemberRoleResponse {
+            Ok(HttpResponse::Ok().json(SetMemberRoleResponse {
                 user_uuid,
                 workspace_id: workspace.id,
                 role,
-            })
+            }))
         }
-        Ok(SetMemberRoleOutcome::LastOwner) => HttpResponse::Conflict().json(json!({
+        Ok(SetMemberRoleOutcome::LastOwner) => Ok(HttpResponse::Conflict().json(json!({
             "error": "last_owner",
             "message": "cannot demote the only owner; promote another member first",
-        })),
+        }))),
         Err(e) if workspaces::is_seat_limit_violation(&e) => {
             warn!(workspace_id = workspace.id, %user_uuid, "set_member_role: blocked by workspace seat limit");
-            HttpResponse::Forbidden().json(json!({
+            Ok(HttpResponse::Forbidden().json(json!({
                 "error": "seat_limit_reached",
                 "message": "This workspace has reached its seat limit. Contact support to add more seats.",
-            }))
+            })))
         }
         Err(e) => {
             error!(error = ?e, workspace_id = workspace.id, %user_uuid, "set_member_role: update failed");
-            errors::internal("Failed to update member role")
+            Ok(errors::internal("Failed to update member role"))
         }
     }
 }
@@ -920,9 +908,9 @@ pub async fn set_custom_domain(
     pool: web::Data<Pool>,
     path: web::Path<String>,
     body: web::Json<CustomDomainRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     if let Some(resp) = require_idempotency_key(&req) {
-        return resp;
+        return Ok(resp);
     }
 
     let slug = path.into_inner();
@@ -932,9 +920,9 @@ pub async fn set_custom_domain(
             if trimmed.is_empty() {
                 None
             } else if !looks_like_fqdn(&trimmed) {
-                return errors::bad_request(
+                return Ok(errors::bad_request(
                     "hostname must be a lowercase ASCII FQDN (e.g. support.acme.com)",
-                );
+                ));
             } else {
                 Some(trimmed)
             }
@@ -942,17 +930,11 @@ pub async fn set_custom_domain(
         None => None,
     };
 
-    let mut conn = match pool_conn(&pool, "custom_domain") {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = pool_conn(&pool, "custom_domain")?;
 
     // Capture the previous value so we can invalidate its cache key
     // even when the operator is clearing or changing the hostname.
-    let previous = match resolve_workspace_or_respond(&mut conn, &slug, "custom_domain") {
-        Ok(ws) => ws,
-        Err(resp) => return resp.error_response(),
-    };
+    let previous = resolve_workspace_or_respond(&mut conn, &slug, "custom_domain")?;
 
     let updated = match workspaces::update_custom_domain(
         &mut conn,
@@ -962,21 +944,23 @@ pub async fn set_custom_domain(
         Ok(Some(ws)) => ws,
         Ok(None) => {
             // Shouldn't happen — we just looked up by the same slug.
-            return errors::not_found_msg(format!("workspace '{slug}' not found"));
+            return Ok(errors::not_found_msg(format!(
+                "workspace '{slug}' not found"
+            )));
         }
         Err(diesel::result::Error::DatabaseError(
             diesel::result::DatabaseErrorKind::UniqueViolation,
             _,
         )) => {
             warn!(slug = %slug, hostname = ?hostname_normalised, "custom_domain: hostname already in use");
-            return HttpResponse::Conflict().json(serde_json::json!({
+            return Ok(HttpResponse::Conflict().json(serde_json::json!({
                 "error": "hostname_taken",
                 "message": "this hostname is already mapped to a workspace",
-            }));
+            })));
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "custom_domain: update failed");
-            return errors::internal("Failed to update custom domain");
+            return Ok(errors::internal("Failed to update custom domain"));
         }
     };
 
@@ -996,11 +980,11 @@ pub async fn set_custom_domain(
         custom_domain = ?updated.custom_domain,
         "custom_domain: updated"
     );
-    HttpResponse::Ok().json(CustomDomainResponse {
+    Ok(HttpResponse::Ok().json(CustomDomainResponse {
         workspace_uuid: updated.uuid,
         slug: updated.slug,
         custom_domain: updated.custom_domain,
-    })
+    }))
 }
 
 // =====================================================================
@@ -1043,16 +1027,10 @@ pub async fn workspace_provisioning(
     _: PlatformAuth,
     pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let slug = path.into_inner();
-    let mut conn = match pool_conn(&pool, "workspace_provisioning") {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
-    let workspace = match resolve_workspace_or_respond(&mut conn, &slug, "workspace_provisioning") {
-        Ok(ws) => ws,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = pool_conn(&pool, "workspace_provisioning")?;
+    let workspace = resolve_workspace_or_respond(&mut conn, &slug, "workspace_provisioning")?;
 
     // Owner membership: workspace_members is a meta-table (no RLS), so a
     // direct workspace-id-filtered count is correct without pinning context.
@@ -1086,7 +1064,7 @@ pub async fn workspace_provisioning(
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspace_provisioning: seeded-defaults count failed");
-            return errors::internal("Workspace provisioning check failed");
+            return Ok(errors::internal("Workspace provisioning check failed"));
         }
     };
 
@@ -1101,10 +1079,10 @@ pub async fn workspace_provisioning(
         && checks.ticket_categories
         && checks.owner;
 
-    HttpResponse::Ok().json(ProvisioningStatus {
+    Ok(HttpResponse::Ok().json(ProvisioningStatus {
         workspace_uuid: workspace.uuid,
         slug: workspace.slug,
         ready,
         checks,
-    })
+    }))
 }

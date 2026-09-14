@@ -17,7 +17,7 @@ use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::audit as repo;
 use crate::sync::{emit, groups};
 use crate::utils::rbac;
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse};
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -104,17 +104,15 @@ pub async fn list(
     req: HttpRequest,
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_audit_read(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_audit_read(&req)?;
 
     let cursor = match query.cursor.as_deref().map(decode_cursor) {
         Some(Ok(c)) => Some(c),
         Some(Err(_)) => {
-            return errors::bad_request(
+            return Ok(errors::bad_request(
                 "Invalid cursor; pass the next_cursor from the previous response verbatim",
-            )
+            ))
         }
         None => None,
     };
@@ -133,14 +131,14 @@ pub async fn list(
         Ok(p) => p,
         Err(e) => {
             warn!(error = ?e, "unified audit list failed");
-            return errors::internal("Failed to read the audit log");
+            return Ok(errors::internal("Failed to read the audit log"));
         }
     };
 
-    HttpResponse::Ok().json(ListResponse {
+    Ok(HttpResponse::Ok().json(ListResponse {
         entries: page.entries,
         next_cursor: page.next_cursor.map(encode_cursor),
-    })
+    }))
 }
 
 /// `GET /api/admin/audit/export` — full filtered set as a JSON
@@ -149,10 +147,8 @@ pub async fn export(
     req: HttpRequest,
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_audit_read(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_audit_read(&req)?;
 
     let filter = build_filter(&query);
 
@@ -177,7 +173,7 @@ pub async fn export(
         Ok(e) => e,
         Err(e) => {
             warn!(error = ?e, "unified audit export failed");
-            return errors::internal("Failed to export the audit log");
+            return Ok(errors::internal("Failed to export the audit log"));
         }
     };
 
@@ -190,12 +186,12 @@ pub async fn export(
         "entries": entries,
     });
 
-    HttpResponse::Ok()
+    Ok(HttpResponse::Ok()
         .insert_header((
             actix_web::http::header::CONTENT_DISPOSITION,
             format!("attachment; filename=\"{filename}\""),
         ))
-        .json(body)
+        .json(body))
 }
 
 /// Emit the one tier-1 meta event for this read/export. Runs inside the

@@ -1,7 +1,7 @@
 //! Admin-only handlers for the guest-access feature flags in `site_settings`.
 //! Exposed at `/api/admin/guest-settings`.
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use tracing::error;
 
@@ -39,24 +39,23 @@ pub struct UpdateGuestSettingsRequest {
     pub guest_ticket_intro_message: Option<Option<String>>,
 }
 
-pub async fn get_guest_settings(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
+pub async fn get_guest_settings(
+    mut tc: TenantConn,
+    req: HttpRequest,
+) -> actix_web::Result<HttpResponse> {
     // Per-workspace guest config (site_settings, RLS-isolated via TenantConn),
     // so a workspace admin owns it. The read was ungated while the write
     // demanded platform-admin; both are now workspace-admin. The public portal
     // reads guest config through handlers/guest.rs, not this admin endpoint.
-    if let Err(resp) =
-        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-    {
-        return resp.error_response();
-    }
+    crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
     match tc.run(site_settings::get_site_settings) {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
         Err(e) => {
             error!(error = ?e, "Failed to load site_settings for guest admin view");
-            errors::internal("Failed to load settings")
+            Ok(errors::internal("Failed to load settings"))
         }
     }
 }
@@ -65,29 +64,25 @@ pub async fn update_guest_settings(
     mut tc: TenantConn,
     req: HttpRequest,
     body: web::Json<UpdateGuestSettingsRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Per-workspace guest config, so a workspace admin owns it. Was
     // platform-admin, which dead-ended every tenant admin on save.
     let claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return HttpResponse::BadRequest().finish(),
+        Err(_) => return Ok(HttpResponse::BadRequest().finish()),
     };
 
     if let Some(n) = body.guest_ticket_rate_limit_per_hour {
         if !(1..=1000).contains(&n) {
-            return errors::bad_request("Rate limit must be between 1 and 1000");
+            return Ok(errors::bad_request("Rate limit must be between 1 and 1000"));
         }
     }
     if let Some(Some(ref p)) = body.guest_ticket_default_priority {
         if !["low", "medium", "high"].contains(&p.as_str()) {
-            return errors::bad_request("Invalid default priority");
+            return Ok(errors::bad_request("Invalid default priority"));
         }
     }
 
@@ -97,7 +92,9 @@ pub async fn update_guest_settings(
     // (that happens at render time).
     if let Some(Some(ref m)) = body.guest_ticket_intro_message {
         if m.chars().count() > 500 {
-            return errors::bad_request("Intro message must be 500 characters or fewer");
+            return Ok(errors::bad_request(
+                "Intro message must be 500 characters or fewer",
+            ));
         }
     }
 
@@ -132,11 +129,11 @@ pub async fn update_guest_settings(
     match tc.run(|conn| site_settings::update_site_settings(conn, update)) {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
         Err(e) => {
             error!(error = ?e, "Failed to update guest settings");
-            errors::internal("Failed to update settings")
+            Ok(errors::internal("Failed to update settings"))
         }
     }
 }

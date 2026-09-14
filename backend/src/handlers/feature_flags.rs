@@ -10,7 +10,7 @@
 //! refetch. Bus wiring is a Phase 2 concern; v1 callers refresh on
 //! navigation.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::{error, info};
@@ -54,11 +54,11 @@ pub struct ReplaceFlagsBody {
 }
 
 /// GET /api/feature-flags — resolved flag map for the current user.
-pub async fn get_my_flags(pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
-    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e.error_response(),
-    };
+pub async fn get_my_flags(
+    pool: web::Data<Pool>,
+    req: HttpRequest,
+) -> actix_web::Result<HttpResponse> {
+    let (_claims, user_uuid, mut conn) = helpers::auth_conn(&req, &pool)?;
 
     // Scope the read to the request's workspace: site_settings is
     // RLS-isolated by workspace_id, so the resolver must run with
@@ -68,10 +68,10 @@ pub async fn get_my_flags(pool: web::Data<Pool>, req: HttpRequest) -> impl Respo
         repo::resolve_for_user(conn, &user_uuid)
     });
     match resolved {
-        Ok(flags) => HttpResponse::Ok().json(flags),
+        Ok(flags) => Ok(HttpResponse::Ok().json(flags)),
         Err(e) => {
             error!(error = %e, user = %user_uuid, "failed to resolve feature flags");
-            errors::internal("Failed to resolve feature flags")
+            Ok(errors::internal("Failed to resolve feature flags"))
         }
     }
 }
@@ -81,14 +81,11 @@ pub async fn patch_workspace_flag(
     pool: web::Data<Pool>,
     body: web::Json<PatchFlagBody>,
     req: HttpRequest,
-) -> impl Responder {
-    let mut conn = match helpers::admin_conn(&req, &pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::admin_conn(&req, &pool)?;
 
     if body.flag.trim().is_empty() {
-        return errors::bad_request("Flag name is required");
+        return Ok(errors::bad_request("Flag name is required"));
     }
 
     let actor_uuid = req
@@ -108,11 +105,11 @@ pub async fn patch_workspace_flag(
                 cleared = body.value.is_none(),
                 "workspace feature flag updated"
             );
-            HttpResponse::Ok().json(flags)
+            Ok(HttpResponse::Ok().json(flags))
         }
         Err(e) => {
             error!(error = %e, flag = %body.flag, "failed to set workspace feature flag");
-            errors::internal("Failed to update feature flag")
+            Ok(errors::internal("Failed to update feature flag"))
         }
     }
 }
@@ -122,14 +119,11 @@ pub async fn put_workspace_flags(
     pool: web::Data<Pool>,
     body: web::Json<ReplaceFlagsBody>,
     req: HttpRequest,
-) -> impl Responder {
-    let mut conn = match helpers::admin_conn(&req, &pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::admin_conn(&req, &pool)?;
 
     if !body.flags.is_object() {
-        return errors::bad_request("flags must be a JSON object");
+        return Ok(errors::bad_request("flags must be a JSON object"));
     }
 
     let actor_uuid = req
@@ -144,11 +138,11 @@ pub async fn put_workspace_flags(
     match replaced {
         Ok(flags) => {
             info!(actor = ?actor_uuid, "workspace feature flags replaced");
-            HttpResponse::Ok().json(flags)
+            Ok(HttpResponse::Ok().json(flags))
         }
         Err(e) => {
             error!(error = %e, "failed to replace workspace feature flags");
-            errors::internal("Failed to update feature flags")
+            Ok(errors::internal("Failed to update feature flags"))
         }
     }
 }
@@ -159,7 +153,7 @@ pub async fn patch_user_override(
     path: web::Path<String>,
     body: web::Json<PatchFlagBody>,
     req: HttpRequest,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let target_uuid_str = path.into_inner();
 
     // `admin_conn` proves the caller is an admin, but says nothing about WHOSE
@@ -168,14 +162,11 @@ pub async fn patch_user_override(
     // another. `admin_user_conn` is the established gate for "an admin acting on
     // a target user": it adds the membership check, resolves the target, and is
     // the same helper the MFA and passkey recovery routes already use.
-    let (claims, target, mut conn) = match helpers::admin_user_conn(&req, &pool, &target_uuid_str) {
-        Ok(v) => v,
-        Err(e) => return e.error_response(),
-    };
+    let (claims, target, mut conn) = helpers::admin_user_conn(&req, &pool, &target_uuid_str)?;
     let target_uuid = target.uuid;
 
     if body.flag.trim().is_empty() {
-        return errors::bad_request("Flag name is required");
+        return Ok(errors::bad_request("Flag name is required"));
     }
 
     let actor_uuid = Uuid::parse_str(&claims.sub).ok();
@@ -189,12 +180,14 @@ pub async fn patch_user_override(
                 cleared = body.value.is_none(),
                 "user feature flag override updated"
             );
-            HttpResponse::Ok().json(overrides)
+            Ok(HttpResponse::Ok().json(overrides))
         }
-        Err(diesel::result::Error::NotFound) => errors::not_found_msg("User not found"),
+        Err(diesel::result::Error::NotFound) => Ok(errors::not_found_msg("User not found")),
         Err(e) => {
             error!(error = %e, target = %target_uuid, "failed to set user feature flag override");
-            errors::internal("Failed to update user feature flag override")
+            Ok(errors::internal(
+                "Failed to update user feature flag override",
+            ))
         }
     }
 }

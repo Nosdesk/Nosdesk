@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpRequest, HttpResponse};
 use chrono::Utc;
 use serde_json::json;
 use std::sync::Arc;
@@ -22,11 +22,8 @@ use crate::utils::reset_tokens::TokenType;
 pub async fn validate_invitation(
     db_pool: web::Data<crate::db::Pool>,
     request_data: web::Json<ValidateInvitationRequest>,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     // Hash the token to look it up
     let token_hash = crate::utils::reset_tokens::ResetTokenUtils::hash_token(&request_data.token);
@@ -35,61 +32,61 @@ pub async fn validate_invitation(
     let token = match repository::reset_tokens::find_token_by_hash(&mut conn, &token_hash) {
         Ok(token) => token,
         Err(_) => {
-            return HttpResponse::Ok().json(ValidateInvitationResponse {
+            return Ok(HttpResponse::Ok().json(ValidateInvitationResponse {
                 valid: false,
                 user_email: None,
                 user_name: None,
                 message: Some("Invalid or expired invitation link".to_string()),
                 context: None,
-            });
+            }));
         }
     };
 
     // Check token type
     if token.token_type != TokenType::Invitation.as_str() {
-        return HttpResponse::Ok().json(ValidateInvitationResponse {
+        return Ok(HttpResponse::Ok().json(ValidateInvitationResponse {
             valid: false,
             user_email: None,
             user_name: None,
             message: Some("Invalid invitation link".to_string()),
             context: None,
-        });
+        }));
     }
 
     // Check if already used
     if token.is_used {
-        return HttpResponse::Ok().json(ValidateInvitationResponse {
+        return Ok(HttpResponse::Ok().json(ValidateInvitationResponse {
             valid: false,
             user_email: None,
             user_name: None,
             message: Some("This invitation has already been used".to_string()),
             context: None,
-        });
+        }));
     }
 
     // Check if expired
     let expires_at_utc = chrono::DateTime::<Utc>::from_naive_utc_and_offset(token.expires_at, Utc);
     if crate::utils::reset_tokens::ResetTokenUtils::is_token_expired(expires_at_utc) {
-        return HttpResponse::Ok().json(ValidateInvitationResponse {
+        return Ok(HttpResponse::Ok().json(ValidateInvitationResponse {
             valid: false,
             user_email: None,
             user_name: None,
             message: Some("This invitation has expired".to_string()),
             context: None,
-        });
+        }));
     }
 
     // Get user information
     let user = match repository::get_user_by_uuid(&token.user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => {
-            return HttpResponse::Ok().json(ValidateInvitationResponse {
+            return Ok(HttpResponse::Ok().json(ValidateInvitationResponse {
                 valid: false,
                 user_email: None,
                 user_name: None,
                 message: Some("User not found".to_string()),
                 context: None,
-            });
+            }));
         }
     };
 
@@ -110,13 +107,13 @@ pub async fn validate_invitation(
         })
         .or_else(|| Some("invitation".to_string()));
 
-    HttpResponse::Ok().json(ValidateInvitationResponse {
+    Ok(HttpResponse::Ok().json(ValidateInvitationResponse {
         valid: true,
         user_email,
         user_name: Some(user.name),
         message: None,
         context,
-    })
+    }))
 }
 
 /// Accept an invitation and set the user's password
@@ -125,24 +122,27 @@ pub async fn accept_invitation(
     search_service: web::Data<Arc<SearchService>>,
     request_data: web::Json<AcceptInvitationRequest>,
     http_request: HttpRequest,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     // Password-based invitation acceptance writes a local credential, which
     // hosted deployments disable in favour of SSO onboarding. Refuse before
     // consuming the token so it stays valid for the SSO path.
     if crate::handlers::auth::hosted_local_auth_disabled() {
-        return errors::bad_request("Password-based sign-up is not available for this deployment");
+        return Ok(errors::bad_request(
+            "Password-based sign-up is not available for this deployment",
+        ));
     }
 
     // Validate password
     if request_data.password.len() < 8 {
-        return errors::bad_request("Password must be at least 8 characters long");
+        return Ok(errors::bad_request(
+            "Password must be at least 8 characters long",
+        ));
     } else if request_data.password.len() > 128 {
-        return errors::bad_request("Password must be less than 128 characters");
+        return Ok(errors::bad_request(
+            "Password must be less than 128 characters",
+        ));
     }
 
     // Validate and consume the invitation token
@@ -154,10 +154,10 @@ pub async fn accept_invitation(
         Ok(uuid) => uuid,
         Err(e) => {
             warn!("Invalid invitation token: {}", e);
-            return HttpResponse::BadRequest().json(json!({
+            return Ok(HttpResponse::BadRequest().json(json!({
                 "status": "error",
                 "message": e
-            }));
+            })));
         }
     };
 
@@ -169,7 +169,7 @@ pub async fn accept_invitation(
                 "User not found for invitation acceptance: user_uuid={}, error={}",
                 user_uuid, e
             );
-            return errors::bad_request("Invalid or expired invitation");
+            return Ok(errors::bad_request("Invalid or expired invitation"));
         }
     };
 
@@ -178,7 +178,7 @@ pub async fn accept_invitation(
         Ok(hash) => hash,
         Err(e) => {
             error!("Failed to hash password: {}", e);
-            return errors::internal("Error processing password");
+            return Ok(errors::internal("Error processing password"));
         }
     };
 
@@ -200,7 +200,7 @@ pub async fn accept_invitation(
     // not applicable there (staff are control-plane seats, requesters use the
     // portal). Fail cleanly rather than 500 inside the credential writes below.
     if !crate::middleware::workspace_context::local_credentials_permitted() {
-        return errors::local_auth_disabled();
+        return Ok(errors::local_auth_disabled());
     }
 
     if existing_identity.is_some() {
@@ -211,7 +211,7 @@ pub async fn accept_invitation(
             &password_hash,
         ) {
             error!("Failed to update password hash for invitation: {:?}", e);
-            return errors::internal("Error setting password");
+            return Ok(errors::internal("Error setting password"));
         }
     } else {
         // Create new local auth identity
@@ -232,7 +232,7 @@ pub async fn accept_invitation(
             repository::user_auth_identities::create_local_identity(auth_identity, &mut conn)
         {
             error!("Failed to create auth identity for invitation: {:?}", e);
-            return errors::internal("Error setting password");
+            return Ok(errors::internal("Error setting password"));
         }
     }
 
@@ -255,7 +255,7 @@ pub async fn accept_invitation(
                     error = ?e,
                     "Failed to resolve primary workspace for invitation accept"
                 );
-                return errors::internal("Failed to complete invitation");
+                return Ok(errors::internal("Failed to complete invitation"));
             }
         };
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
@@ -328,12 +328,12 @@ pub async fn accept_invitation(
         user.name, user.uuid
     );
 
-    HttpResponse::Ok().json(AcceptInvitationResponse {
+    Ok(HttpResponse::Ok().json(AcceptInvitationResponse {
         success: true,
         message:
             "Your account has been activated. You can now log in with your email and password."
                 .to_string(),
-    })
+    }))
 }
 
 /// Helper function to log invitation acceptance security event

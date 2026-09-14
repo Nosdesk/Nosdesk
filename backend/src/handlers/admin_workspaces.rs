@@ -14,7 +14,7 @@
 //! UPDATE / DELETE; tenant RLS is meaningless for workspaces lifecycle
 //! anyway because `workspaces` itself doesn't carry a workspace_id.
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
@@ -145,18 +145,16 @@ pub async fn list_workspaces(
     req: HttpRequest,
     mut pc: PlatformConn,
     query: web::Query<ListWorkspacesQuery>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     match pc.run(|conn| workspaces::list_workspaces(conn, query.include_archived)) {
         Ok(rows) => {
             let body: Vec<WorkspaceSummary> = rows.into_iter().map(Into::into).collect();
-            HttpResponse::Ok().json(body)
+            Ok(HttpResponse::Ok().json(body))
         }
         Err(e) => {
             error!(error = ?e, "admin/workspaces list failed");
-            errors::internal("Failed to list workspaces")
+            Ok(errors::internal("Failed to list workspaces"))
         }
     }
 }
@@ -176,10 +174,8 @@ pub async fn get_edition(
     push_sender: Option<
         web::Data<std::sync::Arc<dyn crate::services::notifications::channels::push::PushSender>>,
     >,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let edition = crate::license::current();
     let self_hosted = crate::middleware::DeploymentMode::current()
         == crate::middleware::DeploymentMode::SelfHosted;
@@ -188,7 +184,7 @@ pub async fn get_edition(
     // Gated on the edition's workspace cap, not the deployment mode (see
     // license::workspace_creation_allowed).
     let can_create = crate::license::workspace_creation_allowed(edition, active as u64);
-    HttpResponse::Ok().json(serde_json::json!({
+    Ok(HttpResponse::Ok().json(serde_json::json!({
         "edition": edition.name(),
         "self_hosted": self_hosted,
         "max_workspaces": max,
@@ -206,7 +202,7 @@ pub async fn get_edition(
             "expires_at": l.expires_at,
             "features": l.features,
         })),
-    }))
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -219,24 +215,22 @@ pub async fn create_workspace(
     req: HttpRequest,
     pool: web::Data<Pool>,
     body: web::Json<CreateWorkspaceRequest>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let CreateWorkspaceRequest { slug, name } = body.into_inner();
 
     if let Err(e) = validate_slug(&slug) {
-        return errors::bad_request(e.as_message());
+        return Ok(errors::bad_request(e.as_message()));
     }
     if name.trim().is_empty() {
-        return errors::bad_request("name must not be empty");
+        return Ok(errors::bad_request("name must not be empty"));
     }
 
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, "admin/workspaces pool checkout failed");
-            return errors::internal("Failed to create workspace");
+            return Ok(errors::internal("Failed to create workspace"));
         }
     };
 
@@ -253,7 +247,7 @@ pub async fn create_workspace(
         Ok(n) => n,
         Err(e) => {
             error!(error = ?e, "admin/workspaces license-gate count failed");
-            return errors::internal("Failed to create workspace");
+            return Ok(errors::internal("Failed to create workspace"));
         }
     };
     if !crate::license::workspace_creation_allowed(edition, active as u64) {
@@ -271,13 +265,13 @@ pub async fn create_workspace(
                  An Enterprise license is required to create more."
             )
         };
-        return HttpResponse::PaymentRequired().json(serde_json::json!({
+        return Ok(HttpResponse::PaymentRequired().json(serde_json::json!({
             "error": "license_required",
             "message": message,
             "edition": edition.name(),
             "max_workspaces": max,
             "active_workspaces": active,
-        }));
+        })));
     }
 
     let record = NewWorkspace {
@@ -312,18 +306,18 @@ pub async fn create_workspace(
     match result {
         Ok(ws) => {
             info!(workspace_uuid = %ws.uuid, workspace_id = ws.id, slug = %ws.slug, "admin/workspaces created + seeded");
-            HttpResponse::Created().json(WorkspaceSummary::from(ws))
+            Ok(HttpResponse::Created().json(WorkspaceSummary::from(ws)))
         }
         Err(CreateWorkspaceError::SlugTaken) => {
             warn!(slug = %slug, "admin/workspaces slug collision");
-            HttpResponse::Conflict().json(serde_json::json!({
+            Ok(HttpResponse::Conflict().json(serde_json::json!({
                 "error": "slug_taken",
                 "message": format!("slug '{slug}' is unavailable, please choose another"),
-            }))
+            })))
         }
         Err(CreateWorkspaceError::Db(e)) => {
             error!(error = ?e, slug = %slug, "admin/workspaces create failed");
-            errors::internal("Failed to create workspace")
+            Ok(errors::internal("Failed to create workspace"))
         }
     }
 }
@@ -338,25 +332,25 @@ pub async fn rename_workspace(
     mut pc: PlatformConn,
     path: web::Path<i32>,
     body: web::Json<RenameWorkspaceRequest>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let id = path.into_inner();
     let name = body.into_inner().name;
     if name.trim().is_empty() {
-        return errors::bad_request("name must not be empty");
+        return Ok(errors::bad_request("name must not be empty"));
     }
 
     match pc.run(|conn| workspaces::rename_workspace(conn, id, &name)) {
         Ok(Some(ws)) => {
             info!(workspace_id = ws.id, name = %name, "admin/workspaces renamed");
-            HttpResponse::Ok().json(WorkspaceSummary::from(ws))
+            Ok(HttpResponse::Ok().json(WorkspaceSummary::from(ws)))
         }
-        Ok(None) => errors::not_found_msg(format!("workspace id={id} not found")),
+        Ok(None) => Ok(errors::not_found_msg(format!(
+            "workspace id={id} not found"
+        ))),
         Err(e) => {
             error!(error = ?e, workspace_id = id, "admin/workspaces rename failed");
-            errors::internal("Failed to rename workspace")
+            Ok(errors::internal("Failed to rename workspace"))
         }
     }
 }
@@ -365,20 +359,20 @@ pub async fn archive_workspace(
     req: HttpRequest,
     mut pc: PlatformConn,
     path: web::Path<i32>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let id = path.into_inner();
     match pc.run(|conn| workspaces::archive_workspace(conn, id)) {
         Ok(Some(ws)) => {
             info!(workspace_id = ws.id, slug = %ws.slug, "admin/workspaces archived");
-            HttpResponse::Ok().json(WorkspaceSummary::from(ws))
+            Ok(HttpResponse::Ok().json(WorkspaceSummary::from(ws)))
         }
-        Ok(None) => errors::not_found_msg(format!("workspace id={id} not found")),
+        Ok(None) => Ok(errors::not_found_msg(format!(
+            "workspace id={id} not found"
+        ))),
         Err(e) => {
             error!(error = ?e, workspace_id = id, "admin/workspaces archive failed");
-            errors::internal("Failed to archive workspace")
+            Ok(errors::internal("Failed to archive workspace"))
         }
     }
 }
@@ -387,20 +381,20 @@ pub async fn restore_workspace(
     req: HttpRequest,
     mut pc: PlatformConn,
     path: web::Path<i32>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let id = path.into_inner();
     match pc.run(|conn| workspaces::restore_workspace(conn, id)) {
         Ok(Some(ws)) => {
             info!(workspace_id = ws.id, slug = %ws.slug, "admin/workspaces restored");
-            HttpResponse::Ok().json(WorkspaceSummary::from(ws))
+            Ok(HttpResponse::Ok().json(WorkspaceSummary::from(ws)))
         }
-        Ok(None) => errors::not_found_msg(format!("workspace id={id} not found")),
+        Ok(None) => Ok(errors::not_found_msg(format!(
+            "workspace id={id} not found"
+        ))),
         Err(e) => {
             error!(error = ?e, workspace_id = id, "admin/workspaces restore failed");
-            errors::internal("Failed to restore workspace")
+            Ok(errors::internal("Failed to restore workspace"))
         }
     }
 }
@@ -419,10 +413,8 @@ pub async fn hard_delete_workspace(
     mut pc: PlatformConn,
     path: web::Path<i32>,
     query: web::Query<HardDeleteQuery>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let id = path.into_inner();
     let confirm = query.into_inner().confirm;
 
@@ -435,24 +427,28 @@ pub async fn hard_delete_workspace(
     let ws = match lookup {
         Ok(rows) => match rows.into_iter().find(|w| w.id == id) {
             Some(w) => w,
-            None => return errors::not_found_msg(format!("workspace id={id} not found")),
+            None => {
+                return Ok(errors::not_found_msg(format!(
+                    "workspace id={id} not found"
+                )))
+            }
         },
         Err(e) => {
             error!(error = ?e, workspace_id = id, "admin/workspaces hard_delete lookup failed");
-            return errors::internal("Workspace lookup failed");
+            return Ok(errors::internal("Workspace lookup failed"));
         }
     };
 
     if confirm != ws.slug {
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "confirm query parameter must match the workspace's slug exactly",
-        );
+        ));
     }
     if ws.archived_at.is_none() {
-        return HttpResponse::Conflict().json(serde_json::json!({
+        return Ok(HttpResponse::Conflict().json(serde_json::json!({
             "error": "not_archived",
             "message": "workspace must be archived before hard delete; call POST /archive first",
-        }));
+        })));
     }
 
     // Cutoff is NOW: hard_delete_workspace's WHERE clause enforces
@@ -462,17 +458,17 @@ pub async fn hard_delete_workspace(
     // erasure requests).
     let cutoff = chrono::Utc::now();
     match pc.run(|conn| workspaces::hard_delete_workspace(conn, id, cutoff)) {
-        Ok(0) => HttpResponse::Conflict().json(serde_json::json!({
+        Ok(0) => Ok(HttpResponse::Conflict().json(serde_json::json!({
             "error": "not_eligible",
             "message": "workspace state changed during request; refresh and retry",
-        })),
+        }))),
         Ok(_) => {
             info!(workspace_id = id, slug = %ws.slug, "admin/workspaces hard-deleted");
-            HttpResponse::NoContent().finish()
+            Ok(HttpResponse::NoContent().finish())
         }
         Err(e) => {
             error!(error = ?e, workspace_id = id, "admin/workspaces hard_delete failed");
-            errors::internal("Failed to hard-delete workspace")
+            Ok(errors::internal("Failed to hard-delete workspace"))
         }
     }
 }
@@ -511,19 +507,17 @@ pub async fn list_members(
     req: HttpRequest,
     mut pc: PlatformConn,
     path: web::Path<i32>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let workspace_id = path.into_inner();
     match pc.run(|conn| workspaces::list_workspace_members(conn, workspace_id)) {
         Ok(rows) => {
             let body: Vec<MemberSummary> = rows.into_iter().map(Into::into).collect();
-            HttpResponse::Ok().json(body)
+            Ok(HttpResponse::Ok().json(body))
         }
         Err(e) => {
             error!(error = ?e, workspace_id, "admin/workspaces members list failed");
-            errors::internal("Failed to list members")
+            Ok(errors::internal("Failed to list members"))
         }
     }
 }
@@ -552,17 +546,17 @@ pub async fn add_member(
     // Best-effort search reindex: optional so the membership op doesn't
     // hard-depend on the search subsystem (and test apps need not wire it).
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let workspace_id = path.into_inner();
     let AddMemberRequest { user_uuid, role } = body.into_inner();
 
     let parsed_role = match validate_workspace_role(&role) {
         Some(r) => r,
         None => {
-            return errors::bad_request("role must be one of: owner, admin, agent, member");
+            return Ok(errors::bad_request(
+                "role must be one of: owner, admin, agent, member",
+            ));
         }
     };
 
@@ -582,11 +576,11 @@ pub async fn add_member(
     match user_exists {
         Ok(true) => {}
         Ok(false) => {
-            return errors::not_found_msg(format!("user {user_uuid} not found"));
+            return Ok(errors::not_found_msg(format!("user {user_uuid} not found")));
         }
         Err(e) => {
             error!(error = ?e, %user_uuid, "admin/workspaces add_member user lookup failed");
-            return errors::internal("User lookup failed");
+            return Ok(errors::internal("User lookup failed"));
         }
     }
 
@@ -595,10 +589,14 @@ pub async fn add_member(
     let ws_lookup = pc.run(|conn| workspaces::find_by_id(conn, workspace_id));
     match ws_lookup {
         Ok(Some(_)) => {}
-        Ok(None) => return errors::not_found_msg(format!("workspace id={workspace_id} not found")),
+        Ok(None) => {
+            return Ok(errors::not_found_msg(format!(
+                "workspace id={workspace_id} not found"
+            )))
+        }
         Err(e) => {
             error!(error = ?e, workspace_id, "admin/workspaces add_member workspace lookup failed");
-            return errors::internal("Workspace lookup failed");
+            return Ok(errors::internal("Workspace lookup failed"));
         }
     }
 
@@ -611,7 +609,7 @@ pub async fn add_member(
             workspaces::SeatWriteAuthority::Product,
         )
     }) {
-        Ok(workspaces::AddMembershipOutcome::ExternallyManaged) => errors::externally_managed(),
+        Ok(workspaces::AddMembershipOutcome::ExternallyManaged) => Ok(errors::externally_managed()),
         Ok(workspaces::AddMembershipOutcome::Added(n)) if n > 0 => {
             info!(workspace_id, %user_uuid, role = %parsed_role.as_str(), "admin/workspaces member added");
             // The user's search doc carries one workspace tag per
@@ -620,26 +618,26 @@ pub async fn add_member(
             if let Some(search_service) = &search_service {
                 indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user_uuid);
             }
-            HttpResponse::Created().json(serde_json::json!({
+            Ok(HttpResponse::Created().json(serde_json::json!({
                 "workspace_id": workspace_id,
                 "user_uuid": user_uuid,
                 "role": parsed_role.as_str(),
-            }))
+            })))
         }
         Ok(_) => {
             // ON CONFLICT DO NOTHING fired — the membership row
             // already existed. Idempotent: return 200 with the
             // current state instead of 409 (consistent with how
             // every other "add to a set" admin op behaves here).
-            HttpResponse::Ok().json(serde_json::json!({
+            Ok(HttpResponse::Ok().json(serde_json::json!({
                 "workspace_id": workspace_id,
                 "user_uuid": user_uuid,
                 "status": "already_member",
-            }))
+            })))
         }
         Err(e) => {
             error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces add_member failed");
-            errors::internal("Failed to add member")
+            Ok(errors::internal("Failed to add member"))
         }
     }
 }
@@ -654,17 +652,17 @@ pub async fn update_member_role(
     mut pc: PlatformConn,
     path: web::Path<(i32, Uuid)>,
     body: web::Json<UpdateMemberRoleRequest>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let (workspace_id, user_uuid) = path.into_inner();
     let new_role = body.into_inner().role;
 
     let parsed_role = match validate_workspace_role(&new_role) {
         Some(r) => r,
         None => {
-            return errors::bad_request("role must be one of: owner, admin, agent, member");
+            return Ok(errors::bad_request(
+                "role must be one of: owner, admin, agent, member",
+            ));
         }
     };
 
@@ -681,21 +679,21 @@ pub async fn update_member_role(
     }) {
         Ok(UpdateMembershipRoleResult::Updated(m)) => {
             info!(workspace_id, %user_uuid, role = %parsed_role.as_str(), "admin/workspaces member role updated");
-            HttpResponse::Ok().json(MemberSummary::from(m))
+            Ok(HttpResponse::Ok().json(MemberSummary::from(m)))
         }
-        Ok(UpdateMembershipRoleResult::NotFound) => errors::not_found_msg(format!(
+        Ok(UpdateMembershipRoleResult::NotFound) => Ok(errors::not_found_msg(format!(
             "no membership row for user {user_uuid} in workspace {workspace_id}"
-        )),
+        ))),
         Ok(UpdateMembershipRoleResult::LastOwner) => {
-            HttpResponse::Conflict().json(serde_json::json!({
+            Ok(HttpResponse::Conflict().json(serde_json::json!({
                 "error": "last_owner",
                 "message": "cannot demote the only owner; promote another member first",
-            }))
+            })))
         }
-        Ok(UpdateMembershipRoleResult::ExternallyManaged) => errors::externally_managed(),
+        Ok(UpdateMembershipRoleResult::ExternallyManaged) => Ok(errors::externally_managed()),
         Err(e) => {
             error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces update_member_role failed");
-            errors::internal("Failed to update member role")
+            Ok(errors::internal("Failed to update member role"))
         }
     }
 }
@@ -706,10 +704,8 @@ pub async fn remove_member(
     path: web::Path<(i32, Uuid)>,
     // Best-effort search reindex (see add_member).
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let (workspace_id, user_uuid) = path.into_inner();
 
     // Product authority: the repo refuses removing a control-plane-owned staff
@@ -729,37 +725,39 @@ pub async fn remove_member(
             if let Some(search_service) = &search_service {
                 indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user_uuid);
             }
-            HttpResponse::NoContent().finish()
+            Ok(HttpResponse::NoContent().finish())
         }
-        Ok(workspaces::RemoveMembershipOutcome::ExternallyManaged) => errors::externally_managed(),
+        Ok(workspaces::RemoveMembershipOutcome::ExternallyManaged) => {
+            Ok(errors::externally_managed())
+        }
         Ok(workspaces::RemoveMembershipOutcome::NotRemoved) => {
             // The user wasn't a member OR removal would have orphaned the last
             // owner. Probe to distinguish so the response matches reality.
             let probe = pc.run(|conn| workspaces::membership(conn, workspace_id, user_uuid));
             match probe {
                 Ok(Some(row)) if row.role == "owner" => {
-                    HttpResponse::Conflict().json(serde_json::json!({
+                    Ok(HttpResponse::Conflict().json(serde_json::json!({
                         "error": "last_owner",
                         "message": "cannot remove the only owner; promote another member first",
-                    }))
+                    })))
                 }
-                Ok(None) => errors::not_found_msg(format!(
+                Ok(None) => Ok(errors::not_found_msg(format!(
                     "no membership row for user {user_uuid} in workspace {workspace_id}"
-                )),
+                ))),
                 Ok(Some(_)) => {
                     // Shouldn't happen — non-owner rows can always be removed.
                     error!(workspace_id, %user_uuid, "admin/workspaces remove_member NotRemoved but row exists and isn't owner");
-                    errors::internal("Inconsistent membership state")
+                    Ok(errors::internal("Inconsistent membership state"))
                 }
                 Err(e) => {
                     error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces remove_member probe failed");
-                    errors::internal("Failed to remove member")
+                    Ok(errors::internal("Failed to remove member"))
                 }
             }
         }
         Err(e) => {
             error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces remove_member failed");
-            errors::internal("Failed to remove member")
+            Ok(errors::internal("Failed to remove member"))
         }
     }
 }
@@ -784,15 +782,17 @@ struct MyWorkspaceEntry {
     logo_url: Option<String>,
 }
 
-pub async fn list_my_workspaces(req: HttpRequest, mut pc: PlatformConn) -> impl Responder {
-    let claims = match rbac::require_auth(&req) {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+pub async fn list_my_workspaces(
+    req: HttpRequest,
+    mut pc: PlatformConn,
+) -> actix_web::Result<HttpResponse> {
+    let claims = rbac::require_auth(&req)?;
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
         Err(_) => {
-            return errors::bad_request("token subject is not a valid user identifier");
+            return Ok(errors::bad_request(
+                "token subject is not a valid user identifier",
+            ));
         }
     };
 
@@ -804,7 +804,7 @@ pub async fn list_my_workspaces(req: HttpRequest, mut pc: PlatformConn) -> impl 
         Ok(rows) => rows,
         Err(e) => {
             error!(error = ?e, %user_uuid, "me/workspaces list failed");
-            return errors::internal("Failed to load memberships");
+            return Ok(errors::internal("Failed to load memberships"));
         }
     };
 
@@ -836,5 +836,5 @@ pub async fn list_my_workspaces(req: HttpRequest, mut pc: PlatformConn) -> impl 
         })
         .collect();
 
-    HttpResponse::Ok().json(body)
+    Ok(HttpResponse::Ok().json(body))
 }

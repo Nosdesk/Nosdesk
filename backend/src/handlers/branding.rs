@@ -1,5 +1,5 @@
 use actix_multipart::Multipart;
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
 use serde_json::json;
@@ -105,11 +105,11 @@ pub struct UpdateBrandingRequest {
 }
 
 // GET /api/admin/branding/config - Get branding settings (public for initial load)
-pub async fn get_branding_config(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+pub async fn get_branding_config(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
 
     // site_settings is RLS-isolated by workspace; scope the read to the
     // request's workspace (resolved from the Host on every route, public
@@ -121,12 +121,12 @@ pub async fn get_branding_config(req: HttpRequest, pool: web::Data<Pool>) -> imp
     match loaded {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
         Err(e) => {
             warn!(error = ?e, "Error fetching site settings, returning defaults");
             // Return defaults if no settings exist
-            HttpResponse::Ok().json(json!({
+            Ok(HttpResponse::Ok().json(json!({
                 "app_name": "Nosdesk",
                 "logo_url": null,
                 "logo_light_url": null,
@@ -138,7 +138,7 @@ pub async fn get_branding_config(req: HttpRequest, pool: web::Data<Pool>) -> imp
                 "channel_auto_ack_template": null,
                 "email_security_note_enabled": false,
                 "email_security_note_template": null
-            }))
+            })))
         }
     }
 }
@@ -153,32 +153,30 @@ pub async fn update_branding_config(
     mut tc: TenantConn,
     req: HttpRequest,
     body: web::Json<UpdateBrandingRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Branding is workspace-wide configuration: only an admin may change it.
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     // Get authenticated user from request
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return errors::unauthorized("Authentication required");
+            return Ok(errors::unauthorized("Authentication required"));
         }
     };
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return errors::bad_request("Invalid user UUID");
+            return Ok(errors::bad_request("Invalid user UUID"));
         }
     };
 
     // Validate primary_color if provided (must be valid hex color)
     if let Some(ref color) = body.primary_color {
         if !is_valid_hex_color(color) {
-            return errors::bad_request(
+            return Ok(errors::bad_request(
                 "Invalid color format. Must be a valid hex color (e.g., #2C80FF)",
-            );
+            ));
         }
     }
 
@@ -192,11 +190,11 @@ pub async fn update_branding_config(
                 crate::utils::template_variables::SIGNATURE_VARIABLES,
             );
             if !unknown.is_empty() {
-                return errors::bad_request(format!(
+                return Ok(errors::bad_request(format!(
                     "Unknown signature variables: {}. Supported: {}.",
                     unknown.join(", "),
                     crate::utils::template_variables::SIGNATURE_VARIABLES.join(", ")
-                ));
+                )));
             }
         }
     }
@@ -212,11 +210,11 @@ pub async fn update_branding_config(
                 crate::utils::template_variables::AUTO_ACK_VARIABLES,
             );
             if !unknown.is_empty() {
-                return errors::bad_request(format!(
+                return Ok(errors::bad_request(format!(
                     "Unknown auto-ack variables: {}. Supported: {}.",
                     unknown.join(", "),
                     crate::utils::template_variables::AUTO_ACK_VARIABLES.join(", ")
-                ));
+                )));
             }
         }
     }
@@ -230,11 +228,11 @@ pub async fn update_branding_config(
                 crate::utils::template_variables::SECURITY_NOTE_VARIABLES,
             );
             if !unknown.is_empty() {
-                return errors::bad_request(format!(
+                return Ok(errors::bad_request(format!(
                     "Unknown security-note variables: {}. Supported: {}.",
                     unknown.join(", "),
                     crate::utils::template_variables::SECURITY_NOTE_VARIABLES.join(", ")
-                ));
+                )));
             }
         }
     }
@@ -282,11 +280,11 @@ pub async fn update_branding_config(
     match tc.run(|conn| site_settings::update_site_settings(conn, update)) {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
         Err(e) => {
             error!(error = ?e, "Error updating site settings");
-            errors::internal("Failed to update branding settings")
+            Ok(errors::internal("Failed to update branding settings"))
         }
     }
 }
@@ -299,31 +297,29 @@ pub async fn upload_branding_image(
     ws: WorkspaceContext,
     storage: ScopedStorage,
     type_query: web::Query<BrandingImageTypeQuery>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let image_type = &type_query.type_;
 
     // Validate image type
     if !["logo", "logo_light", "favicon"].contains(&image_type.as_str()) {
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "Invalid image type. Must be 'logo', 'logo_light', or 'favicon'",
-        );
+        ));
     }
 
     // Get authenticated user from request
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return errors::unauthorized("Authentication required");
+            return Ok(errors::unauthorized("Authentication required"));
         }
     };
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return errors::bad_request("Invalid user UUID");
+            return Ok(errors::bad_request("Invalid user UUID"));
         }
     };
 
@@ -357,10 +353,10 @@ pub async fn upload_branding_image(
             } else {
                 "PNG, JPEG, or WebP"
             };
-            return errors::bad_request(format!(
+            return Ok(errors::bad_request(format!(
                 "Invalid file type for {}. Allowed: {}",
                 image_type, allowed
-            ));
+            )));
         }
 
         // Determine file extension
@@ -380,7 +376,7 @@ pub async fn upload_branding_image(
                 Ok(data) => data,
                 Err(e) => {
                     error!(error = ?e, "Error reading chunk");
-                    return errors::internal("Error reading uploaded file");
+                    return Ok(errors::internal("Error reading uploaded file"));
                 }
             };
             file_data.extend_from_slice(&data);
@@ -388,7 +384,7 @@ pub async fn upload_branding_image(
 
         // Check file size (max 2MB for branding images)
         if file_data.len() > 2 * 1024 * 1024 {
-            return errors::bad_request("File too large. Maximum size is 2MB");
+            return Ok(errors::bad_request("File too large. Maximum size is 2MB"));
         }
 
         // What this type pointed at before, so a format change can have its
@@ -425,7 +421,7 @@ pub async fn upload_branding_image(
             .await
         {
             error!(error = ?e, logical_path = %logical_path, "Error writing branding image");
-            return errors::internal("Failed to save file");
+            return Ok(errors::internal("Failed to save file"));
         }
 
         info!(logical_path = %logical_path, workspace_id = %ws.workspace_id, "Saved branding image");
@@ -457,20 +453,20 @@ pub async fn upload_branding_image(
                     }
                 }
                 let response: SiteSettingsResponse = settings.into();
-                return HttpResponse::Ok().json(json!({
+                return Ok(HttpResponse::Ok().json(json!({
                     "status": "success",
                     "url": url,
                     "settings": response
-                }));
+                })));
             }
             Err(e) => {
                 error!(error = ?e, image_type = %image_type, "Error updating site settings");
-                return errors::internal("Failed to update branding settings");
+                return Ok(errors::internal("Failed to update branding settings"));
             }
         }
     }
 
-    errors::bad_request("No file uploaded")
+    Ok(errors::bad_request("No file uploaded"))
 }
 
 // DELETE /api/admin/branding/image - Remove branding image
@@ -480,30 +476,28 @@ pub async fn delete_branding_image(
     ws: WorkspaceContext,
     storage: ScopedStorage,
     type_query: web::Query<BrandingImageTypeQuery>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let image_type = &type_query.type_;
 
     if !["logo", "logo_light", "favicon"].contains(&image_type.as_str()) {
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "Invalid image type. Must be 'logo', 'logo_light', or 'favicon'",
-        );
+        ));
     }
 
     // Get authenticated user
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return errors::unauthorized("Authentication required");
+            return Ok(errors::unauthorized("Authentication required"));
         }
     };
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return errors::bad_request("Invalid user UUID");
+            return Ok(errors::bad_request("Invalid user UUID"));
         }
     };
 
@@ -512,7 +506,7 @@ pub async fn delete_branding_image(
         Ok(settings) => settings,
         Err(e) => {
             error!(error = ?e, "Error fetching current settings");
-            return errors::internal("Failed to fetch current settings");
+            return Ok(errors::internal("Failed to fetch current settings"));
         }
     };
 
@@ -549,14 +543,14 @@ pub async fn delete_branding_image(
     match result {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
-            HttpResponse::Ok().json(json!({
+            Ok(HttpResponse::Ok().json(json!({
                 "status": "success",
                 "settings": response
-            }))
+            })))
         }
         Err(e) => {
             error!(error = ?e, image_type = %image_type, "Error updating site settings");
-            errors::internal("Failed to update branding settings")
+            Ok(errors::internal("Failed to update branding settings"))
         }
     }
 }
@@ -613,17 +607,14 @@ pub async fn serve_workspace_branding_file(
     req: HttpRequest,
     base_storage: web::Data<Arc<dyn Storage>>,
     pool: web::Data<Pool>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let (workspace_uuid, filename) = path.into_inner();
 
     if !is_allowed_branding_filename(&filename) {
-        return HttpResponse::NotFound().finish();
+        return Ok(HttpResponse::NotFound().finish());
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
     // `workspaces` is the resolution table and reads without a pinned GUC. An
     // unknown uuid is a plain 404: this is a public image route, so there is
     // nothing to distinguish from a missing file.
@@ -632,10 +623,10 @@ pub async fn serve_workspace_branding_file(
         workspace_uuid,
     ) {
         Ok(Some(ctx)) => ctx,
-        Ok(None) => return HttpResponse::NotFound().finish(),
+        Ok(None) => return Ok(HttpResponse::NotFound().finish()),
         Err(e) => {
             error!(error = ?e, %workspace_uuid, "Branding workspace resolution failed");
-            return HttpResponse::NotFound().finish();
+            return Ok(HttpResponse::NotFound().finish());
         }
     };
 
@@ -643,8 +634,8 @@ pub async fn serve_workspace_branding_file(
         WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace.workspace_id);
     let logical_path = format!("{BRANDING_DIR}/{filename}");
     match serve_or_not_found(storage, &logical_path, &req).await {
-        Ok(response) => response,
-        Err(_) => HttpResponse::NotFound().finish(),
+        Ok(response) => Ok(response),
+        Err(_) => Ok(HttpResponse::NotFound().finish()),
     }
 }
 
