@@ -79,7 +79,7 @@ export interface SyncTicket {
   closed_at?: string | null
 }
 
-function apiTicketToSync(ticket: Ticket): SyncTicket {
+export function apiTicketToSync(ticket: Ticket): SyncTicket {
   const ws = ticket.workflow_state
   const cardWs: CardWorkflowState | null = ws
     ? { id: ws.id, name: ws.name, category: ws.category, color: ws.color }

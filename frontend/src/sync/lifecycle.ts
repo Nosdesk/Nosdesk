@@ -745,6 +745,15 @@ function applyActions(actions: SyncAction[]): void {
     // notifySyncActions for consumers that care.
     const id = rowKey(action.aggregate, action.data)
     if (id == null) continue
+    // An update for a row this pool never received: its create was
+    // missed (a frame lost across a reconnect) or it only just became
+    // visible. Merging the partial payload into nothing would mint a
+    // half row (no timestamps, no immutable fields); fetch the whole row
+    // instead where a fetcher exists.
+    if (action.op === 'U' && FETCHABLE.has(action.aggregate) && !pool.has(action.aggregate, id)) {
+      void referenceFetcher(action.aggregate, [String(id)])
+      continue
+    }
     // A comment's server echo carrying a correlation_id is a pending optimistic
     // create: suppress it from the view (it arrives without its attachments)
     // until the REST reply swaps the temp for the complete row. Structural, by
@@ -752,14 +761,18 @@ function applyActions(actions: SyncAction[]): void {
     if (action.aggregate === 'comment' && action.correlation_id) {
       noteServerEcho(action.correlation_id, Number(id))
     }
-    pool.upsert(action.aggregate, id, action.data)
+    const merged = pool.upsert(action.aggregate, id, action.data)
     if (state.handle && SCHEMA_VERSIONS[action.aggregate] != null) {
+      // Persist the merged row, not the event payload: an update event
+      // carries only the fields it changed, and `put` replaces, so
+      // caching the payload would degrade the row to that subset and the
+      // next warm launch would rehydrate it without its other fields.
       void idb.putModels(state.handle, [
         {
           aggregate: action.aggregate,
           id: String(id),
           schema_version: SCHEMA_VERSIONS[action.aggregate]!,
-          data: action.data,
+          data: { ...merged },
         },
       ])
     }
@@ -790,7 +803,49 @@ async function referenceFetcher(aggregate: SyncAggregate, ids: string[]): Promis
     await fetchMissingCycles(ids)
     return
   }
+  if (aggregate === 'ticket') {
+    await fetchMissingTickets(ids)
+    return
+  }
   logger.debug('useReference fetch (stub)', { aggregate, ids })
+}
+
+/** Aggregates the reference fetcher can fill from REST. */
+const FETCHABLE: ReadonlySet<SyncAggregate> = new Set(['user', 'asset', 'cycle', 'ticket'])
+
+/**
+ * Lazy fetcher for the `ticket` aggregate. The workspace bootstrap ships
+ * every ticket, so this fires only when a live update arrives for a row
+ * this pool never received (its create frame was missed across a
+ * reconnect, or the ticket became visible to a restricted viewer).
+ * Merging the update into nothing would mint a half row with no
+ * timestamps; the REST row is complete.
+ */
+const ticketFetchesInFlight = new Set<number>()
+
+async function fetchMissingTickets(ids: string[]): Promise<void> {
+  // A burst of updates for one missed row asks once.
+  const wanted = ids
+    .map(Number)
+    .filter((id) => Number.isFinite(id) && !ticketFetchesInFlight.has(id))
+  if (wanted.length === 0) return
+  wanted.forEach((id) => ticketFetchesInFlight.add(id))
+  try {
+    const [{ default: ticketService }, { apiTicketToSync }] = await Promise.all([
+      import('@nosdesk/core/services/ticketService'),
+      import('@/sync/stores/tickets'),
+    ])
+    for (const id of wanted) {
+      try {
+        const ticket = await ticketService.getTicketById(id)
+        pool.upsert('ticket', ticket.id, apiTicketToSync(ticket))
+      } catch (err) {
+        logger.warn('Lazy ticket fetch failed', { id, error: err })
+      }
+    }
+  } finally {
+    wanted.forEach((id) => ticketFetchesInFlight.delete(id))
+  }
 }
 
 /**
