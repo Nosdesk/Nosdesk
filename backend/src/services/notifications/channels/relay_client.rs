@@ -37,7 +37,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use super::push::{PushPayload, PushTarget};
+use super::push::{PushOutcome, PushPayload, PushTarget};
 
 /// Where the relay lives. Overridable so an instance can be pointed at staging.
 const RELAY_URL_ENV: &str = "NOSDESK_RELAY_URL";
@@ -390,16 +390,26 @@ impl super::push::PushSender for CloudRelayPushSender {
         "relay"
     }
 
-    async fn send(&self, targets: &[PushTarget], payload: &PushPayload) -> Vec<String> {
+    async fn send(&self, targets: &[PushTarget], payload: &PushPayload) -> PushOutcome {
         match self.client.send(targets, payload).await {
-            Ok(invalid) => invalid,
+            Ok(invalid) => PushOutcome {
+                sent: targets.len().saturating_sub(invalid.len()),
+                failed: 0,
+                invalid,
+                error_kind: None,
+            },
             // Prune nothing on failure. The relay could not tell us which
             // tokens are bad, and discarding a live registration because the
             // relay was briefly unreachable would silently stop that device
             // receiving push with no way back.
             Err(failure) => {
                 log::warn!("relay push failed: error_kind={}", failure.kind());
-                Vec::new()
+                PushOutcome {
+                    sent: 0,
+                    failed: targets.len(),
+                    invalid: Vec::new(),
+                    error_kind: Some(failure.kind()),
+                }
             }
         }
     }
