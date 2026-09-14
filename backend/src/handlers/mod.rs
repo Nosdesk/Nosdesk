@@ -153,54 +153,9 @@ use crate::services::notifications::{
 };
 use crate::services::search::SearchService;
 
-use once_cell::sync::Lazy;
-use regex::Regex;
-
-// Pre-compiled regexes for performance (compiled once, reused)
-static MENTION_UUID_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"@\[[^\]]+\]\(([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\)")
-        .unwrap()
-});
-static MENTION_DISPLAY_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"@\[([^\]]+)\]\([a-f0-9-]+\)").unwrap());
-static HTML_TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
-
-/// Parse @mentions from comment content
-/// Returns a list of unique UUIDs mentioned
-/// Supports format: @[Display Name](uuid)
-fn parse_mentions(content: &str) -> Vec<Uuid> {
-    let mut mentions: Vec<Uuid> = MENTION_UUID_RE
-        .captures_iter(content)
-        .filter_map(|cap| cap.get(1).and_then(|m| Uuid::parse_str(m.as_str()).ok()))
-        .collect();
-
-    // Remove duplicates while preserving order
-    mentions.sort();
-    mentions.dedup();
-    mentions
-}
-
-/// Strip HTML tags and clean up text for notification previews
-/// Also removes @mention syntax: @[Name](uuid) -> @Name
-fn strip_html_for_preview(content: &str) -> String {
-    // Convert @[Name](uuid) mentions to just @Name
-    let with_clean_mentions = MENTION_DISPLAY_RE.replace_all(content, "@$1");
-    // Strip HTML tags
-    let without_html = HTML_TAG_RE.replace_all(&with_clean_mentions, "");
-    // Normalize whitespace (collapse multiple spaces/newlines)
-    let normalized = WHITESPACE_RE.replace_all(&without_html, " ");
-    normalized.trim().to_string()
-}
-
-/// Truncate text for notification preview (adds "..." if truncated)
-fn truncate_preview(text: &str, max_len: usize) -> String {
-    if text.len() > max_len {
-        format!("{}...", text.chars().take(max_len).collect::<String>())
-    } else {
-        text.to_string()
-    }
-}
+use crate::services::notifications::mentions::{
+    parse_mentions, strip_html_for_preview, truncate_preview,
+};
 
 // Placeholders for handlers that haven't been implemented in dedicated modules yet
 

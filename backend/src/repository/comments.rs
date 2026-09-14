@@ -207,6 +207,12 @@ pub fn create_comment_with_annotation(
                     "quoted_content": comment.quoted_content,
                     "created_at": comment.created_at,
                     "created_via": created_via,
+                    // What the notification deriver needs to fan out
+                    // (requester, assignee, entity title) without
+                    // querying the ticket back.
+                    "ticket_title": parent.title,
+                    "ticket_requester_uuid": parent.requester_uuid,
+                    "ticket_assignee_uuid": parent.assignee_uuid,
                 }),
                 groups: groups.clone(),
                 causation_id: None,

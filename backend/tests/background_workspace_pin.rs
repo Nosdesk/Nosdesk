@@ -45,6 +45,7 @@ fn new_notification(user_uuid: uuid::Uuid, type_id: i32) -> NewNotification {
         metadata: None,
         channels_delivered: serde_json::json!([]),
         interrupts: true,
+        source_sync_id: None,
     }
 }
 

@@ -396,6 +396,18 @@ pub fn build_state(
         }
     };
 
+    // Notifications derived from the event log. The trigger on sync_actions
+    // enqueues the rows; this claims them (one instance at a time) and hands
+    // the derived payloads to the notification service. Runs everywhere: it
+    // is the path for assignment, status and comment notifications, not an
+    // optimisation for multi-machine.
+    background_tasks.push(crate::services::notifications::outbox::Dispatcher::spawn(
+        pool.clone(),
+        notification_service.clone().into_inner(),
+        std::env::var("DATABASE_URL").ok(),
+        scheduler_shutdown.clone(),
+    ));
+
     // Search-index replicator (S1). On >1 machine the Tantivy index is
     // per-machine local disk, so an entity indexed on one machine is
     // invisible to a search on another. When enabled, each machine tails

@@ -990,6 +990,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    notification_outbox (sync_id) {
+        sync_id -> Int8,
+        enqueued_at -> Timestamptz,
+        attempts -> Int2,
+        claimed_at -> Nullable<Timestamptz>,
+        next_attempt_at -> Timestamptz,
+        last_error -> Nullable<Text>,
+        dead_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     notification_preferences (id) {
         id -> Int4,
         user_uuid -> Uuid,
@@ -1054,6 +1066,7 @@ diesel::table! {
         archived_at -> Nullable<Timestamptz>,
         snoozed_until -> Nullable<Timestamptz>,
         interrupts -> Bool,
+        source_sync_id -> Nullable<Int8>,
     }
 }
 
@@ -2530,6 +2543,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     knowledge_gaps,
     linked_tickets,
     manufacturers,
+    notification_outbox,
     notification_preferences,
     notification_rate_limits,
     notification_types,

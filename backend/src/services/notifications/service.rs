@@ -477,6 +477,7 @@ impl NotificationService {
             metadata: Some(metadata),
             channels_delivered: serde_json::json!([]),
             interrupts,
+            source_sync_id: payload.source_sync_id,
         };
 
         // The notification sync emit IS the in-app delivery, so gate it
@@ -501,11 +502,35 @@ impl NotificationService {
             "background:notification_persist",
             payload.workspace_id,
             |conn| {
-                let notification: Notification = diesel::insert_into(notifications::table)
-                    .values(&new_notification)
-                    .get_result(conn)?;
+                // A derived notification is unique per (event, recipient,
+                // type); a redelivery of the same event finds the row it
+                // already made and continues from there. Handler-raised
+                // payloads have no source and always insert.
+                let (notification, fresh): (Notification, bool) =
+                    match diesel::insert_into(notifications::table)
+                        .values(&new_notification)
+                        .on_conflict_do_nothing()
+                        .get_result::<Notification>(conn)
+                        .optional()?
+                    {
+                        Some(inserted) => (inserted, true),
+                        None => (
+                            notifications::table
+                                .filter(notifications::workspace_id.eq(payload.workspace_id))
+                                .filter(notifications::user_uuid.eq(new_notification.user_uuid))
+                                .filter(notifications::notification_type_id.eq(type_id))
+                                .filter(
+                                    notifications::source_sync_id
+                                        .eq(new_notification.source_sync_id),
+                                )
+                                .first(conn)?,
+                            false,
+                        ),
+                    };
 
-                if emit_in_app {
+                // The toast is the in-app delivery; a row that already
+                // existed has already been shown.
+                if emit_in_app && fresh {
                     // Emit a sync_actions row in the same transaction so the
                     // notification reaches the recipient's clients on every
                     // backend machine (cross-machine via Postgres NOTIFY),
