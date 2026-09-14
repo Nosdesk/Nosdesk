@@ -50,6 +50,7 @@ const TYPE_ICON: Record<string, IconName> = {
   ticket_created_requester: 'add',
   comment_added: 'comment',
   mentioned: 'at',
+  ticket_referenced: 'link',
   doc_page_updated: 'documentEdit',
   // The time-sensitive operational types carry their own glyph so the
   // eye pre-sorts them from the routine ticket/comment stream.

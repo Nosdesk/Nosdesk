@@ -5,6 +5,11 @@
 //! `data-uuid`; the plain-text `MentionInput` behind canned-response templates
 //! writes `@[Name](uuid)`. Both are recognised here, and nothing else in the
 //! backend parses mention syntax.
+//!
+//! A ticket reference is the editor's `ticket_link` node, stored as a span
+//! carrying `data-ticket-link` and `data-ticket-id`. Only the structured node
+//! counts: bare `#123` in prose (or in inbound mail, where "Order #123" is
+//! far more common than a ticket number) is left alone.
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -28,6 +33,12 @@ static SPAN_ELEMENT_RE: Lazy<Regex> =
 static SPAN_UUID_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(&format!(r#"\bdata-uuid="({UUID})""#)).unwrap());
 static SPAN_NAME_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\bdata-name="([^"]*)""#).unwrap());
+/// An opening tag that declares itself a ticket link, id pulled separately
+/// so attribute order does not matter.
+static TICKET_LINK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"<[a-zA-Z]+\b[^>]*\bdata-ticket-link\b[^>]*>"#).unwrap());
+static TICKET_ID_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"\bdata-ticket-id="(\d{1,9})""#).unwrap());
 static HTML_TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
 static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 
@@ -47,6 +58,24 @@ pub fn parse_mentions(content: &str) -> Vec<Uuid> {
     mentions.sort();
     mentions.dedup();
     mentions
+}
+
+/// Every ticket referenced by a `ticket_link` node in `content`,
+/// deduplicated and sorted. The caller drops self-references and ids that
+/// do not resolve to a ticket it can see.
+pub fn parse_ticket_references(content: &str) -> Vec<i32> {
+    let mut ids: Vec<i32> = TICKET_LINK_RE
+        .find_iter(content)
+        .filter_map(|tag| {
+            TICKET_ID_RE
+                .captures(tag.as_str())
+                .and_then(|cap| cap.get(1))
+                .and_then(|m| m.as_str().parse::<i32>().ok())
+        })
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 /// Plain text for a notification body: mentions reduced to `@Name`, tags
@@ -113,6 +142,22 @@ mod tests {
     fn span_without_mention_flag_is_not_a_mention() {
         let html = format!(r#"<span data-uuid="{A}">not a mention</span>"#);
         assert!(parse_mentions(&html).is_empty());
+    }
+
+    #[test]
+    fn ticket_links_as_the_composer_stores_them() {
+        let html = r#"<p>See <span data-ticket-link="true" data-ticket-id="42" data-href="/tickets/42" class="ticket-link-card" contenteditable="false"></span> and <span class="ticket-link-card" data-ticket-id="7" data-ticket-link="true"></span>, also <span data-ticket-link="true" data-ticket-id="42"></span></p>"#;
+        assert_eq!(parse_ticket_references(html), vec![7, 42]);
+    }
+
+    #[test]
+    fn bare_numbers_and_unflagged_spans_are_not_references() {
+        assert!(parse_ticket_references("see #42 and ticket 7").is_empty());
+        assert!(parse_ticket_references(r#"<span data-ticket-id="42">x</span>"#).is_empty());
+        assert!(parse_ticket_references(
+            r#"<span data-ticket-link="true" data-ticket-id="9999999999"></span>"#
+        )
+        .is_empty());
     }
 
     #[test]

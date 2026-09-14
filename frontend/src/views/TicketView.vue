@@ -796,9 +796,11 @@ const rootEl = ref<HTMLElement | null>(null);
                                     recentlyAddedCommentIds
                                 "
                                 :readonly="ticket.merged_into_ticket_id != null"
+                                :linked-ticket-ids="ticket.linkedTickets"
                                 @add-comment="addComment"
                                 @delete-attachment="deleteAttachment"
                                 @delete-comment="deleteComment"
+                                @link-ticket="linkTicket"
                             />
                         </div>
                     </div>

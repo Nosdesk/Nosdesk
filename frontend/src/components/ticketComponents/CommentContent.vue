@@ -104,6 +104,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue';
 import { enhanceMentions } from '@/plugins/prosemirror-mention-view';
+import { enhanceTicketLinks } from '@/components/editor/ticketLinkPlugin';
 import EmailHtmlBody from '@/components/ticketComponents/EmailHtmlBody.vue';
 import { splitQuotedReply } from '@nosdesk/core/utils/quotedReply';
 import { splitQuotedHtml } from '@nosdesk/core/utils/quotedReplyHtml';
@@ -139,14 +140,17 @@ const props = defineProps<{
 const fluent = useFluent();
 
 // UI-authored comments render as inline HTML (render_kind "simple"), not
-// through MarkdownRenderer, so the mention spans need the same post-render
-// pass here or the chip comes back as plain text.
+// through MarkdownRenderer, so the mention spans and ticket links need the
+// same post-render pass here or the chip comes back as plain text and the
+// (empty) ticket_link span as nothing.
 const inlineHtmlRef = ref<HTMLElement | null>(null);
 watch(
   () => [inlineHtmlRef.value, props.content, props.newContent] as const,
   () => {
     nextTick(() => {
-      if (inlineHtmlRef.value) enhanceMentions(inlineHtmlRef.value);
+      if (!inlineHtmlRef.value) return;
+      enhanceMentions(inlineHtmlRef.value);
+      enhanceTicketLinks(inlineHtmlRef.value);
     });
   },
   { immediate: true },

@@ -219,6 +219,8 @@ pub fn create_comment_with_annotation(
             },
         )?;
 
+        record_ticket_references(conn, &comment, &parent)?;
+
         // SLA response-timer stamp. The first non-internal comment by
         // a staff member (admin / technician) marks the moment the
         // response target was met. Stamped idempotently with a
@@ -303,6 +305,69 @@ pub fn create_comment_with_annotation(
     }
 
     Ok(comment)
+}
+
+/// Record the tickets a new comment references through `ticket_link`
+/// nodes and emit one `ticket_reference.added` per reference, grouped on
+/// the referenced ticket so its activity feed and the notification deriver
+/// see it. Self-references and ids that are not tickets of the source's
+/// workspace are dropped silently: a reference is a reading aid, not a
+/// write the author needs to hear about failing.
+///
+/// The event carries ids only. The activity endpoint returns event data to
+/// anyone who can read the referenced ticket, and the source's title is
+/// not theirs to see; the reader's own pool resolves it.
+fn record_ticket_references(
+    conn: &mut DbConnection,
+    comment: &Comment,
+    source: &Ticket,
+) -> QueryResult<()> {
+    use crate::services::notifications::mentions::parse_ticket_references;
+
+    let wanted: Vec<i32> = parse_ticket_references(&comment.content)
+        .into_iter()
+        .filter(|id| *id != source.id)
+        .collect();
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let referenced: Vec<Ticket> = tickets::table
+        .filter(tickets::id.eq_any(&wanted))
+        .filter(tickets::workspace_id.eq(source.workspace_id))
+        .load(conn)?;
+    let rows: Vec<NewCommentTicketReference> = referenced
+        .iter()
+        .map(|t| NewCommentTicketReference {
+            comment_id: comment.id,
+            referenced_ticket_id: t.id,
+        })
+        .collect();
+    diesel::insert_into(comment_ticket_references::table)
+        .values(&rows)
+        .on_conflict_do_nothing()
+        .execute(conn)?;
+    for target in referenced {
+        let groups = groups::for_ticket(conn, &target)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::TicketReference,
+                aggregate_id: format!("{}:{}", target.id, comment.id),
+                op: SyncOp::Insert,
+                event_type: "ticket_reference.added",
+                data: json!({
+                    "ticket_id": target.id,
+                    "comment_id": comment.id,
+                    "source_ticket_id": source.id,
+                    "is_internal": comment.is_internal,
+                    "referenced_assignee_uuid": target.assignee_uuid,
+                }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+    }
+    Ok(())
 }
 
 // Attachment operations
@@ -588,6 +653,99 @@ mod tests {
         .unwrap();
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].id, comment.id);
+    }
+
+    /// A `ticket_link` in a new comment becomes a reference row and one
+    /// `ticket_reference.added` on the referenced ticket, carrying ids and
+    /// the referenced ticket's assignee but no title; self-references and
+    /// unknown ids are dropped, and the outbox trigger enqueues the event.
+    #[test]
+    fn ticket_links_become_references_on_the_referenced_ticket() {
+        use crate::schema::{comment_ticket_references, notification_outbox, sync_actions};
+
+        let mut conn = setup_test_connection();
+        let author = TestFixtures::create_user(&mut conn, "ref_author", "user");
+        let owner = TestFixtures::create_user(&mut conn, "ref_owner", "user");
+        let source = TestFixtures::create_ticket(&mut conn, "Source", Some(author.uuid), None);
+        let target = TestFixtures::create_ticket(&mut conn, "Target", Some(author.uuid), None);
+        diesel::update(tickets::table.find(target.id))
+            .set(tickets::assignee_uuid.eq(owner.uuid))
+            .execute(&mut conn)
+            .expect("assign target");
+
+        let link = |id: i32| {
+            format!(
+                r#"<span data-ticket-link="true" data-ticket-id="{id}" data-href="/tickets/{id}"></span>"#
+            )
+        };
+        let content = format!(
+            "<p>See {} and {} (self) and {} (missing)</p>",
+            link(target.id),
+            link(source.id),
+            link(i32::MAX)
+        );
+        let comment = create_comment(
+            &mut conn,
+            NewComment {
+                content,
+                ticket_id: source.id,
+                user_uuid: author.uuid,
+                is_internal: true,
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("create comment");
+
+        let refs: Vec<i32> = comment_ticket_references::table
+            .filter(comment_ticket_references::comment_id.eq(comment.id))
+            .select(comment_ticket_references::referenced_ticket_id)
+            .load(&mut conn)
+            .expect("reference rows");
+        assert_eq!(refs, vec![target.id], "only the real, non-self target");
+
+        let (sync_id, aggregate_id, data, groups): (
+            i64,
+            String,
+            serde_json::Value,
+            Vec<Option<String>>,
+        ) = sync_actions::table
+            .filter(sync_actions::event_type.eq("ticket_reference.added"))
+            .order(sync_actions::sync_id.desc())
+            .select((
+                sync_actions::sync_id,
+                sync_actions::aggregate_id,
+                sync_actions::data,
+                sync_actions::groups,
+            ))
+            .first(&mut conn)
+            .expect("one reference event");
+        assert_eq!(aggregate_id, format!("{}:{}", target.id, comment.id));
+        assert_eq!(
+            data,
+            json!({
+                "ticket_id": target.id,
+                "comment_id": comment.id,
+                "source_ticket_id": source.id,
+                "is_internal": true,
+                "referenced_assignee_uuid": owner.uuid,
+            }),
+            "ids and the recipient only, never a title"
+        );
+        assert!(
+            groups.contains(&Some(format!("ticket:{}", target.id))),
+            "grouped on the referenced ticket: {groups:?}"
+        );
+        assert!(
+            !groups.contains(&Some(format!("ticket:{}", source.id))),
+            "not on the source ticket's timeline: {groups:?}"
+        );
+        let enqueued: i64 = notification_outbox::table
+            .filter(notification_outbox::sync_id.eq(sync_id))
+            .count()
+            .get_result(&mut conn)
+            .expect("outbox count");
+        assert_eq!(enqueued, 1, "the outbox trigger picks it up");
     }
 
     /// Internal notes must not reach a requester through the REST readers.

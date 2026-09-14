@@ -529,6 +529,12 @@ pub enum SyncAggregate {
     /// `ticket_id:linked_ticket_id`, emitted in both directions.
     #[serde(rename = "linked_ticket")]
     LinkedTicket,
+    /// A comment mentioning another ticket (`comment_ticket_references`).
+    /// Composite key `referenced_ticket_id:comment_id`, grouped on the
+    /// referenced ticket. Not pool-materialised: the referenced ticket's
+    /// activity feed and the notification deriver read the event.
+    #[serde(rename = "ticket_reference")]
+    TicketReference,
     /// Append-only asset usage ledger event (`asset_usage_log`). Op
     /// Insert; not pool-materialised — the usage-history panels react to
     /// it via `useSyncActions`. Cross-machine replacement for the old
@@ -573,6 +579,7 @@ impl SyncAggregate {
             Self::Notification => "notification",
             Self::TicketAsset => "ticket_asset",
             Self::LinkedTicket => "linked_ticket",
+            Self::TicketReference => "ticket_reference",
             Self::AssetUsage => "asset_usage",
             Self::AssetAudit => "asset_audit",
             Self::AssetLoan => "asset_loan",
@@ -614,6 +621,7 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"notification" => Ok(Self::Notification),
             b"ticket_asset" => Ok(Self::TicketAsset),
             b"linked_ticket" => Ok(Self::LinkedTicket),
+            b"ticket_reference" => Ok(Self::TicketReference),
             b"asset_usage" => Ok(Self::AssetUsage),
             b"asset_audit" => Ok(Self::AssetAudit),
             b"asset_loan" => Ok(Self::AssetLoan),
@@ -3080,6 +3088,16 @@ pub struct LinkedTicket {
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
     pub workspace_id: i32,
+}
+
+/// A comment's reference to another ticket (`comment_ticket_references`).
+/// The source ticket is `comments.ticket_id`; no copy is kept here because a
+/// merge moves comments between tickets.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::comment_ticket_references)]
+pub struct NewCommentTicketReference {
+    pub comment_id: i32,
+    pub referenced_ticket_id: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]

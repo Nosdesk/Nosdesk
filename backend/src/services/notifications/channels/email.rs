@@ -77,6 +77,7 @@ impl EmailChannel {
             NotificationTypeCode::TicketStatusChanged => "notif-ticket-status-changed",
             NotificationTypeCode::CommentAdded => "notif-comment-added",
             NotificationTypeCode::Mentioned => "notif-mentioned",
+            NotificationTypeCode::TicketReferenced => "notif-ticket-referenced",
             NotificationTypeCode::TicketCreatedRequester => "notif-ticket-created-requester",
             NotificationTypeCode::DocPageUpdated => "notif-doc-page-updated",
             NotificationTypeCode::AssetLowStock => "notif-asset-low-stock",

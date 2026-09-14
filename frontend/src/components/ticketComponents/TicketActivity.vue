@@ -33,6 +33,8 @@ import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { useTicketActivitySSE } from '@/composables/useTicketActivitySSE'
 import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'
+import * as pool from '@nosdesk/core/sync/pool'
+import type { SyncTicket } from '@/sync/stores/tickets'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Icon from '@/components/common/Icon.vue'
@@ -358,6 +360,12 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
       return data.returned_at
         ? t('ticket-activity-phrase-loan-returned')
         : t('ticket-activity-phrase-generic')
+    case 'ticket_reference.added':
+      // The source ticket renders as a trailing link (`sourceTicketFor`);
+      // an internal note gets its own phrasing so the row reads as staff-only.
+      return data.is_internal
+        ? t('ticket-activity-phrase-referenced-internal')
+        : t('ticket-activity-phrase-referenced')
     default:
       return t('ticket-activity-phrase-generic')
   }
@@ -383,8 +391,22 @@ function assigneeNameFor(ev: TicketActivityEvent): string | null {
   return getUserHandle(uuid).user.value?.name ?? null
 }
 
+/**
+ * The ticket whose comment mentioned this one, for the trailing link on a
+ * `ticket_reference.added` row. The event carries ids only; the title comes
+ * from the reader's own pool, so a ticket they cannot see shows as a bare
+ * number.
+ */
+function sourceTicketFor(ev: TicketActivityEvent): { id: number; title: string | null } | null {
+  if (ev.event_type !== 'ticket_reference.added') return null
+  const id = ev.data?.source_ticket_id
+  if (typeof id !== 'number') return null
+  return { id, title: pool.get<SyncTicket>('ticket', id)?.title ?? null }
+}
+
 function isInternalNoteEvent(ev: TicketActivityEvent): boolean {
-  return ev.event_type === 'comment.created' && ev.data?.is_internal === true
+  return ev.data?.is_internal === true
+    && (ev.event_type === 'comment.created' || ev.event_type === 'ticket_reference.added')
 }
 
 /**
@@ -469,6 +491,11 @@ function isGroupable(ev: TicketActivityEvent): boolean {
     ev.event_type !== 'ticket.created' &&
     ev.event_type !== 'ticket.deleted'
   )
+}
+
+/** The trailing source-ticket link on a `ticket_reference.added` row. */
+function sourceTicketLabel(src: { id: number; title: string | null }): string {
+  return src.title ? `#${src.id} ${src.title}` : `#${src.id}`
 }
 
 // Stable "same actor" key for run detection. Groupable events are
@@ -636,6 +663,11 @@ const hiddenRowCount = computed(() =>
               <span v-if="assigneeNameFor(ev)" class="font-medium text-primary">
                 {{ t('ticket-activity-to-assignee', { name: assigneeNameFor(ev) ?? '' }) }}
               </span>
+              <RouterLink
+                v-if="sourceTicketFor(ev)"
+                :to="`/tickets/${sourceTicketFor(ev)!.id}`"
+                class="font-medium text-accent hover:underline"
+              >{{ sourceTicketLabel(sourceTicketFor(ev)!) }}</RouterLink>
               <span class="text-tertiary tabular-nums">
                 · {{ formatCompactRelativeTime(ev.occurred_at) }}
               </span>
@@ -691,6 +723,11 @@ const hiddenRowCount = computed(() =>
             <span v-if="assigneeNameFor(item.events[0])" class="font-medium text-primary">
               {{ t('ticket-activity-to-assignee', { name: assigneeNameFor(item.events[0]) ?? '' }) }}
             </span>
+            <RouterLink
+              v-if="sourceTicketFor(item.events[0])"
+              :to="`/tickets/${sourceTicketFor(item.events[0])!.id}`"
+              class="font-medium text-accent hover:underline"
+            >{{ sourceTicketLabel(sourceTicketFor(item.events[0])!) }}</RouterLink>
             <span class="text-tertiary tabular-nums">
               · {{ formatCompactRelativeTime(item.events[0].occurred_at) }}
             </span>

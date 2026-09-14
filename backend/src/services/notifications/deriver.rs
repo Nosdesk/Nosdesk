@@ -23,6 +23,7 @@ use super::types::{
     NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
 };
 use crate::db::DbConnection;
+use crate::repository;
 use crate::sync::ActorKind;
 
 /// The columns of a `sync_actions` row the deriver reads.
@@ -67,6 +68,14 @@ pub enum Intent {
         assignee: Option<Uuid>,
         mentions: Vec<Uuid>,
         preview: String,
+    },
+    /// A comment on `source_ticket_id` mentioned the ticket `assignee` owns.
+    Referenced {
+        ticket_id: i32,
+        source_ticket_id: i32,
+        comment_id: i32,
+        is_internal: bool,
+        assignee: Uuid,
     },
 }
 
@@ -119,6 +128,31 @@ pub fn derive(row: &SyncActionRow) -> Vec<Intent> {
             mentions,
             preview: truncate_preview(&strip_html_for_preview(content), 100),
         });
+        return intents;
+    }
+
+    if row.event_type == "ticket_reference.added" {
+        // The recipient is stamped on the row at write time so no ticket
+        // read is needed here; the actor is the commenter.
+        if let (Some(ticket_id), Some(source_ticket_id), Some(comment_id), Some(assignee)) = (
+            i32_at(data, "ticket_id"),
+            i32_at(data, "source_ticket_id"),
+            i32_at(data, "comment_id"),
+            uuid_at(data, "referenced_assignee_uuid"),
+        ) {
+            if Some(assignee) != row.actor_uuid {
+                intents.push(Intent::Referenced {
+                    ticket_id,
+                    source_ticket_id,
+                    comment_id,
+                    is_internal: data
+                        .get("is_internal")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    assignee,
+                });
+            }
+        }
         return intents;
     }
 
@@ -384,6 +418,43 @@ pub fn resolve(
                 );
             }
         }
+        Intent::Referenced {
+            ticket_id,
+            source_ticket_id,
+            comment_id,
+            is_internal,
+            assignee,
+        } => {
+            // Same gate as an internal note's mentions: staff only.
+            if is_internal && !staff_among(conn, workspace_id, &[assignee])?.contains(&assignee) {
+                return Ok(out);
+            }
+            // The notification opens the comment that made the mention, so
+            // its entity is the source ticket; the body names the one the
+            // recipient owns. The title is read here, under the row's
+            // workspace pin, rather than carried on the event.
+            let source_title = repository::tickets::get_ticket_by_id(conn, source_ticket_id)
+                .map(|t| t.title)
+                .unwrap_or_default();
+            let actor = actor_for(conn, row);
+            out.push(
+                NotificationPayload::new(
+                    NotificationTypeCode::TicketReferenced,
+                    assignee,
+                    actor,
+                    NotificationEntity::Comment {
+                        id: comment_id,
+                        ticket_id: source_ticket_id,
+                        ticket_title: source_title,
+                    },
+                    workspace_id,
+                )
+                .with_body(format!(
+                    "Ticket #{ticket_id} was mentioned in a comment on #{source_ticket_id}"
+                ))
+                .from_sync_action(row.sync_id),
+            );
+        }
     }
     Ok(out)
 }
@@ -555,6 +626,37 @@ mod tests {
     #[test]
     fn comment_without_identifiers_derives_nothing() {
         let r = row("comment.created", json!({"content": "orphan"}), Some(C));
+        assert!(derive(&r).is_empty());
+    }
+
+    #[test]
+    fn reference_goes_to_the_referenced_assignee_unless_they_wrote_it() {
+        let data = json!({
+            "ticket_id": 7, "source_ticket_id": 3, "comment_id": 9,
+            "is_internal": true, "referenced_assignee_uuid": A
+        });
+        let intents = derive(&row("ticket_reference.added", data.clone(), Some(C)));
+        assert_eq!(
+            intents,
+            vec![Intent::Referenced {
+                ticket_id: 7,
+                source_ticket_id: 3,
+                comment_id: 9,
+                is_internal: true,
+                assignee: u(A),
+            }]
+        );
+        assert!(derive(&row("ticket_reference.added", data, Some(A))).is_empty());
+    }
+
+    #[test]
+    fn reference_to_an_unassigned_ticket_derives_nothing() {
+        let r = row(
+            "ticket_reference.added",
+            json!({"ticket_id": 7, "source_ticket_id": 3, "comment_id": 9,
+                   "is_internal": false, "referenced_assignee_uuid": null}),
+            Some(C),
+        );
         assert!(derive(&r).is_empty());
     }
 }

@@ -6,6 +6,7 @@ import { InputRule } from 'prosemirror-inputrules'
 import { getTicketById } from '@nosdesk/core/services/ticketService'
 import { translate } from '@/i18n'
 import { shareableRouteUrl } from '@/utils/shareUrl'
+import { poolHasTicket } from '@/composables/useTicketReferenceSearch'
 import {
   type TicketCardData,
   renderTicketCardHtml
@@ -159,6 +160,42 @@ export function createTicketLinkInputRule(schema: any): InputRule {
     const node = ticketLinkType.create({ ticketId, href })
     return state.tr.replaceWith(start, end, node)
   })
+}
+
+/**
+ * `#123` followed by a space becomes a ticket link when the workspace pool
+ * knows ticket 123. Unknown numbers ("PO #4521") stay text. Only fires
+ * after whitespace or at the start of the block, like the `#` picker.
+ */
+export function createTicketNumberInputRule(schema: any): InputRule {
+  return new InputRule(/(^|\s)#(\d{1,9})\s$/, (state, match, start, end) => {
+    const ticketLinkType = schema.nodes.ticket_link
+    if (!ticketLinkType) return null
+    const ticketId = parseInt(match[2], 10)
+    if (!poolHasTicket(ticketId)) return null
+    const from = start + match[1].length
+    const node = ticketLinkType.create({
+      ticketId: String(ticketId),
+      href: shareableRouteUrl('ticket-view', { id: String(ticketId) })
+    })
+    return state.tr.replaceWith(from, end, node).insertText(' ', from + 1)
+  })
+}
+
+/**
+ * Ticket ids referenced by `ticket_link` nodes in composer HTML, deduplicated.
+ * Mirrors the backend's `parse_ticket_references`; the suggestion strip uses
+ * it to know what a just-posted comment mentioned.
+ */
+export function referencedTicketIds(html: string): number[] {
+  const container = document.createElement('div')
+  container.innerHTML = html
+  const ids = new Set<number>()
+  container.querySelectorAll('[data-ticket-link][data-ticket-id]').forEach((el) => {
+    const id = parseInt(el.getAttribute('data-ticket-id') ?? '', 10)
+    if (Number.isInteger(id) && id > 0) ids.add(id)
+  })
+  return [...ids]
 }
 
 // Create the plugin

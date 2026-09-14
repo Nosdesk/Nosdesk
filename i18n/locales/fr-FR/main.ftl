@@ -110,6 +110,7 @@ notif-ticket-assigned = [{ $app }] Ticket assigné : { $title }
 notif-ticket-status-changed = [{ $app }] Statut modifié : { $title }
 notif-comment-added = [{ $app }] Nouveau commentaire : { $title }
 notif-mentioned = [{ $app }] { $actor } vous a mentionné
+notif-ticket-referenced = [{ $app }] { $actor } a mentionné votre ticket
 notif-ticket-created-requester = [{ $app }] Ticket créé : { $title }
 notif-doc-page-updated = [{ $app }] Page mise à jour : { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
@@ -3594,6 +3595,8 @@ settings-notifications-type-comment-added-name = Nouveau commentaire
 settings-notifications-type-comment-added-description = Lorsque quelqu'un commente votre ticket
 settings-notifications-type-mentioned-name = Mention
 settings-notifications-type-mentioned-description = Lorsque quelqu'un vous mentionne dans un commentaire
+settings-notifications-type-ticket-referenced-name = Ticket mentionné
+settings-notifications-type-ticket-referenced-description = Lorsqu'un ticket qui vous est assigné est mentionné dans un commentaire
 settings-notifications-type-ticket-created-requester-name = Ticket créé
 settings-notifications-type-ticket-created-requester-description = Lorsqu'un ticket est créé en votre nom
 settings-notifications-type-doc-page-updated-name = Page mise à jour
@@ -4180,8 +4183,8 @@ ticket-detail-print-asset-fallback = Équipement sans nom
 ticket-comments-section-title = Commentaires et pièces jointes
 ticket-comments-drop-files = Déposez les fichiers ici
 ticket-comments-internal-banner = Visible par l'équipe uniquement. Non transmis via le canal du ticket.
-ticket-comments-placeholder-public = Répondre au demandeur...
-ticket-comments-placeholder-internal = Ajouter une note interne...
+ticket-comments-placeholder-public = Répondre au demandeur... (@ pour mentionner, # pour un ticket)
+ticket-comments-placeholder-internal = Ajouter une note interne... (@ pour mentionner, # pour un ticket)
 ticket-comments-record-voice = Enregistrer une note vocale
 ticket-comments-upload-file = Téléverser un fichier
 ticket-comments-visibility-group = Visibilité de la réponse
@@ -4190,6 +4193,10 @@ ticket-comments-public-reply-title = Envoyé au demandeur via le canal du ticket
 ticket-comments-internal-note = Interne
 ticket-comments-internal-note-title = Visible uniquement par les agents ; jamais transmis via le canal du ticket
 ticket-comments-submit-reply = Envoyer la réponse
+# MACHINE TRANSLATION, pending native review
+ticket-comments-link-suggestion = Lier { $ticket } comme ticket associé ?
+ticket-comments-link-suggestion-accept = Lier
+ticket-comments-link-suggestion-dismiss = Ignorer
 ticket-comments-submit-note = Ajouter la note
 ticket-comments-voice-note-filename = Note vocale { $date }
 ticket-comments-filter-group = Filtre de visibilité des commentaires
@@ -4281,6 +4288,8 @@ ticket-activity-phrase-loan-issued = a prêté un appareil à { $borrower }
 ticket-activity-phrase-loan-issued-plain = a prêté un appareil
 # MT: pending native review
 ticket-activity-phrase-loan-returned = a retourné un appareil prêté
+ticket-activity-phrase-referenced = a mentionné ce ticket dans
+ticket-activity-phrase-referenced-internal = a mentionné ce ticket dans une note interne sur
 ticket-activity-phrase-generic = a effectué une modification
 
 # Ticket : sélecteur d'étiquettes (TicketTagsField).
@@ -6200,6 +6209,8 @@ editor-mentions-hint-select = Sélectionner
 editor-mentions-hint-close = Fermer
 editor-mentions-helper-type = Tapez
 editor-mentions-helper-suffix = pour mentionner quelqu'un
+editor-ticket-picker-prompt = Saisissez un numéro ou un titre de ticket
+editor-ticket-picker-empty = Aucun ticket trouvé
 
 # R1 auth UX errors
 auth-mfa-check-failed = Échec de la vérification du statut MFA
