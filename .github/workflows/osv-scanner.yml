@@ -39,7 +39,7 @@ jobs:
       security-events: write
       contents: read
       actions: read
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@8deb546fdb875b9996d27d4950be7312dac076a1 # v2.5.0
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
     with:
       # Recursive discovery rather than naming lockfiles explicitly: it picks up
       # backend/Cargo.lock and pnpm-lock.yaml today, and any workspace added
