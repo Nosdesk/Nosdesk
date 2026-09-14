@@ -407,6 +407,15 @@ pub fn build_state(
         std::env::var("DATABASE_URL").ok(),
         scheduler_shutdown.clone(),
     ));
+    // Re-attempts channel deliveries that failed (a refused push, a rejected
+    // email) until they succeed or exhaust their attempts.
+    background_tasks.push(
+        crate::services::notifications::deliveries::spawn_retry_worker(
+            pool.clone(),
+            notification_service.clone().into_inner(),
+            scheduler_shutdown.clone(),
+        ),
+    );
 
     // Search-index replicator (S1). On >1 machine the Tantivy index is
     // per-machine local disk, so an entity indexed on one machine is

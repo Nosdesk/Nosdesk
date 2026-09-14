@@ -990,6 +990,23 @@ diesel::table! {
 }
 
 diesel::table! {
+    notification_deliveries (notification_id, channel) {
+        notification_id -> Int4,
+        #[max_length = 16]
+        channel -> Varchar,
+        #[max_length = 16]
+        status -> Varchar,
+        attempts -> Int2,
+        next_attempt_at -> Nullable<Timestamptz>,
+        last_error -> Nullable<Text>,
+        delivered_at -> Nullable<Timestamptz>,
+        payload -> Jsonb,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     notification_outbox (sync_id) {
         sync_id -> Int8,
         enqueued_at -> Timestamptz,
@@ -2376,6 +2393,8 @@ diesel::joinable!(linked_tickets -> users (created_by));
 diesel::joinable!(linked_tickets -> workspaces (workspace_id));
 diesel::joinable!(manufacturers -> users (created_by));
 diesel::joinable!(manufacturers -> workspaces (workspace_id));
+diesel::joinable!(notification_deliveries -> notifications (notification_id));
+diesel::joinable!(notification_deliveries -> workspaces (workspace_id));
 diesel::joinable!(notification_preferences -> notification_types (notification_type_id));
 diesel::joinable!(notification_preferences -> users (user_uuid));
 diesel::joinable!(notification_preferences -> workspaces (workspace_id));
@@ -2543,6 +2562,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     knowledge_gaps,
     linked_tickets,
     manufacturers,
+    notification_deliveries,
     notification_outbox,
     notification_preferences,
     notification_rate_limits,

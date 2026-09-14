@@ -44,6 +44,7 @@
 //! ```
 
 pub mod channels;
+pub mod deliveries;
 pub mod deriver;
 pub mod mentions;
 pub mod outbox;

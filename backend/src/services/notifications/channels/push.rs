@@ -49,15 +49,32 @@ pub struct PushTarget {
     pub token: String,
 }
 
-/// Sends a push and reports tokens the provider rejected as unregistered (so
-/// the channel prunes them). APNs/FCM impls land in a later step;
-/// [`NoopPushSender`] is the placeholder.
+/// What one send did. `invalid` are tokens the provider rejected as
+/// unregistered (the channel prunes them); `failed` are targets the provider
+/// or relay could not take this time; `error_kind` names a whole-send failure
+/// (relay refused, transport) so the delivery row records why.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PushOutcome {
+    pub sent: usize,
+    pub failed: usize,
+    pub invalid: Vec<String>,
+    pub error_kind: Option<&'static str>,
+}
+
+impl PushOutcome {
+    /// Nothing reached a device and at least one target should have.
+    pub fn is_failure(&self) -> bool {
+        self.sent == 0 && (self.failed > 0 || self.error_kind.is_some())
+    }
+}
+
+/// Sends a push and reports what happened per target.
 #[async_trait]
 pub trait PushSender: Send + Sync {
     /// True once real credentials are configured — gates the channel.
     fn is_configured(&self) -> bool;
-    /// Send `payload` to each target; return permanently-invalid tokens to revoke.
-    async fn send(&self, targets: &[PushTarget], payload: &PushPayload) -> Vec<String>;
+    /// Send `payload` to each target.
+    async fn send(&self, targets: &[PushTarget], payload: &PushPayload) -> PushOutcome;
 
     /// Last relay interaction, when this sender forwards through the cloud
     /// relay. `None` for the native and no-op senders, which have no remote to
@@ -87,8 +104,8 @@ impl PushSender for NoopPushSender {
     fn name(&self) -> &'static str {
         "none"
     }
-    async fn send(&self, _targets: &[PushTarget], _payload: &PushPayload) -> Vec<String> {
-        Vec::new()
+    async fn send(&self, _targets: &[PushTarget], _payload: &PushPayload) -> PushOutcome {
+        PushOutcome::default()
     }
 }
 
@@ -196,14 +213,23 @@ impl NotificationDeliveryChannel for PushChannel {
             ticket_id: notification.payload.entity.ticket_id(),
         };
 
-        let invalid = self.sender.send(&targets, &payload).await;
-        if !invalid.is_empty() {
+        let outcome = self.sender.send(&targets, &payload).await;
+        if !outcome.invalid.is_empty() {
+            let invalid = outcome.invalid.clone();
             // cross-tenant: device-token cleanup spans the user's devices across workspaces.
             let _ = crate::sync::session::background_run(
                 &self.pool,
                 "background:push_prune_tokens",
                 |conn| crate::repository::push_devices::revoke_tokens(conn, &invalid),
             );
+        }
+        // A token pruned is not a failure of the notification; nothing sent
+        // when something should have been is, and the delivery row keeps the
+        // kind so the retry worker and an operator can see why.
+        if outcome.is_failure() {
+            return Err(ChannelError::DeliveryFailed(
+                outcome.error_kind.unwrap_or("provider").to_string(),
+            ));
         }
         Ok(())
     }
@@ -212,6 +238,35 @@ impl NotificationDeliveryChannel for PushChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outcome_failure_means_nothing_sent_when_something_should_have_been() {
+        let refused = PushOutcome {
+            sent: 0,
+            failed: 2,
+            invalid: vec![],
+            error_kind: Some("dpa_required"),
+        };
+        assert!(refused.is_failure());
+        let partial = PushOutcome {
+            sent: 1,
+            failed: 1,
+            invalid: vec![],
+            error_kind: None,
+        };
+        assert!(!partial.is_failure(), "one device reached is a delivery");
+        let pruned_only = PushOutcome {
+            sent: 0,
+            failed: 0,
+            invalid: vec!["dead".into()],
+            error_kind: None,
+        };
+        assert!(
+            !pruned_only.is_failure(),
+            "a pruned token is not a failed notification"
+        );
+        assert!(!PushOutcome::default().is_failure());
+    }
 
     /// Pins the once-per-process contract the no-devices notice relies on: the
     /// first `swap` reports, every later one falls through to debug. A
