@@ -114,6 +114,10 @@ notif-ticket-referenced = [{ $app }] { $actor } a mentionné votre ticket
 notif-ticket-created-requester = [{ $app }] Ticket créé : { $title }
 notif-doc-page-updated = [{ $app }] Page mise à jour : { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
+# MACHINE TRANSLATION, pending native review
+notif-sla-breached = [{ $app }] SLA dépassé : { $title }
+notif-loan-due-soon = [{ $app }] Prêt bientôt à rendre : { $title }
+notif-loan-overdue = [{ $app }] Prêt en retard : { $title }
 # Notification email body.
 notif-body-fallback = Vous avez une nouvelle notification.
 notif-from-row = <strong>De :</strong> { $actor }
@@ -236,6 +240,23 @@ dashboard-time-range-3y = 3 ans
 dashboard-time-range-custom = Personnalisé
 dashboard-time-range-custom-apply = Appliquer
 dashboard-time-range-custom-cancel = Annuler
+# MACHINE TRANSLATION, pending native review
+dashboard-compare-toggle-label = Comparer
+dashboard-compare-toggle-tooltip = Superposer la même période de l'intervalle précédent
+dashboard-annotations-toggle-label = Annotations
+dashboard-annotations-toggle-tooltip = Marquer les modifications de règles, de SLA et d'horaires d'ouverture sur les graphiques temporels
+dashboard-refresh-tooltip = Actualiser les données non temps réel (R)
+dashboard-refresh-updated-prefix = Mis à jour
+dashboard-refresh-just-loaded = à l'instant
+dashboard-refresh-unknown = récemment
+dashboard-anchor-rail-aria-label = Sections du tableau de bord
+dashboard-section-today = Aujourd'hui
+dashboard-section-volume-sla = Volume et SLA
+dashboard-section-queue-health = État de la file
+dashboard-section-agents = Agents
+dashboard-section-categories = Catégories
+dashboard-section-backlog-ageing = Arriéré et ancienneté
+dashboard-section-audit-activity = Activité d'audit
 
 # États vides des principales listes.
 empty-documentation-grid-title = Aucune documentation pour le moment
@@ -359,6 +380,19 @@ ticket-list-bulk-priority = Priorité
 ticket-list-bulk-assign = Assigner
 ticket-list-bulk-clear-title = Effacer la sélection (Échap)
 ticket-list-bulk-clear = Effacer
+# MACHINE TRANSLATION, pending native review
+ticket-list-context-copy-number = Copier le numéro du ticket
+ticket-list-context-assign-to-me = Me l'attribuer
+ticket-list-context-actions-heading = Actions
+ticket-list-context-selection-heading = Sélection
+ticket-list-context-select = Sélectionner
+ticket-list-context-deselect = Désélectionner
+ticket-list-context-merge = { $count ->
+    [one] Fusionner le ticket…
+   *[other] Fusionner { $count } tickets…
+}
+ticket-list-context-merge-hint = Sélectionnez au moins 2 tickets à fusionner
+ticket-list-context-flagged-toast = Signalé pour la documentation
 ticket-list-row-density-aria = Densité des lignes
 ticket-list-save-view-title = Enregistrer l'état actuel comme vue privée
 ticket-list-recurring-title = Ticket récurrent
@@ -647,6 +681,23 @@ admin-audit-load-more = Charger plus
 admin-audit-loading-more = Chargement…
 admin-audit-error-load = Échec du chargement du journal d'audit
 admin-audit-error-load-more = Échec du chargement de plus d'entrées
+# MACHINE TRANSLATION, pending native review
+admin-audit-tier-all = Tous
+admin-audit-tier-app = Application
+admin-audit-tier-auth = Authentification
+admin-audit-tier-change = Modifications
+admin-audit-filter-event = Type d'événement
+admin-audit-filter-event-placeholder = ex. auth.
+admin-audit-filter-severity = Gravité
+admin-audit-severity-any = Toutes
+admin-audit-export = Exporter en JSON
+admin-audit-exporting = Export en cours…
+admin-audit-payload = Contenu
+admin-audit-target = Cible
+admin-audit-source-ip = Adresse IP source
+admin-audit-source-tier1 = Application
+admin-audit-source-tier2 = Authentification
+admin-audit-source-tier3 = Modification
 
 # Admin : liste de suppression d'e-mails.
 admin-suppressions-title = Liste de suppression d'e-mails
@@ -1118,6 +1169,17 @@ admin-system-cleanup-stat-checked = Vérifiés :
 admin-system-cleanup-stat-errors = Erreurs :
 admin-system-cleanup-view-errors = Voir les erreurs ({ $count })
 admin-system-cleanup-error-unexpected = Une erreur inattendue est survenue lors du nettoyage des images
+# MACHINE TRANSLATION, pending native review
+admin-system-thumbnails-title = Miniatures des photos de profil
+admin-system-thumbnails-description = Régénère les miniatures d'avatar manquantes ou obsolètes. Les restaurations omettent les miniatures pour économiser de l'espace ; lancez cette opération si les photos de profil semblent cassées après une restauration. Sans risque à tout moment : seul ce qui manque est régénéré.
+admin-system-thumbnails-action = Régénérer
+admin-system-thumbnails-running = Régénération en cours...
+admin-system-thumbnails-success = Miniatures régénérées
+admin-system-thumbnails-failed = Échec de la régénération
+admin-system-thumbnails-stat-checked = Vérifiées :
+admin-system-thumbnails-stat-regenerated = Régénérées :
+admin-system-thumbnails-stat-failed = Échecs :
+admin-system-thumbnails-error-unexpected = Une erreur inattendue s'est produite lors de la régénération des miniatures
 
 # Admin : gestion de l'index de recherche.
 admin-search-mgmt-title = Gestion de l'index de recherche
@@ -2479,10 +2541,19 @@ assets-list-filter-name-label = Name
 assets-list-filter-status-label = Statut
 assets-list-filter-warranty-label = Warranty
 assets-list-filter-low-stock-label = Low stock
+# MACHINE TRANSLATION, pending native review
+assets-list-filter-location-label = Emplacement
+assets-list-filter-location-count =
+    { $count ->
+        [one] 1 actif
+       *[other] { $count } actifs
+    }
 assets-list-column-device = Actif
 assets-list-column-serial = Numéro de série
 assets-list-column-hostname = Nom d'hôte
 assets-list-column-model = Modèle
+# MACHINE TRANSLATION, pending native review
+assets-list-column-location = Emplacement
 assets-list-column-user = Utilisateur
 assets-list-column-status = Statut
 assets-list-column-warranty = Garantie
@@ -2561,6 +2632,11 @@ asset-detail-group-warranty = Garantie
 asset-detail-field-asset-tag = Étiquette d'inventaire
 asset-detail-field-asset-tag-placeholder-create = Saisir l'étiquette d'inventaire
 asset-detail-field-asset-tag-placeholder-edit = Saisir l'étiquette d'inventaire...
+# MACHINE TRANSLATION, pending native review
+asset-detail-field-location = Emplacement
+asset-detail-field-location-placeholder-create = ex. Réserve A, baie 3, Lyon
+asset-detail-field-location-placeholder-edit = Saisissez un emplacement...
+asset-detail-location-suggestions = Connus
 asset-detail-warranty-active = Active
 asset-detail-warranty-warning = Avertissement
 asset-detail-warranty-expired = Expirée
@@ -3542,6 +3618,9 @@ doc-icon-selector-category-food = Nourriture
 doc-icon-selector-category-activities = Activités
 # Paramètres : profil (UserProfileCard)
 settings-profile-banner-alt = Bannière de profil
+# MACHINE TRANSLATION, pending native review
+settings-profile-banner-change = Changer l'image de bannière
+settings-profile-avatar-change = Changer la photo de profil
 settings-profile-change-photo = Changer la photo
 settings-profile-name-placeholder = Saisissez un nom...
 settings-profile-pronouns-label = Pronoms
@@ -4245,6 +4324,11 @@ ticket-activity-actor-title-subject = { $name } — Objet : { $subject }
 ticket-activity-actor-title-named = { $name } <{ $email }>
 ticket-activity-actor-title-named-subject = { $name } <{ $email }> — Objet : { $subject }
 ticket-activity-to-assignee = à { $name }
+# MACHINE TRANSLATION, pending native review
+ticket-activity-made-changes = a effectué { $count } { $count ->
+    [one] modification
+   *[other] modifications
+}
 ticket-activity-phrase-created = a créé ce ticket
 ticket-activity-phrase-opened-via = a ouvert ce ticket via { $channel }
 ticket-activity-phrase-submitted-via = a soumis ce ticket via { $channel }
@@ -4371,6 +4455,12 @@ asset-usage-record-failed = Failed to record usage
 
 # Asset detail: stock tracking section + low-stock indicator (Phase G).
 asset-detail-section-stock = Stock tracking
+# MACHINE TRANSLATION, pending native review
+asset-detail-stock-not-tracked = Non suivi
+asset-detail-section-physical-context = Contexte physique
+asset-detail-physical-context-help = Utilisez l'emplacement, les champs de stock et les attributs propres au type pour décrire où se trouve cet actif et comment il est géré.
+asset-detail-photo-placeholder-title = Ajoutez des photos après la création
+asset-detail-photo-placeholder-description = Enregistrez d'abord l'actif, puis joignez des photos depuis sa page de détail.
 asset-detail-field-quantity = On-hand quantity
 asset-detail-field-quantity-placeholder = e.g. 25
 asset-detail-field-unit = Unit
@@ -4384,10 +4474,24 @@ asset-detail-attributes-save = Save attributes
 asset-detail-attributes-discard = Discard
 asset-detail-attributes-save-failed = Failed to save attributes
 asset-detail-kind-change-confirm = Change kind to { $newKind }? Current attributes will be cleared, you can re-enter them against the new kind schema.
+# MACHINE TRANSLATION, pending native review
+asset-detail-kind-change-title = Changer le type d'actif ?
+asset-detail-kind-change-confirm-label = Changer le type
 asset-detail-kind-change-failed = Failed to change kind
 asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (threshold { $threshold }).
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
+# MACHINE TRANSLATION, pending native review
+asset-media-heading = Photos
+asset-media-description = Les photos sont rattachées à cet actif et visibles par les membres de l'espace de travail.
+asset-media-add = Ajouter des photos
+asset-media-loading = Chargement des photos…
+asset-media-empty-title = Aucune photo jointe
+asset-media-empty-description = Ajoutez des photos de référence pour les matériaux, équipements, véhicules, étiquettes ou lieux de stockage.
+asset-media-load-failed = Échec du chargement des photos de l'actif
+asset-media-upload-failed = Échec de l'envoi des photos de l'actif
+asset-media-delete-failed = Échec de la suppression de la photo de l'actif
+asset-media-delete-aria = Supprimer { $name }
 
 # Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
 asset-status-in-service = En service
@@ -4764,6 +4868,12 @@ views-ticket-preview-empty-title = Aucun ticket sélectionné
 views-ticket-preview-empty-prefix = Cliquez sur une ligne, ou parcourez avec
 views-ticket-preview-empty-suffix = pour afficher l'aperçu.
 views-ticket-preview-open = Ouvrir
+# MACHINE TRANSLATION, pending native review
+views-ticket-preview-triage = Tri
+views-ticket-preview-status = Statut
+views-ticket-preview-priority = Priorité
+views-ticket-preview-title-placeholder = Ajouter un titre…
+views-ticket-preview-assignee-placeholder = Attribuer à…
 views-ticket-preview-close-tooltip = Fermer l'aperçu (Échap)
 views-ticket-preview-close-aria = Fermer l'aperçu
 views-ticket-preview-kb-gap = Lacune KB
@@ -4777,6 +4887,9 @@ views-ticket-preview-cycle = Cycle
 views-ticket-preview-cycle-label = Cycle n°{ $id }
 views-ticket-preview-category = Catégorie
 views-ticket-preview-sla = SLA
+# MACHINE TRANSLATION, pending native review
+views-ticket-preview-sla-response = Réponse
+views-ticket-preview-sla-resolution = Résolution
 views-ticket-preview-activity = Activité
 views-ticket-preview-last-activity = Dernière activité
 views-ticket-preview-created = Créé
@@ -5258,9 +5371,18 @@ dashboard-widget-shell-hide-label = Masquer { $title }
 dashboard-widget-shell-loading-label = Chargement de { $title }
 
 dashboard-edit-bar-editing = Modification du tableau de bord
+# MACHINE TRANSLATION, pending native review
+dashboard-edit-bar-unsaved = Modifications non enregistrées
 dashboard-edit-bar-add-widget = Ajouter un widget
 dashboard-edit-bar-reset = Réinitialiser
 dashboard-edit-bar-done = Terminé
+# MACHINE TRANSLATION, pending native review
+dashboard-edit-bar-close = Fermer
+dashboard-edit-bar-discard = Abandonner
+dashboard-edit-bar-undo = Annuler
+dashboard-edit-bar-redo = Rétablir
+dashboard-edit-bar-undo-tooltip = Annuler la dernière modification (Cmd-Z)
+dashboard-edit-bar-redo-tooltip = Rétablir (Cmd-Maj-Z)
 dashboard-edit-bar-reset-confirm-title = Réinitialiser la disposition du tableau de bord ?
 dashboard-edit-bar-reset-confirm-message = Votre disposition personnalisée sera remplacée par celle par défaut associée à votre rôle.
 dashboard-edit-bar-reset-confirm-label = Réinitialiser
@@ -5268,14 +5390,42 @@ dashboard-edit-bar-reset-confirm-label = Réinitialiser
 dashboard-leave-confirm-title = Abandonner les modifications du tableau de bord ?
 dashboard-leave-confirm-message = Vous avez des modifications non enregistrées sur la disposition de votre tableau de bord. Quitter quand même ?
 dashboard-leave-confirm-label = Abandonner
+# MACHINE TRANSLATION, pending native review
+dashboard-edit-bar-save-error-title = Impossible d'enregistrer le tableau de bord
+dashboard-edit-bar-save-error-message = Vos modifications sont conservées. Réessayez ou vérifiez votre connexion.
 
 dashboard-add-widget-title = Ajouter un widget
 dashboard-add-widget-all-added = Tous les widgets disponibles figurent déjà sur votre tableau de bord.
+# MACHINE TRANSLATION, pending native review
+dashboard-add-widget-tab-system = Widgets système
+dashboard-add-widget-tab-saved-views = Vos vues enregistrées
 # machine, à relire par un locuteur natif
 dashboard-add-widget-tab-plugins = Extensions
+# MACHINE TRANSLATION, pending native review
+dashboard-add-widget-saved-views-loading = Chargement des vues enregistrées...
+dashboard-add-widget-saved-views-empty = Aucune vue enregistrée avec graphique pour l'instant. Créez-en une depuis la liste des tickets pour l'épingler ici.
+dashboard-widget-saved-view-title = Vue enregistrée
+dashboard-widget-saved-view-description = Une vue enregistrée avec graphique, épinglée à votre tableau de bord.
 dashboard-widget-plugin-title = Widget d'extension
 dashboard-widget-plugin-description = Un widget fourni par une extension installée.
 dashboard-widget-plugin-unavailable = Cette extension n'est plus disponible.
+# MACHINE TRANSLATION, pending native review
+dashboard-saved-view-loading-title = Vue enregistrée
+dashboard-saved-view-error = Échec du chargement de la vue enregistrée.
+dashboard-saved-view-placeholder = Le rendu des graphiques arrivera dans une prochaine version.
+dashboard-saved-view-misconfigured = La configuration du graphique de cette vue est incomplète.
+dashboard-kpi-error = Indicateur indisponible
+dashboard-line-chart-loading = Chargement...
+dashboard-line-chart-error = Graphique indisponible
+dashboard-line-chart-empty = Aucune donnée sur cette période
+dashboard-line-chart-aria-label = Série temporelle quotidienne
+dashboard-bar-uncategorised = Sans catégorie
+dashboard-bar-unassigned = Non attribué
+dashboard-saved-view-viz-label-list = Liste
+dashboard-saved-view-viz-label-line = Courbe
+dashboard-saved-view-viz-label-heatmap = Carte de chaleur
+dashboard-saved-view-viz-label-leaderboard = Classement
+dashboard-saved-view-viz-label-table = Tableau
 
 dashboard-staff-queue-title = File d'attente
 dashboard-staff-queue-configure-aria = Configurer les indicateurs de la file
@@ -6249,6 +6399,10 @@ plugins-load-failed = Échec du chargement des plugins
 search-failed = La recherche a échoué. Veuillez réessayer.
 auth-autologin-prompt = Veuillez vous connecter avec vos identifiants.
 auth-login-rate-limited = Trop de requêtes. Veuillez patienter un instant.
+# MACHINE TRANSLATION, pending native review
+auth-mfa-rate-limited = Trop de tentatives MFA. Veuillez réessayer plus tard.
+auth-mfa-rate-limited-retry = Trop de tentatives MFA. Veuillez réessayer dans { $seconds } secondes.
+auth-mfa-failed = Échec de la vérification MFA. Veuillez réessayer.
 auth-login-network-error = Erreur réseau. Veuillez vérifier votre connexion.
 auth-login-backup-codes-low = Connexion réussie. Pensez à régénérer vos codes de secours, il vous en reste 2 ou moins.
 ticket-audio-play-failed = Échec de la lecture audio
