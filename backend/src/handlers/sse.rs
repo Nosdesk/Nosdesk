@@ -712,12 +712,7 @@ pub async fn sse_events_stream(
         }
     };
     use crate::utils::jwt::JwtUtils;
-    let (user_info, user) = match JwtUtils::validate_token_with_user_check(token, &mut conn).await {
-        Ok((claims, user)) => (claims, user),
-        Err(e) => {
-            return Ok(e.into());
-        }
-    };
+    let (user_info, user) = JwtUtils::validate_token_with_user_check(token, &mut conn).await?;
 
     // Only a purpose-minted SSE connection token opens this stream, mirroring
     // the collab WebSocket's `scope == "collab"` gate. A portal-scoped token, a

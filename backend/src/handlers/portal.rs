@@ -142,15 +142,11 @@ fn mint_portal_session(
     workspace_uuid: Uuid,
     request: &HttpRequest,
     conn: &mut DbConnection,
-) -> actix_web::Result<PortalSessionCookies> {
+) -> Result<PortalSessionCookies, ApiError> {
     let session = crate::handlers::auth::create_session_record(&user.uuid, request, conn, None)
         .map_err(|e| {
             tracing::error!(error = ?e, "portal session: failed to create session record");
-            let resp = HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to establish session"
-            }));
-            errors::from_response("portal session failed", resp)
+            ApiError::Internal("Failed to establish session".into())
         })?;
 
     let family_id = Uuid::new_v4();
