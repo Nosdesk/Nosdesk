@@ -111,6 +111,10 @@ notif-ticket-referenced = [{ $app }] { $actor } heeft uw ticket vermeld
 notif-ticket-created-requester = [{ $app }] Ticket aangemaakt: { $title }
 notif-doc-page-updated = [{ $app }] Pagina bijgewerkt: { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
+# MACHINE TRANSLATION, pending native review
+notif-sla-breached = [{ $app }] SLA overschreden: { $title }
+notif-loan-due-soon = [{ $app }] Uitlening bijna verlopen: { $title }
+notif-loan-overdue = [{ $app }] Uitlening te laat: { $title }
 # Notification email body.
 notif-body-fallback = U hebt een nieuwe melding.
 notif-from-row = <strong>Van:</strong> { $actor }
@@ -233,6 +237,23 @@ dashboard-time-range-3y = 3 jr
 dashboard-time-range-custom = Aangepast
 dashboard-time-range-custom-apply = Toepassen
 dashboard-time-range-custom-cancel = Annuleren
+# MACHINE TRANSLATION, pending native review
+dashboard-compare-toggle-label = Vergelijken
+dashboard-compare-toggle-tooltip = Dezelfde periode van het vorige tijdvak eroverheen leggen
+dashboard-annotations-toggle-label = Annotaties
+dashboard-annotations-toggle-tooltip = Wijzigingen in regels, SLA's en openingstijden markeren op tijdreeksgrafieken
+dashboard-refresh-tooltip = Niet-live gegevens vernieuwen (R)
+dashboard-refresh-updated-prefix = Bijgewerkt
+dashboard-refresh-just-loaded = zojuist
+dashboard-refresh-unknown = onlangs
+dashboard-anchor-rail-aria-label = Dashboardsecties
+dashboard-section-today = Vandaag
+dashboard-section-volume-sla = Volume en SLA
+dashboard-section-queue-health = Wachtrijstatus
+dashboard-section-agents = Agenten
+dashboard-section-categories = Categorieën
+dashboard-section-backlog-ageing = Achterstand en veroudering
+dashboard-section-audit-activity = Auditactiviteit
 
 # Lege staten voor de belangrijkste overzichten.
 empty-documentation-grid-title = Nog geen documentatie
@@ -356,6 +377,19 @@ ticket-list-bulk-priority = Prioriteit
 ticket-list-bulk-assign = Toewijzen
 ticket-list-bulk-clear-title = Selectie wissen (Esc)
 ticket-list-bulk-clear = Wissen
+# MACHINE TRANSLATION, pending native review
+ticket-list-context-copy-number = Ticketnummer kopiëren
+ticket-list-context-assign-to-me = Aan mij toewijzen
+ticket-list-context-actions-heading = Acties
+ticket-list-context-selection-heading = Selectie
+ticket-list-context-select = Selecteren
+ticket-list-context-deselect = Deselecteren
+ticket-list-context-merge = { $count ->
+    [one] Ticket samenvoegen…
+   *[other] { $count } tickets samenvoegen…
+}
+ticket-list-context-merge-hint = Selecteer minimaal 2 tickets om samen te voegen
+ticket-list-context-flagged-toast = Gemarkeerd voor documentatie
 ticket-list-row-density-aria = Rijdichtheid
 ticket-list-save-view-title = Huidige status opslaan als privéweergave
 ticket-list-recurring-title = Terugkerend ticket
@@ -644,6 +678,23 @@ admin-audit-load-more = Meer laden
 admin-audit-loading-more = Laden…
 admin-audit-error-load = Kon auditlogboek niet laden
 admin-audit-error-load-more = Kon meer auditvermeldingen niet laden
+# MACHINE TRANSLATION, pending native review
+admin-audit-tier-all = Alle
+admin-audit-tier-app = App
+admin-audit-tier-auth = Authenticatie
+admin-audit-tier-change = Wijzigingen
+admin-audit-filter-event = Gebeurtenistype
+admin-audit-filter-event-placeholder = bijv. auth.
+admin-audit-filter-severity = Ernst
+admin-audit-severity-any = Alle
+admin-audit-export = Exporteren als JSON
+admin-audit-exporting = Bezig met exporteren…
+admin-audit-payload = Inhoud
+admin-audit-target = Doel
+admin-audit-source-ip = Bron-IP
+admin-audit-source-tier1 = App
+admin-audit-source-tier2 = Authenticatie
+admin-audit-source-tier3 = Wijziging
 
 # Beheer: e-mailsuppressielijst.
 admin-suppressions-title = E-mailsuppressielijst
@@ -1115,6 +1166,17 @@ admin-system-cleanup-stat-checked = Gecontroleerd:
 admin-system-cleanup-stat-errors = Fouten:
 admin-system-cleanup-view-errors = Fouten bekijken ({ $count })
 admin-system-cleanup-error-unexpected = Er is een onverwachte fout opgetreden tijdens het opschonen van afbeeldingen
+# MACHINE TRANSLATION, pending native review
+admin-system-thumbnails-title = Miniaturen van profielfoto's
+admin-system-thumbnails-description = Bouwt ontbrekende of verouderde avatarminiaturen opnieuw op. Bij een herstel worden miniaturen weggelaten om ruimte te besparen; voer dit uit als profielfoto's na een herstel kapot lijken. Kan altijd veilig worden uitgevoerd; alleen wat ontbreekt wordt opnieuw gegenereerd.
+admin-system-thumbnails-action = Opnieuw genereren
+admin-system-thumbnails-running = Bezig met genereren...
+admin-system-thumbnails-success = Miniaturen opnieuw gegenereerd
+admin-system-thumbnails-failed = Opnieuw genereren mislukt
+admin-system-thumbnails-stat-checked = Gecontroleerd:
+admin-system-thumbnails-stat-regenerated = Opnieuw gegenereerd:
+admin-system-thumbnails-stat-failed = Mislukt:
+admin-system-thumbnails-error-unexpected = Er is een onverwachte fout opgetreden bij het opnieuw genereren van miniaturen
 
 # Beheer: zoekindexbeheer.
 admin-search-mgmt-title = Beheer zoekindex
@@ -2476,10 +2538,19 @@ assets-list-filter-name-label = Name
 assets-list-filter-status-label = Status
 assets-list-filter-warranty-label = Warranty
 assets-list-filter-low-stock-label = Low stock
+# MACHINE TRANSLATION, pending native review
+assets-list-filter-location-label = Locatie
+assets-list-filter-location-count =
+    { $count ->
+        [one] 1 asset
+       *[other] { $count } assets
+    }
 assets-list-column-device = Activum
 assets-list-column-serial = Serienummer
 assets-list-column-hostname = Hostnaam
 assets-list-column-model = Model
+# MACHINE TRANSLATION, pending native review
+assets-list-column-location = Locatie
 assets-list-column-user = Gebruiker
 assets-list-column-status = Status
 assets-list-column-warranty = Garantie
@@ -2558,6 +2629,11 @@ asset-detail-group-warranty = Garantie
 asset-detail-field-asset-tag = Inventarisnummer
 asset-detail-field-asset-tag-placeholder-create = Voer inventarisnummer in
 asset-detail-field-asset-tag-placeholder-edit = Voer inventarisnummer in...
+# MACHINE TRANSLATION, pending native review
+asset-detail-field-location = Locatie
+asset-detail-field-location-placeholder-create = bijv. Magazijn A, rek 3, Utrecht
+asset-detail-field-location-placeholder-edit = Voer een locatie in...
+asset-detail-location-suggestions = Bekend
 asset-detail-warranty-active = Actief
 asset-detail-warranty-warning = Waarschuwing
 asset-detail-warranty-expired = Verlopen
@@ -3533,6 +3609,9 @@ doc-icon-selector-category-food = Eten
 doc-icon-selector-category-activities = Activiteiten
 # Instellingen: profiel (UserProfileCard)
 settings-profile-banner-alt = Profielbanner
+# MACHINE TRANSLATION, pending native review
+settings-profile-banner-change = Banner wijzigen
+settings-profile-avatar-change = Profielfoto wijzigen
 settings-profile-change-photo = Foto wijzigen
 settings-profile-name-placeholder = Voer een naam in...
 settings-profile-pronouns-label = Voornaamwoorden
@@ -4236,6 +4315,11 @@ ticket-activity-actor-title-subject = { $name } — Onderwerp: { $subject }
 ticket-activity-actor-title-named = { $name } <{ $email }>
 ticket-activity-actor-title-named-subject = { $name } <{ $email }> — Onderwerp: { $subject }
 ticket-activity-to-assignee = aan { $name }
+# MACHINE TRANSLATION, pending native review
+ticket-activity-made-changes = heeft { $count } { $count ->
+    [one] wijziging
+   *[other] wijzigingen
+} aangebracht
 ticket-activity-phrase-created = heeft dit ticket aangemaakt
 ticket-activity-phrase-opened-via = heeft dit ticket geopend via { $channel }
 ticket-activity-phrase-submitted-via = heeft dit ticket ingediend via { $channel }
@@ -4362,6 +4446,12 @@ asset-usage-record-failed = Failed to record usage
 
 # Asset detail: stock tracking section + low-stock indicator (Phase G).
 asset-detail-section-stock = Stock tracking
+# MACHINE TRANSLATION, pending native review
+asset-detail-stock-not-tracked = Niet bijgehouden
+asset-detail-section-physical-context = Fysieke context
+asset-detail-physical-context-help = Gebruik de locatie, voorraadvelden en soortspecifieke kenmerken om te beschrijven waar deze asset zich bevindt en hoe deze wordt beheerd.
+asset-detail-photo-placeholder-title = Voeg foto's toe na het aanmaken
+asset-detail-photo-placeholder-description = Sla de asset eerst op en voeg daarna foto's toe vanaf de detailpagina.
 asset-detail-field-quantity = On-hand quantity
 asset-detail-field-quantity-placeholder = e.g. 25
 asset-detail-field-unit = Unit
@@ -4375,10 +4465,24 @@ asset-detail-attributes-save = Save attributes
 asset-detail-attributes-discard = Discard
 asset-detail-attributes-save-failed = Failed to save attributes
 asset-detail-kind-change-confirm = Change kind to { $newKind }? Current attributes will be cleared, you can re-enter them against the new kind schema.
+# MACHINE TRANSLATION, pending native review
+asset-detail-kind-change-title = Assetsoort wijzigen?
+asset-detail-kind-change-confirm-label = Soort wijzigen
 asset-detail-kind-change-failed = Failed to change kind
 asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (threshold { $threshold }).
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
+# MACHINE TRANSLATION, pending native review
+asset-media-heading = Foto's
+asset-media-description = Foto's worden bij deze asset bewaard en zijn zichtbaar voor leden van de werkruimte.
+asset-media-add = Foto's toevoegen
+asset-media-loading = Foto's laden…
+asset-media-empty-title = Geen foto's bijgevoegd
+asset-media-empty-description = Voeg referentiefoto's toe van materialen, apparatuur, voertuigen, labels of opslaglocaties.
+asset-media-load-failed = Laden van assetfoto's mislukt
+asset-media-upload-failed = Uploaden van assetfoto's mislukt
+asset-media-delete-failed = Verwijderen van assetfoto mislukt
+asset-media-delete-aria = { $name } verwijderen
 
 # Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
 asset-status-in-service = In gebruik
@@ -4755,6 +4859,12 @@ views-ticket-preview-empty-title = Geen ticket geselecteerd
 views-ticket-preview-empty-prefix = Klik op een rij of navigeer met
 views-ticket-preview-empty-suffix = voor een voorbeeld.
 views-ticket-preview-open = Openen
+# MACHINE TRANSLATION, pending native review
+views-ticket-preview-triage = Triage
+views-ticket-preview-status = Status
+views-ticket-preview-priority = Prioriteit
+views-ticket-preview-title-placeholder = Titel toevoegen…
+views-ticket-preview-assignee-placeholder = Toewijzen aan…
 views-ticket-preview-close-tooltip = Voorbeeld sluiten (Esc)
 views-ticket-preview-close-aria = Voorbeeld sluiten
 views-ticket-preview-kb-gap = KB-hiaat
@@ -4768,6 +4878,9 @@ views-ticket-preview-cycle = Cyclus
 views-ticket-preview-cycle-label = Cyclus #{ $id }
 views-ticket-preview-category = Categorie
 views-ticket-preview-sla = SLA
+# MACHINE TRANSLATION, pending native review
+views-ticket-preview-sla-response = Reactie
+views-ticket-preview-sla-resolution = Oplossing
 views-ticket-preview-activity = Activiteit
 views-ticket-preview-last-activity = Laatste activiteit
 views-ticket-preview-created = Aangemaakt
@@ -5249,9 +5362,18 @@ dashboard-widget-shell-hide-label = { $title } verbergen
 dashboard-widget-shell-loading-label = { $title } wordt geladen
 
 dashboard-edit-bar-editing = Dashboard bewerken
+# MACHINE TRANSLATION, pending native review
+dashboard-edit-bar-unsaved = Niet-opgeslagen wijzigingen
 dashboard-edit-bar-add-widget = Widget toevoegen
 dashboard-edit-bar-reset = Herstellen
 dashboard-edit-bar-done = Klaar
+# MACHINE TRANSLATION, pending native review
+dashboard-edit-bar-close = Sluiten
+dashboard-edit-bar-discard = Verwerpen
+dashboard-edit-bar-undo = Ongedaan maken
+dashboard-edit-bar-redo = Opnieuw uitvoeren
+dashboard-edit-bar-undo-tooltip = Laatste wijziging ongedaan maken (Cmd-Z)
+dashboard-edit-bar-redo-tooltip = Opnieuw uitvoeren (Cmd-Shift-Z)
 dashboard-edit-bar-reset-confirm-title = Dashboardindeling herstellen?
 dashboard-edit-bar-reset-confirm-message = Je aangepaste indeling wordt vervangen door de standaardindeling voor jouw rol.
 dashboard-edit-bar-reset-confirm-label = Herstellen
@@ -5259,14 +5381,42 @@ dashboard-edit-bar-reset-confirm-label = Herstellen
 dashboard-leave-confirm-title = Dashboardwijzigingen verwerpen?
 dashboard-leave-confirm-message = Je hebt niet-opgeslagen wijzigingen in je dashboardindeling. Toch verlaten?
 dashboard-leave-confirm-label = Verwerpen
+# MACHINE TRANSLATION, pending native review
+dashboard-edit-bar-save-error-title = Dashboard kon niet worden opgeslagen
+dashboard-edit-bar-save-error-message = Uw wijzigingen zijn nog aanwezig. Probeer het opnieuw of controleer uw verbinding.
 
 dashboard-add-widget-title = Widget toevoegen
 dashboard-add-widget-all-added = Alle beschikbare widgets staan al op je dashboard.
+# MACHINE TRANSLATION, pending native review
+dashboard-add-widget-tab-system = Systeemwidgets
+dashboard-add-widget-tab-saved-views = Uw opgeslagen weergaven
 # machine, door een moedertaalspreker te controleren
 dashboard-add-widget-tab-plugins = Plug-ins
+# MACHINE TRANSLATION, pending native review
+dashboard-add-widget-saved-views-loading = Opgeslagen weergaven laden...
+dashboard-add-widget-saved-views-empty = Nog geen opgeslagen weergaven met een grafiek. Maak er een vanuit de ticketlijst om deze hier vast te zetten.
+dashboard-widget-saved-view-title = Opgeslagen weergave
+dashboard-widget-saved-view-description = Een opgeslagen weergave met grafiek, vastgezet op uw dashboard.
 dashboard-widget-plugin-title = Plug-inwidget
 dashboard-widget-plugin-description = Een widget van een geïnstalleerde plug-in.
 dashboard-widget-plugin-unavailable = Deze plug-in is niet meer beschikbaar.
+# MACHINE TRANSLATION, pending native review
+dashboard-saved-view-loading-title = Opgeslagen weergave
+dashboard-saved-view-error = Laden van opgeslagen weergave mislukt.
+dashboard-saved-view-placeholder = De grafiekweergave volgt in een latere versie.
+dashboard-saved-view-misconfigured = De grafiekconfiguratie van deze weergave mist verplichte velden.
+dashboard-kpi-error = KPI niet beschikbaar
+dashboard-line-chart-loading = Laden...
+dashboard-line-chart-error = Grafiek niet beschikbaar
+dashboard-line-chart-empty = Geen gegevens in deze periode
+dashboard-line-chart-aria-label = Dagelijkse tijdreeks
+dashboard-bar-uncategorised = Zonder categorie
+dashboard-bar-unassigned = Niet toegewezen
+dashboard-saved-view-viz-label-list = Lijst
+dashboard-saved-view-viz-label-line = Lijngrafiek
+dashboard-saved-view-viz-label-heatmap = Heatmap
+dashboard-saved-view-viz-label-leaderboard = Ranglijst
+dashboard-saved-view-viz-label-table = Tabel
 
 dashboard-staff-queue-title = Wachtrij
 dashboard-staff-queue-configure-aria = Wachtrijstatistieken configureren
@@ -6240,6 +6390,10 @@ plugins-load-failed = Kon plug-ins niet laden
 search-failed = Zoeken is mislukt. Probeer het opnieuw.
 auth-autologin-prompt = Meld je aan met je inloggegevens.
 auth-login-rate-limited = Te veel verzoeken. Wacht even.
+# MACHINE TRANSLATION, pending native review
+auth-mfa-rate-limited = Te veel MFA-pogingen. Probeer het later opnieuw.
+auth-mfa-rate-limited-retry = Te veel MFA-pogingen. Probeer het over { $seconds } seconden opnieuw.
+auth-mfa-failed = MFA-verificatie mislukt. Probeer het opnieuw.
 auth-login-network-error = Netwerkfout. Controleer je verbinding.
 auth-login-backup-codes-low = Aanmelding gelukt. Genereer je back-upcodes binnenkort opnieuw, je hebt er nog 2 of minder.
 ticket-audio-play-failed = Audio kon niet worden afgespeeld
