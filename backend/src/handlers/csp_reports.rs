@@ -22,10 +22,10 @@
 //! `blockedURL` etc). Normalisation collapses both to a single
 //! internal `ParsedReport` shape before hashing and persisting.
 
+use crate::errors::ApiError;
 use crate::extractors::{PlatformConn, TenantConn};
 #[allow(unused_imports)]
 use crate::handlers; // keep helpers reachable for tests
-use crate::handlers::errors::ApiError;
 use crate::models::{Claims, NewCspReport, WorkspaceRole};
 use crate::repository::csp_reports as repo;
 use crate::utils::rbac;

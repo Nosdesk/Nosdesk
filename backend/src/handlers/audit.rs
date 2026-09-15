@@ -11,8 +11,8 @@
 //! emits exactly one tier-1 meta event recording who read/exported
 //! what filter and how many rows came back.
 
+use crate::errors::ApiError;
 use crate::extractors::TenantConn;
-use crate::handlers::errors::ApiError;
 use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::audit as repo;
 use crate::sync::{emit, groups};

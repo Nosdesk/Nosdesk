@@ -12,7 +12,7 @@ use actix_web::error::{ErrorBadRequest, ErrorInternalServerError};
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 
-use crate::handlers::errors::ApiError;
+use crate::errors::ApiError;
 use crate::services::notifications::NotificationService;
 use crate::utils::unsubscribe_token;
 

@@ -12,8 +12,8 @@ use serde::Deserialize;
 use tracing::error;
 use uuid::Uuid;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
-use crate::handlers::errors;
 use crate::repository::{
     asset_loans::{self as repo, IssueLoan, LoanError},
     assets as assets_repo,

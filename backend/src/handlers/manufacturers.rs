@@ -15,8 +15,8 @@ use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use serde::Deserialize;
 use tracing::error;
 
+use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{ManufacturerChange, NewManufacturer};
 use crate::repository::manufacturers as repo;
 

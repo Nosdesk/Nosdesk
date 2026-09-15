@@ -29,8 +29,8 @@ use serde_json::Value;
 use tracing::{error, info};
 use uuid::Uuid;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::models::{NewSavedView, SavedView, SavedViewUpdate};
 use crate::repository::saved_views as repo;
 

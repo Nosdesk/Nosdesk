@@ -5,7 +5,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::middleware::request_context::record_canonical;
 use crate::models::{LoginRequest, PasswordChangeRequest};

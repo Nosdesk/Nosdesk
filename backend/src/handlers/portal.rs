@@ -31,8 +31,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
+use crate::errors::{self, ApiError};
 use crate::extractors::{TenantConn, WorkspaceContext};
-use crate::handlers::errors::{self, ApiError};
 use crate::middleware::cookie_auth::{require_workspace_membership, PORTAL_SCOPE};
 use crate::models::{Claims, ContentFormat, NewComment, NewTicket, Ticket, TicketPriority, User};
 use crate::repository::ticket_visibility::{

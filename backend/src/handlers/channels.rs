@@ -17,8 +17,8 @@ use serde_json::{json, Value as JsonValue};
 use tracing::{error, info, warn};
 
 use crate::db::DbConnection;
+use crate::errors::{self, ApiError};
 use crate::extractors::TenantConn;
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{
     Channel, ChannelUpdate, NewChannel, WorkspaceRole, CHANNEL_PROVIDER_EMAIL_FORWARD,
     CRED_TYPE_IMAP_PASSWORD, INBOUND_ADDRESS_STATUS_ACTIVE,

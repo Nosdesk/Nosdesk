@@ -6,9 +6,9 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
+use crate::errors::{self, ApiError};
 use crate::extractors::AuthContext;
 use crate::extractors::WorkspaceContext;
-use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::Claims;
 use crate::repository::search_query_log;

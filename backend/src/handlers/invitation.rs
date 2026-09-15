@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tracing::{error, info, warn};
 
 use crate::db::DbConnection;
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{
     AcceptInvitationRequest, AcceptInvitationResponse, ValidateInvitationRequest,

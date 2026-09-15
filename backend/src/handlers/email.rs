@@ -2,8 +2,8 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::errors::ApiError;
 use crate::extractors::TenantConn;
-use crate::handlers::errors::ApiError;
 use crate::utils::email::EmailService;
 use crate::utils::email_branding::get_email_branding;
 

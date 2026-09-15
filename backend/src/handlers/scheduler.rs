@@ -9,7 +9,7 @@ use actix_web::{web, HttpRequest, HttpResponse};
 use serde::Serialize;
 
 use crate::db::Pool;
-use crate::handlers::errors::ApiError;
+use crate::errors::ApiError;
 use crate::handlers::helpers;
 use crate::services::scheduler::{PeriodicStatus, StatusRegistry};
 

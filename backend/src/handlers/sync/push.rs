@@ -20,8 +20,8 @@ use serde_json::Value;
 use tracing::{info, warn};
 
 use crate::db::{DbConnection, Pool};
+use crate::errors::ApiError;
 use crate::extractors::SyncContext;
-use crate::handlers::errors::ApiError;
 use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{Project, ProjectUpdate, SyncAggregate, SyncOp, TicketUpdate};

@@ -8,8 +8,8 @@ use serde::Deserialize;
 use tracing::{error, info};
 use uuid::Uuid;
 
+use crate::errors::ApiError;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors::ApiError;
 use crate::handlers::helpers;
 use crate::models::{
     CreateWebhookRequest, UpdateWebhookRequest, Webhook, WebhookCreatedResponse,

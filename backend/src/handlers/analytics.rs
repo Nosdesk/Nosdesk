@@ -13,8 +13,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tracing::error;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::repository::analytics::{
     self, AnnotationQuery, BreakdownGroupBy, BreakdownQuery, HeatmapQuery, KpiMetric, KpiQuery,
     KpiSummaryQuery, LeaderboardActor, LeaderboardQuery, TimeseriesQuery, TsMeasure, TsTimeField,

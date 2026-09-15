@@ -25,7 +25,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{SyncAggregate, SyncOp};

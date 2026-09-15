@@ -1,6 +1,6 @@
 use actix_web::{web, HttpRequest, HttpResponse};
 
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use dashmap::DashMap;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};

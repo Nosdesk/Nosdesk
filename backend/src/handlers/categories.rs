@@ -2,8 +2,8 @@ use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
 use serde::Deserialize;
 
+use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{NewTicketCategory, TicketCategoryUpdate, WorkspaceRole};
 use crate::repository;
 use crate::utils::rbac::require_workspace_role;

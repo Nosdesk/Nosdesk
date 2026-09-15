@@ -13,8 +13,8 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::errors;
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
 use crate::middleware::RequestContext;
 use crate::models::Claims;
 use crate::repository::plugins as plugin_repo;

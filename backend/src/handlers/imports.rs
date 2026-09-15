@@ -20,8 +20,8 @@ use uuid::Uuid;
 
 use std::sync::Arc;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::models::{ImportJob, ImportJobUpdate, NewImportJob};
 use crate::repository::imports as repo;
 use crate::services::imports::{self, csv_parser, ImportType, ImportedRecords};

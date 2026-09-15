@@ -35,7 +35,6 @@ pub mod email;
 pub mod email_queue;
 pub mod email_suppressions;
 pub mod email_verification;
-pub mod errors;
 pub mod feature_flags;
 pub mod files;
 pub mod groups;
@@ -140,6 +139,7 @@ pub use passkeys::{
 use actix_web::{http::StatusCode, web, HttpMessage, HttpResponse, Responder};
 use serde_json::json;
 
+use crate::errors;
 use crate::middleware::request_context::record_canonical;
 use crate::utils::error_response::json_error;
 use crate::utils::locale::request_locale;

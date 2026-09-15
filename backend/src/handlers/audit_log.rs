@@ -8,8 +8,8 @@
 //! Each row in the response carries a flattened `diff` so the
 //! frontend doesn't need to know the trigger schema.
 
+use crate::errors::ApiError;
 use crate::extractors::TenantConn;
-use crate::handlers::errors::ApiError;
 use crate::models::WorkspaceRole;
 use crate::repository::audit_log as repo;
 use crate::utils::rbac;

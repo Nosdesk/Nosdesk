@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use uuid::Uuid;
 
+use crate::errors::{self, ApiError};
 use crate::extractors::TenantConn;
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{
     Claims, NewWorkflowState, WorkflowState, WorkflowStateCategory, WorkflowStateUpdate,
     WorkspaceRole,

@@ -20,8 +20,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::error;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::models::{AssetKind, AssetKindUpdate, NewAssetKind};
 use crate::repository::asset_kinds as repo;
 use crate::services::assets::kinds as schema_validator;

@@ -17,8 +17,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use crate::errors::ApiError;
 use crate::extractors::TenantConn;
-use crate::handlers::errors::ApiError;
 use crate::models::{
     email_suppression_reason, EmailSuppression, NewEmailSuppression, WorkspaceRole,
 };

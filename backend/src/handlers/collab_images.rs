@@ -23,11 +23,11 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::errors::ApiError;
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::handlers::collaboration::{
     can_access_document, DocAccessor, DocKind, DocumentType, ParsedDocId,
 };
-use crate::handlers::errors::ApiError;
 use crate::handlers::files::serve_or_not_found;
 use crate::sync::actor::ActorContext;
 use crate::sync::session;

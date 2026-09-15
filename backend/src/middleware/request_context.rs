@@ -285,7 +285,7 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
     let error_kind = resp
         .response()
         .extensions()
-        .get::<crate::handlers::errors::ErrorKind>()
+        .get::<crate::errors::ErrorKind>()
         .map(|k| k.0);
 
     // Extract owned values so the extensions borrow is released before the
@@ -695,7 +695,7 @@ mod tests {
 
     #[test]
     fn canonical_event_reports_error_kind_from_response_ext() {
-        use crate::handlers::errors::ErrorKind;
+        use crate::errors::ErrorKind;
         let events = run_capturing(|| {
             let req = TestRequest::get().uri("/api/tickets/42").to_srv_request();
             req.extensions_mut().insert(RequestStart(Instant::now()));

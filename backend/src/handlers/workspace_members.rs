@@ -30,8 +30,8 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::errors::{self, ApiError};
 use crate::extractors::WorkspaceContext;
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{Claims, WorkspaceMember, WorkspaceRole};
 use crate::repository::workspaces::{self, UpdateMembershipRoleResult};
 use crate::services::search::{indexing_tasks, SearchService};

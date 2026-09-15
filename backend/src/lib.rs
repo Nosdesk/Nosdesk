@@ -36,6 +36,7 @@
 pub mod config;
 pub mod config_utils;
 pub mod db;
+pub mod errors;
 pub mod extractors;
 pub mod handlers;
 pub mod license;

@@ -12,8 +12,8 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, warn};
 
+use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{AssetMediaUpdate, NewAssetMedia};
 use crate::repository::{asset_media as repo, assets as assets_repo};
 use crate::utils::file_validation::FileValidator;

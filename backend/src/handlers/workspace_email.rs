@@ -12,8 +12,8 @@ use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 
 use crate::db::Pool;
+use crate::errors::ApiError;
 use crate::extractors::TenantConn;
-use crate::handlers::errors::ApiError;
 use crate::models::{
     workspace_email_sending_mode, workspace_email_verification_status, Claims,
     UpsertWorkspaceEmailSettings, WorkspaceEmailSettings, WorkspaceRole,

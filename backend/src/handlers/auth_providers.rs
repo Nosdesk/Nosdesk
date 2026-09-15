@@ -9,7 +9,7 @@ use tracing::{error, info, warn};
 use urlencoding;
 
 use crate::db::{DbConnection, Pool};
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{AuthProvider, OAuthExchangeRequest, OAuthRequest, OAuthState};
 use crate::utils::jwt::JWT_SECRET;

@@ -16,8 +16,8 @@ use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{Doc, GetString, ReadTxn, StateVector, Transact, Update, WriteTxn, XmlFragment};
 
+use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors::{self, ApiError};
 use crate::repository;
 use crate::sync::actor::ActorContext as DbActor;
 use crate::sync::session;

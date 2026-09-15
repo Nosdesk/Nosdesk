@@ -1,6 +1,6 @@
 use actix_web::{web, HttpMessage, HttpResponse};
 
-use crate::handlers::errors::ApiError;
+use crate::errors::ApiError;
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
 use serde_json::json;

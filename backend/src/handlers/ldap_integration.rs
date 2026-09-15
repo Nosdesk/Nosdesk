@@ -11,8 +11,8 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
 
+use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::UpsertWorkspaceLdapSettings;
 use crate::repository::workspace_ldap_settings as repo;

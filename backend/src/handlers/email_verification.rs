@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::{info, warn};
 
-use crate::handlers::errors::ApiError;
+use crate::errors::ApiError;
 use crate::handlers::helpers;
 use crate::utils::reset_tokens::TokenType;
 

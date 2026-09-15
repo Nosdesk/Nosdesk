@@ -1,5 +1,5 @@
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::utils;
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;

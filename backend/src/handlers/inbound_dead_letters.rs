@@ -12,7 +12,7 @@ use serde::Serialize;
 use tracing::error;
 
 use crate::db::Pool;
-use crate::handlers::errors::ApiError;
+use crate::errors::ApiError;
 use crate::models::InboundDeadLetter;
 use crate::repository::inbound_dead_letters as repo;
 use crate::utils::rbac;
