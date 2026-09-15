@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use crate::db::DbConnection;
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{KnowledgeGap, KnowledgeGapSignal, UserInfoWithAvatar};
 use crate::repository::{self, knowledge_gaps};

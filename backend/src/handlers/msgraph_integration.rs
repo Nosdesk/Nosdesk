@@ -13,7 +13,7 @@ use uuid::Uuid;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::db::{DbConnection, Pool};
-use crate::handlers::errors::ApiError;
+use crate::errors::ApiError;
 use crate::handlers::helpers;
 // Auth providers are now configured via environment variables
 use crate::config_utils;

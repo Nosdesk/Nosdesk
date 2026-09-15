@@ -9,8 +9,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::errors::ApiError;
 use crate::extractors::{ScopedStorage, TenantConn, WorkspaceContext};
-use crate::handlers::errors::ApiError;
 use crate::handlers::files::serve_or_not_found;
 use crate::handlers::helpers;
 use crate::models::{SiteSettingsResponse, UpdateSiteSettings, WorkspaceRole};

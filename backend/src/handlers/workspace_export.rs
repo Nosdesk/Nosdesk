@@ -13,8 +13,8 @@ use actix_web::{web, HttpRequest, HttpResponse};
 use futures::StreamExt;
 use serde::Deserialize;
 
+use crate::errors::ApiError;
 use crate::extractors::PlatformConn;
-use crate::handlers::errors::ApiError;
 use crate::utils::rbac;
 use crate::utils::storage::{process_storage, WorkspaceScopedStorage};
 

@@ -18,8 +18,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
+use crate::errors::{self, ApiError};
 use crate::extractors::WorkspaceContext;
-use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{
     NewAttachment, NewTicket, PublicSiteSettings, SiteSettings, TicketPriority,

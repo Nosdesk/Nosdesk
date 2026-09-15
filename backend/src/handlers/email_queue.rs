@@ -10,8 +10,8 @@
 //!
 //! All workspace-admin-gated via `rbac::require_workspace_role`.
 
+use crate::errors::ApiError;
 use crate::extractors::TenantConn;
-use crate::handlers::errors::ApiError;
 use crate::models::WorkspaceRole;
 use crate::repository::outbound_emails as repo;
 use crate::utils::rbac;

@@ -13,8 +13,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::errors::{self, ApiError};
 use crate::extractors::{PlatformConn, TenantConn};
-use crate::handlers::errors::{self, ApiError};
 use crate::middleware::request_context::RequestContext;
 use crate::models::NewBugReport;
 use crate::repository::bug_reports as repo;

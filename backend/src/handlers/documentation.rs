@@ -12,8 +12,8 @@ use yrs::{
 };
 
 use crate::db::{DbConnection, Pool};
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::models::{
     DocumentationPage, DocumentationPageResponse, DocumentationPageTicketEmbed,
     DocumentationPageWithChildren, DocumentationStatus, NewDocumentationPage, UserInfoWithAvatar,

@@ -10,7 +10,7 @@ use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
 use crate::db::Pool;
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::Claims;
 use crate::repository::{self, user_auth_identities::get_local_password_hash};

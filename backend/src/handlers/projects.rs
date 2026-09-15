@@ -3,8 +3,8 @@ use diesel::result::Error;
 use serde::Deserialize;
 use tracing::debug;
 
+use crate::errors::{self, ApiError};
 use crate::extractors::TenantConn;
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{NewProject, ProjectUpdate, WorkspaceRole};
 use crate::repository;
 use crate::services::search::SearchService;

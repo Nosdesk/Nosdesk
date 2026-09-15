@@ -13,8 +13,8 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use tracing::{error, info};
 
+use crate::errors::{self, ApiError};
 use crate::extractors::TenantConn;
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{
     CannedResponse, CannedResponseStarter, CannedResponseUpdate, NewCannedResponse,
     NewCannedResponseInsertion, WorkspaceRole,

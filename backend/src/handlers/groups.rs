@@ -3,8 +3,8 @@ use diesel::result::Error;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::errors::{self, ApiError};
 use crate::extractors::TenantConn;
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{Claims, GroupUpdate, NewGroup, WorkspaceRole};
 use crate::repository;
 use crate::utils::i18n;

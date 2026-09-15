@@ -17,7 +17,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::errors::ApiError;
+use crate::errors::ApiError;
 use crate::handlers::helpers;
 use crate::models::Claims;
 use crate::repository::feature_flags as repo;

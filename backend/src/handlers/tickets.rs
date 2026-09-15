@@ -8,8 +8,8 @@ use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
-use crate::handlers::errors::{self, ApiError};
 use crate::middleware::request_context::record_canonical;
 use crate::models::{
     AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson, WorkflowStateCategory,

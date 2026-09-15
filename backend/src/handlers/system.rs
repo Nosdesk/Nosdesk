@@ -1,6 +1,6 @@
 use actix_web::{web, HttpRequest, HttpResponse};
 
-use crate::handlers::errors::ApiError;
+use crate::errors::ApiError;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 

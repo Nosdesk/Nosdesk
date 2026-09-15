@@ -12,7 +12,7 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 
 use crate::db::Pool;
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::middleware::request_context::RequestContext;
 use crate::models::WorkspaceRole;
 use crate::repository::ticket_merge::{self, ExpectedState, MergeError, MergeInput};

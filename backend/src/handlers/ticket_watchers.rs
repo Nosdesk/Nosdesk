@@ -13,8 +13,8 @@ use actix_web::{web, HttpResponse, Responder};
 use serde::Deserialize;
 use tracing::error;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
-use crate::handlers::errors;
 use crate::repository::ticket_watchers as repo;
 
 /// Watcher uuids for a ticket. Returned as a flat list of uuid

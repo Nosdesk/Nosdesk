@@ -9,8 +9,8 @@ use actix_web::{web, HttpResponse, Responder};
 use serde::Deserialize;
 use tracing::error;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
-use crate::handlers::errors;
 use crate::models::{NewTag, TagUpdate};
 use crate::repository::tags as repo;
 

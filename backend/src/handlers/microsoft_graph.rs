@@ -5,7 +5,7 @@ use tracing::error;
 use urlencoding;
 
 use crate::db::Pool;
-use crate::handlers::errors::ApiError;
+use crate::errors::ApiError;
 use crate::handlers::helpers;
 // Auth providers are now configured via environment variables
 use crate::config_utils;

@@ -6,8 +6,8 @@ use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn, WorkspaceContext};
-use crate::handlers::errors;
 use crate::models::{
     DocumentationCollectionUpdate, NewDocumentationCollection, NewDocumentationCollectionPage,
 };

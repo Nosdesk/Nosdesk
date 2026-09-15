@@ -2,7 +2,7 @@ use actix_web::{web, HttpMessage, HttpRequest};
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::models::{Claims, User};
 use crate::repository;
 use crate::sync::actor::ActorContext;

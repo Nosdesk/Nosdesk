@@ -15,8 +15,8 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
+use crate::errors;
 use crate::extractors::{SyncContext, TenantConn};
-use crate::handlers::errors;
 use crate::schema::sync_actions;
 
 #[derive(Debug, Deserialize)]

@@ -5,8 +5,8 @@ use actix_web::{web, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use tracing::error;
 
+use crate::errors::ApiError;
 use crate::extractors::TenantConn;
-use crate::handlers::errors::ApiError;
 use crate::models::{SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;

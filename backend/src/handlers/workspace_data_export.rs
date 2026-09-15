@@ -19,8 +19,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::errors::{self, ApiError};
 use crate::extractors::{TenantConn, WorkspaceContext};
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{
     Claims, NewWorkspaceExportJob, WorkspaceExportJob, WorkspaceExportJobUpdate, WorkspaceRole,
 };

@@ -14,8 +14,8 @@ use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
 
+use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, WorkspaceContext};
-use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::repository::dashboard_stats::{self, StatsGroup};
 

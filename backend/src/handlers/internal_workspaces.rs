@@ -20,8 +20,8 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
+use crate::errors::{self, ApiError};
 use crate::extractors::PlatformAuth;
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{NewWorkspace, Workspace};
 use crate::repository::workspaces::{self, CreateWorkspaceError, UpdateMembershipRoleResult};
 use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};

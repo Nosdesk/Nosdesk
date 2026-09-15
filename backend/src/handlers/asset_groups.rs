@@ -11,8 +11,8 @@ use serde::Deserialize;
 use tracing::error;
 use uuid::Uuid;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::models::{AssetGroupUpdate, NewAssetGroup};
 use crate::repository::asset_groups as repo;
 

@@ -4,7 +4,7 @@ use serde_json::json;
 use tracing::{error, info, warn};
 
 use crate::db::DbConnection;
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{PasswordResetCompleteRequest, PasswordResetRequest, PasswordResetResponse};
 use crate::repository;

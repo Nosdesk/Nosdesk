@@ -7,8 +7,8 @@ use diesel::result::Error as DieselError;
 use tracing::error;
 use uuid::Uuid;
 
+use crate::errors::ApiError;
 use crate::extractors::TenantConn;
-use crate::handlers::errors::ApiError;
 use crate::handlers::helpers;
 use crate::handlers::plugins::{authorize_plugin_data_request, PluginGate};
 use crate::models::{

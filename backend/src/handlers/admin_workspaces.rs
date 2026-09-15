@@ -23,8 +23,8 @@ use uuid::Uuid;
 use std::sync::Arc;
 
 use crate::db::Pool;
+use crate::errors::{self, ApiError};
 use crate::extractors::PlatformConn;
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{NewWorkspace, Workspace, WorkspaceMember, WorkspaceRole};
 use crate::repository::workspaces::{self, CreateWorkspaceError, UpdateMembershipRoleResult};
 use crate::services::search::{indexing_tasks, SearchService};

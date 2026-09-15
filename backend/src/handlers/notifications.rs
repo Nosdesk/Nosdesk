@@ -5,7 +5,7 @@
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use chrono::{DateTime, Utc};
 
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
 use serde::Deserialize;
 

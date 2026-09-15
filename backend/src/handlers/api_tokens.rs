@@ -7,8 +7,8 @@ use diesel::result::Error;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::errors::ApiError;
 use crate::extractors::TenantConn;
-use crate::handlers::errors::ApiError;
 use crate::models::{Claims, CreateApiTokenRequest, WorkspaceRole};
 use crate::repository::api_tokens;
 use crate::utils::rbac::require_workspace_role;

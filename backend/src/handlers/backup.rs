@@ -1,5 +1,5 @@
+use crate::errors::{self, ApiError};
 use crate::extractors::TenantConn;
-use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use actix_multipart::Multipart;
 use actix_web::{web, HttpMessage, HttpResponse, Responder};

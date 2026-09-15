@@ -133,6 +133,10 @@ interface AxiosLikeError {
   response?: {
     status: number;
     data?: {
+      /** Canonical envelope: `{ error, code }`. */
+      error?: string;
+      code?: string;
+      /** Older login-flow bodies: `{ status, message }`. */
       message?: string;
       required_role?: string;
       field?: string;
@@ -180,31 +184,35 @@ export function createErrorFromResponse(error: unknown): AppError {
   }
 
   const { status, data, config } = axiosError.response
+  // Two body shapes reach here: the canonical `{ error, code }` envelope and
+  // the older `{ status, message }` login bodies. Read `message` first so the
+  // older shape keeps its text; `error` carries it for everything else.
+  const text = data?.message || data?.error
 
   if (status === 401) {
     return new AuthenticationError(
-      data?.message || 'Authentication required',
+      text || 'Authentication required',
       { endpoint: config.url }
     )
   }
 
   if (status === 403) {
     return new PermissionError(
-      data?.message || 'Permission denied',
+      text || 'Permission denied',
       data?.required_role
     )
   }
 
   if (status === 422) {
     return new ValidationError(
-      data?.message || 'Validation failed',
+      text || 'Validation failed',
       data?.field,
       { errors: data?.errors }
     )
   }
 
   return new ApiError(
-    data?.message || 'An error occurred',
+    text || 'An error occurred',
     status,
     config.url ?? '',
     { data }

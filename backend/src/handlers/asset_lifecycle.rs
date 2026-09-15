@@ -11,8 +11,8 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::models::{AssetLifecycleEvent, AssetStatus};
 use crate::repository::{
     asset_lifecycle::{self as repo, DisposalInput, TransitionInput},

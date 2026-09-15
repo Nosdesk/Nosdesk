@@ -1,8 +1,7 @@
-use actix_web::{Error as ActixError, HttpResponse};
+use crate::errors::ApiError;
 use jsonwebtoken::{
     decode, encode, errors::ErrorKind, Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
-use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 // Removed unused import: use uuid::Uuid;
 
@@ -299,29 +298,8 @@ impl JwtUtils {
     pub async fn authenticate_with_token(
         token: &str,
         conn: &mut DbConnection,
-    ) -> Result<(Claims, User), ActixError> {
-        match Self::validate_token_with_user_check(token, conn).await {
-            Ok((claims, user)) => Ok((claims, user)),
-            Err(jwt_error) => Err(jwt_error.into()),
-        }
-    }
-
-    /// Extract claims from request extensions (set by cookie_auth_middleware)
-    /// This is a DRY helper to avoid repeating the same pattern in every handler
-    ///
-    /// # Arguments
-    /// * `req` - The HTTP request with extensions populated by middleware
-    ///
-    /// # Returns
-    /// * `Ok(Claims)` - Successfully extracted claims
-    /// * `Err(ActixError)` - No claims found (not authenticated)
-    pub fn extract_claims(req: &actix_web::HttpRequest) -> Result<Claims, ActixError> {
-        use actix_web::HttpMessage;
-
-        req.extensions()
-            .get::<Claims>()
-            .cloned()
-            .ok_or_else(|| actix_web::error::ErrorUnauthorized("Authentication required"))
+    ) -> Result<(Claims, User), ApiError> {
+        Ok(Self::validate_token_with_user_check(token, conn).await?)
     }
 
     /// Generate a cryptographically secure refresh token (32 bytes = 64 hex chars)
@@ -411,44 +389,10 @@ impl From<jsonwebtoken::errors::Error> for JwtError {
     }
 }
 
-/// Convert JWT errors to appropriate HTTP responses
-impl From<JwtError> for ActixError {
-    fn from(error: JwtError) -> Self {
-        match error {
-            JwtError::EncodingError(ref jwt_err) => match jwt_err.kind() {
-                ErrorKind::ExpiredSignature => {
-                    actix_web::error::ErrorUnauthorized("Token has expired")
-                }
-                ErrorKind::InvalidToken => {
-                    actix_web::error::ErrorUnauthorized("Invalid token format")
-                }
-                _ => actix_web::error::ErrorUnauthorized("Invalid token"),
-            },
-            JwtError::InvalidUserUuid | JwtError::UserNotFound => {
-                actix_web::error::ErrorUnauthorized("Invalid user credentials")
-            }
-            JwtError::RoleMismatch { .. } => {
-                actix_web::error::ErrorUnauthorized("Token role mismatch - please log in again")
-            }
-            JwtError::MissingToken => {
-                actix_web::error::ErrorUnauthorized("Missing authentication token")
-            }
-            JwtError::InsufficientPermissions { .. } => {
-                actix_web::error::ErrorForbidden("Insufficient permissions")
-            }
-            JwtError::InsufficientScope { .. } => actix_web::error::ErrorForbidden(
-                "This action requires a full session - please log in again",
-            ),
-            JwtError::SessionRevoked => actix_web::error::ErrorUnauthorized(
-                "Session has been revoked - please log in again",
-            ),
-            JwtError::SystemTime => actix_web::error::ErrorInternalServerError("Server time error"),
-        }
-    }
-}
-
-/// Convert JWT errors to HTTP responses (for direct use in handlers)
-impl From<JwtError> for HttpResponse {
+/// Map a token failure onto the API error envelope: 401 for anything
+/// about the credential itself, 403 for a valid credential that lacks the
+/// privilege or scope, 500 for a clock fault.
+impl From<JwtError> for ApiError {
     fn from(error: JwtError) -> Self {
         match error {
             JwtError::EncodingError(ref jwt_err) => {
@@ -457,53 +401,27 @@ impl From<JwtError> for HttpResponse {
                     ErrorKind::InvalidToken => "Invalid token format",
                     _ => "Invalid token",
                 };
-                HttpResponse::Unauthorized().json(json!({
-                    "status": "error",
-                    "message": message
-                }))
-            },
+                ApiError::Unauthorized(message.into())
+            }
             JwtError::InvalidUserUuid | JwtError::UserNotFound => {
-                HttpResponse::Unauthorized().json(json!({
-                    "status": "error",
-                    "message": "Invalid user credentials"
-                }))
-            },
+                ApiError::Unauthorized("Invalid user credentials".into())
+            }
             JwtError::RoleMismatch { .. } => {
-                HttpResponse::Unauthorized().json(json!({
-                    "status": "error",
-                    "message": "Token role mismatch - please log in again"
-                }))
-            },
+                ApiError::Unauthorized("Token role mismatch - please log in again".into())
+            }
             JwtError::MissingToken => {
-                HttpResponse::Unauthorized().json(json!({
-                    "status": "error",
-                    "message": "Missing authentication token"
-                }))
-            },
-            JwtError::InsufficientPermissions { required, actual } => {
-                HttpResponse::Forbidden().json(json!({
-                    "status": "error",
-                    "message": format!("Insufficient permissions - required: {}, actual: {}", required, actual)
-                }))
-            },
-            JwtError::InsufficientScope { required, actual } => {
-                HttpResponse::Forbidden().json(json!({
-                    "status": "error",
-                    "message": format!("This action requires a full session - please log in again (required: {}, actual: {})", required, actual)
-                }))
-            },
+                ApiError::Unauthorized("Missing authentication token".into())
+            }
+            JwtError::InsufficientPermissions { required, actual } => ApiError::Forbidden(
+                format!("Insufficient permissions - required: {required}, actual: {actual}"),
+            ),
+            JwtError::InsufficientScope { required, actual } => ApiError::Forbidden(format!(
+                "This action requires a full session - please log in again (required: {required}, actual: {actual})"
+            )),
             JwtError::SessionRevoked => {
-                HttpResponse::Unauthorized().json(json!({
-                    "status": "error",
-                    "message": "Session has been revoked - please log in again"
-                }))
-            },
-            JwtError::SystemTime => {
-                HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Server time error"
-                }))
-            },
+                ApiError::Unauthorized("Session has been revoked - please log in again".into())
+            }
+            JwtError::SystemTime => ApiError::Internal("Server time error".into()),
         }
     }
 }
@@ -511,16 +429,7 @@ impl From<JwtError> for HttpResponse {
 /// Helper functions for common JWT operations
 pub mod helpers {
     use super::*;
-
-    /// Token issuance failures keep the `{status, message}` shape the login
-    /// responses have always used, carried as an actix error.
-    fn issuance_failed(message: &'static str) -> actix_web::Error {
-        let resp = HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": message
-        }));
-        actix_web::error::InternalError::from_response("token_issuance_failed", resp).into()
-    }
+    use crate::errors::ApiError;
 
     /// Struct containing login tokens for cookie setting
     pub struct LoginTokens {
@@ -535,9 +444,9 @@ pub mod helpers {
         session_id: &uuid::Uuid,
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
-    ) -> actix_web::Result<LoginTokens> {
+    ) -> Result<LoginTokens, ApiError> {
         let access_token = JwtUtils::create_token(user, session_id)
-            .map_err(|_| issuance_failed("Error generating token"))?;
+            .map_err(|_| ApiError::Internal("Error generating token".into()))?;
 
         let refresh_token = JwtUtils::generate_refresh_token();
         let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
@@ -557,7 +466,7 @@ pub mod helpers {
         )
         .map_err(|e| {
             tracing::error!("Failed to store refresh token: {}", e);
-            issuance_failed("Failed to create refresh token")
+            ApiError::Internal("Failed to create refresh token".into())
         })?;
 
         let csrf_token = crate::utils::csrf::generate_csrf_token();
@@ -579,9 +488,9 @@ pub mod helpers {
         session_id: &uuid::Uuid,
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
-    ) -> actix_web::Result<LoginTokens> {
+    ) -> Result<LoginTokens, ApiError> {
         let access_token = JwtUtils::create_portal_token(user, workspace_uuid, session_id)
-            .map_err(|_| issuance_failed("Error generating token"))?;
+            .map_err(|_| ApiError::Internal("Error generating token".into()))?;
 
         let refresh_token = JwtUtils::generate_refresh_token();
         let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
@@ -600,7 +509,7 @@ pub mod helpers {
         )
         .map_err(|e| {
             tracing::error!("Failed to store portal refresh token: {}", e);
-            issuance_failed("Failed to create refresh token")
+            ApiError::Internal("Failed to create refresh token".into())
         })?;
 
         let csrf_token = crate::utils::csrf::generate_csrf_token();
@@ -618,7 +527,7 @@ pub mod helpers {
         session_id: &uuid::Uuid,
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
-    ) -> actix_web::Result<(crate::models::LoginResponse, LoginTokens)> {
+    ) -> Result<(crate::models::LoginResponse, LoginTokens), ApiError> {
         let tokens = create_tokens(&user, session_id, family_id, conn)?;
 
         let response = crate::models::LoginResponse {
@@ -717,7 +626,7 @@ pub mod helpers {
         session_id: &uuid::Uuid,
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
-    ) -> actix_web::Result<(crate::models::LoginResponse, LoginTokens)> {
+    ) -> Result<(crate::models::LoginResponse, LoginTokens), ApiError> {
         let tokens = create_tokens(&user, session_id, family_id, conn)?;
 
         let message = if backup_code_used && requires_regeneration {

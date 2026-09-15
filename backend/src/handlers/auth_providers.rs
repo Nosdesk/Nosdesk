@@ -9,7 +9,7 @@ use tracing::{error, info, warn};
 use urlencoding;
 
 use crate::db::{DbConnection, Pool};
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{AuthProvider, OAuthExchangeRequest, OAuthRequest, OAuthState};
 use crate::utils::jwt::JWT_SECRET;
@@ -174,10 +174,7 @@ pub async fn get_auth_providers(
     let _conn = helpers::db_conn(&db_pool)?;
 
     // Extract claims from cookie auth middleware
-    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = crate::utils::rbac::require_auth(&req)?;
 
     if !crate::utils::rbac::is_platform_admin(&claims) {
         return Err(ApiError::Forbidden(

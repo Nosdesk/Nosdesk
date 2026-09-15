@@ -5,7 +5,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::middleware::request_context::record_canonical;
 use crate::models::{LoginRequest, PasswordChangeRequest};
@@ -13,7 +13,7 @@ use crate::repository::{self, user_auth_identities::get_local_password_hash};
 use crate::utils::auth::hash_password;
 use crate::utils::mfa;
 use crate::utils::rate_limit::{get_redis_url, RateLimiter};
-use crate::utils::{parse_uuid, ValidationError};
+use crate::utils::{parse_uuid, rbac, ValidationError};
 
 // Import JWT utilities
 use crate::utils::jwt::{helpers as jwt_helpers, JwtUtils};
@@ -422,7 +422,7 @@ pub(crate) fn establish_login_session(
     request: &HttpRequest,
     conn: &mut DbConnection,
     oidc_id_token: Option<&str>,
-) -> actix_web::Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens)> {
+) -> Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens), ApiError> {
     let user_uuid = user.uuid;
 
     // Pin the request's workspace so the login response's workspace_role
@@ -433,9 +433,9 @@ pub(crate) fn establish_login_session(
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
-            return Err(
-                ApiError::Internal("Failed to create authentication session".into()).into(),
-            );
+            return Err(ApiError::Internal(
+                "Failed to create authentication session".into(),
+            ));
         }
     };
     let family_id = Uuid::new_v4();
@@ -1102,8 +1102,7 @@ pub async fn logout(
     let mut logout_url: Option<String> = None;
 
     // Best-effort session revocation — CASCADE handles linked refresh_tokens
-    if let (Ok(claims), Ok(mut conn)) = (JwtUtils::extract_claims(&req), helpers::db_conn(&db_pool))
-    {
+    if let (Ok(claims), Ok(mut conn)) = (rbac::require_auth(&req), helpers::db_conn(&db_pool)) {
         if let Some(sid) = claims.session_uuid() {
             // Build the RP-initiated logout URL BEFORE revoking (revocation
             // deletes the row and its stored id_token). Only when the caller
@@ -1294,10 +1293,7 @@ pub async fn get_current_user(
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
-    let claims = match JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = rbac::require_auth(&req)?;
 
     // Parse UUID from claims
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
@@ -1990,10 +1986,7 @@ pub async fn mfa_status(
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
-    let claims = match JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = rbac::require_auth(&req)?;
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
@@ -2372,10 +2365,7 @@ pub async fn get_user_sessions(
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
-    let claims = match JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = rbac::require_auth(&req)?;
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
@@ -2439,10 +2429,7 @@ pub async fn revoke_session(
 
     let mut conn = helpers::db_conn(&db_pool)?;
 
-    let claims = match JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = rbac::require_auth(&req)?;
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
@@ -2499,10 +2486,7 @@ pub async fn revoke_all_other_sessions(
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
-    let claims = match JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = rbac::require_auth(&req)?;
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {

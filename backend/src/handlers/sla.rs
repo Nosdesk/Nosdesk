@@ -31,8 +31,8 @@ use diesel::prelude::*;
 use serde::Serialize;
 use tracing::error;
 
+use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors::{self, ApiError};
 use crate::models::{SlaPolicy, Ticket, WorkflowState, WorkspaceRole};
 use crate::repository::sla_admin::{
     self, SlaPolicyBody, WorkingCalendarBody, WorkingCalendarHolidayBody,

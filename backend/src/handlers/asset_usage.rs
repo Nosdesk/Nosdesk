@@ -15,8 +15,8 @@ use serde::Deserialize;
 use std::str::FromStr;
 use tracing::error;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::models::NewAssetUsage;
 use crate::repository::asset_usage as repo;
 use crate::services::notifications::types::{

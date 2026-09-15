@@ -12,8 +12,8 @@ use serde_json::{json, Value};
 use tracing::error;
 use uuid::Uuid;
 
+use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
 use crate::models::{
     UserAddress, UserAddressInput, UserPhoneInput, UserPhoneNumber, UserProfileInput,
 };

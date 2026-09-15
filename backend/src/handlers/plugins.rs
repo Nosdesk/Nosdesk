@@ -11,8 +11,8 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::errors::{self, ApiError};
 use crate::extractors::TenantConn;
-use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{

@@ -22,7 +22,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::errors::{self, ApiError};
+use crate::errors::{self, ApiError};
 use crate::middleware::request_context::RequestContext;
 use crate::models::{
     NewRule, Rule, RuleApplicationStatus, RuleState, RuleTriggerKind, RuleUpdate, RuleVersion,
