@@ -25,7 +25,7 @@ use crate::services::ses_identity;
 use crate::sync::session::run_in_workspace;
 use crate::utils::rbac;
 
-fn require_admin(req: &HttpRequest) -> actix_web::Result<Claims> {
+fn require_admin(req: &HttpRequest) -> Result<Claims, ApiError> {
     rbac::require_workspace_role(req, WorkspaceRole::Admin)
 }
 

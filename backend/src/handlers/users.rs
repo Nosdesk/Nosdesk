@@ -620,7 +620,7 @@ pub async fn get_paginated_users(
     // filter, so deleted tombstones (and the PII they retain until purge)
     // never leak to ordinary staff who can reach this directory endpoint.
     let requested_deleted = repository::users::DeletedFilter::from_query(query.deleted.as_deref());
-    let is_admin = crate::utils::jwt::JwtUtils::extract_claims(&req)
+    let is_admin = crate::utils::rbac::require_auth(&req)
         .map(|claims| is_platform_admin(&claims))
         .unwrap_or(false);
     let deleted = if is_admin {
@@ -2087,7 +2087,7 @@ pub async fn update_user_by_uuid(
 ) -> impl Responder {
     let user_uuid = path.into_inner();
 
-    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
+    let claims = match crate::utils::rbac::require_auth(&req) {
         Ok(claims) => claims,
         Err(_) => return errors::unauthorized("Authentication required"),
     };
@@ -2446,10 +2446,7 @@ pub async fn get_user_emails(
 
     let user_uuid = path.into_inner();
 
-    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = crate::utils::rbac::require_auth(&req)?;
 
     // Check authorization (user can access their own emails, admins can access any)
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
@@ -2491,10 +2488,7 @@ pub async fn add_user_email(
     let user_uuid = path.into_inner();
     let mut conn = helpers::db_conn(&db_pool)?;
 
-    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = crate::utils::rbac::require_auth(&req)?;
 
     // Authorization: Users can only add emails to their own account, admins can add to anyone
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
@@ -2579,10 +2573,7 @@ pub async fn update_user_email(
     let (user_uuid, email_id) = path.into_inner();
     let mut conn = helpers::db_conn(&db_pool)?;
 
-    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = crate::utils::rbac::require_auth(&req)?;
 
     // Authorization
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
@@ -2661,10 +2652,7 @@ pub async fn resend_user_email_verification(
     let (user_uuid, email_id) = path.into_inner();
     let mut conn = helpers::db_conn(&db_pool)?;
 
-    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = crate::utils::rbac::require_auth(&req)?;
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
         return Err(ApiError::Forbidden("Not authorized".into()));
     }
@@ -2760,10 +2748,7 @@ pub async fn delete_user_email(
     let (user_uuid, email_id) = path.into_inner();
     let mut conn = helpers::db_conn(&db_pool)?;
 
-    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = crate::utils::rbac::require_auth(&req)?;
 
     // Authorization
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
@@ -2958,10 +2943,7 @@ pub async fn get_user_with_emails(
 
     let user_uuid = path.into_inner();
 
-    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
-        Ok(claims) => claims,
-        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
+    let claims = crate::utils::rbac::require_auth(&req)?;
 
     // Check authorization
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
@@ -3107,7 +3089,7 @@ pub async fn bulk_users(
     body: web::Json<BulkUserActionRequest>,
 ) -> Result<HttpResponse, ApiError> {
     // Extract claims and check authentication
-    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
+    let claims = match crate::utils::rbac::require_auth(&req) {
         Ok(claims) => claims,
         Err(_) => {
             return Err(ApiError::Unauthorized(
