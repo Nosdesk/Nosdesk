@@ -96,10 +96,15 @@ pub fn unauthorized(message: impl Into<String>) -> HttpResponse {
 
 /// 401 Unauthorized with a specific machine-readable code.
 pub fn unauthorized_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
-    HttpResponse::Unauthorized().json(json!({
-        "error": message.into(),
-        "code": code,
-    }))
+    // RFC 7235 requires a challenge on every 401. Sessions are bearer
+    // tokens (cookie or header), so the scheme is `Bearer`; browsers only
+    // prompt for Basic/Digest, so this never raises a native dialog.
+    HttpResponse::Unauthorized()
+        .insert_header(("WWW-Authenticate", "Bearer"))
+        .json(json!({
+            "error": message.into(),
+            "code": code,
+        }))
 }
 
 /// 403 Forbidden — caller is authenticated but lacks permission.
