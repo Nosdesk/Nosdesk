@@ -117,6 +117,28 @@ fn resolve_workspace_or_respond(
     }
 }
 
+/// [`resolve_workspace_or_respond`] without the archived filter, for the
+/// few operations that must still reach a soft-archived workspace.
+fn resolve_workspace_any_state_or_respond(
+    conn: &mut DbConnection,
+    slug: &str,
+    context: &str,
+) -> Result<Workspace, ApiError> {
+    match workspaces::find_by_slug_any_state(conn, slug) {
+        Ok(Some(ws)) => Ok(ws),
+        Ok(None) => {
+            warn!(slug = %slug, context = context, "workspace not found");
+            Err(ApiError::NotFoundMsg(format!(
+                "workspace '{slug}' not found"
+            )))
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, context = context, "workspace lookup failed");
+            Err(ApiError::Internal("Workspace lookup failed".into()))
+        }
+    }
+}
+
 /// Request body for `POST /api/internal/v1/workspaces/create`.
 /// `owner_user_uuid` / `owner_email` / `owner_name` are accepted so
 /// the request shape matches the M5 plan, but THIS endpoint does
@@ -938,7 +960,17 @@ pub async fn set_custom_domain(
 
     // Capture the previous value so we can invalidate its cache key
     // even when the operator is clearing or changing the hostname.
-    let previous = resolve_workspace_or_respond(&mut conn, &slug, "custom_domain")?;
+    //
+    // A clear is accepted for an archived workspace too: the control plane
+    // releases a deprovisioned instance's domain, and if that runs after the
+    // archive (a retried job) the workspace must still let go of the host,
+    // or a later restore would route a hostname whose certificate is gone.
+    // Setting a hostname stays limited to active workspaces.
+    let previous = if hostname_normalised.is_none() {
+        resolve_workspace_any_state_or_respond(&mut conn, &slug, "custom_domain")?
+    } else {
+        resolve_workspace_or_respond(&mut conn, &slug, "custom_domain")?
+    };
 
     let updated = match workspaces::update_custom_domain(
         &mut conn,

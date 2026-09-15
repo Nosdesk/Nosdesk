@@ -165,4 +165,42 @@ async fn custom_domain_set_clear_collide() {
         .await
         .expect("send no-key");
     assert_eq!(resp.status(), 400);
+
+    // --- 8: an archived workspace can be cleared but not set ---
+    // The control plane releases a deprovisioned instance's domain; if that
+    // runs after the archive, the workspace must still let go of the host.
+    {
+        use backend::schema::workspaces;
+        let mut conn = pool.get().expect("conn");
+        diesel::update(workspaces::table.filter(workspaces::slug.eq("globex")))
+            .set((
+                workspaces::custom_domain.eq(Some("help.globex.com")),
+                workspaces::archived_at.eq(Some(chrono::Utc::now())),
+            ))
+            .execute(&mut conn)
+            .expect("archive globex with a domain");
+    }
+    let resp = client
+        .patch(srv.url("/api/internal/v1/workspaces/globex/custom-domain"))
+        .insert_header(("Authorization", format!("Bearer {platform_token}")))
+        .insert_header(("Idempotency-Key", format!("cd-{}", uuid::Uuid::new_v4())))
+        .insert_header(("Content-Type", "application/json"))
+        .send_json(&json!({ "hostname": "other.globex.com" }))
+        .await
+        .expect("send set on archived");
+    assert_eq!(
+        resp.status(),
+        404,
+        "setting a host on an archived workspace"
+    );
+    let resp = client
+        .patch(srv.url("/api/internal/v1/workspaces/globex/custom-domain"))
+        .insert_header(("Authorization", format!("Bearer {platform_token}")))
+        .insert_header(("Idempotency-Key", format!("cd-{}", uuid::Uuid::new_v4())))
+        .insert_header(("Content-Type", "application/json"))
+        .send_json(&json!({ "hostname": null }))
+        .await
+        .expect("send clear on archived");
+    assert_eq!(resp.status(), 200, "clearing an archived workspace's host");
+    assert!(read_custom_domain(&pool, "globex").is_none());
 }

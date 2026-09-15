@@ -360,6 +360,27 @@ impl SecurityHeaders {
     }
 }
 
+/// Whether the request reached us on the resolved workspace's custom domain
+/// (as opposed to the platform's own hosts, where the tenant subdomain is
+/// ours to cover). Compares the `Host` header against the context the
+/// workspace middleware attached; false whenever either is missing.
+fn served_on_custom_domain<B>(res: &ServiceResponse<B>) -> bool {
+    use actix_web::HttpMessage;
+    let req = res.request();
+    let Some(host) = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.split(':').next())
+    else {
+        return false;
+    };
+    req.extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .and_then(|ctx| ctx.custom_domain.as_deref())
+        .is_some_and(|d| d.eq_ignore_ascii_case(host))
+}
+
 impl<S, B> Transform<S, ServiceRequest> for SecurityHeaders
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
@@ -422,6 +443,7 @@ where
                 return Ok(res);
             }
 
+            let custom_domain_host = served_on_custom_domain(&res);
             let headers = res.headers_mut();
 
             // Cache-Control: only set defaults when the handler
@@ -521,11 +543,18 @@ where
             // 1-year max-age with includeSubDomains. preload not
             // included until ownership of the apex domain is
             // confirmed (hsts preload is one-way for ~6 months).
+            //
+            // On a customer's custom domain the policy covers that
+            // host only: `includeSubDomains` would assert HSTS over
+            // `*.support.acme.com`, which is the customer's zone to
+            // govern, not ours.
             if enable_hsts && !headers.contains_key(header::STRICT_TRANSPORT_SECURITY) {
-                headers.insert(
-                    header::STRICT_TRANSPORT_SECURITY,
-                    "max-age=31536000; includeSubDomains".parse().unwrap(),
-                );
+                let value = if custom_domain_host {
+                    "max-age=31536000"
+                } else {
+                    "max-age=31536000; includeSubDomains"
+                };
+                headers.insert(header::STRICT_TRANSPORT_SECURITY, value.parse().unwrap());
             }
 
             // X-XSS-Protection deliberately NOT set. Modern
@@ -573,6 +602,56 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    // ── HSTS scope ──────────────────────────────────────────────
+
+    fn ctx(custom_domain: Option<&str>) -> crate::extractors::WorkspaceContext {
+        crate::extractors::WorkspaceContext {
+            workspace_id: 1,
+            workspace_uuid: uuid::Uuid::nil(),
+            slug: "acme".into(),
+            name: "Acme".into(),
+            custom_domain: custom_domain.map(str::to_string),
+            organisation_id: None,
+        }
+    }
+
+    fn response_for(host: &str, ctx: Option<crate::extractors::WorkspaceContext>) -> bool {
+        use actix_web::HttpMessage;
+        let req = actix_web::test::TestRequest::default()
+            .insert_header((header::HOST, host))
+            .to_srv_request();
+        if let Some(c) = ctx {
+            req.extensions_mut().insert(c);
+        }
+        let res = req.into_response(actix_web::HttpResponse::Ok().finish());
+        served_on_custom_domain(&res)
+    }
+
+    /// `includeSubDomains` is ours to assert on platform hosts, not on a
+    /// customer's domain.
+    #[test]
+    fn hsts_scope_follows_the_host_that_served_the_request() {
+        assert!(response_for(
+            "support.acme.com",
+            Some(ctx(Some("support.acme.com")))
+        ));
+        assert!(response_for(
+            "support.acme.com:443",
+            Some(ctx(Some("support.acme.com")))
+        ));
+        assert!(response_for(
+            "SUPPORT.acme.com",
+            Some(ctx(Some("support.acme.com")))
+        ));
+        // The slug host of a workspace that also has a custom domain.
+        assert!(!response_for(
+            "acme.nosdesk.app",
+            Some(ctx(Some("support.acme.com")))
+        ));
+        assert!(!response_for("acme.nosdesk.app", Some(ctx(None))));
+        assert!(!response_for("app.nosdesk.com", None));
     }
 
     // ── Production policy ───────────────────────────────────────
