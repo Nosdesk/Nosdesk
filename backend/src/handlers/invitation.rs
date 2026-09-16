@@ -154,10 +154,7 @@ pub async fn accept_invitation(
         Ok(uuid) => uuid,
         Err(e) => {
             warn!("Invalid invitation token: {}", e);
-            return Ok(HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": e
-            })));
+            return Ok(errors::bad_request(e));
         }
     };
 

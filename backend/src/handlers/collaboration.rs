@@ -21,6 +21,7 @@ use crate::extractors::{AuthContext, TenantConn};
 use crate::repository;
 use crate::sync::actor::ActorContext as DbActor;
 use crate::sync::session;
+use actix_web::http::StatusCode;
 
 /// Workspace-pinned system actor for the Yjs WebSocket session's
 /// background DB writes (snapshot saves, revision creates,
@@ -2881,10 +2882,12 @@ pub async fn ws_handler(
             // Direct-address mode: this machine isn't the owner. Tell the
             // client to re-run the handshake to learn the owner's address.
             debug!(doc_id = %doc_id, "WS landed on non-owner; instructing client to re-handshake");
-            return Ok(HttpResponse::Conflict().json(json!({
-                "error": "rehandshake_required",
-                "handshake": format!("/api/collaboration/handshake/{doc_id}"),
-            })));
+            return Ok(errors::with_fields(
+                StatusCode::CONFLICT,
+                "rehandshake_required",
+                "This node does not own the document; re-run the handshake",
+                json!({ "handshake": format!("/api/collaboration/handshake/{doc_id}") }),
+            ));
         }
     };
 
@@ -2896,9 +2899,7 @@ pub async fn ws_handler(
     let Some(conn_guard) =
         crate::services::connection_registry::global().try_acquire((user_uuid, workspace_id))
     else {
-        return Ok(HttpResponse::TooManyRequests()
-            .append_header(("Retry-After", "5"))
-            .finish());
+        return Ok(errors::too_many_requests("Too many requests", 5));
     };
 
     // Hand off to actix-ws: returns (HttpResponse, Session, MessageStream).
@@ -3609,9 +3610,7 @@ pub async fn handshake(
     };
     if parsed.workspace_uuid != ws.workspace_uuid {
         warn!(doc_id = %doc_id, "Handshake doc_id workspace mismatch");
-        return HttpResponse::Forbidden().json(json!({
-            "error": "doc_id workspace does not match the request workspace",
-        }));
+        return errors::forbidden("doc_id workspace does not match the request workspace");
     }
 
     match app_state.resolve_ws_url(&doc_id).await {
@@ -3620,7 +3619,7 @@ pub async fn handshake(
             // Direct-address mode and the owner's address is unknown
             // (owner dead or not yet registered). Tell the client to retry.
             warn!(doc_id = %doc_id, "Handshake could not resolve owner address");
-            HttpResponse::ServiceUnavailable().json(json!({ "error": "owner_unreachable" }))
+            errors::service_unavailable("owner_unreachable")
         }
     }
 }

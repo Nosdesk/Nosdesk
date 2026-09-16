@@ -283,10 +283,10 @@ pub async fn create_workspace(
                 }
                 Ok(None) => {
                     warn!(slug = %slug, "workspaces/create: slug reserved (archived or retired)");
-                    Ok(HttpResponse::Conflict().json(json!({
-                        "error": "slug_taken",
-                        "message": format!("slug '{slug}' is unavailable, please choose another"),
-                    })))
+                    Ok(errors::conflict_with_code(
+                        format!("slug '{slug}' is unavailable, please choose another"),
+                        "slug_taken",
+                    ))
                 }
                 Err(e) => {
                     error!(error = ?e, slug = %slug, "workspaces/create: find_by_slug after SlugTaken failed");
@@ -477,10 +477,10 @@ pub async fn set_seat_limit(
     match result {
         Ok(0) => {
             warn!(slug = %slug, "workspaces/seat_limit: unknown workspace");
-            Ok(HttpResponse::NotFound().json(json!({
-                "error": "workspace_not_found",
-                "message": format!("workspace '{slug}' not found"),
-            })))
+            Ok(errors::not_found_with_code(
+                format!("workspace '{slug}' not found"),
+                "workspace_not_found",
+            ))
         }
         Ok(_) => {
             info!(slug = %slug, seat_limit = ?seat_limit, "workspaces/seat_limit: updated");
@@ -860,16 +860,16 @@ pub async fn set_member_role(
                 role,
             }))
         }
-        Ok(SetMemberRoleOutcome::LastOwner) => Ok(HttpResponse::Conflict().json(json!({
-            "error": "last_owner",
-            "message": "cannot demote the only owner; promote another member first",
-        }))),
+        Ok(SetMemberRoleOutcome::LastOwner) => Ok(errors::conflict_with_code(
+            "cannot demote the only owner; promote another member first",
+            "last_owner",
+        )),
         Err(e) if workspaces::is_seat_limit_violation(&e) => {
             warn!(workspace_id = workspace.id, %user_uuid, "set_member_role: blocked by workspace seat limit");
-            Ok(HttpResponse::Forbidden().json(json!({
-                "error": "seat_limit_reached",
-                "message": "This workspace has reached its seat limit. Contact support to add more seats.",
-            })))
+            Ok(errors::forbidden_with_code(
+                "This workspace has reached its seat limit. Contact support to add more seats.",
+                "seat_limit_reached",
+            ))
         }
         Err(e) => {
             error!(error = ?e, workspace_id = workspace.id, %user_uuid, "set_member_role: update failed");
@@ -989,10 +989,10 @@ pub async fn set_custom_domain(
             _,
         )) => {
             warn!(slug = %slug, hostname = ?hostname_normalised, "custom_domain: hostname already in use");
-            return Ok(HttpResponse::Conflict().json(serde_json::json!({
-                "error": "hostname_taken",
-                "message": "this hostname is already mapped to a workspace",
-            })));
+            return Ok(errors::conflict_with_code(
+                "this hostname is already mapped to a workspace",
+                "hostname_taken",
+            ));
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "custom_domain: update failed");

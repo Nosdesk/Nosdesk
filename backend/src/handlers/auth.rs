@@ -174,20 +174,9 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 impl From<ValidationError> for HttpResponse {
     fn from(error: ValidationError) -> Self {
         match error {
-            ValidationError::InvalidUuid(_) => HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": error.to_string()
-            })),
-            ValidationError::InvalidRole(_) => HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": error.to_string()
-            })),
-            ValidationError::ValidationFailed(msg) => {
-                HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": msg
-                }))
-            }
+            ValidationError::InvalidUuid(_) => errors::bad_request(error.to_string()),
+            ValidationError::InvalidRole(_) => errors::bad_request(error.to_string()),
+            ValidationError::ValidationFailed(msg) => errors::internal(msg),
         }
     }
 }
@@ -1489,11 +1478,7 @@ pub async fn setup_initial_admin(
         validation_errors.push("password: Password must be less than 128 characters".to_string());
     }
     if !validation_errors.is_empty() {
-        return Ok(HttpResponse::BadRequest().json(json!({
-            "error": "Validation failed",
-            "code": "VALIDATION_FAILED",
-            "fields": validation_errors,
-        })));
+        return Ok(errors::validation_failed(validation_errors));
     }
 
     let password_hash = match hash_password(&admin_data.password) {

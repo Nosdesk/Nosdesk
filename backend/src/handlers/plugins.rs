@@ -1279,7 +1279,12 @@ pub async fn proxy_plugin_request(
             // Structured status per failure mode: 403 permission/SSRF, 400 bad
             // method, 504 timeout, 502 other network faults (was a flat 400).
             error!("Proxy request failed: {}", e);
-            HttpResponse::build(e.status_code()).json(serde_json::json!({ "error": e.to_string() }))
+            errors::with_fields(
+                e.status_code(),
+                "PROXY_FAILED",
+                e.to_string(),
+                serde_json::json!({}),
+            )
         }
     }
 }
@@ -1351,17 +1356,17 @@ pub async fn serve_plugin_icon(mut tc: TenantConn, path: web::Path<Uuid>) -> imp
             // serve their icon. Mirrors the bundle handler's
             // is_active() gate so an inactive plugin's bytes never
             // leak through any serving endpoint.
-            HttpResponse::NotFound().finish()
+            errors::not_found_msg("Not found")
         }
         Ok((_, Some(bytes))) => HttpResponse::Ok()
             .content_type("image/svg+xml")
             .insert_header(("Cache-Control", "public, max-age=300"))
             .body(bytes),
-        Ok((_, None)) => HttpResponse::NotFound().finish(),
-        Err(DieselError::NotFound) => HttpResponse::NotFound().finish(),
+        Ok((_, None)) => errors::not_found_msg("Not found"),
+        Err(DieselError::NotFound) => errors::not_found_msg("Not found"),
         Err(e) => {
             error!("Failed to load plugin icon: {}", e);
-            HttpResponse::InternalServerError().finish()
+            errors::internal("Failed to load plugin icon")
         }
     }
 }
@@ -1588,7 +1593,7 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
             // against the current DB. Operator-fixable via
             // schema inspection / corrective migration.
             error!("Plugin install failed: {}", err);
-            HttpResponse::UnprocessableEntity().json(err.to_string())
+            errors::unprocessable_entity(err.to_string())
         }
         install::InstallError::BundleWriteFailed(_) | install::InstallError::Db(_) => {
             error!("Plugin install failed: {}", err);
@@ -1795,7 +1800,7 @@ pub async fn install_from_registry(
 
     let bytes = match download_bundle(&http, &download_url).await {
         Ok(b) => b,
-        Err(e) => return Ok(HttpResponse::BadGateway().json(format!("download failed: {e}"))),
+        Err(e) => return Ok(errors::bad_gateway(format!("download failed: {e}"))),
     };
 
     // Independent content check BEFORE the signature verifier
@@ -1810,8 +1815,9 @@ pub async fn install_from_registry(
             actual = %actual_sha,
             "Registry SHA-256 mismatch",
         );
-        return Ok(HttpResponse::BadGateway()
-            .json("downloaded bundle does not match registry-published sha256"));
+        return Ok(errors::bad_gateway(
+            "downloaded bundle does not match registry-published sha256",
+        ));
     }
 
     let verified = match signing::verify_archive(&bytes) {

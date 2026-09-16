@@ -2,6 +2,7 @@ use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
+use crate::errors;
 use crate::utils::utf8_trunc::{
     byte_prefix_with_ellipsis, char_prefix, strip_line_breaks_for_log_field,
 };
@@ -57,7 +58,7 @@ pub struct FrontendLogsResponse {
 /// `NOSDESK_ALLOW_FRONTEND_DEBUG_LOGS=1`.
 pub async fn receive_frontend_logs(body: web::Json<FrontendLogsRequest>) -> impl Responder {
     if !frontend_logs_endpoint_enabled() {
-        return HttpResponse::NotFound().finish();
+        return errors::not_found_msg("Not found");
     }
 
     let logs = &body.logs;

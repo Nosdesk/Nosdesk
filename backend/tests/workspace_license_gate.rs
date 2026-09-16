@@ -108,7 +108,7 @@ async fn self_hosted_caps_workspaces_at_one() {
     let mut resp = resp;
     let body: serde_json::Value =
         serde_json::from_slice(&resp.body().await.expect("body")).expect("json");
-    assert_eq!(body["error"], "license_required");
+    assert_eq!(body["code"], "license_required");
 
     // --- 3: archive the seeded workspace, then a create succeeds ---
     diesel::sql_query("UPDATE workspaces SET archived_at = now() WHERE id = 1")

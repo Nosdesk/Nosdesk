@@ -51,6 +51,7 @@ use ring::digest;
 use ring::hmac;
 use tracing::warn;
 
+use crate::errors;
 use crate::utils::safe_http;
 
 /// Hard cap on proxied image body size. Marketing emails ship
@@ -179,16 +180,16 @@ pub async fn proxy_image(path: web::Path<(String, String)>) -> impl Responder {
     let (sig_hex, encoded_url) = path.into_inner();
 
     let Some(url_bytes) = URL_SAFE_NO_PAD.decode(&encoded_url).ok() else {
-        return HttpResponse::NotFound().finish();
+        return errors::not_found_msg("Not found");
     };
     let Ok(url) = std::str::from_utf8(&url_bytes) else {
-        return HttpResponse::NotFound().finish();
+        return errors::not_found_msg("Not found");
     };
 
     if !verify_signature(&sig_hex, url) {
         // Don't log the URL — a torrent of these would be log
         // noise on a busy mail flow with backfill in progress.
-        return HttpResponse::NotFound().finish();
+        return errors::not_found_msg("Not found");
     }
 
     // Belt-and-braces: refuse IP-literal URLs at the URL layer
@@ -196,14 +197,14 @@ pub async fn proxy_image(path: web::Path<(String, String)>) -> impl Responder {
     // resolver also catches these, but checking here keeps the
     // failure mode consistent and is cheap.
     if safe_http::reject_unsafe_ip_literal(url).is_err() {
-        return HttpResponse::NotFound().finish();
+        return errors::not_found_msg("Not found");
     }
 
     let client = match safe_http::client(FETCH_TIMEOUT) {
         Ok(c) => c,
         Err(e) => {
             warn!(error = %e, "image proxy: failed to build safe_http client");
-            return HttpResponse::ServiceUnavailable().finish();
+            return errors::service_unavailable("Service unavailable");
         }
     };
 
@@ -212,12 +213,12 @@ pub async fn proxy_image(path: web::Path<(String, String)>) -> impl Responder {
         Err(_) => {
             // Connection refused, DNS-paranoid resolver said no,
             // upstream TLS failure — all map to a generic 404.
-            return HttpResponse::NotFound().finish();
+            return errors::not_found_msg("Not found");
         }
     };
 
     if !response.status().is_success() {
-        return HttpResponse::NotFound().finish();
+        return errors::not_found_msg("Not found");
     }
 
     let content_type = response
@@ -234,7 +235,7 @@ pub async fn proxy_image(path: web::Path<(String, String)>) -> impl Responder {
     // upload-side SVG block); raster image MIME types only.
     let ct_lower = content_type.to_ascii_lowercase();
     if !ct_lower.starts_with("image/") || ct_lower.starts_with("image/svg") {
-        return HttpResponse::NotFound().finish();
+        return errors::not_found_msg("Not found");
     }
 
     // Early reject by Content-Length when the upstream supplies
@@ -243,7 +244,7 @@ pub async fn proxy_image(path: web::Path<(String, String)>) -> impl Responder {
     // is still caught by the per-chunk accumulation below.
     if let Some(declared) = response.content_length() {
         if declared as usize > MAX_BODY_BYTES {
-            return HttpResponse::NotFound().finish();
+            return errors::not_found_msg("Not found");
         }
     }
 
@@ -260,10 +261,10 @@ pub async fn proxy_image(path: web::Path<(String, String)>) -> impl Responder {
         let chunk = match stream.chunk().await {
             Ok(Some(c)) => c,
             Ok(None) => break,
-            Err(_) => return HttpResponse::NotFound().finish(),
+            Err(_) => return errors::not_found_msg("Not found"),
         };
         if buf.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
-            return HttpResponse::NotFound().finish();
+            return errors::not_found_msg("Not found");
         }
         buf.extend_from_slice(&chunk);
     }

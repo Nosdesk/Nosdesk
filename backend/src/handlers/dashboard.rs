@@ -8,6 +8,7 @@
 
 use std::collections::HashSet;
 
+use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 use serde_json::json;
@@ -42,11 +43,12 @@ impl StatsQuery {
                     set.insert(g);
                 }
                 None => {
-                    let resp = HttpResponse::BadRequest().json(json!({
-                        "error": "unknown include key",
-                        "key": token,
-                        "allowed": StatsGroup::all_keys(),
-                    }));
+                    let resp = errors::with_fields(
+                        StatusCode::BAD_REQUEST,
+                        "UNKNOWN_INCLUDE_KEY",
+                        "unknown include key",
+                        json!({ "key": token, "allowed": StatsGroup::all_keys() }),
+                    );
                     return Err(errors::from_response("unknown include key", resp));
                 }
             }

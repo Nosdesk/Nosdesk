@@ -7,7 +7,7 @@ use diesel::result::Error as DieselError;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::errors::ApiError;
+use crate::errors::{self, ApiError};
 use crate::extractors::TenantConn;
 use crate::handlers::helpers;
 use crate::handlers::plugins::{authorize_plugin_data_request, PluginGate};
@@ -18,8 +18,6 @@ use crate::models::{
 };
 use crate::repository::plugin_collections as collection_repo;
 use crate::services::plugins::validation;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
 
 /// Path params: /plugins/{uuid}/collections/{name}
 #[derive(serde::Deserialize)]
@@ -260,7 +258,6 @@ pub async fn create_collection_row(
     let path = path.into_inner();
     let user_uuid = Uuid::parse_str(&claims.sub).ok();
     let body_data = body.data.clone();
-    let locale = request_locale(&req);
 
     enum CreateOutcome {
         Ok(crate::models::PluginCollectionRow),
@@ -322,13 +319,10 @@ pub async fn create_collection_row(
         Ok(CreateOutcome::RowLimitExceeded) => Err(ApiError::BadRequest(format!(
             "collection row limit exceeded (max {MAX_ROWS_PER_COLLECTION} rows)"
         ))),
-        Ok(CreateOutcome::ValidationError(msg)) => {
-            Ok(HttpResponse::BadRequest().json(serde_json::json!({
-                "error": i18n::tr(&locale, "backend-error-validation"),
-                "code": "backend-error-validation",
-                "message": msg
-            })))
-        }
+        Ok(CreateOutcome::ValidationError(msg)) => Ok(errors::bad_request_with_code(
+            msg,
+            "backend-error-validation",
+        )),
         Err(e) => {
             error!("Failed to create collection row: {}", e);
             Err(ApiError::Internal("Failed to create row".into()))
@@ -402,7 +396,6 @@ pub async fn update_collection_row(
 
     let path = path.into_inner();
     let body_data = body.data.clone();
-    let locale = request_locale(&req);
 
     enum UpdateOutcome {
         Ok(crate::models::PluginCollectionRow),
@@ -455,13 +448,10 @@ pub async fn update_collection_row(
             Err(ApiError::NotFoundMsg("Collection not found".into()))
         }
         Ok(UpdateOutcome::RowNotFound) => Err(ApiError::NotFoundMsg("Row not found".into())),
-        Ok(UpdateOutcome::ValidationError(msg)) => {
-            Ok(HttpResponse::BadRequest().json(serde_json::json!({
-                "error": i18n::tr(&locale, "backend-error-validation"),
-                "code": "backend-error-validation",
-                "message": msg
-            })))
-        }
+        Ok(UpdateOutcome::ValidationError(msg)) => Ok(errors::bad_request_with_code(
+            msg,
+            "backend-error-validation",
+        )),
         Err(e) => {
             error!("Failed to update collection row: {}", e);
             Err(ApiError::Internal("Failed to update row".into()))

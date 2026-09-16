@@ -9,11 +9,12 @@
 
 use actix_multipart::Multipart;
 use actix_web::http::header;
+use actix_web::http::StatusCode;
 use actix_web::{web, HttpRequest, HttpResponse};
 use futures::StreamExt;
 use serde::Deserialize;
 
-use crate::errors::ApiError;
+use crate::errors::{self, ApiError};
 use crate::extractors::PlatformConn;
 use crate::utils::rbac;
 use crate::utils::storage::{process_storage, WorkspaceScopedStorage};
@@ -231,13 +232,18 @@ pub async fn import_workspace(
             .put_file(bytes, logical, content_type_for(logical))
             .await
         {
-            return Ok(HttpResponse::InternalServerError().json(serde_json::json!({
-                "error": format!("file restore failed after {files_restored} files: {e:?}"),
-                "partial": true,
-                "workspace_id": result.workspace_id,
-                "rows_imported": result.rows_imported,
-                "files_restored": files_restored,
-            })));
+            tracing::error!(error = ?e, files_restored, "file restore failed part way");
+            return Ok(errors::with_fields(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "RESTORE_PARTIAL",
+                format!("file restore failed after {files_restored} files"),
+                serde_json::json!({
+                    "partial": true,
+                    "workspace_id": result.workspace_id,
+                    "rows_imported": result.rows_imported,
+                    "files_restored": files_restored,
+                }),
+            ));
         }
         files_restored += 1;
     }

@@ -291,7 +291,7 @@ const isBackgroundRefresh = computed(() => isFetching.value && rows.value.length
 
 function isLastOwnerError(error: unknown): boolean {
   const e = error as { response?: { status?: number; data?: { error?: string } } };
-  return e.response?.status === 409 && e.response?.data?.error === 'last_owner';
+  return e.response?.status === 409 && e.response?.data?.code === 'last_owner';
 }
 function isForbidden(error: unknown): boolean {
   return (error as { response?: { status?: number } }).response?.status === 403;

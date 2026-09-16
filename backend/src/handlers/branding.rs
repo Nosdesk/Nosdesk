@@ -9,7 +9,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::errors::ApiError;
+use crate::errors::{self, ApiError};
 use crate::extractors::{ScopedStorage, TenantConn, WorkspaceContext};
 use crate::handlers::files::serve_or_not_found;
 use crate::handlers::helpers;
@@ -621,7 +621,7 @@ pub async fn serve_workspace_branding_file(
     let (workspace_uuid, filename) = path.into_inner();
 
     if !is_allowed_branding_filename(&filename) {
-        return Ok(HttpResponse::NotFound().finish());
+        return Err(ApiError::NotFoundMsg("Not found".into()));
     }
 
     let mut conn = helpers::db_conn(&pool)?;
@@ -633,10 +633,10 @@ pub async fn serve_workspace_branding_file(
         workspace_uuid,
     ) {
         Ok(Some(ctx)) => ctx,
-        Ok(None) => return Ok(HttpResponse::NotFound().finish()),
+        Ok(None) => return Err(ApiError::NotFoundMsg("Not found".into())),
         Err(e) => {
             error!(error = ?e, %workspace_uuid, "Branding workspace resolution failed");
-            return Ok(HttpResponse::NotFound().finish());
+            return Err(ApiError::NotFoundMsg("Not found".into()));
         }
     };
 
@@ -645,7 +645,7 @@ pub async fn serve_workspace_branding_file(
     let logical_path = format!("{BRANDING_DIR}/{filename}");
     match serve_or_not_found(storage, &logical_path, &req).await {
         Ok(response) => Ok(response),
-        Err(_) => Ok(HttpResponse::NotFound().finish()),
+        Err(_) => Err(ApiError::NotFoundMsg("Not found".into())),
     }
 }
 
@@ -670,13 +670,13 @@ pub async fn serve_branding_file(
     if !crate::utils::storage::is_safe_storage_path(&filename)
         || !is_allowed_branding_filename(&filename)
     {
-        return HttpResponse::NotFound().finish();
+        return errors::not_found_msg("Not found");
     }
 
     let logical_path = format!("{BRANDING_DIR}/{filename}");
     match serve_or_not_found(base_storage.get_ref().clone(), &logical_path, &req).await {
         Ok(response) => response,
-        Err(_) => HttpResponse::NotFound().finish(),
+        Err(_) => errors::not_found_msg("Not found"),
     }
 }
 

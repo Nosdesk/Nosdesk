@@ -5,8 +5,9 @@ use tracing::error;
 use urlencoding;
 
 use crate::db::Pool;
-use crate::errors::ApiError;
+use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
+use actix_web::http::StatusCode;
 // Auth providers are now configured via environment variables
 use crate::config_utils;
 use crate::models::AuthProvider;
@@ -301,11 +302,17 @@ pub async fn process_graph_request(
         Ok(response) => match response.json::<serde_json::Value>().await {
             Ok(token_data) => {
                 if token_data.get("access_token").is_none() {
-                    return Ok(HttpResponse::BadRequest().json(json!({
-                            "status": "error",
-                            "message": "Failed to obtain access token",
-                            "details": token_data.get("error_description").and_then(|v| v.as_str()).unwrap_or("Unknown error")
-                        })));
+                    return Ok(errors::with_fields(
+                        StatusCode::BAD_REQUEST,
+                        "GRAPH_TOKEN_FAILED",
+                        "Failed to obtain access token",
+                        json!({
+                            "details": token_data
+                                .get("error_description")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                        }),
+                    ));
                 }
                 token_data
             }
@@ -429,21 +436,27 @@ pub async fn process_graph_request(
                         // Provide helpful permission guidance based on the endpoint
                         let permission_help = get_permission_help_message(endpoint);
 
-                        return Ok(HttpResponse::Forbidden().json(json!({
-                            "status": "error",
-                            "message": error_msg,
-                            "error_code": error_code,
-                            "permission_help": permission_help,
-                            "documentation": "https://learn.microsoft.com/en-us/graph/permissions-reference"
-                        })));
+                        return Ok(errors::with_fields(
+                            StatusCode::FORBIDDEN,
+                            "GRAPH_PERMISSION_DENIED",
+                            error_msg,
+                            json!({
+                                "error_code": error_code,
+                                "permission_help": permission_help,
+                                "documentation": "https://learn.microsoft.com/en-us/graph/permissions-reference"
+                            }),
+                        ));
                     }
                     Err(_) => {
-                        return Ok(HttpResponse::Forbidden().json(json!({
-                            "status": "error",
-                            "message": "Insufficient permissions to access Microsoft Graph API",
-                            "permission_help": get_permission_help_message(endpoint),
-                            "documentation": "https://learn.microsoft.com/en-us/graph/permissions-reference"
-                        })));
+                        return Ok(errors::with_fields(
+                            StatusCode::FORBIDDEN,
+                            "GRAPH_PERMISSION_DENIED",
+                            "Insufficient permissions to access Microsoft Graph API",
+                            json!({
+                                "permission_help": get_permission_help_message(endpoint),
+                                "documentation": "https://learn.microsoft.com/en-us/graph/permissions-reference"
+                            }),
+                        ));
                     }
                 }
             }
@@ -464,11 +477,12 @@ pub async fn process_graph_request(
                             .and_then(|msg| msg.as_str())
                             .unwrap_or("Microsoft Graph API error");
 
-                        Ok(HttpResponse::build(status).json(json!({
-                            "status": "error",
-                            "message": error_msg,
-                            "data": data
-                        })))
+                        Ok(errors::with_fields(
+                            status,
+                            "GRAPH_UPSTREAM_ERROR",
+                            error_msg,
+                            json!({ "data": data }),
+                        ))
                     }
                 }
                 Err(e) => {

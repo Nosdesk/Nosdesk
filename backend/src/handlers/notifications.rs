@@ -11,11 +11,11 @@ use serde::Deserialize;
 
 use crate::db::Pool;
 use crate::middleware::request_context::RequestContext;
-use crate::models::{Claims, WorkspaceRole};
+use crate::models::WorkspaceRole;
 use crate::services::notifications::{
     NotificationChannel, NotificationFrequency, NotificationService, NotificationTypeCode,
 };
-use crate::utils::rbac::require_workspace_role;
+use crate::utils::rbac::{require_auth, require_workspace_role};
 
 /// Query parameters for fetching notifications
 #[derive(Debug, Deserialize)]
@@ -158,17 +158,7 @@ pub async fn register_push_device(
     notification_service: web::Data<NotificationService>,
     body: web::Json<RegisterDeviceRequest>,
 ) -> Result<HttpResponse, ApiError> {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return Ok(HttpResponse::Unauthorized().finish()),
-    };
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID".into())),
-    };
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return Err(ApiError::Unauthorized("Authentication required".into()));
-    };
+    let (user_uuid, workspace_id) = caller(&req)?;
     if !matches!(body.platform.as_str(), "ios" | "android" | "web") {
         return Err(ApiError::BadRequest(format!(
             "Invalid platform: {}",
@@ -204,10 +194,7 @@ pub async fn register_push_device(
                 .await;
             Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
         }
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({ "error": e.to_string() })))
-        }
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -218,17 +205,7 @@ pub async fn unregister_push_device(
     notification_service: web::Data<NotificationService>,
     path: web::Path<String>,
 ) -> Result<HttpResponse, ApiError> {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return Ok(HttpResponse::Unauthorized().finish()),
-    };
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID".into())),
-    };
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return Err(ApiError::Unauthorized("Authentication required".into()));
-    };
+    let (user_uuid, workspace_id) = caller(&req)?;
     let token = path.into_inner();
 
     let mut conn = errors::db_conn(&pool)?;
@@ -246,10 +223,7 @@ pub async fn unregister_push_device(
                 .await;
             Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
         }
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({ "error": e.to_string() })))
-        }
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -259,6 +233,32 @@ fn actor_workspace_id(req: &HttpRequest) -> Option<i32> {
         .get::<RequestContext>()
         .map(|c| c.actor.workspace_id)
         .unwrap_or(None)
+}
+
+/// The authenticated caller's uuid. A signed token whose subject is not a
+/// uuid is our bug, not the caller's, hence 500. Preference handlers use
+/// this alone: preferences are global per user, not pinned to a workspace.
+fn caller_uuid(req: &HttpRequest) -> Result<uuid::Uuid, ApiError> {
+    let claims = require_auth(req)?;
+    uuid::Uuid::parse_str(&claims.sub).map_err(|_| ApiError::Internal("Invalid user UUID".into()))
+}
+
+/// The caller's uuid plus the workspace the request is pinned to, for the
+/// inbox handlers, which are per-workspace.
+fn caller(req: &HttpRequest) -> Result<(uuid::Uuid, i32), ApiError> {
+    let user_uuid = caller_uuid(req)?;
+    let workspace_id = actor_workspace_id(req)
+        .ok_or_else(|| ApiError::Unauthorized("Authentication required".into()))?;
+    Ok((user_uuid, workspace_id))
+}
+
+/// The service reports failures as strings that name tables and columns;
+/// those go to the log, and the client gets `what` failed.
+fn service_failed(what: &'static str) -> impl Fn(String) -> ApiError {
+    move |e| {
+        tracing::error!(error = %e, "{what}");
+        ApiError::Internal(what.into())
+    }
 }
 
 /// Request body for setting a workspace notification default cell.
@@ -288,7 +288,7 @@ pub async fn get_workspace_notification_defaults(
         .await
     {
         Ok(defaults) => Ok(HttpResponse::Ok().json(defaults)),
-        Err(e) => Ok(HttpResponse::InternalServerError().json(serde_json::json!({ "error": e }))),
+        Err(e) => Err(service_failed("Failed to load notification defaults")(e)),
     }
 }
 
@@ -344,7 +344,7 @@ pub async fn update_workspace_notification_default(
         .await
     {
         Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true }))),
-        Err(e) => Ok(HttpResponse::InternalServerError().json(serde_json::json!({ "error": e }))),
+        Err(e) => Err(service_failed("Failed to update notification default")(e)),
     }
 }
 
@@ -370,10 +370,7 @@ pub async fn get_notification_content_level(
         Ok(detailed) => Ok(HttpResponse::Ok().json(serde_json::json!({
             "detail": if detailed { "detailed" } else { "private" }
         }))),
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({ "error": e.to_string() })))
-        }
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -390,17 +387,7 @@ pub async fn set_notification_content_level(
         "private" => false,
         other => return Err(ApiError::BadRequest(format!("Invalid detail: {other}"))),
     };
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return Ok(HttpResponse::Unauthorized().finish()),
-    };
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID".into())),
-    };
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return Err(ApiError::Unauthorized("Authentication required".into()));
-    };
+    let (user_uuid, workspace_id) = caller(&req)?;
     let mut conn = errors::db_conn(&pool)?;
     let actor =
         crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
@@ -409,10 +396,7 @@ pub async fn set_notification_content_level(
     });
     match res {
         Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true }))),
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({ "error": e.to_string() })))
-        }
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -423,24 +407,13 @@ pub async fn get_notifications(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     query: web::Query<NotificationQuery>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
 
     let limit = helpers::clamp_limit(query.limit);
     let offset = helpers::clamp_offset(query.offset);
     let unread_only = query.unread_only.unwrap_or(false);
 
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
     let result = if unread_only {
         notification_service
             .get_unread(&user_uuid, workspace_id, limit)
@@ -452,10 +425,8 @@ pub async fn get_notifications(
     };
 
     match result {
-        Ok(notifications) => HttpResponse::Ok().json(notifications),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": e
-        })),
+        Ok(notifications) => Ok(HttpResponse::Ok().json(notifications)),
+        Err(e) => Err(service_failed("Failed to load notifications")(e)),
     }
 }
 
@@ -465,28 +436,14 @@ pub async fn get_notifications(
 pub async fn get_unread_count(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
     match notification_service
         .get_unread_count(&user_uuid, workspace_id)
         .await
     {
-        Ok(count) => HttpResponse::Ok().json(serde_json::json!({ "count": count })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": e
-        })),
+        Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({ "count": count }))),
+        Err(e) => Err(service_failed("Failed to count unread notifications")(e)),
     }
 }
 
@@ -498,28 +455,14 @@ pub async fn get_unread_count(
 pub async fn get_unseen_count(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
     match notification_service
         .get_unseen_count(&user_uuid, workspace_id)
         .await
     {
-        Ok(count) => HttpResponse::Ok().json(serde_json::json!({ "count": count })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": e
-        })),
+        Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({ "count": count }))),
+        Err(e) => Err(service_failed("Failed to count unseen notifications")(e)),
     }
 }
 
@@ -530,31 +473,17 @@ pub async fn get_unseen_count(
 pub async fn mark_all_seen(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
     match notification_service
         .mark_all_seen(&user_uuid, workspace_id)
         .await
     {
-        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": count
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": e
-        })),
+        }))),
+        Err(e) => Err(service_failed("Failed to mark notifications seen")(e)),
     }
 }
 
@@ -565,29 +494,17 @@ pub async fn mark_notifications_unread(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<MarkReadRequest>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
     match notification_service
         .mark_unread(&user_uuid, workspace_id, &body.notification_ids)
         .await
     {
-        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": count
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+        }))),
+        Err(e) => Err(service_failed("Failed to mark notifications unread")(e)),
     }
 }
 
@@ -598,29 +515,17 @@ pub async fn archive_notifications(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<MarkReadRequest>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
     match notification_service
         .set_archived(&user_uuid, workspace_id, &body.notification_ids, true)
         .await
     {
-        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": count
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+        }))),
+        Err(e) => Err(service_failed("Failed to archive notifications")(e)),
     }
 }
 
@@ -631,29 +536,17 @@ pub async fn unarchive_notifications(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<MarkReadRequest>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
     match notification_service
         .set_archived(&user_uuid, workspace_id, &body.notification_ids, false)
         .await
     {
-        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": count
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+        }))),
+        Err(e) => Err(service_failed("Failed to unarchive notifications")(e)),
     }
 }
 
@@ -665,20 +558,8 @@ pub async fn snooze_notifications(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<SnoozeRequest>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
     match notification_service
         .snooze(
             &user_uuid,
@@ -688,11 +569,11 @@ pub async fn snooze_notifications(
         )
         .await
     {
-        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": count
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+        }))),
+        Err(e) => Err(service_failed("Failed to snooze notifications")(e)),
     }
 }
 
@@ -703,31 +584,17 @@ pub async fn mark_notifications_read(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<MarkReadRequest>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
     match notification_service
         .mark_read(&user_uuid, workspace_id, &body.notification_ids)
         .await
     {
-        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": count
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": e
-        })),
+        }))),
+        Err(e) => Err(service_failed("Failed to mark notifications read")(e)),
     }
 }
 
@@ -737,31 +604,17 @@ pub async fn mark_notifications_read(
 pub async fn mark_all_notifications_read(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
     match notification_service
         .mark_all_read(&user_uuid, workspace_id)
         .await
     {
-        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": count
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": e
-        })),
+        }))),
+        Err(e) => Err(service_failed("Failed to mark notifications read")(e)),
     }
 }
 
@@ -771,26 +624,16 @@ pub async fn mark_all_notifications_read(
 pub async fn get_preferences(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
+) -> Result<HttpResponse, ApiError> {
+    let user_uuid = caller_uuid(&req)?;
 
     match notification_service
         .preferences()
         .get_all_preferences(&user_uuid)
         .await
     {
-        Ok(prefs) => HttpResponse::Ok().json(prefs),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": e
-        })),
+        Ok(prefs) => Ok(HttpResponse::Ok().json(prefs)),
+        Err(e) => Err(service_failed("Failed to load notification preferences")(e)),
     }
 }
 
@@ -801,30 +644,27 @@ pub async fn update_preference(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<UpdatePreferenceRequest>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
+) -> Result<HttpResponse, ApiError> {
+    let user_uuid = caller_uuid(&req)?;
 
     let notification_type = match NotificationTypeCode::from_str(&body.notification_type) {
         Some(t) => t,
         None => {
-            return errors::bad_request(format!(
+            return Err(ApiError::BadRequest(format!(
                 "Invalid notification type: {}",
                 body.notification_type
-            ))
+            )));
         }
     };
 
     let channel = match NotificationChannel::from_str(&body.channel) {
         Some(c) => c,
-        None => return errors::bad_request(format!("Invalid channel: {}", body.channel)),
+        None => {
+            return Err(ApiError::BadRequest(format!(
+                "Invalid channel: {}",
+                body.channel
+            )))
+        }
     };
 
     // Prefer `frequency`; fall back to a legacy `enabled` bool if that's all the
@@ -832,13 +672,15 @@ pub async fn update_preference(
     let frequency = match body.frequency.as_deref() {
         Some(f) => match NotificationFrequency::from_str(f) {
             Some(freq) => freq,
-            None => return errors::bad_request(format!("Invalid frequency: {f}")),
+            None => return Err(ApiError::BadRequest(format!("Invalid frequency: {f}"))),
         },
         None => match body.enabled {
             Some(true) => NotificationFrequency::Instant,
             Some(false) => NotificationFrequency::Off,
             None => {
-                return errors::bad_request("Missing `frequency` (instant|digest|off)");
+                return Err(ApiError::BadRequest(
+                    "Missing `frequency` (instant|digest|off)".into(),
+                ));
             }
         },
     };
@@ -848,10 +690,10 @@ pub async fn update_preference(
         .set_preference(&user_uuid, &notification_type, channel, frequency)
         .await
     {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": e
-        })),
+        Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true }))),
+        Err(e) => Err(service_failed("Failed to update notification preference")(
+            e,
+        )),
     }
 }
 
@@ -861,23 +703,18 @@ pub async fn update_preference(
 pub async fn get_interrupt_preferences(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
+) -> Result<HttpResponse, ApiError> {
+    let user_uuid = caller_uuid(&req)?;
 
     match notification_service
         .preferences()
         .interrupt_human_only(&user_uuid)
         .await
     {
-        Ok(human_only) => HttpResponse::Ok().json(serde_json::json!({ "human_only": human_only })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+        Ok(human_only) => {
+            Ok(HttpResponse::Ok().json(serde_json::json!({ "human_only": human_only })))
+        }
+        Err(e) => Err(service_failed("Failed to load interrupt preferences")(e)),
     }
 }
 
@@ -896,23 +733,16 @@ pub async fn set_interrupt_preferences(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<InterruptPreferencesRequest>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
+) -> Result<HttpResponse, ApiError> {
+    let user_uuid = caller_uuid(&req)?;
 
     match notification_service
         .preferences()
         .set_interrupt_human_only(&user_uuid, body.human_only)
         .await
     {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+        Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true }))),
+        Err(e) => Err(service_failed("Failed to update interrupt preferences")(e)),
     }
 }
 
@@ -923,30 +753,16 @@ pub async fn delete_notifications(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<DeleteNotificationsRequest>,
-) -> HttpResponse {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
-    };
+) -> Result<HttpResponse, ApiError> {
+    let (user_uuid, workspace_id) = caller(&req)?;
     match notification_service
         .delete_notifications(&user_uuid, workspace_id, &body.notification_ids)
         .await
     {
-        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": count
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": e
-        })),
+        }))),
+        Err(e) => Err(service_failed("Failed to delete notifications")(e)),
     }
 }

@@ -310,7 +310,7 @@ async function submit(force = false): Promise<void> {
     };
     if (
       err?.response?.status === 409 &&
-      err.response.data?.error === 'schema_invalidates_existing_assets' &&
+      err.response.data?.code === 'schema_invalidates_existing_assets' &&
       typeof err.response.data.invalid_count === 'number'
     ) {
       schemaConflict.value = {

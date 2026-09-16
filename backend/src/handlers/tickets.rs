@@ -19,8 +19,6 @@ use crate::repository::ticket_query::TicketQuery;
 use crate::services::assignment::AssignmentEngine;
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/tickets", web::get().to(crate::handlers::get_tickets))
@@ -1809,11 +1807,10 @@ pub async fn bulk_tickets(
             HttpResponse::Ok().json(json!({ "affected": updated }))
         }
 
-        _ => HttpResponse::BadRequest().json(json!({
-            "error": i18n::tr(&request_locale(&req), "backend-error-bad-request"),
-            "code": "backend-error-bad-request",
-            "message": format!("Unknown action: {}", action)
-        })),
+        _ => errors::bad_request_with_code(
+            format!("Unknown action: {action}"),
+            "backend-error-bad-request",
+        ),
     }
 }
 

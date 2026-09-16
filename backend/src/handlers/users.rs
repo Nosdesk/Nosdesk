@@ -21,8 +21,6 @@ use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
 use crate::utils;
 use crate::utils::email_branding::get_email_branding;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
 use crate::utils::rbac::is_platform_admin;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -937,11 +935,7 @@ pub async fn create_user(
     }
 
     if !validation_errors.is_empty() {
-        return Ok(HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Validation failed",
-            "errors": validation_errors
-        })));
+        return Ok(errors::validation_failed(validation_errors));
     }
 
     // Validate optional fields
@@ -1153,10 +1147,7 @@ pub async fn create_user(
                     "Error creating user"
                 };
 
-            Ok(HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": error_message
-            })))
+            Ok(errors::internal(error_message))
         }
     }
 }
@@ -2206,10 +2197,7 @@ pub async fn update_user_by_uuid(
     // can't land garbage JSON in the column.
     if let Some(ref layout) = user_data.dashboard_layout {
         if let Err(msg) = validate_dashboard_layout(layout) {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": msg,
-            }));
+            return errors::bad_request(msg);
         }
     }
 
@@ -3249,11 +3237,10 @@ pub async fn bulk_users(
                 .json(json!({ "affected": updated, "skipped_staff": skipped_staff })))
         }
 
-        _ => Ok(HttpResponse::BadRequest().json(json!({
-            "error": i18n::tr(&request_locale(&req), "backend-error-bad-request"),
-            "code": "backend-error-bad-request",
-            "message": format!("Unknown action: {}", action)
-        }))),
+        _ => Ok(errors::bad_request_with_code(
+            format!("Unknown action: {action}"),
+            "backend-error-bad-request",
+        )),
     }
 }
 

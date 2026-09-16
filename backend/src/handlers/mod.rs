@@ -212,8 +212,7 @@ pub async fn get_comments_by_ticket_id(
         }
         Err(e) => {
             error!(ticket_id, error = %e, "Error retrieving comments");
-            HttpResponse::InternalServerError()
-                .json(json!({"error": format!("Failed to retrieve comments: {}", e)}))
+            errors::internal(format!("Failed to retrieve comments: {}", e))
         }
     }
 }
@@ -620,8 +619,7 @@ pub async fn add_comment_to_ticket(
         }
         Err(e) => {
             error!(error = %e, "Error creating comment");
-            HttpResponse::InternalServerError()
-                .json(json!({"error": format!("Failed to create comment: {}", e)}))
+            errors::internal(format!("Failed to create comment: {}", e))
         }
     }
 }
@@ -706,8 +704,7 @@ pub async fn delete_comment(
         }
         Err(e) => {
             error!(comment_id, error = %e, "Error deleting comment");
-            HttpResponse::InternalServerError()
-                .json(json!({"error": format!("Failed to delete comment: {}", e)}))
+            errors::internal(format!("Failed to delete comment: {}", e))
         }
     }
 }
@@ -741,7 +738,7 @@ pub async fn get_comment_raw_eml(
     let comment =
         match tc.run(|conn| crate::repository::comments::get_comment_by_id(conn, comment_id)) {
             Ok(c) => c,
-            Err(_) => return HttpResponse::NotFound().finish(),
+            Err(_) => return errors::not_found_msg("Not found"),
         };
 
     let vis = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
@@ -751,7 +748,7 @@ pub async fn get_comment_raw_eml(
         Ok(true) => {}
         // 404 on deny (not 403): an attacker iterating comment ids
         // mustn't learn which exist on other users' tickets.
-        Ok(false) | Err(_) => return HttpResponse::NotFound().finish(),
+        Ok(false) | Err(_) => return errors::not_found_msg("Not found"),
     }
 
     let Some(storage_path) = comment.raw_source_uri else {
@@ -759,7 +756,7 @@ pub async fn get_comment_raw_eml(
         // source. UI-authored comments and pre-archive history
         // land here. 404 is correct — there's no resource to
         // serve under this URL.
-        return HttpResponse::NotFound().finish();
+        return errors::not_found_msg("Not found");
     };
 
     match storage.0.get_file(&storage_path).await {
@@ -778,7 +775,7 @@ pub async fn get_comment_raw_eml(
             .body(bytes),
         Err(e) => {
             warn!(comment_id, error = ?e, "raw .eml fetch failed; file may have been pruned");
-            HttpResponse::NotFound().finish()
+            errors::not_found_msg("Not found")
         }
     }
 }
@@ -894,8 +891,7 @@ pub async fn delete_attachment(
                 }
                 Err(e) => {
                     error!(attachment_id, error = %e, "Error deleting attachment from database");
-                    HttpResponse::InternalServerError()
-                        .json(json!({"error": format!("Failed to delete attachment: {}", e)}))
+                    errors::internal(format!("Failed to delete attachment: {}", e))
                 }
             }
         }
@@ -928,7 +924,7 @@ pub async fn serve_public_file(
         format!("users/thumbs/{filename}")
     } else {
         warn!(filename = %filename, "Security violation: Attempted to access non-avatar/banner/thumb file");
-        return HttpResponse::Forbidden().finish();
+        return errors::forbidden("Only avatar, banner and thumbnail files are served here");
     };
 
     // Serve the file using storage abstraction
@@ -942,7 +938,7 @@ pub async fn serve_public_file(
         Ok(response) => response,
         Err(e) => {
             error!(storage_path = %storage_path, error = ?e, "Error serving public file");
-            HttpResponse::NotFound().finish()
+            errors::not_found_msg("Not found")
         }
     }
 }
@@ -963,5 +959,5 @@ pub async fn reject_legacy_upload_path(path: web::Path<String>) -> impl Responde
         path = %path.into_inner(),
         "Rejected unauthenticated /uploads/ access; tenant files are served via /api/files"
     );
-    HttpResponse::NotFound().finish()
+    errors::not_found_msg("Not found")
 }

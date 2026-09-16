@@ -224,10 +224,10 @@ pub async fn update_member_role(
         Ok(ManageOutcome::NotFound) => Err(ApiError::NotFoundMsg(format!(
             "user {target} is not a member of this workspace"
         ))),
-        Ok(ManageOutcome::LastOwner) => Ok(HttpResponse::Conflict().json(serde_json::json!({
-            "error": "last_owner",
-            "message": "cannot demote the only owner; promote another member first",
-        }))),
+        Ok(ManageOutcome::LastOwner) => Ok(errors::conflict_with_code(
+            "cannot demote the only owner; promote another member first",
+            "last_owner",
+        )),
         Ok(ManageOutcome::ExternallyManaged) => Ok(errors::externally_managed()),
         Ok(ManageOutcome::Removed) => {
             // Unreachable in the update path.
@@ -235,10 +235,10 @@ pub async fn update_member_role(
         }
         Err(e) if workspaces::is_seat_limit_violation(&e) => {
             warn!(workspace_id = ctx.workspace_id, %target, "promotion blocked by workspace seat limit");
-            Ok(HttpResponse::Forbidden().json(serde_json::json!({
-                "error": "seat_limit_reached",
-                "message": "This workspace has reached its seat limit. Contact support to add more seats.",
-            })))
+            Ok(errors::forbidden_with_code(
+                "This workspace has reached its seat limit. Contact support to add more seats.",
+                "seat_limit_reached",
+            ))
         }
         Err(e) => {
             error!(error = ?e, workspace_id = ctx.workspace_id, %target, "workspace member role update failed");
@@ -305,10 +305,10 @@ pub async fn remove_member(
         Ok(ManageOutcome::NotFound) => Err(ApiError::NotFoundMsg(format!(
             "user {target} is not a member of this workspace"
         ))),
-        Ok(ManageOutcome::LastOwner) => Ok(HttpResponse::Conflict().json(serde_json::json!({
-            "error": "last_owner",
-            "message": "cannot remove the only owner; promote another member first",
-        }))),
+        Ok(ManageOutcome::LastOwner) => Ok(errors::conflict_with_code(
+            "cannot remove the only owner; promote another member first",
+            "last_owner",
+        )),
         Ok(ManageOutcome::ExternallyManaged) => Ok(errors::externally_managed()),
         Ok(ManageOutcome::UpdatedRole(_)) => {
             // Unreachable in the remove path.

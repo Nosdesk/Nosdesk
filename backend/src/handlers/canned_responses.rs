@@ -202,7 +202,7 @@ pub async fn update_canned(
             let updated: CannedResponse = updated;
             Ok(HttpResponse::Ok().json(updated))
         }
-        Err(diesel::result::Error::NotFound) => Ok(HttpResponse::NotFound().finish()),
+        Err(diesel::result::Error::NotFound) => Err(ApiError::NotFoundMsg("Not found".into())),
         Err(e) => {
             error!(error = %e, "failed to update canned_response");
             Ok(server_error("Failed to update canned response"))
@@ -219,7 +219,7 @@ pub async fn delete_canned(
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     match tc.run(|conn| repo::delete(conn, id)) {
-        Ok(0) => Ok(HttpResponse::NotFound().finish()),
+        Ok(0) => Err(ApiError::NotFoundMsg("Not found".into())),
         Ok(_) => {
             info!(id, "canned response deleted");
             Ok(HttpResponse::NoContent().finish())

@@ -273,7 +273,7 @@ pub async fn get_channel(
         });
     match result {
         Ok(Some(body)) => Ok(HttpResponse::Ok().json(body)),
-        Ok(None) => Ok(HttpResponse::NotFound().finish()),
+        Ok(None) => Err(ApiError::NotFoundMsg("Not found".into())),
         Err(e) => {
             error!(error = %e, "failed to load channel");
             Ok(server_error("Failed to load channel"))
@@ -436,7 +436,7 @@ pub async fn update_channel(
             control.upsert(channel_id).await;
             Ok(HttpResponse::Ok().json(response))
         }
-        Ok(UpdateOutcome::NotFound) => Ok(HttpResponse::NotFound().finish()),
+        Ok(UpdateOutcome::NotFound) => Err(ApiError::NotFoundMsg("Not found".into())),
         Ok(UpdateOutcome::Validation(resp)) => Ok(resp),
         Err(e) => {
             error!(error = %e, "failed to update channel");
@@ -467,7 +467,7 @@ pub async fn delete_channel(
         }
     };
     if rows == 0 {
-        return Ok(HttpResponse::NotFound().finish());
+        return Err(ApiError::NotFoundMsg("Not found".into()));
     }
     // Tell the supervisor to stop the worker. Delete is idempotent,
     // so ordering with the DB commit doesn't matter — in the worst
@@ -570,7 +570,7 @@ pub async fn test_connection(
 
     let (config, password) = match result {
         Ok(TestPrep::Ready(c, p)) => (c, p),
-        Ok(TestPrep::NotFound) => return Ok(HttpResponse::NotFound().finish()),
+        Ok(TestPrep::NotFound) => return Err(ApiError::NotFoundMsg("Not found".into())),
         Ok(TestPrep::Validation(resp)) => return Ok(resp),
         Err(e) => {
             error!(error = %e, "failed to load channel for test-connection");
