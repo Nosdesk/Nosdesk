@@ -79,7 +79,6 @@ impl WebhookEventType {
     }
 
     /// Parse from string
-    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "ticket.created" => Some(Self::TicketCreated),

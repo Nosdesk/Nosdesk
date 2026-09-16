@@ -302,11 +302,6 @@ pub struct MicrosoftGraphDevice {
     pub device_enrollment_type: Option<String>,
     #[serde(rename = "managementAgent")]
     pub management_agent: Option<String>,
-    /// Entra Object ID - resolved from azure_ad_device_id during sync.
-    /// This is the directory object ID used for group membership matching.
-    #[serde(skip)]
-    #[allow(dead_code)]
-    pub entra_object_id: Option<String>,
 }
 
 // Microsoft Graph Group structure from API response
@@ -2257,16 +2252,11 @@ async fn fetch_microsoft_graph_users_optimized(
 }
 
 /// Result of a delta sync fetch operation
-#[allow(dead_code)]
 struct DeltaFetchResult {
     /// Users to create or update
     users: Vec<MicrosoftGraphUser>,
     /// IDs of users that were removed (from @removed marker in delta response)
     removed_user_ids: Vec<String>,
-    /// The new delta link to store for next sync (if any)
-    new_delta_link: Option<String>,
-    /// Whether this was a full sync (no delta token or token expired)
-    was_full_sync: bool,
     /// Access token for profile photo downloads
     access_token: String,
 }
@@ -2489,8 +2479,6 @@ async fn fetch_microsoft_graph_users_delta(
     Ok(DeltaFetchResult {
         users: all_users,
         removed_user_ids,
-        new_delta_link,
-        was_full_sync,
         access_token: access_token.to_string(),
     })
 }
@@ -3749,12 +3737,9 @@ struct GroupDeltaItem {
 }
 
 /// Result of a delta sync fetch operation for groups
-#[allow(dead_code)]
 struct GroupDeltaFetchResult {
     /// Groups with their membership changes
     groups: Vec<GroupDeltaItem>,
-    /// The new delta link to store for next sync (if any)
-    new_delta_link: Option<String>,
     /// Whether this was a full sync (no delta token or token expired)
     was_full_sync: bool,
     /// Access token for any additional API calls
@@ -4004,7 +3989,6 @@ async fn fetch_microsoft_graph_groups_delta(
 
     Ok(GroupDeltaFetchResult {
         groups: all_groups,
-        new_delta_link,
         was_full_sync,
         access_token: access_token.to_string(),
     })
@@ -4677,14 +4661,11 @@ async fn sync_user_profile_photo_fallback(
 }
 
 /// Result of a delta sync fetch operation for Entra ID devices
-#[allow(dead_code)]
 struct DeviceDeltaFetchResult {
     /// Entra ID devices to create or update
     devices: Vec<EntraDevice>,
     /// IDs of devices that were removed (from @removed marker in delta response)
     removed_device_ids: Vec<String>,
-    /// The new delta link to store for next sync (if any)
-    new_delta_link: Option<String>,
     /// Whether this was a full sync (no delta token or token expired)
     was_full_sync: bool,
     /// Access token for any additional API calls
@@ -4897,7 +4878,6 @@ async fn fetch_microsoft_graph_devices_delta(
     Ok(DeviceDeltaFetchResult {
         devices: all_devices,
         removed_device_ids,
-        new_delta_link,
         was_full_sync,
         access_token: access_token.to_string(),
     })

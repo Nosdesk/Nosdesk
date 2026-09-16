@@ -923,7 +923,6 @@ pub async fn create_documentation_page(
 
 // DTO for updating documentation pages (partial update)
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct UpdateDocumentationPageRequest {
     pub title: Option<String>,
     pub slug: Option<String>,
@@ -1531,7 +1530,6 @@ pub async fn get_documentation_pages_by_ticket_id(
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 pub struct CreateDocPageFromTicket {
     pub title: String,
     pub description: Option<String>,

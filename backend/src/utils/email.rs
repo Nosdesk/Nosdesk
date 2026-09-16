@@ -154,28 +154,6 @@ impl EmailBranding {
             security_note: None,
         }
     }
-
-    /// Generate lighter shade of primary color for backgrounds.
-    /// Retained from the previous design (the new stationery layout uses
-    /// fixed paper tokens rather than a tinted accent), kept for callers
-    /// that derive a soft background from the brand color.
-    #[allow(dead_code)]
-    fn primary_color_light(&self) -> String {
-        if let Some(hex) = self.primary_color.strip_prefix('#') {
-            if hex.len() == 6 {
-                if let (Ok(r), Ok(g), Ok(b)) = (
-                    u8::from_str_radix(&hex[0..2], 16),
-                    u8::from_str_radix(&hex[2..4], 16),
-                    u8::from_str_radix(&hex[4..6], 16),
-                ) {
-                    // Mix with white (very light tint)
-                    let lighten = |c: u8| ((c as f32 * 0.15) + (255.0 * 0.85)) as u8;
-                    return format!("#{:02x}{:02x}{:02x}", lighten(r), lighten(g), lighten(b));
-                }
-            }
-        }
-        "#eff6ff".to_string() // fallback
-    }
 }
 
 // ===========================================================================
@@ -245,7 +223,6 @@ pub fn muted(html: impl Into<String>) -> Block {
 
 /// A body sub-heading. Smaller than the letter headline; rarely needed,
 /// kept for completeness so compose_* never reaches for raw `<h*>`.
-#[allow(dead_code)]
 pub fn heading(html: impl Into<String>) -> Block {
     Block(format!(
         r#"<p class="nd-head" style="margin:0 0 12px 0;color:{head};font-size:17px;line-height:1.4;font-weight:600;">{content}</p>"#,
@@ -597,10 +574,8 @@ impl<'a> EmailTemplate<'a> {
 #[derive(Clone, Copy)]
 pub enum NoticeType {
     Warning,
-    #[allow(dead_code)]
     Critical,
     Info,
-    #[allow(dead_code)]
     Success,
 }
 
@@ -1057,7 +1032,6 @@ fn dkim_sign_message(message: &mut Message, signer: &DkimSigner) -> Result<(), S
 /// Outcome of a transport send. Carries a provider message id when a
 /// backend returns one; `None` for SMTP, where the RFC Message-ID is the
 /// only identity.
-#[allow(dead_code)]
 pub struct SendOutcome {
     pub provider_message_id: Option<String>,
 }

@@ -34,7 +34,6 @@ pub enum StorageConfig {
 
 /// File metadata returned after upload
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct StoredFile {
     pub id: String,
     pub url: String,
@@ -46,19 +45,11 @@ pub struct StoredFile {
 /// Error types for storage operations
 #[derive(Debug)]
 pub enum StorageError {
-    #[allow(dead_code)]
     Io(io::Error),
-    #[allow(dead_code)]
-    InvalidPath(String),
-    #[allow(dead_code)]
     NotFound(String),
-    #[allow(dead_code)]
     UploadFailed(String),
-    #[allow(dead_code)]
-    ConfigError(String),
     /// A backend (S3/network) operation failed for a reason other than
     /// a missing object.
-    #[allow(dead_code)]
     Backend(String),
 }
 
@@ -103,7 +94,6 @@ pub trait Storage: Send + Sync {
     async fn delete_file(&self, path: &str) -> Result<(), StorageError>;
 
     /// Check if a file exists
-    #[allow(dead_code)]
     async fn file_exists(&self, path: &str) -> Result<bool, StorageError>;
 
     /// Get a public URL for a file (for serving/downloads)

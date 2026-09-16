@@ -26,7 +26,6 @@ use crate::utils::webauthn::{self, credential_id_to_string, StoredPasskeyCredent
 // =============================================================================
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct StartRegistrationRequest {
     pub passkey_name: Option<String>,
 }
