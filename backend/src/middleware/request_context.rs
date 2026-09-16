@@ -279,9 +279,10 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
     }
     let status = resp.status().as_u16();
     let method = req.method().as_str();
-    // Stable error taxonomy for `?`-propagated ApiErrors, stashed on the
-    // response by `ApiError::error_response`. Stamped into the bag below so it
-    // rides `_canonical` (present only on errors, never a noisy "" on 2xx).
+    // Stable error taxonomy, stashed on the response by every `errors::*`
+    // builder (and so by `ApiError::error_response`, which delegates to
+    // them). Stamped into the bag below so it rides `_canonical` (present
+    // only on errors, never a noisy "" on 2xx).
     let error_kind = resp
         .response()
         .extensions()

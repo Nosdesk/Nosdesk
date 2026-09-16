@@ -29,9 +29,12 @@
 //! automatic conversion from common error types (`diesel::Error`,
 //! `r2d2::Error`, `actix_web::Error`). This is the shape of every
 //! handler that calls a fallible helper, and the one new handlers
-//! should take. An `Err(ApiError)` also carries the `error_kind` the
-//! canonical request event reports; a bare `Ok(errors::x(..))` does
-//! not.
+//! should take.
+//!
+//! Every builder stamps an [`ErrorKind`] on the response it returns, so the
+//! canonical request event reports `error_kind` whichever pattern produced
+//! the response. Only a raw `HttpResponse::BadRequest()` built by hand in a
+//! handler carries no kind; use the builders.
 //!
 //! ```ignore
 //! pub async fn flag(req: HttpRequest, pool: web::Data<Pool>)
@@ -70,6 +73,28 @@ use tracing::error;
 use crate::db::{DbConnection, Pool};
 
 // =================================================================
+// Error kind stamp
+// =================================================================
+
+/// Stable, low-cardinality machine code for an error response, attached to
+/// the response extensions by every builder below so the canonical wide
+/// event can report `error_kind` without any handler restating it. Distinct
+/// from `status_code`: it separates a unique-violation 409 from a plain
+/// conflict, and a pool outage 503 from a service-unavailable 503, so
+/// `group by error_kind` is possible. Read by
+/// `middleware::request_context::emit_canonical_event`.
+#[derive(Clone, Copy)]
+pub struct ErrorKind(pub &'static str);
+
+/// Attach `kind` to `resp`. Every builder ends with this; a later stamp
+/// replaces an earlier one, which is how `db_error` overrides the kind of
+/// the builder it delegates to.
+fn stamp(mut resp: HttpResponse, kind: &'static str) -> HttpResponse {
+    resp.extensions_mut().insert(ErrorKind(kind));
+    resp
+}
+
+// =================================================================
 // Standard error builders
 // =================================================================
 
@@ -83,10 +108,13 @@ pub fn bad_request(message: impl Into<String>) -> HttpResponse {
 /// 400 Bad Request with a specific machine-readable code clients
 /// can branch on (e.g. `INVALID_EMAIL`, `WEAK_PASSWORD`).
 pub fn bad_request_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
-    HttpResponse::BadRequest().json(json!({
-        "error": message.into(),
-        "code": code,
-    }))
+    stamp(
+        HttpResponse::BadRequest().json(json!({
+            "error": message.into(),
+            "code": code,
+        })),
+        "bad_request",
+    )
 }
 
 /// 401 Unauthorized — caller is unauthenticated.
@@ -99,20 +127,26 @@ pub fn unauthorized_with_code(message: impl Into<String>, code: &str) -> HttpRes
     // RFC 7235 requires a challenge on every 401. Sessions are bearer
     // tokens (cookie or header), so the scheme is `Bearer`; browsers only
     // prompt for Basic/Digest, so this never raises a native dialog.
-    HttpResponse::Unauthorized()
-        .insert_header(("WWW-Authenticate", "Bearer"))
-        .json(json!({
-            "error": message.into(),
-            "code": code,
-        }))
+    stamp(
+        HttpResponse::Unauthorized()
+            .insert_header(("WWW-Authenticate", "Bearer"))
+            .json(json!({
+                "error": message.into(),
+                "code": code,
+            })),
+        "unauthorized",
+    )
 }
 
 /// 403 Forbidden — caller is authenticated but lacks permission.
 pub fn forbidden(message: impl Into<String>) -> HttpResponse {
-    HttpResponse::Forbidden().json(json!({
-        "error": message.into(),
-        "code": "FORBIDDEN",
-    }))
+    stamp(
+        HttpResponse::Forbidden().json(json!({
+            "error": message.into(),
+            "code": "FORBIDDEN",
+        })),
+        "forbidden",
+    )
 }
 
 /// 404 Not Found — the named entity doesn't exist or isn't visible.
@@ -120,20 +154,26 @@ pub fn forbidden(message: impl Into<String>) -> HttpResponse {
 /// a structured `entity` field for programmatic dispatch.
 pub fn not_found(entity: impl Into<String>) -> HttpResponse {
     let entity = entity.into();
-    HttpResponse::NotFound().json(json!({
-        "error": format!("{} not found", entity),
-        "code": "RESOURCE_NOT_FOUND",
-        "entity": entity,
-    }))
+    stamp(
+        HttpResponse::NotFound().json(json!({
+            "error": format!("{} not found", entity),
+            "code": "RESOURCE_NOT_FOUND",
+            "entity": entity,
+        })),
+        "not_found",
+    )
 }
 
 /// 404 Not Found with a verbatim message — for cases where the
 /// existing copy doesn't fit the "{entity} not found" template.
 pub fn not_found_msg(message: impl Into<String>) -> HttpResponse {
-    HttpResponse::NotFound().json(json!({
-        "error": message.into(),
-        "code": "RESOURCE_NOT_FOUND",
-    }))
+    stamp(
+        HttpResponse::NotFound().json(json!({
+            "error": message.into(),
+            "code": "RESOURCE_NOT_FOUND",
+        })),
+        "not_found",
+    )
 }
 
 /// 409 Conflict — request violates a uniqueness or state constraint.
@@ -145,20 +185,24 @@ pub fn conflict(message: impl Into<String>) -> HttpResponse {
 
 /// 409 Conflict with a specific machine-readable code.
 pub fn conflict_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
-    HttpResponse::Conflict().json(json!({
-        "error": message.into(),
-        "code": code,
-    }))
+    stamp(
+        HttpResponse::Conflict().json(json!({
+            "error": message.into(),
+            "code": code,
+        })),
+        "conflict",
+    )
 }
 
 /// 409 for a staff-seat action refused because the control plane owns the
 /// identity in hosted mode. `code: "externally_managed"` is the stable code the
 /// SPA reflects; the product must hand the caller off to the control plane.
 pub fn externally_managed() -> HttpResponse {
-    conflict_with_code(
+    let resp = conflict_with_code(
         "Team members are managed in the Nosdesk control plane. Add, re-role, or remove seats there.",
         "externally_managed",
-    )
+    );
+    stamp(resp, "externally_managed")
 }
 
 /// 409 for a local-credential action refused because local password auth is
@@ -166,10 +210,11 @@ pub fn externally_managed() -> HttpResponse {
 /// [`externally_managed`]: this is not staff-specific (no one has a local
 /// password in hosted), so it stays a plain "not available here".
 pub fn local_auth_disabled() -> HttpResponse {
-    conflict_with_code(
+    let resp = conflict_with_code(
         "Local password authentication is disabled on this instance.",
         "local_auth_disabled",
-    )
+    );
+    stamp(resp, "local_auth_disabled")
 }
 
 /// 410 Gone — the resource existed but is permanently no longer
@@ -183,10 +228,13 @@ pub fn gone(message: impl Into<String>) -> HttpResponse {
 
 /// 410 Gone with a specific machine-readable code.
 pub fn gone_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
-    HttpResponse::Gone().json(json!({
-        "error": message.into(),
-        "code": code,
-    }))
+    stamp(
+        HttpResponse::Gone().json(json!({
+            "error": message.into(),
+            "code": code,
+        })),
+        "gone",
+    )
 }
 
 /// 422 Unprocessable Entity — request was syntactically valid but
@@ -194,10 +242,13 @@ pub fn gone_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
 /// payload). Use 400 for malformed input, 422 for "we understood it
 /// but it can't be applied."
 pub fn unprocessable_entity(message: impl Into<String>) -> HttpResponse {
-    HttpResponse::UnprocessableEntity().json(json!({
-        "error": message.into(),
-        "code": "UNPROCESSABLE_ENTITY",
-    }))
+    stamp(
+        HttpResponse::UnprocessableEntity().json(json!({
+            "error": message.into(),
+            "code": "UNPROCESSABLE_ENTITY",
+        })),
+        "unprocessable_entity",
+    )
 }
 
 /// 429 Too Many Requests — caller hit a rate limit. `retry_after` is
@@ -205,13 +256,16 @@ pub fn unprocessable_entity(message: impl Into<String>) -> HttpResponse {
 /// `Retry-After` header (per RFC 6585) and the JSON body for clients
 /// that read either.
 pub fn too_many_requests(message: impl Into<String>, retry_after_secs: u64) -> HttpResponse {
-    HttpResponse::TooManyRequests()
-        .insert_header(("Retry-After", retry_after_secs.to_string()))
-        .json(json!({
-            "error": message.into(),
-            "code": "RATE_LIMITED",
-            "retry_after": retry_after_secs,
-        }))
+    stamp(
+        HttpResponse::TooManyRequests()
+            .insert_header(("Retry-After", retry_after_secs.to_string()))
+            .json(json!({
+                "error": message.into(),
+                "code": "RATE_LIMITED",
+                "retry_after": retry_after_secs,
+            })),
+        "rate_limited",
+    )
 }
 
 /// 500 Internal Server Error — generic server-side failure. Prefer
@@ -223,22 +277,28 @@ pub fn internal(message: impl Into<String>) -> HttpResponse {
 
 /// 500 Internal Server Error with a specific machine-readable code.
 pub fn internal_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
-    HttpResponse::InternalServerError().json(json!({
-        "error": message.into(),
-        "code": code,
-    }))
+    stamp(
+        HttpResponse::InternalServerError().json(json!({
+            "error": message.into(),
+            "code": code,
+        })),
+        "internal",
+    )
 }
 
 /// 503 Service Unavailable — server is alive but a dependency is
 /// temporarily down (DB pool exhausted, Redis unreachable, etc.).
 /// Clients can retry with backoff.
 pub fn service_unavailable(message: impl Into<String>) -> HttpResponse {
-    HttpResponse::ServiceUnavailable()
-        .insert_header(("Retry-After", "5"))
-        .json(json!({
-            "error": message.into(),
-            "code": "SERVICE_UNAVAILABLE",
-        }))
+    stamp(
+        HttpResponse::ServiceUnavailable()
+            .insert_header(("Retry-After", "5"))
+            .json(json!({
+                "error": message.into(),
+                "code": "SERVICE_UNAVAILABLE",
+            })),
+        "service_unavailable",
+    )
 }
 
 // =================================================================
@@ -252,50 +312,75 @@ pub fn db_error(err: &diesel::result::Error) -> HttpResponse {
     use diesel::result::DatabaseErrorKind as Kind;
     use diesel::result::Error;
 
-    match err {
-        Error::NotFound => HttpResponse::NotFound().json(json!({
-            "error": "Resource not found",
-            "code": "RESOURCE_NOT_FOUND",
-        })),
+    let (resp, kind) = match err {
+        Error::NotFound => (
+            HttpResponse::NotFound().json(json!({
+                "error": "Resource not found",
+                "code": "RESOURCE_NOT_FOUND",
+            })),
+            "not_found",
+        ),
         Error::DatabaseError(kind, info) => {
             error!(error = ?err, ?kind, message = info.message(), "DB error");
             match kind {
-                Kind::UniqueViolation => HttpResponse::Conflict().json(json!({
-                    "error": "A record with these values already exists",
-                    "code": "DB_UNIQUE_VIOLATION",
-                })),
-                Kind::ForeignKeyViolation => HttpResponse::BadRequest().json(json!({
-                    "error": "Referenced record does not exist",
-                    "code": "DB_FOREIGN_KEY_VIOLATION",
-                })),
-                Kind::NotNullViolation => HttpResponse::BadRequest().json(json!({
-                    "error": "A required field was missing",
-                    "code": "DB_NOT_NULL_VIOLATION",
-                })),
-                Kind::CheckViolation => HttpResponse::BadRequest().json(json!({
-                    "error": "A field value violated a database constraint",
-                    "code": "DB_CHECK_VIOLATION",
-                })),
-                _ => HttpResponse::InternalServerError().json(json!({
-                    "error": "Database operation failed",
-                    "code": "DB_ERROR",
-                })),
+                Kind::UniqueViolation => (
+                    HttpResponse::Conflict().json(json!({
+                        "error": "A record with these values already exists",
+                        "code": "DB_UNIQUE_VIOLATION",
+                    })),
+                    "db_unique_violation",
+                ),
+                Kind::ForeignKeyViolation => (
+                    HttpResponse::BadRequest().json(json!({
+                        "error": "Referenced record does not exist",
+                        "code": "DB_FOREIGN_KEY_VIOLATION",
+                    })),
+                    "db_constraint_violation",
+                ),
+                Kind::NotNullViolation => (
+                    HttpResponse::BadRequest().json(json!({
+                        "error": "A required field was missing",
+                        "code": "DB_NOT_NULL_VIOLATION",
+                    })),
+                    "db_constraint_violation",
+                ),
+                Kind::CheckViolation => (
+                    HttpResponse::BadRequest().json(json!({
+                        "error": "A field value violated a database constraint",
+                        "code": "DB_CHECK_VIOLATION",
+                    })),
+                    "db_constraint_violation",
+                ),
+                _ => (
+                    HttpResponse::InternalServerError().json(json!({
+                        "error": "Database operation failed",
+                        "code": "DB_ERROR",
+                    })),
+                    "db_error",
+                ),
             }
         }
         // Connection-level errors — most likely a transient
         // infrastructure problem rather than a request problem.
         Error::BrokenTransactionManager | Error::AlreadyInTransaction => {
             error!(error = ?err, "DB transaction state error");
-            service_unavailable("Database transaction error")
+            (
+                service_unavailable("Database transaction error"),
+                "db_error",
+            )
         }
         _ => {
             error!(error = ?err, "Unhandled DB error");
-            HttpResponse::InternalServerError().json(json!({
-                "error": "Database operation failed",
-                "code": "DB_ERROR",
-            }))
+            (
+                HttpResponse::InternalServerError().json(json!({
+                    "error": "Database operation failed",
+                    "code": "DB_ERROR",
+                })),
+                "db_error",
+            )
         }
-    }
+    };
+    stamp(resp, kind)
 }
 
 // =================================================================
@@ -376,46 +461,6 @@ pub enum ApiError {
     Actix(#[from] actix_web::Error),
 }
 
-/// Stable, low-cardinality machine code for an [`ApiError`], attached to the
-/// response extensions so the canonical wide event can report `error_kind`
-/// without every handler restating it. Distinct from `status_code`: it
-/// separates e.g. a unique-violation 409 from a plain conflict, and a pool
-/// outage 503 from a service-unavailable 503 — so `group by error_kind` is
-/// possible. Read by `middleware::request_context::emit_canonical_event`.
-#[derive(Clone, Copy)]
-pub struct ErrorKind(pub &'static str);
-
-impl ApiError {
-    /// Stable machine code for this error (never free text — safe to log/index).
-    pub fn kind(&self) -> &'static str {
-        match self {
-            ApiError::BadRequest(_) => "bad_request",
-            ApiError::Unauthorized(_) => "unauthorized",
-            ApiError::Forbidden(_) => "forbidden",
-            ApiError::NotFound(_) | ApiError::NotFoundMsg(_) => "not_found",
-            ApiError::Conflict(_) => "conflict",
-            ApiError::Internal(_) => "internal",
-            ApiError::ServiceUnavailable(_) => "service_unavailable",
-            ApiError::Database(diesel::result::Error::NotFound) => "not_found",
-            ApiError::Database(diesel::result::Error::DatabaseError(kind, _)) => {
-                use diesel::result::DatabaseErrorKind as Kind;
-                match kind {
-                    Kind::UniqueViolation => "db_unique_violation",
-                    Kind::ForeignKeyViolation | Kind::NotNullViolation | Kind::CheckViolation => {
-                        "db_constraint_violation"
-                    }
-                    _ => "db_error",
-                }
-            }
-            ApiError::Database(_) => "db_error",
-            ApiError::Pool(_) => "pool_unavailable",
-            // Agree with what `error_response` will stamp: a wrapped
-            // `ApiError` keeps its own kind, anything else is unclassified.
-            ApiError::Actix(e) => e.as_error::<ApiError>().map_or("other", ApiError::kind),
-        }
-    }
-}
-
 impl ResponseError for ApiError {
     fn status_code(&self) -> StatusCode {
         match self {
@@ -444,8 +489,9 @@ impl ResponseError for ApiError {
     }
 
     fn error_response(&self) -> HttpResponse {
-        let mut resp = match self {
-            ApiError::Actix(e) => return e.error_response(),
+        // Each builder stamps its own `ErrorKind`; nothing is added here.
+        match self {
+            ApiError::Actix(e) => e.error_response(),
             ApiError::BadRequest(m) => bad_request(m.clone()),
             ApiError::Unauthorized(m) => unauthorized(m.clone()),
             ApiError::Forbidden(m) => forbidden(m.clone()),
@@ -457,15 +503,14 @@ impl ResponseError for ApiError {
             ApiError::Database(e) => db_error(e),
             ApiError::Pool(e) => {
                 error!(error = ?e, "DB pool acquire failed");
-                service_unavailable("Database connection unavailable, please retry")
+                // Same body as a dependency outage, distinct kind so a pool
+                // exhaustion is separable from a generic 503 in the log.
+                stamp(
+                    service_unavailable("Database connection unavailable, please retry"),
+                    "pool_unavailable",
+                )
             }
-        };
-        // Stash the stable kind on the response so the canonical wide event
-        // reports `error_kind` for every `?`-propagated error, no per-handler
-        // stamping. (Direct `HttpResponse::…` returns bypass this — acceptable;
-        // the ApiError path is the systematic one.)
-        resp.extensions_mut().insert(ErrorKind(self.kind()));
-        resp
+        }
     }
 }
 
@@ -493,13 +538,107 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    /// A wrapped actix error keeps its own response and adds no stamp.
+    /// A wrapped actix error keeps its own response, stamp included when
+    /// it came from a builder and absent when it did not.
     #[actix_web::test]
     async fn actix_variant_passes_the_response_through() {
-        let inner = from_response("unit", HttpResponse::ImATeapot().body("brew"));
-        let rendered = HttpResponse::from_error(ApiError::Actix(inner));
+        let bespoke = from_response("unit", HttpResponse::ImATeapot().body("brew"));
+        let rendered = HttpResponse::from_error(ApiError::Actix(bespoke));
         assert_eq!(rendered.status(), StatusCode::IM_A_TEAPOT);
         assert!(rendered.extensions().get::<ErrorKind>().is_none());
         assert_eq!(to_bytes(rendered.into_body()).await.unwrap(), "brew");
+
+        let built = from_response("unit", too_many_requests("slow down", 7));
+        let rendered = HttpResponse::from_error(ApiError::Actix(built));
+        assert_eq!(rendered.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            rendered.extensions().get::<ErrorKind>().map(|k| k.0),
+            Some("rate_limited")
+        );
+    }
+
+    fn kind_of(resp: &HttpResponse) -> Option<&'static str> {
+        resp.extensions().get::<ErrorKind>().map(|k| k.0)
+    }
+
+    /// Every builder stamps the kind the canonical event reports, so a
+    /// bare `errors::x(..)` return from an `impl Responder` handler is as
+    /// observable as an `Err(ApiError)`.
+    #[test]
+    fn every_builder_stamps_its_kind() {
+        let cases: Vec<(HttpResponse, &str)> = vec![
+            (bad_request("x"), "bad_request"),
+            (bad_request_with_code("x", "INVALID_EMAIL"), "bad_request"),
+            (unauthorized("x"), "unauthorized"),
+            (unauthorized_with_code("x", "TOKEN_EXPIRED"), "unauthorized"),
+            (forbidden("x"), "forbidden"),
+            (not_found("Ticket"), "not_found"),
+            (not_found_msg("x"), "not_found"),
+            (conflict("x"), "conflict"),
+            (conflict_with_code("x", "SLUG_TAKEN"), "conflict"),
+            (externally_managed(), "externally_managed"),
+            (local_auth_disabled(), "local_auth_disabled"),
+            (gone("x"), "gone"),
+            (gone_with_code("x", "SETUP_DONE"), "gone"),
+            (unprocessable_entity("x"), "unprocessable_entity"),
+            (too_many_requests("x", 1), "rate_limited"),
+            (internal("x"), "internal"),
+            (internal_with_code("x", "BOOM"), "internal"),
+            (service_unavailable("x"), "service_unavailable"),
+        ];
+        for (resp, expected) in &cases {
+            assert_eq!(kind_of(resp), Some(*expected), "kind for {expected}");
+        }
+    }
+
+    /// `db_error` classifies Diesel failures finely enough to separate a
+    /// unique violation from a constraint violation from an outage.
+    #[test]
+    fn db_error_stamps_by_diesel_kind() {
+        use diesel::result::{DatabaseErrorInformation, DatabaseErrorKind, Error};
+
+        struct Info;
+        impl DatabaseErrorInformation for Info {
+            fn message(&self) -> &str {
+                "unit"
+            }
+            fn details(&self) -> Option<&str> {
+                None
+            }
+            fn hint(&self) -> Option<&str> {
+                None
+            }
+            fn table_name(&self) -> Option<&str> {
+                None
+            }
+            fn column_name(&self) -> Option<&str> {
+                None
+            }
+            fn constraint_name(&self) -> Option<&str> {
+                None
+            }
+            fn statement_position(&self) -> Option<i32> {
+                None
+            }
+        }
+        let db = |kind| Error::DatabaseError(kind, Box::new(Info));
+
+        assert_eq!(kind_of(&db_error(&Error::NotFound)), Some("not_found"));
+        assert_eq!(
+            kind_of(&db_error(&db(DatabaseErrorKind::UniqueViolation))),
+            Some("db_unique_violation")
+        );
+        assert_eq!(
+            kind_of(&db_error(&db(DatabaseErrorKind::ForeignKeyViolation))),
+            Some("db_constraint_violation")
+        );
+        assert_eq!(
+            kind_of(&db_error(&db(DatabaseErrorKind::Unknown))),
+            Some("db_error")
+        );
+        assert_eq!(
+            kind_of(&db_error(&Error::BrokenTransactionManager)),
+            Some("db_error")
+        );
     }
 }
