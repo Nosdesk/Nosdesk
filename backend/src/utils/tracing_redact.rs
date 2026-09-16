@@ -161,6 +161,12 @@ const ALLOWED_FIELDS: &[&str] = &[
     "elapsed_ms",
     "error",
     "error_kind",
+    // CSRF origin refusals: the browser-supplied Origin and the request Host,
+    // which is exactly what an operator needs to fix a FRONTEND_URL or proxy
+    // Host mismatch. Bounded (an origin is scheme://authority), not PII.
+    // Prefixed because bare `host` stays redacted (tenant mailbox hosts etc).
+    "request_origin",
+    "request_host",
     "failed",
     "processed",
     "stamped",

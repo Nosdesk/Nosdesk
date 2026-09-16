@@ -234,7 +234,11 @@ docker compose -f compose.yaml -f compose.dev.yaml exec nosdesk printenv FRONTEN
 ```
 
 Same root cause as the collaboration WebSocket rejecting a mismatched
-origin.
+origin, and as the 403 `origin_not_allowed` on login: every
+state-changing browser request must arrive with an `Origin` that is
+either `FRONTEND_URL` / `ADDITIONAL_CORS_ORIGINS` or equal to the
+request `Host`. A proxy that rewrites `Host` needs `FRONTEND_URL` set
+to the public origin. The refusal is logged with both values.
 
 ### 4.8 Real SMTP testing requires switching compose files
 
