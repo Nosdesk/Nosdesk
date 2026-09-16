@@ -26,7 +26,7 @@ axios.defaults.withCredentials = true; // Enable sending httpOnly cookies with a
 // NOTE: This is for UX optimization only (preventing unnecessary API calls)
 // Authentication state is always determined by backend responses
 function hasCsrfToken(): boolean {
-  return !!document.cookie.match(/csrf_token=([^;]+)/);
+  return !!document.cookie.match(/(?:^|;\s*)(?:__Host-)?csrf_token=([^;]+)/);
 }
 
 export const useAuthStore = defineStore('auth', () => {

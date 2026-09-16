@@ -291,7 +291,9 @@ pub(crate) async fn authenticate<B: MessageBody>(
         .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
 
     let token = req
-        .cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
+        .cookie(&crate::utils::cookies::cookie_name(
+            crate::utils::cookies::ACCESS_TOKEN_COOKIE,
+        ))
         .ok_or_else(|| {
             warn!(path = %req.path(), "No access_token cookie and no session bearer");
             bearer_unauthorized(false, "Authentication required")

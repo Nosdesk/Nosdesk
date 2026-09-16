@@ -530,7 +530,9 @@ pub async fn oauth_callback(
     // set it in the victim's browser.
     if let Some(expected) = &state_data.binding {
         let presented = request
-            .cookie(crate::utils::cookies::OAUTH_STATE_COOKIE)
+            .cookie(&crate::utils::cookies::cookie_name(
+                crate::utils::cookies::OAUTH_STATE_COOKIE,
+            ))
             .map(|c| c.value().to_string());
         let matches = presented
             .as_deref()

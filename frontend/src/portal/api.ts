@@ -7,7 +7,7 @@
 import axios from 'axios'
 
 function portalCsrfToken(): string | null {
-  const match = document.cookie.match(/portal_csrf=([^;]+)/)
+  const match = document.cookie.match(/(?:^|;\s*)(?:__Host-)?portal_csrf=([^;]+)/)
   return match ? match[1] : null
 }
 
