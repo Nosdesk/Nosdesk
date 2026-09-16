@@ -52,7 +52,7 @@ pub mod preferences;
 pub mod service;
 pub mod types;
 
-pub use service::NotificationService;
+pub use service::{InboxFilter, NotificationService};
 pub use types::{
     NotificationChannel, NotificationEvent, NotificationFrequency, NotificationTypeCode,
 };

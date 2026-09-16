@@ -45,6 +45,17 @@ fn earned_interrupt_ignored(seen: i64, read: i64) -> bool {
         && (read as f64) < (seen as f64) * EARNED_INTERRUPT_MIN_READ_RATE
 }
 
+/// Server-side narrowing for [`NotificationService::list`]. One inbox tab
+/// maps to one filter, so a tab shows the whole set, not the loaded window.
+#[derive(Debug, Default, Clone)]
+pub struct InboxFilter {
+    pub unread_only: bool,
+    /// Notification type code (`notification_types.code`), e.g. `mentioned`.
+    pub notification_type: Option<String>,
+    /// Keyset cursor: rows strictly older than `(created_at, id)`.
+    pub before: Option<(chrono::NaiveDateTime, i32)>,
+}
+
 /// Central notification service that orchestrates notification creation and delivery
 pub struct NotificationService {
     pool: Pool,
@@ -737,70 +748,20 @@ impl NotificationService {
         Ok(type_id)
     }
 
-    /// Get unread notifications for a user
-    pub async fn get_unread(
+    /// List a user's active inbox (not archived, not snoozed), newest first.
+    ///
+    /// One query serves every inbox tab: `filter.unread_only` and
+    /// `filter.notification_type` narrow it server-side so a tab is the
+    /// truth, not a client-side sieve over one loaded page. Paging is keyset
+    /// on `(created_at, id)` via `filter.before`; the client passes the last
+    /// row it holds, so rows it removed optimistically (marked read on the
+    /// Unread tab) never shift the window. `offset` stays for API callers
+    /// that still page that way; a cursor wins when both are given.
+    pub async fn list(
         &self,
         user_uuid_val: &Uuid,
         workspace_id_val: i32,
-        limit: i64,
-    ) -> Result<Vec<NotificationResponse>, String> {
-        use crate::schema::notification_types;
-        use crate::schema::notifications::dsl::*;
-
-        let results: Vec<(Notification, String)> = crate::sync::session::run_in_workspace(
-            &self.pool,
-            "background:notification_get_unread",
-            workspace_id_val,
-            |conn| {
-                notifications
-                    .inner_join(notification_types::table)
-                    .filter(user_uuid.eq(user_uuid_val))
-                    .filter(is_read.eq(false))
-                    // Archived items drop out of the active inbox.
-                    .filter(archived_at.is_null())
-                    // Snoozed items stay hidden until their time passes
-                    // (auto-unsnooze by the read filter, no extra write).
-                    .filter(
-                        snoozed_until
-                            .is_null()
-                            .or(snoozed_until.le(Utc::now().naive_utc())),
-                    )
-                    .order(created_at.desc())
-                    .limit(limit)
-                    .select((
-                        crate::schema::notifications::all_columns,
-                        notification_types::code,
-                    ))
-                    .load(conn)
-            },
-        )
-        .map_err(|e| format!("Query failed: {e}"))?;
-
-        Ok(results
-            .into_iter()
-            .map(|(n, type_code)| NotificationResponse {
-                id: n.id,
-                uuid: n.uuid,
-                notification_type: type_code,
-                entity_type: n.entity_type,
-                entity_id: n.entity_id,
-                title: n.title,
-                body: n.body,
-                metadata: n.metadata,
-                is_read: n.is_read,
-                seen_at: n.seen_at,
-                archived_at: n.archived_at,
-                snoozed_until: n.snoozed_until,
-                created_at: n.created_at,
-            })
-            .collect())
-    }
-
-    /// Get all notifications for a user (with pagination)
-    pub async fn get_all(
-        &self,
-        user_uuid_val: &Uuid,
-        workspace_id_val: i32,
+        filter: InboxFilter,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<NotificationResponse>, String> {
@@ -809,24 +770,40 @@ impl NotificationService {
 
         let results: Vec<(Notification, String)> = crate::sync::session::run_in_workspace(
             &self.pool,
-            "background:notification_get_all",
+            "background:notification_list",
             workspace_id_val,
             |conn| {
-                notifications
+                let mut query = notifications
                     .inner_join(notification_types::table)
                     .filter(user_uuid.eq(user_uuid_val))
                     // Archived items drop out of the active inbox (they
                     // remain retrievable once an Archived view exists).
                     .filter(archived_at.is_null())
-                    // Snoozed items stay hidden until their time passes.
+                    // Snoozed items stay hidden until their time passes
+                    // (auto-unsnooze by the read filter, no extra write).
                     .filter(
                         snoozed_until
                             .is_null()
                             .or(snoozed_until.le(Utc::now().naive_utc())),
                     )
-                    .order(created_at.desc())
+                    .into_boxed();
+                if filter.unread_only {
+                    query = query.filter(is_read.eq(false));
+                }
+                if let Some(code) = filter.notification_type.as_deref() {
+                    query = query.filter(notification_types::code.eq(code.to_string()));
+                }
+                query = match filter.before {
+                    Some((before_at, before_id)) => query.filter(
+                        created_at
+                            .lt(before_at)
+                            .or(created_at.eq(before_at).and(id.lt(before_id))),
+                    ),
+                    None => query.offset(offset),
+                };
+                query
+                    .order((created_at.desc(), id.desc()))
                     .limit(limit)
-                    .offset(offset)
                     .select((
                         crate::schema::notifications::all_columns,
                         notification_types::code,
@@ -908,25 +885,45 @@ impl NotificationService {
     }
 
     /// Mark all notifications as read for a user
+    /// Mark every unread notification read, optionally only those of one
+    /// type (the Mentions tab's "mark all read" clears mentions server-wide,
+    /// not just the loaded window).
     pub async fn mark_all_read(
         &self,
         user_uuid_val: &Uuid,
         workspace_id_val: i32,
+        only_type: Option<&str>,
     ) -> Result<usize, String> {
+        use crate::schema::notification_types;
         use crate::schema::notifications::dsl::*;
 
+        let only_type = only_type.map(str::to_string);
         crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_mark_all_read",
             workspace_id_val,
             |conn| {
-                diesel::update(
-                    notifications
-                        .filter(user_uuid.eq(user_uuid_val))
-                        .filter(is_read.eq(false)),
-                )
-                .set((is_read.eq(true), read_at.eq(Some(Utc::now().naive_utc()))))
-                .execute(conn)
+                let now = Some(Utc::now().naive_utc());
+                let mine = notifications
+                    .filter(user_uuid.eq(user_uuid_val))
+                    .filter(is_read.eq(false));
+                // A boxed query is not an update target, so branch instead.
+                match only_type {
+                    Some(code) => diesel::update(
+                        mine.filter(
+                            notification_type_id.eq_any(
+                                notification_types::table
+                                    .filter(notification_types::code.eq(code))
+                                    .select(notification_types::id),
+                            ),
+                        ),
+                    )
+                    .set((is_read.eq(true), read_at.eq(now)))
+                    .execute(conn),
+                    None => diesel::update(mine)
+                        .set((is_read.eq(true), read_at.eq(now)))
+                        .execute(conn),
+                }
             },
         )
         .map_err(|e| format!("Update failed: {e}"))
