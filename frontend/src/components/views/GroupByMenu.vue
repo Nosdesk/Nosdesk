@@ -13,6 +13,7 @@
  */
 import { computed, ref } from 'vue'
 import Icon from '@/components/common/Icon.vue'
+import MenuItem from '@/components/common/MenuItem.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import { useMenuKeyboardNav, type KeyboardNavItem } from '@/composables/useMenuKeyboardNav'
 import type { PopoverAnchor } from '@/composables/usePopover'
@@ -103,25 +104,20 @@ function pick(key: string): void {
         class="py-1 outline-none"
         @keydown="(e) => { nav.setItems(navItems); nav.onKeydown(e) }"
       >
-        <button
+        <MenuItem
           v-for="(opt, i) in options"
           :key="opt.key"
-          type="button"
-          role="menuitem"
-          class="w-full px-3 py-1.5 grid grid-cols-[1fr_auto] items-center gap-x-2 text-left transition-colors duration-75"
-          :class="nav.highlightedIndex.value === i
-            ? 'bg-accent/10'
-            : 'hover:bg-surface-hover'"
+          :highlighted="nav.highlightedIndex.value === i"
           @click.stop="pick(opt.key)"
           @mouseenter="nav.setHighlighted(i)"
         >
-          <span class="text-xs text-primary">{{ opt.label }}</span>
+          <span class="flex-1 text-primary">{{ opt.label }}</span>
           <Icon
             v-if="opt.key === modelValue"
             name="check"
             class="w-3 h-3 text-accent"
           />
-        </button>
+        </MenuItem>
       </div>
     </ResponsiveMenu>
   </div>

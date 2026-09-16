@@ -28,6 +28,7 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import Icon from '@/components/common/Icon.vue'
+import MenuItem from '@/components/common/MenuItem.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import FilterValueList from '@/components/views/FilterValueList.vue'
 import { useMenuKeyboardNav, type KeyboardNavItem } from '@/composables/useMenuKeyboardNav'
@@ -237,26 +238,21 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
             class="py-1 outline-none"
             @keydown="onFacetListKeydown"
           >
-            <button
+            <MenuItem
               v-for="(facet, i) in facets"
               :key="facet.key"
-              type="button"
-              role="menuitem"
-              class="w-full px-3 py-1.5 flex items-center gap-2 text-left transition-colors duration-75"
-              :class="facetNav.highlightedIndex.value === i
-                ? 'bg-accent/10'
-                : 'hover:bg-surface-hover'"
+              :highlighted="facetNav.highlightedIndex.value === i"
               @click.stop="pickFacet(facet.key)"
               @mouseenter="facetNav.setHighlighted(i)"
             >
-              <span class="flex-1 text-xs text-primary">{{ facet.label }}</span>
+              <span class="flex-1 text-primary">{{ facet.label }}</span>
               <Icon
                 v-if="activeSet.has(facet.key)"
                 name="check"
                 class="w-3 h-3 text-accent"
               />
               <Icon name="chevronRight" class="w-3 h-3 text-tertiary" />
-            </button>
+            </MenuItem>
           </div>
 
           <!-- Stage 2: value picker -->

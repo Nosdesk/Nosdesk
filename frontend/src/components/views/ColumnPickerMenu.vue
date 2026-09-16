@@ -12,6 +12,7 @@
  */
 import { computed, ref } from 'vue'
 import Icon from '@/components/common/Icon.vue'
+import MenuItem from '@/components/common/MenuItem.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import type { PopoverAnchor } from '@/composables/usePopover'
 import type { DataTableColumnLike } from '@/composables/useDataTableColumns'
@@ -74,14 +75,12 @@ const hiddenCount = computed<number>(
       @close="open = false"
     >
       <div class="py-1 max-h-[20rem] overflow-y-auto">
-        <button
+        <MenuItem
           v-for="col in columns"
           :key="col.field"
-          type="button"
           role="menuitemcheckbox"
-          :aria-checked="!isHidden(col.field)"
+          :checked="!isHidden(col.field)"
           :disabled="isPinned(col.field)"
-          class="w-full px-3 py-1.5 grid grid-cols-[auto_1fr] items-center gap-x-2 text-left transition-colors duration-75 hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
           @click="emit('toggle', col.field)"
         >
           <span
@@ -94,8 +93,8 @@ const hiddenCount = computed<number>(
               class="w-2.5 h-2.5 text-on-accent"
             />
           </span>
-          <span class="text-xs text-primary truncate">{{ col.label }}</span>
-        </button>
+          <span class="flex-1 text-primary truncate">{{ col.label }}</span>
+        </MenuItem>
       </div>
       <footer class="border-t border-subtle px-3 py-1.5 flex items-center justify-end">
         <button
