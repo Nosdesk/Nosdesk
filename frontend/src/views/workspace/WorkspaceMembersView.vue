@@ -290,8 +290,8 @@ const isFirstLoad = computed(() => isFetching.value && rows.value.length === 0);
 const isBackgroundRefresh = computed(() => isFetching.value && rows.value.length > 0);
 
 function isLastOwnerError(error: unknown): boolean {
-  const e = error as { response?: { status?: number; data?: { error?: string } } };
-  return e.response?.status === 409 && e.response?.data?.error === 'last_owner';
+  const e = error as { response?: { status?: number; data?: { code?: string } } };
+  return e.response?.status === 409 && e.response?.data?.code === 'last_owner';
 }
 function isForbidden(error: unknown): boolean {
   return (error as { response?: { status?: number } }).response?.status === 403;

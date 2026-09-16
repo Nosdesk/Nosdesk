@@ -20,6 +20,7 @@ use crate::utils::locale::request_locale;
 use crate::utils::mfa;
 use crate::utils::rate_limit::{get_redis_url, RateLimiter};
 use crate::utils::webauthn::{self, credential_id_to_string, StoredPasskeyCredential};
+use actix_web::http::StatusCode;
 
 // =============================================================================
 // Request/Response Types
@@ -144,11 +145,12 @@ pub async fn start_passkey_registration(
     // Check passkey limit
     match webauthn::can_add_passkey(&mut conn, &user_uuid) {
         Ok(false) => {
-            return Ok(HttpResponse::BadRequest().json(json!({
-                "error": i18n::tr(&request_locale(&req), "backend-error-passkey-max-reached"),
-                "code": "backend-error-passkey-max-reached",
-                "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER
-            })));
+            return Ok(errors::with_fields(
+                StatusCode::BAD_REQUEST,
+                "backend-error-passkey-max-reached",
+                i18n::tr(&request_locale(&req), "backend-error-passkey-max-reached"),
+                json!({ "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER }),
+            ));
         }
         Err(e) => {
             error!("Failed to check passkey count: {:?}", e);
@@ -1054,11 +1056,12 @@ pub async fn start_passkey_setup_login(
     // Check passkey limit
     match webauthn::can_add_passkey(&mut conn, &user.uuid) {
         Ok(false) => {
-            return Ok(HttpResponse::BadRequest().json(json!({
-                "error": i18n::tr(&request_locale(&req), "backend-error-passkey-max-reached"),
-                "code": "backend-error-passkey-max-reached",
-                "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER
-            })));
+            return Ok(errors::with_fields(
+                StatusCode::BAD_REQUEST,
+                "backend-error-passkey-max-reached",
+                i18n::tr(&request_locale(&req), "backend-error-passkey-max-reached"),
+                json!({ "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER }),
+            ));
         }
         Err(e) => {
             error!("Failed to check passkey count: {:?}", e);

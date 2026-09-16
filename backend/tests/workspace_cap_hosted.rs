@@ -108,5 +108,5 @@ async fn hosted_mode_does_not_bypass_the_workspace_cap() {
     let mut resp = resp;
     let body: serde_json::Value =
         serde_json::from_slice(&resp.body().await.expect("body")).expect("json");
-    assert_eq!(body["error"], "license_required");
+    assert_eq!(body["code"], "license_required");
 }

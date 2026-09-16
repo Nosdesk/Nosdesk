@@ -19,6 +19,7 @@ use crate::models::{
 };
 use crate::repository::user_contact as repo;
 use crate::services::custom_fields::schema as field_schema;
+use actix_web::http::StatusCode;
 
 /// Contact-access gate shared by every handler in this module, read and write:
 /// self, workspace-admin, OR an agent acting on a REQUESTER (a `member`) of
@@ -167,15 +168,15 @@ pub async fn set_user_field_schema(
         });
         match counted {
             Ok((invalid, sample)) if invalid > 0 => {
-                return HttpResponse::Conflict().json(json!({
-                    "error": "schema_invalidates_existing_profiles",
-                    "message": format!(
+                return errors::with_fields(
+                    StatusCode::CONFLICT,
+                    "schema_invalidates_existing_profiles",
+                    format!(
                         "{invalid} user profile(s) have values that would no longer validate. \
                          Pass ?force=true to apply anyway, then fix or clear the affected values."
                     ),
-                    "invalid_count": invalid,
-                    "sample": sample,
-                }));
+                    json!({ "invalid_count": invalid, "sample": sample }),
+                );
             }
             Ok(_) => {}
             Err(e) => {

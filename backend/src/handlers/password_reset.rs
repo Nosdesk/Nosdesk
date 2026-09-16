@@ -275,10 +275,7 @@ pub async fn reset_password_with_token(
         Ok(uuid) => uuid,
         Err(e) => {
             warn!("Invalid password reset token: {}", e);
-            return Ok(HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": e
-            })));
+            return Ok(errors::bad_request(e));
         }
     };
 

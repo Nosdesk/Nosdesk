@@ -99,8 +99,8 @@ function flashSuccess(message: string) {
 }
 
 function isLastOwnerError(error: unknown): boolean {
-  const e = error as { response?: { status?: number; data?: { error?: string } } };
-  return e.response?.status === 409 && e.response?.data?.error === 'last_owner';
+  const e = error as { response?: { status?: number; data?: { code?: string } } };
+  return e.response?.status === 409 && e.response?.data?.code === 'last_owner';
 }
 
 function resolveMutationError(error: unknown, fallbackKey: string): string {

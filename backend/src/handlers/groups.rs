@@ -7,8 +7,6 @@ use crate::errors::{self, ApiError};
 use crate::extractors::TenantConn;
 use crate::models::{Claims, GroupUpdate, NewGroup, WorkspaceRole};
 use crate::repository;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
 use crate::utils::rbac::require_workspace_role;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -470,13 +468,10 @@ pub async fn set_group_includes(
     match outcome {
         Ok(SetIncludesOutcome::Ok(d)) => Ok(HttpResponse::Ok().json(d)),
         Ok(SetIncludesOutcome::NotFound) => Err(ApiError::NotFoundMsg("Group not found".into())),
-        Ok(SetIncludesOutcome::CheckViolation(msg)) => {
-            Ok(HttpResponse::BadRequest().json(serde_json::json!({
-                "error": i18n::tr(&request_locale(&req), "backend-error-validation"),
-                "code": "backend-error-validation",
-                "message": msg,
-            })))
-        }
+        Ok(SetIncludesOutcome::CheckViolation(msg)) => Ok(errors::bad_request_with_code(
+            msg,
+            "backend-error-validation",
+        )),
         Err(_) => Err(ApiError::Internal("Failed to set group includes".into())),
     }
 }

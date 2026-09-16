@@ -690,7 +690,7 @@ pub async fn get_guest_ticket_status(
     let token_str = path.into_inner();
     let token = match Uuid::parse_str(&token_str) {
         Ok(t) => t,
-        Err(_) => return Ok(HttpResponse::NotFound().finish()),
+        Err(_) => return Err(ApiError::NotFoundMsg("Not found".into())),
     };
 
     let mut conn = helpers::db_conn(&pool)?;
@@ -732,14 +732,16 @@ pub async fn get_guest_ticket_status(
             "updated_at": t.updated_at,
             "closed_at": t.closed_at,
         }))),
-        Ok(LookupOutcome::NotFound) => Ok(HttpResponse::NotFound().finish()),
+        Ok(LookupOutcome::NotFound) => Err(ApiError::NotFoundMsg("Not found".into())),
         Ok(LookupOutcome::Disabled) => Err(ApiError::Forbidden(
             "Guest ticket status lookup is disabled".into(),
         )),
-        Ok(LookupOutcome::SettingsUnavailable) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(LookupOutcome::SettingsUnavailable) => {
+            Err(ApiError::ServiceUnavailable("Service unavailable".into()))
+        }
         Err(e) => {
             error!(error = %e, "Error looking up guest ticket");
-            Ok(HttpResponse::InternalServerError().finish())
+            Err(ApiError::Internal("Internal server error".into()))
         }
     }
 }
@@ -803,13 +805,13 @@ pub async fn list_public_docs(
                 .collect();
             Ok(HttpResponse::Ok().json(items))
         }
-        Ok(Err("unavailable")) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(Err("unavailable")) => Err(ApiError::ServiceUnavailable("Service unavailable".into())),
         Ok(Err(_)) => Err(ApiError::Forbidden(
             "Public documentation is disabled".into(),
         )),
         Err(e) => {
             error!(error = %e, "Failed to list public docs");
-            Ok(HttpResponse::InternalServerError().finish())
+            Err(ApiError::Internal("Internal server error".into()))
         }
     }
 }
@@ -863,14 +865,14 @@ pub async fn get_public_doc(
                 "yjs_document": pdoc,
                 "updated_at": pupdated,
             }))),
-        Ok(Ok(None)) => Ok(HttpResponse::NotFound().finish()),
-        Ok(Err("unavailable")) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(Ok(None)) => Err(ApiError::NotFoundMsg("Not found".into())),
+        Ok(Err("unavailable")) => Err(ApiError::ServiceUnavailable("Service unavailable".into())),
         Ok(Err(_)) => Err(ApiError::Forbidden(
             "Public documentation is disabled".into(),
         )),
         Err(e) => {
             error!(error = %e, "Failed to load public doc");
-            Ok(HttpResponse::InternalServerError().finish())
+            Err(ApiError::Internal("Internal server error".into()))
         }
     }
 }
@@ -941,13 +943,13 @@ pub async fn search_public_docs(
             debug!(count = items.len(), q = %q, "Public doc search");
             Ok(HttpResponse::Ok().json(items))
         }
-        Ok(Err("unavailable")) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(Err("unavailable")) => Err(ApiError::ServiceUnavailable("Service unavailable".into())),
         Ok(Err(_)) => Err(ApiError::Forbidden(
             "Public documentation search is disabled".into(),
         )),
         Err(e) => {
             error!(error = %e, "Public doc search failed");
-            Ok(HttpResponse::InternalServerError().finish())
+            Err(ApiError::Internal("Internal server error".into()))
         }
     }
 }
@@ -1050,7 +1052,7 @@ pub async fn upload_guest_attachment(
     let sanitized_filename = match FileValidator::sanitize_filename(&original_filename) {
         Ok(n) => n,
         Err(e) => {
-            return Ok(HttpResponse::BadRequest().json(json!({"error": e.to_string()})));
+            return Err(ApiError::BadRequest(e.to_string()));
         }
     };
 
@@ -1066,9 +1068,9 @@ pub async fn upload_guest_attachment(
             }
         };
         if file_data.len() + data.len() > max_bytes {
-            return Ok(HttpResponse::PayloadTooLarge().json(json!({
-                "error": format!("File exceeds {GUEST_MAX_FILE_SIZE_MB}MB limit")
-            })));
+            return Ok(errors::payload_too_large(format!(
+                "File exceeds {GUEST_MAX_FILE_SIZE_MB}MB limit"
+            )));
         }
         file_data.extend_from_slice(&data);
     }
@@ -1078,7 +1080,7 @@ pub async fn upload_guest_attachment(
         Ok(m) => m,
         Err(e) => {
             debug!(error = ?e, filename = %sanitized_filename, "Guest upload rejected");
-            return Ok(HttpResponse::BadRequest().json(json!({"error": e.to_string()})));
+            return Err(ApiError::BadRequest(e.to_string()));
         }
     };
 

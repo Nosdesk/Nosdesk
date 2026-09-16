@@ -14,6 +14,7 @@
 //! UPDATE / DELETE; tenant RLS is meaningless for workspaces lifecycle
 //! anyway because `workspaces` itself doesn't carry a workspace_id.
 
+use actix_web::http::StatusCode;
 use actix_web::{web, HttpRequest, HttpResponse};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -265,13 +266,16 @@ pub async fn create_workspace(
                  An Enterprise license is required to create more."
             )
         };
-        return Ok(HttpResponse::PaymentRequired().json(serde_json::json!({
-            "error": "license_required",
-            "message": message,
-            "edition": edition.name(),
-            "max_workspaces": max,
-            "active_workspaces": active,
-        })));
+        return Ok(errors::with_fields(
+            StatusCode::PAYMENT_REQUIRED,
+            "license_required",
+            message,
+            serde_json::json!({
+                "edition": edition.name(),
+                "max_workspaces": max,
+                "active_workspaces": active,
+            }),
+        ));
     }
 
     let record = NewWorkspace {
@@ -310,10 +314,10 @@ pub async fn create_workspace(
         }
         Err(CreateWorkspaceError::SlugTaken) => {
             warn!(slug = %slug, "admin/workspaces slug collision");
-            Ok(HttpResponse::Conflict().json(serde_json::json!({
-                "error": "slug_taken",
-                "message": format!("slug '{slug}' is unavailable, please choose another"),
-            })))
+            Ok(errors::conflict_with_code(
+                format!("slug '{slug}' is unavailable, please choose another"),
+                "slug_taken",
+            ))
         }
         Err(CreateWorkspaceError::Db(e)) => {
             error!(error = ?e, slug = %slug, "admin/workspaces create failed");
@@ -445,10 +449,10 @@ pub async fn hard_delete_workspace(
         ));
     }
     if ws.archived_at.is_none() {
-        return Ok(HttpResponse::Conflict().json(serde_json::json!({
-            "error": "not_archived",
-            "message": "workspace must be archived before hard delete; call POST /archive first",
-        })));
+        return Ok(errors::conflict_with_code(
+            "workspace must be archived before hard delete; call POST /archive first",
+            "not_archived",
+        ));
     }
 
     // Cutoff is NOW: hard_delete_workspace's WHERE clause enforces
@@ -458,10 +462,10 @@ pub async fn hard_delete_workspace(
     // erasure requests).
     let cutoff = chrono::Utc::now();
     match pc.run(|conn| workspaces::hard_delete_workspace(conn, id, cutoff)) {
-        Ok(0) => Ok(HttpResponse::Conflict().json(serde_json::json!({
-            "error": "not_eligible",
-            "message": "workspace state changed during request; refresh and retry",
-        }))),
+        Ok(0) => Ok(errors::conflict_with_code(
+            "workspace state changed during request; refresh and retry",
+            "not_eligible",
+        )),
         Ok(_) => {
             info!(workspace_id = id, slug = %ws.slug, "admin/workspaces hard-deleted");
             Ok(HttpResponse::NoContent().finish())
@@ -684,12 +688,10 @@ pub async fn update_member_role(
         Ok(UpdateMembershipRoleResult::NotFound) => Err(ApiError::NotFoundMsg(format!(
             "no membership row for user {user_uuid} in workspace {workspace_id}"
         ))),
-        Ok(UpdateMembershipRoleResult::LastOwner) => {
-            Ok(HttpResponse::Conflict().json(serde_json::json!({
-                "error": "last_owner",
-                "message": "cannot demote the only owner; promote another member first",
-            })))
-        }
+        Ok(UpdateMembershipRoleResult::LastOwner) => Ok(errors::conflict_with_code(
+            "cannot demote the only owner; promote another member first",
+            "last_owner",
+        )),
         Ok(UpdateMembershipRoleResult::ExternallyManaged) => Ok(errors::externally_managed()),
         Err(e) => {
             error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces update_member_role failed");
@@ -735,12 +737,10 @@ pub async fn remove_member(
             // owner. Probe to distinguish so the response matches reality.
             let probe = pc.run(|conn| workspaces::membership(conn, workspace_id, user_uuid));
             match probe {
-                Ok(Some(row)) if row.role == "owner" => {
-                    Ok(HttpResponse::Conflict().json(serde_json::json!({
-                        "error": "last_owner",
-                        "message": "cannot remove the only owner; promote another member first",
-                    })))
-                }
+                Ok(Some(row)) if row.role == "owner" => Ok(errors::conflict_with_code(
+                    "cannot remove the only owner; promote another member first",
+                    "last_owner",
+                )),
                 Ok(None) => Err(ApiError::NotFoundMsg(format!(
                     "no membership row for user {user_uuid} in workspace {workspace_id}"
                 ))),

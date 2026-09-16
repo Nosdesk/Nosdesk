@@ -652,9 +652,13 @@ pub async fn get_documentation_page(
             errors::internal("Failed to check page visibility")
         }
         Ok(PageLoadOutcome::ResponseBuildFailed(err)) => {
-            HttpResponse::InternalServerError().json(err)
+            error!(error = %err, "Failed to build page response");
+            errors::internal("Failed to load page")
         }
-        Ok(PageLoadOutcome::EmbedFailed(err)) => HttpResponse::InternalServerError().json(err),
+        Ok(PageLoadOutcome::EmbedFailed(err)) => {
+            error!(error = %err, "Failed to embed page tickets");
+            errors::internal("Failed to load page")
+        }
         Err(_) => errors::internal("Failed to load page"),
     }
 }
@@ -703,9 +707,13 @@ pub async fn get_documentation_page_by_slug(
             errors::internal("Failed to check page visibility")
         }
         Ok(PageLoadOutcome::ResponseBuildFailed(err)) => {
-            HttpResponse::InternalServerError().json(err)
+            error!(error = %err, "Failed to build page response");
+            errors::internal("Failed to load page")
         }
-        Ok(PageLoadOutcome::EmbedFailed(err)) => HttpResponse::InternalServerError().json(err),
+        Ok(PageLoadOutcome::EmbedFailed(err)) => {
+            error!(error = %err, "Failed to embed page tickets");
+            errors::internal("Failed to load page")
+        }
         Err(_) => errors::internal("Failed to load page"),
     }
 }
@@ -1045,7 +1053,8 @@ pub async fn update_documentation_page(
             return errors::internal("Failed to update documentation page");
         }
         Ok(UpdatePageOutcome::ResponseBuildFailed(err)) => {
-            return HttpResponse::InternalServerError().json(err);
+            error!(error = %err, "Failed to build page response");
+            return errors::internal("Failed to update documentation page");
         }
         Err(_) => return errors::internal("Failed to update documentation page"),
     };
@@ -1225,7 +1234,8 @@ fn respond_page_list(
             errors::internal("Failed to check page visibility")
         }
         Ok(PageListOutcome::ResponseBuildFailed(err)) => {
-            HttpResponse::InternalServerError().json(err)
+            error!(error = %err, "Failed to build page response");
+            errors::internal("Failed to build page response")
         }
         Err(_) => errors::internal(fetch_err_msg),
     }
@@ -1960,7 +1970,8 @@ pub async fn restore_page(
             errors::internal("Failed to restore documentation page")
         }
         Ok(RestorePageOutcome::ResponseBuildFailed(err)) => {
-            HttpResponse::InternalServerError().json(err)
+            error!(error = %err, "Failed to build page response");
+            errors::internal("Failed to build page response")
         }
         Err(_) => errors::internal("Failed to restore documentation page"),
     }
@@ -2292,7 +2303,7 @@ pub async fn create_page_ticket_link(
         .link_type
         .unwrap_or_else(|| repository::documentation_page_tickets::LINK_REFERENCES.to_string());
     if let Err(msg) = repository::documentation_page_tickets::validate_link_type(&link_type) {
-        return HttpResponse::BadRequest().json(json!({"error": msg}));
+        return errors::bad_request(msg);
     }
 
     match tc.run(|conn| {
@@ -2485,7 +2496,8 @@ pub async fn verify_page(
         }
         Ok(VerifyPageOutcome::UpdateFailed) => errors::internal("Failed to verify page"),
         Ok(VerifyPageOutcome::ResponseBuildFailed(err)) => {
-            HttpResponse::InternalServerError().json(err)
+            error!(error = %err, "Failed to build page response");
+            errors::internal("Failed to build page response")
         }
         Err(_) => errors::internal("Failed to verify page"),
     }
@@ -2533,7 +2545,8 @@ pub async fn unverify_page(
         }
         Ok(VerifyPageOutcome::UpdateFailed) => errors::internal("Failed to clear verification"),
         Ok(VerifyPageOutcome::ResponseBuildFailed(err)) => {
-            HttpResponse::InternalServerError().json(err)
+            error!(error = %err, "Failed to build page response");
+            errors::internal("Failed to build page response")
         }
         Err(_) => errors::internal("Failed to clear verification"),
     }

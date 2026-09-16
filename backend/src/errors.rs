@@ -140,10 +140,16 @@ pub fn unauthorized_with_code(message: impl Into<String>, code: &str) -> HttpRes
 
 /// 403 Forbidden — caller is authenticated but lacks permission.
 pub fn forbidden(message: impl Into<String>) -> HttpResponse {
+    forbidden_with_code(message, "FORBIDDEN")
+}
+
+/// 403 Forbidden with a specific machine-readable code (e.g.
+/// `seat_limit_reached`, which the control plane branches on).
+pub fn forbidden_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
     stamp(
         HttpResponse::Forbidden().json(json!({
             "error": message.into(),
-            "code": "FORBIDDEN",
+            "code": code,
         })),
         "forbidden",
     )
@@ -167,10 +173,15 @@ pub fn not_found(entity: impl Into<String>) -> HttpResponse {
 /// 404 Not Found with a verbatim message — for cases where the
 /// existing copy doesn't fit the "{entity} not found" template.
 pub fn not_found_msg(message: impl Into<String>) -> HttpResponse {
+    not_found_with_code(message, "RESOURCE_NOT_FOUND")
+}
+
+/// 404 Not Found with a specific machine-readable code.
+pub fn not_found_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
     stamp(
         HttpResponse::NotFound().json(json!({
             "error": message.into(),
-            "code": "RESOURCE_NOT_FOUND",
+            "code": code,
         })),
         "not_found",
     )
@@ -237,6 +248,31 @@ pub fn gone_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
     )
 }
 
+/// 400 for a payload that failed several field checks at once. `errors`
+/// lists them, one human-readable line per field, so a form can show all
+/// of them in one round trip.
+pub fn validation_failed(errors: Vec<String>) -> HttpResponse {
+    stamp(
+        HttpResponse::BadRequest().json(json!({
+            "error": "Validation failed",
+            "code": "VALIDATION_FAILED",
+            "errors": errors,
+        })),
+        "bad_request",
+    )
+}
+
+/// 413 Payload Too Large — the upload exceeds the configured limit.
+pub fn payload_too_large(message: impl Into<String>) -> HttpResponse {
+    stamp(
+        HttpResponse::PayloadTooLarge().json(json!({
+            "error": message.into(),
+            "code": "PAYLOAD_TOO_LARGE",
+        })),
+        "payload_too_large",
+    )
+}
+
 /// 422 Unprocessable Entity — request was syntactically valid but
 /// semantically invalid (e.g. validation failure on a well-formed
 /// payload). Use 400 for malformed input, 422 for "we understood it
@@ -286,6 +322,19 @@ pub fn internal_with_code(message: impl Into<String>, code: &str) -> HttpRespons
     )
 }
 
+/// 502 Bad Gateway — an upstream this request depends on (a plugin
+/// registry, a CDN) answered badly. Distinct from 503 so the client
+/// knows retrying here will not help until the upstream does.
+pub fn bad_gateway(message: impl Into<String>) -> HttpResponse {
+    stamp(
+        HttpResponse::BadGateway().json(json!({
+            "error": message.into(),
+            "code": "BAD_GATEWAY",
+        })),
+        "bad_gateway",
+    )
+}
+
 /// 503 Service Unavailable — server is alive but a dependency is
 /// temporarily down (DB pool exhausted, Redis unreachable, etc.).
 /// Clients can retry with backoff.
@@ -299,6 +348,50 @@ pub fn service_unavailable(message: impl Into<String>) -> HttpResponse {
             })),
         "service_unavailable",
     )
+}
+
+/// The `{error, code}` body with extra diagnostic fields: a sample of the
+/// rows a change would break, the limit the caller hit, a URL to retry
+/// against. `extra` must be a JSON object; its `error` and `code` keys, if
+/// any, are overwritten so the contract holds. The kind stamp follows the
+/// status.
+pub fn with_fields(
+    status: StatusCode,
+    code: &str,
+    message: impl Into<String>,
+    extra: serde_json::Value,
+) -> HttpResponse {
+    let mut body = match extra {
+        serde_json::Value::Object(map) => map,
+        _ => serde_json::Map::new(),
+    };
+    body.insert("error".into(), json!(message.into()));
+    body.insert("code".into(), json!(code));
+    stamp(
+        HttpResponse::build(status).json(body),
+        kind_for_status(status),
+    )
+}
+
+/// The kind a builder stamps for a status, for bodies built by
+/// [`with_fields`] rather than a status-specific builder.
+fn kind_for_status(status: StatusCode) -> &'static str {
+    match status {
+        StatusCode::BAD_REQUEST => "bad_request",
+        StatusCode::UNAUTHORIZED => "unauthorized",
+        StatusCode::FORBIDDEN => "forbidden",
+        StatusCode::NOT_FOUND => "not_found",
+        StatusCode::CONFLICT => "conflict",
+        StatusCode::GONE => "gone",
+        StatusCode::PAYLOAD_TOO_LARGE => "payload_too_large",
+        StatusCode::UNPROCESSABLE_ENTITY => "unprocessable_entity",
+        StatusCode::TOO_MANY_REQUESTS => "rate_limited",
+        StatusCode::PAYMENT_REQUIRED => "payment_required",
+        StatusCode::BAD_GATEWAY => "bad_gateway",
+        StatusCode::SERVICE_UNAVAILABLE => "service_unavailable",
+        s if s.is_server_error() => "internal",
+        _ => "other",
+    }
 }
 
 // =================================================================
@@ -572,8 +665,24 @@ mod tests {
             (unauthorized("x"), "unauthorized"),
             (unauthorized_with_code("x", "TOKEN_EXPIRED"), "unauthorized"),
             (forbidden("x"), "forbidden"),
+            (forbidden_with_code("x", "seat_limit_reached"), "forbidden"),
             (not_found("Ticket"), "not_found"),
             (not_found_msg("x"), "not_found"),
+            (not_found_with_code("x", "workspace_not_found"), "not_found"),
+            (
+                validation_failed(vec!["email: required".into()]),
+                "bad_request",
+            ),
+            (payload_too_large("x"), "payload_too_large"),
+            (
+                with_fields(
+                    StatusCode::CONFLICT,
+                    "last_owner",
+                    "x",
+                    json!({ "sample": [1] }),
+                ),
+                "conflict",
+            ),
             (conflict("x"), "conflict"),
             (conflict_with_code("x", "SLUG_TAKEN"), "conflict"),
             (externally_managed(), "externally_managed"),
@@ -585,10 +694,28 @@ mod tests {
             (internal("x"), "internal"),
             (internal_with_code("x", "BOOM"), "internal"),
             (service_unavailable("x"), "service_unavailable"),
+            (bad_gateway("x"), "bad_gateway"),
         ];
         for (resp, expected) in &cases {
             assert_eq!(kind_of(resp), Some(*expected), "kind for {expected}");
         }
+    }
+
+    /// Extra fields ride alongside the contract keys and cannot replace them.
+    #[actix_web::test]
+    async fn with_fields_keeps_error_and_code() {
+        let resp = with_fields(
+            StatusCode::BAD_REQUEST,
+            "UNKNOWN_KEY",
+            "unknown include key",
+            json!({ "key": "x", "allowed": ["a"], "error": "overwritten" }),
+        );
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body()).await.unwrap()).unwrap();
+        assert_eq!(body["error"], "unknown include key");
+        assert_eq!(body["code"], "UNKNOWN_KEY");
+        assert_eq!(body["allowed"], json!(["a"]));
     }
 
     /// `db_error` classifies Diesel failures finely enough to separate a

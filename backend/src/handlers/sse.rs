@@ -803,9 +803,7 @@ pub async fn sse_events_stream(
     let Some(conn_guard) = crate::services::connection_registry::global()
         .try_acquire((user.uuid, workspace_id.unwrap_or(0)))
     else {
-        return Ok(HttpResponse::TooManyRequests()
-            .append_header(("Retry-After", "5"))
-            .finish());
+        return Ok(errors::too_many_requests("Too many requests", 5));
     };
 
     // Generate client ID and create stream

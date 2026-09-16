@@ -72,7 +72,7 @@ pub async fn update_guest_settings(
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return Ok(HttpResponse::BadRequest().finish()),
+        Err(_) => return Err(ApiError::BadRequest("Bad request".into())),
     };
 
     if let Some(n) = body.guest_ticket_rate_limit_per_hour {

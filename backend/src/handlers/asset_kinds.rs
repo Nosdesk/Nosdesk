@@ -14,6 +14,7 @@
 //! `services::assets::kinds::validate_schema` so a malformed
 //! schema can't poison the registry.
 
+use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse, Responder};
 use diesel::result::Error as DieselError;
 use serde::Deserialize;
@@ -313,16 +314,16 @@ pub async fn update(
                 )
             }) {
                 Ok((invalid_count, samples)) if invalid_count > 0 => {
-                    return HttpResponse::Conflict().json(json!({
-                        "error": "schema_invalidates_existing_assets",
-                        "message": format!(
+                    return errors::with_fields(
+                        StatusCode::CONFLICT,
+                        "schema_invalidates_existing_assets",
+                        format!(
                             "{invalid_count} existing asset(s) of kind '{}' would no longer validate. \
                              Pass ?force=true to apply anyway, then fix or remove the listed rows.",
                             existing_kind.slug
                         ),
-                        "invalid_count": invalid_count,
-                        "sample": samples,
-                    }));
+                        json!({ "invalid_count": invalid_count, "sample": samples }),
+                    );
                 }
                 Ok(_) => {}
                 Err(e) => {

@@ -153,6 +153,8 @@ const ALLOWED_FIELDS: &[&str] = &[
     "cancelled",
     "code",
     "count",
+    // workspace restore: how many files landed before a put failed.
+    "files_restored",
     // notification outbox: per-row intent and recipient counts.
     "intents",
     "recipients",

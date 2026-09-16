@@ -1,9 +1,7 @@
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
 use crate::utils;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
-use actix_web::{http::header, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{http::header, web, HttpResponse, Responder};
 use diesel::result::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -1578,7 +1576,6 @@ pub struct BulkDeviceActionRequest {
 
 /// Perform bulk operations on devices (admin only)
 pub async fn bulk_devices(
-    req: HttpRequest,
     mut tc: TenantConn,
     auth: AuthContext,
     search_service: web::Data<Arc<SearchService>>,
@@ -1621,11 +1618,10 @@ pub async fn bulk_devices(
             HttpResponse::Ok().json(json!({ "affected": deleted }))
         }
 
-        _ => HttpResponse::BadRequest().json(json!({
-            "error": i18n::tr(&request_locale(&req), "backend-error-bad-request"),
-            "code": "backend-error-bad-request",
-            "message": format!("Unknown action: {}", action)
-        })),
+        _ => errors::bad_request_with_code(
+            format!("Unknown action: {action}"),
+            "backend-error-bad-request",
+        ),
     }
 }
 

@@ -22,6 +22,7 @@ use once_cell::sync::Lazy;
 use tracing::{error, info, warn};
 
 use crate::db::Pool;
+use crate::errors;
 use crate::handlers::sse::SseState;
 use crate::models::{
     NewInboundDeadLetter, INBOUND_DEAD_LETTER_REASON_UNKNOWN_RECIPIENT,
@@ -92,13 +93,13 @@ pub async fn receive(
         Ok(m) => m,
         Err(e) => {
             warn!(error = %e, "inbound: unparseable SNS body");
-            return HttpResponse::BadRequest().finish();
+            return errors::bad_request("Unparseable SNS message");
         }
     };
 
     if let Err(e) = sns::verify_message(&HTTP, &message).await {
         warn!(error = %e, "inbound: SNS signature verification failed");
-        return HttpResponse::Forbidden().finish();
+        return errors::forbidden("SNS signature verification failed");
     }
 
     // Signature proves AWS sent it; this proves we asked for it. Checked before
@@ -109,7 +110,7 @@ pub async fn receive(
             topic = %message.topic_arn,
             "inbound: rejecting SNS message from an unconfigured topic"
         );
-        return HttpResponse::Forbidden().finish();
+        return errors::forbidden("Unconfigured SNS topic");
     }
 
     if message.is_subscription_confirmation() {
@@ -171,7 +172,7 @@ pub async fn receive(
                 Ok(r) => r,
                 Err(e) => {
                     error!(error = %e, "inbound: token resolution failed");
-                    return HttpResponse::ServiceUnavailable().finish();
+                    return errors::service_unavailable("Service unavailable");
                 }
             }
         }
@@ -206,7 +207,7 @@ pub async fn receive(
                         Ok(ws) => ws.map(|w| (w.id, RoutedChannel::EnsureManaged)),
                         Err(e) => {
                             error!(error = %e, "inbound: slug resolution failed");
-                            return HttpResponse::ServiceUnavailable().finish();
+                            return errors::service_unavailable("Service unavailable");
                         }
                     }
                 }
@@ -236,7 +237,7 @@ pub async fn receive(
         Ok(bytes) => bytes,
         Err(e) => {
             error!(error = %e, key = %object_key, "inbound: S3 fetch failed");
-            return HttpResponse::ServiceUnavailable().finish();
+            return errors::service_unavailable("Service unavailable");
         }
     };
 
@@ -276,7 +277,7 @@ pub async fn receive(
         }
         Err(e) => {
             error!(error = %e, "inbound: pipeline failed; asking SNS to retry");
-            HttpResponse::ServiceUnavailable().finish()
+            errors::service_unavailable("Service unavailable")
         }
     }
 }
@@ -386,7 +387,7 @@ fn record_dead_letter(
         }
         Err(e) => {
             error!(error = %e, "inbound: failed to record dead-letter");
-            HttpResponse::ServiceUnavailable().finish()
+            errors::service_unavailable("Service unavailable")
         }
     }
 }
@@ -397,13 +398,13 @@ fn record_dead_letter(
 async fn confirm_subscription(message: &sns::SnsMessage) -> HttpResponse {
     let Some(subscribe_url) = &message.subscribe_url else {
         warn!("inbound: SubscriptionConfirmation without a SubscribeURL");
-        return HttpResponse::BadRequest().finish();
+        return errors::bad_request("SubscriptionConfirmation without a SubscribeURL");
     };
     let url = match sns::validate_cert_url(subscribe_url) {
         Ok(u) => u,
         Err(e) => {
             warn!(error = %e, "inbound: SubscribeURL is not an AWS SNS host");
-            return HttpResponse::BadRequest().finish();
+            return errors::bad_request("SubscribeURL is not an AWS SNS host");
         }
     };
     match HTTP
@@ -418,7 +419,7 @@ async fn confirm_subscription(message: &sns::SnsMessage) -> HttpResponse {
         }
         Err(e) => {
             error!(error = %e, "inbound: SNS subscription confirmation fetch failed");
-            HttpResponse::ServiceUnavailable().finish()
+            errors::service_unavailable("Service unavailable")
         }
     }
 }

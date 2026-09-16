@@ -188,11 +188,10 @@ pub async fn search(
         }
         Err(e) => {
             error!(error = ?e, "Search failed");
-            Ok(HttpResponse::InternalServerError().json(json!({
-                "error": i18n::tr(&request_locale(&req), "backend-error-search-failed"),
-                "code": "backend-error-search-failed",
-                "details": e.to_string()
-            })))
+            Ok(errors::internal_with_code(
+                i18n::tr(&request_locale(&req), "backend-error-search-failed"),
+                "backend-error-search-failed",
+            ))
         }
     }
 }
@@ -265,11 +264,10 @@ pub async fn rebuild_index(
         }
         Err(e) => {
             error!(error = ?e, "Index rebuild failed");
-            Ok(HttpResponse::InternalServerError().json(json!({
-                "error": i18n::tr(&request_locale(&req), "backend-error-search-rebuild-failed"),
-                "code": "backend-error-search-rebuild-failed",
-                "details": e.to_string()
-            })))
+            Ok(errors::internal_with_code(
+                i18n::tr(&request_locale(&req), "backend-error-search-rebuild-failed"),
+                "backend-error-search-rebuild-failed",
+            ))
         }
     }
 }

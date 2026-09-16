@@ -261,7 +261,7 @@ async fn set_member_role_full_contract() {
     assert_eq!(resp.status(), 403, "promotion past the seat cap must 403");
     let body: serde_json::Value =
         serde_json::from_slice(&resp.body().await.expect("body")).expect("json");
-    assert_eq!(body["error"], "seat_limit_reached");
+    assert_eq!(body["code"], "seat_limit_reached");
     // The blocked promotion must not have flipped the row.
     assert_eq!(membership_role(&pool, capco_id, capco_member), "member");
 
