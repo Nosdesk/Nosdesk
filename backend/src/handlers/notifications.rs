@@ -13,16 +13,28 @@ use crate::db::Pool;
 use crate::middleware::request_context::RequestContext;
 use crate::models::WorkspaceRole;
 use crate::services::notifications::{
-    NotificationChannel, NotificationFrequency, NotificationService, NotificationTypeCode,
+    InboxFilter, NotificationChannel, NotificationFrequency, NotificationService,
+    NotificationTypeCode,
 };
 use crate::utils::rbac::{require_auth, require_workspace_role};
 
-/// Query parameters for fetching notifications
+/// Query parameters for fetching notifications. `before` + `before_id`
+/// form a keyset cursor (the last row's `created_at` and `id`); when
+/// present they replace `offset`.
 #[derive(Debug, Deserialize)]
 pub struct NotificationQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub unread_only: Option<bool>,
+    pub notification_type: Option<String>,
+    pub before: Option<chrono::NaiveDateTime>,
+    pub before_id: Option<i32>,
+}
+
+/// Body for mark-all-read: optionally scoped to one notification type.
+#[derive(Debug, Default, Deserialize)]
+pub struct MarkAllReadRequest {
+    pub notification_type: Option<String>,
 }
 
 /// Request body for marking notifications as read
@@ -412,19 +424,17 @@ pub async fn get_notifications(
 
     let limit = helpers::clamp_limit(query.limit);
     let offset = helpers::clamp_offset(query.offset);
-    let unread_only = query.unread_only.unwrap_or(false);
-
-    let result = if unread_only {
-        notification_service
-            .get_unread(&user_uuid, workspace_id, limit)
-            .await
-    } else {
-        notification_service
-            .get_all(&user_uuid, workspace_id, limit, offset)
-            .await
+    let query = query.into_inner();
+    let filter = InboxFilter {
+        unread_only: query.unread_only.unwrap_or(false),
+        notification_type: query.notification_type.filter(|t| !t.is_empty()),
+        before: query.before.zip(query.before_id),
     };
 
-    match result {
+    match notification_service
+        .list(&user_uuid, workspace_id, filter, limit, offset)
+        .await
+    {
         Ok(notifications) => Ok(HttpResponse::Ok().json(notifications)),
         Err(e) => Err(service_failed("Failed to load notifications")(e)),
     }
@@ -604,10 +614,15 @@ pub async fn mark_notifications_read(
 pub async fn mark_all_notifications_read(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
+    body: Option<web::Json<MarkAllReadRequest>>,
 ) -> Result<HttpResponse, ApiError> {
     let (user_uuid, workspace_id) = caller(&req)?;
+    let only_type = body
+        .as_ref()
+        .and_then(|b| b.notification_type.as_deref())
+        .filter(|t| !t.is_empty());
     match notification_service
-        .mark_all_read(&user_uuid, workspace_id)
+        .mark_all_read(&user_uuid, workspace_id, only_type)
         .await
     {
         Ok(count) => Ok(HttpResponse::Ok().json(serde_json::json!({
@@ -764,5 +779,31 @@ pub async fn delete_notifications(
             "count": count
         }))),
         Err(e) => Err(service_failed("Failed to delete notifications")(e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The cursor the client sends back is the `created_at` it received in
+    /// JSON (chrono's default `NaiveDateTime` serialisation), so the query
+    /// parser must accept that exact spelling, fractional seconds included.
+    #[test]
+    fn cursor_round_trips_through_the_query_string() {
+        let at = chrono::NaiveDate::from_ymd_opt(2026, 9, 17)
+            .unwrap()
+            .and_hms_micro_opt(10, 0, 0, 123_456)
+            .unwrap();
+        let as_json = serde_json::to_string(&at).unwrap();
+        let spelled = as_json.trim_matches('"');
+        let q = web::Query::<NotificationQuery>::from_query(&format!(
+            "before={spelled}&before_id=5&notification_type=mentioned&unread_only=true"
+        ))
+        .expect("query parses");
+        assert_eq!(q.before, Some(at));
+        assert_eq!(q.before_id, Some(5));
+        assert_eq!(q.notification_type.as_deref(), Some("mentioned"));
+        assert_eq!(q.unread_only, Some(true));
     }
 }
