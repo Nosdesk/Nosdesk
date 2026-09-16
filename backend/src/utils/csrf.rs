@@ -14,11 +14,12 @@ pub fn generate_csrf_token() -> String {
 }
 
 /// Validate a CSRF token by comparing it to the expected value
-/// The CSRF cookie name for a request path. Authenticated portal requests
-/// (`/api/portal/...`, excluding the public `/api/portal/auth/` sign-in routes
-/// which skip CSRF entirely) carry the portal session's own `portal_csrf`
-/// cookie; everything else uses the agent `csrf_token` cookie. Selecting by
-/// surface keeps the double-submit check honest across the two session realms.
+/// The CSRF cookie (base name) for a request path. Authenticated portal
+/// requests (`/api/portal/...`, excluding the public `/api/portal/auth/`
+/// sign-in routes which skip CSRF entirely) carry the portal session's own
+/// `portal_csrf` cookie; everything else uses the agent `csrf_token` cookie.
+/// Selecting by surface keeps the double-submit check honest across the two
+/// session realms. Wire name via `cookies::cookie_name`.
 pub fn csrf_cookie_for_path(path: &str) -> &'static str {
     if path.starts_with("/api/portal/") {
         crate::utils::cookies::PORTAL_CSRF_TOKEN_COOKIE
@@ -177,7 +178,9 @@ where
         // realm with its own cookie, so pick the cookie that matches the
         // surface this request belongs to.
         let cookie_token = req
-            .cookie(csrf_cookie_for_path(path))
+            .cookie(&crate::utils::cookies::cookie_name(csrf_cookie_for_path(
+                path,
+            )))
             .map(|c| c.value().to_string());
 
         // Log only a short prefix, taken char-wise so an attacker-

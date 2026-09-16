@@ -419,7 +419,7 @@ fn a_portal_refresh_cookie_is_refused_at_another_tenants_origin() {
     };
     let request = TestRequest::default()
         .cookie(Cookie::new(
-            PORTAL_REFRESH_TOKEN_COOKIE,
+            backend::utils::cookies::cookie_name(PORTAL_REFRESH_TOKEN_COOKIE),
             refresh_raw.clone(),
         ))
         .to_http_request();

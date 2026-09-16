@@ -2818,7 +2818,9 @@ pub async fn refresh_token(
     let bearer_mode = from_body.is_some() || auth_mode_from_request(&request) == AuthMode::Bearer;
     let refresh_raw = match from_body.or_else(|| {
         request
-            .cookie(crate::utils::cookies::REFRESH_TOKEN_COOKIE)
+            .cookie(&crate::utils::cookies::cookie_name(
+                crate::utils::cookies::REFRESH_TOKEN_COOKIE,
+            ))
             .map(|c| c.value().to_string())
     }) {
         Some(token) => token,

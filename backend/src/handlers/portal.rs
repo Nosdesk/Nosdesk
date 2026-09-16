@@ -213,7 +213,9 @@ pub async fn refresh_portal_session(
     };
 
     let Some(refresh_raw) = request
-        .cookie(crate::utils::cookies::PORTAL_REFRESH_TOKEN_COOKIE)
+        .cookie(&crate::utils::cookies::cookie_name(
+            crate::utils::cookies::PORTAL_REFRESH_TOKEN_COOKIE,
+        ))
         .map(|c| c.value().to_string())
         .filter(|t| !t.is_empty())
     else {
@@ -503,7 +505,9 @@ pub async fn portal_auth_middleware(
         .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
 
     let token = req
-        .cookie(crate::utils::cookies::PORTAL_ACCESS_TOKEN_COOKIE)
+        .cookie(&crate::utils::cookies::cookie_name(
+            crate::utils::cookies::PORTAL_ACCESS_TOKEN_COOKIE,
+        ))
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Authentication required"))?;
 
     let (claims, _user) = JwtUtils::authenticate_with_token(token.value(), &mut conn)
