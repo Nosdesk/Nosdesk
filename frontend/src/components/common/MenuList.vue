@@ -57,6 +57,8 @@ defineProps<{ items: MenuItem[] }>()
 /** `highlight` / `unhighlight` fire on pointer or focus traversal of
  * an enabled item, so callers can live-preview an option before it
  * is selected (dashboard widget sizing). Optional to consume. */
+import MenuItem from '@/components/common/MenuItem.vue'
+
 const emit = defineEmits<{
   select: [id: string]
   highlight: [id: string]
@@ -84,18 +86,9 @@ const emit = defineEmits<{
       <span>{{ item.label }}</span>
     </div>
 
-    <button
-      type="button"
+    <MenuItem
       v-else
-      role="menuitem"
-      class="w-full px-3 py-2.5 md:py-1.5 text-sm md:text-xs text-left flex items-center gap-2 min-h-[44px] md:min-h-0 transition-colors disabled:opacity-40 disabled:pointer-events-none"
-      :class="
-        item.danger
-          ? 'text-status-error hover:bg-status-error/10'
-          : item.active
-            ? 'text-accent hover:text-accent-hover hover:bg-surface-hover'
-            : 'text-secondary hover:text-primary hover:bg-surface-hover'
-      "
+      :tone="item.danger ? 'danger' : item.active ? 'active' : 'default'"
       :disabled="item.disabled"
       @click="!item.disabled && emit('select', item.id)"
       @mouseenter="!item.disabled && emit('highlight', item.id)"
@@ -142,6 +135,6 @@ const emit = defineEmits<{
       <span v-if="item.trailing" class="ml-auto pl-2 text-3xs text-tertiary flex-shrink-0">
         {{ item.trailing }}
       </span>
-    </button>
+    </MenuItem>
   </template>
 </template>

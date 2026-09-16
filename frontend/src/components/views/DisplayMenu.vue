@@ -15,6 +15,7 @@
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
+import MenuItem from '@/components/common/MenuItem.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import type { PopoverAnchor } from '@/composables/usePopover'
 import {
@@ -170,14 +171,13 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
             {{ $t('views-display-menu-properties') }}
           </h3>
           <div class="max-h-[20rem] overflow-y-auto">
-            <button
+            <MenuItem
               v-for="col in availableColumns"
               :key="col.id"
-              type="button"
               role="menuitemcheckbox"
-              :aria-checked="isOn(col)"
+              align="start"
+              :checked="isOn(col)"
               :disabled="col.id === 'title'"
-              class="w-full px-3 py-1.5 flex items-start gap-2 text-left hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               @click.stop="emit('toggle-column', col.id)"
             >
               <span
@@ -191,14 +191,14 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
                 />
               </span>
               <span class="flex-1 min-w-0">
-                <span class="block text-xs text-primary">
+                <span class="block text-primary">
                   {{ col.label === '#' ? $t('views-display-menu-column-ticket-id') : $t(col.labelKey) }}
                 </span>
                 <span class="block text-3xs text-tertiary truncate">
                   {{ $t(col.descriptionKey) }}
                 </span>
               </span>
-            </button>
+            </MenuItem>
           </div>
         </section>
       </div>
