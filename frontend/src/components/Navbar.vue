@@ -30,7 +30,7 @@ const { openSearch } = useGlobalSearch();
 // from the same shared feed composable so the badge agrees with
 // the inbox view's count without an extra round-trip. The query
 // cache deduplicates, so this extra consumer is free.
-const { unreadCount } = useNotificationFeed();
+const { unreadCount } = useNotificationFeed('all');
 
 // Keyboard shortcut hint based on platform
 const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
