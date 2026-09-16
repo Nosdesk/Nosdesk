@@ -16,8 +16,8 @@
     "type-check": "vue-tsc --build",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "lint": "eslint . && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs && node scripts/check-component-display-classes.mjs && node scripts/scan-button-colors.mjs",
-    "lint:fix": "eslint . --fix && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs && node scripts/check-component-display-classes.mjs && node scripts/scan-button-colors.mjs",
+    "lint": "eslint . && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs && node scripts/check-component-display-classes.mjs && node scripts/scan-button-colors.mjs && node scripts/check-buttons.mjs",
+    "lint:fix": "eslint . --fix && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs && node scripts/check-component-display-classes.mjs && node scripts/scan-button-colors.mjs && node scripts/check-buttons.mjs",
     "lint:views": "node scripts/check-view-roots.mjs"
   },
   "dependencies": {
@@ -33,6 +33,7 @@
     "@types/dompurify": "^3.0.5",
     "@types/qrcode": "^1.5.5",
     "axios": "^1.20.0",
+    "class-variance-authority": "^0.7.1",
     "date-fns": "^4.1.0",
     "dompurify": "^3.4.14",
     "extendable-media-recorder": "^9.2.40",

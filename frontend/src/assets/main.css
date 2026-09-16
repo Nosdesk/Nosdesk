@@ -1076,7 +1076,13 @@ html[data-theme="red-horizon"] body,
   border-radius: inherit;
 }
 
-/* Red Horizon: Button styling - reddish-orange text on dark with glow */
+/* Red Horizon: Button styling - reddish-orange text on dark with glow.
+   Buttons are hooked by their variant (`data-variant`, stamped by
+   Button / LinkButton / IconButton from recipes/button.ts), which is the
+   stable contract; the `.bg-accent` / `.bg-status-error` selectors stay
+   for the non-button surfaces that share the fill and for raw buttons
+   not yet on the recipe (scripts/button-baseline.json). */
+[data-theme="red-horizon"] [data-variant="primary"],
 [data-theme="red-horizon"] .bg-accent {
   background-color: #1a0800 !important;
   border: 1px solid #502200 !important;
@@ -1089,6 +1095,7 @@ html[data-theme="red-horizon"] body,
   text-shadow: 0 0 6px rgba(255, 136, 68, 0.6);
 }
 
+[data-theme="red-horizon"] [data-variant="primary"]:hover,
 [data-theme="red-horizon"] .bg-accent:hover {
   background-color: #2a1000 !important;
   border-color: #663300 !important;
@@ -1105,6 +1112,7 @@ html[data-theme="red-horizon"] body,
 }
 
 /* Red Horizon: Danger/delete buttons - bright reddish-orange glow */
+[data-theme="red-horizon"] [data-variant="danger"],
 [data-theme="red-horizon"] .bg-status-error,
 [data-theme="red-horizon"] .bg-red-600,
 [data-theme="red-horizon"] .bg-red-500 {
@@ -1113,6 +1121,7 @@ html[data-theme="red-horizon"] body,
   box-shadow: 0 0 10px rgba(255, 68, 0, 0.5), inset 0 0 15px rgba(150, 40, 0, 0.3);
 }
 
+[data-theme="red-horizon"] [data-variant="danger"]:hover,
 [data-theme="red-horizon"] .bg-status-error:hover,
 [data-theme="red-horizon"] .bg-red-600:hover,
 [data-theme="red-horizon"] .bg-red-500:hover {
