@@ -49,6 +49,7 @@ const { isMobile } = useMobileDetection('sm');
   </button>
 
   <button
+    type="button"
     v-else-if="!isMobile"
     @click="handleBack"
     class="text-secondary hover:text-primary inline-flex items-center gap-1 group px-1 rounded"

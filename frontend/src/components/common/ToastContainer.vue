@@ -243,6 +243,7 @@ const getProgressBarClass = (type: Toast['type']) => {
                    the toast, not chrome. -->
               <div v-if="toast.action" class="flex-shrink-0">
                 <button
+                  type="button"
                   @click="invokeAction(toast, $event)"
                   class="inline-flex items-center px-2.5 py-1.5 text-xs font-semibold text-accent rounded-md hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
                 >
@@ -253,6 +254,7 @@ const getProgressBarClass = (type: Toast['type']) => {
               <!-- Close button -->
               <div v-if="toast.dismissible" class="flex-shrink-0">
                 <button
+                  type="button"
                   @click="dismissToast(toast, $event)"
                   class="inline-flex rounded-md p-1.5 text-tertiary hover:text-secondary hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
                   :aria-label="t('common-toast-dismiss')"

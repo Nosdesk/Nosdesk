@@ -37,6 +37,7 @@
               </p>
             </div>
             <button
+              type="button"
               @click="goToLogin"
               class="w-full px-6 py-3 bg-accent hover:opacity-90 text-on-accent rounded-lg transition-colors font-medium mt-2"
             >
@@ -147,6 +148,7 @@
 
       <!-- Back to Login -->
       <button
+        type="button"
         v-if="!resetSuccess"
         @click="goToLogin"
         class="flex items-center justify-center gap-2 text-sm text-tertiary hover:text-primary transition-colors py-2"

@@ -103,6 +103,7 @@ const handleSubmit = () => {
       </h2>
       <div class="flex items-center gap-2 flex-shrink-0">
         <button
+          type="button"
           v-if="isEditMode() && category"
           @click="emit('delete', category)"
           class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
@@ -111,6 +112,7 @@ const handleSubmit = () => {
           <Icon name="trash" />
         </button>
         <button
+          type="button"
           @click="emit('close')"
           class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
           :title="$t('admin-categories-edit-close-tooltip')"

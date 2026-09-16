@@ -519,6 +519,7 @@ onMounted(() => {
               <div class="p-4 flex items-center gap-4">
                 <!-- Drag grip handle (only in custom order mode) -->
                 <button
+                  type="button"
                   v-if="canDrag"
                   @pointerdown="handleGripDown(category.id, index, $event)"
                   class="flex-shrink-0 p-1 text-tertiary hover:text-secondary cursor-grab active:cursor-grabbing touch-none"

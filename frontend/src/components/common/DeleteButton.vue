@@ -41,6 +41,7 @@ const confirmDelete = () => {
 
 <template>
   <button
+    type="button"
     @click="openConfirmModal"
     class="flex items-center gap-2 px-3 py-1.5 text-sm text-status-error hover:opacity-80 transition-colors"
   >
@@ -75,12 +76,14 @@ const confirmDelete = () => {
 
       <div class="flex justify-center gap-4">
         <button
+          type="button"
           @click="closeConfirmModal"
           class="px-4 py-2 bg-surface text-primary rounded-lg hover:bg-surface-hover transition-colors"
         >
           Cancel
         </button>
         <button
+          type="button"
           @click="confirmDelete"
           class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors"
         >

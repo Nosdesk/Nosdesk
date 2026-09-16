@@ -228,6 +228,7 @@ onBeforeUnmount(() => {
         @keydown="handleKeydown"
       />
       <button
+        type="button"
         @click="handleApply"
         class="px-3 py-1.5 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors text-sm font-medium"
         :title="t('editor-link-tooltip-apply')"
@@ -235,6 +236,7 @@ onBeforeUnmount(() => {
         {{ t('editor-link-tooltip-apply') }}
       </button>
       <button
+        type="button"
         @click="handleClose"
         class="px-2 py-1.5 bg-surface-hover text-secondary rounded-lg hover:bg-surface-alt transition-colors text-sm"
         :title="t('editor-link-tooltip-cancel')"
@@ -258,6 +260,7 @@ onBeforeUnmount(() => {
         {{ linkUrl }}
       </a>
       <button
+        type="button"
         @click="handleEdit"
         class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors"
         :title="t('editor-link-tooltip-edit')"
@@ -267,6 +270,7 @@ onBeforeUnmount(() => {
         </svg>
       </button>
       <button
+        type="button"
         @click="handleRemove"
         class="p-1.5 text-secondary hover:text-status-error hover:bg-surface-hover rounded transition-colors"
         :title="t('editor-link-tooltip-remove')"

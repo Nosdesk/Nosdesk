@@ -325,6 +325,7 @@ onMounted(() => {
           <p class="text-secondary mt-1">{{ $t('admin-assignment-rules-description') }}</p>
         </div>
         <button
+          type="button"
           @click="openCreateModal"
           class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:opacity-90 font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
         >
@@ -384,6 +385,7 @@ onMounted(() => {
             <!-- Priority/order controls -->
             <div class="flex flex-col gap-0.5 flex-shrink-0">
               <button
+                type="button"
                 @click="moveRule(rule, 'up')"
                 :disabled="index === 0"
                 class="p-1 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
@@ -393,6 +395,7 @@ onMounted(() => {
               </button>
               <span class="text-xs text-tertiary text-center w-full">{{ index + 1 }}</span>
               <button
+                type="button"
                 @click="moveRule(rule, 'down')"
                 :disabled="index === rules.length - 1"
                 class="p-1 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
@@ -447,6 +450,7 @@ onMounted(() => {
             <!-- Actions -->
             <div class="flex items-center gap-2 flex-shrink-0">
               <button
+                type="button"
                 @click="toggleRuleActive(rule)"
                 class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
                 :title="rule.is_active ? $t('admin-assignment-rules-toggle-deactivate') : $t('admin-assignment-rules-toggle-activate')"
@@ -455,6 +459,7 @@ onMounted(() => {
                 <Icon v-else name="checkCircle" />
               </button>
               <button
+                type="button"
                 @click="openEditModal(rule)"
                 class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
                 :title="$t('admin-assignment-rules-edit')"
@@ -462,6 +467,7 @@ onMounted(() => {
                 <Icon name="rename" />
               </button>
               <button
+                type="button"
                 @click="confirmDelete(rule)"
                 class="p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
                 :title="$t('admin-assignment-rules-delete')"
@@ -603,12 +609,14 @@ onMounted(() => {
       <template #footer>
         <div class="flex justify-end gap-3">
           <button
+            type="button"
             @click="showRuleModal = false"
             class="px-4 py-2 text-secondary hover:text-primary transition-colors"
           >
             {{ $t('admin-assignment-rules-modal-cancel') }}
           </button>
           <button
+            type="button"
             @click="saveRule"
             :disabled="isSaving"
             class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
@@ -633,12 +641,14 @@ onMounted(() => {
       <template #footer>
         <div class="flex justify-end gap-3">
           <button
+            type="button"
             @click="showDeleteConfirm = false"
             class="px-4 py-2 text-secondary hover:text-primary transition-colors"
           >
             {{ $t('admin-assignment-rules-delete-cancel') }}
           </button>
           <button
+            type="button"
             @click="deleteRule"
             :disabled="isSaving"
             class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"

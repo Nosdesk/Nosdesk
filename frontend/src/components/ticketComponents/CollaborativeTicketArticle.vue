@@ -172,6 +172,7 @@ const confirmPromote = async () => {
     <template #title>{{ t('tickets-collaborative-article-title') }}</template>
     <template #headerActions>
       <button
+        type="button"
         @click="toggleRevisionHistory"
         class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
         :class="{ 'bg-surface text-primary': showRevisionHistory }"
@@ -180,6 +181,7 @@ const confirmPromote = async () => {
         <Icon name="clock" />
       </button>
       <button
+        type="button"
         @click="onPromoteOrOpen"
         class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
         :title="promotedDoc ? t('tickets-collaborative-article-open-doc') : t('tickets-collaborative-article-convert-doc')"

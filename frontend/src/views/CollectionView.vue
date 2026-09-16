@@ -246,6 +246,7 @@ const deleteModalTitle = computed(() =>
 
         <!-- Delete collection button (admin only, non-system) -->
         <button
+          type="button"
           v-if="collection && authStore.isAdmin && !collection.is_system"
           @click="handleDelete"
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-default text-status-danger hover:bg-status-danger/10 transition-colors"
@@ -256,6 +257,7 @@ const deleteModalTitle = computed(() =>
 
         <!-- Manage Access button (admin only) -->
         <button
+          type="button"
           v-if="collection && authStore.isAdmin"
           @click="showVisibilityModal = true"
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
@@ -266,6 +268,7 @@ const deleteModalTitle = computed(() =>
 
         <!-- Create page button -->
         <button
+          type="button"
           v-if="collection"
           @click="createPageInCollection"
           :disabled="creating"
@@ -396,6 +399,7 @@ const deleteModalTitle = computed(() =>
           class="border border-status-warning/20 bg-status-warning/5 rounded-lg overflow-hidden"
         >
           <button
+            type="button"
             @click="overridesExpanded = !overridesExpanded"
             class="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-status-warning hover:bg-status-warning/10 transition-colors"
           >

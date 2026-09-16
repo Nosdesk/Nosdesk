@@ -208,6 +208,7 @@ const getAuthMethodIcon = (type: string) => {
 
         <!-- Add Auth Method (hidden for admin viewing another user) -->
         <button
+          type="button"
           v-if="!isManagingOtherUser"
           @click="addAuthMethod('microsoft')"
           :disabled="loading || hasMicrosoftConnection"

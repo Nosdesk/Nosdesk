@@ -114,6 +114,7 @@ const icons = {
 
     <!-- Action button -->
     <button
+      type="button"
       v-if="actionLabel"
       @click="emit('action')"
       class="font-medium text-on-accent bg-accent rounded-lg hover:bg-accent-hover focus:ring-2 focus:outline-none focus:ring-accent/50 flex items-center justify-center gap-2 transition-colors"

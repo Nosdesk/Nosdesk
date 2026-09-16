@@ -309,6 +309,7 @@ const handleCreateClick = () => {
              tooltip when the label is hidden, matching Primer's
              icon-button guidance. -->
         <button
+          type="button"
           v-if="props.showCreateButton"
           @click="handleCreateClick"
           class="group flex create-button px-2.5 py-1.5 sm:px-3 min-h-[44px] sm:min-h-0 text-sm font-medium text-secondary border border-default rounded-lg hover:text-primary hover:border-accent hover:bg-accent-muted transition-colors items-center gap-2"
@@ -345,6 +346,7 @@ const handleCreateClick = () => {
         <!-- User Profile Menu -->
         <div class="relative">
           <button
+            type="button"
             ref="buttonRef"
             @click="toggleUserMenu"
             class="flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 hover:ring-2 hover:ring-accent rounded-full focus:outline-none focus:ring-2 focus:ring-accent"

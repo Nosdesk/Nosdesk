@@ -98,6 +98,7 @@ onMounted(() => {
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
               <button
+                type="button"
                 @click="handleRestore(page.id)"
                 class="px-3 py-1.5 text-xs rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors flex items-center gap-1.5"
               >
@@ -107,6 +108,7 @@ onMounted(() => {
                 {{ $t('docs-trash-restore') }}
               </button>
               <button
+                type="button"
                 @click="handlePermanentDelete(page.id)"
                 class="px-3 py-1.5 text-xs rounded-md transition-colors flex items-center gap-1.5"
                 :class="String(confirmingDeleteId) === String(page.id)

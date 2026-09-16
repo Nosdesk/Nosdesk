@@ -47,6 +47,7 @@ defineExpose({
         {{ title }}
       </h3>
       <button
+        type="button"
         class="text-tertiary group-hover:text-primary transition-colors duration-200 bg-surface-hover rounded p-0.5"
         :title="isCollapsed ? 'Expand section' : 'Collapse section'"
       >

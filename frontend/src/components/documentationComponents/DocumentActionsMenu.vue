@@ -187,6 +187,7 @@ function handleSelect(id: string) {
 <template>
   <div class="relative">
     <button
+      type="button"
       ref="triggerRef"
       @click="toggle"
       class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary"

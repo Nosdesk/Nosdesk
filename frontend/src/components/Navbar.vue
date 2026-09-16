@@ -405,6 +405,7 @@ const isOverflowRouteActive = computed(() =>
 
             <!-- Search Button - above nav links -->
             <button
+                type="button"
                 @click="() => openSearch()"
                 class="w-full mb-1.5 rounded-md transition-colors duration-200 flex items-center bg-surface-alt border border-default text-secondary hover:bg-surface-hover hover:text-primary hover:border-subtle"
                 :class="[
@@ -577,6 +578,7 @@ const isOverflowRouteActive = computed(() =>
         <!-- Toggle button at the bottom of sidebar (hidden on mobile) -->
         <div class="flex-shrink-0 border-t border-default" v-if="!isMobile">
             <button
+                type="button"
                 @click="toggleCollapsed"
                 class="w-full h-8 px-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors group flex items-center justify-center"
                 :aria-label="$t('nav-toggle-sidebar')"

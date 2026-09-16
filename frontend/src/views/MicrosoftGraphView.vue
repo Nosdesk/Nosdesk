@@ -408,6 +408,7 @@ onMounted(async () => {
 
         <!-- Sync button -->
         <button
+          type="button"
           @click="syncData"
           :disabled="connectionStatus !== 'connected' || isLoading || isSyncing || !!(configValidation && !configValidation.valid)"
           class="self-start sm:self-auto px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
@@ -575,6 +576,7 @@ onMounted(async () => {
               </div>
 
               <button
+                type="button"
                 v-if="(syncProgress.status === 'running' || syncProgress.status === 'starting') && currentSessionId"
                 @click="cancelSync(currentSessionId!)"
                 class="px-3 py-1.5 bg-status-error/20 text-status-error border border-status-error/50 rounded-lg text-sm hover:bg-status-error/30 font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
@@ -641,6 +643,7 @@ onMounted(async () => {
               <div class="flex items-center gap-2 flex-shrink-0">
                 <span class="text-xs text-accent font-medium">{{ $t('admin-msgraph-monitor') }}</span>
                 <button
+                  type="button"
                   @click.stop="cancelSync(sync.session_id)"
                   class="px-2 py-1 bg-status-error/10 text-status-error rounded text-xs hover:bg-status-error/20 transition-colors"
                 >
@@ -825,6 +828,7 @@ onMounted(async () => {
           />
 
           <button
+            type="button"
             @click="startSyncWithMode(!fullSyncMode)"
             :disabled="isLoading || isSyncing || selectedEntities.length === 0"
             class="w-full px-4 py-2.5 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"

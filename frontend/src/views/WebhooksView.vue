@@ -480,6 +480,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
           <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('admin-webhooks-subtitle') }}</p>
         </div>
         <button
+          type="button"
           @click="openCreateModal"
           class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
         >
@@ -565,6 +566,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
               <!-- Actions -->
               <div class="flex-shrink-0 flex items-center gap-1">
                 <button
+                  type="button"
                   @click="testWebhook(webhook)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-accent hover:bg-accent/10 rounded-md sm:rounded-lg transition-colors"
                   :title="$t('admin-webhooks-action-send-test')"
@@ -573,6 +575,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
                   <Icon name="send" />
                 </button>
                 <button
+                  type="button"
                   @click="viewDeliveries(webhook)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md sm:rounded-lg transition-colors"
                   :title="$t('admin-webhooks-action-view-deliveries')"
@@ -582,6 +585,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
                   </svg>
                 </button>
                 <button
+                  type="button"
                   @click="openEditModal(webhook)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md sm:rounded-lg transition-colors"
                   :title="$t('admin-webhooks-action-edit')"
@@ -589,6 +593,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
                   <Icon name="rename" />
                 </button>
                 <button
+                  type="button"
                   @click="confirmDelete(webhook)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
                   :title="$t('admin-webhooks-action-delete')"
@@ -629,6 +634,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
               <!-- Actions -->
               <div class="flex-shrink-0 flex items-center gap-1">
                 <button
+                  type="button"
                   @click="openEditModal(webhook)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md sm:rounded-lg transition-colors"
                   :title="$t('admin-webhooks-action-edit')"
@@ -636,6 +642,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
                   <Icon name="rename" />
                 </button>
                 <button
+                  type="button"
                   @click="confirmDelete(webhook)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
                   :title="$t('admin-webhooks-action-delete')"
@@ -812,6 +819,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
             {{ createdWebhook?.secret }}
           </code>
           <button
+            type="button"
             @click="copySecret(createdWebhook?.secret || '')"
             class="absolute top-2 right-2 p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors"
             :title="copiedSecret ? $t('admin-webhooks-secret-copied') : $t('admin-webhooks-secret-copy')"
@@ -827,6 +835,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
 
         <div class="flex justify-end pt-2">
           <button
+            type="button"
             @click="showSecretCreated = false"
             class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors"
           >
@@ -1021,6 +1030,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
             {{ $t('admin-webhooks-form-cancel') }}
           </button>
           <button
+            type="button"
             @click="regenerateSecret"
             :disabled="isSaving"
             class="px-4 py-2 bg-status-warning text-white rounded-lg text-sm hover:bg-status-warning/90 font-medium transition-colors disabled:opacity-50"
@@ -1055,6 +1065,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
             {{ $t('admin-webhooks-form-cancel') }}
           </button>
           <button
+            type="button"
             @click="deleteWebhook"
             :disabled="isSaving"
             class="px-4 py-2 bg-status-error text-white rounded-lg text-sm hover:bg-status-error/90 font-medium transition-colors disabled:opacity-50"
@@ -1118,6 +1129,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
 
         <div class="flex justify-end pt-2">
           <button
+            type="button"
             @click="showDeliveries = false"
             class="px-4 py-2 bg-surface-alt text-primary rounded-lg text-sm hover:bg-surface-hover font-medium transition-colors"
           >

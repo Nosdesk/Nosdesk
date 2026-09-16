@@ -125,6 +125,7 @@ const clearUser = () => {
 
       <!-- Clear/Unassign Button -->
       <button
+        type="button"
         v-if="currentUserId"
         @click="clearUser"
         class="w-full px-4 py-2.5 bg-surface-alt border border-default rounded-lg text-secondary hover:bg-surface-hover hover:border-strong transition-colors text-sm font-medium flex items-center justify-center gap-2"
@@ -146,6 +147,7 @@ const clearUser = () => {
       <!-- User List -->
       <div v-else-if="users.length > 0" class="flex flex-col gap-1 max-h-96 overflow-y-auto">
         <button
+          type="button"
           v-for="user in users"
           :key="user.uuid"
           @click="selectUser(user)"

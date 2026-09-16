@@ -25,6 +25,7 @@ const emit = defineEmits<{
     <div class="flex-1 min-w-0">
       <p class="text-sm">{{ message }}</p>
       <button
+        type="button"
         v-if="showRetry"
         @click="emit('retry')"
         class="mt-2 text-xs font-medium text-status-error hover:underline focus:outline-none"
@@ -33,6 +34,7 @@ const emit = defineEmits<{
       </button>
     </div>
     <button
+      type="button"
       v-if="dismissible"
       @click="emit('dismiss')"
       class="flex-shrink-0 text-status-error hover:opacity-80 focus:outline-none"

@@ -269,6 +269,7 @@ defineExpose({
         <!-- User list -->
         <div v-else-if="users.length > 0" class="max-h-48 overflow-y-auto">
           <button
+            type="button"
             v-for="(user, index) in users"
             :key="user.uuid"
             @click="selectUser(user)"

@@ -44,6 +44,7 @@
           <p class="text-sm text-secondary">{{ errorMessage }}</p>
         </div>
         <button
+          type="button"
           @click="goToLogin"
           class="px-4 py-2 bg-accent hover:opacity-90 text-on-accent rounded-lg text-sm font-medium transition-colors"
         >
@@ -92,6 +93,7 @@
           <p class="text-sm text-secondary">{{ loginMessage || $t('accept-invitation-manual-login') }}</p>
         </div>
         <button
+          type="button"
           @click="goToLogin"
           class="px-4 py-2 bg-accent hover:opacity-90 text-on-accent rounded-lg text-sm font-medium transition-colors"
         >
@@ -214,6 +216,7 @@
 
       <!-- Back link -->
       <button
+        type="button"
         v-if="!acceptSuccess && !validating && !loggingIn"
         @click="goToLogin"
         class="self-center inline-flex items-center gap-1.5 text-xs text-tertiary hover:text-primary transition-colors"

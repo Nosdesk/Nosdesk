@@ -343,6 +343,7 @@ onMounted(async () => {
 
           <!-- Add Passkey button at bottom of list -->
           <button
+            type="button"
             v-if="canAddPasskeyHere"
             @click="showAddModal = true"
             class="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-subtle hover:border-accent rounded-lg text-secondary hover:text-accent transition-colors"

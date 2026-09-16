@@ -85,6 +85,7 @@ const emit = defineEmits<{
     </div>
 
     <button
+      type="button"
       v-else
       role="menuitem"
       class="w-full px-3 py-2.5 md:py-1.5 text-sm md:text-xs text-left flex items-center gap-2 min-h-[44px] md:min-h-0 transition-colors disabled:opacity-40 disabled:pointer-events-none"

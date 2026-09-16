@@ -148,6 +148,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
       <!-- Right: Navigation buttons (pagination mode only) -->
       <div v-if="hasMultiplePages" class="flex items-center gap-1">
         <button
+          type="button"
           @click="changePage(currentPage - 1)"
           :disabled="currentPage <= 1"
           :class="[
@@ -160,6 +161,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
           <Icon name="chevronLeft" />
         </button>
         <button
+          type="button"
           @click="changePage(currentPage + 1)"
           :disabled="currentPage >= totalPages"
           :class="[
@@ -202,6 +204,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
         <template v-if="hasMultiplePages && !isInfiniteMode">
           <div class="flex items-center gap-2">
             <button
+              type="button"
               @click="changePage(currentPage - 1)"
               :disabled="currentPage <= 1"
               :class="[
@@ -217,6 +220,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
             <div class="flex items-center gap-0.5">
               <template v-for="page in pageNumbers" :key="page">
                 <button
+                  type="button"
                   v-if="typeof page === 'number'"
                   @click="changePage(page)"
                   :class="[
@@ -233,6 +237,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
             </div>
 
             <button
+              type="button"
               @click="changePage(currentPage + 1)"
               :disabled="currentPage >= totalPages"
               :class="[

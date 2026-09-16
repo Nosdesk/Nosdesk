@@ -391,6 +391,7 @@ onScopeDispose(() => restoreScroll?.());
               <Icon name="search" size="md" class="flex-shrink-0 text-tertiary" />
 
               <button
+                type="button"
                 v-if="activeTypes"
                 @click="clearTypes"
                 class="inline-flex items-center gap-1 px-2 h-6 text-2xs font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
@@ -402,6 +403,7 @@ onScopeDispose(() => restoreScroll?.());
               <!-- Person filter chip. Composes with the scope chip; the
                    leading "from" prefix reads as the operator that set it. -->
               <button
+                type="button"
                 v-if="authorFilter"
                 @click="clearAuthor"
                 class="inline-flex items-center gap-1 px-2 h-6 text-2xs font-medium rounded-md bg-brand-pink/10 text-brand-pink border border-brand-pink/20 hover:bg-brand-pink/20 transition-colors flex-shrink-0 max-w-[10rem]"

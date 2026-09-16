@@ -621,6 +621,7 @@ watch(documentObj, (newDocument) => {
 
         <!-- Publish button for unpublished pages -->
         <button
+          type="button"
           v-if="document && document.status !== 'published'"
           @click="handlePublishPage"
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-status-success text-white hover:opacity-90 transition-colors"
@@ -631,6 +632,7 @@ watch(documentObj, (newDocument) => {
 
         <!-- Star button -->
         <button
+          type="button"
           v-if="isDocumentPage"
           @click="isStarred ? handleUnstar() : handleStar()"
           class="p-1.5 rounded-md hover:bg-surface-hover transition-colors"
@@ -644,6 +646,7 @@ watch(documentObj, (newDocument) => {
 
         <!-- Copy link button -->
         <button
+          type="button"
           v-if="isDocumentPage"
           @click="handleCopyLink"
           class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
@@ -793,6 +796,7 @@ watch(documentObj, (newDocument) => {
                 <div class="flex items-center gap-2">
                   <!-- Revision History Toggle -->
                   <button
+                    type="button"
                     @click="toggleRevisionHistory"
                     class="px-3 py-1.5 text-xs rounded-md hover:bg-surface-hover transition-colors flex items-center gap-1.5 text-secondary hover:text-primary"
                     :class="{ 'bg-surface-alt text-primary': showRevisionHistory }"
