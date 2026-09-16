@@ -29,7 +29,6 @@ import {
   useMarkAllSeenMutation,
 } from '@/stores/notifications'
 import {
-  applyNotificationFilter,
   iconForNotificationType,
   useNotificationFeed,
   useNotificationFilterTabs,
@@ -70,7 +69,8 @@ const announcementText = computed(() => {
 // presentation helpers). The bell and the inbox both consume
 // this composable; surface-specific concerns (layout, empty-state
 // copy, date-grouping granularity) stay in each view.
-const feed = useNotificationFeed()
+const filter = ref<NotificationFilter>('all')
+const feed = useNotificationFeed(filter)
 const {
   list,
   unread,
@@ -90,7 +90,6 @@ const unseenCount = computed(() => unseen.data.value ?? 0)
 
 const buttonRef = ref<HTMLButtonElement | null>(null)
 const isOpen = ref(false)
-const filter = ref<NotificationFilter>('all')
 
 const anchor = computed<PopoverAnchor>(() => ({
   type: 'element',
@@ -100,9 +99,9 @@ const anchor = computed<PopoverAnchor>(() => ({
 const hasUnread = computed(() => unseenCount.value > 0)
 const displayCount = computed(() => (unseenCount.value > 99 ? '99+' : String(unseenCount.value)))
 
-const filteredNotifications = computed(() =>
-  applyNotificationFilter(filter.value, items.value),
-)
+// Each tab is its own server-filtered query, so `items` is already
+// the tab's contents.
+const filteredNotifications = items
 
 interface NotificationGroup {
   label: string
@@ -205,7 +204,7 @@ function handleViewInbox() {
 }
 
 function handleMarkAllReadScoped() {
-  feed.markAllReadScoped(filter.value, filteredNotifications.value)
+  feed.markAllReadScoped(filter.value)
 }
 
 const visibleHasUnread = computed(() =>
@@ -312,7 +311,7 @@ onMounted(() => {
              since "no items after a successful fetch" is a
              data-shape concern, not a lifecycle one. -->
         <div
-          v-if="!fetchOp.isPending && filteredNotifications.length === 0"
+          v-if="!fetchOp.isPending && !hasMore && filteredNotifications.length === 0"
           class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center"
         >
           <div

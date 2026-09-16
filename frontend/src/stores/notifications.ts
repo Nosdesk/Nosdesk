@@ -10,8 +10,11 @@
  *
  * Architecture decisions:
  *
- *   - The list is an infinite query; pages live in the cache,
- *     concatenated for display via `data.pages.flat()`.
+ *   - Each inbox tab is its own server-filtered infinite query;
+ *     pages live in the cache, concatenated for display.
+ *   - Optimistic edits apply to every tab's cache at once and
+ *     re-check tab membership, so a row marked read on the Unread
+ *     tab leaves it without a refetch.
  *   - Mutations are optimistic with rollback context, then
  *     `invalidate` the unread count to let the server settle
  *     it (other devices may have changed it). The list is NOT
@@ -23,7 +26,7 @@
  *     in Colada composables.
  */
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, toValue, type MaybeRefOrGetter } from 'vue'
 import {
   setInfiniteQueryData,
   useInfiniteQuery,
@@ -50,37 +53,106 @@ import { workspaceReady } from '@/services/activeWorkspace'
 
 const PAGE_SIZE = 20
 
+/** Inbox tab. Each maps to one server-side filter and one list cache. */
+export type NotificationFilter = 'all' | 'unread' | 'mentions'
+export const NOTIFICATION_FILTERS: readonly NotificationFilter[] = ['all', 'unread', 'mentions']
+
+/** Keyset cursor: the last row's `created_at` and `id`. */
+interface Cursor {
+  before: string
+  before_id: number
+}
+
+/** One cached page. `next` is fixed at fetch time from the raw page length,
+ *  so optimistic removals never make a tab claim it is caught up while
+ *  rows remain on the server. */
+export interface NotificationPage {
+  items: Notification[]
+  next: Cursor | null
+}
+
+/** Whether a row belongs in a tab. The optimistic layer applies this after
+ *  every transform so a row marked read leaves the Unread cache on its own. */
+export function belongsToFilter(filter: NotificationFilter, n: Notification): boolean {
+  switch (filter) {
+    case 'unread':
+      return !n.is_read
+    case 'mentions':
+      return n.notification_type === 'mentioned'
+    default:
+      return true
+  }
+}
+
+function filterParams(filter: NotificationFilter) {
+  switch (filter) {
+    case 'unread':
+      return { unread_only: true }
+    case 'mentions':
+      return { notification_type: 'mentioned' }
+    default:
+      return {}
+  }
+}
+
 // Hierarchical query keys. Exported so the SSE invalidator and
 // any future cross-cutting consumer subscribe to the same
-// strings without typo drift.
+// strings without typo drift. `listRoot` is the prefix every
+// per-filter list shares; invalidation and cancellation target it.
 export const NOTIFICATIONS_KEYS = {
   root: ['notifications'] as const,
-  list: () => [...NOTIFICATIONS_KEYS.root, 'list'] as const,
+  listRoot: () => [...NOTIFICATIONS_KEYS.root, 'list'] as const,
+  list: (filter: NotificationFilter) => [...NOTIFICATIONS_KEYS.listRoot(), filter] as const,
   unreadCount: () => [...NOTIFICATIONS_KEYS.root, 'unreadCount'] as const,
   unseenCount: () => [...NOTIFICATIONS_KEYS.root, 'unseenCount'] as const,
 }
 
 // ---- Queries -------------------------------------------------
 
+type ListData = UseInfiniteQueryData<NotificationPage, Cursor | null>
+
 /**
- * Paginated notification feed. Pages append into one cache entry
- * keyed by `notifications.list`. Both the bell and the inbox
- * call this; only one network request fires per page across all
- * subscribers.
+ * Paginated notification feed for one tab. Pages append into one cache
+ * entry keyed by `notifications.list.<filter>`, filtered server-side so
+ * the tab is the truth rather than a sieve over the loaded window. Both
+ * the bell and the inbox call this; only one network request fires per
+ * page across all subscribers.
+ *
+ * A tab opened for the first time is seeded from the `all` cache
+ * (client-filtered) as placeholder data, so switching tabs paints at
+ * once and the server page replaces it.
  */
-export function useNotificationsList() {
-  return useInfiniteQuery({
-    key: NOTIFICATIONS_KEYS.list(),
-    initialPageParam: 0,
-    query: ({ pageParam }) =>
-      getNotifications({ limit: PAGE_SIZE, offset: pageParam }),
-    // Next page param is the running total length, since the
-    // backend uses offset-based pagination. `null` signals "no
-    // more pages" (last page returned fewer than PAGE_SIZE items).
-    getNextPageParam: (lastPage, allPages) =>
-      lastPage.length === PAGE_SIZE
-        ? allPages.flat().length
-        : null,
+export function useNotificationsList(filter: MaybeRefOrGetter<NotificationFilter>) {
+  const queryCache = useQueryCache()
+  // Object form (not the options getter): that form drops
+  // `placeholderData`, and a reactive `key` re-keys the query anyway.
+  return useInfiniteQuery<NotificationPage, Error, Cursor | null>({
+    key: () => NOTIFICATIONS_KEYS.list(toValue(filter)),
+    initialPageParam: null,
+    query: async ({ pageParam }) => {
+      const items = await getNotifications({
+        limit: PAGE_SIZE,
+        ...filterParams(toValue(filter)),
+        ...(pageParam ?? {}),
+      })
+      const last = items[items.length - 1]
+      return {
+        items,
+        next:
+          items.length === PAGE_SIZE && last
+            ? { before: last.created_at, before_id: last.id }
+            : null,
+      }
+    },
+    getNextPageParam: (lastPage) => lastPage.next,
+    placeholderData: () => {
+      const f = toValue(filter)
+      if (f === 'all') return undefined
+      const all = queryCache.getQueryData<ListData>(NOTIFICATIONS_KEYS.list('all'))
+      if (!all) return undefined
+      const items = all.pages.flatMap((p) => p.items).filter((n) => belongsToFilter(f, n))
+      return { pages: [{ items, next: null }], pageParams: [null] }
+    },
     // Hold until a workspace is selected (see useUnreadCount).
     enabled: () => workspaceReady(),
   })
@@ -113,46 +185,91 @@ export function useUnseenCount() {
 
 // ---- Mutations -----------------------------------------------
 
-type ListData = UseInfiniteQueryData<Notification[], number>
 type QueryCache = ReturnType<typeof useQueryCache>
 
 interface MutationContext {
-  previousList: ListData | undefined
+  previousLists: Partial<Record<NotificationFilter, ListData | undefined>>
   previousCount: number | undefined
 }
 
-/** Snapshot the current list + count for rollback. */
+/** Snapshot every present list cache + the count for rollback. */
 function snapshot(queryCache: QueryCache): MutationContext {
+  const previousLists: MutationContext['previousLists'] = {}
+  for (const f of NOTIFICATION_FILTERS) {
+    previousLists[f] = queryCache.getQueryData<ListData>(NOTIFICATIONS_KEYS.list(f))
+  }
   return {
-    previousList: queryCache.getQueryData<ListData>(NOTIFICATIONS_KEYS.list()),
+    previousLists,
     previousCount: queryCache.getQueryData<number>(NOTIFICATIONS_KEYS.unreadCount()),
   }
 }
 
 function rollback(queryCache: QueryCache, ctx: MutationContext | undefined) {
   if (!ctx) return
-  if (ctx.previousList !== undefined) {
-    setInfiniteQueryData(queryCache, NOTIFICATIONS_KEYS.list(), ctx.previousList)
+  for (const f of NOTIFICATION_FILTERS) {
+    const prev = ctx.previousLists[f]
+    if (prev !== undefined) setInfiniteQueryData(queryCache, NOTIFICATIONS_KEYS.list(f), prev)
   }
   if (ctx.previousCount !== undefined) {
     queryCache.setQueryData(NOTIFICATIONS_KEYS.unreadCount(), ctx.previousCount)
   }
 }
 
-/** Apply a per-page transform to the infinite list cache.
- *  Centralises the page-mapping boilerplate every mutation needs. */
-function transformList(
-  queryCache: QueryCache,
-  transform: (page: Notification[]) => Notification[],
-) {
-  setInfiniteQueryData<Notification[], Error, number>(
-    queryCache,
-    NOTIFICATIONS_KEYS.list(),
-    (old) => {
-      if (!old) return old as never
-      return { ...old, pages: old.pages.map(transform) }
-    },
-  )
+/** A row-level optimistic edit: return the new row, or `null` to remove it. */
+export type RowTransform = (n: Notification) => Notification | null
+
+/**
+ * Pure core of the optimistic layer. Applies a row transform to every
+ * present tab cache, then drops rows that no longer belong to that tab (a
+ * row marked read leaves Unread). The unread-count delta is counted once
+ * per row across caches: the same row lives in up to three caches with
+ * identical read-state.
+ */
+export function transformPages(
+  lists: Partial<Record<NotificationFilter, ListData | undefined>>,
+  transform: RowTransform,
+): { lists: Partial<Record<NotificationFilter, ListData>>; delta: number } {
+  const seen = new Set<number>()
+  let delta = 0
+  const note = (before: Notification, after: Notification | null) => {
+    if (seen.has(before.id)) return
+    seen.add(before.id)
+    const wasUnread = !before.is_read
+    const isUnread = after !== null && !after.is_read
+    if (wasUnread && !isUnread) delta -= 1
+    if (!wasUnread && isUnread) delta += 1
+  }
+  const out: Partial<Record<NotificationFilter, ListData>> = {}
+  for (const f of NOTIFICATION_FILTERS) {
+    const old = lists[f]
+    if (!old) continue
+    out[f] = {
+      ...old,
+      pages: old.pages.map((page) => ({
+        ...page,
+        items: page.items.flatMap((n) => {
+          const next = transform(n)
+          note(n, next)
+          return next && belongsToFilter(f, next) ? [next] : []
+        }),
+      })),
+    }
+  }
+  return { lists: out, delta }
+}
+
+/** Apply a row transform to the live caches (see `transformPages`). */
+function transformLists(queryCache: QueryCache, transform: RowTransform) {
+  const current: Partial<Record<NotificationFilter, ListData | undefined>> = {}
+  for (const f of NOTIFICATION_FILTERS) {
+    current[f] = queryCache.getQueryData<ListData>(NOTIFICATIONS_KEYS.list(f))
+  }
+  const { lists, delta } = transformPages(current, transform)
+  for (const f of NOTIFICATION_FILTERS) {
+    const next = lists[f]
+    if (next) setInfiniteQueryData(queryCache, NOTIFICATIONS_KEYS.list(f), next)
+  }
+  adjustUnread(queryCache, delta)
 }
 
 /** Adjust the cached unread count by `delta` (positive or
@@ -165,20 +282,22 @@ function adjustUnread(queryCache: QueryCache, delta: number) {
   )
 }
 
-/** Optimistically drop a notification from the cached list and, if it
- *  was unread, decrement the unread count. Shared by every mutation
- *  that removes a row from the active inbox: dismiss (delete), archive,
- *  and snooze. */
-function removeFromList(queryCache: QueryCache, id: number) {
-  let removedUnread = false
-  transformList(queryCache, (page) =>
-    page.filter((n) => {
-      if (n.id !== id) return true
-      if (!n.is_read) removedUnread = true
-      return false
-    }),
+/** Optimistically drop rows from every cached list; the unread count
+ *  follows. Shared by every mutation that removes rows from the active
+ *  inbox: dismiss (delete), archive, and snooze. */
+function removeFromLists(queryCache: QueryCache, ids: Iterable<number>) {
+  const idSet = new Set(ids)
+  if (idSet.size === 0) return
+  transformLists(queryCache, (n) => (idSet.has(n.id) ? null : n))
+}
+
+/** Optimistically set `is_read` on the given rows in every cached list. */
+function setRead(queryCache: QueryCache, ids: Iterable<number>, read: boolean) {
+  const idSet = new Set(ids)
+  if (idSet.size === 0) return
+  transformLists(queryCache, (n) =>
+    idSet.has(n.id) && n.is_read !== read ? { ...n, is_read: read } : n,
   )
-  if (removedUnread) adjustUnread(queryCache, -1)
 }
 
 /** Factory for "list-mutation" composables. Every notification
@@ -190,7 +309,7 @@ function removeFromList(queryCache: QueryCache, id: number) {
 function defineListMutation<TVars>(spec: {
   mutate: (vars: TVars) => Promise<unknown>
   /** Apply the optimistic update synchronously. Use the helpers
-   *  `transformList` and `adjustUnread` from the closure. */
+   *  `setRead`, `removeFromLists`, `transformLists`. */
   optimistic: (vars: TVars, queryCache: QueryCache) => void
 }) {
   return function useListMutation() {
@@ -198,7 +317,7 @@ function defineListMutation<TVars>(spec: {
     return useMutation<unknown, TVars, Error, MutationContext>({
       mutation: spec.mutate,
       onMutate: async (vars) => {
-        await queryCache.cancelQueries({ key: NOTIFICATIONS_KEYS.list() })
+        await queryCache.cancelQueries({ key: NOTIFICATIONS_KEYS.listRoot() })
         const ctx = snapshot(queryCache)
         spec.optimistic(vars, queryCache)
         return ctx
@@ -208,7 +327,7 @@ function defineListMutation<TVars>(spec: {
       // onMutate above always returns the full shape.
       onError: (_err, _vars, ctx) => rollback(queryCache, ctx as MutationContext | undefined),
       onSettled: () => {
-        // Reconcile the count only. The list already reflects our
+        // Reconcile the count only. The lists already reflect our
         // optimistic truth for the operation we performed; the
         // count may have moved due to other devices, so we let
         // the server settle it.
@@ -220,49 +339,31 @@ function defineListMutation<TVars>(spec: {
 
 export const useMarkReadMutation = defineListMutation<number>({
   mutate: (id) => markNotificationsRead([id]),
-  optimistic: (id, queryCache) => {
-    let wasUnread = false
-    transformList(queryCache, (page) =>
-      page.map((n) => {
-        if (n.id !== id || n.is_read) return n
-        wasUnread = true
-        return { ...n, is_read: true }
-      }),
-    )
-    if (wasUnread) adjustUnread(queryCache, -1)
-  },
+  optimistic: (id, queryCache) => setRead(queryCache, [id], true),
 })
 
 export const useDismissMutation = defineListMutation<number>({
   mutate: (id) => deleteNotifications([id]),
-  optimistic: (id, queryCache) => removeFromList(queryCache, id),
+  optimistic: (id, queryCache) => removeFromLists(queryCache, [id]),
 })
 
-export const useMarkAllReadMutation = defineListMutation<void>({
-  mutate: () => markAllNotificationsRead(),
-  optimistic: (_vars, queryCache) => {
-    transformList(queryCache, (page) =>
-      page.map((n) => (n.is_read ? n : { ...n, is_read: true })),
+/** Mark everything read, or (with a type) only that type: the Mentions
+ *  tab's button clears mentions server-wide, not just the loaded window. */
+export const useMarkAllReadMutation = defineListMutation<string | undefined>({
+  mutate: (notificationType) => markAllNotificationsRead(notificationType),
+  optimistic: (notificationType, queryCache) => {
+    transformLists(queryCache, (n) =>
+      n.is_read || (notificationType && n.notification_type !== notificationType)
+        ? n
+        : { ...n, is_read: true },
     )
-    queryCache.setQueryData<number>(NOTIFICATIONS_KEYS.unreadCount(), 0)
+    if (!notificationType) queryCache.setQueryData<number>(NOTIFICATIONS_KEYS.unreadCount(), 0)
   },
 })
 
 export const useMarkManyReadMutation = defineListMutation<number[]>({
   mutate: (ids) => markNotificationsRead(ids),
-  optimistic: (ids, queryCache) => {
-    if (ids.length === 0) return
-    const idSet = new Set(ids)
-    let flipped = 0
-    transformList(queryCache, (page) =>
-      page.map((n) => {
-        if (!idSet.has(n.id) || n.is_read) return n
-        flipped++
-        return { ...n, is_read: true }
-      }),
-    )
-    if (flipped > 0) adjustUnread(queryCache, -flipped)
-  },
+  optimistic: (ids, queryCache) => setRead(queryCache, ids, true),
 })
 
 /** Mark all notifications seen: clears the bell badge when the panel or
@@ -292,52 +393,35 @@ export function useMarkAllSeenMutation() {
 
 /** Archive a notification: reversible triage that drops it from the
  *  active inbox (the server hides archived rows), replacing the
- *  destructive dismiss. Optimistically removes it from the list. */
+ *  destructive dismiss. Optimistically removes it from every list. */
 export const useArchiveMutation = defineListMutation<number>({
   mutate: (id) => archiveNotifications([id]),
-  optimistic: (id, queryCache) => removeFromList(queryCache, id),
+  optimistic: (id, queryCache) => removeFromLists(queryCache, [id]),
 })
 
 /** Mark a single notification unread (inverse of mark-read): flips it
- *  back into the unread set and bumps the count. */
+ *  back into the unread set and bumps the count. The row cannot be
+ *  slotted into the Unread cache in order, so that cache is refetched;
+ *  nobody is looking at it while acting from another tab. */
 export const useMarkUnreadMutation = defineListMutation<number>({
   mutate: (id) => markNotificationsUnread([id]),
   optimistic: (id, queryCache) => {
-    let flipped = false
-    transformList(queryCache, (page) =>
-      page.map((n) => {
-        if (n.id !== id || !n.is_read) return n
-        flipped = true
-        return { ...n, is_read: false }
-      }),
-    )
-    if (flipped) adjustUnread(queryCache, 1)
+    setRead(queryCache, [id], false)
+    queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.list('unread') })
   },
 })
 
 /** Snooze a notification until `until` (ISO string): the server hides
- *  it from the active inbox until then, so — like archive — it drops out
- *  of the list optimistically. */
+ *  it from the active inbox until then, so, like archive, it drops out
+ *  of every list optimistically. */
 export const useSnoozeMutation = defineListMutation<{ id: number; until: string }>({
   mutate: ({ id, until }) => snoozeNotifications([id], until),
-  optimistic: ({ id }, queryCache) => removeFromList(queryCache, id),
+  optimistic: ({ id }, queryCache) => removeFromLists(queryCache, [id]),
 })
 
 export const useDeleteManyMutation = defineListMutation<number[]>({
   mutate: (ids) => deleteNotifications(ids),
-  optimistic: (ids, queryCache) => {
-    if (ids.length === 0) return
-    const idSet = new Set(ids)
-    let removedUnread = 0
-    transformList(queryCache, (page) =>
-      page.filter((n) => {
-        if (!idSet.has(n.id)) return true
-        if (!n.is_read) removedUnread++
-        return false
-      }),
-    )
-    if (removedUnread > 0) adjustUnread(queryCache, -removedUnread)
-  },
+  optimistic: (ids, queryCache) => removeFromLists(queryCache, ids),
 })
 
 // ---- SSE wiring + screen-reader announcement ----------------
@@ -376,7 +460,7 @@ export const useNotificationsStore = defineStore('notifications', () => {
   function revalidateNotifications() {
     queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.unseenCount() })
     queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.unreadCount() })
-    queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.list() })
+    queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.listRoot() })
   }
 
   // Coalesce bursts: several notifications arriving together (or a
