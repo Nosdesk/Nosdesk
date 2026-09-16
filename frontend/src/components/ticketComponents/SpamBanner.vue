@@ -9,6 +9,7 @@
  * update removes this banner. "Delete" is emitted so the parent reuses its
  * existing delete-confirm flow.
  */
+import Button from '@/components/common/Button.vue'
 import { ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { updateTicket } from '@nosdesk/core/services/ticketService';
@@ -48,13 +49,13 @@ async function markNotSpam() {
     >
       {{ t('ticket-spam-not-spam') }}
     </button>
-    <button
-      type="button"
-      class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-status-error text-white hover:opacity-90"
+    <Button
       @click="emit('delete')"
+      variant="danger"
+      size="xs"
+      icon="trash"
     >
-      <Icon name="trash" size="xs" />
       {{ t('ticket-spam-delete') }}
-    </button>
+    </Button>
   </div>
 </template>

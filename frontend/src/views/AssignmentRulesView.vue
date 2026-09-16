@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
+import Button from '@/components/common/Button.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery, useQueryCache } from '@pinia/colada'
@@ -324,14 +326,14 @@ onMounted(() => {
           <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-assignment-rules-title') }}</h1>
           <p class="text-secondary mt-1">{{ $t('admin-assignment-rules-description') }}</p>
         </div>
-        <button
-          type="button"
+        <Button
           @click="openCreateModal"
-          class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:opacity-90 font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+          size="sm"
+          class="self-start sm:self-auto"
+          icon="add"
         >
-          <Icon name="add" />
           {{ $t('admin-assignment-rules-new') }}
-        </button>
+        </Button>
       </div>
 
       <!-- Info box -->
@@ -384,25 +386,21 @@ onMounted(() => {
           <div class="p-4 flex items-center gap-4">
             <!-- Priority/order controls -->
             <div class="flex flex-col gap-0.5 flex-shrink-0">
-              <button
-                type="button"
+              <IconButton
+                :label="$t('admin-assignment-rules-move-up')"
+                icon="chevronUp"
+                size="xs"
                 @click="moveRule(rule, 'up')"
                 :disabled="index === 0"
-                class="p-1 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                :title="$t('admin-assignment-rules-move-up')"
-              >
-                <Icon name="chevronUp" />
-              </button>
+              />
               <span class="text-xs text-tertiary text-center w-full">{{ index + 1 }}</span>
-              <button
-                type="button"
+              <IconButton
+                :label="$t('admin-assignment-rules-move-down')"
+                icon="chevronDown"
+                size="xs"
                 @click="moveRule(rule, 'down')"
                 :disabled="index === rules.length - 1"
-                class="p-1 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                :title="$t('admin-assignment-rules-move-down')"
-              >
-                <Icon name="chevronDown" />
-              </button>
+              />
             </div>
 
             <!-- Rule info -->
@@ -458,22 +456,17 @@ onMounted(() => {
                 <Icon v-if="rule.is_active" name="close" />
                 <Icon v-else name="checkCircle" />
               </button>
-              <button
-                type="button"
+              <IconButton
+                :label="$t('admin-assignment-rules-edit')"
+                icon="rename"
                 @click="openEditModal(rule)"
-                class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-                :title="$t('admin-assignment-rules-edit')"
-              >
-                <Icon name="rename" />
-              </button>
-              <button
-                type="button"
+              />
+              <IconButton
+                :label="$t('admin-assignment-rules-delete')"
+                icon="trash"
+                variant="ghost-danger"
                 @click="confirmDelete(rule)"
-                class="p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
-                :title="$t('admin-assignment-rules-delete')"
-              >
-                <Icon name="trash" />
-              </button>
+              />
             </div>
           </div>
         </div>
@@ -615,14 +608,12 @@ onMounted(() => {
           >
             {{ $t('admin-assignment-rules-modal-cancel') }}
           </button>
-          <button
-            type="button"
+          <Button
             @click="saveRule"
             :disabled="isSaving"
-            class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
           >
             {{ isSaving ? $t('admin-assignment-rules-modal-saving') : editingRule ? $t('admin-assignment-rules-modal-update') : $t('admin-assignment-rules-modal-create') }}
-          </button>
+          </Button>
         </div>
       </template>
     </Modal>
@@ -647,14 +638,13 @@ onMounted(() => {
           >
             {{ $t('admin-assignment-rules-delete-cancel') }}
           </button>
-          <button
-            type="button"
+          <Button
             @click="deleteRule"
             :disabled="isSaving"
-            class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
+            variant="danger"
           >
             {{ isSaving ? $t('admin-assignment-rules-deleting') : $t('admin-assignment-rules-delete-confirm') }}
-          </button>
+          </Button>
         </div>
       </template>
     </Modal>

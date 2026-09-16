@@ -60,6 +60,7 @@ async function unflag() {
       :disabled="isWorking"
       class="flex-shrink-0 text-2xs text-tertiary hover:text-status-error transition-colors disabled:opacity-50"
       :title="t('ticket-chip-gap-remove-flag')"
+      :aria-label="t('ticket-chip-gap-remove-flag')"
       @click="unflag"
     >
       <Icon name="close" size="xs" />

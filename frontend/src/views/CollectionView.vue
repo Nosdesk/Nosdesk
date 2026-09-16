@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryCache } from '@pinia/colada'
@@ -15,7 +16,6 @@ import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { useSyncDocsStore } from '@nosdesk/core/sync/stores/documentation'
 import BackButton from '@/components/common/BackButton.vue'
 import Icon from '@/components/common/Icon.vue'
-import Spinner from '@/components/common/Spinner.vue'
 import CollectionTreeList from '@/components/documentationComponents/CollectionTreeList.vue'
 import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 import CollectionAppearanceModal from '@/components/documentationComponents/CollectionAppearanceModal.vue'
@@ -267,17 +267,15 @@ const deleteModalTitle = computed(() =>
         </button>
 
         <!-- Create page button -->
-        <button
-          type="button"
+        <Button
           v-if="collection"
           @click="createPageInCollection"
-          :disabled="creating"
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-on-accent hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          size="sm"
+          :loading="creating"
+          icon="add"
         >
-          <Icon v-if="!creating" name="add" />
-          <Spinner v-else />
           <span class="hidden sm:inline">{{ $t('collection-action-new-page') }}</span>
-        </button>
+        </Button>
       </div>
     </div>
 

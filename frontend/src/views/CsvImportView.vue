@@ -17,6 +17,7 @@
  * Users and tickets render as disabled "coming soon" choices so
  * the UI surface is in place when their parsers ship.
  */
+import Button from '@/components/common/Button.vue'
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useRouter } from 'vue-router'
@@ -24,7 +25,6 @@ import { useRouter } from 'vue-router'
 import BackButton from '@/components/common/BackButton.vue'
 import Callout from '@/components/common/Callout.vue'
 import Icon from '@/components/common/Icon.vue'
-import Spinner from '@/components/common/Spinner.vue'
 
 import {
   importService,
@@ -328,15 +328,13 @@ const viewImportedLabelKey = computed(() => {
           </div>
 
           <div class="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              :disabled="!selectedFile || isWorking"
-              class="px-4 py-2 rounded-lg bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+            <Button
+              :disabled="!selectedFile"
               @click="uploadAndDryRun"
+              :loading="isWorking"
             >
-              <Spinner v-if="isWorking" class="text-on-accent" />
               {{ $t('csv-import-action-validate') }}
-            </button>
+            </Button>
           </div>
         </div>
       </section>
@@ -399,17 +397,15 @@ const viewImportedLabelKey = computed(() => {
           >
             {{ $t('csv-import-action-discard') }}
           </button>
-          <button
-            type="button"
-            :disabled="isWorking || summary.would_create + summary.would_update === 0"
-            class="px-4 py-2 rounded-lg bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+          <Button
+            :disabled="summary.would_create + summary.would_update === 0"
             @click="applyImport"
+            :loading="isWorking"
           >
-            <Spinner v-if="isWorking" class="text-on-accent" />
             {{ $t('csv-import-action-apply', {
               count: summary.would_create + summary.would_update,
             }) }}
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -432,13 +428,11 @@ const viewImportedLabelKey = computed(() => {
           >
             {{ $t('csv-import-action-new') }}
           </button>
-          <button
-            type="button"
-            class="px-4 py-2 rounded-lg bg-accent text-on-accent hover:bg-accent-strong"
+          <Button
             @click="viewImported"
           >
             {{ $t(viewImportedLabelKey) }}
-          </button>
+          </Button>
         </div>
       </section>
     </div>

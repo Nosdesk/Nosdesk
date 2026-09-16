@@ -524,6 +524,7 @@ onMounted(() => {
                   @pointerdown="handleGripDown(category.id, index, $event)"
                   class="flex-shrink-0 p-1 text-tertiary hover:text-secondary cursor-grab active:cursor-grabbing touch-none"
                   :title="$t('admin-categories-drag-handle')"
+                  :aria-label="$t('admin-categories-drag-handle')"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M7 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
@@ -707,6 +708,8 @@ onMounted(() => {
             @click="categoryForm.icon = icon.name"
             class="w-10 h-10 rounded-lg border-2 flex items-center justify-center transition-all"
             :class="categoryForm.icon === icon.name ? 'border-accent bg-accent/10' : 'border-default hover:border-strong'"
+            :aria-label="icon.name"
+            :aria-pressed="categoryForm.icon === icon.name"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

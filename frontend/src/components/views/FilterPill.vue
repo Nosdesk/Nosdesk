@@ -93,6 +93,7 @@ function onRemove(e: MouseEvent): void {
         type="button"
         class="inline-flex items-center justify-center h-full pr-1.5 pl-0.5 hover:bg-accent/15 transition-colors"
         :title="$t('views-filter-pill-remove-tooltip', { label })"
+      :aria-label="$t('views-filter-pill-remove-tooltip', { label })"
         @click="onRemove"
       >
         <Icon name="close" class="w-3 h-3" />

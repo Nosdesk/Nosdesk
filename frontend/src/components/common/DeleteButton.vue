@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import Modal from '@/components/Modal.vue';
@@ -82,13 +83,12 @@ const confirmDelete = () => {
         >
           Cancel
         </button>
-        <button
-          type="button"
+        <Button
           @click="confirmDelete"
-          class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors"
+          variant="danger"
         >
           Delete
-        </button>
+        </Button>
       </div>
     </div>
   </Modal>

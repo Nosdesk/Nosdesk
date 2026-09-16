@@ -297,6 +297,9 @@ const gridColumns = computed(
                       :title="isLocked(row, channel.code)
                         ? t('admin-notification-defaults-locked-title')
                         : t('admin-notification-defaults-unlocked-title')"
+                      :aria-label="isLocked(row, channel.code)
+                        ? t('admin-notification-defaults-locked-title')
+                        : t('admin-notification-defaults-unlocked-title')"
                       @click="toggleLock(row, channel.code)"
                     >
                       <Icon name="lock" size="xs" />
@@ -343,6 +346,9 @@ const gridColumns = computed(
                         :disabled="saving === cellKey(row.notification_type, channel.code)"
                         :aria-pressed="isLocked(row, channel.code)"
                         :title="isLocked(row, channel.code)
+                          ? t('admin-notification-defaults-locked-title')
+                          : t('admin-notification-defaults-unlocked-title')"
+                        :aria-label="isLocked(row, channel.code)
                           ? t('admin-notification-defaults-locked-title')
                           : t('admin-notification-defaults-unlocked-title')"
                         @click="toggleLock(row, channel.code)"

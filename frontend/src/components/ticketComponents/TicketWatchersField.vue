@@ -220,6 +220,7 @@ watch(isWatching, (watching) => {
           :aria-haspopup="true"
           :aria-expanded="prefsOpen"
           :title="t('ticket-field-watchers-prefs-title')"
+        :aria-label="t('ticket-field-watchers-prefs-title')"
           @click="prefsOpen = !prefsOpen"
         >
           <Icon name="chevronDown" class="w-3 h-3" />

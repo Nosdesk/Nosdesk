@@ -11,10 +11,10 @@ delete dismisses on success and routes the parent to fall back to
 the built-in default.
 -->
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { computed, ref, watch } from 'vue'
 import Modal from '@/components/Modal.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
-import Spinner from '@/components/common/Spinner.vue'
 
 /** The editor only reads `uuid` and `name`; widening to this
  *  minimal shape lets the modal accept any SavedView<S, F> from
@@ -129,14 +129,13 @@ async function confirmDelete(): Promise<void> {
           >
             {{ $t('views-saved-editor-cancel') }}
           </button>
-          <button
+          <Button
             type="submit"
             :disabled="!canSave"
-            class="px-4 py-2 text-sm rounded-lg text-on-accent bg-accent hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            :loading="saving"
           >
-            <Spinner v-if="saving" size="sm" />
             <span>{{ saving ? $t('views-saved-editor-saving') : $t('views-saved-editor-save') }}</span>
-          </button>
+          </Button>
         </div>
       </div>
     </form>

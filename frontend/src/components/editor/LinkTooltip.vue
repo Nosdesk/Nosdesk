@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useFluent } from 'fluent-vue';
 
@@ -227,19 +228,19 @@ onBeforeUnmount(() => {
         class="flex-1 px-3 py-1.5 bg-surface border border-default rounded-lg text-sm text-primary focus:ring-2 focus:ring-accent focus:border-accent focus:outline-none"
         @keydown="handleKeydown"
       />
-      <button
-        type="button"
+      <Button
         @click="handleApply"
-        class="px-3 py-1.5 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors text-sm font-medium"
         :title="t('editor-link-tooltip-apply')"
+        size="sm"
       >
         {{ t('editor-link-tooltip-apply') }}
-      </button>
+      </Button>
       <button
         type="button"
         @click="handleClose"
         class="px-2 py-1.5 bg-surface-hover text-secondary rounded-lg hover:bg-surface-alt transition-colors text-sm"
         :title="t('editor-link-tooltip-cancel')"
+        :aria-label="t('editor-link-tooltip-cancel')"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -264,6 +265,7 @@ onBeforeUnmount(() => {
         @click="handleEdit"
         class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors"
         :title="t('editor-link-tooltip-edit')"
+        :aria-label="t('editor-link-tooltip-edit')"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
           <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -274,6 +276,7 @@ onBeforeUnmount(() => {
         @click="handleRemove"
         class="p-1.5 text-secondary hover:text-status-error hover:bg-surface-hover rounded transition-colors"
         :title="t('editor-link-tooltip-remove')"
+        :aria-label="t('editor-link-tooltip-remove')"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />

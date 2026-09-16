@@ -12,6 +12,7 @@
  * Reads also serve as the audit trail: bounce_count and last_seen_at
  * show whether an address is chronically failing or one-off.
  */
+import Button from '@/components/common/Button.vue'
 import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useInfiniteQuery, useQueryCache } from '@pinia/colada';
@@ -180,13 +181,13 @@ function formatDateTime(iso: string): string {
                     :placeholder="$t('admin-suppressions-add-note-placeholder')"
                     class="h-9 px-2 rounded border border-default bg-input text-primary text-sm flex-1"
                 />
-                <button
-                    type="submit"
-                    class="h-9 px-4 rounded bg-accent text-on-accent text-sm font-medium disabled:opacity-50"
-                    :disabled="isAdding || !newEmail.trim()"
+                <Button
+                  type="submit"
+                  :disabled="isAdding || !newEmail.trim()"
+                  class="h-9"
                 >
-                    {{ isAdding ? $t('admin-suppressions-adding') : $t('admin-suppressions-add') }}
-                </button>
+                  {{ isAdding ? $t('admin-suppressions-adding') : $t('admin-suppressions-add') }}
+                </Button>
             </form>
             <p v-if="addError" class="text-xs text-status-error">{{ addError }}</p>
         </section>

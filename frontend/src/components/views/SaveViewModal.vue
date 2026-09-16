@@ -5,9 +5,9 @@
  * prompt) that we'll converge on this same modal in a later
  * commit once the saved-view UX rolls together.
  */
+import Button from '@/components/common/Button.vue'
 import { computed, ref, watch } from 'vue'
 import Modal from '@/components/Modal.vue'
-import Spinner from '@/components/common/Spinner.vue'
 
 const props = defineProps<{
   show: boolean
@@ -83,14 +83,13 @@ async function save(): Promise<void> {
         >
           {{ $t('views-save-as-cancel') }}
         </button>
-        <button
+        <Button
           type="submit"
           :disabled="!canSave"
-          class="px-4 py-2 text-sm rounded-lg text-on-accent bg-accent hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          :loading="saving"
         >
-          <Spinner v-if="saving" size="sm" />
           <span>{{ saving ? $t('views-save-as-saving') : $t('views-save-as-save') }}</span>
-        </button>
+        </Button>
       </div>
     </form>
   </Modal>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -721,15 +722,14 @@ useSyncActions(
                   <div v-if="key === 'primary_user'" class="flex flex-col gap-1 sm:col-span-2">
                     <div class="flex items-center justify-between min-h-6">
                       <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-section-primary-user') }}</h3>
-                      <button
+                      <IconButton
+                        :label="$t('asset-detail-clear-user')"
+                        icon="close"
+                        size="xs"
+                        variant="ghost-danger"
                         v-if="device.primary_user && isEditable"
-                        type="button"
-                        class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
-                        :title="$t('asset-detail-clear-user')"
                         @click="clearPrimaryUser"
-                      >
-                        <Icon name="close" />
-                      </button>
+                      />
                     </div>
                     <RouterLink
                     v-if="device.primary_user"
@@ -765,15 +765,14 @@ useSyncActions(
                   <div v-else-if="key === 'managed_by'" class="flex flex-col gap-1 sm:col-span-2">
                     <div class="flex items-center justify-between min-h-6">
                       <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-section-managed-by') }}</h3>
-                      <button
+                      <IconButton
+                        :label="$t('asset-detail-clear-managed-by')"
+                        icon="close"
+                        size="xs"
+                        variant="ghost-danger"
                         v-if="device.managed_by_user_uuid && isEditable"
-                        type="button"
-                        class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
-                        :title="$t('asset-detail-clear-managed-by')"
                         @click="clearManagedBy"
-                      >
-                        <Icon name="close" />
-                      </button>
+                      />
                     </div>
                     <RouterLink
                       v-if="device.managed_by_user_uuid"

@@ -297,16 +297,15 @@
                       @update:model-value="(v: string | string[]) => setRuleRole(idx, v)"
                     />
                   </div>
-                  <Button
+                  <IconButton
                     variant="ghost-danger"
                     size="sm"
                     icon="trash"
-                    :aria-label="$t('admin-ldap-role-remove')"
+                    :label="$t('admin-ldap-role-remove')"
                     @click="removeRule(idx)"
                   />
                 </div>
               </div>
-
               <div class="flex flex-wrap items-center gap-2">
                 <Button variant="secondary" size="sm" icon="add" @click="addRule">
                   {{ $t('admin-ldap-role-add') }}
@@ -521,6 +520,7 @@ import FormNumber from '@/components/common/FormNumber.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import PasswordInput from '@/components/common/PasswordInput.vue';
 import Button from '@/components/common/Button.vue';
+import IconButton from '@/components/common/IconButton.vue';
 import StatusPill from '@/components/common/StatusPill.vue';
 import {
   ldapService,

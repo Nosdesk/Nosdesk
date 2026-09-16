@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
+import Button from '@/components/common/Button.vue'
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -9,7 +11,6 @@ import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
-import Spinner from '@/components/common/Spinner.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue';
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
@@ -236,15 +237,15 @@ const onPanelClose = () => {
             <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('groups-mgmt-title') }}</h1>
             <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('groups-mgmt-subtitle') }}</p>
           </div>
-          <button
-            type="button"
+          <Button
             @click="openCreateModal"
-            class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+            size="sm"
+            class="self-start sm:self-auto"
+            icon="add"
           >
-            <Icon name="add" />
             <span class="hidden xs:inline">{{ $t('groups-mgmt-action-new') }}</span>
             <span class="xs:hidden">{{ $t('groups-mgmt-action-new-short') }}</span>
-          </button>
+          </Button>
         </div>
 
         <!-- Success message -->
@@ -297,6 +298,7 @@ const onPanelClose = () => {
             @click="toggleSortDirection"
             class="p-1.5 border border-default rounded-lg bg-surface-alt hover:border-strong hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
             :title="sortAsc ? $t('groups-mgmt-sort-ascending') : $t('groups-mgmt-sort-descending')"
+            :aria-label="sortAsc ? $t('groups-mgmt-sort-ascending') : $t('groups-mgmt-sort-descending')"
           >
             <Icon
               name="chevronUp"
@@ -353,22 +355,19 @@ const onPanelClose = () => {
 
               <!-- Actions -->
               <div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
-                <button
-                  type="button"
+                <IconButton
+                  :label="$t('groups-mgmt-action-open-full-page')"
+                  icon="settings"
+                  size="sm"
                   @click.stop="navigateToConfiguration(group)"
-                  class="p-1.5 sm:p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md sm:rounded-lg transition-colors"
-                  :title="$t('groups-mgmt-action-open-full-page')"
-                >
-                  <Icon name="settings" />
-                </button>
-                <button
-                  type="button"
+                />
+                <IconButton
+                  :label="$t('groups-mgmt-action-delete')"
+                  icon="trash"
+                  size="sm"
+                  variant="ghost-danger"
                   @click.stop="confirmDelete(group)"
-                  class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
-                  :title="$t('groups-mgmt-action-delete')"
-                >
-                  <Icon name="trash" />
-                </button>
+                />
               </div>
             </div>
           </div>
@@ -453,14 +452,12 @@ const onPanelClose = () => {
         >
           {{ $t('groups-mgmt-action-cancel') }}
         </button>
-        <button
+        <Button
           type="submit"
-          :disabled="isSaving"
-          class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+          :loading="isSaving"
         >
-          <Spinner v-if="isSaving" />
           {{ $t('groups-mgmt-action-create') }}
-        </button>
+        </Button>
       </div>
     </form>
   </Modal>
@@ -483,15 +480,13 @@ const onPanelClose = () => {
         >
           {{ $t('groups-mgmt-action-cancel') }}
         </button>
-        <button
-          type="button"
+        <Button
           @click="deleteGroup"
-          :disabled="isSaving"
-          class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+          variant="danger"
+          :loading="isSaving"
         >
-          <Spinner v-if="isSaving" />
           {{ $t('groups-mgmt-action-delete-confirm') }}
-        </button>
+        </Button>
       </div>
     </div>
   </Modal>

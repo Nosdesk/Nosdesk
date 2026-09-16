@@ -402,6 +402,8 @@ ticket-list-sla-breached-title = SLA dépassée
 ticket-detail-reconnecting-title = Reconnexion aux mises à jour en direct
 ticket-detail-connecting = Connexion...
 ticket-detail-more-actions = Plus d'actions
+# MACHINE TRANSLATION, pending native review
+ticket-detail-back-to-tickets = Retour aux tickets
 ticket-detail-section-details = Détails du ticket
 ticket-detail-section-notes = Notes du ticket
 ticket-detail-section-comments = Commentaires et pièces jointes
@@ -4420,6 +4422,8 @@ ticket-asset-usage-quantity-placeholder = Used (in { $unit })
 ticket-asset-usage-notes-placeholder = Notes (optional)
 ticket-asset-usage-load-failed = Failed to load usage history
 ticket-asset-usage-record-failed = Failed to record usage
+# MACHINE TRANSLATION, pending native review
+ticket-asset-usage-record = Enregistrer l'utilisation
 
 # Asset detail: usage history panel (AssetUsageHistory).
 asset-usage-history-heading = Usage history
@@ -5789,6 +5793,13 @@ common-edit = Modifier
 common-delete = Supprimer
 common-save = Enregistrer
 common-cancel = Annuler
+# MACHINE TRANSLATION, pending native review
+common-remove = Retirer
+common-clear-search = Effacer la recherche
+# MACHINE TRANSLATION, pending native review
+common-remove-item-aria = Retirer { $name }
+common-expand-section = Développer la section
+common-collapse-section = Réduire la section
 asset-catalog-title = Catalogue d'actifs
 asset-catalog-description = Fabricants et modèles à partir desquels les actifs sont créés.
 asset-catalog-manufacturers-heading = Fabricants
@@ -6215,6 +6226,9 @@ pagination-controls-items = { $count ->
 }
 pagination-controls-page = Page
 pagination-controls-show = Afficher
+# MACHINE TRANSLATION, pending native review
+pagination-controls-previous = Page précédente
+pagination-controls-next = Page suivante
 asset-modal-title = Sélectionner un actif
 asset-modal-search-placeholder = Rechercher des actifs par nom, hôte, numéro de série, fabricant ou utilisateur...
 asset-modal-owner = Propriétaire

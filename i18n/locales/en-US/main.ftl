@@ -430,6 +430,7 @@ ticket-list-sla-breached-title = SLA breached
 ticket-detail-reconnecting-title = Reconnecting to live updates
 ticket-detail-connecting = Connecting...
 ticket-detail-more-actions = More actions
+ticket-detail-back-to-tickets = Back to tickets
 ticket-detail-section-details = Ticket Details
 ticket-detail-section-notes = Ticket Notes
 ticket-detail-section-comments = Comments and Attachments
@@ -4469,6 +4470,7 @@ ticket-asset-usage-quantity-placeholder = Used (in { $unit })
 ticket-asset-usage-notes-placeholder = Notes (optional)
 ticket-asset-usage-load-failed = Failed to load usage history
 ticket-asset-usage-record-failed = Failed to record usage
+ticket-asset-usage-record = Record usage
 
 # Asset detail: usage history panel (AssetUsageHistory).
 asset-usage-history-heading = Usage history
@@ -5819,6 +5821,11 @@ common-edit = Edit
 common-delete = Delete
 common-save = Save
 common-cancel = Cancel
+common-remove = Remove
+common-clear-search = Clear search
+common-remove-item-aria = Remove { $name }
+common-expand-section = Expand section
+common-collapse-section = Collapse section
 asset-catalog-title = Asset catalog
 asset-catalog-description = Manufacturers and the models assets are stamped from.
 asset-catalog-manufacturers-heading = Manufacturers
@@ -6229,6 +6236,8 @@ pagination-controls-items = { $count ->
 }
 pagination-controls-page = Page
 pagination-controls-show = Show
+pagination-controls-previous = Previous page
+pagination-controls-next = Next page
 asset-modal-title = Select an asset
 asset-modal-search-placeholder = Search assets by name, hostname, serial number, manufacturer, or user...
 asset-modal-owner = Owner

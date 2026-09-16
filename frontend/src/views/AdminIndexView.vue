@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { ref, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import {
@@ -48,14 +49,14 @@ const filteredGroups = computed(() =>
                 :placeholder="$t('admin-search-placeholder')"
                 class="w-full pl-9 pr-9 py-2 text-sm bg-surface-alt text-primary rounded-lg border border-default focus:ring-1 focus:ring-accent focus:border-accent focus:outline-none placeholder:text-tertiary"
               />
-              <button
-                type="button"
-                v-if="searchQuery"
-                @click="searchQuery = ''"
-                class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary hover:text-secondary"
-              >
-                <Icon name="close" />
-              </button>
+              <IconButton
+            v-if="searchQuery"
+            :label="$t('common-clear-search')"
+            icon="close"
+            size="xs"
+            class="absolute right-3 top-1/2 -translate-y-1/2"
+            @click="searchQuery = ''"
+          />
             </div>
           </div>
         </div>
@@ -110,14 +111,14 @@ const filteredGroups = computed(() =>
           :placeholder="$t('admin-search-placeholder')"
           class="w-full pl-9 pr-9 py-2.5 text-sm bg-surface text-primary rounded-xl border border-default focus:ring-1 focus:ring-accent focus:border-accent focus:outline-none placeholder:text-tertiary"
         />
-        <button
-          type="button"
-          v-if="searchQuery"
-          @click="searchQuery = ''"
-          class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary hover:text-secondary"
-        >
-          <Icon name="close" />
-        </button>
+        <IconButton
+            v-if="searchQuery"
+            :label="$t('common-clear-search')"
+            icon="close"
+            size="xs"
+            class="absolute right-3 top-1/2 -translate-y-1/2"
+            @click="searchQuery = ''"
+          />
       </div>
     </div>
   </div>

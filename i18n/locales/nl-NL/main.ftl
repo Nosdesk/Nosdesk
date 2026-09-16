@@ -399,6 +399,8 @@ ticket-list-sla-breached-title = SLA overschreden
 ticket-detail-reconnecting-title = Opnieuw verbinden met live updates
 ticket-detail-connecting = Verbinden...
 ticket-detail-more-actions = Meer acties
+# MACHINE TRANSLATION, pending native review
+ticket-detail-back-to-tickets = Terug naar tickets
 ticket-detail-section-details = Ticketdetails
 ticket-detail-section-notes = Ticketnotities
 ticket-detail-section-comments = Reacties en bijlagen
@@ -4411,6 +4413,8 @@ ticket-asset-usage-quantity-placeholder = Used (in { $unit })
 ticket-asset-usage-notes-placeholder = Notes (optional)
 ticket-asset-usage-load-failed = Failed to load usage history
 ticket-asset-usage-record-failed = Failed to record usage
+# MACHINE TRANSLATION, pending native review
+ticket-asset-usage-record = Gebruik registreren
 
 # Asset detail: usage history panel (AssetUsageHistory).
 asset-usage-history-heading = Usage history
@@ -5780,6 +5784,13 @@ common-edit = Bewerken
 common-delete = Verwijderen
 common-save = Opslaan
 common-cancel = Annuleren
+# MACHINE TRANSLATION, pending native review
+common-remove = Verwijderen
+common-clear-search = Zoekopdracht wissen
+# MACHINE TRANSLATION, pending native review
+common-remove-item-aria = { $name } verwijderen
+common-expand-section = Sectie uitvouwen
+common-collapse-section = Sectie samenvouwen
 asset-catalog-title = Asset-catalogus
 asset-catalog-description = Fabrikanten en de modellen waaruit assets worden gestempeld.
 asset-catalog-manufacturers-heading = Fabrikanten
@@ -6206,6 +6217,9 @@ pagination-controls-items = { $count ->
 }
 pagination-controls-page = Pagina
 pagination-controls-show = Toon
+# MACHINE TRANSLATION, pending native review
+pagination-controls-previous = Vorige pagina
+pagination-controls-next = Volgende pagina
 asset-modal-title = Selecteer een activum
 asset-modal-search-placeholder = Activa zoeken op naam, hostnaam, serienummer, fabrikant of gebruiker...
 asset-modal-owner = Eigenaar

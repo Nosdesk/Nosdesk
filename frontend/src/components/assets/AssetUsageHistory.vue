@@ -23,6 +23,7 @@
  * on `asset.quantity != null`); non-tracked assets don't
  * generate ledger rows so the panel would always be empty.
  */
+import Button from '@/components/common/Button.vue'
 import { computed, onMounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { assetUsageService, type AssetUsage } from '@nosdesk/core/services/assetUsageService';
@@ -276,15 +277,14 @@ function formatDelta(delta: string): string {
           class="flex-1 bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
           @keyup.enter="submitRecord('usage')"
         />
-        <button
-          type="button"
+        <Button
           :disabled="!recordQuantity.trim() || recording"
-          class="px-3 py-1.5 text-sm rounded-lg bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-50 disabled:cursor-not-allowed"
           :title="$t('asset-usage-record-submit-usage-title')"
           @click="submitRecord('usage')"
+          size="sm"
         >
           {{ $t('asset-usage-record-submit') }}
-        </button>
+        </Button>
         <button
           type="button"
           :disabled="!recordQuantity.trim() || recording"

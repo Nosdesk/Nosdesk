@@ -537,6 +537,7 @@ function formatPurgeAt(deletedAt: string): string {
                   type="button"
                   class="ml-1 rounded p-1 text-secondary hover:bg-surface-hover hover:text-primary"
                   :title="$t('user-mgmt-restore')"
+                  :aria-label="$t('user-mgmt-restore')"
                   @click.stop="restoreUser(item)"
                 >
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -547,6 +548,7 @@ function formatPurgeAt(deletedAt: string): string {
                   type="button"
                   class="rounded p-1 text-secondary hover:bg-status-error/10 hover:text-status-error"
                   :title="$t('user-mgmt-purge-now')"
+                  :aria-label="$t('user-mgmt-purge-now')"
                   @click.stop="purgeTarget = item"
                 >
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

@@ -13,6 +13,7 @@
  * Filename retained as TimeRangeChipCluster.vue so import sites
  * (DashboardView's conditional chrome) stay stable.
  */
+import Button from '@/components/common/Button.vue'
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange, type TimeRangePreset } from '@/composables/useTimeRange'
@@ -149,14 +150,13 @@ function applyCustom(): void {
           >
             {{ t('dashboard-time-range-custom-cancel') }}
           </button>
-          <button
-            type="button"
-            class="rounded bg-accent px-2 py-1 text-xs text-on-accent hover:opacity-90 disabled:opacity-50"
+          <Button
             :disabled="!customFromInput || !customToInput"
             @click="applyCustom"
+            size="xs"
           >
             {{ t('dashboard-time-range-custom-apply') }}
-          </button>
+          </Button>
         </div>
       </div>
       </div>

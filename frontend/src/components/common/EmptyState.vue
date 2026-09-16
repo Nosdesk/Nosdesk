@@ -6,6 +6,8 @@
  * Supports multiple variants for different contexts (page, card, compact).
  * Uses responsive flex design with proper gap spacing.
  */
+import Button from '@/components/common/Button.vue'
+
 
 defineProps<{
   icon?: 'folder' | 'document' | 'users' | 'device' | 'ticket' | 'search' | 'inbox' | 'calendar' | 'key' | 'link' | 'trash' | 'plugin'
@@ -113,29 +115,17 @@ const icons = {
     </div>
 
     <!-- Action button -->
-    <button
-      type="button"
+    <Button
       v-if="actionLabel"
-      @click="emit('action')"
-      class="font-medium text-on-accent bg-accent rounded-lg hover:bg-accent-hover focus:ring-2 focus:outline-none focus:ring-accent/50 flex items-center justify-center gap-2 transition-colors"
+      :size="variant === 'compact' ? 'sm' : variant === 'card' ? 'md' : 'lg'"
       :class="{
-        'px-5 py-2.5 text-sm min-w-[140px]': variant === 'page' || !variant,
-        'px-4 py-2 text-sm min-w-[120px]': variant === 'card',
-        'px-3 py-1.5 text-xs': variant === 'compact'
+        'min-w-[140px]': variant === 'page' || !variant,
+        'min-w-[120px]': variant === 'card',
       }"
+      icon="add"
+      @click="emit('action')"
     >
-      <svg
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-        :class="{
-          'w-5 h-5': variant === 'page' || !variant,
-          'w-4 h-4': variant === 'card' || variant === 'compact'
-        }"
-      >
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-      </svg>
       {{ actionLabel }}
-    </button>
+    </Button>
   </div>
 </template>

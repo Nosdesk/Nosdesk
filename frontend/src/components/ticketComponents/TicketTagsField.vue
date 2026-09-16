@@ -218,6 +218,7 @@ function chipClass(tag: Tag): string {
           type="button"
           class="inline-flex items-center justify-center w-4 h-4 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
           :title="t('ticket-field-tags-remove', { name: tag.name })"
+        :aria-label="t('ticket-field-tags-remove', { name: tag.name })"
           @click="detachTag(tag.id)"
         >
           <Icon name="close" class="w-3 h-3" />

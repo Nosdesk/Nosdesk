@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import LinkButton from '@/components/common/LinkButton.vue'
+import Button from '@/components/common/Button.vue'
 import { effectiveRole, type UserRole } from '@nosdesk/core/types/user';
 import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -19,10 +21,8 @@ import UserDevicesCard from "@/components/settings/UserDevicesCard.vue";
 import UserAssignedTickets from "@/components/UserAssignedTickets.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import Icon from "@/components/common/Icon.vue";
-import Spinner from "@/components/common/Spinner.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
-import { RouterLink } from "vue-router";
 import userService from "@/services/userService";
 import { useColorFilter } from "@/composables/useColorFilter";
 import type { User } from "@/services/userService";
@@ -351,26 +351,24 @@ watch(
                 <BackButton fallbackRoute="/users" :label="$t('user-profile-back-to-users')" />
                 <div v-if="!isCreationMode" class="flex items-center gap-2">
                     <!-- Own Profile Settings Button -->
-                    <RouterLink
-                        v-if="isOwnProfile"
-                        to="/profile/settings"
-                        class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors text-sm font-medium flex items-center gap-1"
+                    <LinkButton
+                      v-if="isOwnProfile"
+                      to="/profile/settings"
+                      icon="settings"
                     >
-                        <Icon name="settings" />
-                        {{ $t('user-profile-action-profile-settings') }}
-                    </RouterLink>
+                      {{ $t('user-profile-action-profile-settings') }}
+                    </LinkButton>
 
                     <!-- Admin: Manage User Settings Button. Hidden for a staff
                          member whose identity is control-plane-owned (hosted);
                          the hand-off below takes its place. -->
-                    <RouterLink
-                        v-else-if="canEditRole && userProfile && !isOwnProfile && !targetExternallyManaged"
-                        :to="`/users/${userProfile.uuid}/settings`"
-                        class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent-hover transition-colors text-sm font-medium flex items-center gap-2"
+                    <LinkButton
+                      v-else-if="canEditRole && userProfile && !isOwnProfile && !targetExternallyManaged"
+                      :to="`/users/${userProfile.uuid}/settings`"
+                      icon="settings"
                     >
-                        <Icon name="settings" />
-                        {{ $t('user-profile-action-user-settings') }}
-                    </RouterLink>
+                      {{ $t('user-profile-action-user-settings') }}
+                    </LinkButton>
 
                     <!-- Hosted staff: identity lives in the control plane, so
                          hand off to Instances -> Seats instead of the in-product
@@ -645,21 +643,15 @@ watch(
                                 >
                                     {{ $t('user-profile-action-cancel') }}
                                 </button>
-                                <button
-                                    type="button"
-                                    @click="saveUser"
-                                    :disabled="
-                                        isSaving ||
-                                        !editValues.name ||
-                                        !editValues.email ||
-                                        (!sendInvitation && (manualPassword.length < 8 || manualPassword !== confirmPassword))
-                                    "
-                                    class="px-5 py-2.5 text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                <Button
+                                  @click="saveUser"
+                                  :disabled=" isSaving || !editValues.name || !editValues.email || (!sendInvitation && (manualPassword.length < 8 || manualPassword !== confirmPassword)) "
+                                  size="lg"
+                                  :loading="isSaving"
+                                  icon="add"
                                 >
-                                    <Spinner v-if="isSaving" />
-                                    <Icon v-else name="add" />
-                                    {{ isSaving ? $t('user-profile-action-creating') : $t('user-profile-action-create') }}
-                                </button>
+                                  {{ isSaving ? $t('user-profile-action-creating') : $t('user-profile-action-create') }}
+                                </Button>
                             </div>
                         </div>
                     </div>

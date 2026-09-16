@@ -58,6 +58,7 @@ defineEmits<{
           :disabled="removeDisabled"
           class="p-1 flex-shrink-0 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded transition-colors disabled:opacity-50"
           :title="resolvedRemoveTitle"
+          :aria-label="resolvedRemoveTitle"
         >
           <Icon name="close" :label="resolvedRemoveTitle" />
         </button>

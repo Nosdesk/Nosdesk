@@ -15,6 +15,7 @@ import { useQuery, useQueryCache } from '@pinia/colada';
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue';
 import DataTable, { type Column } from '@/components/common/DataTable.vue';
 import Button from '@/components/common/Button.vue';
+import IconButton from '@/components/common/IconButton.vue';
 import Modal from '@/components/Modal.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
@@ -283,12 +284,10 @@ async function restore(group: AssetGroupSummary): Promise<void> {
           </template>
           <template #cell-actions="{ item }">
             <div class="flex items-center justify-end gap-0.5" @click.stop>
-              <Button
-                variant="ghost"
+              <IconButton
                 size="sm"
                 icon="rename"
-                :aria-label="t('admin-asset-groups-action-edit')"
-                :title="t('admin-asset-groups-action-edit')"
+                :label="t('admin-asset-groups-action-edit')"
                 @click="openEdit(item)"
               />
               <Button
@@ -300,21 +299,18 @@ async function restore(group: AssetGroupSummary): Promise<void> {
               >
                 {{ t('admin-asset-groups-action-restore') }}
               </Button>
-              <Button
+              <IconButton
                 v-else
-                variant="ghost"
                 size="sm"
                 icon="archive"
+                :label="t('admin-asset-groups-action-archive')"
                 :disabled="busyId === item.id"
-                :aria-label="t('admin-asset-groups-action-archive')"
-                :title="t('admin-asset-groups-action-archive')"
                 @click="archive(item)"
               />
             </div>
           </template>
         </DataTable>
       </div>
-
       <!-- Mobile cards -->
       <div v-if="displayed.length > 0" class="lg:hidden grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 sm:p-6">
         <div
@@ -337,12 +333,10 @@ async function restore(group: AssetGroupSummary): Promise<void> {
             </div>
           </div>
           <div class="flex items-center gap-0.5 shrink-0" @click.stop>
-            <Button
-              variant="ghost"
+            <IconButton
               size="sm"
               icon="rename"
-              :aria-label="t('admin-asset-groups-action-edit')"
-              :title="t('admin-asset-groups-action-edit')"
+              :label="t('admin-asset-groups-action-edit')"
               @click="openEdit(group)"
             />
             <Button
@@ -354,20 +348,18 @@ async function restore(group: AssetGroupSummary): Promise<void> {
             >
               {{ t('admin-asset-groups-action-restore') }}
             </Button>
-            <Button
+            <IconButton
               v-else
-              variant="ghost"
               size="sm"
               icon="archive"
+              :label="t('admin-asset-groups-action-archive')"
               :disabled="busyId === group.id"
-              :aria-label="t('admin-asset-groups-action-archive')"
               @click="archive(group)"
             />
           </div>
         </div>
       </div>
     </div>
-
     <!-- Create / edit modal -->
     <Modal
       :show="showModal"

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 /// <reference types="node" />
+import LinkButton from '@/components/common/LinkButton.vue'
+import Button from '@/components/common/Button.vue'
 import { computed, onMounted, onUnmounted, watch, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useFluent } from "fluent-vue";
@@ -483,12 +485,7 @@ const rootEl = ref<HTMLElement | null>(null);
         <!-- Error state -->
         <div v-if="error" class="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] px-4 gap-4">
             <NotFoundIllustration />
-            <router-link
-                to="/tickets"
-                class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent-hover transition-colors"
-            >
-                Back to Tickets
-            </router-link>
+            <LinkButton to="/tickets">{{ t('ticket-detail-back-to-tickets') }}</LinkButton>
         </div>
 
         <!-- Ticket content (layout always rendered; skeletons swap to real components) -->
@@ -876,13 +873,12 @@ const rootEl = ref<HTMLElement | null>(null);
                         >
                             {{ $t('ticket-detail-delete-cancel') }}
                         </button>
-                        <button
-                            type="button"
-                            class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors"
-                            @click="confirmDeleteTicket"
+                        <Button
+                          @click="confirmDeleteTicket"
+                          variant="danger"
                         >
-                            {{ $t('ticket-detail-delete-confirm') }}
-                        </button>
+                          {{ $t('ticket-detail-delete-confirm') }}
+                        </Button>
                     </div>
                 </div>
             </Modal>

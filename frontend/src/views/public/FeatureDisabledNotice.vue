@@ -7,17 +7,16 @@
       <h2 class="text-lg font-semibold text-primary">{{ title }}</h2>
       <p class="text-sm text-secondary">{{ message }}</p>
     </div>
-    <RouterLink
+    <LinkButton
       to="/login"
-      class="inline-flex items-center justify-center px-4 py-2 bg-accent hover:opacity-90 text-on-accent rounded-lg text-sm font-medium transition-colors"
     >
       {{ $t('feature-disabled-sign-in') }}
-    </RouterLink>
+    </LinkButton>
   </div>
 </template>
 
 <script setup lang="ts">
-import { RouterLink } from 'vue-router';
+import LinkButton from '@/components/common/LinkButton.vue'
 import Icon from '@/components/common/Icon.vue';
 
 defineProps<{ title: string; message: string }>();

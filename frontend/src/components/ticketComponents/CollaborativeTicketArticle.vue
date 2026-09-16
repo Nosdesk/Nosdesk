@@ -1,5 +1,6 @@
 <!-- CollaborativeTicketArticle.vue -->
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { ref, computed, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -177,17 +178,17 @@ const confirmPromote = async () => {
         class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
         :class="{ 'bg-surface text-primary': showRevisionHistory }"
         :title="t('tickets-collaborative-article-revision-history')"
+        :aria-label="t('tickets-collaborative-article-revision-history')"
+        :aria-pressed="showRevisionHistory"
       >
         <Icon name="clock" />
       </button>
-      <button
-        type="button"
+      <IconButton
+        :label="promotedDoc ? t('tickets-collaborative-article-open-doc') : t('tickets-collaborative-article-convert-doc')"
+        icon="book"
+        size="xs"
         @click="onPromoteOrOpen"
-        class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-        :title="promotedDoc ? t('tickets-collaborative-article-open-doc') : t('tickets-collaborative-article-convert-doc')"
-      >
-        <Icon name="book" />
-      </button>
+      />
     </template>
 
     <!-- Two-column body: editor stretches, revisions dock to the

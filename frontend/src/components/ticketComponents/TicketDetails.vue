@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref, watchEffect, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { shareableRouteUrl } from '@/utils/shareUrl';
@@ -16,7 +17,6 @@ import UserPicker from "@/components/ticketComponents/UserPicker.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import FormTextarea from "@/components/common/FormTextarea.vue";
-import Button from "@/components/common/Button.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import Icon from "@/components/common/Icon.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
@@ -932,15 +932,15 @@ watchEffect(async () => {
                      pointers, revealed on group-hover; always visible
                      on coarse pointers (touch) since there's no hover
                      to reveal with. -->
-                <button
+                <IconButton
+                  :label="t('ticket-detail-clear-requester')"
+                  icon="close"
+                  size="xs"
+                  variant="ghost-danger"
+                  class="print:hidden opacity-0 group-hover/req:opacity-100 pointer-coarse:opacity-100"
                   v-if="selectedRequester"
                   @click="emit('update:requester', '')"
-                  class="print:hidden p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors opacity-0 group-hover/req:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
-                  type="button"
-                  :title="t('ticket-detail-clear-requester')"
-                >
-                  <Icon name="close" />
-                </button>
+                />
               </div>
               <!-- UserPicker's trigger has no built-in hover-tint
                    (unlike CustomDropdown). A light wrapper provides
@@ -986,15 +986,15 @@ watchEffect(async () => {
                   <!-- `+` was redundant; kept only the clear. Hover-
                        revealed on fine pointers, always shown on
                        touch. -->
-                  <button
+                  <IconButton
+                    :label="t('ticket-detail-clear-assignee')"
+                    icon="close"
+                    size="xs"
+                    variant="ghost-danger"
+                    class="opacity-0 group-hover/ass:opacity-100 pointer-coarse:opacity-100"
                     v-if="selectedAssignee"
                     @click="emit('update:assignee', '')"
-                    class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors opacity-0 group-hover/ass:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
-                    type="button"
-                    :title="t('ticket-detail-clear-assignee')"
-                  >
-                    <Icon name="close" />
-                  </button>
+                  />
                 </div>
               </div>
               <div class="rounded-lg hover:bg-surface-hover transition-colors">
@@ -1184,12 +1184,11 @@ watchEffect(async () => {
                     block
                     :aria-label="t('ticket-detail-scheduling-start-date')"
                   />
-                  <Button
+                  <IconButton
                     v-if="ticket.start_date"
-                    variant="ghost"
                     size="sm"
                     icon="close"
-                    :aria-label="t('ticket-detail-scheduling-clear-start')"
+                    :label="t('ticket-detail-scheduling-clear-start')"
                     @click="emit('update:startDate', null)"
                   />
                 </div>
@@ -1209,12 +1208,11 @@ watchEffect(async () => {
                     block
                     :aria-label="t('ticket-detail-scheduling-due-date')"
                   />
-                  <Button
+                  <IconButton
                     v-if="ticket.due_date"
-                    variant="ghost"
                     size="sm"
                     icon="close"
-                    :aria-label="t('ticket-detail-scheduling-clear-due')"
+                    :label="t('ticket-detail-scheduling-clear-due')"
                     @click="emit('update:dueDate', null)"
                   />
                 </div>

@@ -548,13 +548,13 @@ const saveButtonLabel = computed(() =>
               >
                 {{ t('plugin-detail-action-discard') }}
               </button>
-              <button
+              <Button
                 type="submit"
                 :disabled="!canSave"
-                class="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                size="sm"
               >
                 {{ saveButtonLabel }}
-              </button>
+              </Button>
             </div>
           </footer>
         </form>

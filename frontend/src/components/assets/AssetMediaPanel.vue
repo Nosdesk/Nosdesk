@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
@@ -306,14 +307,13 @@ useSyncActions(
             >
               {{ $t('asset-media-caption-cancel') }}
             </button>
-            <button
-              type="button"
-              class="text-3xs px-2 py-0.5 rounded bg-accent text-on-accent"
+            <Button
               :disabled="captionSaving"
               @click="saveCaption(item)"
+              size="xs"
             >
               {{ $t('asset-media-caption-save') }}
-            </button>
+            </Button>
           </div>
         </div>
         <div

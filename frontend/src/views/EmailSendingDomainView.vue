@@ -8,6 +8,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import Button from '@/components/common/Button.vue';
+import IconButton from '@/components/common/IconButton.vue';
 import workspaceEmailService, {
   type OutboundSettings,
   type EmailAuthReport,
@@ -243,11 +244,10 @@ async function copy(text: string) {
             <span class="text-xs text-tertiary">{{ t('email-domain-record-name-label') }}</span>
             <div class="flex items-center gap-2">
               <code class="flex-1 font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ dkimRecord.name }}</code>
-              <Button
-                variant="ghost"
+              <IconButton
                 size="sm"
                 icon="copy"
-                :ariaLabel="t('email-domain-copy')"
+                :label="t('email-domain-copy')"
                 @click="copy(dkimRecord!.name)"
               />
             </div>
@@ -256,11 +256,10 @@ async function copy(text: string) {
             <span class="text-xs text-tertiary">{{ t('email-domain-record-value-label') }}</span>
             <div class="flex items-start gap-2">
               <code class="flex-1 font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ dkimRecord.txt_value }}</code>
-              <Button
-                variant="ghost"
+              <IconButton
                 size="sm"
                 icon="copy"
-                :ariaLabel="t('email-domain-copy')"
+                :label="t('email-domain-copy')"
                 @click="copy(dkimRecord!.txt_value)"
               />
             </div>
@@ -271,7 +270,6 @@ async function copy(text: string) {
           {{ t('email-domain-dns-propagation-note') }}
         </p>
       </div>
-
       <!-- DNS health: live SPF/DKIM/DMARC/MX readout for self-diagnosis. -->
       <div class="flex flex-col gap-3 pt-1 border-t border-default">
         <div class="flex items-center justify-between gap-3 flex-wrap pt-3">

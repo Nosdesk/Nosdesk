@@ -12,6 +12,7 @@
  * convention) so multi-property adjustments don't require
  * reopening the popover for every pick.
  */
+import Button from '@/components/common/Button.vue'
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
@@ -220,13 +221,14 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
           <Icon name="refresh" class="w-3 h-3" />
           {{ $t('views-display-menu-reset') }}
         </button>
-        <button
+        <Button
           v-if="canSaveToView"
-          type="button"
-          class="text-2xs font-medium px-2 py-1 rounded bg-accent text-on-accent disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="!layoutDirty"
           @click="emit('save')"
-        >{{ $t('views-display-menu-save-to-view') }}</button>
+          size="xs"
+        >
+          {{ $t('views-display-menu-save-to-view') }}
+        </Button>
       </footer>
     </ResponsiveMenu>
   </div>

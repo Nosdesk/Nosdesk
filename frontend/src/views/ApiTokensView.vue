@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
+import Button from '@/components/common/Button.vue'
 import { ref, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
@@ -280,15 +282,15 @@ const revokeToken = async () => {
           <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-api-tokens-title') }}</h1>
           <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('admin-api-tokens-description') }}</p>
         </div>
-        <button
-          type="button"
+        <Button
           @click="openCreateModal"
-          class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+          size="sm"
+          class="self-start sm:self-auto"
+          icon="add"
         >
-          <Icon name="add" />
           <span class="hidden xs:inline">{{ $t('admin-api-tokens-create') }}</span>
           <span class="xs:hidden">{{ $t('admin-api-tokens-create-short') }}</span>
-        </button>
+        </Button>
       </div>
 
       <!-- Success message -->
@@ -372,14 +374,13 @@ const revokeToken = async () => {
 
               <!-- Actions -->
               <div class="flex-shrink-0">
-                <button
-                  type="button"
+                <IconButton
+                  :label="$t('admin-api-tokens-revoke-title')"
+                  icon="close"
+                  size="sm"
+                  variant="ghost-danger"
                   @click="confirmRevoke(token)"
-                  class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
-                  :title="$t('admin-api-tokens-revoke-title')"
-                >
-                  <Icon name="close" />
-                </button>
+                />
               </div>
             </div>
           </div>
@@ -558,13 +559,12 @@ const revokeToken = async () => {
           >
             {{ $t('admin-api-tokens-modal-cancel') }}
           </button>
-          <button
+          <Button
             type="submit"
             :disabled="isSaving"
-            class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50"
           >
             {{ isSaving ? $t('admin-api-tokens-modal-creating') : $t('admin-api-tokens-create') }}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -606,13 +606,11 @@ const revokeToken = async () => {
         </p>
 
         <div class="flex justify-end pt-2">
-          <button
-            type="button"
+          <Button
             @click="showTokenCreated = false"
-            class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors"
           >
             {{ $t('admin-api-tokens-done') }}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -643,14 +641,13 @@ const revokeToken = async () => {
           >
             {{ $t('admin-api-tokens-modal-cancel') }}
           </button>
-          <button
-            type="button"
+          <Button
             @click="revokeToken"
             :disabled="isSaving"
-            class="px-4 py-2 bg-status-error text-white rounded-lg text-sm hover:bg-status-error/90 font-medium transition-colors disabled:opacity-50"
+            variant="danger"
           >
             {{ isSaving ? $t('admin-api-tokens-revoking') : $t('admin-api-tokens-revoke-modal-title') }}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
