@@ -51,7 +51,6 @@ fn dev_mode_enabled() -> bool {
 pub enum ProvisionResult {
     Created(String),
     Updated(String),
-    #[allow(dead_code)]
     Unchanged(String),
     Failed(String, String),
 }

@@ -33,7 +33,10 @@ use crate::sync::actor::ActorContext;
 #[derive(diesel::QueryableByName)]
 struct DiscardSetConfig {
     #[diesel(sql_type = Nullable<Text>)]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "row shape for `SELECT set_config(..)`; the value is discarded"
+    )]
     set_config: Option<String>,
 }
 

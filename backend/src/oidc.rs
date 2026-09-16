@@ -47,7 +47,6 @@ pub struct OidcConfig {
     pub scopes: Vec<String>,
     pub username_claim: String,
     /// OIDC logout URI for single sign-out (reserved for future use)
-    #[allow(dead_code)]
     pub logout_uri: Option<String>,
 }
 

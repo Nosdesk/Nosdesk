@@ -229,15 +229,3 @@ pub fn remove_watcher(
         Ok(true)
     })
 }
-
-/// Full TicketWatcher rows for a ticket. Less commonly needed
-/// than `watcher_uuids` (the sidebar typically only needs ids
-/// → user names via the directory composable), but provided for
-/// admin / audit surfaces that want to know auto-added status.
-#[allow(dead_code)]
-pub fn list_watchers(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<TicketWatcher>> {
-    ticket_watchers::table
-        .filter(ticket_watchers::ticket_id.eq(ticket_id))
-        .order(ticket_watchers::created_at.asc())
-        .load(conn)
-}

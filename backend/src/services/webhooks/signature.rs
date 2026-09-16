@@ -12,7 +12,6 @@ pub fn sign_payload(payload: &str, secret: &str) -> String {
 }
 
 /// Verify HMAC-SHA256 signature (constant-time comparison)
-#[allow(dead_code)]
 #[allow(deprecated)]
 pub fn verify_signature(payload: &str, secret: &str, signature: &str) -> bool {
     let expected = sign_payload(payload, secret);

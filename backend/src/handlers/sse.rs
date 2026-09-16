@@ -78,7 +78,6 @@ fn event_type_str(event: &SseEvent) -> &'static str {
 
 // Client connection info
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ClientInfo {
     pub user_id: String,
     pub connected_at: Instant,
