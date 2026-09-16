@@ -138,8 +138,7 @@ function back(): void {
 <template>
   <div class="flex flex-col gap-6">
     <div class="flex flex-wrap items-center gap-3">
-      <Button v-if="!isMobile" variant="secondary" size="sm" @click="back">
-        <Icon name="chevronLeft" class="w-4 h-4" />
+      <Button v-if="!isMobile" variant="secondary" size="sm" @click="back" icon="chevronLeft">
         <span>{{ t('admin-rules-activity-back') }}</span>
       </Button>
       <h1 class="text-2xl font-semibold flex-1 min-w-0">

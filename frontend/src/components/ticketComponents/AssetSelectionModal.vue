@@ -1,5 +1,6 @@
 <!-- components/ticketComponents/DeviceSelectionModal.vue -->
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { ref, watch, computed, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -394,13 +395,13 @@ const formatLastUpdated = (dateString: string): string => {
             </svg>
             {{ error }}
           </p>
-          <button
-            type="button"
+          <Button
             @click="loadDevices(1, searchQuery, false)"
-            class="mt-3 px-4 py-2 bg-status-error text-white rounded-md hover:opacity-90 transition-colors text-sm"
+            variant="danger"
+            class="mt-3"
           >
             Try Again
-          </button>
+          </Button>
         </div>
       </div>
 

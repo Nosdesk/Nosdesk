@@ -2,10 +2,13 @@
  * Button lints, each checking one property the button system relies on
  * (the design is in src/recipes/button.ts):
  *
- *   VARIANT   a raw <button>, <a> or <router-link> carrying a variant fill
- *             (`bg-accent`, `bg-status-*`). That is a re-implementation of
- *             Button / LinkButton; the recipe in src/recipes/button.ts is
- *             the one place a variant is defined.
+ *   VARIANT   a raw <button>, <a> or <router-link> whose static `class`
+ *             carries a variant fill (`bg-accent`, `bg-status-*`, not a
+ *             `/10` wash). That is a re-implementation of Button /
+ *             LinkButton; the recipe in src/recipes/button.ts is the one
+ *             place a variant is defined. A fill inside `:class` is state
+ *             (a selected chip, the active nav item) and is not a button
+ *             variant, so it is deliberately out of scope.
  *   LABEL     a raw <button> whose only content is an icon and that has no
  *             `aria-label` / `aria-labelledby`. Screen readers announce it
  *             as "button". IconButton makes the label a required prop.
@@ -37,15 +40,17 @@ function walk(dir, out = []) {
   return out
 }
 
-/** A variant fill class that is not a hover/focus/other state. */
-const VARIANT_FILL = /(?<![:\w-])bg-(?:accent|status-(?:error|warning|success))\b/
+/** A solid variant fill that is not a hover/focus state and not a `/10` wash. */
+const VARIANT_FILL = /(?<![:\w-])bg-(?:accent|status-(?:error|warning|success))(?![/\w-])/
+/** The static class attribute of an open tag. */
+const STATIC_CLASS = /(?:^|\s)class="([^"]*)"/
 /** Raw tags that can wear a variant. */
 const RAW_OPEN = /<(button|a|router-link|RouterLink)\b[\s\S]*?>/g
 /** Raw button with its content. */
 const RAW_BUTTON = /<button\b([\s\S]*?)>([\s\S]*?)<\/button>/g
 /** Content that is only an icon (comments stripped). */
 const ICON_ONLY =
-  /^(?:<Icon\b[^>]*\/?>(?:<\/Icon>)?|<svg\b[\s\S]*<\/svg>|<Spinner\b[^>]*\/?>|<i\b[^>]*><\/i>)$/
+  /^(?:<Icon\b[^>]*\/?>(?:<\/Icon>)?|<svg\b(?:(?!<\/svg>)[\s\S])*<\/svg>|<Spinner\b[^>]*\/?>|<i\b[^>]*><\/i>)$/
 const HAS_LABEL = /(?:^|\s)(?::?aria-label|:?aria-labelledby|v-bind)=/
 
 const findings = { VARIANT: new Map(), LABEL: new Map() }
@@ -59,7 +64,8 @@ for (const file of walk(ROOT)) {
   const src = readFileSync(file, 'utf8')
   const rel = relative(REPO, file)
   for (const m of src.matchAll(RAW_OPEN)) {
-    if (VARIANT_FILL.test(m[0])) add('VARIANT', rel, lineOf(src, m.index))
+    const cls = m[0].match(STATIC_CLASS)?.[1] ?? ''
+    if (VARIANT_FILL.test(cls)) add('VARIANT', rel, lineOf(src, m.index))
   }
   for (const m of src.matchAll(RAW_BUTTON)) {
     const inner = m[2].replace(/<!--[\s\S]*?-->/g, '').trim()

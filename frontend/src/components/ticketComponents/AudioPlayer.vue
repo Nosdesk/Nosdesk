@@ -1,5 +1,6 @@
 <!-- AudioPlayer.vue -->
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useAudioPlayer } from '@/composables/useAudioPlayer';
@@ -637,30 +638,15 @@ onUnmounted(() => {
     <!-- Player controls - single row compact layout -->
     <div class="flex items-center gap-3 w-full">
       <!-- Play/Pause button -->
-      <button
-        type="button"
+      <IconButton
+        variant="primary"
+        :label="isPlaying ? $t('ticket-media-audio-pause') : $t('ticket-media-audio-play')"
+        :icon="error ? 'warning' : isPlaying ? 'pause' : 'play'"
+        :loading="isLoading"
+        :disabled="!!error"
+        class="shrink-0"
         @click="togglePlayPause"
-        :disabled="isLoading || !!error"
-        class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-accent hover:opacity-90 disabled:bg-surface-hover disabled:cursor-not-allowed transition-colors"
-        :aria-label="isPlaying ? $t('ticket-media-audio-pause') : $t('ticket-media-audio-play')"
-      >
-        <template v-if="isLoading">
-          <Spinner />
-        </template>
-        <template v-else-if="error">
-          <svg class="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-          </svg>
-        </template>
-        <template v-else>
-          <svg v-if="!isPlaying" class="w-4 h-4 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-          <svg v-else class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-          </svg>
-        </template>
-      </button>
+      />
 
       <!-- Current time -->
       <span class="text-xs font-mono text-secondary tabular-nums flex-shrink-0 w-8">{{ formattedCurrentTime }}</span>

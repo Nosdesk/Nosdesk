@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
+import Button from '@/components/common/Button.vue'
 import { ref, onMounted, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { extractErrorMessage } from '@/utils/errors';
@@ -12,7 +14,6 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import DeviceOsIcon from '@/components/common/AssetOsIcon.vue';
 import Icon from '@/components/common/Icon.vue';
-import Spinner from '@/components/common/Spinner.vue';
 import { groupService } from '@nosdesk/core/services/groupService';
 import { getPaginatedAssets } from '@/services/assetService';
 import userService from '@/services/userService';
@@ -579,22 +580,19 @@ onMounted(() => {
           </div>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
-          <button
-            type="button"
+          <IconButton
+            :label="$t('admin-groups-config-delete-tooltip')"
+            icon="trash"
+            size="sm"
+            variant="ghost-danger"
             @click="showDeleteConfirm = true"
-            class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
-            :title="$t('admin-groups-config-delete-tooltip')"
-          >
-            <Icon name="trash" />
-          </button>
-          <button
-            type="button"
+          />
+          <IconButton
+            :label="$t('admin-groups-config-close-tooltip')"
+            icon="close"
+            size="sm"
             @click="emit('close')"
-            class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-            :title="$t('admin-groups-config-close-tooltip')"
-          >
-            <Icon name="close" size="md" />
-          </button>
+          />
         </div>
       </div>
 
@@ -740,14 +738,13 @@ onMounted(() => {
                   <ColorHueSlider v-model="generalForm.color" :label="$t('admin-groups-config-color-label')" />
                 </div>
                 <div class="flex justify-end pt-2">
-                  <button
+                  <Button
                     type="submit"
-                    :disabled="saving || !hasGeneralChanges"
-                    class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+                    :disabled="!hasGeneralChanges"
+                    :loading="saving"
                   >
-                    <Spinner v-if="saving" />
                     {{ $t('admin-groups-config-save-changes') }}
-                  </button>
+                  </Button>
                 </div>
               </form>
             </SectionCard>
@@ -856,15 +853,13 @@ onMounted(() => {
                   <div v-if="filteredUsers.length === 0" class="p-4 text-center text-tertiary text-sm">{{ $t('admin-groups-config-no-users-found') }}</div>
                 </div>
                 <div class="flex justify-end pt-2">
-                  <button
-                    type="button"
+                  <Button
                     @click="saveMembers"
-                    :disabled="savingMembers || !hasMemberChanges"
-                    class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+                    :disabled="!hasMemberChanges"
+                    :loading="savingMembers"
                   >
-                    <Spinner v-if="savingMembers" />
                     {{ $t('admin-groups-config-save-members') }}
-                  </button>
+                  </Button>
                 </div>
               </div>
             </SectionCard>
@@ -923,15 +918,13 @@ onMounted(() => {
                 <div v-if="filteredDevices.length === 0" class="p-4 text-center text-tertiary text-sm">{{ $t('admin-groups-config-no-devices-found') }}</div>
               </div>
               <div class="flex justify-end pt-2">
-                <button
-                  type="button"
+                <Button
                   @click="saveDevices"
-                  :disabled="savingDevices || !hasDeviceChanges"
-                  class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  :disabled="!hasDeviceChanges"
+                  :loading="savingDevices"
                 >
-                  <Spinner v-if="savingDevices" />
                   {{ $t('admin-groups-config-save-devices') }}
-                </button>
+                </Button>
               </div>
             </div>
           </SectionCard>
@@ -990,15 +983,13 @@ onMounted(() => {
                 <div v-if="filteredAvailableGroups.length === 0" class="p-4 text-center text-tertiary text-sm">{{ $t('admin-groups-config-no-groups-found') }}</div>
               </div>
               <div class="flex justify-end pt-2">
-                <button
-                  type="button"
+                <Button
                   @click="saveIncludes"
-                  :disabled="savingIncludes || !hasIncludeChanges"
-                  class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  :disabled="!hasIncludeChanges"
+                  :loading="savingIncludes"
                 >
-                  <Spinner v-if="savingIncludes" />
                   {{ $t('admin-groups-config-save-includes') }}
-                </button>
+                </Button>
               </div>
             </div>
           </SectionCard>
@@ -1059,15 +1050,13 @@ onMounted(() => {
           >
             {{ $t('admin-groups-config-cancel') }}
           </button>
-          <button
-            type="button"
+          <Button
             @click="deleteGroup"
-            :disabled="isDeleting"
-            class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+            variant="danger"
+            :loading="isDeleting"
           >
-            <Spinner v-if="isDeleting" />
             {{ $t('admin-groups-config-delete-confirm') }}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

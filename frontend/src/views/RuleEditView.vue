@@ -21,10 +21,10 @@ import { useQueryCache } from '@pinia/colada';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
+import IconButton from '@/components/common/IconButton.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
-import Icon from '@/components/common/Icon.vue';
 import rulesService from '@nosdesk/core/services/rulesService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
@@ -243,8 +243,7 @@ const priorityOptions = [
 <template>
   <div class="flex flex-col gap-6 max-w-3xl">
     <div class="flex items-center gap-3">
-      <Button v-if="!isMobile" variant="secondary" size="sm" @click="back">
-        <Icon name="chevronLeft" class="w-4 h-4" />
+      <Button v-if="!isMobile" variant="secondary" size="sm" @click="back" icon="chevronLeft">
         <span>{{ t('admin-rule-editor-back') }}</span>
       </Button>
       <h1 class="text-2xl font-semibold flex-1 min-w-0 truncate">
@@ -299,8 +298,7 @@ const priorityOptions = [
         <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
           {{ t('admin-rule-editor-section-actions') }}
         </h2>
-        <Button variant="ghost" size="sm" @click="addAction">
-          <Icon name="add" class="w-4 h-4" />
+        <Button variant="ghost" size="sm" @click="addAction" icon="add">
           <span>{{ t('admin-rule-editor-actions-add') }}</span>
         </Button>
       </div>
@@ -324,10 +322,7 @@ const priorityOptions = [
               class="flex-1"
               @update:model-value="setActionKind(i, String($event) as RuleAction['kind'])"
             />
-            <Button variant="ghost" size="sm" @click="removeAction(i)">
-              <Icon name="trash" class="w-3.5 h-3.5" />
-              <span class="sr-only">{{ t('admin-rule-editor-action-remove') }}</span>
-            </Button>
+            <IconButton size="sm" icon="trash" :label="t('admin-rule-editor-action-remove')" @click="removeAction(i)" />
           </div>
 
           <!-- Per-kind config form. Kept inline so the editor stays

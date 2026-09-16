@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { button, buttonIconSize, type ButtonSize, type ButtonVariant } from './button';
 
-const VARIANTS: ButtonVariant[] = ['primary', 'secondary', 'danger', 'warning', 'ghost', 'ghost-danger'];
-const SIZES: ButtonSize[] = ['sm', 'md', 'lg'];
+const VARIANTS: ButtonVariant[] = ['primary', 'secondary', 'danger', 'warning', 'success', 'ghost', 'ghost-danger'];
+const SIZES: ButtonSize[] = ['xs', 'sm', 'md', 'lg'];
 
 describe('button recipe', () => {
   it('gives every variant a fill or a text colour and every size a text size', () => {
@@ -10,7 +10,7 @@ describe('button recipe', () => {
       expect(button({ variant })).toMatch(/\b(bg-|text-)/);
     }
     for (const size of SIZES) {
-      expect(button({ size })).toMatch(/\btext-(xs|sm)\b/);
+      expect(button({ size })).toMatch(/\btext-(2xs|xs|sm)\b/);
     }
   });
 
@@ -43,6 +43,7 @@ describe('button recipe', () => {
   });
 
   it('matches icon weight to size', () => {
+    expect(buttonIconSize('xs')).toBe('xs');
     expect(buttonIconSize('sm')).toBe('xs');
     expect(buttonIconSize('md')).toBe('sm');
     expect(buttonIconSize('lg')).toBe('sm');

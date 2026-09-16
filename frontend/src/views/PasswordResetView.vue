@@ -36,13 +36,13 @@
                 {{ $t('password-reset-success-body') }}
               </p>
             </div>
-            <button
-              type="button"
+            <Button
               @click="goToLogin"
-              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-on-accent rounded-lg transition-colors font-medium mt-2"
+              size="lg"
+              class="mt-2" block
             >
               {{ $t('password-reset-success-cta') }}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -134,14 +134,15 @@
             </div>
 
             <!-- Submit Button -->
-            <button
+            <Button
               type="submit"
-              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-on-accent rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
-              :disabled="loading || !isFormValid"
+              :disabled="!isFormValid"
+              size="lg"
+              class="mt-2" block
+              :loading="loading"
             >
-              <Spinner v-if="loading" size="md" />
               <span>{{ loading ? $t('password-reset-submit-loading') : $t('password-reset-submit') }}</span>
-            </button>
+            </Button>
           </form>
         </div>
       </div>
@@ -161,6 +162,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -168,7 +170,6 @@ import authService from '@nosdesk/core/services/authService';
 import { usePasswordForm } from '@/composables/usePasswordForm';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import Icon from '@/components/common/Icon.vue';
-import Spinner from '@/components/common/Spinner.vue';
 import { extractErrorMessage } from '@/utils/errors';
 
 const router = useRouter();

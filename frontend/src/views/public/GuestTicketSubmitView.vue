@@ -78,13 +78,12 @@
       </div>
 
       <div class="flex flex-col sm:flex-row gap-2">
-        <RouterLink
+        <LinkButton
           v-if="lookupEnabled && success.status_url"
           :to="success.status_url"
-          class="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-on-accent bg-accent hover:opacity-90 transition-colors"
         >
           {{ t('guest-submit-view-status') }}
-        </RouterLink>
+        </LinkButton>
         <Button variant="secondary" @click="submitAnother">
           {{ t('guest-submit-another-short') }}
         </Button>
@@ -237,20 +236,17 @@
                 <span class="text-xs text-primary truncate">{{ att.name }}</span>
                 <span class="text-2xs text-tertiary">{{ formatSize(att.size) }}</span>
               </div>
-              <Button
+              <IconButton
                 variant="ghost-danger"
                 size="sm"
                 icon="close"
-                class="!px-2"
-                :aria-label="t('guest-submit-attachments-remove-aria', { name: att.name })"
+                :label="t('guest-submit-attachments-remove-aria', { name: att.name })"
                 @click="removeAttachment(att.id)"
               />
             </li>
           </ul>
-
           <p v-if="attachmentError" class="text-xs text-status-error">{{ attachmentError }}</p>
         </div>
-
         <div class="flex justify-end">
           <Button type="submit" :loading="submitting">
             {{ submitting ? t('guest-submit-submitting') : t('guest-submit-submit') }}
@@ -267,6 +263,7 @@
 </template>
 
 <script setup lang="ts">
+import LinkButton from '@/components/common/LinkButton.vue'
 import { ref, reactive, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -274,6 +271,7 @@ import PublicLayout from './PublicLayout.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import Icon from '@/components/common/Icon.vue';
 import Button from '@/components/common/Button.vue';
+import IconButton from '@/components/common/IconButton.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';

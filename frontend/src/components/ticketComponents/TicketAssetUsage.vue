@@ -20,13 +20,13 @@
  * (because `assets.quantity` decremented in the same
  * transaction).
  */
+import IconButton from '@/components/common/IconButton.vue'
 import { computed, onMounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { assetUsageService, type AssetUsage } from '@nosdesk/core/services/assetUsageService';
 import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import { useSyncActions } from '@/composables/useSyncActions';
 import type { Asset } from '@nosdesk/core/types/asset';
-import Icon from '@/components/common/Icon.vue';
 
 const props = defineProps<{
   ticketId: number;
@@ -231,14 +231,15 @@ onMounted(reload);
             :placeholder="$t('ticket-asset-usage-quantity-placeholder', { unit: asset.unit ?? '' })"
             class="flex-1 bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
           />
-          <button
-            type="button"
-            :disabled="!draftFor(asset.id).quantity.trim() || draftFor(asset.id).submitting"
-            class="px-3 py-1.5 text-sm rounded-lg bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-50 disabled:cursor-not-allowed"
+          <IconButton
+            variant="primary"
+            size="sm"
+            icon="add"
+            :label="$t('ticket-asset-usage-record')"
+            :disabled="!draftFor(asset.id).quantity.trim()"
+            :loading="draftFor(asset.id).submitting"
             @click="submit(asset)"
-          >
-            <Icon name="add" />
-          </button>
+          />
         </div>
         <input
           v-if="draftFor(asset.id).quantity"

@@ -16,6 +16,7 @@
  *   secondary     neutral filled, lower-emphasis affirmative actions
  *   danger        solid red, prominent destructive CTAs (modal confirms)
  *   warning       solid amber, reversible-but-consequential confirms
+ *   success       solid green, an affirmative publish/approve action
  *   ghost         transparent neutral, low-emphasis and icon actions
  *   ghost-danger  transparent red text, destructive actions in dense rows
  *
@@ -48,10 +49,13 @@ export const button = cva(
         secondary: 'bg-surface-alt text-primary border border-default hover:bg-surface-hover',
         danger: 'bg-status-error text-white hover:opacity-90',
         warning: 'bg-status-warning text-white hover:opacity-90',
+        success: 'bg-status-success text-white hover:opacity-90',
         ghost: 'text-secondary hover:text-primary hover:bg-surface-hover',
         'ghost-danger': 'text-status-error hover:bg-status-error/10',
       },
       size: {
+        /** Dense chrome only: an apply/clear action inside a filter row or chip cluster. */
+        xs: 'text-2xs gap-1 pointer-coarse:min-h-9',
         sm: 'text-xs gap-1.5 pointer-coarse:min-h-9',
         md: 'text-sm gap-2 pointer-coarse:min-h-11',
         lg: 'text-sm gap-2 pointer-coarse:min-h-11',
@@ -68,6 +72,8 @@ export const button = cva(
       },
     },
     compoundVariants: [
+      { iconOnly: false, size: 'xs', class: 'px-2 py-1' },
+      { iconOnly: true, size: 'xs', class: 'p-1 pointer-coarse:min-w-9' },
       { iconOnly: false, size: 'sm', class: 'px-3 py-1.5' },
       { iconOnly: false, size: 'md', class: 'px-4 py-2' },
       { iconOnly: false, size: 'lg', class: 'px-4 py-2.5' },
@@ -90,5 +96,5 @@ export type ButtonSize = NonNullable<ButtonRecipe['size']>;
 
 /** Icon and spinner weight that matches each button size. */
 export function buttonIconSize(size: ButtonSize): 'xs' | 'sm' {
-  return size === 'sm' ? 'xs' : 'sm';
+  return size === 'xs' || size === 'sm' ? 'xs' : 'sm';
 }

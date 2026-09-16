@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { ref, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -63,14 +64,14 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
           :placeholder="$t('admin-search-placeholder')"
           class="w-full pl-8 pr-3 py-1.5 text-sm bg-surface-alt text-primary rounded-lg border border-default focus:ring-1 focus:ring-accent focus:border-accent focus:outline-none placeholder:text-tertiary"
         />
-        <button
-          type="button"
-          v-if="searchQuery"
-          @click="searchQuery = ''"
-          class="absolute right-2 top-1/2 -translate-y-1/2 text-tertiary hover:text-secondary"
-        >
-          <Icon name="close" />
-        </button>
+        <IconButton
+            v-if="searchQuery"
+            :label="$t('common-clear-search')"
+            icon="close"
+            size="xs"
+            class="absolute right-2 top-1/2 -translate-y-1/2"
+            @click="searchQuery = ''"
+          />
       </div>
     </div>
 

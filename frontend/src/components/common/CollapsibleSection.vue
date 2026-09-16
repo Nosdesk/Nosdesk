@@ -49,7 +49,8 @@ defineExpose({
       <button
         type="button"
         class="text-tertiary group-hover:text-primary transition-colors duration-200 bg-surface-hover rounded p-0.5"
-        :title="isCollapsed ? 'Expand section' : 'Collapse section'"
+        :title="isCollapsed ? $t('common-expand-section') : $t('common-collapse-section')"
+        :aria-label="isCollapsed ? $t('common-expand-section') : $t('common-collapse-section')"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

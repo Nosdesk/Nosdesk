@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import LinkButton from '@/components/common/LinkButton.vue'
+import IconButton from '@/components/common/IconButton.vue'
+import Button from '@/components/common/Button.vue'
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -401,6 +404,7 @@ const generatePdfThumbnail = async () => {
       @click.stop="emit('delete')"
       class="hidden sm:block absolute top-0.5 right-0.5 z-30 p-1 rounded bg-surface/70 text-tertiary hover:text-status-error opacity-0 group-hover:opacity-100 transition-opacity"
       :title="$t('ticket-media-attachment-delete-image')"
+      :aria-label="$t('ticket-media-attachment-delete-image')"
     >
       <Icon name="close" class="w-3 h-3" />
     </button>
@@ -440,15 +444,13 @@ const generatePdfThumbnail = async () => {
             <Icon name="download" />
           </a>
           <!-- Delete button -->
-          <button
+          <IconButton
+            :label="attachmentType === 'audio' ? $t('ticket-media-attachment-delete-audio') : $t('ticket-media-attachment-delete-video')"
+            icon="trash"
+            size="sm"
             v-if="showDelete"
-            type="button"
             @click.stop="emit('delete')"
-            class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-            :title="attachmentType === 'audio' ? $t('ticket-media-attachment-delete-audio') : $t('ticket-media-attachment-delete-video')"
-          >
-            <Icon name="trash" />
-          </button>
+          />
         </div>
       </div>
     </template>
@@ -474,6 +476,7 @@ const generatePdfThumbnail = async () => {
           @click.stop="emit('delete')"
           class="absolute top-2 right-2 z-30 p-1.5 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
           :title="$t('ticket-media-attachment-delete-image')"
+          :aria-label="$t('ticket-media-attachment-delete-image')"
         >
           <Icon name="trash" />
         </button>
@@ -559,6 +562,7 @@ const generatePdfThumbnail = async () => {
           @click.stop="emit('delete')"
           class="absolute top-2 right-2 z-30 p-1.5 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
           :title="$t('ticket-media-attachment-delete-pdf')"
+          :aria-label="$t('ticket-media-attachment-delete-pdf')"
         >
           <Icon name="trash" />
         </button>
@@ -619,17 +623,17 @@ const generatePdfThumbnail = async () => {
         <div 
           class="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-25"
         >
-          <a
+          <LinkButton
             :href="authenticatedUrl"
             target="_blank"
             :download="attachment.name"
-            class="flex items-center gap-1 p-2 bg-accent text-on-accent hover:opacity-90 rounded transition-colors"
+            size="sm"
+            icon="download"
             :title="$t('ticket-media-attachment-download-pdf')"
             @click.stop
           >
-            <Icon name="download" />
-            <span class="text-xs font-medium">PDF</span>
-          </a>
+            PDF
+          </LinkButton>
         </div>
       </div>
     </template>
@@ -654,13 +658,12 @@ const generatePdfThumbnail = async () => {
       >
         {{ $t('ticket-media-attachment-cancel') }}
       </button>
-      <button
-        type="button"
+      <Button
         @click.stop="emit('submit')"
-        class="px-3 py-1.5 bg-accent text-on-accent text-sm rounded hover:opacity-90 transition-colors"
+        size="sm"
       >
         {{ $t('ticket-media-attachment-submit-video') }}
-      </button>
+      </Button>
     </div>
     
   </div>

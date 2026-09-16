@@ -26,6 +26,7 @@
  * Exposes an imperative `openWithFacet(facet)` so the slash
  * keybinding can jump straight to stage 2 for the title facet.
  */
+import IconButton from '@/components/common/IconButton.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import MenuItem from '@/components/common/MenuItem.vue'
@@ -260,14 +261,13 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
             <header
               class="flex items-center gap-2 px-3 py-1.5 border-b border-subtle"
             >
-              <button
-                type="button"
-                class="text-tertiary hover:text-primary transition-colors p-0.5 -ml-0.5 rounded hover:bg-surface-hover"
-                :title="$t('views-add-filter-back-tooltip')"
+              <IconButton
+                :label="$t('views-add-filter-back-tooltip')"
+                icon="chevronLeft"
+                size="xs"
+                class="-ml-0.5"
                 @click="back"
-              >
-                <Icon name="chevronLeft" class="w-3.5 h-3.5" />
-              </button>
+              />
               <span class="text-xs font-medium text-primary">{{ stageMeta?.label }}</span>
             </header>
 

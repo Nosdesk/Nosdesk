@@ -254,6 +254,7 @@ onBeforeUnmount(() => {
           type="button"
           @click="removeItem(item)"
           class="text-tertiary hover:text-primary transition-colors"
+          :aria-label="$t('common-remove-item-aria', { name: item.name })"
         >
           <Icon name="close" size="xs" />
         </button>

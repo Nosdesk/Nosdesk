@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useFluent } from 'fluent-vue';
@@ -407,16 +408,15 @@ onMounted(async () => {
         </div>
 
         <!-- Sync button -->
-        <button
-          type="button"
+        <Button
           @click="syncData"
           :disabled="connectionStatus !== 'connected' || isLoading || isSyncing || !!(configValidation && !configValidation.valid)"
-          class="self-start sm:self-auto px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+          class="self-start sm:self-auto"
+          :loading="isSyncing"
+          icon="refresh"
         >
-          <Spinner v-if="isSyncing" />
-          <Icon v-else name="refresh" />
           {{ isSyncing ? $t('admin-msgraph-syncing') : $t('admin-msgraph-sync-action') }}
-        </button>
+        </Button>
       </div>
 
       <!-- Alerts -->
@@ -827,16 +827,15 @@ onMounted(async () => {
             :label="$t('admin-msgraph-full-sync')"
           />
 
-          <button
-            type="button"
+          <Button
             @click="startSyncWithMode(!fullSyncMode)"
-            :disabled="isLoading || isSyncing || selectedEntities.length === 0"
-            class="w-full px-4 py-2.5 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            :disabled="selectedEntities.length === 0"
+            size="lg" block
+            :loading="isLoading || isSyncing"
+            icon="refresh"
           >
-            <Spinner v-if="isLoading || isSyncing" />
-            <Icon v-else name="refresh" />
             {{ isLoading ? $t('admin-msgraph-starting') : isSyncing ? $t('admin-msgraph-syncing') : $t('admin-msgraph-start-sync') }}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

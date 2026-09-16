@@ -1,5 +1,6 @@
 <!-- ErrorView.vue -->
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { useRoute, useRouter } from "vue-router";
 import { performBack } from "@/router/navigation";
 import { onMounted, onUnmounted, ref, reactive, watchEffect, watch, computed, nextTick } from "vue";
@@ -1166,13 +1167,11 @@ const debugMeta = computed(() => ({
           >
             &larr; {{ $t('error-page-go-back') }}
           </button>
-          <button
-            type="button"
+          <Button
             @click="goHome"
-            class="px-4 py-2 text-sm font-medium bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors"
           >
             {{ $t('error-page-go-home') }}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

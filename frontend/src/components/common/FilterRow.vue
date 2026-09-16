@@ -15,6 +15,7 @@ custom widgets) can keep using the layout's slot directly without
 forcing every other view through a generic config object.
 -->
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import type { BuiltFilterOption, FilterValue } from '@/composables/useListControls'
 
@@ -49,13 +50,12 @@ const emit = defineEmits<{
         @update:model-value="(value: FilterValue) => emit('update', filter.name, value)"
       />
     </div>
-    <button
+    <Button
       v-if="showReset !== false"
-      type="button"
-      class="px-2 py-1 text-xs font-medium text-on-accent bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
       @click="emit('reset')"
+      size="xs"
     >
       Reset
-    </button>
+    </Button>
   </template>
 </template>

@@ -63,15 +63,13 @@
 
           <!-- Export button -->
           <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-            <button
-              type="button"
+            <Button
               @click="startExport"
-              :disabled="isExporting || (includeSensitive && (!exportPassword || exportPassword !== exportPasswordConfirm))"
-              class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              :disabled="(includeSensitive && (!exportPassword || exportPassword !== exportPasswordConfirm))"
+              :loading="isExporting"
             >
-              <Spinner v-if="isExporting" />
               {{ isExporting ? $t('admin-backup-creating') : $t('admin-backup-create-button') }}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -141,23 +139,18 @@
 
                 <!-- Actions -->
                 <div class="flex items-center gap-1">
-                  <button
-                    type="button"
+                  <IconButton
                     v-if="job.status === 'completed'"
+                    :label="$t('admin-backup-download-title')"
+                    icon="download"
                     @click="downloadBackup(job.id)"
-                    class="p-2 text-accent hover:bg-accent/10 rounded-lg transition-colors"
-                    :title="$t('admin-backup-download-title')"
-                  >
-                    <Icon name="download" />
-                  </button>
-                  <button
-                    type="button"
+                  />
+                  <IconButton
+                    :label="$t('admin-backup-delete-title')"
+                    icon="trash"
+                    variant="ghost-danger"
                     @click="deleteJob(job.id)"
-                    class="p-2 text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
-                    :title="$t('admin-backup-delete-title')"
-                  >
-                    <Icon name="trash" />
-                  </button>
+                  />
                 </div>
               </div>
             </div>
@@ -181,16 +174,13 @@
 
           <!-- Export button with progress -->
           <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 sm:pl-12">
-            <button
-              type="button"
+            <Button
               @click="exportDocumentation"
-              :disabled="isExportingDocs"
-              class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              :loading="isExportingDocs"
+              icon="download"
             >
-              <Spinner v-if="isExportingDocs" />
-              <Icon v-else name="download" />
               {{ isExportingDocs ? (docsExportProgress ? t('admin-backup-docs-exporting', { current: docsExportProgress.current, total: docsExportProgress.total }) : $t('admin-backup-docs-preparing')) : $t('admin-backup-docs-export') }}
-            </button>
+            </Button>
             <span v-if="docsExportProgress" class="text-xs sm:text-sm text-secondary">
               {{ docsExportProgress.currentPage }}
             </span>
@@ -298,15 +288,14 @@
 
             <!-- Restore actions -->
             <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-              <button
-                type="button"
+              <Button
                 @click="executeRestore"
-                :disabled="isRestoring || (restorePreview.has_encrypted_sensitive && !restorePassword)"
-                class="px-4 py-2 bg-status-warning text-white rounded-lg text-sm font-medium hover:bg-status-warning/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                :disabled="(restorePreview.has_encrypted_sensitive && !restorePassword)"
+                variant="warning"
+                :loading="isRestoring"
               >
-                <Spinner v-if="isRestoring" />
                 {{ isRestoring ? $t('admin-backup-restoring') : $t('admin-backup-restore-button') }}
-              </button>
+              </Button>
               <button
                 type="button"
                 @click="cancelRestore"
@@ -333,6 +322,8 @@
 </template>
 
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
+import Button from '@/components/common/Button.vue'
 import { ref, onMounted, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 

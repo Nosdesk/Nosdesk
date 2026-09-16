@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import BaseDropdown from './BaseDropdown.vue'
-import Icon from './Icon.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 
 const fluent = useFluent()
@@ -147,32 +147,22 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
 
       <!-- Right: Navigation buttons (pagination mode only) -->
       <div v-if="hasMultiplePages" class="flex items-center gap-1">
-        <button
-          type="button"
-          @click="changePage(currentPage - 1)"
+        <IconButton
+          :label="$t('pagination-controls-previous')"
+          icon="chevronLeft"
+          variant="secondary"
+          size="sm"
           :disabled="currentPage <= 1"
-          :class="[
-            'p-1.5 rounded text-xs transition-colors',
-            currentPage <= 1
-              ? 'bg-surface-alt text-tertiary cursor-not-allowed'
-              : 'bg-surface-alt text-primary hover:bg-surface-hover'
-          ]"
-        >
-          <Icon name="chevronLeft" />
-        </button>
-        <button
-          type="button"
-          @click="changePage(currentPage + 1)"
+          @click="changePage(currentPage - 1)"
+        />
+        <IconButton
+          :label="$t('pagination-controls-next')"
+          icon="chevronRight"
+          variant="secondary"
+          size="sm"
           :disabled="currentPage >= totalPages"
-          :class="[
-            'p-1.5 rounded text-xs transition-colors',
-            currentPage >= totalPages
-              ? 'bg-surface-alt text-tertiary cursor-not-allowed'
-              : 'bg-surface-alt text-primary hover:bg-surface-hover'
-          ]"
-        >
-          <Icon name="chevronRight" />
-        </button>
+          @click="changePage(currentPage + 1)"
+        />
       </div>
     </div>
 
@@ -203,19 +193,14 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
         <!-- Pagination mode: Page numbers -->
         <template v-if="hasMultiplePages && !isInfiniteMode">
           <div class="flex items-center gap-2">
-            <button
-              type="button"
-              @click="changePage(currentPage - 1)"
+            <IconButton
+              :label="$t('pagination-controls-previous')"
+              icon="chevronLeft"
+              variant="secondary"
+              size="sm"
               :disabled="currentPage <= 1"
-              :class="[
-                'p-1.5 rounded text-sm transition-colors flex-shrink-0',
-                currentPage <= 1
-                  ? 'bg-surface-alt text-tertiary cursor-not-allowed'
-                  : 'bg-surface-alt text-primary hover:bg-surface-hover'
-              ]"
-            >
-              <Icon name="chevronLeft" />
-            </button>
+              @click="changePage(currentPage - 1)"
+            />
 
             <div class="flex items-center gap-0.5">
               <template v-for="page in pageNumbers" :key="page">
@@ -236,19 +221,14 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
               </template>
             </div>
 
-            <button
-              type="button"
-              @click="changePage(currentPage + 1)"
+            <IconButton
+              :label="$t('pagination-controls-next')"
+              icon="chevronRight"
+              variant="secondary"
+              size="sm"
               :disabled="currentPage >= totalPages"
-              :class="[
-                'p-1.5 rounded text-sm transition-colors flex-shrink-0',
-                currentPage >= totalPages
-                  ? 'bg-surface-alt text-tertiary cursor-not-allowed'
-                  : 'bg-surface-alt text-primary hover:bg-surface-hover'
-              ]"
-            >
-              <Icon name="chevronRight" />
-            </button>
+              @click="changePage(currentPage + 1)"
+            />
           </div>
         </template>
       </div>

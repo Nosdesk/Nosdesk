@@ -377,6 +377,7 @@ defineExpose({ openAddFilter })
           : 'text-tertiary hover:text-primary hover:bg-surface-hover'"
         :aria-pressed="splitViewEnabled"
         :title="splitViewEnabled ? 'Hide preview pane' : 'Show preview pane'"
+        :aria-label="splitViewEnabled ? 'Hide preview pane' : 'Show preview pane'"
         @click="emit('toggle-split-view')"
       >
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">

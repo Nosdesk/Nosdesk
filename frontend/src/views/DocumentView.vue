@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { shareableRouteUrl } from '@/utils/shareUrl'
@@ -620,15 +621,15 @@ watch(documentObj, (newDocument) => {
         </span>
 
         <!-- Publish button for unpublished pages -->
-        <button
-          type="button"
+        <Button
           v-if="document && document.status !== 'published'"
           @click="handlePublishPage"
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-status-success text-white hover:opacity-90 transition-colors"
+          variant="success"
+          size="sm"
+          icon="check"
         >
-          <Icon name="check" />
           <span class="hidden sm:inline">{{ $t('doc-detail-publish') }}</span>
-        </button>
+        </Button>
 
         <!-- Star button -->
         <button
@@ -638,6 +639,7 @@ watch(documentObj, (newDocument) => {
           class="p-1.5 rounded-md hover:bg-surface-hover transition-colors"
           :class="isStarred ? 'text-brand-gold' : 'text-secondary hover:text-primary'"
           :title="isStarred ? $t('doc-detail-unstar') : $t('doc-detail-star')"
+          :aria-label="isStarred ? $t('doc-detail-unstar') : $t('doc-detail-star')"
         >
           <svg class="w-5 h-5" :fill="isStarred ? 'currentColor' : 'none'" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />

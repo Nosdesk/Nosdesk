@@ -14,6 +14,7 @@
  * axis can be flipped from the toolbar (status x assignee, etc.)
  * the same way it works on project detail.
  */
+import Button from '@/components/common/Button.vue'
 import { computed, ref, watch } from 'vue'
 import BackButton from '@/components/common/BackButton.vue'
 import { useViewBackFallback } from '@/router/navigation'
@@ -310,12 +311,13 @@ const groupByOptions = computed(() => [
             class="text-xs font-medium rounded-md px-3 py-1.5 border border-default hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             @click="showEdit = false"
           >{{ $t('project-cycles-cancel-button') }}</button>
-          <button
-            type="button"
-            class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          <Button
             :disabled="!editName.trim() || savePending"
             @click="saveEdit"
-          >{{ savePending ? $t('cycle-detail-edit-saving') : $t('cycle-detail-edit-save') }}</button>
+            size="sm"
+          >
+            {{ savePending ? $t('cycle-detail-edit-saving') : $t('cycle-detail-edit-save') }}
+          </Button>
         </div>
       </template>
     </Modal>

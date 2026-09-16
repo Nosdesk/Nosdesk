@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
+import Button from '@/components/common/Button.vue'
 import { ref, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
-import Icon from '@/components/common/Icon.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import type { CategoryWithVisibility } from '@nosdesk/core/types/category';
@@ -102,23 +103,20 @@ const handleSubmit = () => {
         {{ isEditMode() ? $t('admin-categories-edit-title-edit') : $t('admin-categories-edit-title-create') }}
       </h2>
       <div class="flex items-center gap-2 flex-shrink-0">
-        <button
-          type="button"
+        <IconButton
+          :label="$t('admin-categories-edit-delete-tooltip')"
+          icon="trash"
+          size="sm"
+          variant="ghost-danger"
           v-if="isEditMode() && category"
           @click="emit('delete', category)"
-          class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
-          :title="$t('admin-categories-edit-delete-tooltip')"
-        >
-          <Icon name="trash" />
-        </button>
-        <button
-          type="button"
+        />
+        <IconButton
+          :label="$t('admin-categories-edit-close-tooltip')"
+          icon="close"
+          size="sm"
           @click="emit('close')"
-          class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-          :title="$t('admin-categories-edit-close-tooltip')"
-        >
-          <Icon name="close" size="md" />
-        </button>
+        />
       </div>
     </div>
 
@@ -160,6 +158,7 @@ const handleSubmit = () => {
               class="w-10 h-10 rounded-lg border-2 flex items-center justify-center transition-all"
               :class="categoryForm.icon === icon.name ? 'border-accent bg-accent/10' : 'border-default hover:border-strong'"
               :title="icon.label"
+              :aria-label="icon.label"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -229,12 +228,11 @@ const handleSubmit = () => {
           >
             {{ $t('admin-categories-edit-cancel') }}
           </button>
-          <button
+          <Button
             type="submit"
-            class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
           >
             {{ isEditMode() ? $t('admin-categories-edit-save') : $t('admin-categories-edit-create') }}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

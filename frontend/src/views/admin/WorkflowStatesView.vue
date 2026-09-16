@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import Icon from '@/components/common/Icon.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import {
   workflowStatesService,
@@ -277,15 +277,14 @@ onMounted(() => {
             >
               {{ state.pauses_sla ? $t('admin-workflow-states-sla-paused') : $t('admin-workflow-states-sla-running') }}
             </button>
-            <button
-              type="button"
-              class="text-tertiary hover:text-status-error transition-colors p-1"
+            <IconButton
+              :label="state.is_default ? $t('admin-workflow-states-archive-disabled-title') : $t('admin-workflow-states-archive-title')"
+              icon="trash"
+              size="xs"
+              variant="ghost-danger"
               :disabled="state.is_default"
-              :title="state.is_default ? $t('admin-workflow-states-archive-disabled-title') : $t('admin-workflow-states-archive-title')"
               @click="requestArchive(state)"
-            >
-              <Icon name="trash" />
-            </button>
+            />
           </li>
           <li v-if="!grouped[cat] || grouped[cat].length === 0" class="px-4 py-3 text-sm text-tertiary italic">
             {{ $t('admin-workflow-states-empty-category') }}

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
+import Button from '@/components/common/Button.vue'
 import { ref, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
@@ -479,15 +481,15 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
           <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-webhooks-title') }}</h1>
           <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('admin-webhooks-subtitle') }}</p>
         </div>
-        <button
-          type="button"
+        <Button
           @click="openCreateModal"
-          class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+          size="sm"
+          class="self-start sm:self-auto"
+          icon="add"
         >
-          <Icon name="add" />
           <span class="hidden xs:inline">{{ $t('admin-webhooks-create') }}</span>
           <span class="xs:hidden">{{ $t('admin-webhooks-create-short') }}</span>
-        </button>
+        </Button>
       </div>
 
       <!-- Success message -->
@@ -565,41 +567,32 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
 
               <!-- Actions -->
               <div class="flex-shrink-0 flex items-center gap-1">
-                <button
-                  type="button"
+                <IconButton
+                  :label="$t('admin-webhooks-action-send-test')"
+                  icon="send"
+                  size="sm"
                   @click="testWebhook(webhook)"
-                  class="p-1.5 sm:p-2 text-secondary hover:text-accent hover:bg-accent/10 rounded-md sm:rounded-lg transition-colors"
-                  :title="$t('admin-webhooks-action-send-test')"
                   :disabled="isSaving"
-                >
-                  <Icon name="send" />
-                </button>
-                <button
-                  type="button"
+                />
+                <IconButton
+                  :label="$t('admin-webhooks-action-view-deliveries')"
+                  icon="history"
+                  size="sm"
                   @click="viewDeliveries(webhook)"
-                  class="p-1.5 sm:p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md sm:rounded-lg transition-colors"
-                  :title="$t('admin-webhooks-action-view-deliveries')"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
+                />
+                <IconButton
+                  :label="$t('admin-webhooks-action-edit')"
+                  icon="rename"
+                  size="sm"
                   @click="openEditModal(webhook)"
-                  class="p-1.5 sm:p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md sm:rounded-lg transition-colors"
-                  :title="$t('admin-webhooks-action-edit')"
-                >
-                  <Icon name="rename" />
-                </button>
-                <button
-                  type="button"
+                />
+                <IconButton
+                  :label="$t('admin-webhooks-action-delete')"
+                  icon="trash"
+                  size="sm"
+                  variant="ghost-danger"
                   @click="confirmDelete(webhook)"
-                  class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
-                  :title="$t('admin-webhooks-action-delete')"
-                >
-                  <Icon name="trash" />
-                </button>
+                />
               </div>
             </div>
           </div>
@@ -633,22 +626,19 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
 
               <!-- Actions -->
               <div class="flex-shrink-0 flex items-center gap-1">
-                <button
-                  type="button"
+                <IconButton
+                  :label="$t('admin-webhooks-action-edit')"
+                  icon="rename"
+                  size="sm"
                   @click="openEditModal(webhook)"
-                  class="p-1.5 sm:p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md sm:rounded-lg transition-colors"
-                  :title="$t('admin-webhooks-action-edit')"
-                >
-                  <Icon name="rename" />
-                </button>
-                <button
-                  type="button"
+                />
+                <IconButton
+                  :label="$t('admin-webhooks-action-delete')"
+                  icon="trash"
+                  size="sm"
+                  variant="ghost-danger"
                   @click="confirmDelete(webhook)"
-                  class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
-                  :title="$t('admin-webhooks-action-delete')"
-                >
-                  <Icon name="trash" />
-                </button>
+                />
               </div>
             </div>
           </div>
@@ -769,13 +759,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
                 :placeholder="$t('admin-webhooks-form-headers-value-placeholder')"
                 class="flex-1 px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent text-sm"
               />
-              <button
-                type="button"
-                @click="removeHeader(index, true)"
-                class="p-2 text-secondary hover:text-status-error"
-              >
-                <Icon name="close" />
-              </button>
+              <IconButton :label="$t('common-remove')" icon="close" variant="ghost-danger" @click="removeHeader(index, true)" />
             </div>
           </div>
           <p v-else class="text-xs text-tertiary">{{ $t('admin-webhooks-form-headers-empty') }}</p>
@@ -790,13 +774,12 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
           >
             {{ $t('admin-webhooks-form-cancel') }}
           </button>
-          <button
+          <Button
             type="submit"
             :disabled="isSaving"
-            class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50"
           >
             {{ isSaving ? $t('admin-webhooks-form-creating') : $t('admin-webhooks-form-create') }}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -834,13 +817,11 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
         </p>
 
         <div class="flex justify-end pt-2">
-          <button
-            type="button"
+          <Button
             @click="showSecretCreated = false"
-            class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors"
           >
             {{ $t('admin-webhooks-secret-done') }}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -974,13 +955,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
                 :placeholder="$t('admin-webhooks-form-headers-value-placeholder')"
                 class="flex-1 px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent text-sm"
               />
-              <button
-                type="button"
-                @click="removeHeader(index, false)"
-                class="p-2 text-secondary hover:text-status-error"
-              >
-                <Icon name="close" />
-              </button>
+              <IconButton :label="$t('common-remove')" icon="close" variant="ghost-danger" @click="removeHeader(index, false)" />
             </div>
           </div>
           <p v-else class="text-xs text-tertiary">{{ $t('admin-webhooks-form-headers-empty') }}</p>
@@ -995,13 +970,12 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
           >
             {{ $t('admin-webhooks-form-cancel') }}
           </button>
-          <button
+          <Button
             type="submit"
             :disabled="isSaving"
-            class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50"
           >
             {{ isSaving ? $t('admin-webhooks-form-saving') : $t('admin-webhooks-form-save') }}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -1029,14 +1003,13 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
           >
             {{ $t('admin-webhooks-form-cancel') }}
           </button>
-          <button
-            type="button"
+          <Button
             @click="regenerateSecret"
             :disabled="isSaving"
-            class="px-4 py-2 bg-status-warning text-white rounded-lg text-sm hover:bg-status-warning/90 font-medium transition-colors disabled:opacity-50"
+            variant="warning"
           >
             {{ isSaving ? $t('admin-webhooks-regenerate-running') : $t('admin-webhooks-regenerate-confirm') }}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -1064,14 +1037,13 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
           >
             {{ $t('admin-webhooks-form-cancel') }}
           </button>
-          <button
-            type="button"
+          <Button
             @click="deleteWebhook"
             :disabled="isSaving"
-            class="px-4 py-2 bg-status-error text-white rounded-lg text-sm hover:bg-status-error/90 font-medium transition-colors disabled:opacity-50"
+            variant="danger"
           >
             {{ isSaving ? $t('admin-webhooks-delete-running') : $t('admin-webhooks-delete-confirm') }}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

@@ -9,6 +9,7 @@ Selecting / clearing a model returns the updated asset, which the parent
 re-hydrates from.
 -->
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useQueryCache } from '@pinia/colada'
@@ -182,15 +183,14 @@ async function submitCreate() {
   <div class="flex flex-col gap-1">
     <div class="flex items-center justify-between min-h-6">
       <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-model-label') }}</h3>
-      <button
+      <IconButton
+        :label="$t('asset-model-clear')"
+        icon="close"
+        size="xs"
+        variant="ghost-danger"
         v-if="modelId && editable && !picking"
-        type="button"
-        class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
-        :title="$t('asset-model-clear')"
         @click="clear"
-      >
-        <Icon name="close" />
-      </button>
+      />
     </div>
 
     <!-- Linked model -->

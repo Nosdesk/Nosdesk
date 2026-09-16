@@ -43,13 +43,11 @@
           <h2 class="text-lg font-semibold text-primary">{{ invalidTitle }}</h2>
           <p class="text-sm text-secondary">{{ errorMessage }}</p>
         </div>
-        <button
-          type="button"
+        <Button
           @click="goToLogin"
-          class="px-4 py-2 bg-accent hover:opacity-90 text-on-accent rounded-lg text-sm font-medium transition-colors"
         >
           {{ $t('accept-invitation-go-to-signin') }}
-        </button>
+        </Button>
       </div>
 
       <!-- Logging in (spinner) -->
@@ -92,13 +90,11 @@
           <h2 class="text-lg font-semibold text-primary">{{ successTitleComplete }}</h2>
           <p class="text-sm text-secondary">{{ loginMessage || $t('accept-invitation-manual-login') }}</p>
         </div>
-        <button
-          type="button"
+        <Button
           @click="goToLogin"
-          class="px-4 py-2 bg-accent hover:opacity-90 text-on-accent rounded-lg text-sm font-medium transition-colors"
         >
           {{ $t('accept-invitation-go-to-signin') }}
-        </button>
+        </Button>
       </div>
 
       <!-- Password form -->
@@ -203,14 +199,14 @@
             <span>{{ submitError }}</span>
           </div>
 
-          <button
+          <Button
             type="submit"
-            class="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-accent hover:opacity-90 text-on-accent rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            :disabled="loading || !isFormValid"
+            :disabled="!isFormValid"
+            size="lg"
+            :loading="loading"
           >
-            <Spinner v-if="loading" />
             {{ loading ? submitLoadingLabel : submitLabel }}
-          </button>
+          </Button>
         </form>
       </div>
 
@@ -229,6 +225,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute, RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';

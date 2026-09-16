@@ -18,9 +18,9 @@ import { formatDistanceToNow } from 'date-fns';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
+import IconButton from '@/components/common/IconButton.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import Icon from '@/components/common/Icon.vue';
 import SearchInput from '@/components/common/SearchInput.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
@@ -151,12 +151,10 @@ async function toggleLive(rule: Rule): Promise<void> {
       <h1 class="text-2xl font-semibold flex-1 min-w-0">
         {{ t('admin-rules-title') }}
       </h1>
-      <Button variant="secondary" @click="openActivity">
-        <Icon name="history" class="w-4 h-4" />
+      <Button variant="secondary" @click="openActivity" icon="history">
         <span>{{ t('admin-rules-activity-cta') }}</span>
       </Button>
-      <Button variant="primary" @click="openCreate">
-        <Icon name="add" class="w-4 h-4" />
+      <Button variant="primary" @click="openCreate" icon="add">
         <span>{{ t('admin-rules-new-cta') }}</span>
       </Button>
     </div>
@@ -243,27 +241,21 @@ async function toggleLive(rule: Rule): Promise<void> {
           <td class="py-2 text-right tabular-nums">{{ rule.fire_count }}</td>
           <td class="py-2 text-right" @click.stop>
             <div class="flex items-center justify-end gap-2">
-              <Button
+              <IconButton
                 variant="secondary"
                 size="sm"
-                @click="toggleLive(rule)"
-                :title="rule.state === 'live'
+                :icon="rule.state === 'live' ? 'eyeOff' : 'eye'"
+                :label="rule.state === 'live'
                   ? t('admin-rules-action-pause-tooltip')
                   : t('admin-rules-action-resume-tooltip')"
-              >
-                <Icon
-                  :name="rule.state === 'live' ? 'eyeOff' : 'eye'"
-                  class="w-3.5 h-3.5"
-                />
-              </Button>
-              <Button
-                variant="ghost"
+                @click="toggleLive(rule)"
+              />
+              <IconButton
                 size="sm"
+                icon="trash"
+                :label="t('admin-rules-action-archive-tooltip')"
                 @click="archiveTarget = rule"
-                :title="t('admin-rules-action-archive-tooltip')"
-              >
-                <Icon name="trash" class="w-3.5 h-3.5" />
-              </Button>
+              />
             </div>
           </td>
         </tr>

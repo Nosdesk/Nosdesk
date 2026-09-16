@@ -12,6 +12,7 @@
   TicketPickerModal (the app-wide ticket picker).
 -->
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
@@ -146,15 +147,15 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
                 {{ categoryLabel(link.ticket_category) }}
               </span>
             </RouterLink>
-            <button
+            <IconButton
+              :label="$t('docs-page-tickets-unlink', { id: link.ticket_id })"
+              icon="close"
+              size="xs"
+              variant="ghost-danger"
+              class="opacity-0 group-hover:opacity-100"
               v-if="canEdit"
-              type="button"
-              class="opacity-0 group-hover:opacity-100 p-1 rounded text-tertiary hover:text-status-error hover:bg-surface-hover transition-all"
-              :title="$t('docs-page-tickets-unlink', { id: link.ticket_id })"
               @click="onRemove(link.ticket_id)"
-            >
-              <Icon name="close" size="xs" />
-            </button>
+            />
           </li>
         </ul>
       </div>
@@ -180,15 +181,15 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
                 {{ categoryLabel(link.ticket_category) }}
               </span>
             </RouterLink>
-            <button
+            <IconButton
+              :label="$t('docs-page-tickets-unlink', { id: link.ticket_id })"
+              icon="close"
+              size="xs"
+              variant="ghost-danger"
+              class="opacity-0 group-hover:opacity-100"
               v-if="canEdit"
-              type="button"
-              class="opacity-0 group-hover:opacity-100 p-1 rounded text-tertiary hover:text-status-error hover:bg-surface-hover transition-all"
-              :title="$t('docs-page-tickets-unlink', { id: link.ticket_id })"
               @click="onRemove(link.ticket_id)"
-            >
-              <Icon name="close" size="xs" />
-            </button>
+            />
           </li>
         </ul>
       </div>

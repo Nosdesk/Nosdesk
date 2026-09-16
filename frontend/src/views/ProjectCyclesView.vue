@@ -14,6 +14,7 @@
  * only the burnup daily series stays a REST query. Completed cycles
  * read their frozen completion_snapshot, so history never moves.
  */
+import Button from '@/components/common/Button.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
@@ -294,11 +295,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
 
     <ProjectTabBar :project-id="projectId">
       <template #actions>
-        <button
-          type="button"
-          class="text-xs font-medium rounded-md px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center bg-accent text-on-accent hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          @click="showCreate = true"
-        >{{ $t('project-cycles-new-button') }}</button>
+        <Button size="sm" @click="showCreate = true">{{ $t('project-cycles-new-button') }}</Button>
       </template>
     </ProjectTabBar>
 
@@ -346,11 +343,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
             <span class="flex-1">
               {{ $t('project-cycles-no-active-hint', { name: upcomingCycles[0].name }) }}
             </span>
-            <button
-              type="button"
-              class="text-xs font-medium rounded-md px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center bg-accent text-on-accent hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              @click="promoteToActive(upcomingCycles[0].uuid)"
-            >{{ $t('project-cycles-action-start') }}</button>
+            <Button size="sm" @click="promoteToActive(upcomingCycles[0].uuid)">{{ $t('project-cycles-action-start') }}</Button>
           </div>
 
           <!-- Two columns at lg when a cycle is running: the active
@@ -553,12 +546,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
             class="text-xs font-medium rounded-md px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center border border-default hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             @click="showCreate = false"
           >{{ $t('project-cycles-cancel-button') }}</button>
-          <button
-            type="button"
-            class="text-xs font-medium rounded-md px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center bg-accent text-on-accent hover:opacity-90 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            :disabled="!newCycleName.trim() || createPending"
-            @click="createCycle"
-          >{{ $t('project-cycles-create-submit') }}</button>
+          <Button size="sm" :disabled="!newCycleName.trim() || createPending" @click="createCycle">{{ $t('project-cycles-create-submit') }}</Button>
         </div>
       </template>
     </Modal>

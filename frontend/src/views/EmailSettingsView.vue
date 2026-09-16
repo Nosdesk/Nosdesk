@@ -9,7 +9,6 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import Icon from '@/components/common/Icon.vue';
-import Spinner from '@/components/common/Spinner.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import Button from '@/components/common/Button.vue';
@@ -350,19 +349,15 @@ const getRequiredEnvVars = () => [
                 :disabled="sendingTest"
                 @keyup.enter="sendTestEmail"
               />
-              <button
-                type="button"
+              <Button
                 @click="sendTestEmail"
-                :disabled="sendingTest || !testEmailAddress"
-                class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:opacity-90 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"
+                :disabled="!testEmailAddress"
+                size="sm"
+                :loading="sendingTest"
+                icon="send"
               >
-                <Spinner v-if="sendingTest" />
-                <!-- Custom paper-plane "send" glyph; not a registry action icon. -->
-                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
                 {{ sendingTest ? $t('admin-email-settings-test-sending') : $t('admin-email-settings-test-send-button') }}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

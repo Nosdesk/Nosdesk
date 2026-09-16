@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/common/Button.vue'
 import { ref, onMounted, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { usePasskeys } from '@/composables/usePasskeys';
@@ -10,7 +11,6 @@ import { passkeySetupService } from '@/services/passkeyService';
 import { logger } from '@nosdesk/core/utils/logger';
 import { extractErrorMessage } from '@/utils/errors';
 import Icon from '@/components/common/Icon.vue';
-import Spinner from '@/components/common/Spinner.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -223,15 +223,13 @@ onMounted(() => {
           <p class="text-xs text-tertiary mt-1.5">{{ $t('auth-passkey-setup-name-hint') }}</p>
         </div>
 
-        <button
-          type="button"
+        <Button
           @click="handleRegisterPasskey"
-          :disabled="isRegistering"
-          class="w-full py-3 px-4 bg-accent text-on-accent rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          size="lg" block
+          :loading="isRegistering"
         >
-          <Spinner v-if="isRegistering" />
           {{ isRegistering ? $t('auth-passkey-setup-creating-button') : $t('auth-passkey-setup-create-button') }}
-        </button>
+        </Button>
       </div>
 
       <!-- Backup Codes Step -->
@@ -282,13 +280,12 @@ onMounted(() => {
           </button>
         </div>
 
-        <button
-          type="button"
+        <Button
           @click="acknowledgeBackupCodes"
-          class="w-full py-3 px-4 bg-accent text-on-accent rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors"
+          size="lg" block
         >
           {{ $t('auth-passkey-setup-backup-codes-acknowledge') }}
-        </button>
+        </Button>
       </div>
 
       <!-- Success Step -->
@@ -321,13 +318,12 @@ onMounted(() => {
           </div>
         </div>
 
-        <button
-          type="button"
+        <Button
           @click="completeSetup"
-          class="w-full py-3 px-4 bg-accent text-on-accent rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors"
+          size="lg" block
         >
           {{ $t('auth-passkey-setup-success-cta') }}
-        </button>
+        </Button>
       </div>
   </div>
 </template>

@@ -15,6 +15,7 @@
  * restore flow in one place while letting each context choose
  * its own layout.
  */
+import Button from '@/components/common/Button.vue'
 import { formatDate, parseDate } from '@nosdesk/core/utils/dateUtils';
 import { ref, onMounted, watch, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -328,15 +329,15 @@ onMounted(() => {
           {{ t('editor-revisions-word-count', { count: revision.word_count }) }}
         </div>
 
-        <button
-          type="button"
+        <Button
           v-if="selectedRevision?.id === revision.id"
           @click.stop="confirmRestore(revision)"
           :disabled="isRestoring"
-          class="mt-2 w-full px-3 py-1.5 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
+          size="sm"
+          class="mt-2" block
         >
           {{ isRestoring ? t('editor-revisions-restoring') : t('editor-revisions-restore-button') }}
-        </button>
+        </Button>
       </div>
     </div>
 

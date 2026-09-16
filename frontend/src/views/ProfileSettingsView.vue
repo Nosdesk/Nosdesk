@@ -533,14 +533,12 @@ const cancelDelete = () => {
           <h2 class="text-lg font-semibold text-primary">{{ t('user-settings-cp-managed-title') }}</h2>
           <p class="text-sm text-secondary">{{ t('user-settings-cp-managed-body') }}</p>
         </div>
-        <button
-          type="button"
+        <Button
           @click="manageInControlPlane"
-          class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent-hover transition-colors text-sm font-medium flex items-center gap-2"
+          icon="openExternal"
         >
-          <Icon name="openExternal" />
           {{ t('user-profile-action-manage-in-control-plane') }}
-        </button>
+        </Button>
       </div>
 
       <!-- Main content -->

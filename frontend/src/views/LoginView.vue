@@ -613,15 +613,16 @@ const handleOidcLogoutClick = async () => {
             >
               {{ $t("login-mfa-back") }}
             </button>
-            <button
+            <Button
               type="submit"
               :disabled="isLoading || !mfaToken.trim()"
-              class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              size="lg"
+              class="flex-2"
+              :loading="loadingAction === 'mfa'"
             >
-              <Spinner v-if="loadingAction === 'mfa'" class="-ml-1 mr-2 text-white" />
               <span v-if="loadingAction === 'mfa'">{{ $t("login-mfa-verifying") }}</span>
               <span v-else>{{ $t("login-mfa-verify") }}</span>
-            </button>
+            </Button>
           </div>
         </form>
       </div>
@@ -673,32 +674,31 @@ const handleOidcLogoutClick = async () => {
               >
                 {{ $t("login-mfa-back") }}
               </button>
-              <button
+              <Button
                 type="submit"
                 :disabled="isLoading || !recoveryCode.trim()"
-                class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                size="lg"
+                class="flex-2"
+                :loading="loadingAction === 'mfa'"
               >
-                <Spinner v-if="loadingAction === 'mfa'" class="text-white" />
                 <span v-if="loadingAction === 'mfa'">{{ $t("login-mfa-verifying") }}</span>
                 <span v-else>{{ $t("login-mfa-verify") }}</span>
-              </button>
+              </Button>
             </div>
           </form>
         </template>
 
         <!-- Passkey verification mode (default) -->
         <template v-else>
-          <button
-            type="button"
+          <Button
             @click="handlePasskeyMfaVerify"
-            :disabled="isLoading"
-            class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+            :disabled="isLoading" block
+            :loading="loadingAction === 'passkey'"
+            icon="key"
           >
-            <Spinner v-if="loadingAction === 'passkey'" />
-            <Icon v-else name="key" size="md" />
             <span v-if="loadingAction === 'passkey'">{{ $t("login-mfa-verifying") }}</span>
             <span v-else>{{ $t("login-passkey-mfa-verify-cta") }}</span>
-          </button>
+          </Button>
 
           <button
             type="button"
@@ -828,6 +828,7 @@ const handleOidcLogoutClick = async () => {
               type="button"
               @click="handleMicrosoftLogoutClick"
               :title="$t('login-microsoft-logout-title')"
+              :aria-label="$t('login-microsoft-logout-title')"
               class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
             >
               <svg
@@ -877,6 +878,7 @@ const handleOidcLogoutClick = async () => {
               type="button"
               @click="handleOidcLogoutClick"
               :title="$t('login-oidc-logout-title', { provider: oidcDisplayName })"
+              :aria-label="$t('login-oidc-logout-title', { provider: oidcDisplayName })"
               class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
             >
               <svg

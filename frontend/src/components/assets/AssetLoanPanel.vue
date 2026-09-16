@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -383,15 +384,14 @@ async function submitReturn() {
               </template>
               <Icon v-if="!linkedTicket" name="chevronDown" class="ml-auto w-4 h-4 text-tertiary shrink-0" />
             </button>
-            <button
+            <IconButton
+              :label="$t('asset-loan-ticket-clear')"
+              icon="close"
+              variant="ghost-danger"
+              class="shrink-0"
               v-if="linkedTicket"
-              type="button"
-              class="p-2 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded-lg transition-colors shrink-0"
-              :title="$t('asset-loan-ticket-clear')"
               @click="linkedTicket = null"
-            >
-              <Icon name="close" size="sm" />
-            </button>
+            />
           </div>
         </div>
 

@@ -48,6 +48,7 @@ const densityOptions: ReadonlyArray<{ value: Density; svg: string; labelKey: str
         : 'text-tertiary hover:text-primary hover:bg-surface-hover'"
       :aria-pressed="density === opt.value"
       :title="$t(opt.labelKey)"
+      :aria-label="$t(opt.labelKey)"
       @click="emit('set-density', opt.value)"
     >
       <svg
