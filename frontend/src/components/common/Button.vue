@@ -49,6 +49,10 @@ const props = withDefaults(defineProps<Props>(), {
   block: false,
 });
 
+// Disabled cursor and opacity come from the base layer in main.css, which
+// every <button> gets; only the focus ring is restated here because the
+// offset ring reads better than the base outline on a filled button.
+//
 // No click emit: with a single root <button>, a parent's @click (and any
 // other native handler/attribute) falls through to it automatically.
 // Re-emitting would be redundant and risks double-firing.
@@ -102,7 +106,6 @@ const iconSize = computed(() => (props.size === 'sm' ? 'xs' : 'sm'));
     :class="[
       'inline-flex items-center justify-center whitespace-nowrap font-medium rounded-lg transition-colors',
       'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
-      'disabled:opacity-50 disabled:cursor-not-allowed',
       sizeClasses[size],
       variantClasses[variant],
       block ? 'w-full' : '',
