@@ -302,7 +302,7 @@ async function submit(force = false): Promise<void> {
       response?: {
         status?: number;
         data?: {
-          error?: string;
+          code?: string;
           invalid_count?: number;
           sample?: SchemaConflict['sample'];
         };
