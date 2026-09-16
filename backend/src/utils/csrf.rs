@@ -34,6 +34,57 @@ pub fn validate_csrf_token(provided: &str, expected: &str) -> bool {
     constant_time_eq(provided.as_bytes(), expected.as_bytes())
 }
 
+/// Why a request's `Origin` was refused.
+#[derive(Debug, PartialEq, Eq)]
+pub enum OriginRejection {
+    /// `Origin: null`: an opaque origin (sandboxed frame, some redirects).
+    Opaque,
+    /// A real origin that is neither allowlisted nor the request host.
+    Foreign,
+}
+
+/// Decide whether a browser-supplied `Origin` may make a state-changing
+/// request. Allowed when the CORS allowlist accepts it, or when its authority
+/// (`host[:port]`, compared case-insensitively) equals the request's `Host`
+/// header. The `Host` comparison is what admits custom-domain portals, which
+/// are not in the allowlist. `allowed(origin)` is injected so the decision is
+/// testable without the process allowlist.
+pub fn check_origin(
+    origin: &str,
+    host: Option<&str>,
+    allowed: impl Fn(&str) -> bool,
+) -> Result<(), OriginRejection> {
+    let origin = origin.trim();
+    if origin.eq_ignore_ascii_case("null") {
+        return Err(OriginRejection::Opaque);
+    }
+    if allowed(origin) {
+        return Ok(());
+    }
+    let authority = origin
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or("")
+        .trim_end_matches('/');
+    match host.map(str::trim) {
+        Some(host) if !authority.is_empty() && authority.eq_ignore_ascii_case(host) => Ok(()),
+        _ => Err(OriginRejection::Foreign),
+    }
+}
+
+/// Endpoints reached by non-browser POSTs that carry no session: CSP
+/// violation reports (sent credential-less, sometimes with `Origin: null`)
+/// and the SNS inbound-email webhook (signature-authenticated).
+fn skips_origin_check(path: &str) -> bool {
+    path == "/api/csp-report" || path == "/api/inbound/email"
+}
+
+/// Wrap one of our JSON error responses as an actix `Error` so a middleware
+/// can short-circuit with the same wire contract handlers use.
+fn reject(response: actix_web::HttpResponse) -> Error {
+    actix_web::error::InternalError::from_response("", response).into()
+}
+
 // === CSRF MIDDLEWARE ===
 
 /// CSRF protection middleware using Double Submit Cookie pattern
@@ -110,8 +161,45 @@ where
             });
         }
 
-        // Check if this is a public endpoint that doesn't require CSRF
+        // Origin check, ahead of the public-endpoint exemption so it also
+        // covers the login endpoints, which are necessarily exempt from the
+        // double-submit check yet still CSRF targets (login CSRF). Browsers
+        // send `Origin` on every POST/PUT/PATCH/DELETE; an absent header is
+        // a non-browser client, which falls through to the cookie check.
         let path = req.path();
+        if !skips_origin_check(path) {
+            let origin = req
+                .headers()
+                .get(actix_web::http::header::ORIGIN)
+                .and_then(|h| h.to_str().ok())
+                .map(str::to_owned);
+            if let Some(origin) = origin {
+                let host = req
+                    .headers()
+                    .get(actix_web::http::header::HOST)
+                    .and_then(|h| h.to_str().ok())
+                    .map(str::to_owned);
+                if let Err(why) = check_origin(&origin, host.as_deref(), |o| {
+                    crate::utils::cors_allowlist::global().allows(o)
+                }) {
+                    tracing::warn!(
+                        path = %path,
+                        request_origin = %origin,
+                        request_host = host.as_deref().unwrap_or(""),
+                        error_kind = ?why,
+                        "CSRF: request origin refused"
+                    );
+                    return Box::pin(async move {
+                        Err(reject(crate::errors::forbidden_with_code(
+                            "Request origin not allowed",
+                            "origin_not_allowed",
+                        )))
+                    });
+                }
+            }
+        }
+
+        // Check if this is a public endpoint that doesn't require CSRF
         let is_public_endpoint = path == "/api/auth/login"
             || path == "/api/auth/logout"
             || path == "/api/auth/refresh"
@@ -201,7 +289,10 @@ where
                 if !validate_csrf_token(&header, &cookie) {
                     tracing::warn!(path = %path, "CSRF validation failed: tokens don't match");
                     return Box::pin(async move {
-                        Err(actix_web::error::ErrorForbidden("Invalid CSRF token"))
+                        Err(reject(crate::errors::forbidden_with_code(
+                            "Invalid CSRF token",
+                            "csrf_invalid",
+                        )))
                     });
                 }
                 tracing::debug!("🔒 CSRF validation passed for {}", path);
@@ -209,17 +300,19 @@ where
             (None, Some(_)) => {
                 tracing::warn!("🔒 CSRF failed for {}: Missing X-CSRF-Token header", path);
                 return Box::pin(async move {
-                    Err(actix_web::error::ErrorForbidden(
+                    Err(reject(crate::errors::forbidden_with_code(
                         "CSRF token required in header",
-                    ))
+                        "csrf_missing",
+                    )))
                 });
             }
             (Some(_), None) => {
                 tracing::warn!("🔒 CSRF failed for {}: Missing csrf_token cookie", path);
                 return Box::pin(async move {
-                    Err(actix_web::error::ErrorForbidden(
+                    Err(reject(crate::errors::forbidden_with_code(
                         "CSRF token required in cookie",
-                    ))
+                        "csrf_missing",
+                    )))
                 });
             }
             (None, None) => {
@@ -228,7 +321,10 @@ where
                     path
                 );
                 return Box::pin(async move {
-                    Err(actix_web::error::ErrorForbidden("CSRF token required"))
+                    Err(reject(crate::errors::forbidden_with_code(
+                        "CSRF token required",
+                        "csrf_missing",
+                    )))
                 });
             }
         }
@@ -279,6 +375,50 @@ mod tests {
         // Agent + everything else keeps the agent cookie.
         assert_eq!(csrf_cookie_for_path("/api/tickets"), CSRF_TOKEN_COOKIE);
         assert_eq!(csrf_cookie_for_path("/api/auth/me"), CSRF_TOKEN_COOKIE);
+    }
+
+    #[test]
+    fn origin_check_allows_allowlisted_and_same_host_only() {
+        let allowed = |o: &str| o == "https://app.nosdesk.com";
+        assert_eq!(
+            check_origin("https://app.nosdesk.com", Some("other.host"), allowed),
+            Ok(())
+        );
+        // Custom-domain portal: not allowlisted, but it is the request host.
+        assert_eq!(
+            check_origin("https://help.acme.com", Some("help.acme.com"), allowed),
+            Ok(())
+        );
+        assert_eq!(
+            check_origin("http://localhost:8080", Some("LOCALHOST:8080"), allowed),
+            Ok(())
+        );
+        assert_eq!(
+            check_origin("https://evil.example", Some("app.nosdesk.com"), allowed),
+            Err(OriginRejection::Foreign)
+        );
+        // Port must match too; a sibling on another port is another origin.
+        assert_eq!(
+            check_origin("http://localhost:3000", Some("localhost:8080"), allowed),
+            Err(OriginRejection::Foreign)
+        );
+        assert_eq!(
+            check_origin("null", Some("app.nosdesk.com"), allowed),
+            Err(OriginRejection::Opaque)
+        );
+        assert_eq!(
+            check_origin("https://x.example", None, allowed),
+            Err(OriginRejection::Foreign)
+        );
+    }
+
+    #[test]
+    fn only_browserless_posts_skip_the_origin_check() {
+        assert!(skips_origin_check("/api/csp-report"));
+        assert!(skips_origin_check("/api/inbound/email"));
+        assert!(!skips_origin_check("/api/auth/login"));
+        assert!(!skips_origin_check("/api/portal/auth/magic-link"));
+        assert!(!skips_origin_check("/api/tickets"));
     }
 
     #[test]
