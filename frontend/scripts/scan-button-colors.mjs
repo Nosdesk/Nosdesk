@@ -12,7 +12,8 @@
  *          luminance against the actual accent — so hardcoding white is
  *          invisible on a light accent (brand orange resolves to BLACK).
  *
- * Diagnostic only; not wired into `lint`.
+ * Part of `pnpm run lint`: exits non-zero on any finding, so the count
+ * stays at zero rather than drifting back up.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -79,15 +80,23 @@ for (const file of walk(ROOT)) {
   }
 }
 
+if (findings.length === 0) {
+  console.log('[scan-button-colors] OK (no raw palette colours on buttons)')
+  process.exit(0)
+}
+
 const byKind = (k) => findings.filter((f) => f.kind === k)
+console.error('\n[scan-button-colors] raw palette colours on <button> (use the semantic tokens; see Button.vue):')
 for (const kind of ['RAW', 'ONACC']) {
   const rows = byKind(kind)
-  console.log(`\n=== ${kind}: ${rows.length}`)
+  if (rows.length === 0) continue
+  console.error(`\n=== ${kind}: ${rows.length}`)
   const byFile = new Map()
   for (const r of rows) byFile.set(r.file, [...(byFile.get(r.file) ?? []), r])
   for (const [file, rs] of [...byFile].sort((a, b) => b[1].length - a[1].length)) {
-    console.log(`  ${file} (${rs.length})`)
-    for (const r of rs.slice(0, 6)) console.log(`      :${r.line}  ${r.detail}`)
+    console.error(`  ${file} (${rs.length})`)
+    for (const r of rs.slice(0, 6)) console.error(`      :${r.line}  ${r.detail}`)
   }
 }
-console.log(`\ntotal findings: ${findings.length}`)
+console.error(`\ntotal findings: ${findings.length}\n`)
+process.exit(1)
