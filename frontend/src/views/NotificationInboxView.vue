@@ -30,7 +30,6 @@ import {
   useNotificationsStore,
 } from '@/stores/notifications'
 import {
-  applyNotificationFilter,
   iconForNotificationType,
   useNotificationFeed,
   useNotificationFilterTabs,
@@ -55,7 +54,8 @@ const filterTabs = useNotificationFilterTabs()
 // presentation helpers). The bell consumes the same composable;
 // inbox-specific concerns (bulk select, four-bucket grouping,
 // long-form empty copy) stay below.
-const feed = useNotificationFeed()
+const filter = ref<NotificationFilter>('all')
+const feed = useNotificationFeed(filter)
 const {
   list,
   items,
@@ -78,7 +78,6 @@ const snooze = useSnoozeMutation()
 // lives here rather than in the shared feed.
 const deleteMany = useDeleteManyMutation()
 
-const filter = ref<NotificationFilter>('all')
 const selectedIds = ref<Set<number>>(new Set())
 const sentinelRef = ref<HTMLElement | null>(null)
 // PageScroll exposes its inner scroll container via defineExpose;
@@ -94,9 +93,9 @@ const scrollContainerRef = computed<HTMLElement | null>(
 // inbox / file picker handles bulk selection.
 const lastClickedId = ref<number | null>(null)
 
-const filteredNotifications = computed(() =>
-  applyNotificationFilter(filter.value, items.value),
-)
+// Each tab is its own server-filtered query, so `items` is already
+// the tab's contents.
+const filteredNotifications = items
 
 interface NotificationGroup {
   label: string
@@ -299,7 +298,7 @@ function handleBulkDelete() {
 }
 
 function handleMarkAllReadScoped() {
-  feed.markAllReadScoped(filter.value, filteredNotifications.value)
+  feed.markAllReadScoped(filter.value)
 }
 
 // IntersectionObserver-driven infinite scroll. Sentinel sits a
@@ -361,7 +360,7 @@ onBeforeUnmount(() => {
 <template>
   <PageScroll
     ref="pageScrollRef"
-    :is-empty="!isFirstLoad && filteredNotifications.length === 0"
+    :is-empty="!isFirstLoad && !hasMore && filteredNotifications.length === 0"
   >
     <template #chrome>
     <!-- Page chrome: title + tabs sit above the scroll region

@@ -299,12 +299,17 @@ export async function setNotificationContentLevel(
 }
 
 /**
- * Get user's notifications
+ * Get user's notifications. `unread_only` and `notification_type` filter
+ * server-side; `before` + `before_id` (the last row's `created_at` and
+ * `id`) page by keyset and take precedence over `offset`.
  */
 export async function getNotifications(params?: {
   limit?: number;
   offset?: number;
   unread_only?: boolean;
+  notification_type?: string;
+  before?: string;
+  before_id?: number;
 }): Promise<Notification[]> {
   const response = await apiClient.get<Notification[]>('/notifications', { params });
   return response.data;
@@ -371,10 +376,13 @@ export async function snoozeNotifications(notificationIds: number[], until: stri
 }
 
 /**
- * Mark all notifications as read
+ * Mark all notifications as read, or only those of one type.
  */
-export async function markAllNotificationsRead(): Promise<void> {
-  await apiClient.post('/notifications/read-all');
+export async function markAllNotificationsRead(notificationType?: string): Promise<void> {
+  await apiClient.post(
+    '/notifications/read-all',
+    notificationType ? { notification_type: notificationType } : undefined,
+  );
 }
 
 /**

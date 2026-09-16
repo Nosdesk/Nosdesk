@@ -8,7 +8,7 @@
  * concerns (e.g., bulk selection in the inbox). What they SHARE
  * is what's collected here.
  */
-import { computed, type ComputedRef } from 'vue'
+import { computed, type ComputedRef, type MaybeRefOrGetter } from 'vue'
 import { useFluent } from 'fluent-vue'
 import {
   useDismissMutation,
@@ -17,12 +17,13 @@ import {
   useMarkReadMutation,
   useNotificationsList,
   useUnreadCount,
+  type NotificationFilter,
 } from '@/stores/notifications'
 import type { Notification } from '@nosdesk/core/services/notificationService'
 import type { IconName } from '@/components/common/icons'
 import type { AsyncBoundaryOp } from '@/components/common/AsyncBoundary.vue'
 
-export type NotificationFilter = 'all' | 'unread' | 'mentions'
+export type { NotificationFilter }
 
 export interface NotificationFilterTab {
   value: NotificationFilter
@@ -66,22 +67,6 @@ export function iconForNotificationType(type: string): IconName {
   return TYPE_ICON[type] ?? 'bell'
 }
 
-/** Filter the loaded set by tab. Pure derivation so tab
- *  switches are instant (no refetch). */
-export function applyNotificationFilter(
-  filter: NotificationFilter,
-  items: readonly Notification[],
-): Notification[] {
-  switch (filter) {
-    case 'unread':
-      return items.filter((n) => !n.is_read)
-    case 'mentions':
-      return items.filter((n) => n.notification_type === 'mentioned')
-    default:
-      return [...items]
-  }
-}
-
 export interface NotificationFeed {
   /** Raw infinite-query handle, exposed so consumers can call
    *  `loadNextPage()` / `refresh()` directly. */
@@ -110,19 +95,16 @@ export interface NotificationFeed {
 
   // Convenience handlers -----------------------------------
   /** Mark-all-read scoped to the active filter. "All" and "Unread"
-   *  both use the global server endpoint (marking everything read is
-   *  what either button means), so unread items beyond the loaded
-   *  window are cleared and the badge actually zeroes. "Mentions"
-   *  passes the visible unread ids so it doesn't clear unrelated
-   *  notifications (no type-scoped bulk endpoint exists yet). */
-  markAllReadScoped: (
-    filter: NotificationFilter,
-    visible: readonly Notification[],
-  ) => void
+   *  both mean "mark everything read"; "Mentions" clears only
+   *  mentions. All three go through the server endpoint so rows
+   *  beyond the loaded window are cleared and the badge zeroes. */
+  markAllReadScoped: (filter: NotificationFilter) => void
 }
 
-export function useNotificationFeed(): NotificationFeed {
-  const list = useNotificationsList()
+/** Feed for one tab. `filter` is a ref or getter so the tab switch
+ *  re-keys the list query (each tab is its own server-filtered cache). */
+export function useNotificationFeed(filter: MaybeRefOrGetter<NotificationFilter>): NotificationFeed {
+  const list = useNotificationsList(filter)
   const unread = useUnreadCount()
 
   const markRead = useMarkReadMutation()
@@ -131,7 +113,7 @@ export function useNotificationFeed(): NotificationFeed {
   const markManyRead = useMarkManyReadMutation()
 
   const items = computed<Notification[]>(
-    () => list.data.value?.pages.flat() ?? [],
+    () => list.data.value?.pages.flatMap((p) => p.items) ?? [],
   )
   const unreadCount = computed(() => unread.data.value ?? 0)
   const hasMore = computed(() => list.hasNextPage.value)
@@ -148,20 +130,8 @@ export function useNotificationFeed(): NotificationFeed {
     () => fetchOp.value.isPending && items.value.length > 0,
   )
 
-  function markAllReadScoped(
-    filter: NotificationFilter,
-    visible: readonly Notification[],
-  ) {
-    // 'unread' is semantically identical to 'all' (mark everything
-    // read), so route it through the global endpoint too — otherwise
-    // unread items beyond the loaded window stay unread server-side and
-    // the badge snaps back non-zero after the refetch.
-    if (filter === 'all' || filter === 'unread') {
-      markAllRead.mutate()
-      return
-    }
-    const ids = visible.filter((n) => !n.is_read).map((n) => n.id)
-    if (ids.length > 0) markManyRead.mutate(ids)
+  function markAllReadScoped(filter: NotificationFilter) {
+    markAllRead.mutate(filter === 'mentions' ? 'mentioned' : undefined)
   }
 
   return {
