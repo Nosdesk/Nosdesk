@@ -201,7 +201,6 @@ impl FromSql<diesel::sql_types::Text, Pg> for AuthProviderType {
 
 // Environment-based AuthProvider struct (replaces database-stored providers)
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct AuthProvider {
     pub id: i32,
     pub name: String,
@@ -283,7 +282,6 @@ pub struct OAuthRequest {
 
 // OAuth callback/exchange parameters
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct OAuthExchangeRequest {
     pub code: Option<String>,
     pub state: Option<String>,

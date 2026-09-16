@@ -30,7 +30,6 @@ fn sanitize_logged_field(input: &str, max_chars: usize) -> String {
 
 /// Log entry from frontend
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct LogEntry {
     pub level: String,
     pub message: String,

@@ -368,20 +368,8 @@ impl NotificationPayload {
         self
     }
 
-    #[allow(dead_code)]
-    pub fn with_title(mut self, title: impl Into<String>) -> Self {
-        self.title = title.into();
-        self
-    }
-
     pub fn with_body(mut self, body: impl Into<String>) -> Self {
         self.body = Some(body.into());
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
-        self.metadata = metadata;
         self
     }
 }
@@ -593,13 +581,8 @@ mod tests {
         assert_eq!(payload.title, "Assigned to Ticket");
 
         // Builder methods
-        let payload = payload
-            .with_body("body text")
-            .with_title("Custom Title")
-            .with_metadata(serde_json::json!({"key": "val"}));
+        let payload = payload.with_body("body text");
         assert_eq!(payload.body.as_deref(), Some("body text"));
-        assert_eq!(payload.title, "Custom Title");
-        assert_eq!(payload.metadata, serde_json::json!({"key": "val"}));
     }
 
     #[test]

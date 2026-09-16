@@ -49,7 +49,6 @@ impl TokenType {
 
 /// Reset token information
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ResetToken {
     pub raw_token: String,  // The actual token to send to the user (never stored)
     pub token_hash: String, // SHA-256 hash stored in database

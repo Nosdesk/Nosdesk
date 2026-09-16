@@ -36,13 +36,9 @@ pub struct AuthContext {
     /// membership in the resolved workspace.
     pub workspace_role: Option<WorkspaceRole>,
     /// User's display name
-    #[allow(dead_code)]
     pub name: String,
     /// Group IDs the user belongs to (for future group-based permissions)
     pub group_ids: Vec<i32>,
-    /// Original JWT claims (for access to other fields if needed)
-    #[allow(dead_code)]
-    claims: Claims,
 }
 
 impl AuthContext {
@@ -99,17 +95,6 @@ impl AuthContext {
             workspace_role,
             name: "test-user".into(),
             group_ids,
-            claims: Claims {
-                sub: user_uuid.to_string(),
-                name: "test-user".into(),
-                email: "test@example.com".into(),
-                platform_role: platform_role.as_str().to_string(),
-                scope: "full".into(),
-                sid: None,
-                workspace_uuid: None,
-                exp: 9999999999,
-                iat: 0,
-            },
         }
     }
 }
@@ -232,7 +217,6 @@ impl FromRequest for AuthContext {
                 workspace_role,
                 name: user.name,
                 group_ids,
-                claims,
             })
         })
     }
