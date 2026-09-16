@@ -224,6 +224,7 @@ onMounted(() => {
         </div>
 
         <button
+          type="button"
           @click="handleRegisterPasskey"
           :disabled="isRegistering"
           class="w-full py-3 px-4 bg-accent text-on-accent rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
@@ -261,6 +262,7 @@ onMounted(() => {
 
         <div class="flex gap-2">
           <button
+            type="button"
             @click="copyBackupCodes"
             class="flex-1 py-2 px-3 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover transition-colors flex items-center justify-center gap-1.5"
           >
@@ -271,6 +273,7 @@ onMounted(() => {
             {{ backupCodesCopied ? $t('auth-passkey-setup-backup-codes-copied') : $t('auth-passkey-setup-backup-codes-copy') }}
           </button>
           <button
+            type="button"
             @click="downloadBackupCodes"
             class="flex-1 py-2 px-3 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover transition-colors flex items-center justify-center gap-1.5"
           >
@@ -280,6 +283,7 @@ onMounted(() => {
         </div>
 
         <button
+          type="button"
           @click="acknowledgeBackupCodes"
           class="w-full py-3 px-4 bg-accent text-on-accent rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors"
         >
@@ -318,6 +322,7 @@ onMounted(() => {
         </div>
 
         <button
+          type="button"
           @click="completeSetup"
           class="w-full py-3 px-4 bg-accent text-on-accent rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors"
         >

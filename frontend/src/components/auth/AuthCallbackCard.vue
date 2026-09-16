@@ -98,6 +98,7 @@ const toggleTechnicalDetails = () => {
         <!-- Action Buttons -->
         <div class="flex flex-col gap-2 w-full mt-2">
           <button
+            type="button"
             v-for="(action, index) in errorInfo.actions"
             :key="action.action"
             @click="emit('action', action.action)"
@@ -113,6 +114,7 @@ const toggleTechnicalDetails = () => {
         <!-- Technical Details -->
         <div v-if="detailedError" class="w-full pt-2 border-t border-default">
           <button
+            type="button"
             @click="toggleTechnicalDetails"
             class="flex items-center gap-2 text-xs text-tertiary hover:text-secondary transition-colors"
           >

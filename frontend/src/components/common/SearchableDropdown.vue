@@ -298,6 +298,7 @@ watch(highlightedIndex, async (index) => {
         :class="sizeClasses.menu"
       >
         <button
+          type="button"
           v-for="(option, index) in filteredOptions"
           :key="option.value"
           role="option"

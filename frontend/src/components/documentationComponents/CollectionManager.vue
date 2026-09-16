@@ -70,6 +70,7 @@ onMounted(async () => {
 
     <div v-else class="flex flex-col gap-1">
       <button
+        type="button"
         v-for="collection in allCollections"
         :key="collection.id"
         @click="toggleCollection(collection.id)"

@@ -351,6 +351,7 @@ const getRequiredEnvVars = () => [
                 @keyup.enter="sendTestEmail"
               />
               <button
+                type="button"
                 @click="sendTestEmail"
                 :disabled="sendingTest || !testEmailAddress"
                 class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:opacity-90 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"

@@ -93,6 +93,7 @@ watch(filename, (newFilename) => {
 
         <!-- Share button -->
         <button
+          type="button"
           @click="shareDocument"
           class="flex items-center gap-2 px-3 py-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
           :title="$t('pdf-viewer-share-tooltip')"
@@ -124,6 +125,7 @@ watch(filename, (newFilename) => {
               <h3 class="text-lg font-semibold text-status-error mb-2">{{ $t('pdf-viewer-error-title') }}</h3>
               <p>{{ errorMessage }}</p>
               <button
+                type="button"
                 @click="goBack"
                 class="mt-4 bg-status-error/70 hover:bg-status-error/60 text-white px-4 py-2 rounded transition-colors"
               >

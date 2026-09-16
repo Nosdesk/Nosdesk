@@ -329,6 +329,7 @@ onMounted(() => {
         </div>
 
         <button
+          type="button"
           v-if="selectedRevision?.id === revision.id"
           @click.stop="confirmRestore(revision)"
           :disabled="isRestoring"

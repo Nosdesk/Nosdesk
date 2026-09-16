@@ -18,6 +18,7 @@
               <span class="font-medium text-primary">{{ $t('admin-search-mgmt-stats-title') }}</span>
             </div>
             <button
+              type="button"
               @click="fetchStats"
               :disabled="isLoadingStats"
               class="px-3 py-1.5 bg-surface-alt text-secondary border border-default rounded-lg text-sm hover:bg-surface-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
@@ -93,6 +94,7 @@
               <span class="font-medium text-primary">{{ $t('admin-search-mgmt-rebuild-title') }}</span>
             </div>
             <button
+              type="button"
               @click="rebuildIndex"
               :disabled="isRebuilding"
               class="px-3 py-1.5 bg-status-warning/20 text-status-warning border border-status-warning/50 rounded-lg text-sm hover:bg-status-warning/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"

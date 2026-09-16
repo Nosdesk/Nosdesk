@@ -696,6 +696,7 @@ function formatPurgeAt(deletedAt: string): string {
           {{ $t('user-mgmt-role-modal-body', { count: listView.selection.selectedCount.value }) }}
         </p>
         <button
+          type="button"
           v-for="role in ROLE_OPTIONS"
           :key="role.value"
           :disabled="bulkActionMutation.asyncStatus.value === 'loading'"

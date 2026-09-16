@@ -64,6 +64,7 @@
           <!-- Export button -->
           <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
             <button
+              type="button"
               @click="startExport"
               :disabled="isExporting || (includeSensitive && (!exportPassword || exportPassword !== exportPasswordConfirm))"
               class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
@@ -86,7 +87,7 @@
               </div>
               <span class="font-medium text-primary text-sm sm:text-base">{{ $t('admin-backup-recent-heading') }}</span>
             </div>
-            <button @click="loadJobs" class="flex-shrink-0 text-sm text-accent hover:text-accent-hover">
+            <button type="button" @click="loadJobs" class="flex-shrink-0 text-sm text-accent hover:text-accent-hover">
               {{ $t('admin-backup-refresh') }}
             </button>
           </div>
@@ -141,6 +142,7 @@
                 <!-- Actions -->
                 <div class="flex items-center gap-1">
                   <button
+                    type="button"
                     v-if="job.status === 'completed'"
                     @click="downloadBackup(job.id)"
                     class="p-2 text-accent hover:bg-accent/10 rounded-lg transition-colors"
@@ -149,6 +151,7 @@
                     <Icon name="download" />
                   </button>
                   <button
+                    type="button"
                     @click="deleteJob(job.id)"
                     class="p-2 text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
                     :title="$t('admin-backup-delete-title')"
@@ -179,6 +182,7 @@
           <!-- Export button with progress -->
           <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 sm:pl-12">
             <button
+              type="button"
               @click="exportDocumentation"
               :disabled="isExportingDocs"
               class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
@@ -295,6 +299,7 @@
             <!-- Restore actions -->
             <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
               <button
+                type="button"
                 @click="executeRestore"
                 :disabled="isRestoring || (restorePreview.has_encrypted_sensitive && !restorePassword)"
                 class="px-4 py-2 bg-status-warning text-white rounded-lg text-sm font-medium hover:bg-status-warning/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
@@ -303,6 +308,7 @@
                 {{ isRestoring ? $t('admin-backup-restoring') : $t('admin-backup-restore-button') }}
               </button>
               <button
+                type="button"
                 @click="cancelRestore"
                 class="px-4 py-2 border border-default rounded-lg text-sm text-secondary hover:bg-surface-alt transition-colors"
               >

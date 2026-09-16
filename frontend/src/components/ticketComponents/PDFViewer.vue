@@ -319,6 +319,7 @@ onBeforeUnmount(() => {
         <!-- Zoom controls -->
         <div class="flex items-center gap-2">
           <button
+            type="button"
             @click="pdf.zoomOut"
             :disabled="pdf.scale.value <= 0.5"
             class="p-1.5 rounded text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
@@ -335,6 +336,7 @@ onBeforeUnmount(() => {
           </span>
 
           <button
+            type="button"
             @click="pdf.zoomIn"
             :disabled="pdf.scale.value >= 3.0"
             class="p-1.5 rounded text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
@@ -347,6 +349,7 @@ onBeforeUnmount(() => {
           </button>
 
           <button
+            type="button"
             @click="fitToContainerWidth"
             class="p-1.5 rounded text-secondary hover:bg-surface-hover"
             :title="$t('ticket-media-pdf-fit-width')"
@@ -361,6 +364,7 @@ onBeforeUnmount(() => {
         <!-- Fullscreen / Download -->
         <div class="flex items-center gap-2">
           <button
+            type="button"
             v-if="!isFullscreenView"
             @click="openFullscreen"
             class="p-1.5 rounded text-secondary hover:bg-surface-hover"

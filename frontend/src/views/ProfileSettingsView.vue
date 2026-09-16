@@ -467,6 +467,7 @@ const cancelDelete = () => {
       <div class="px-4 sm:px-6 py-2">
         <HorizontalScrollContainer container-class="gap-2" fade-background="bg-app" :show-dots="false">
           <button
+            type="button"
             v-for="tab in settingsTabs"
             :key="tab.id"
             @click="activeTab = tab.id"
@@ -551,6 +552,7 @@ const cancelDelete = () => {
               <template #title>{{ $t('settings-sidebar-heading') }}</template>
               <nav class="flex flex-col gap-1">
               <button
+                type="button"
                 v-for="tab in settingsTabs"
                 :key="tab.id"
                 @click="activeTab = tab.id"
@@ -676,6 +678,7 @@ const cancelDelete = () => {
                        phones the way `sm:grid-cols-3` did. -->
                   <div class="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-3">
                     <button
+                      type="button"
                       v-for="role in availableRoles"
                       :key="role.value"
                       @click="updateUserRole(role.value)"

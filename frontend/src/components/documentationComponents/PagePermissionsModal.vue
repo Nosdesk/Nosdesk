@@ -120,6 +120,7 @@ onMounted(async () => {
           <!-- Mode Toggle -->
           <div class="flex gap-1 p-1 bg-surface-alt rounded-lg mb-4">
             <button
+              type="button"
               @click="mode = 'inherit'"
               class="flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
               :class="mode === 'inherit'
@@ -129,6 +130,7 @@ onMounted(async () => {
               {{ $t('docs-page-permissions-mode-inherit') }}
             </button>
             <button
+              type="button"
               @click="mode = 'custom'"
               class="flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
               :class="mode === 'custom'

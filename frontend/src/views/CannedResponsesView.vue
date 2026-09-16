@@ -261,6 +261,7 @@ function relativeTime(iso: string): string {
           class="hidden sm:grid sm:grid-cols-[1fr_140px_120px_56px] text-xs uppercase tracking-wide text-secondary border-b border-default"
         >
           <button
+            type="button"
             class="text-left px-4 py-2 hover:bg-surface-hover flex items-center gap-1"
             @click="toggleSort('title')"
           >
@@ -272,6 +273,7 @@ function relativeTime(iso: string): string {
             />
           </button>
           <button
+            type="button"
             class="text-left px-4 py-2 hover:bg-surface-hover flex items-center gap-1"
             @click="toggleSort('updated')"
           >
@@ -283,6 +285,7 @@ function relativeTime(iso: string): string {
             />
           </button>
           <button
+            type="button"
             class="text-right px-4 py-2 hover:bg-surface-hover flex items-center justify-end gap-1"
             :title="$t('admin-canned-responses-column-inserts-title')"
             @click="toggleSort('inserts')"
@@ -302,6 +305,7 @@ function relativeTime(iso: string): string {
           class="flex flex-col sm:grid sm:grid-cols-[1fr_140px_120px_56px] sm:items-center border-b border-default last:border-b-0 hover:bg-surface-hover transition-colors"
         >
           <button
+            type="button"
             class="text-left px-4 pt-3 pb-1 sm:py-3 min-w-0 flex flex-col gap-0.5"
             @click="openEdit(row)"
           >
@@ -331,6 +335,7 @@ function relativeTime(iso: string): string {
             </span>
             <div class="ml-auto sm:ml-0 sm:px-2 sm:py-3 sm:flex sm:justify-end">
               <button
+                type="button"
                 class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md transition-colors"
                 :title="$t('admin-canned-responses-delete-title')"
                 :aria-label="$t('admin-canned-responses-delete-aria', { name: row.title })"

@@ -638,6 +638,7 @@ watch(
                             </p>
                             <div class="flex items-center gap-3">
                                 <button
+                                    type="button"
                                     @click="router.push('/users')"
                                     :disabled="isSaving"
                                     class="px-5 py-2.5 text-sm font-medium text-secondary hover:text-primary bg-transparent hover:bg-surface-hover rounded-lg transition-colors disabled:opacity-50"
@@ -645,6 +646,7 @@ watch(
                                     {{ $t('user-profile-action-cancel') }}
                                 </button>
                                 <button
+                                    type="button"
                                     @click="saveUser"
                                     :disabled="
                                         isSaving ||
@@ -722,6 +724,7 @@ watch(
                             <template #title>{{ $t('user-profile-groups-title') }}</template>
                             <div class="flex flex-wrap gap-2">
                                 <button
+                                    type="button"
                                     v-for="group in groups"
                                     :key="group.id"
                                     @click="navigateToGroup(group)"

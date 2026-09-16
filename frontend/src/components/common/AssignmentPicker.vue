@@ -195,6 +195,7 @@ onBeforeUnmount(() => {
               {{ $t('assignment-picker-section-groups') }}
             </div>
             <button
+              type="button"
               v-for="group in filteredGroups"
               :key="`g-${group.id}`"
               @mousedown.prevent="selectGroup(group)"
@@ -211,6 +212,7 @@ onBeforeUnmount(() => {
               {{ $t('assignment-picker-section-users') }}
             </div>
             <button
+              type="button"
               v-for="user in filteredUsers"
               :key="`u-${user.uuid}`"
               @mousedown.prevent="selectUser(user)"
@@ -249,6 +251,7 @@ onBeforeUnmount(() => {
         </svg>
         <span class="truncate max-w-[120px]">{{ item.name }}</span>
         <button
+          type="button"
           @click="removeItem(item)"
           class="text-tertiary hover:text-primary transition-colors"
         >

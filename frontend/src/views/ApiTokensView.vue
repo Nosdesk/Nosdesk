@@ -281,6 +281,7 @@ const revokeToken = async () => {
           <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('admin-api-tokens-description') }}</p>
         </div>
         <button
+          type="button"
           @click="openCreateModal"
           class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
         >
@@ -372,6 +373,7 @@ const revokeToken = async () => {
               <!-- Actions -->
               <div class="flex-shrink-0">
                 <button
+                  type="button"
                   @click="confirmRevoke(token)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
                   :title="$t('admin-api-tokens-revoke-title')"
@@ -585,6 +587,7 @@ const revokeToken = async () => {
             {{ createdToken?.token }}
           </code>
           <button
+            type="button"
             @click="copyToken"
             class="absolute top-2 right-2 p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors"
             :title="copiedToken ? $t('admin-api-tokens-copied') : $t('admin-api-tokens-copy-title')"
@@ -604,6 +607,7 @@ const revokeToken = async () => {
 
         <div class="flex justify-end pt-2">
           <button
+            type="button"
             @click="showTokenCreated = false"
             class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors"
           >
@@ -640,6 +644,7 @@ const revokeToken = async () => {
             {{ $t('admin-api-tokens-modal-cancel') }}
           </button>
           <button
+            type="button"
             @click="revokeToken"
             :disabled="isSaving"
             class="px-4 py-2 bg-status-error text-white rounded-lg text-sm hover:bg-status-error/90 font-medium transition-colors disabled:opacity-50"

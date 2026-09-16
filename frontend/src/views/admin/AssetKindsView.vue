@@ -251,6 +251,7 @@ function openEdit(kind: AssetKind): void {
               ]"
             >
               <button
+                type="button"
                 class="flex-1 min-w-0 text-left flex flex-col gap-1"
                 @click="openEdit(kind)"
               >
@@ -283,6 +284,7 @@ function openEdit(kind: AssetKind): void {
               <div class="flex items-center gap-3 text-xs text-tertiary">
                 <span>{{ t('admin-asset-kinds-updated', { when: relativeTime(kind.updated_at) }) }}</span>
                 <button
+                  type="button"
                   class="p-1.5 text-tertiary rounded-md cursor-not-allowed opacity-50"
                   :title="t('admin-asset-kinds-builtin-no-delete')"
                   :aria-label="t('admin-asset-kinds-builtin-no-delete')"
@@ -315,6 +317,7 @@ function openEdit(kind: AssetKind): void {
               ]"
             >
               <button
+                type="button"
                 class="flex-1 min-w-0 text-left flex flex-col gap-1"
                 @click="openEdit(kind)"
               >
@@ -342,6 +345,7 @@ function openEdit(kind: AssetKind): void {
               <div class="flex items-center gap-3 text-xs text-tertiary">
                 <span>{{ t('admin-asset-kinds-updated', { when: relativeTime(kind.updated_at) }) }}</span>
                 <button
+                  type="button"
                   class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md transition-colors"
                   :title="t('admin-asset-kinds-delete')"
                   :aria-label="t('admin-asset-kinds-delete-aria', { label: kind.label })"

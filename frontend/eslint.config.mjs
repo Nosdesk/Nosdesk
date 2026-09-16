@@ -55,6 +55,11 @@ export default defineConfigWithVueTs(
       // the framework needs the name (KeepAlive matching, devtools).
       'vue/multi-word-component-names': 'off',
 
+      // A <button> without `type` is `submit`, so inside a form it submits
+      // the form on click. Every button says what it is; the default is
+      // `type="button"` and only a form's real submit says `submit`.
+      'vue/html-button-has-type': 'error',
+
       // Auto-strip unused imports. Pairs with no-unused-vars below
       // (which keeps reporting unused locals/args/caught errors).
       'unused-imports/no-unused-imports': 'error',

@@ -113,6 +113,7 @@ const groupTypeDisplay = computed(() => {
 
         <!-- Admin Configure Button -->
         <button
+          type="button"
           v-if="authStore.isAdmin"
           @click="navigateToConfiguration"
           class="px-3 py-1.5 bg-surface-alt hover:bg-surface-hover border border-default rounded-lg text-sm font-medium text-primary transition-colors flex items-center gap-1.5"

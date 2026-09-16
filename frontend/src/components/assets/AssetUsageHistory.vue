@@ -277,6 +277,7 @@ function formatDelta(delta: string): string {
           @keyup.enter="submitRecord('usage')"
         />
         <button
+          type="button"
           :disabled="!recordQuantity.trim() || recording"
           class="px-3 py-1.5 text-sm rounded-lg bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-50 disabled:cursor-not-allowed"
           :title="$t('asset-usage-record-submit-usage-title')"
@@ -285,6 +286,7 @@ function formatDelta(delta: string): string {
           {{ $t('asset-usage-record-submit') }}
         </button>
         <button
+          type="button"
           :disabled="!recordQuantity.trim() || recording"
           class="px-3 py-1.5 text-sm rounded-lg border border-status-success/40 text-status-success hover:bg-status-success/10 disabled:opacity-50 disabled:cursor-not-allowed"
           :title="$t('asset-usage-record-submit-restock-title')"
@@ -321,6 +323,7 @@ function formatDelta(delta: string): string {
           @keyup.enter="submitAudit"
         />
         <button
+          type="button"
           :disabled="!auditCount.trim() || auditing"
           class="px-3 py-1.5 text-sm rounded-lg border border-default text-primary hover:border-strong disabled:opacity-50 disabled:cursor-not-allowed"
           @click="submitAudit"
@@ -405,6 +408,7 @@ function formatDelta(delta: string): string {
     </div>
 
     <button
+      type="button"
       v-if="hasMoreUsage"
       :disabled="loading"
       class="self-start text-sm text-accent hover:underline disabled:opacity-50"

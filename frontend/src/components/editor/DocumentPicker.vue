@@ -83,6 +83,7 @@ onMounted(async () => {
 
         <div v-else class="flex flex-col gap-0.5">
           <button
+            type="button"
             v-for="doc in filteredPages"
             :key="doc.uuid"
             @click="selectDoc({ uuid: doc.uuid, title: doc.title })"

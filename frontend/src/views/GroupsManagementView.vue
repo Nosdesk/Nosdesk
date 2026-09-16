@@ -237,6 +237,7 @@ const onPanelClose = () => {
             <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('groups-mgmt-subtitle') }}</p>
           </div>
           <button
+            type="button"
             @click="openCreateModal"
             class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
           >
@@ -292,6 +293,7 @@ const onPanelClose = () => {
             @update:model-value="onSortFieldChange"
           />
           <button
+            type="button"
             @click="toggleSortDirection"
             class="p-1.5 border border-default rounded-lg bg-surface-alt hover:border-strong hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
             :title="sortAsc ? $t('groups-mgmt-sort-ascending') : $t('groups-mgmt-sort-descending')"
@@ -352,6 +354,7 @@ const onPanelClose = () => {
               <!-- Actions -->
               <div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
                 <button
+                  type="button"
                   @click.stop="navigateToConfiguration(group)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md sm:rounded-lg transition-colors"
                   :title="$t('groups-mgmt-action-open-full-page')"
@@ -359,6 +362,7 @@ const onPanelClose = () => {
                   <Icon name="settings" />
                 </button>
                 <button
+                  type="button"
                   @click.stop="confirmDelete(group)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
                   :title="$t('groups-mgmt-action-delete')"
@@ -480,6 +484,7 @@ const onPanelClose = () => {
           {{ $t('groups-mgmt-action-cancel') }}
         </button>
         <button
+          type="button"
           @click="deleteGroup"
           :disabled="isSaving"
           class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"

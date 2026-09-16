@@ -26,6 +26,7 @@
       <!-- Method Choice -->
       <div v-if="mfaMethod === 'choose'" class="flex flex-col gap-4">
         <button
+          type="button"
           @click="mfaMethod = 'totp'"
           class="flex flex-row items-center gap-3 sm:gap-4 p-4 sm:p-5 bg-surface border border-default rounded-lg hover:bg-surface-hover hover:border-accent transition-colors text-left w-full"
         >
@@ -42,6 +43,7 @@
         </button>
 
         <button
+          type="button"
           @click="mfaMethod = 'passkey'"
           class="flex flex-row items-center gap-3 sm:gap-4 p-4 sm:p-5 bg-surface border border-default rounded-lg hover:bg-surface-hover hover:border-accent transition-colors text-left w-full"
         >
@@ -94,6 +96,7 @@
         </div>
 
         <button
+          type="button"
           @click="mfaMethod = 'passkey-additional'"
           class="flex flex-row items-center gap-3 sm:gap-4 p-4 bg-surface border border-default rounded-lg hover:bg-surface-hover hover:border-accent transition-colors text-left w-full"
         >
@@ -131,6 +134,7 @@
         </div>
 
         <button
+          type="button"
           @click="mfaMethod = 'totp-additional'"
           class="flex flex-row items-center gap-3 sm:gap-4 p-4 bg-surface border border-default rounded-lg hover:bg-surface-hover hover:border-accent transition-colors text-left w-full"
         >

@@ -395,6 +395,7 @@ const formatLastUpdated = (dateString: string): string => {
             {{ error }}
           </p>
           <button
+            type="button"
             @click="loadDevices(1, searchQuery, false)"
             class="mt-3 px-4 py-2 bg-status-error text-white rounded-md hover:opacity-90 transition-colors text-sm"
           >
@@ -545,7 +546,7 @@ const formatLastUpdated = (dateString: string): string => {
                   <span v-else class="text-xs text-tertiary">-</span>
                 </td>
                 <td class="px-4 py-3 text-right">
-                  <button class="text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors">
+                  <button type="button" class="text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors">
                     Select
                   </button>
                 </td>

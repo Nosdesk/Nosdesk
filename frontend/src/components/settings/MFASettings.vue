@@ -785,6 +785,7 @@ defineExpose({
                             class="bg-surface/50 rounded-lg border border-default/20 p-4"
                         >
                             <button
+                                type="button"
                                 @click="showSecret = !showSecret"
                                 class="flex items-center gap-2 text-sm text-tertiary hover:text-primary transition-colors"
                             >
@@ -819,6 +820,7 @@ defineExpose({
                                             }}</code
                                         >
                                         <button
+                                            type="button"
                                             @click="copySecret"
                                             :disabled="secretCopied"
                                             class="px-3 py-1 text-xs rounded transition-all duration-200 flex-shrink-0"
@@ -942,6 +944,7 @@ defineExpose({
                     <!-- Copy + Download pair -->
                     <div class="flex gap-2">
                         <button
+                            type="button"
                             @click="copyBackupCodes"
                             class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-default bg-surface text-sm font-medium text-secondary hover:bg-surface-hover transition-colors"
                         >
@@ -952,6 +955,7 @@ defineExpose({
                             {{ backupCodesCopied ? $t('settings-mfa-copied-button') : $t('settings-mfa-copy-button') }}
                         </button>
                         <button
+                            type="button"
                             @click="downloadBackupCodes"
                             class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-default bg-surface text-sm font-medium text-secondary hover:bg-surface-hover transition-colors"
                             :title="$t('settings-mfa-backup-codes-download-tooltip')"

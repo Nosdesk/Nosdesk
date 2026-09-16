@@ -53,6 +53,7 @@ defineEmits<{
       </template>
       <template #headerActions>
         <button
+          type="button"
           @click.stop="$emit('remove')"
           :disabled="removeDisabled"
           class="p-1 flex-shrink-0 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded transition-colors disabled:opacity-50"

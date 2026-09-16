@@ -188,6 +188,7 @@ const glyphSize = computed(() => (props.compact ? 12 : 14))
             {{ option.label }}
           </div>
           <button
+            type="button"
             v-else
             @click="selectOption(option)"
             class="w-full px-3 py-2.5 md:py-2 min-h-[44px] md:min-h-0 text-left text-primary hover:bg-surface-hover active:bg-surface-alt transition-colors flex items-center gap-2.5"

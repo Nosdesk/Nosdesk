@@ -580,6 +580,7 @@ onMounted(() => {
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
           <button
+            type="button"
             @click="showDeleteConfirm = true"
             class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
             :title="$t('admin-groups-config-delete-tooltip')"
@@ -587,6 +588,7 @@ onMounted(() => {
             <Icon name="trash" />
           </button>
           <button
+            type="button"
             @click="emit('close')"
             class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
             :title="$t('admin-groups-config-close-tooltip')"
@@ -616,6 +618,7 @@ onMounted(() => {
             </div>
             <div class="flex items-center gap-3 text-sm flex-shrink-0">
               <button
+                type="button"
                 @click="unmanageGroup"
                 :disabled="isUnmanaging"
                 class="text-secondary hover:text-primary transition-colors disabled:opacity-50"
@@ -854,6 +857,7 @@ onMounted(() => {
                 </div>
                 <div class="flex justify-end pt-2">
                   <button
+                    type="button"
                     @click="saveMembers"
                     :disabled="savingMembers || !hasMemberChanges"
                     class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
@@ -920,6 +924,7 @@ onMounted(() => {
               </div>
               <div class="flex justify-end pt-2">
                 <button
+                  type="button"
                   @click="saveDevices"
                   :disabled="savingDevices || !hasDeviceChanges"
                   class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
@@ -986,6 +991,7 @@ onMounted(() => {
               </div>
               <div class="flex justify-end pt-2">
                 <button
+                  type="button"
                   @click="saveIncludes"
                   :disabled="savingIncludes || !hasIncludeChanges"
                   class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
@@ -1054,6 +1060,7 @@ onMounted(() => {
             {{ $t('admin-groups-config-cancel') }}
           </button>
           <button
+            type="button"
             @click="deleteGroup"
             :disabled="isDeleting"
             class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"

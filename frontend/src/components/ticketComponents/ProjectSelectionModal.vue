@@ -209,6 +209,7 @@ const selectProject = (project: Project) => {
                   <!-- Action -->
                   <div class="col-span-1 text-right">
                     <button
+                      type="button"
                       v-if="!isAdded(project.id)"
                       class="text-accent hover:text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors"
                     >

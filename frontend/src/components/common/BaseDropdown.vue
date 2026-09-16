@@ -358,6 +358,7 @@ watch(highlightedIndex, async (index) => {
         @keydown="handleKeydown"
       >
         <button
+          type="button"
           v-for="(option, index) in options"
           :key="option.value"
           role="option"

@@ -141,6 +141,7 @@ onMounted(async () => {
         <div v-else class="flex flex-col gap-0.5">
           <!-- Root level option -->
           <button
+            type="button"
             @click="selectDestination(null)"
             class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-sm transition-colors"
             :class="[
@@ -159,6 +160,7 @@ onMounted(async () => {
 
           <!-- Pages -->
           <button
+            type="button"
             v-for="fp in flatPages"
             :key="fp.id"
             @click="!fp.disabled && selectDestination(fp.id)"

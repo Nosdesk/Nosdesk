@@ -2031,6 +2031,7 @@ defineExpose({
             <!-- Type Dropdown -->
             <div class="relative">
                 <button
+                    type="button"
                     ref="typeButtonRef"
                     @click="toggleTypeMenu"
                     class="toolbar-button"
@@ -2073,6 +2074,7 @@ defineExpose({
                         tabindex="-1"
                     >
                         <button
+                            type="button"
                             @click="
                                 setParagraph();
                                 showTypeMenu = false;
@@ -2083,6 +2085,7 @@ defineExpose({
                             {{ $t('editor-type-menu-plain') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 setHeading(1);
                                 showTypeMenu = false;
@@ -2093,6 +2096,7 @@ defineExpose({
                             {{ $t('editor-type-menu-heading-1') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 setHeading(2);
                                 showTypeMenu = false;
@@ -2103,6 +2107,7 @@ defineExpose({
                             {{ $t('editor-type-menu-heading-2') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 setHeading(3);
                                 showTypeMenu = false;
@@ -2113,6 +2118,7 @@ defineExpose({
                             {{ $t('editor-type-menu-heading-3') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 toggleBlockquote();
                                 showTypeMenu = false;
@@ -2123,6 +2129,7 @@ defineExpose({
                             {{ $t('editor-type-menu-blockquote') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 toggleCodeBlock();
                                 showTypeMenu = false;
@@ -2139,7 +2146,7 @@ defineExpose({
             <div class="toolbar-divider"></div>
 
             <!-- Formatting Buttons -->
-            <button @click="toggleBold" class="toolbar-button" :title="$t('editor-toolbar-bold')" :aria-label="$t('editor-toolbar-bold')">
+            <button type="button" @click="toggleBold" class="toolbar-button" :title="$t('editor-toolbar-bold')" :aria-label="$t('editor-toolbar-bold')">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -2155,7 +2162,7 @@ defineExpose({
                     <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
                 </svg>
             </button>
-            <button @click="toggleItalic" class="toolbar-button" :title="$t('editor-toolbar-italic')" :aria-label="$t('editor-toolbar-italic')">
+            <button type="button" @click="toggleItalic" class="toolbar-button" :title="$t('editor-toolbar-italic')" :aria-label="$t('editor-toolbar-italic')">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -2177,6 +2184,7 @@ defineExpose({
 
             <!-- List buttons -->
             <button
+                type="button"
                 @click="toggleBulletList"
                 class="toolbar-button"
                 :title="$t('editor-toolbar-bullet-list')"
@@ -2202,6 +2210,7 @@ defineExpose({
                 </svg>
             </button>
             <button
+                type="button"
                 @click="toggleOrderedList"
                 class="toolbar-button"
                 :title="$t('editor-toolbar-numbered-list')"
@@ -2232,6 +2241,7 @@ defineExpose({
             <!-- Insert Dropdown Menu with expanded options -->
             <div class="relative">
                 <button
+                    type="button"
                     ref="insertButtonRef"
                     @click="toggleInsertMenu"
                     class="toolbar-button"
@@ -2273,6 +2283,7 @@ defineExpose({
                         tabindex="-1"
                     >
                         <button
+                            type="button"
                             @click="
                                 toggleBulletList();
                                 showInsertMenu = false;
@@ -2283,6 +2294,7 @@ defineExpose({
                             {{ $t('editor-insert-menu-bullet-list') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 toggleOrderedList();
                                 showInsertMenu = false;
@@ -2293,6 +2305,7 @@ defineExpose({
                             {{ $t('editor-insert-menu-numbered-list') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 toggleBlockquote();
                                 showInsertMenu = false;
@@ -2303,6 +2316,7 @@ defineExpose({
                             {{ $t('editor-insert-menu-blockquote') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 toggleCodeBlock();
                                 showInsertMenu = false;
@@ -2313,6 +2327,7 @@ defineExpose({
                             {{ $t('editor-insert-menu-code-block') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 insertLink();
                                 showInsertMenu = false;
@@ -2323,6 +2338,7 @@ defineExpose({
                             {{ $t('editor-insert-menu-link') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 showDocumentPicker = true;
                                 showInsertMenu = false;
@@ -2333,6 +2349,7 @@ defineExpose({
                             {{ $t('editor-insert-menu-embed-document') }}
                         </button>
                         <button
+                            type="button"
                             @click="
                                 showInsertMenu = false;
                                 imagePickerRef?.click();
@@ -2343,6 +2360,7 @@ defineExpose({
                             {{ $t('editor-insert-menu-image') }}
                         </button>
                         <button
+                            type="button"
                             v-if="supportsCameraCapture"
                             @click="
                                 showInsertMenu = false;
@@ -2384,7 +2402,7 @@ defineExpose({
             <div class="toolbar-divider"></div>
 
             <!-- Undo/Redo Buttons -->
-            <button @click="undoEdit" class="toolbar-button" :title="$t('editor-toolbar-undo')" :aria-label="$t('editor-toolbar-undo')">
+            <button type="button" @click="undoEdit" class="toolbar-button" :title="$t('editor-toolbar-undo')" :aria-label="$t('editor-toolbar-undo')">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -2400,7 +2418,7 @@ defineExpose({
                     <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
                 </svg>
             </button>
-            <button @click="redoEdit" class="toolbar-button" :title="$t('editor-toolbar-redo')" :aria-label="$t('editor-toolbar-redo')">
+            <button type="button" @click="redoEdit" class="toolbar-button" :title="$t('editor-toolbar-redo')" :aria-label="$t('editor-toolbar-redo')">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -2419,6 +2437,7 @@ defineExpose({
 
             <!-- Revision History Button -->
             <button
+                type="button"
                 v-if="!hideRevisionHistory"
                 @click="toggleRevisionHistory"
                 class="toolbar-button"

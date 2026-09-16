@@ -1160,12 +1160,14 @@ const debugMeta = computed(() => ({
 
         <div class="mt-8 flex gap-4 justify-center">
           <button
+            type="button"
             @click="goBack"
             class="px-4 py-2 text-sm font-medium text-secondary hover:text-primary transition-colors"
           >
             &larr; {{ $t('error-page-go-back') }}
           </button>
           <button
+            type="button"
             @click="goHome"
             class="px-4 py-2 text-sm font-medium bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors"
           >
