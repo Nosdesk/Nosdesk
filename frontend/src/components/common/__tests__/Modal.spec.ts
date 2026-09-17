@@ -51,10 +51,14 @@ describe('Modal', () => {
     expect(closes).toHaveLength(1)
   })
 
-  it('hides the rest of the page from assistive tech while open', async () => {
+  it('hides the rest of the page from assistive tech while open, except live regions', async () => {
+    const live = document.createElement('div')
+    live.setAttribute('aria-live', 'polite')
+    document.body.appendChild(live)
     const { outside } = mountModal({ show: true })
     await settle()
     expect(outside.getAttribute('aria-hidden')).toBe('true')
+    expect(live.getAttribute('aria-hidden')).toBeNull()
   })
 
   it('closes from the close button and reports a description when given', async () => {

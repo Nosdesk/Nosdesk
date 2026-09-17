@@ -86,8 +86,12 @@ test.describe('accessibility floor', () => {
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
     await expect(dialog).toHaveAccessibleName('Add widget')
-    // Everything outside the dialog is hidden from assistive tech.
-    await expect(page.locator('#app')).toHaveAttribute('aria-hidden', 'true')
+    // Everything outside the dialog is hidden from assistive tech. The
+    // aria-hidden library keeps live regions reachable, and the app has
+    // three inside #app, so the marks land on the page chrome rather than
+    // on #app itself; the sidebar nav is a representative sibling.
+    const nav = page.locator('nav').first()
+    await expect(nav).toHaveAttribute('aria-hidden', 'true')
     // Focus starts inside and Tab never leaves.
     await expect.poll(() => page.evaluate(() => document.activeElement?.closest('[role="dialog"]') !== null)).toBe(true)
     for (let i = 0; i < 12; i++) await page.keyboard.press('Tab')
@@ -96,7 +100,7 @@ test.describe('accessibility floor', () => {
 
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
-    await expect(page.locator('#app')).not.toHaveAttribute('aria-hidden', 'true')
+    await expect(nav).not.toHaveAttribute('aria-hidden', 'true')
     // Focus returns to the opener.
     await expect(opener).toBeFocused()
   })
