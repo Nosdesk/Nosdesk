@@ -112,6 +112,23 @@
   --text-metric-lg--font-weight: 600;
   --text-metric-lg--letter-spacing: -0.025em;
 
+  /* Reka UI surfaces animate from their `data-state` attribute
+     (`delayed-open` / `open` / `closed`); Presence keeps the element
+     mounted until the closed animation ends. One pair of keyframes
+     serves every floating surface, scaled from the popper's
+     transform origin so it grows out of its trigger. Reduced-motion
+     users get an opacity-only fade (below, outside @theme). */
+  --animate-reka-fade-in: reka-fade-in 120ms ease-out;
+  --animate-reka-fade-out: reka-fade-out 100ms ease-in;
+  @keyframes reka-fade-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes reka-fade-out {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(0.96); }
+  }
+
   /* Centralised z-index scale, mirroring `src/constants/zIndex.ts`.
      Tailwind 4 doesn't have a `@theme` namespace for z-index
      (only color, font, spacing, radius, shadow, etc.), so these
@@ -266,6 +283,12 @@
    These are the default values that get overwritten
    by the theme system's CSS injector
    ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-reka-fade-in, .animate-reka-fade-out {
+    animation-duration: 1ms;
+  }
+}
+
 @layer theme {
   :root {
     /* Background layers */
