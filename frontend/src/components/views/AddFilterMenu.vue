@@ -33,7 +33,7 @@ import MenuItem from '@/components/common/MenuItem.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import FilterValueList from '@/components/views/FilterValueList.vue'
 import { useMenuKeyboardNav, type KeyboardNavItem } from '@/composables/useMenuKeyboardNav'
-import type { PopoverAnchor } from '@/composables/usePopover'
+import type { PopoverAnchor } from '@/composables/popoverAnchor'
 import type { FilterOption, FacetKind } from '@/composables/useListFilters'
 
 /** Minimal descriptor the menu needs to render and route events.

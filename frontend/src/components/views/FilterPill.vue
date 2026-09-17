@@ -20,7 +20,7 @@ import { computed, ref } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import FilterValueList from '@/components/views/FilterValueList.vue'
-import type { PopoverAnchor } from '@/composables/usePopover'
+import type { PopoverAnchor } from '@/composables/popoverAnchor'
 import type { FilterOption, FacetKind } from '@/composables/useListFilters'
 
 const props = defineProps<{

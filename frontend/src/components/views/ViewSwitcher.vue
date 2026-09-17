@@ -19,7 +19,7 @@ import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
 import { ICON_REGISTRY, type IconName } from '@/components/common/icons'
-import type { PopoverAnchor } from '@/composables/usePopover'
+import type { PopoverAnchor } from '@/composables/popoverAnchor'
 
 const fluent = useFluent()
 

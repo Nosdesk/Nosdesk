@@ -159,7 +159,7 @@ import {
 } from '@nosdesk/core/services/cannedResponsesService';
 import { highlightTerms } from '@nosdesk/core/utils/highlight';
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue';
-import type { PopoverAnchor } from '@/composables/usePopover';
+import type { PopoverAnchor } from '@/composables/popoverAnchor';
 
 const { $t } = useFluent();
 

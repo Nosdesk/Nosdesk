@@ -16,7 +16,7 @@ import Icon from '@/components/common/Icon.vue'
 import MenuItem from '@/components/common/MenuItem.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import { useMenuKeyboardNav, type KeyboardNavItem } from '@/composables/useMenuKeyboardNav'
-import type { PopoverAnchor } from '@/composables/usePopover'
+import type { PopoverAnchor } from '@/composables/popoverAnchor'
 import type { GroupOption } from '@/composables/useListGrouping'
 import { NONE_AXIS_KEY } from '@/composables/useListGrouping'
 

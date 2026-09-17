@@ -22,7 +22,7 @@ import { computed, toRef } from 'vue'
 import Popover from './Popover.vue'
 import { useScrollLock } from '@/composables/useScrollLock'
 import { useResponsiveSheet } from '@/composables/useResponsiveSheet'
-import type { PopoverAnchor, PopoverPlacement } from '@/composables/usePopover'
+import type { PopoverAnchor, PopoverPlacement } from '@/composables/popoverAnchor'
 
 interface Props {
   open: boolean
