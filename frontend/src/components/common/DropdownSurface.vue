@@ -15,6 +15,7 @@ import { DropdownMenuContent, DropdownMenuPortal, DropdownMenuRoot } from 'reka-
 import {
   anchorElementOf,
   floatingFrom,
+  restoreFocusTo,
   type PopoverAnchor,
   type PopoverPlacement,
 } from '@/composables/popoverAnchor'
@@ -54,10 +55,16 @@ function onOpenChange(open: boolean) {
 
 // See Popover: the anchor is not a Reka trigger, so a pointerdown on it
 // must not count as outside, or a toggle button would close-then-reopen.
+let closedByOutsidePointer = false
 function onPointerDownOutside(event: CustomEvent<{ originalEvent: PointerEvent }>) {
   const target = event.detail.originalEvent.target as Node | null
   const el = anchorElement()
   if (target && el?.contains(target)) event.preventDefault()
+  else closedByOutsidePointer = true
+}
+
+function onOpenAutoFocus() {
+  closedByOutsidePointer = false
 }
 
 // Focus always moves into the menu on open: the arrow keys, typeahead and
@@ -68,7 +75,8 @@ function onPointerDownOutside(event: CustomEvent<{ originalEvent: PointerEvent }
 // for API symmetry with Popover but does not keep focus on the trigger.
 function onCloseAutoFocus(event: Event) {
   event.preventDefault()
-  anchorElement()?.focus?.()
+  if (!closedByOutsidePointer) restoreFocusTo(props.anchor)
+  closedByOutsidePointer = false
 }
 
 useEventListener(
@@ -98,6 +106,7 @@ const contentStyle = computed(() => ({
         :side-offset="offset"
         :collision-padding="8"
         @pointer-down-outside="onPointerDownOutside"
+        @open-auto-focus="onOpenAutoFocus"
         @close-auto-focus="onCloseAutoFocus"
       >
         <div

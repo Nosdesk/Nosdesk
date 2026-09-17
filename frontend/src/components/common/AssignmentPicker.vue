@@ -1,6 +1,27 @@
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount, nextTick, watch } from 'vue'
+/**
+ * Multi-principal picker (users and groups) with server-side search, on
+ * Reka's Combobox. Reka owns the combobox ARIA (`role=combobox` input
+ * with `aria-expanded`/`aria-controls`/`aria-activedescendant`, grouped
+ * `role=option` rows), the arrow/Home/End/Enter/Escape model, the
+ * positioned popup (above the input, flipping when there is no room)
+ * and the dismiss layer, which is how it stays correct inside a modal.
+ * Filtering is server-side (`ignoreFilter`); a pick adds a chip and drops
+ * the row from the list, and the list stays open for the next pick.
+ */
+import { ref, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
+import {
+  ComboboxAnchor,
+  ComboboxContent,
+  ComboboxGroup,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxLabel,
+  ComboboxPortal,
+  ComboboxRoot,
+  ComboboxViewport,
+} from 'reka-ui'
 import { useAssignmentPickerQueries } from '@/composables/useAssignmentPickerQueries'
 import Icon from '@/components/common/Icon.vue'
 
@@ -25,33 +46,8 @@ const emit = defineEmits<{
 }>()
 
 const searchQuery = ref('')
-const showDropdown = ref(false)
-
+const isOpen = ref(false)
 const { allGroups, searchedUsers, loading } = useAssignmentPickerQueries(searchQuery)
-
-// The dropdown uses the native HTML `popover` attribute + top-layer.
-// Because top-layer paints above all stacking contexts (same layer
-// `<dialog>.showModal()` renders in), we don't need `<Teleport>`,
-// z-index fiddling, or any awareness of the surrounding modal. We
-// still position it manually via `position: fixed` + the input's
-// bounding rect, reapplied on scroll/resize so anchoring stays
-// correct if the modal body scrolls.
-const inputWrapperRef = ref<HTMLElement | null>(null)
-const popoverRef = ref<HTMLElement | null>(null)
-const dropdownPosition = ref({ left: 0, bottom: 0, width: 0 })
-
-function updateDropdownPosition() {
-  const el = inputWrapperRef.value
-  if (!el) return
-  const r = el.getBoundingClientRect()
-  dropdownPosition.value = {
-    left: r.left,
-    width: r.width,
-    // Opens above the input: `bottom` from viewport bottom equals
-    // viewport height minus the input's top edge (plus a small gap).
-    bottom: window.innerHeight - r.top + 4,
-  }
-}
 
 const selectedSet = computed(() => {
   const set = new Set<string>()
@@ -83,10 +79,6 @@ const emptyStateKey = computed<string | null>(() => {
   return 'assignment-picker-empty-none'
 })
 
-const onSearchInput = () => {
-  showDropdown.value = true
-}
-
 const addItem = (item: SelectedPrincipal) => {
   emit('update:selectedItems', [...props.selectedItems, item])
 }
@@ -95,146 +87,117 @@ const removeItem = (item: SelectedPrincipal) => {
   emit('update:selectedItems', props.selectedItems.filter(i => !(i.type === item.type && i.id === item.id)))
 }
 
-const selectGroup = (group: { id: number; name: string }) => {
-  addItem({
-    type: 'group',
-    id: String(group.id),
-    name: group.name,
-  })
-}
-
-const selectUser = (user: { uuid: string; name: string; avatar_url?: string | null }) => {
-  addItem({
-    type: 'user',
-    id: user.uuid,
-    name: user.name,
-    avatar: user.avatar_url,
-  })
-}
-
-const onFocus = () => {
-  showDropdown.value = true
-}
-
-const onBlur = () => {
-  // Small delay so click events on dropdown items fire first
-  setTimeout(() => {
-    showDropdown.value = false
-  }, 200)
-}
-
-// Sync the native popover state with our `showDropdown` ref and keep
-// the dropdown anchored to the input while it's open. Scroll listener
-// is in capture phase so a modal body's scroll still triggers a
-// reposition even if the handler stops propagation.
-watch(showDropdown, async (open) => {
-  if (open) {
-    await nextTick()
-    updateDropdownPosition()
-    popoverRef.value?.showPopover?.()
-    window.addEventListener('scroll', updateDropdownPosition, true)
-    window.addEventListener('resize', updateDropdownPosition)
+// Item values are composite keys; the combobox model is never retained
+// (a pick becomes a chip and leaves the list), so every update carries
+// exactly the key that was just chosen.
+function onPick(next: unknown) {
+  const keys = Array.isArray(next) ? (next as string[]) : []
+  const key = keys[keys.length - 1]
+  if (!key) return
+  const [type, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
+  if (type === 'group') {
+    const group = allGroups.value.find(g => String(g.id) === id)
+    if (group) addItem({ type: 'group', id: String(group.id), name: group.name })
   } else {
-    popoverRef.value?.hidePopover?.()
-    window.removeEventListener('scroll', updateDropdownPosition, true)
-    window.removeEventListener('resize', updateDropdownPosition)
+    const user = searchedUsers.value.find(u => u.uuid === id)
+    if (user) addItem({ type: 'user', id: user.uuid, name: user.name, avatar: user.avatar_url })
   }
-})
+}
 
-onBeforeUnmount(() => {
-  window.removeEventListener('scroll', updateDropdownPosition, true)
-  window.removeEventListener('resize', updateDropdownPosition)
-})
+const rowClass =
+  'w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] md:min-h-0 text-left hover:bg-surface-hover data-[highlighted]:bg-surface-hover transition-colors outline-none cursor-default'
 </script>
 
 <template>
   <div class="flex flex-col gap-2">
-    <!-- Search input + dropdown -->
-    <div ref="inputWrapperRef" class="relative">
-      <input
-        v-model="searchQuery"
-        :placeholder="placeholder"
-        @input="onSearchInput"
-        @focus="onFocus"
-        @blur="onBlur"
-        class="w-full px-3 py-2 text-sm rounded-lg border border-default bg-surface text-primary placeholder:text-tertiary focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent/30"
-      />
-    </div>
-
-    <!--
-      Native `popover` element. The browser promotes it to the top
-      layer (the same layer `<dialog>.showModal()` uses), which paints
-      above every ancestor stacking context, so we don't need
-      `<Teleport>`, a z-index token, or any knowledge of the
-      surrounding modal. `popover="manual"` means we control
-      show/hide ourselves; the @blur handler on the input closes it
-      after a short delay so dropdown clicks still register.
-    -->
-    <div
-      ref="popoverRef"
-      popover="manual"
-      class="assignment-picker-popover max-h-60 overflow-y-auto rounded-lg border border-default bg-surface shadow-lg"
-      :style="{
-        left: `${dropdownPosition.left}px`,
-        width: `${dropdownPosition.width}px`,
-        bottom: `${dropdownPosition.bottom}px`,
-      }"
+    <ComboboxRoot
+      v-model:open="isOpen"
+      :model-value="[]"
+      multiple
+      ignore-filter
+      open-on-focus
+      open-on-click
+      highlight-on-hover
+      :reset-search-term-on-select="false"
+      :reset-search-term-on-blur="false"
+      @update:model-value="onPick"
     >
-        <div v-if="loading && !hasResults" class="px-3 py-4 text-xs text-tertiary text-center">
-          {{ $t('assignment-picker-loading') }}
-        </div>
+      <ComboboxAnchor class="relative">
+        <ComboboxInput
+          v-model="searchQuery"
+          :placeholder="placeholder"
+          :aria-label="placeholder"
+          class="w-full px-3 py-2 text-sm rounded-lg border border-default bg-surface text-primary placeholder:text-tertiary focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent/30"
+        />
+      </ComboboxAnchor>
 
-        <div v-else-if="emptyStateKey" class="px-3 py-4 text-xs text-tertiary text-center">
-          {{ $t(emptyStateKey) }}
-        </div>
-
-        <template v-else>
-          <!-- Groups section -->
-          <div v-if="filteredGroups.length > 0">
-            <div class="px-3 py-1.5 text-3xs font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
-              {{ $t('assignment-picker-section-groups') }}
+      <ComboboxPortal>
+        <ComboboxContent
+          position="popper"
+          side="top"
+          align="start"
+          :side-offset="4"
+          :collision-padding="8"
+          class="popover-inner assignment-picker-surface z-overlay max-h-60 overflow-y-auto rounded-lg border border-default bg-surface shadow-lg"
+          :style="{ width: 'var(--reka-combobox-trigger-width)', minWidth: '12rem' }"
+        >
+          <ComboboxViewport>
+            <div v-if="loading && !hasResults" class="px-3 py-4 text-xs text-tertiary text-center">
+              {{ $t('assignment-picker-loading') }}
             </div>
-            <button
-              type="button"
-              v-for="group in filteredGroups"
-              :key="`g-${group.id}`"
-              @mousedown.prevent="selectGroup(group)"
-              class="w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] md:min-h-0 text-left hover:bg-surface-hover transition-colors"
-            >
-              <Icon name="team" class="text-tertiary flex-shrink-0" />
-              <span class="text-sm text-primary truncate">{{ group.name }}</span>
-            </button>
-          </div>
 
-          <!-- Users section -->
-          <div v-if="filteredUsers.length > 0">
-            <div class="px-3 py-1.5 text-3xs font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
-              {{ $t('assignment-picker-section-users') }}
+            <div v-else-if="emptyStateKey" class="px-3 py-4 text-xs text-tertiary text-center">
+              {{ $t(emptyStateKey) }}
             </div>
-            <button
-              type="button"
-              v-for="user in filteredUsers"
-              :key="`u-${user.uuid}`"
-              @mousedown.prevent="selectUser(user)"
-              class="w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] md:min-h-0 text-left hover:bg-surface-hover transition-colors"
-            >
-              <div class="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                <img
-                  v-if="user.avatar_url"
-                  :src="user.avatar_url"
-                  :alt="user.name"
-                  class="w-full h-full object-cover"
-                />
-                <span v-else class="text-3xs font-medium text-accent">{{ user.name.charAt(0).toUpperCase() }}</span>
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="text-sm text-primary truncate">{{ user.name }}</div>
-                <div class="text-2xs text-tertiary truncate">{{ user.email }}</div>
-              </div>
-            </button>
-          </div>
-        </template>
-    </div>
+
+            <template v-else>
+              <ComboboxGroup v-if="filteredGroups.length > 0">
+                <ComboboxLabel class="block px-3 py-1.5 text-3xs font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
+                  {{ $t('assignment-picker-section-groups') }}
+                </ComboboxLabel>
+                <ComboboxItem
+                  v-for="group in filteredGroups"
+                  :key="`g-${group.id}`"
+                  :value="`group:${group.id}`"
+                  :text-value="group.name"
+                  :class="rowClass"
+                >
+                  <Icon name="team" class="text-tertiary flex-shrink-0" />
+                  <span class="text-sm text-primary truncate">{{ group.name }}</span>
+                </ComboboxItem>
+              </ComboboxGroup>
+
+              <ComboboxGroup v-if="filteredUsers.length > 0">
+                <ComboboxLabel class="block px-3 py-1.5 text-3xs font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
+                  {{ $t('assignment-picker-section-users') }}
+                </ComboboxLabel>
+                <ComboboxItem
+                  v-for="user in filteredUsers"
+                  :key="`u-${user.uuid}`"
+                  :value="`user:${user.uuid}`"
+                  :text-value="user.name"
+                  :class="rowClass"
+                >
+                  <div class="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    <img
+                      v-if="user.avatar_url"
+                      :src="user.avatar_url"
+                      :alt="user.name"
+                      class="w-full h-full object-cover"
+                    />
+                    <span v-else class="text-3xs font-medium text-accent">{{ user.name.charAt(0).toUpperCase() }}</span>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm text-primary truncate">{{ user.name }}</div>
+                    <div class="text-2xs text-tertiary truncate">{{ user.email }}</div>
+                  </div>
+                </ComboboxItem>
+              </ComboboxGroup>
+            </template>
+          </ComboboxViewport>
+        </ComboboxContent>
+      </ComboboxPortal>
+    </ComboboxRoot>
 
     <!-- Selected items as chips -->
     <div v-if="selectedItems.length > 0" class="flex flex-wrap gap-2">
@@ -263,24 +226,8 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
-<style scoped>
-/*
-  Reset the user-agent styling that browsers apply to any `[popover]`
-  element — centered `margin: auto`, a default padding, and a solid
-  border — so our Tailwind classes control the look. `position:
-  fixed` keeps the anchoring math (left / width / bottom) working in
-  the top layer.
-*/
-.assignment-picker-popover {
-  position: fixed;
-  margin: 0;
-  padding: 0;
-  border-width: 1px;
-  inset: auto;
-  min-width: 12rem;
-}
-
-.assignment-picker-popover:popover-open {
-  display: block;
+<style>
+.assignment-picker-surface {
+  transform-origin: var(--reka-combobox-content-transform-origin);
 }
 </style>

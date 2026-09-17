@@ -54,3 +54,18 @@ export function floatingFrom(anchor: PopoverAnchor, placement: PopoverPlacement)
 export function anchorElementOf(anchor: PopoverAnchor): HTMLElement | null {
   return anchor.type === 'element' ? anchor.element() : null
 }
+
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Where focus goes back to when a surface closes from the keyboard: the
+ * anchor itself when it is focusable, else the first focusable control
+ * inside it (consumers often anchor to a wrapper for width matching).
+ */
+export function restoreFocusTo(anchor: PopoverAnchor): void {
+  const el = anchorElementOf(anchor)
+  if (!el) return
+  const target = el.matches(FOCUSABLE) ? el : el.querySelector<HTMLElement>(FOCUSABLE)
+  target?.focus?.()
+}

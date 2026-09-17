@@ -25,6 +25,7 @@ import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui'
 import {
   anchorElementOf,
   floatingFrom,
+  restoreFocusTo,
   type PopoverAnchor,
   type PopoverPlacement,
 } from '@/composables/popoverAnchor'
@@ -72,21 +73,30 @@ function onOpenChange(open: boolean) {
 
 // The anchor is not a Reka trigger, so tell the dismiss layer a
 // pointerdown on it is not "outside": the consumer's own click handler
-// toggles, and closing here first would make every toggle re-open.
+// toggles, and closing here first would make every toggle re-open. A
+// genuine outside pointerdown is remembered so close does not pull
+// focus back from wherever the user just clicked.
+let closedByOutsidePointer = false
 function onPointerDownOutside(event: CustomEvent<{ originalEvent: PointerEvent }>) {
   const target = event.detail.originalEvent.target as Node | null
   const el = anchorElement()
   if (target && el?.contains(target)) event.preventDefault()
+  else closedByOutsidePointer = true
 }
 
 function onOpenAutoFocus(event: Event) {
+  closedByOutsidePointer = false
   if (!props.autoFocus) event.preventDefault()
 }
 
-// Reka restores focus to its trigger; ours is the anchor element.
+// Reka restores focus to its trigger; ours is the anchor element. Done
+// for keyboard closes (Escape, a pick) whether or not the surface took
+// focus on open: a filter input inside it may have, and focus must not
+// fall to the body.
 function onCloseAutoFocus(event: Event) {
   event.preventDefault()
-  if (props.autoFocus) anchorElement()?.focus?.()
+  if (!closedByOutsidePointer) restoreFocusTo(props.anchor)
+  closedByOutsidePointer = false
 }
 
 // Point anchors go stale on scroll; element anchors are tracked by
