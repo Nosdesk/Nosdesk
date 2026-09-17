@@ -494,6 +494,32 @@ test.describe('accessibility floor', () => {
     await expect(trigger).toHaveText(new RegExp(current))
   })
 
+  test('the assignee picker is a combobox over grouped options that closes on Escape', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    await page.locator('table tbody tr').first().dblclick()
+    await page.waitForURL(/\/tickets\/\d+/)
+    await page.waitForTimeout(3000)
+
+    const input = page.getByRole('combobox', { name: 'Assignable users' }).first()
+    await expect(input).toBeVisible()
+    await expect(input).toHaveAttribute('aria-expanded', 'false')
+    await input.click()
+    await expect(input).toHaveAttribute('aria-expanded', 'true')
+    const listbox = page.locator('#overlays [role="listbox"]')
+    await expect(listbox).toBeVisible()
+    await expect(listbox.getByRole('group').first()).toBeVisible()
+    expect(await listbox.getByRole('option').count()).toBeGreaterThan(0)
+    // Focus stays in the input; the highlighted row is its active descendant.
+    await expect(input).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(input).toHaveAttribute('aria-activedescendant', /.+/)
+    await expectNoSeriousViolations(page, '#overlays')
+    await page.keyboard.press('Escape')
+    await expect(listbox).toHaveCount(0)
+    await expect(input).toHaveAttribute('aria-expanded', 'false')
+    await expect(input).toBeFocused()
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

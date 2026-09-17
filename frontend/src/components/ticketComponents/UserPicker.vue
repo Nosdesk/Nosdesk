@@ -8,27 +8,39 @@
       loading, and the section data (Selected / You / Recent / All).
     * `useRecentUsers` owns the per-account LRU history persisted to
       localStorage, scoped per picker type.
-    * This component is a presentational shell: input + dropdown
-      chrome, keyboard navigation, and ARIA combobox wiring.
+    * This component is a presentational shell on Reka's Combobox,
+      which owns the combobox ARIA (`role=combobox` input with
+      `aria-expanded` / `aria-controls` / `aria-activedescendant`,
+      grouped `role=option` rows), the arrow / Home / End / Enter /
+      Escape model, the positioned popup and the dismiss layer.
 
-  Accessibility: implements the WAI-ARIA combobox pattern. Input
-  carries role="combobox" with aria-expanded / aria-controls /
-  aria-activedescendant; the dropdown is role="listbox"; section
-  containers are role="group" with aria-labelledby; rows are
-  role="option" with aria-selected.
+  Below `md` the trigger is a button and the list opens in a bottom
+  sheet with its own search input; the same Combobox root drives it,
+  its content rendered inline in the sheet.
 -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
+import {
+  ComboboxAnchor,
+  ComboboxContent,
+  ComboboxGroup,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxLabel,
+  ComboboxPortal,
+  ComboboxRoot,
+  ComboboxViewport,
+} from 'reka-ui'
 import UserAvatar from '@/components/UserAvatar.vue'
-
-const { $t } = useFluent()
 import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useUserPicker, type PickerUser, type UserPickerType } from '@/composables/useUserPicker'
+
+const { $t } = useFluent()
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -54,7 +66,7 @@ const emit = defineEmits<{
 }>()
 
 defineExpose({
-  focus: () => inputRef.value?.focus(),
+  focus: () => inputEl()?.focus(),
   clear: () => commitSelection(''),
 })
 
@@ -75,29 +87,43 @@ const picker = useUserPicker({
 // ---- Open / close state ----
 
 const isOpen = ref(false)
-const containerRef = ref<HTMLElement | null>(null)
-const inputRef = ref<HTMLInputElement | null>(null)
-const listboxRef = ref<HTMLElement | null>(null)
+const rootRef = ref<{ highlightSelected?: () => Promise<void> } | null>(null)
+const inputRef = ref<{ $el?: HTMLInputElement } | null>(null)
+const inputEl = () => inputRef.value?.$el ?? null
 
-const listboxId = useId()
+// What the input shows: the query while the list is open (it starts
+// blank so the placeholder invites typing), the selected name once it
+// closes (Reka resets it to `displayValue`).
+const inputText = ref('')
+watch(inputText, (text) => {
+  if (isOpen.value) picker.query.value = text
+})
 
-async function openDropdown() {
-  if (isOpen.value) return
-  isOpen.value = true
-  await picker.loadEligible()
-  await nextTick()
-  // Default selection: prefer the currently-selected row if it's in
-  // the dropdown; otherwise the first usable option. Skips group
-  // headers since they aren't focusable.
-  resetHighlight()
-  scheduleReposition()
-}
+// The sheet is portalled, so its input and rows sit outside the
+// combobox root in the DOM; Reka would read focus or a tap there as
+// "outside" and close. The sheet owns its own dismissal.
+const keepOpen = (event: Event) => event.preventDefault()
 
-function closeDropdown() {
-  if (!isOpen.value) return
-  isOpen.value = false
-  highlightedId.value = null
-  picker.query.value = ''
+// Reka hands the input its `aria-controls` id when the content mounts,
+// once, so in the sheet the input waits for the list.
+const sheetListMounted = ref(false)
+
+async function onOpenChange(open: boolean) {
+  isOpen.value = open
+  if (open) {
+    // Focus leaving the root (the sheet button to the sheet's input)
+    // would read as leaving the list and drop the highlight.
+    if (isMobile.value) (document.activeElement as HTMLElement | null)?.blur()
+    inputText.value = ''
+    picker.query.value = ''
+    await picker.loadEligible()
+    // The list may have opened empty (or from the sheet button, which
+    // skips Reka's own open path): point the highlight at the current
+    // user, or the first row.
+    await rootRef.value?.highlightSelected?.()
+  } else {
+    picker.query.value = ''
+  }
 }
 
 // ---- Selection ----
@@ -105,11 +131,16 @@ function closeDropdown() {
 function commitSelection(uuid: string, user?: PickerUser) {
   emit('update:modelValue', uuid)
   if (uuid && user) picker.remember(user)
-  closeDropdown()
+  if (isOpen.value) onOpenChange(false)
 }
 
-function selectUser(user: PickerUser) {
-  commitSelection(user.uuid, user)
+// Every option carries the user's uuid; the same person can sit in
+// more than one section, so the pick resolves to whichever row holds
+// that uuid.
+function onPick(value: unknown) {
+  if (typeof value !== 'string' || !value) return
+  const user = sections.value.flatMap((s) => s.rows).find((u) => u.uuid === value)
+  commitSelection(value, user)
 }
 
 function navigateToProfile() {
@@ -117,224 +148,24 @@ function navigateToProfile() {
   router.push(`/users/${props.modelValue}`)
 }
 
-// ---- Section flattening for keyboard navigation ----
+// ---- Sections ----
 
-// Each rendered option carries a stable id derived from its uuid +
-// section name. The flattened array drives ↑/↓ navigation and the
-// active-descendant ARIA wiring without coupling render order to
-// keyboard order.
-interface OptionRow {
-  id: string
-  user: PickerUser
-  section: 'selected' | 'you' | 'recent' | 'results'
-}
+type Section = 'selected' | 'you' | 'recent' | 'results'
 
-const optionRows = computed<OptionRow[]>(() => {
-  const rows: OptionRow[] = []
-  if (picker.selected.value && !picker.isFiltering.value) {
-    rows.push({
-      id: `${listboxId}-sel-${picker.selected.value.uuid}`,
-      user: picker.selected.value,
-      section: 'selected',
-    })
-  }
-  if (picker.currentUserRow.value && !picker.isFiltering.value) {
-    rows.push({
-      id: `${listboxId}-you-${picker.currentUserRow.value.uuid}`,
-      user: picker.currentUserRow.value,
-      section: 'you',
-    })
-  }
-  for (const r of picker.recent.value) {
-    rows.push({ id: `${listboxId}-rec-${r.uuid}`, user: r, section: 'recent' })
-  }
-  for (const r of picker.results.value) {
-    rows.push({ id: `${listboxId}-all-${r.uuid}`, user: r, section: 'results' })
-  }
-  return rows
+const sections = computed<{ key: Section; rows: PickerUser[] }[]>(() => {
+  const out: { key: Section; rows: PickerUser[] }[] = []
+  if (picker.selected.value && !picker.isFiltering.value) out.push({ key: 'selected', rows: [picker.selected.value] })
+  if (picker.currentUserRow.value && !picker.isFiltering.value) out.push({ key: 'you', rows: [picker.currentUserRow.value] })
+  if (picker.recent.value.length) out.push({ key: 'recent', rows: picker.recent.value })
+  if (picker.results.value.length) out.push({ key: 'results', rows: picker.results.value })
+  return out
 })
-
-const highlightedId = ref<string | null>(null)
-const highlightedIndex = computed(() =>
-  optionRows.value.findIndex((r) => r.id === highlightedId.value),
-)
-
-function resetHighlight() {
-  // Default to the current selection if visible, else first row.
-  if (picker.selected.value && !picker.isFiltering.value) {
-    highlightedId.value = `${listboxId}-sel-${picker.selected.value.uuid}`
-    return
-  }
-  highlightedId.value = optionRows.value[0]?.id ?? null
-}
-
-function moveHighlight(delta: number) {
-  const rows = optionRows.value
-  if (rows.length === 0) {
-    highlightedId.value = null
-    return
-  }
-  const current = highlightedIndex.value
-  const next = current < 0 ? (delta > 0 ? 0 : rows.length - 1) : (current + delta + rows.length) % rows.length
-  highlightedId.value = rows[next].id
-  scrollIntoView()
-}
-
-function jumpToEdge(direction: 'home' | 'end') {
-  const rows = optionRows.value
-  if (rows.length === 0) return
-  highlightedId.value = rows[direction === 'home' ? 0 : rows.length - 1].id
-  scrollIntoView()
-}
-
-function scrollIntoView() {
-  nextTick(() => {
-    const el = listboxRef.value?.querySelector<HTMLElement>(`#${CSS.escape(highlightedId.value ?? '')}`)
-    el?.scrollIntoView({ block: 'nearest' })
-  })
-}
-
-watch(optionRows, (rows) => {
-  // If the highlighted row disappears (filter changed), default to
-  // the first remaining row instead of stranding focus.
-  if (!highlightedId.value) return
-  if (!rows.some((r) => r.id === highlightedId.value)) {
-    highlightedId.value = rows[0]?.id ?? null
-  }
-})
-
-// ---- Keyboard handling ----
-
-function onKeydown(event: KeyboardEvent) {
-  switch (event.key) {
-    case 'ArrowDown':
-      event.preventDefault()
-      if (!isOpen.value) {
-        openDropdown()
-      } else {
-        moveHighlight(1)
-      }
-      break
-    case 'ArrowUp':
-      event.preventDefault()
-      if (!isOpen.value) {
-        openDropdown()
-      } else {
-        moveHighlight(-1)
-      }
-      break
-    case 'Home':
-      if (isOpen.value) {
-        event.preventDefault()
-        jumpToEdge('home')
-      }
-      break
-    case 'End':
-      if (isOpen.value) {
-        event.preventDefault()
-        jumpToEdge('end')
-      }
-      break
-    case 'Enter': {
-      event.preventDefault()
-      const row = optionRows.value.find((r) => r.id === highlightedId.value)
-      if (row) selectUser(row.user)
-      break
-    }
-    case 'Escape':
-      if (isOpen.value) {
-        event.preventDefault()
-        closeDropdown()
-      }
-      break
-    case 'Tab':
-      // Standard combobox behaviour: Tab with a highlighted option
-      // confirms the selection (per WAI-ARIA APG). Without highlight,
-      // Tab just dismisses.
-      if (isOpen.value) {
-        const row = optionRows.value.find((r) => r.id === highlightedId.value)
-        if (row && row.user.uuid !== props.modelValue) {
-          selectUser(row.user)
-        } else {
-          closeDropdown()
-        }
-      }
-      break
-  }
-}
-
-// ---- Click-outside dismiss (desktop) ----
-
-function onDocumentClick(event: MouseEvent) {
-  if (!isOpen.value || isMobile.value) return
-  const target = event.target as Node
-  if (containerRef.value?.contains(target)) return
-  if (listboxRef.value?.contains(target)) return
-  closeDropdown()
-}
-
-onMounted(() => document.addEventListener('mousedown', onDocumentClick))
-onUnmounted(() => document.removeEventListener('mousedown', onDocumentClick))
-
-// ---- Desktop dropdown positioning (fixed below/above input) ----
-
-const menuStyle = ref({ top: '0px', left: '0px', width: '0px', maxHeight: '320px' })
-
-function reposition() {
-  if (!containerRef.value || isMobile.value) return
-  const rect = containerRef.value.getBoundingClientRect()
-  const viewportH = window.innerHeight
-  const desiredMax = 360
-  const spaceBelow = viewportH - rect.bottom
-  const spaceAbove = rect.top
-  const openUpward = spaceBelow < 240 && spaceAbove > spaceBelow
-  const maxHeight = Math.min(desiredMax, openUpward ? spaceAbove - 16 : spaceBelow - 16)
-  const top = openUpward ? rect.top - 4 - maxHeight : rect.bottom + 4
-  menuStyle.value = {
-    top: `${Math.max(8, top)}px`,
-    left: `${rect.left}px`,
-    width: `${Math.max(rect.width, 280)}px`,
-    maxHeight: `${maxHeight}px`,
-  }
-}
-
-let scrollHandler: (() => void) | null = null
-function scheduleReposition() {
-  reposition()
-  if (!scrollHandler) {
-    scrollHandler = () => isOpen.value && !isMobile.value && reposition()
-    window.addEventListener('scroll', scrollHandler, true)
-    window.addEventListener('resize', scrollHandler)
-  }
-}
-
-onUnmounted(() => {
-  if (scrollHandler) {
-    window.removeEventListener('scroll', scrollHandler, true)
-    window.removeEventListener('resize', scrollHandler)
-  }
-})
-
-// ---- Display helpers ----
-
-const inputDisplay = computed({
-  get: () => (isOpen.value ? picker.query.value : picker.selectedDisplayName.value),
-  set: (v: string) => {
-    picker.query.value = v
-  },
-})
-
-function onFocus() {
-  openDropdown()
-  // Select the input contents so typing replaces the selected name
-  // rather than appending to it.
-  setTimeout(() => inputRef.value?.select(), 0)
-}
+const hasRows = computed(() => sections.value.length > 0)
 
 function emptyHint(): string {
   if (picker.isLoading.value) return ''
   if (!picker.isFiltering.value) {
-    if (optionRows.value.length === 0) {
+    if (!hasRows.value) {
       return props.type === 'assignee'
         ? $t('ticket-picker-user-empty-assignees')
         : $t('ticket-picker-user-empty-users')
@@ -344,7 +175,7 @@ function emptyHint(): string {
   return $t('ticket-picker-user-empty-search', { query: picker.query.value.trim() })
 }
 
-function sectionLabel(section: OptionRow['section']): string {
+function sectionLabel(section: Section): string {
   switch (section) {
     case 'selected':
       return props.type === 'assignee'
@@ -363,292 +194,262 @@ function sectionLabel(section: OptionRow['section']): string {
   }
 }
 
-// Visible section markers — used to render group headers above the
-// first row of each section. We compute "first row per section" so
-// the template can place a `<li role="presentation">` label without
-// inflating the row index.
-const sectionStarts = computed(() => {
-  const seen = new Set<OptionRow['section']>()
-  const starts: Record<string, boolean> = {}
-  for (const row of optionRows.value) {
-    if (!seen.has(row.section)) {
-      starts[row.id] = true
-      seen.add(row.section)
-    }
-  }
-  return starts
-})
+// Reka reads a group's label id once, before the label has mounted,
+// so the pair is wired by hand.
+const uid = useId()
+const labelId = (section: Section) => `user-picker-${uid}-${section}`
+
+const listLabel = computed(() =>
+  props.type === 'assignee' ? $t('ticket-picker-user-listbox-assignees') : $t('ticket-picker-user-listbox-users'),
+)
+const inputPlaceholder = computed(
+  () =>
+    props.placeholder ||
+    (props.type === 'assignee' ? $t('ticket-picker-user-placeholder-assignee') : $t('ticket-picker-user-placeholder-requester')),
+)
 </script>
 
 <template>
-  <div ref="containerRef" class="relative w-full">
+  <!-- `selection-behavior` reaches the listbox under the combobox:
+       re-picking the current user is still a pick, not a deselect. -->
+  <ComboboxRoot
+    ref="rootRef"
+    class="relative w-full"
+    :open="isOpen"
+    :model-value="modelValue"
+    ignore-filter
+    :open-on-focus="!isMobile"
+    :open-on-click="!isMobile"
+    highlight-on-hover
+    selection-behavior="replace"
+    @update:open="onOpenChange"
+    @update:model-value="onPick"
+  >
     <!-- Trigger row: avatar + input + clear. Desktop sizing is the
          compact-row scale used by the sidebar's property panel
          (32px row + 20px avatar); mobile keeps the WCAG 2.5.8
          touch-target floor (44px row + 28px avatar). -->
-    <div
-      class="flex items-center cursor-text"
-      :class="
-        compact
-          ? 'gap-1.5 px-1.5 min-h-7'
-          : 'gap-2 sm:gap-2.5 px-2.5 sm:px-3 min-h-[44px] sm:min-h-[32px]'
-      "
-      @click="inputRef?.focus()"
-    >
+    <ComboboxAnchor as-child>
       <div
-        class="flex-shrink-0 flex items-center justify-center"
-        :class="compact ? 'w-4 h-4' : 'w-7 h-7 sm:w-5 sm:h-5'"
+        class="flex items-center cursor-text"
+        :class="
+          compact
+            ? 'gap-1.5 px-1.5 min-h-7'
+            : 'gap-2 sm:gap-2.5 px-2.5 sm:px-3 min-h-[44px] sm:min-h-[32px]'
+        "
+        @click="isMobile ? onOpenChange(true) : inputEl()?.focus()"
       >
-        <button
-          v-if="modelValue && picker.selectedDisplayName.value && !isOpen"
-          type="button"
-          @click.stop="navigateToProfile"
-          class="rounded-full hover:ring-2 hover:ring-accent/50 transition-all cursor-pointer"
-          :title="$t('ticket-picker-user-view-profile', { name: picker.selectedDisplayName.value })"
-        >
-          <UserAvatar
-            :uuid="modelValue"
-            :fallbackName="picker.selected.value?.name"
-            :fallbackAvatar="picker.selected.value?.avatar_thumb || picker.selected.value?.avatar_url || null"
-            :showName="false"
-            :size="compact ? 'xxs' : 'xs'"
-            :clickable="false"
-          />
-        </button>
         <div
-          v-else
-          class="rounded-full bg-surface border border-subtle flex items-center justify-center transition-colors"
-          :class="[
-            compact ? 'w-4 h-4' : 'w-7 h-7 sm:w-5 sm:h-5',
-            { 'border-accent/50 bg-accent/5': isOpen },
-          ]"
+          class="flex-shrink-0 flex items-center justify-center"
+          :class="compact ? 'w-4 h-4' : 'w-7 h-7 sm:w-5 sm:h-5'"
         >
-          <Icon name="user" size="xs" class="text-tertiary" />
-        </div>
-      </div>
-
-      <div class="flex-1 min-w-0">
-        <input
-          ref="inputRef"
-          v-model="inputDisplay"
-          type="text"
-          role="combobox"
-          :aria-expanded="isOpen"
-          :aria-controls="listboxId"
-          :aria-activedescendant="highlightedId ?? undefined"
-          aria-autocomplete="list"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="off"
-          spellcheck="false"
-          :placeholder="placeholder || (type === 'assignee' ? $t('ticket-picker-user-placeholder-assignee') : $t('ticket-picker-user-placeholder-requester'))"
-          class="w-full bg-transparent text-secondary placeholder-tertiary focus:outline-none leading-tight"
-          :class="compact ? 'text-2xs py-0' : 'text-sm py-1'"
-          @focus="onFocus"
-          @keydown="onKeydown"
-        />
-      </div>
-
-      <div class="flex items-center gap-1.5 flex-shrink-0">
-        <span v-if="picker.isLoading.value" class="text-tertiary inline-flex">
-          <Spinner size="xs" :label="type === 'assignee' ? $t('ticket-picker-user-loading-assignee') : $t('ticket-picker-user-loading-requester')" />
-        </span>
-        <button
-          v-if="!hideInlineClear && modelValue && !isOpen"
-          type="button"
-          class="p-1 rounded-full text-tertiary hover:text-secondary hover:bg-surface-hover transition-colors"
-          :aria-label="$t('ticket-picker-user-clear')"
-          :title="$t('ticket-picker-user-clear')"
-          @click.stop="commitSelection('')"
-        >
-          <Icon name="close" size="xs" />
-        </button>
-      </div>
-    </div>
-
-    <!-- Desktop dropdown — teleport to body so the fixed-positioned
-         menu isn't clipped by the SectionCard's overflow-hidden chrome. -->
-    <Teleport to="body">
-      <Transition name="user-picker">
-        <div
-          v-if="isOpen && !isMobile"
-          ref="listboxRef"
-          class="user-picker-menu fixed z-overlay rounded-lg border border-default bg-surface shadow-lg shadow-black/10 dark:shadow-black/30"
-          :style="menuStyle"
-        >
-          <div class="flex flex-col h-full max-h-[inherit] overflow-hidden">
-            <ul
-              :id="listboxId"
-              role="listbox"
-              :aria-label="type === 'assignee' ? $t('ticket-picker-user-listbox-assignees') : $t('ticket-picker-user-listbox-users')"
-              class="flex-1 overflow-y-auto py-1 outline-none"
-              tabindex="-1"
-            >
-              <template v-for="row in optionRows" :key="row.id">
-                <!-- Group header rendered before the first row of each section. -->
-                <li
-                  v-if="sectionStarts[row.id]"
-                  role="presentation"
-                  class="px-3 pt-2 pb-1 text-3xs font-semibold uppercase tracking-wider text-tertiary select-none"
-                >
-                  {{ sectionLabel(row.section) }}
-                </li>
-                <li
-                  :id="row.id"
-                  role="option"
-                  :aria-selected="row.user.uuid === modelValue"
-                  :data-section="row.section"
-                  class="mx-1 px-2 py-1.5 rounded-md flex items-center gap-2.5 cursor-pointer transition-colors"
-                  :class="
-                    row.id === highlightedId
-                      ? 'bg-accent/10'
-                      : 'hover:bg-surface-hover/60'
-                  "
-                  @mouseenter="highlightedId = row.id"
-                  @mousedown.prevent
-                  @click="selectUser(row.user)"
-                >
-                  <UserAvatar
-                    :uuid="row.user.uuid"
-                    :fallbackName="row.user.name"
-                    :fallbackAvatar="row.user.avatar_thumb || row.user.avatar_url || null"
-                    :showName="false"
-                    size="xs"
-                    :clickable="false"
-                  />
-                  <div class="flex-1 min-w-0">
-                    <div class="text-xs-plus text-primary truncate">
-                      {{ row.user.name
-                      }}<span v-if="row.section === 'you'" class="text-tertiary font-normal"> {{ $t('ticket-picker-user-you-suffix') }}</span>
-                    </div>
-                    <div v-if="row.user.email" class="text-2xs text-tertiary truncate">
-                      {{ row.user.email }}
-                    </div>
-                  </div>
-                  <Icon
-                    v-if="row.user.uuid === modelValue"
-                    name="check"
-                    size="xs"
-                    class="text-accent flex-shrink-0"
-                  />
-                </li>
-              </template>
-
-              <li
-                v-if="optionRows.length === 0 && !picker.isLoading.value"
-                role="presentation"
-                class="px-3 py-6 text-center text-[12px] text-tertiary"
-              >
-                {{ emptyHint() }}
-              </li>
-
-              <li
-                v-if="picker.isLoading.value && optionRows.length === 0"
-                role="presentation"
-                class="px-3 py-6 flex items-center justify-center"
-              >
-                <Spinner size="sm" />
-              </li>
-            </ul>
+          <button
+            v-if="modelValue && picker.selectedDisplayName.value && !isOpen"
+            type="button"
+            @click.stop="navigateToProfile"
+            class="rounded-full hover:ring-2 hover:ring-accent/50 transition-all cursor-pointer"
+            :title="$t('ticket-picker-user-view-profile', { name: picker.selectedDisplayName.value })"
+          >
+            <UserAvatar
+              :uuid="modelValue"
+              :fallbackName="picker.selected.value?.name"
+              :fallbackAvatar="picker.selected.value?.avatar_thumb || picker.selected.value?.avatar_url || null"
+              :showName="false"
+              :size="compact ? 'xxs' : 'xs'"
+              :clickable="false"
+            />
+          </button>
+          <div
+            v-else
+            class="rounded-full bg-surface border border-subtle flex items-center justify-center transition-colors"
+            :class="[
+              compact ? 'w-4 h-4' : 'w-7 h-7 sm:w-5 sm:h-5',
+              { 'border-accent/50 bg-accent/5': isOpen },
+            ]"
+          >
+            <Icon name="user" size="xs" class="text-tertiary" />
           </div>
         </div>
-      </Transition>
-    </Teleport>
 
-    <!-- Mobile bottom sheet — same option list, framed by ResponsivePanel. -->
+        <div class="flex-1 min-w-0">
+          <!-- Desktop: the combobox input. Mobile: a button that
+               opens the sheet, where the input lives. -->
+          <ComboboxInput
+            v-if="!isMobile"
+            ref="inputRef"
+            v-model="inputText"
+            :display-value="() => picker.selectedDisplayName.value"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            :placeholder="inputPlaceholder"
+            :aria-label="listLabel"
+            class="w-full bg-transparent text-secondary placeholder-tertiary focus:outline-none leading-tight"
+            :class="compact ? 'text-2xs py-0' : 'text-sm py-1'"
+          />
+          <button
+            v-else
+            type="button"
+            aria-haspopup="dialog"
+            :aria-expanded="isOpen"
+            class="w-full text-left bg-transparent leading-tight truncate"
+            :class="[
+              compact ? 'text-2xs py-0' : 'text-sm py-1',
+              picker.selectedDisplayName.value ? 'text-secondary' : 'text-tertiary',
+            ]"
+            @click.stop="onOpenChange(true)"
+          >
+            {{ picker.selectedDisplayName.value || inputPlaceholder }}
+          </button>
+        </div>
+
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <span v-if="picker.isLoading.value" class="text-tertiary inline-flex">
+            <Spinner size="xs" :label="type === 'assignee' ? $t('ticket-picker-user-loading-assignee') : $t('ticket-picker-user-loading-requester')" />
+          </span>
+          <button
+            v-if="!hideInlineClear && modelValue && !isOpen"
+            type="button"
+            class="p-1 rounded-full text-tertiary hover:text-secondary hover:bg-surface-hover transition-colors"
+            :aria-label="$t('ticket-picker-user-clear')"
+            :title="$t('ticket-picker-user-clear')"
+            @click.stop="commitSelection('')"
+          >
+            <Icon name="close" size="xs" />
+          </button>
+        </div>
+      </div>
+    </ComboboxAnchor>
+
+    <!-- Desktop popup, portalled so the SectionCard's overflow-hidden
+         chrome cannot clip it. -->
+    <ComboboxPortal v-if="!isMobile">
+      <ComboboxContent
+        position="popper"
+        side="bottom"
+        align="start"
+        :side-offset="4"
+        :collision-padding="8"
+        class="popover-inner z-overlay rounded-lg border border-default bg-surface shadow-lg shadow-black/10 dark:shadow-black/30 overflow-hidden"
+        :style="{ width: 'max(var(--reka-combobox-trigger-width), 280px)', maxHeight: 'min(360px, var(--reka-combobox-content-available-height))' }"
+        :aria-label="listLabel"
+      >
+        <ComboboxViewport class="max-h-[inherit] overflow-y-auto py-1">
+          <ComboboxGroup v-for="section in sections" :key="section.key" :aria-labelledby="labelId(section.key)">
+            <ComboboxLabel :id="labelId(section.key)" class="px-3 pt-2 pb-1 text-3xs font-semibold uppercase tracking-wider text-tertiary select-none">
+              {{ sectionLabel(section.key) }}
+            </ComboboxLabel>
+            <ComboboxItem
+              v-for="user in section.rows"
+              :key="user.uuid"
+              :value="user.uuid"
+              :text-value="user.name"
+              class="mx-1 px-2 py-1.5 rounded-md flex items-center gap-2.5 cursor-pointer transition-colors outline-none data-[highlighted]:bg-accent/10"
+            >
+              <UserAvatar
+                :uuid="user.uuid"
+                :fallbackName="user.name"
+                :fallbackAvatar="user.avatar_thumb || user.avatar_url || null"
+                :showName="false"
+                size="xs"
+                :clickable="false"
+              />
+              <div class="flex-1 min-w-0">
+                <div class="text-xs-plus text-primary truncate">
+                  {{ user.name
+                  }}<span v-if="section.key === 'you'" class="text-tertiary font-normal"> {{ $t('ticket-picker-user-you-suffix') }}</span>
+                </div>
+                <div v-if="user.email" class="text-2xs text-tertiary truncate">
+                  {{ user.email }}
+                </div>
+              </div>
+              <Icon v-if="user.uuid === modelValue" name="check" size="xs" class="text-accent flex-shrink-0" />
+            </ComboboxItem>
+          </ComboboxGroup>
+
+          <div v-if="!hasRows && !picker.isLoading.value" class="px-3 py-6 text-center text-[12px] text-tertiary">
+            {{ emptyHint() }}
+          </div>
+          <div v-if="picker.isLoading.value && !hasRows" class="px-3 py-6 flex items-center justify-center">
+            <Spinner size="sm" />
+          </div>
+        </ComboboxViewport>
+      </ComboboxContent>
+    </ComboboxPortal>
+
+    <!-- Mobile bottom sheet: the same combobox, its input and list
+         inside the sheet. -->
     <ResponsivePanel
       v-if="isMobile"
       :open="isOpen"
       :title="type === 'assignee' ? $t('ticket-picker-user-sheet-title-assignee') : $t('ticket-picker-user-sheet-title-requester')"
       side-panel-class="w-80"
-      @close="closeDropdown"
+      @close="onOpenChange(false)"
     >
       <div class="px-3 pt-2 pb-1 border-b border-default">
-        <input
-          v-model="picker.query.value"
-          type="text"
-          autocomplete="off"
+        <ComboboxInput
+          v-if="sheetListMounted"
+          ref="inputRef"
+          v-model="inputText"
+          :display-value="() => ''"
+          auto-focus
           autocorrect="off"
           autocapitalize="off"
           spellcheck="false"
           :placeholder="type === 'assignee' ? $t('ticket-picker-user-search-staff') : $t('ticket-picker-user-search-users')"
+          :aria-label="listLabel"
           class="w-full px-3 py-2 rounded-md border border-default bg-surface-alt text-sm text-primary placeholder-tertiary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
-          @keydown="onKeydown"
         />
       </div>
-      <ul
-        :id="`${listboxId}-mobile`"
-        role="listbox"
-        :aria-label="type === 'assignee' ? 'Assignable users' : 'Users'"
-        class="flex-1 overflow-y-auto py-1"
+      <ComboboxContent
+        position="inline"
+        class="flex-1 min-h-0 flex flex-col"
+        :aria-label="listLabel"
+        @focus-outside="keepOpen"
+        @pointer-down-outside="keepOpen"
+        @vue:mounted="sheetListMounted = true"
+        @vue:unmounted="sheetListMounted = false"
       >
-        <template v-for="row in optionRows" :key="`m-${row.id}`">
-          <li
-            v-if="sectionStarts[row.id]"
-            role="presentation"
-            class="px-4 pt-3 pb-1 text-3xs font-semibold uppercase tracking-wider text-tertiary select-none"
-          >
-            {{ sectionLabel(row.section) }}
-          </li>
-          <li
-            :id="`m-${row.id}`"
-            role="option"
-            :aria-selected="row.user.uuid === modelValue"
-            class="px-3 py-2.5 flex items-center gap-3 cursor-pointer hover:bg-surface-hover/60 active:bg-surface-alt transition-colors"
-            @click="selectUser(row.user)"
-          >
-            <UserAvatar
-              :uuid="row.user.uuid"
-              :fallbackName="row.user.name"
-              :fallbackAvatar="row.user.avatar_thumb || row.user.avatar_url || null"
-              :showName="false"
-              size="sm"
-              :clickable="false"
-            />
-            <div class="flex-1 min-w-0">
-              <div class="text-sm text-primary truncate">
-                {{ row.user.name
-                }}<span v-if="row.section === 'you'" class="text-tertiary font-normal"> (you)</span>
+        <ComboboxViewport class="flex-1 overflow-y-auto py-1">
+          <ComboboxGroup v-for="section in sections" :key="section.key" :aria-labelledby="labelId(section.key)">
+            <ComboboxLabel :id="labelId(section.key)" class="px-4 pt-3 pb-1 text-3xs font-semibold uppercase tracking-wider text-tertiary select-none">
+              {{ sectionLabel(section.key) }}
+            </ComboboxLabel>
+            <ComboboxItem
+              v-for="user in section.rows"
+              :key="user.uuid"
+              :value="user.uuid"
+              :text-value="user.name"
+              class="px-3 py-2.5 flex items-center gap-3 cursor-pointer active:bg-surface-alt transition-colors outline-none data-[highlighted]:bg-surface-hover/60"
+            >
+              <UserAvatar
+                :uuid="user.uuid"
+                :fallbackName="user.name"
+                :fallbackAvatar="user.avatar_thumb || user.avatar_url || null"
+                :showName="false"
+                size="sm"
+                :clickable="false"
+              />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm text-primary truncate">
+                  {{ user.name
+                  }}<span v-if="section.key === 'you'" class="text-tertiary font-normal"> {{ $t('ticket-picker-user-you-suffix') }}</span>
+                </div>
+                <div v-if="user.email" class="text-xs text-tertiary truncate">
+                  {{ user.email }}
+                </div>
               </div>
-              <div v-if="row.user.email" class="text-xs text-tertiary truncate">
-                {{ row.user.email }}
-              </div>
-            </div>
-            <Icon
-              v-if="row.user.uuid === modelValue"
-              name="check"
-              size="sm"
-              class="text-accent flex-shrink-0"
-            />
-          </li>
-        </template>
-        <li
-          v-if="optionRows.length === 0 && !picker.isLoading.value"
-          role="presentation"
-          class="px-4 py-8 text-center text-sm text-tertiary"
-        >
-          {{ emptyHint() }}
-        </li>
-        <li
-          v-if="picker.isLoading.value && optionRows.length === 0"
-          role="presentation"
-          class="px-3 py-8 flex items-center justify-center"
-        >
-          <Spinner size="md" />
-        </li>
-      </ul>
+              <Icon v-if="user.uuid === modelValue" name="check" size="sm" class="text-accent flex-shrink-0" />
+            </ComboboxItem>
+          </ComboboxGroup>
+          <div v-if="!hasRows && !picker.isLoading.value" class="px-4 py-8 text-center text-sm text-tertiary">
+            {{ emptyHint() }}
+          </div>
+          <div v-if="picker.isLoading.value && !hasRows" class="px-3 py-8 flex items-center justify-center">
+            <Spinner size="md" />
+          </div>
+        </ComboboxViewport>
+      </ComboboxContent>
     </ResponsivePanel>
-  </div>
+  </ComboboxRoot>
 </template>
-
-<style scoped>
-.user-picker-enter-active,
-.user-picker-leave-active {
-  transition: opacity 120ms ease, transform 120ms ease;
-}
-.user-picker-enter-from,
-.user-picker-leave-to {
-  opacity: 0;
-  transform: scale(0.98) translateY(-2px);
-}
-</style>
