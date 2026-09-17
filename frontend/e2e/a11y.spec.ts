@@ -166,6 +166,26 @@ test.describe('accessibility floor', () => {
     await expect(trigger).toBeFocused()
   })
 
+  test('a searchable dropdown filters from its input and closes on Escape', async ({ page }) => {
+    await gotoAndSettle(page, '/profile/settings/language')
+    const trigger = page.getByRole('button', { name: 'Timezone' })
+    await trigger.click()
+    const surface = page.locator('#overlays [role="dialog"]')
+    await expect(surface).toBeVisible()
+    const input = surface.getByRole('textbox')
+    await expect(input).toBeFocused()
+    await expectNoSeriousViolations(page, '#overlays')
+    const before = await surface.getByRole('option').count()
+    expect(before).toBeGreaterThan(10)
+    await input.fill('sydney')
+    await expect(surface.getByRole('option')).toHaveCount(1)
+    // The filter carries aria-activedescendant to the highlighted row.
+    await expect(input).toHaveAttribute('aria-activedescendant', /.+/)
+    await page.keyboard.press('Escape')
+    await expect(surface).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

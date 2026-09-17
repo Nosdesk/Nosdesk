@@ -227,6 +227,7 @@ const dirty = computed(
             v-model="selectedTimezone"
             :options="timezoneOptions"
             :disabled="isUpdating"
+            :aria-label="$t('settings-timezone-label')"
             :placeholder="$t('settings-timezone-label')"
             :search-placeholder="$t('settings-timezone-search-placeholder')"
             :empty-message="$t('settings-timezone-no-matches')"

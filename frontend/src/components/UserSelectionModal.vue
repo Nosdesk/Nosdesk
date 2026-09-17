@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { ListboxContent, ListboxFilter, ListboxItem, ListboxRoot } from 'reka-ui';
 import { useFluent } from 'fluent-vue';
 import type { FluentVariable } from '@fluent/bundle';
 import Modal from '@/components/Modal.vue';
@@ -76,6 +77,13 @@ const handleSearchInput = () => {
 };
 
 // Select user
+// Reka's Listbox reports the picked row's value (the uuid); resolve it
+// back to the loaded user.
+const onPick = (value: unknown) => {
+  const user = users.value.find((u) => u.uuid === value);
+  if (user) selectUser(user);
+};
+
 const selectUser = (user: UserInfo) => {
   emit('select-user', {
     uuid: user.uuid,
@@ -103,15 +111,25 @@ const clearUser = () => {
 
 <template>
   <Modal :show="show" @close="$emit('close')" :title="t('ui-user-selection-modal-title')" size="md">
-    <div class="flex flex-col gap-4">
+    <!-- A Reka Listbox: the search field is its filter (it carries
+         aria-activedescendant and the arrow keys), the rows are options,
+         so the whole picker works from the keyboard without leaving the
+         input. The search itself is server-side. -->
+    <ListboxRoot
+      :model-value="currentUserId ?? undefined"
+      highlight-on-hover
+      class="flex flex-col gap-4"
+      @update:model-value="onPick"
+    >
       <!-- Search Input -->
       <div class="relative">
-        <input
+        <ListboxFilter
           v-model="searchQuery"
-          @input="handleSearchInput"
-          type="text"
+          auto-focus
           :placeholder="t('ui-user-selection-modal-search-placeholder')"
+          :aria-label="t('ui-user-selection-modal-search-placeholder')"
           class="w-full px-4 py-2.5 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent transition-colors"
+          @input="handleSearchInput"
         />
         <svg
           class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-tertiary pointer-events-none"
@@ -145,13 +163,16 @@ const clearUser = () => {
       </div>
 
       <!-- User List -->
-      <div v-else-if="users.length > 0" class="flex flex-col gap-1 max-h-96 overflow-y-auto">
-        <button
-          type="button"
+      <ListboxContent v-else-if="users.length > 0" class="flex flex-col gap-1 max-h-96 overflow-y-auto">
+        <ListboxItem
           v-for="user in users"
           :key="user.uuid"
-          @click="selectUser(user)"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-alt transition-colors text-left group"
+          as-child
+          :value="user.uuid"
+        >
+        <button
+          type="button"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-alt data-[highlighted]:bg-surface-alt transition-colors text-left group outline-none"
           :class="{
             'bg-surface-alt ring-1 ring-accent': currentUserId === user.uuid
           }"
@@ -192,7 +213,8 @@ const clearUser = () => {
             <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
           </svg>
         </button>
-      </div>
+        </ListboxItem>
+      </ListboxContent>
 
       <!-- Empty State -->
       <div v-else class="text-center py-8 text-secondary">
@@ -201,6 +223,6 @@ const clearUser = () => {
         </svg>
         <p class="text-sm">{{ searchQuery ? t('ui-user-selection-modal-empty-no-match') : t('ui-user-selection-modal-empty-no-users') }}</p>
       </div>
-    </div>
+    </ListboxRoot>
   </Modal>
 </template>
