@@ -146,7 +146,10 @@ test.describe('accessibility floor', () => {
 
   test('a select opens a listbox, walks options with arrow keys, and closes on Escape', async ({ page }) => {
     await gotoAndSettle(page, `/projects/${PROJECT_TIMELINE}/gantt`)
-    const trigger = page.getByRole('combobox', { name: 'Group by' })
+    // A CSS locator rather than getByRole: Select is modal and hides
+    // everything outside the open listbox from the accessibility tree,
+    // the trigger included, and the role query would stop matching.
+    const trigger = page.locator('[role="combobox"][aria-label="Group by"]')
     await trigger.click()
     const listbox = page.locator('#overlays [role="listbox"]')
     await expect(listbox).toBeVisible()
