@@ -296,6 +296,11 @@ const bulkSelection = useBulkSelection<CardData>({
   cacheKey: bulkCacheKey,
   totalCount: computed(() => sortedCards.value.length),
 })
+// Every matching card is on the client, so "select all" is the
+// visible set.
+function selectAllCards() {
+  if (!bulkSelection.areAllOnPageSelected.value) bulkSelection.toggleAllOnPage()
+}
 
 // Esc clears the selection. Doesn't conflict with split-view's
 // keyboard shortcuts because they're scoped to ArrowUp/Down/Enter.
@@ -1110,6 +1115,7 @@ function startPaneResize(event: PointerEvent): void {
     <TicketsBulkBar
       :selected-ids="bulkSelection.selectedIds.value"
       :total-count="sortedCards.length"
+      @select-all="selectAllCards"
       @clear="bulkSelection.clear"
       @set-status="handleBulkSetStatus"
       @set-priority="handleBulkSetPriority"

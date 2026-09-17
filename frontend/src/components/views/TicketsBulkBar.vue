@@ -1,24 +1,24 @@
 <script setup lang="ts">
 /**
- * Floating bulk-action bar for the tickets list. Renders only
- * when the parent's BulkSelection has at least one row picked,
- * and slides in from the bottom-center of the viewport with the
- * three core actions Linear / Asana / GitHub Issues all surface
- * for ticket triage: Status, Priority, Assignee. Plus a Clear
- * shortcut so the user can dismiss the bar without re-clicking
- * every row.
+ * Floating bulk-action bar for the tickets list, on the shared
+ * `BulkActionBar` (a Reka Toolbar: one tab stop, arrows walk the
+ * buttons, the count / select-all / clear chrome is the bar's). This
+ * component owns the ticket actions Linear / Asana / GitHub Issues
+ * all surface for triage: Status, Priority, Assignee, plus Merge and
+ * any plugin actions.
  *
- * Status / Priority are inline popovers (small option sets, no
- * search needed). Assignee opens the existing
- * UserSelectionModal — search-driven because the user list can
- * grow large.
+ * Status / Priority are Reka Listboxes in a popover (small option
+ * sets, no search needed). Assignee opens the existing
+ * UserSelectionModal, search-driven because the user list can grow
+ * large.
  *
- * The bar is presentational: dispatching the actual mutations
- * is the parent's job. We just emit the chosen value + the
- * selected ids and let TicketsListView wire it through the
- * sync engine. Keeps the component data-source-agnostic.
+ * The bar is presentational: dispatching the actual mutations is the
+ * parent's job. We emit the chosen value + the selected ids and let
+ * TicketsListView wire it through the sync engine.
  */
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch, type Ref } from 'vue'
+import { ListboxContent, ListboxGroup, ListboxGroupLabel, ListboxItem, ListboxRoot, ToolbarButton } from 'reka-ui'
+import BulkActionBar from '@/components/common/BulkActionBar.vue'
 import Popover from '@/components/common/Popover.vue'
 import Icon from '@/components/common/Icon.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
@@ -41,14 +41,14 @@ const props = defineProps<{
    *  is opaque to the value type — the parent stringifies the
    *  numeric ids before passing them in). */
   selectedIds: string[]
-  /** Total ticket count visible / matching the current view —
-   *  drives the "X of Y" copy. Optional; falls back to the
-   *  bare selected count when omitted. */
+  /** Total ticket count matching the current view; drives the
+   *  "Select all N" affordance. Optional. */
   totalCount?: number
 }>()
 
 const emit = defineEmits<{
   (e: 'clear'): void
+  (e: 'select-all'): void
   /** Action chosen + the ticket ids it should be applied to.
    *  Both pieces emitted so the parent has everything it needs
    *  in one shot — no `selectedIds` lookup race in the handler. */
@@ -152,13 +152,32 @@ const priorityAnchor = computed<PopoverAnchor>(() => ({
   element: () => priorityBtnRef.value,
 }))
 
-function pickStatus(stateId: number): void {
+// Focus lands on the shared value (or the first option) when a list
+// opens: Reka highlights it on mount without focusing, and the
+// popover's own focus scope would take the first option, so it is off.
+type ListboxHandle = { highlightSelected: () => Promise<void> }
+const statusList = ref<ListboxHandle | null>(null)
+const priorityList = ref<ListboxHandle | null>(null)
+function focusOnOpen(open: Ref<boolean>, list: Ref<ListboxHandle | null>) {
+  watch(open, async (isOpen) => {
+    if (!isOpen) return
+    await nextTick()
+    await list.value?.highlightSelected()
+  })
+}
+focusOnOpen(statusOpen, statusList)
+focusOnOpen(priorityOpen, priorityList)
+
+function pickStatus(value: unknown): void {
+  const stateId = Number(value)
+  if (!Number.isFinite(stateId)) return
   statusOpen.value = false
   emit('set-status', stateId, ids.value)
 }
-function pickPriority(priority: string): void {
+function pickPriority(value: unknown): void {
+  if (typeof value !== 'string') return
   priorityOpen.value = false
-  emit('set-priority', priority, ids.value)
+  emit('set-priority', value, ids.value)
 }
 function onAssignSelect(user: { uuid: string }): void {
   showAssignModal.value = false
@@ -199,49 +218,37 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
 </script>
 
 <template>
-  <Transition
-    enter-active-class="transition transform duration-150 ease-out"
-    enter-from-class="opacity-0 translate-y-3"
-    enter-to-class="opacity-100 translate-y-0"
-    leave-active-class="transition transform duration-100 ease-in"
-    leave-from-class="opacity-100 translate-y-0"
-    leave-to-class="opacity-0 translate-y-3"
+  <BulkActionBar
+    :selected-count="selectedCount"
+    :total-count="totalCount ?? 0"
+    selection-copy-key="bulk-bar-tickets-selected"
+    all-selected-copy-key="bulk-bar-tickets-all-selected"
+    @select-all-matching="emit('select-all')"
+    @clear="emit('clear')"
   >
-    <div
-      v-if="selectedCount > 0"
-      class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface border border-default shadow-xl"
-      role="region"
-      :aria-label="$t('ticket-list-bulk-actions-aria')"
-    >
-      <!-- Selection count: also acts as the "you're in bulk
-           mode" anchor copy. Linear style: count + small
-           secondary "of N" when total is meaningful. -->
-      <span class="text-xs font-medium text-primary px-2">
-        {{ selectedCount }}
-        <span v-if="totalCount !== undefined && totalCount > selectedCount" class="text-tertiary">of {{ totalCount }}</span>
-        selected
-      </span>
-
-      <span class="h-4 w-px bg-default mx-1" aria-hidden="true" />
-
+    <template #actions>
       <!-- Status -->
-      <button
-        ref="statusBtnRef"
-        type="button"
-        class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-        @click="statusOpen = !statusOpen"
-      >
-        <WorkflowStateGlyph
-          v-if="sharedWorkflowState"
-          :category="sharedWorkflowState.category"
-          :color="sharedWorkflowState.color"
-          :name="sharedWorkflowState.name"
-          :size="14"
-        />
-        <Icon v-else name="circleDot" class="w-3.5 h-3.5" />
-        <span>{{ $t('ticket-list-bulk-status') }}</span>
-        <Icon name="chevronDown" class="w-3 h-3 text-tertiary" />
-      </button>
+      <ToolbarButton as-child>
+        <button
+          ref="statusBtnRef"
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          aria-haspopup="dialog"
+          :aria-expanded="statusOpen"
+          @click="statusOpen = !statusOpen"
+        >
+          <WorkflowStateGlyph
+            v-if="sharedWorkflowState"
+            :category="sharedWorkflowState.category"
+            :color="sharedWorkflowState.color"
+            :name="sharedWorkflowState.name"
+            :size="14"
+          />
+          <Icon v-else name="circleDot" class="w-3.5 h-3.5" />
+          <span>{{ $t('ticket-list-bulk-status') }}</span>
+          <Icon name="chevronDown" class="w-3 h-3 text-tertiary" />
+        </button>
+      </ToolbarButton>
       <Popover
         :open="statusOpen"
         :anchor="statusAnchor"
@@ -253,59 +260,72 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
         popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[200px] max-h-[320px] overflow-y-auto"
         @close="statusOpen = false"
       >
-        <div v-for="group in statusGroups" :key="group.label">
-          <div class="px-3 pt-2 pb-1 text-3xs font-semibold text-tertiary tracking-wide uppercase">
-            {{ group.label }}
-          </div>
-          <button
-            v-for="state in group.states"
-            :key="state.id"
-            type="button"
-            class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-primary hover:bg-surface-hover transition-colors"
-            :class="{ 'bg-accent/10': sharedWorkflowStateId === state.id }"
-            @click="pickStatus(state.id)"
-          >
-            <WorkflowStateGlyph
-              :category="state.category"
-              :color="state.color"
-              :name="state.name"
-              :size="14"
-            />
-            <span
-              class="flex-1 truncate"
-              :class="{ 'font-medium': sharedWorkflowStateId === state.id }"
-            >{{ state.name }}</span>
-            <Icon
-              v-if="sharedWorkflowStateId === state.id"
-              name="check"
-              class="w-3 h-3 text-accent shrink-0"
-            />
-          </button>
-        </div>
+        <ListboxRoot
+          ref="statusList"
+          :model-value="sharedWorkflowStateId ?? undefined"
+          selection-behavior="replace"
+          highlight-on-hover
+          @update:model-value="pickStatus"
+        >
+          <ListboxContent class="outline-none" :aria-label="$t('ticket-list-bulk-status')">
+            <ListboxGroup v-for="group in statusGroups" :key="group.label">
+              <ListboxGroupLabel class="px-3 pt-2 pb-1 text-3xs font-semibold text-tertiary tracking-wide uppercase">
+                {{ group.label }}
+              </ListboxGroupLabel>
+              <ListboxItem v-for="state in group.states" :key="state.id" as-child :value="state.id">
+                <button
+                  type="button"
+                  class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-primary hover:bg-surface-hover data-[highlighted]:bg-surface-hover transition-colors outline-none"
+                  :class="{ 'bg-accent/10': sharedWorkflowStateId === state.id }"
+                >
+                  <WorkflowStateGlyph
+                    :category="state.category"
+                    :color="state.color"
+                    :name="state.name"
+                    :size="14"
+                  />
+                  <span
+                    class="flex-1 truncate"
+                    :class="{ 'font-medium': sharedWorkflowStateId === state.id }"
+                  >{{ state.name }}</span>
+                  <Icon
+                    v-if="sharedWorkflowStateId === state.id"
+                    name="check"
+                    class="w-3 h-3 text-accent shrink-0"
+                  />
+                </button>
+              </ListboxItem>
+            </ListboxGroup>
+          </ListboxContent>
+        </ListboxRoot>
       </Popover>
 
       <!-- Priority -->
-      <button
-        ref="priorityBtnRef"
-        type="button"
-        class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-        @click="priorityOpen = !priorityOpen"
-      >
-        <PriorityIndicator
-          v-if="isTicketPriority(sharedPriority)"
-          :priority="sharedPriority"
-          size="sm"
-        />
-        <span
-          v-else
-          class="inline-flex w-3.5 h-3.5 items-center justify-center text-tertiary"
-          aria-hidden="true"
+      <ToolbarButton as-child>
+        <button
+          ref="priorityBtnRef"
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          aria-haspopup="dialog"
+          :aria-expanded="priorityOpen"
+          @click="priorityOpen = !priorityOpen"
         >
-          <span class="w-2 h-2 rounded-full border border-current" />
-        </span>
-        <span>{{ $t('ticket-list-bulk-priority') }}</span>
-        <Icon name="chevronDown" class="w-3 h-3 text-tertiary" />
-      </button>
+          <PriorityIndicator
+            v-if="isTicketPriority(sharedPriority)"
+            :priority="sharedPriority"
+            size="sm"
+          />
+          <span
+            v-else
+            class="inline-flex w-3.5 h-3.5 items-center justify-center text-tertiary"
+            aria-hidden="true"
+          >
+            <span class="w-2 h-2 rounded-full border border-current" />
+          </span>
+          <span>{{ $t('ticket-list-bulk-priority') }}</span>
+          <Icon name="chevronDown" class="w-3 h-3 text-tertiary" />
+        </button>
+      </ToolbarButton>
       <Popover
         :open="priorityOpen"
         :anchor="priorityAnchor"
@@ -317,82 +337,80 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
         popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[160px]"
         @close="priorityOpen = false"
       >
-        <button
-          v-for="opt in PRIORITY_OPTIONS"
-          :key="opt.value"
-          type="button"
-          class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-primary hover:bg-surface-hover transition-colors"
-          :class="{ 'bg-accent/10': sharedPriority === opt.value }"
-          @click="pickPriority(opt.value)"
+        <ListboxRoot
+          ref="priorityList"
+          :model-value="sharedPriority ?? undefined"
+          selection-behavior="replace"
+          highlight-on-hover
+          @update:model-value="pickPriority"
         >
-          <PriorityIndicator :priority="opt.value" size="sm" />
-          <span
-            class="flex-1"
-            :class="{ 'font-medium': sharedPriority === opt.value }"
-          >{{ $t(opt.labelKey) }}</span>
-          <Icon
-            v-if="sharedPriority === opt.value"
-            name="check"
-            class="w-3 h-3 text-accent shrink-0"
-          />
-        </button>
+          <ListboxContent class="outline-none" :aria-label="$t('ticket-list-bulk-priority')">
+            <ListboxItem v-for="opt in PRIORITY_OPTIONS" :key="opt.value" as-child :value="opt.value">
+              <button
+                type="button"
+                class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-primary hover:bg-surface-hover data-[highlighted]:bg-surface-hover transition-colors outline-none"
+                :class="{ 'bg-accent/10': sharedPriority === opt.value }"
+              >
+                <PriorityIndicator :priority="opt.value" size="sm" />
+                <span
+                  class="flex-1"
+                  :class="{ 'font-medium': sharedPriority === opt.value }"
+                >{{ $t(opt.labelKey) }}</span>
+                <Icon
+                  v-if="sharedPriority === opt.value"
+                  name="check"
+                  class="w-3 h-3 text-accent shrink-0"
+                />
+              </button>
+            </ListboxItem>
+          </ListboxContent>
+        </ListboxRoot>
       </Popover>
 
-      <!-- Assignee — opens the existing modal because the user
-           list can be large enough to need search. -->
-      <button
-        type="button"
-        class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-        @click="showAssignModal = true"
-      >
-        <Icon name="user" class="w-3.5 h-3.5" />
-        <span>{{ $t('ticket-list-bulk-assign') }}</span>
-      </button>
-
-      <!-- Merge — only when 2+ tickets are selected and none is
-           already merged. Opens the merge dialog with the selection. -->
-      <template v-if="canMerge">
-        <span class="h-4 w-px bg-default mx-1" aria-hidden="true" />
+      <!-- Assignee: opens the existing modal because the user list
+           can be large enough to need search. -->
+      <ToolbarButton as-child>
         <button
           type="button"
-          class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+          class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          @click="showAssignModal = true"
+        >
+          <Icon name="user" class="w-3.5 h-3.5" />
+          <span>{{ $t('ticket-list-bulk-assign') }}</span>
+        </button>
+      </ToolbarButton>
+
+      <!-- Merge: only when 2+ tickets are selected. -->
+      <ToolbarButton v-if="canMerge" as-child>
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           @click="showMergeDialog = true"
         >
           <Icon name="link" class="w-3.5 h-3.5" />
           <span>{{ $t('ticket-list-bulk-merge') }}</span>
         </button>
-      </template>
+      </ToolbarButton>
 
-      <!-- Plugin bulk actions — each opens the plugin's component in a modal
-           with the current selection. -->
-      <template v-if="pluginBulkActions.length > 0">
-        <span class="h-4 w-px bg-default mx-1" aria-hidden="true" />
+      <!-- Plugin bulk actions: each opens the plugin's component in
+           a modal with the current selection. -->
+      <ToolbarButton
+        v-for="action in pluginBulkActions"
+        :key="`${action.pluginUuid}:${action.componentName}`"
+        as-child
+      >
         <button
-          v-for="action in pluginBulkActions"
-          :key="`${action.pluginUuid}:${action.componentName}`"
           type="button"
-          class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+          class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           @click="runPluginBulkAction(action)"
         >
           <img v-if="action.icon" :src="action.icon" class="w-3.5 h-3.5" alt="" />
           <Icon v-else name="puzzle" class="w-3.5 h-3.5" />
           <span>{{ action.label ?? action.pluginName }}</span>
         </button>
-      </template>
-
-      <span class="h-4 w-px bg-default mx-1" aria-hidden="true" />
-
-      <button
-        type="button"
-        class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-tertiary hover:text-primary hover:bg-surface-hover transition-colors"
-        :title="$t('ticket-list-bulk-clear-title')"
-        @click="emit('clear')"
-      >
-        <Icon name="close" class="w-3.5 h-3.5" />
-        <span>{{ $t('ticket-list-bulk-clear') }}</span>
-      </button>
-    </div>
-  </Transition>
+      </ToolbarButton>
+    </template>
+  </BulkActionBar>
 
   <UserSelectionModal
     :show="showAssignModal"
