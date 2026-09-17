@@ -6883,3 +6883,7 @@ settings-export-success = Your export is ready to download.
 settings-export-error = Could not start the export. Please try again.
 
 filter-toggle-clear-hint = { $label }. Click to clear.
+inline-edit-hint = Click to edit
+form-number-increment = Increase
+form-number-decrement = Decrease
+otp-digit-aria = Digit { $index } of { $count }

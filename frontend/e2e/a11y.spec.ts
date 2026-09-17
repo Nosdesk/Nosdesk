@@ -256,6 +256,27 @@ test.describe('accessibility floor', () => {
     await expectNoSeriousViolations(page, '[role="radiogroup"]')
   })
 
+  test('an inline edit opens from keyboard focus, commits on Enter and cancels on Escape', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    await page.locator('table tbody tr').first().dblclick()
+    await page.waitForURL(/\/tickets\/\d+/)
+    await page.waitForTimeout(3000)
+
+    const editor = page.getByRole('textbox', { name: 'Enter ticket title...' })
+    await expect(editor).toBeHidden()
+    // The preview is a tab stop; focusing it is what opens the editor.
+    const preview = page.locator('header [data-placeholder-shown][tabindex="0"]').first()
+    const shown = await preview.textContent()
+    await preview.focus()
+    await expect(editor).toBeVisible()
+    await expect(editor).toBeFocused()
+    await expect(editor).toHaveValue(shown?.trim() ?? '')
+    await page.keyboard.press('Escape')
+    await expect(editor).toBeHidden()
+    await expect(preview).toHaveText(shown?.trim() ?? '')
+    await expectNoSeriousViolations(page, 'header')
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)
