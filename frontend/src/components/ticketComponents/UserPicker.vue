@@ -98,6 +98,15 @@ const inputText = ref('')
 watch(inputText, (text) => {
   if (isOpen.value) picker.query.value = text
 })
+// Reka writes `displayValue` into the input only when the model changes,
+// so a name that resolves after the uuid (seed prop landing late, pool
+// cache filling) would leave the closed field showing the uuid.
+watch(
+  () => picker.selectedDisplayName.value,
+  (name) => {
+    if (!isOpen.value) inputText.value = name
+  },
+)
 
 // The sheet is portalled, so its input and rows sit outside the
 // combobox root in the DOM; Reka would read focus or a tap there as

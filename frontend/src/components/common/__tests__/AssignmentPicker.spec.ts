@@ -44,7 +44,10 @@ describe('AssignmentPicker', () => {
       'Helpdesk',
       'NNoah Bennettnoah@example.test',
     ])
-    expect(document.body.querySelectorAll('[role="group"]')).toHaveLength(2)
+    const groups = Array.from(document.body.querySelectorAll('[role="group"]'))
+    expect(
+      groups.map((g) => document.getElementById(g.getAttribute('aria-labelledby') ?? '')?.textContent?.trim()),
+    ).toEqual(['assignment-picker-section-groups', 'assignment-picker-section-users'])
     // Opening highlights the first row; Enter picks it and it becomes a chip.
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     await settle()

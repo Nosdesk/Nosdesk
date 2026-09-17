@@ -9,7 +9,7 @@
  * Filtering is server-side (`ignoreFilter`); a pick adds a chip and drops
  * the row from the list, and the list stays open for the next pick.
  */
-import { ref, computed } from 'vue'
+import { ref, computed, useId } from 'vue'
 import { useFluent } from 'fluent-vue'
 import {
   ComboboxAnchor,
@@ -26,6 +26,10 @@ import { useAssignmentPickerQueries } from '@/composables/useAssignmentPickerQue
 import Icon from '@/components/common/Icon.vue'
 
 const { $t } = useFluent()
+// Reka's group reads its label id once, before the label mounts, so
+// the groups would render with an empty aria-labelledby.
+const groupsLabelId = useId()
+const usersLabelId = useId()
 
 export interface SelectedPrincipal {
   type: 'group' | 'user'
@@ -151,8 +155,8 @@ const rowClass =
             </div>
 
             <template v-else>
-              <ComboboxGroup v-if="filteredGroups.length > 0">
-                <ComboboxLabel class="block px-3 py-1.5 text-3xs font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
+              <ComboboxGroup v-if="filteredGroups.length > 0" :aria-labelledby="groupsLabelId">
+                <ComboboxLabel :id="groupsLabelId" class="block px-3 py-1.5 text-3xs font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
                   {{ $t('assignment-picker-section-groups') }}
                 </ComboboxLabel>
                 <ComboboxItem
@@ -167,8 +171,8 @@ const rowClass =
                 </ComboboxItem>
               </ComboboxGroup>
 
-              <ComboboxGroup v-if="filteredUsers.length > 0">
-                <ComboboxLabel class="block px-3 py-1.5 text-3xs font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
+              <ComboboxGroup v-if="filteredUsers.length > 0" :aria-labelledby="usersLabelId">
+                <ComboboxLabel :id="usersLabelId" class="block px-3 py-1.5 text-3xs font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
                   {{ $t('assignment-picker-section-users') }}
                 </ComboboxLabel>
                 <ComboboxItem

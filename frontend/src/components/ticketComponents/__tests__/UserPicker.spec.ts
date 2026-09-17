@@ -84,6 +84,15 @@ describe('UserPicker', () => {
     expect(document.activeElement).toBe(input)
   })
 
+  it('shows the name when it resolves after the uuid', async () => {
+    // The seed lands late (a preview pane resolving the assignee).
+    const input = await mountPicker({ currentUser: undefined })
+    expect(input.value).toBe('u-2')
+    await wrapper!.setProps({ currentUser: { uuid: 'u-2', name: 'Grace Hopper', email: 'grace@example.test' } })
+    await nextTick()
+    expect(input.value).toBe('Grace Hopper')
+  })
+
   it('filters as typed and picks with Enter, then shows the new name', async () => {
     const updates: string[] = []
     const input = await mountPicker({ 'onUpdate:modelValue': (v: string) => updates.push(v) })
