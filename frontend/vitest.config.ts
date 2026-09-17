@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vitest/config'
 
 /**
@@ -10,11 +11,14 @@ import { defineConfig } from 'vitest/config'
  * the test setup to what tests actually need — the `@` alias and a DOM
  * environment for modules that touch `window` at import.
  *
- * Scope is unit-level. Anything that needs a real browser (touch gestures,
+ * Scope is unit-level, plus component tests for the shared primitives
+ * (`components/common/__tests__`), which mount with @vue/test-utils and
+ * assert ARIA wiring. Anything that needs a real browser (touch gestures,
  * scroll, layout measurement) belongs in the Playwright suite under `e2e/`,
  * because jsdom does not lay out and would happily pass on a broken layout.
  */
 export default defineConfig({
+  plugins: [vue()],
   test: {
     environment: 'jsdom',
     include: ['src/**/*.spec.ts'],

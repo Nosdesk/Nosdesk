@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="">
+<html lang="en">
   <head>
     <meta charset="UTF-8">
     <script src="/branding-init.js"></script>
@@ -112,6 +112,10 @@
       <div class="splash-n"></div>
     </div>
     <div id="app"></div>
+    <!-- Portal root for floating surfaces (Reka UI `ConfigProvider
+         teleportTo`): outside #app so no ancestor transform or overflow
+         clips them; the surfaces carry their own z-* utilities. -->
+    <div id="overlays"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

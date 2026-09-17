@@ -11,7 +11,7 @@
  * `useReference('user', uuid)` directly:
  *
  *  1. The `getUserHandle(uuid)` API predates the sync engine and is
- *     used by ~10 surfaces (UserCell, RevisionList, QuickTooltip,
+ *     used by ~10 surfaces (UserCell, RevisionList,
  *     filterFacets, etc.). Keeping the API stable made the
  *     dataStore → sync migration a one-file rewrite.
  *

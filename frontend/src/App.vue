@@ -7,6 +7,8 @@ import { isTauriRuntime } from '@/platform'
 // Native first-run server picker; lazy so the web bundle doesn't carry it.
 const ConnectServerView = defineAsyncComponent(() => import('@/views/ConnectServerView.vue'))
 import { useFluent } from 'fluent-vue'
+import { ConfigProvider, TooltipProvider } from 'reka-ui'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
 import MobileSearchBar from './components/MobileSearchBar.vue'
@@ -47,6 +49,12 @@ import { getWorkspaceRouting, fetchInstanceConfig } from '@nosdesk/core/services
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
+
+// Reka UI primitives read locale (number and date fields), reading
+// direction and the portal target from one provider. Locale follows the
+// user's setting so Reka formats the way the rest of the app does.
+const dateStore = useDateStore()
+const rekaLocale = computed(() => dateStore.locale)
 
 // Initialize branding store and load config
 const brandingStore = useBrandingStore()
@@ -393,6 +401,11 @@ onMounted(async () => {
 </script>
 
 <template>
+  <!-- Portals land in `#overlays` (index.html), outside `#app`'s stacking
+       contexts. Tooltips share one delay so moving between adjacent icon
+       buttons opens the next hint at once. -->
+  <ConfigProvider :locale="rekaLocale" teleport-to="#overlays">
+  <TooltipProvider :delay-duration="200" :skip-delay-duration="300">
   <!-- Native app first run: choose a Nosdesk server before anything else.
        Always false on the web. -->
   <ConnectServerView v-if="needsServerSelection" />
@@ -527,6 +540,8 @@ onMounted(async () => {
 
   <!-- On-demand plugin modal surface (opened by plugin action contributions) -->
   <PluginModalHost />
+  </TooltipProvider>
+  </ConfigProvider>
 </template>
 
 <style>

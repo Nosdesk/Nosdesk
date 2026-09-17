@@ -184,5 +184,10 @@ jobs:
         if: failure()
         with:
           name: playwright-report
-          path: frontend/playwright-report/
+          # The reporter is `list`, so failure evidence is the traces and
+          # screenshots Playwright writes under test-results/.
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
           retention-days: 7
+          if-no-files-found: ignore

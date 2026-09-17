@@ -12,8 +12,8 @@
  * sentinels, no console.error on a debouncer race.
  *
  * Compared to the previous per-component implementation (three
- * near-identical 20-line blocks across `MentionInput`, `SimpleEditor`,
- * and `CollaborativeEditor`), this:
+ * near-identical 20-line blocks across `SimpleEditor`
+ * and `CollaborativeEditor`; the third, `MentionInput`, was later deleted), this:
  *
  *  - replaces the legacy `requestManager` keyed-by-string cancellation
  *    pattern with the spec's `AbortSignal`, so cancellation is a real

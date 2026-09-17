@@ -374,6 +374,7 @@ const isOverflowRouteActive = computed(() =>
         <div class="flex flex-col p-2 px-2 flex-shrink-0 gap-1">
             <RouterLink
                 to="/"
+                :aria-label="$t('nav-logo-alt')"
                 class="sidebar-logo flex items-center justify-center h-12 mb-5 hover:opacity-80 transition-opacity select-none"
             >
                 <!-- Full logo when expanded -->
