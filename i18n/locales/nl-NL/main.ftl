@@ -6050,6 +6050,17 @@ color-cyan = Cyaan
 color-blue = Blauw
 color-purple = Paars
 color-pink = Roze
+# MACHINE TRANSLATION, pending native review
+color-slider-hue = Tint
+color-slider-saturation = Verzadiging
+color-slider-lightness = Helderheid
+color-slider-hue-value = { $name }, { $degrees } graden
+color-slider-percent-value = { $value }%
+color-hex-label = Hexwaarde
+color-picker-expand = Meer kleuropties
+color-picker-collapse = Minder kleuropties
+color-picker-reset = Standaardwaarden herstellen
+color-presets-label = Vooraf ingestelde kleuren
 priority-indicator-low-aria = Lage prioriteit
 priority-indicator-medium-aria = Gemiddelde prioriteit
 priority-indicator-high-aria = Hoge prioriteit

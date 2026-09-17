@@ -6059,6 +6059,17 @@ color-cyan = Cyan
 color-blue = Bleu
 color-purple = Violet
 color-pink = Rose
+# MACHINE TRANSLATION, pending native review
+color-slider-hue = Teinte
+color-slider-saturation = Saturation
+color-slider-lightness = Luminosité
+color-slider-hue-value = { $name }, { $degrees } degrés
+color-slider-percent-value = { $value } %
+color-hex-label = Valeur hexadécimale
+color-picker-expand = Plus d'options de couleur
+color-picker-collapse = Moins d'options de couleur
+color-picker-reset = Rétablir les valeurs par défaut
+color-presets-label = Couleurs prédéfinies
 priority-indicator-low-aria = Priorité basse
 priority-indicator-medium-aria = Priorité moyenne
 priority-indicator-high-aria = Priorité haute

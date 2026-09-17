@@ -362,6 +362,41 @@ test.describe('accessibility floor', () => {
     await expect(trigger).toBeFocused()
   })
 
+  test('a colour picker is named sliders that step from the keyboard, with preset swatches', async ({ page }) => {
+    // The new-collection dialog carries the picker every member can reach.
+    await gotoAndSettle(page, '/documentation')
+    await page.getByRole('button', { name: 'New collection' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
+    const group = dialog.getByRole('group', { name: 'Color' })
+    const hue = group.getByRole('slider', { name: 'Hue' })
+    await expect(hue).toHaveAttribute('aria-valuemax', '360')
+    await expect(hue).toHaveAttribute('aria-valuetext', /degrees$/)
+    const hexField = group.getByRole('textbox', { name: 'Hex value' })
+    const before = await hexField.inputValue()
+    await hue.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(hexField).not.toHaveValue(before)
+    await expect(hexField).toHaveValue(/^#[0-9a-f]{6}$/)
+
+    // The disclosure holds the presets and the tone sliders.
+    const opener = group.getByRole('button', { name: 'More color options' })
+    await opener.click()
+    await expect(group.getByRole('button', { name: 'Fewer color options' })).toHaveAttribute('aria-expanded', 'true')
+    const presets = group.getByRole('radiogroup', { name: 'Preset colors' })
+    await expect(presets.getByRole('radio')).toHaveCount(8)
+    await presets.getByRole('radio', { name: 'Blue' }).click()
+    await expect(presets.getByRole('radio', { name: 'Blue' })).toHaveAttribute('aria-checked', 'true')
+    await expect(group.getByRole('slider', { name: 'Saturation' })).toHaveAttribute('aria-valuetext', /%$/)
+    await expect(group.getByRole('slider', { name: 'Lightness' })).toBeAttached()
+    await expectNoSeriousViolations(page, '[role="dialog"]')
+
+    // Leave without creating anything.
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)
