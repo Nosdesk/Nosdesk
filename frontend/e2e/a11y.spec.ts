@@ -522,8 +522,10 @@ test.describe('accessibility floor', () => {
 
   test('the editor toolbar menus are menus that walk with the arrows', async ({ page }) => {
     await gotoAndSettle(page, '/documentation/collections/getting-started')
-    await page.getByRole('tree').getByRole('treeitem').first().click()
-    await page.waitForURL(/\/documentation\/(?!collections)/)
+    // Land on the page by URL and let the editor connect: it remounts as
+    // the document resolves, which would drop a menu opened too early.
+    const href = await page.getByRole('tree').getByRole('treeitem').first().getAttribute('href')
+    await gotoAndSettle(page, href!)
     const trigger = page.getByRole('button', { name: 'Text Style' })
     await expect(trigger).toBeVisible()
     await expect(trigger).toHaveAttribute('aria-haspopup', 'menu')
