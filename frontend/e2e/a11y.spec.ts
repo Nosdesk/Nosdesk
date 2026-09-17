@@ -22,6 +22,11 @@ const BASELINE: Record<string, string> = {
   // Inbox rows are a button that contains action buttons. Fixed when the
   // inbox row moves onto the menu recipe (PR 4).
   'nested-interactive': 'NotificationInboxView rows',
+  // Reka's ToastViewport wraps its list in two focus proxies: hidden,
+  // empty spans with tabindex 0 that route Tab back to the page from the
+  // toasts (Radix ships the same). axe reads a focusable aria-hidden
+  // element; there is nothing to announce in them. Upstream design.
+  'aria-hidden-focus': 'ToastViewport focus proxies',
 }
 
 async function expectNoSeriousViolations(page: Page, scope?: string): Promise<void> {
@@ -293,6 +298,31 @@ test.describe('accessibility floor', () => {
     await page.keyboard.press('Space')
     await expect(trigger).toHaveAttribute('aria-expanded', expanded ? 'true' : 'false')
     await expectNoSeriousViolations(page, 'nav')
+  })
+
+  test('a toast lands in a named region, is announced, pauses on hover and closes on Escape', async ({ page }) => {
+    await gotoAndSettle(page, '/profile/settings/appearance')
+    const sw = page.getByRole('switch', { name: 'Color blind friendly mode' })
+    await sw.click()
+    const region = page.locator('#overlays [role="region"]')
+    await expect(region).toHaveAttribute('aria-label', /Notifications/)
+    const toast = region.locator('li[data-state="open"]').first()
+    await expect(toast).toBeVisible()
+    // Hover at once: it pauses the five-second timer for the rest of the
+    // test, and proves the pause (still there well past its life).
+    await toast.hover()
+    await expect(toast).toContainText('Color blind friendly mode')
+    // Reka mirrors the toast into a live region for screen readers.
+    await expect(page.locator('[role="alert"][aria-live]').first()).toBeAttached()
+    await expectNoSeriousViolations(page, '#overlays')
+    await page.waitForTimeout(5500)
+    await expect(toast).toBeVisible()
+    // Escape on the focused toast closes it.
+    await toast.focus()
+    await page.keyboard.press('Escape')
+    await expect(region.locator('li[data-state="open"]')).toHaveCount(0)
+    // Put the setting back.
+    await sw.click()
   })
 
   test('tickets list has no serious violations', async ({ page }) => {

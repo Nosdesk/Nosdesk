@@ -6889,3 +6889,7 @@ form-number-decrement = Decrease
 otp-digit-aria = Digit { $index } of { $count }
 pagination-controls-nav-aria = Pages
 pagination-controls-page-n = Page { $page }
+toast-region-label = Notifications ({ $hotkey })
+toast-label = Notification
+toast-action-alt = { $label }. Press { $hotkey } to reach the notifications area.
+toast-notification-view = Click to view

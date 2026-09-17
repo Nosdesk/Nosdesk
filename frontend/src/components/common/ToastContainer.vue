@@ -1,7 +1,35 @@
+<!--
+The app's toasts, on Reka's Toast. The store (`stores/toast`) is the
+queue and the API consumers call; this renders it. Reka owns the parts a
+hand-rolled stack gets wrong:
+- the timer pauses while the pointer or keyboard focus is on a toast and
+  while the window is in the background, and the countdown bar follows it;
+- F8 jumps to the viewport (a named region) and Tab walks the toasts'
+  controls; Escape on a toast closes it;
+- every toast is announced through a live region, assertively for
+  errors and notifications (`foreground`), politely for the rest;
+- swipe right to dismiss on any pointer, with a click after a swipe
+  suppressed;
+- `data-state` drives the enter/exit keyframes.
+
+A toast leaves the store only after its exit animation: Reka keeps the
+element while `data-state=closed` animates, so the queue holds the entry
+until then.
+-->
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
+import {
+  ToastAction,
+  ToastClose,
+  ToastDescription,
+  ToastPortal,
+  ToastProvider,
+  ToastRoot,
+  ToastTitle,
+  ToastViewport,
+} from 'reka-ui';
 import { useToastStore, type Toast } from '@nosdesk/core/stores/toast';
 import Icon from '@/components/common/Icon.vue';
 
@@ -13,15 +41,31 @@ const router = useRouter();
 
 const toasts = computed(() => toastStore.visibleToasts);
 
+// Exit animation length; the store entry outlives the close by this much.
+const EXIT_MS = 250;
+const closing = reactive(new Set<string>());
+
+function onOpenChange(toast: Toast, open: boolean) {
+  if (open || closing.has(toast.id)) return;
+  closing.add(toast.id);
+  setTimeout(() => {
+    toastStore.removeToast(toast.id);
+    closing.delete(toast.id);
+  }, EXIT_MS);
+}
+
+// Errors and notifications interrupt; confirmations wait their turn.
+const announceType = (type: Toast['type']) =>
+  type === 'error' || type === 'notification' ? 'foreground' : 'background';
+
+// Reka reports 0 as "already elapsed"; persistent means no timer.
+const timerDuration = (toast: Toast) => (toast.duration > 0 ? toast.duration : Number.POSITIVE_INFINITY);
+
 const getToastClasses = (type: Toast['type']) => {
-  // Opaque `bg-surface` base across every type — the previous
-  // `bg-status-*/10` translucent fills inherited whatever was
-  // behind them, which read as "frosted glass" rather than a
-  // first-class surface. Type is conveyed via the coloured
-  // border + ring + icon (kept), not via background tint. The
-  // `notification` type already shipped opaque, so this just
-  // brings success / warning / error / default into line.
-  const base = 'pointer-events-auto w-full max-w-sm rounded-lg bg-surface shadow-lg ring-1 overflow-hidden transition-all';
+  // Opaque `bg-surface` base across every type: type is conveyed via the
+  // coloured border + ring + icon, not via background tint.
+  const base =
+    'toast pointer-events-auto w-full max-w-sm rounded-lg bg-surface shadow-lg ring-1 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
   switch (type) {
     case 'success':
@@ -31,7 +75,7 @@ const getToastClasses = (type: Toast['type']) => {
     case 'error':
       return `${base} ring-status-error/30 border border-status-error/30`;
     case 'notification':
-      return `${base} ring-default border border-default hover:border-strong`;
+      return `${base} ring-default border border-default hover:border-strong cursor-pointer`;
     default:
       return `${base} ring-accent/30 border border-accent/30`;
   }
@@ -45,92 +89,9 @@ const getIconClasses = (type: Toast['type']) => {
       return 'text-status-warning';
     case 'error':
       return 'text-status-error';
-    case 'notification':
-      return 'text-accent';
     default:
       return 'text-accent';
   }
-};
-
-const handleToastClick = (toast: Toast) => {
-  // A swipe ends with touchend then a synthetic click; ignore that click so a
-  // half-swipe on a notification toast doesn't also navigate (see onTouchEnd).
-  if (Date.now() < suppressClickUntil) return;
-  if (toast.notification) {
-    const { ticketId } = toast.notification;
-    if (ticketId) {
-      router.push(`/tickets/${ticketId}`);
-    }
-    toastStore.removeToast(toast.id);
-  }
-};
-
-const dismissToast = (toast: Toast, event: Event) => {
-  event.stopPropagation();
-  toastStore.removeToast(toast.id);
-};
-
-// Inline action handler (e.g. Undo). Run the handler then dismiss
-// the toast; stopPropagation prevents the parent card click from
-// firing for notification toasts.
-const invokeAction = async (toast: Toast, event: Event) => {
-  event.stopPropagation();
-  if (!toast.action) return;
-  try {
-    await toast.action.handler();
-  } finally {
-    toastStore.removeToast(toast.id);
-  }
-};
-
-// --- Swipe to dismiss (touch) ---
-// Toasts slide in from the right, so a rightward swipe past the threshold
-// dismisses; a shorter drag snaps back. Mouse devices never fire these.
-const SWIPE_DISMISS_PX = 80;
-const swipe = ref<{ id: string; startX: number; dx: number; dragging: boolean } | null>(null);
-let suppressClickUntil = 0;
-
-const onTouchStart = (toast: Toast, event: TouchEvent) => {
-  swipe.value = { id: toast.id, startX: event.touches[0].clientX, dx: 0, dragging: true };
-};
-
-const onTouchMove = (event: TouchEvent) => {
-  if (!swipe.value) return;
-  swipe.value.dx = Math.max(0, event.touches[0].clientX - swipe.value.startX);
-};
-
-const onTouchEnd = (toast: Toast) => {
-  const s = swipe.value;
-  if (!s || s.id !== toast.id) {
-    swipe.value = null;
-    return;
-  }
-  if (s.dx > SWIPE_DISMISS_PX) {
-    toastStore.removeToast(toast.id);
-    swipe.value = null;
-    return;
-  }
-  // A real drag (not a tap): suppress the click that follows touchend.
-  if (s.dx > 8) suppressClickUntil = Date.now() + 300;
-  // Snap back with a transition, then clear the swipe state.
-  s.dragging = false;
-  setTimeout(() => {
-    if (swipe.value?.id === toast.id) swipe.value = null;
-  }, 200);
-};
-
-const swipeStyle = (toast: Toast) => {
-  const cursor = toast.notification ? 'pointer' : 'default';
-  const s = swipe.value;
-  if (s && s.id === toast.id) {
-    return {
-      cursor,
-      transform: `translateX(${s.dx}px)`,
-      opacity: String(Math.max(0.25, 1 - s.dx / 240)),
-      transition: s.dragging ? 'none' : 'transform 0.2s ease, opacity 0.2s ease',
-    };
-  }
-  return { cursor };
 };
 
 const getProgressBarClass = (type: Toast['type']) => {
@@ -141,179 +102,215 @@ const getProgressBarClass = (type: Toast['type']) => {
       return 'bg-status-warning';
     case 'error':
       return 'bg-status-error';
-    case 'notification':
-      return 'bg-accent';
     default:
       return 'bg-accent';
   }
 };
+
+// Notification toasts open the ticket, from a click or Enter on the
+// focused toast. Reka cancels the click that ends a swipe, so a
+// half-swipe never navigates.
+const openNotification = (toast: Toast, event: Event) => {
+  if (event.defaultPrevented || !toast.notification) return;
+  const { ticketId } = toast.notification;
+  if (ticketId) router.push(`/tickets/${ticketId}`);
+  toastStore.removeToast(toast.id);
+};
+
+// Inline action (e.g. Undo): run the handler; Reka closes the toast.
+const invokeAction = (toast: Toast, event: Event) => {
+  event.stopPropagation();
+  void toast.action?.handler();
+};
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      aria-live="assertive"
-      class="pointer-events-none fixed inset-0 flex flex-col items-end px-4 pb-6 sm:px-6 sm:pb-6 z-overlay gap-3 pt-[max(1.5rem,calc(env(safe-area-inset-top)+0.75rem))]"
+  <ToastProvider :label="t('toast-label')" swipe-direction="right" :swipe-threshold="80">
+    <ToastRoot
+      v-for="toast in toasts"
+      :key="toast.id"
+      v-slot="{ remaining, duration }"
+      :open="!closing.has(toast.id)"
+      :type="announceType(toast.type)"
+      :duration="timerDuration(toast)"
+      :class="getToastClasses(toast.type)"
+      @update:open="onOpenChange(toast, $event)"
+      @click="openNotification(toast, $event)"
+      @keydown.enter.self="openNotification(toast, $event)"
     >
-      <TransitionGroup
-        name="toast"
-        tag="div"
-        class="flex flex-col gap-3 w-full max-w-sm ml-auto"
-      >
-        <div
-          v-for="toast in toasts"
-          :key="toast.id"
-          :class="getToastClasses(toast.type)"
-          @click="toast.notification ? handleToastClick(toast) : undefined"
-          @touchstart.passive="onTouchStart(toast, $event)"
-          @touchmove.passive="onTouchMove($event)"
-          @touchend="onTouchEnd(toast)"
-          :style="swipeStyle(toast)"
-          role="alert"
-        >
-          <div class="p-4">
-            <div class="flex items-start gap-3">
-              <!-- Icon -->
-              <div class="flex-shrink-0 mt-0.5" :class="getIconClasses(toast.type)">
-                <Icon v-if="toast.type === 'info'" name="info" size="md" />
-                <Icon v-else-if="toast.type === 'success'" name="checkCircle" size="md" />
-                <Icon v-else-if="toast.type === 'warning'" name="warning" size="md" />
-                <!-- Error icon: X in circle, no registry equivalent -->
-                <svg
-                  v-else-if="toast.type === 'error'"
-                  class="h-5 w-5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                <Icon v-else-if="toast.type === 'notification'" name="bell" size="md" />
-              </div>
-
-              <!-- Content -->
-              <div class="flex-1 pt-0.5 min-w-0">
-                <p class="text-sm font-medium text-primary break-words">
-                  {{ toast.title }}
-                </p>
-                <p v-if="toast.message" class="mt-1 text-sm text-secondary break-words">
-                  {{ toast.message }}
-                </p>
-
-                <!-- Actor info for notifications -->
-                <div
-                  v-if="toast.notification?.actorName"
-                  class="mt-2 flex items-center gap-2"
-                >
-                  <img
-                    v-if="toast.notification.actorAvatar"
-                    :src="toast.notification.actorAvatar"
-                    alt=""
-                    class="h-5 w-5 rounded-full object-cover"
-                  />
-                  <div
-                    v-else
-                    class="h-5 w-5 rounded-full bg-accent/20 flex items-center justify-center"
-                  >
-                    <span class="text-xs text-accent font-medium">
-                      {{ toast.notification.actorName.charAt(0).toUpperCase() }}
-                    </span>
-                  </div>
-                  <span class="text-xs text-tertiary truncate">
-                    {{ toast.notification.actorName }}
-                  </span>
-                </div>
-
-                <!-- View link for notifications -->
-                <p
-                  v-if="toast.notification"
-                  class="mt-2 text-xs text-accent font-medium hover:underline"
-                >
-                  Click to view
-                </p>
-              </div>
-
-              <!-- Inline action button (e.g. Undo). Sits between the
-                   message and the dismiss × so it reads as part of
-                   the toast, not chrome. -->
-              <div v-if="toast.action" class="flex-shrink-0">
-                <button
-                  type="button"
-                  @click="invokeAction(toast, $event)"
-                  class="inline-flex items-center px-2.5 py-1.5 text-xs font-semibold text-accent rounded-md hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
-                >
-                  {{ toast.action.label }}
-                </button>
-              </div>
-
-              <!-- Close button -->
-              <div v-if="toast.dismissible" class="flex-shrink-0">
-                <button
-                  type="button"
-                  @click="dismissToast(toast, $event)"
-                  class="inline-flex rounded-md p-1.5 text-tertiary hover:text-secondary hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
-                  :aria-label="t('common-toast-dismiss')"
-                >
-                  <Icon name="close" />
-                </button>
-              </div>
-            </div>
+      <div class="p-4">
+        <div class="flex items-start gap-3">
+          <!-- Icon -->
+          <div class="flex-shrink-0 mt-0.5" :class="getIconClasses(toast.type)" aria-hidden="true">
+            <Icon v-if="toast.type === 'info'" name="info" size="md" />
+            <Icon v-else-if="toast.type === 'success'" name="checkCircle" size="md" />
+            <Icon v-else-if="toast.type === 'warning'" name="warning" size="md" />
+            <!-- Error icon: X in circle, no registry equivalent -->
+            <svg
+              v-else-if="toast.type === 'error'"
+              class="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <Icon v-else-if="toast.type === 'notification'" name="bell" size="md" />
           </div>
-          <!-- Auto-dismiss progress bar (only for toasts that time out). -->
-          <div
-            v-if="toast.duration > 0"
-            class="toast-progress h-1 w-full origin-right"
-            :class="getProgressBarClass(toast.type)"
-            :style="{ animationDuration: toast.duration + 'ms' }"
-          ></div>
+
+          <!-- Content -->
+          <div class="flex-1 pt-0.5 min-w-0">
+            <ToastTitle as="p" class="text-sm font-medium text-primary break-words">
+              {{ toast.title }}
+            </ToastTitle>
+            <ToastDescription
+              v-if="toast.message"
+              as="p"
+              class="mt-1 text-sm text-secondary break-words"
+            >
+              {{ toast.message }}
+            </ToastDescription>
+
+            <!-- Actor info for notifications -->
+            <div v-if="toast.notification?.actorName" class="mt-2 flex items-center gap-2">
+              <img
+                v-if="toast.notification.actorAvatar"
+                :src="toast.notification.actorAvatar"
+                alt=""
+                class="h-5 w-5 rounded-full object-cover"
+              />
+              <div
+                v-else
+                class="h-5 w-5 rounded-full bg-accent/20 flex items-center justify-center"
+                aria-hidden="true"
+              >
+                <span class="text-xs text-accent font-medium">
+                  {{ toast.notification.actorName.charAt(0).toUpperCase() }}
+                </span>
+              </div>
+              <span class="text-xs text-tertiary truncate">
+                {{ toast.notification.actorName }}
+              </span>
+            </div>
+
+            <!-- View link for notifications -->
+            <p v-if="toast.notification" class="mt-2 text-xs text-accent font-medium hover:underline">
+              {{ t('toast-notification-view') }}
+            </p>
+          </div>
+
+          <!-- Inline action button (e.g. Undo). Sits between the
+               message and the dismiss button so it reads as part of
+               the toast, not chrome. -->
+          <ToastAction
+            v-if="toast.action"
+            as-child
+            :alt-text="t('toast-action-alt', { label: toast.action.label, hotkey: 'F8' })"
+          >
+            <button
+              type="button"
+              class="flex-shrink-0 inline-flex items-center px-2.5 py-1.5 text-xs font-semibold text-accent rounded-md hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
+              @click="invokeAction(toast, $event)"
+            >
+              {{ toast.action.label }}
+            </button>
+          </ToastAction>
+
+          <!-- Close button -->
+          <ToastClose v-if="toast.dismissible" as-child>
+            <button
+              type="button"
+              class="flex-shrink-0 inline-flex rounded-md p-1.5 text-tertiary hover:text-secondary hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
+              :aria-label="t('common-toast-dismiss')"
+              @click.stop
+            >
+              <Icon name="close" />
+            </button>
+          </ToastClose>
         </div>
-      </TransitionGroup>
-    </div>
-  </Teleport>
+      </div>
+      <!-- Countdown bar, driven by Reka's remaining time so it pauses
+           with the timer. -->
+      <div
+        v-if="toast.duration > 0"
+        class="h-1 w-full origin-right"
+        :class="getProgressBarClass(toast.type)"
+        :style="{ transform: `scaleX(${Math.max(0, remaining) / duration})` }"
+        aria-hidden="true"
+      ></div>
+    </ToastRoot>
+
+    <!-- Newest on top: the viewport lists toasts in mount order, so the
+         column runs in reverse. Named region; F8 focuses it. -->
+    <ToastPortal to="#overlays">
+      <ToastViewport
+        :label="(hotkey: string) => t('toast-region-label', { hotkey })"
+        class="print:hidden pointer-events-none fixed top-0 right-0 flex flex-col-reverse items-end gap-3 px-4 sm:px-6 z-overlay w-full max-w-sm pt-[max(1.5rem,calc(env(safe-area-inset-top)+0.75rem))] list-none m-0 outline-none"
+      />
+    </ToastPortal>
+  </ToastProvider>
 </template>
 
-<style scoped>
-.toast-enter-active {
-  transition: all 0.3s ease-out;
+<style>
+/* Global: the viewport is portalled out of scoped-style context. */
+.toast[data-state='open'] {
+  animation: toast-in 300ms ease-out;
+}
+.toast[data-state='closed'] {
+  animation: toast-out 200ms ease-in forwards;
+}
+.toast[data-swipe='move'] {
+  transform: translateX(var(--reka-toast-swipe-move-x));
+}
+.toast[data-swipe='cancel'] {
+  transform: translateX(0);
+  transition: transform 200ms ease-out;
+}
+.toast[data-swipe='end'] {
+  animation: toast-swipe-out 150ms ease-out forwards;
 }
 
-.toast-leave-active {
-  transition: all 0.2s ease-in;
-}
-
-.toast-enter-from {
-  opacity: 0;
-  transform: translateX(100%);
-}
-
-.toast-leave-to {
-  opacity: 0;
-  transform: translateX(100%);
-}
-
-.toast-move {
-  transition: transform 0.3s ease;
-}
-
-/* Auto-dismiss countdown bar: shrink from full to empty over the toast's
-   duration (set inline via animation-duration). */
-.toast-progress {
-  animation-name: toast-progress;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-}
-
-@keyframes toast-progress {
+@keyframes toast-in {
   from {
-    transform: scaleX(1);
+    opacity: 0;
+    transform: translateX(100%);
   }
   to {
-    transform: scaleX(0);
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+@keyframes toast-swipe-out {
+  from {
+    transform: translateX(var(--reka-toast-swipe-move-x));
+  }
+  to {
+    transform: translateX(calc(100% + 1rem));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast[data-state],
+  .toast[data-swipe='end'] {
+    animation-duration: 1ms;
+  }
+  .toast[data-swipe='cancel'] {
+    transition: none;
   }
 }
 </style>
