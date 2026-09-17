@@ -1,38 +1,37 @@
 <script setup lang="ts">
 /**
- * 24-hour time picker. Compact text input + popover grid, modelled
- * on Linear / Notion / Airtable's pattern: type literal HH:MM when
- * you know the value, click hour + minute cells when you don't.
- * Arrow keys on the focused input step by `minuteStep`.
+ * Time field on Reka's TimeField: a `role=group` of `spinbutton`
+ * segments (hour, minute, and a day-period segment when the locale
+ * clock is 12-hour), typed digit by digit, arrows step the focused
+ * segment (minutes by `minuteStep`), Left/Right move between segments,
+ * Backspace clears. Native `<input type="time">` chrome is
+ * browser-controlled, so the control is ours to theme; the hour and
+ * minute popover grid the old input carried is gone, the segments are
+ * the picker.
  *
- * Why a custom primitive rather than `<input type="time">`:
- *   - Browser chrome is browser-controlled; we can't actually own
- *     the visual to match the form's theme tokens.
- *   - The picker indicator renders differently in Chrome / Safari /
- *     Firefox, so any styling becomes a workaround per engine.
- *   - The form this lives in already uses SearchableDropdown for
- *     timezone; the time field should read as the same family of
- *     control, not a foreign browser widget.
- *
- * The value contract is HH:MM (24h, zero-padded). Empty string is
- * allowed for unset; invalid strings are accepted into the local
- * draft but not committed until they parse. Bad text shows in red
- * until the user fixes it or blurs to a valid value.
+ * Value contract is unchanged: `HH:MM` (24-hour, zero-padded), empty
+ * string means unset. A 12-hour locale shows and takes 12-hour input;
+ * the model stays 24-hour. The field commits when focus leaves it and
+ * on Enter, not on every keystroke: an hour typed digit by digit
+ * passes through another complete time on the way.
  */
-import { computed, nextTick, ref, watch, type Ref } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, useId, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
-import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
+import { parseTime, Time } from '@internationalized/date'
+import { TimeFieldInput, TimeFieldRoot, type SegmentPart, type TimeValue } from 'reka-ui'
 
 interface Props {
   modelValue: string
   size?: 'sm' | 'md'
-  /** Cell granularity in minutes. 5 by default; common alternatives
-   *  are 15 (quarter-hour) or 30 (half-hour). Hours are always full. */
+  /** Arrow-key step on the minute segment. Typed minutes are taken
+   *  as they are, never snapped. */
   minuteStep?: number
+  /** Label rendered above the field in the same shell as FormInput. */
+  label?: string
+  /** Accessible name when there is no visible label. */
   ariaLabel?: string
   disabled?: boolean
-  /** Mark the field invalid (e.g. parent-side validation). Tints
-   *  the input + the popover header so the user sees the issue. */
+  /** Mark the field invalid (parent-side validation). */
   error?: boolean
 }
 
@@ -48,289 +47,182 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
 
-const triggerRef = ref<HTMLInputElement | null>(null) as Ref<HTMLInputElement | null>
-const open = ref(false)
-const draftText = ref(props.modelValue)
-const isInvalid = ref(false)
-
-// External writes win over local draft; the draft is purely the
-// in-flight typing buffer. Watching modelValue keeps the input in
-// sync when the parent corrects the value programmatically.
-watch(
-  () => props.modelValue,
-  (v) => {
-    draftText.value = v
-    isInvalid.value = false
-  },
-)
+const generatedId = useId()
+const inputId = `time-picker-${generatedId}`
+const labelId = computed(() => (props.label ? `${inputId}-label` : undefined))
 
 const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
-function clampMinuteToStep(minute: number, step: number): number {
-  // For a HIGHLIGHT indicator we want the nearest step-aligned
-  // value that still falls within [0, 60). Rounding (e.g. minute=59,
-  // step=5 -> 12 * 5 = 60) can overshoot, so cap at the largest
-  // valid step.
-  const rounded = Math.round(minute / step) * step
-  return Math.min(rounded, 60 - step)
+function toTime(value: string): Time | undefined {
+  return HHMM_RE.test(value) ? parseTime(value) : undefined
 }
 
-function commitText(): void {
-  const v = draftText.value.trim()
-  if (v === '') {
-    if (props.modelValue !== '') emit('update:modelValue', '')
-    isInvalid.value = false
-    return
-  }
-  if (HHMM_RE.test(v)) {
-    isInvalid.value = false
-    if (v !== props.modelValue) emit('update:modelValue', v)
-  } else {
-    isInvalid.value = true
-  }
-}
+const toHhmm = (value: TimeValue | undefined | null): string =>
+  value ? `${String(value.hour).padStart(2, '0')}:${String(value.minute).padStart(2, '0')}` : ''
 
-function applyParts(hour: number, minute: number): void {
-  const v = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-  draftText.value = v
-  isInvalid.value = false
-  if (v !== props.modelValue) emit('update:modelValue', v)
-}
-
-const currentParts = computed(() => {
-  const v = props.modelValue
-  if (!HHMM_RE.test(v)) return { hour: 9, minute: 0 }
-  const [h, m] = v.split(':').map(Number)
-  return { hour: h, minute: m }
-})
-
-const hours = Array.from({ length: 24 }, (_, i) => i)
-const minutes = computed(() => {
-  const step = props.minuteStep
-  return Array.from({ length: Math.floor(60 / step) }, (_, i) => i * step)
-})
-
-/**
- * The current minute may not land on a step boundary (when the
- * model value was entered freehand or imported). Highlight the
- * nearest step cell so the picker reads consistently without
- * silently snapping the actual value.
- */
-const highlightedMinute = computed(() =>
-  clampMinuteToStep(currentParts.value.minute, props.minuteStep),
+// The field shows what was typed; the parent hears about it on commit.
+// Parent writes replace the draft.
+const draft = shallowRef<Time | undefined>(toTime(props.modelValue))
+watch(
+  () => props.modelValue,
+  (v) => {
+    draft.value = toTime(v)
+  },
 )
 
-function handleKeyDown(e: KeyboardEvent): void {
-  if (props.disabled) return
-  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-    if (!HHMM_RE.test(props.modelValue)) return
-    e.preventDefault()
-    const dir = e.key === 'ArrowUp' ? 1 : -1
-    const [h, m] = props.modelValue.split(':').map(Number)
-    const totalMinutes = h * 60 + m + dir * props.minuteStep
-    const wrapped = ((totalMinutes % 1440) + 1440) % 1440
-    applyParts(Math.floor(wrapped / 60), wrapped % 60)
-  }
+function onUpdate(value: TimeValue | undefined): void {
+  draft.value = value ? new Time(value.hour, value.minute) : undefined
 }
 
-// Scroll the currently-selected cell into view when the popover
-// opens, so a value like 17:00 isn't hidden below the fold of a
-// 24-row column.
-const hourColRef = ref<HTMLElement | null>(null)
-const minuteColRef = ref<HTMLElement | null>(null)
-
-function scrollSelectedIntoView(col: HTMLElement | null): void {
-  if (!col) return
-  const selected = col.querySelector<HTMLElement>('[data-selected="true"]')
-  if (selected) {
-    selected.scrollIntoView({ block: 'center' })
-  }
+function commit(): void {
+  const next = toHhmm(draft.value)
+  if (next !== props.modelValue) emit('update:modelValue', next)
 }
 
-watch(open, async (isOpen) => {
-  if (!isOpen) return
-  await nextTick()
-  scrollSelectedIntoView(hourColRef.value)
-  scrollSelectedIntoView(minuteColRef.value)
-})
+// Focus leaving the control commits; moving between segments does
+// not. A host popover can unmount the field before any blur lands, so
+// unmount commits too.
+const rootEl = ref<HTMLElement | null>(null)
+function onFocusOut(event: FocusEvent): void {
+  const next = event.relatedTarget
+  if (next instanceof Node && rootEl.value?.contains(next)) return
+  commit()
+}
+onBeforeUnmount(commit)
 
-function focusInput(): void {
-  triggerRef.value?.focus()
+const step = computed(() => ({ minute: props.minuteStep }))
+
+// Reka labels segments in English ("hour, ", "AM/PM"); ours come from
+// the catalogue.
+const SEGMENT_KEYS: Partial<Record<SegmentPart, string>> = {
+  hour: 'date-segment-hour',
+  minute: 'date-segment-minute',
+  second: 'date-segment-second',
+  dayPeriod: 'date-segment-day-period',
 }
 
-defineExpose({ focus: focusInput })
+function segmentAttrs(part: SegmentPart): Record<string, string> {
+  const key = SEGMENT_KEYS[part]
+  if (!key) return {}
+  const attrs: Record<string, string> = { 'aria-label': t(key) }
+  if (props.error) attrs['aria-invalid'] = 'true'
+  return attrs
+}
 </script>
 
 <template>
-  <div class="time-picker">
-    <input
-      ref="triggerRef"
-      v-model="draftText"
-      type="text"
-      inputmode="numeric"
-      maxlength="5"
-      :aria-label="ariaLabel"
-      :disabled="disabled"
-      :aria-invalid="isInvalid || error ? 'true' : undefined"
-      class="time-picker__input"
-      :class="[
-        size === 'sm' ? 'time-picker__input--sm' : 'time-picker__input--md',
-        (isInvalid || error) && 'time-picker__input--invalid',
-      ]"
-      @focus="open = true"
-      @click="open = true"
-      @blur="commitText"
-      @keydown="handleKeyDown"
-      @keydown.enter.prevent="commitText"
-      @keydown.escape="open = false"
-    />
-
-    <ResponsiveMenu
-      :open="open"
-      :anchor="{ type: 'element', element: () => triggerRef }"
-      placement="bottom-start"
-      role="dialog"
-      :offset="4"
-      :auto-focus="false"
-      popover-class="time-picker__popover"
-      @close="open = false"
+  <div ref="rootEl" class="time-picker" @focusout="onFocusOut">
+    <label
+      v-if="label"
+      :id="labelId"
+      :for="inputId"
+      class="text-xs font-medium text-tertiary uppercase tracking-wide"
     >
-      <div class="time-picker__grid">
-        <ul ref="hourColRef" class="time-picker__col" :aria-label="t('time-picker-hours-aria')">
-          <li v-for="h in hours" :key="h">
-            <button
-              type="button"
-              class="time-picker__cell"
-              :class="h === currentParts.hour && 'is-selected'"
-              :data-selected="h === currentParts.hour ? 'true' : 'false'"
-              @click="applyParts(h, highlightedMinute)"
-            >
-              {{ String(h).padStart(2, '0') }}
-            </button>
-          </li>
-        </ul>
-        <ul ref="minuteColRef" class="time-picker__col" :aria-label="t('time-picker-minutes-aria')">
-          <li v-for="m in minutes" :key="m">
-            <button
-              type="button"
-              class="time-picker__cell"
-              :class="m === highlightedMinute && 'is-selected'"
-              :data-selected="m === highlightedMinute ? 'true' : 'false'"
-              @click="applyParts(currentParts.hour, m)"
-            >
-              {{ String(m).padStart(2, '0') }}
-            </button>
-          </li>
-        </ul>
-      </div>
-    </ResponsiveMenu>
+      {{ label }}
+    </label>
+    <TimeFieldRoot
+      v-slot="{ segments }"
+      :id="inputId"
+      :model-value="draft"
+      granularity="minute"
+      :step="step"
+      :step-snapping="false"
+      :disabled="disabled"
+      class="time-picker__field"
+      :class="[
+        size === 'sm' ? 'time-picker__field--sm' : 'time-picker__field--md',
+        error && 'time-picker__field--invalid',
+      ]"
+      :aria-label="label ? undefined : ariaLabel"
+      :aria-labelledby="labelId"
+      @update:model-value="onUpdate"
+      @keydown.enter="commit"
+    >
+      <TimeFieldInput
+        v-for="(item, i) in segments"
+        :key="i"
+        :part="item.part"
+        class="time-picker__segment"
+        v-bind="segmentAttrs(item.part)"
+      >
+        {{ item.value }}
+      </TimeFieldInput>
+    </TimeFieldRoot>
   </div>
 </template>
 
 <style scoped>
 .time-picker {
-  position: relative;
-  display: inline-block;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.375rem;
 }
+</style>
 
-.time-picker__input {
+<style>
+/* Unscoped: the field and its segments are Reka-rendered, so scoped
+   hashes never reach them. The class prefix keeps the rules logically
+   scoped. */
+.time-picker__field {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background-color: var(--color-surface-alt);
   border: 1px solid var(--color-subtle);
   border-radius: 0.5rem;
   color: var(--color-primary);
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
-  text-align: center;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
-  width: 4.5rem;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+  min-width: 4.5rem;
 }
 
-.time-picker__input--sm {
+.time-picker__field--sm {
   padding: 0.25rem 0.5rem;
   font-size: 12px;
   line-height: 1.4;
 }
 
-.time-picker__input--md {
+.time-picker__field--md {
   padding: 0.5rem 0.75rem;
   font-size: 14px;
 }
 
-.time-picker__input:focus {
-  outline: none;
+.time-picker__field:focus-within {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 2px var(--color-accent-muted);
 }
 
-.time-picker__input--invalid {
+.time-picker__field--invalid,
+.time-picker__field[data-invalid] {
   border-color: var(--color-status-error);
 }
 
-.time-picker__input:disabled {
+.time-picker__field[data-disabled] {
   opacity: 0.5;
   cursor: not-allowed;
 }
-</style>
 
-<style>
-/* Unscoped because the popover is teleported to <body> and the
-   scoped attribute hash never lands on its DOM tree. Class is
-   prefixed so the rule still reads as belonging to this component. */
-.time-picker__popover {
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-default);
-  border-radius: 0.5rem;
-  box-shadow: 0 10px 25px -10px rgba(0, 0, 0, 0.2);
-  overflow: hidden;
-}
-
-.time-picker__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background-color: var(--color-subtle);
-}
-
-.time-picker__col {
-  background-color: var(--color-surface);
-  list-style: none;
-  margin: 0;
-  padding: 0.25rem 0;
-  max-height: 14rem;
-  overflow-y: auto;
-  scrollbar-width: thin;
-}
-
-.time-picker__cell {
-  display: block;
-  width: 100%;
-  padding: 0.25rem 1rem;
-  background: transparent;
-  border: none;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum';
-  color: var(--color-secondary);
-  text-align: center;
-  cursor: pointer;
-  transition: background-color 100ms ease, color 100ms ease;
-}
-
-.time-picker__cell:hover {
-  background-color: var(--color-surface-hover);
-  color: var(--color-primary);
-}
-
-.time-picker__cell:focus-visible {
+.time-picker__segment {
+  padding: 0 1px;
+  border-radius: 0.125rem;
   outline: none;
-  background-color: var(--color-surface-hover);
-  color: var(--color-primary);
-  box-shadow: inset 0 0 0 1px var(--color-accent);
+  caret-color: transparent;
 }
 
-.time-picker__cell.is-selected {
-  background-color: var(--color-accent-muted);
-  color: var(--color-accent);
-  font-weight: 600;
+.time-picker__segment[data-placeholder] {
+  color: var(--color-tertiary);
+}
+
+.time-picker__segment[data-reka-time-field-segment='literal'] {
+  color: var(--color-tertiary);
+  padding: 0;
+}
+
+.time-picker__segment:focus {
+  background-color: var(--color-accent);
+  color: var(--color-on-accent);
 }
 </style>

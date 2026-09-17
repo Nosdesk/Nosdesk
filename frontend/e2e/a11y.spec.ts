@@ -325,6 +325,42 @@ test.describe('accessibility floor', () => {
     await sw.click()
   })
 
+  test('a date field is labelled spinbuttons with a calendar that walks with the arrows', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    await page.locator('table tbody tr').first().dblclick()
+    await page.waitForURL(/\/tickets\/\d+/)
+    await page.waitForTimeout(3000)
+
+    // The scheduling disclosure starts closed on a ticket with no dates.
+    const disclosure = page.getByRole('button', { name: /^Scheduling/ })
+    if ((await disclosure.getAttribute('aria-expanded')) !== 'true') await disclosure.click()
+    const field = page.getByRole('group', { name: 'Due date' })
+    await expect(field).toBeVisible()
+    await expect(field.getByRole('spinbutton')).toHaveCount(3)
+    for (const name of ['Day', 'Month', 'Year']) {
+      await expect(field.getByRole('spinbutton', { name })).toBeAttached()
+    }
+    await expectNoSeriousViolations(page, '[role="group"][aria-label="Due date"]')
+
+    const trigger = field.getByRole('button', { name: 'Open calendar' })
+    await trigger.click()
+    const dialog = page.locator('#overlays [role="dialog"]')
+    await expect(dialog).toBeVisible()
+    // Focus lands on a day; the arrows move it; the trigger gets it back.
+    const focused = dialog.locator('[data-reka-calendar-cell-trigger][data-focused]')
+    await expect(focused).toBeFocused()
+    const before = await focused.getAttribute('data-value')
+    await page.keyboard.press('ArrowRight')
+    await expect(dialog.locator('[data-reka-calendar-cell-trigger][data-focused]')).toBeFocused()
+    expect(await dialog.locator('[data-reka-calendar-cell-trigger][data-focused]').getAttribute('data-value')).not.toBe(before)
+    await expect(dialog.getByRole('button', { name: 'Next month' })).toBeAttached()
+    await expectNoSeriousViolations(page, '#overlays')
+    // Escape closes without touching the ticket.
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)
