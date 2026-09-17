@@ -4,10 +4,9 @@
  * CardData, no pixels; the geometry projection happens in the
  * renderer through the viewport's `xOf`.
  */
-import { addDays } from 'date-fns'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import { TERMINAL_CATEGORIES } from '@nosdesk/core/types/workflow'
-import { startOfDay } from '@/composables/useGanttViewport'
+import { addDays, startOfDay } from '@nosdesk/core/utils/dateMath'
 
 export interface ScheduledCard {
   card: CardData

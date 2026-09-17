@@ -16,7 +16,7 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery } from '@pinia/colada';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
@@ -101,11 +101,7 @@ function statusVariant(status: RuleApplicationStatus): string {
 }
 
 function formatTime(value: string): string {
-  try {
-    return formatDistanceToNow(new Date(value), { addSuffix: true });
-  } catch {
-    return value;
-  }
+  return formatRelativeTime(value);
 }
 
 const expanded = ref<Set<number>>(new Set());

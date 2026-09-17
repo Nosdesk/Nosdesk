@@ -326,7 +326,7 @@ const handleRecordingComplete = (recording: {
         : mime.includes('ogg') ? 'ogg'
         : mime.includes('wav') ? 'wav'
         : 'webm';
-    const fileName = `${t('ticket-comments-voice-note-filename', { date: formatDate(new Date(), 'MMM d, yyyy') })}.${ext}`;
+    const fileName = `${t('ticket-comments-voice-note-filename', { date: formatDate(new Date()) })}.${ext}`;
     const audioFile = new File([recording.blob], fileName, {
         type: recording.blob.type,
     }) as File & { _transcription?: string };

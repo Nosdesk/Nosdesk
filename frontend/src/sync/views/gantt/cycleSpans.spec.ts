@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { differenceInCalendarDays } from 'date-fns'
+import { daysBetween } from '@nosdesk/core/utils/dateMath'
 import {
   cycleBodyClass,
   cycleStripClass,
@@ -38,7 +38,7 @@ describe('datedCycleSpans', () => {
     expect(span.label).toBe('Sprint 1')
     expect(span.state).toBe('active')
     // 10,11,12,13,14 = 5 inclusive days → exclusive end is the 15th.
-    expect(differenceInCalendarDays(span.endExclusive, span.start)).toBe(5)
+    expect(daysBetween(span.start, span.endExclusive)).toBe(5)
     expect(span.start.getDate()).toBe(10)
     expect(span.endExclusive.getDate()).toBe(15)
   })
@@ -58,7 +58,7 @@ describe('datedCycleSpans', () => {
 })
 
 describe('projectCycleBand', () => {
-  const dayOffset = (from: Date, to: Date) => differenceInCalendarDays(to, from)
+  const dayOffset = (from: Date, to: Date) => daysBetween(from, to)
   const canvasStart = new Date(2026, 7, 1) // 1 Aug local
   const px = 36
 

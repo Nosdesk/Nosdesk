@@ -26,9 +26,8 @@
  * source the renderer reads (bars, ghost outline, date chip).
  */
 import { ref, type Ref } from 'vue'
-import { addDays } from 'date-fns'
 import { createDragEdgeScroller } from '@/composables/useDragEdgeScroll'
-import { daysBetween } from '@/composables/useGanttViewport'
+import { addDays, daysBetween } from '@nosdesk/core/utils/dateMath'
 import { createTouchHold } from '@/sync/views/touchHold'
 
 export type BarDragMode = 'move' | 'start' | 'due'

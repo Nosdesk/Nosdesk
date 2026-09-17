@@ -25,31 +25,19 @@
  * the board reopens where the user left it.
  */
 import { computed, nextTick, ref, toValue, watch, type ComputedRef, type MaybeRefOrGetter, type Ref } from 'vue'
-import { addDays, addMonths, startOfMonth } from 'date-fns'
+import { addDays, addMonths, daysBetween, startOfDay, startOfMonth } from '@nosdesk/core/utils/dateMath'
 import { logger } from '@nosdesk/core/utils/logger'
 import { scrollBehavior } from '@/composables/useReducedMotion'
 
 export type GanttZoom = 'week' | 'month' | 'quarter'
 
 const PX_PER_DAY: Record<GanttZoom, number> = { week: 26, month: 9, quarter: 3.4 }
-const DAY_MS = 86_400_000
 
 export const GANTT_ZOOMS: GanttZoom[] = ['week', 'month', 'quarter']
 export const ganttZoomLabel: Record<GanttZoom, string> = {
   week: 'gantt-zoom-week',
   month: 'gantt-zoom-month',
   quarter: 'gantt-zoom-quarter',
-}
-
-/** Truncate to local midnight without mutating the input. */
-export function startOfDay(d: Date): Date {
-  const x = new Date(d)
-  x.setHours(0, 0, 0, 0)
-  return x
-}
-
-export function daysBetween(a: Date, b: Date): number {
-  return Math.round((startOfDay(b).getTime() - startOfDay(a).getTime()) / DAY_MS)
 }
 
 /** Content padding on each side of the project span (months). */

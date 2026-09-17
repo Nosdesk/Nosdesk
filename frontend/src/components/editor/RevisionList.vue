@@ -231,7 +231,7 @@ function formatRelativeDate(dateString: string): string {
   if (diffHours < 24) return t('editor-revisions-hours-ago', { hours: diffHours })
   if (diffDays < 7) return t('editor-revisions-days-ago', { days: diffDays })
 
-  return formatDate(dateString, "MMM d, yyyy")
+  return formatDate(dateString)
 }
 
 watch(

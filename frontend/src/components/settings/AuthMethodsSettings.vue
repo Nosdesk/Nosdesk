@@ -190,7 +190,7 @@ const getAuthMethodIcon = (type: string) => {
                     <span v-if="method.isPrimary" class="ml-2 px-2 py-1 bg-accent/20 text-accent rounded text-xs">{{ $t('settings-auth-methods-primary-badge') }}</span>
                   </div>
                   <div v-if="method.identifier" class="text-xs text-tertiary">
-                    {{ method.identifier }}<template v-if="method.createdAt"> {{ $t('settings-auth-methods-added-suffix', { date: formatDate(method.createdAt, 'MMM d, yyyy') }) }}</template>
+                    {{ method.identifier }}<template v-if="method.createdAt"> {{ $t('settings-auth-methods-added-suffix', { date: formatDate(method.createdAt) }) }}</template>
                   </div>
                 </div>
               </div>

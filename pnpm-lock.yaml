@@ -10,12 +10,12 @@ importers:
 
   frontend:
     dependencies:
-      '@date-fns/tz':
-        specifier: ^1.4.1
-        version: 1.5.0
       '@fluent/bundle':
         specifier: ^0.19.1
         version: 0.19.1
+      '@internationalized/date':
+        specifier: ^3.12.4
+        version: 3.12.4
       '@nosdesk/core':
         specifier: workspace:*
         version: link:../packages/core
@@ -49,9 +49,6 @@ importers:
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
-      date-fns:
-        specifier: ^4.1.0
-        version: 4.4.0
       dompurify:
         specifier: ^3.4.14
         version: 3.4.14
@@ -276,15 +273,15 @@ importers:
 
   packages/core:
     dependencies:
+      '@internationalized/date':
+        specifier: ^3.12.4
+        version: 3.12.4
       '@pinia/colada':
         specifier: ^1.4.4
         version: 1.4.4(pinia@4.0.3(@vue/devtools-api@8.2.1)(typescript@6.0.3)(vue@3.5.42(typescript@6.0.3)))(vue@3.5.42(typescript@6.0.3))
       axios:
         specifier: ^1.20.0
         version: 1.20.0
-      date-fns:
-        specifier: ^4.1.0
-        version: 4.4.0
       fluent-vue:
         specifier: ^3.8.2
         version: 3.8.2(@fluent/bundle@0.19.1)(vue@3.5.42(typescript@6.0.3))
@@ -450,9 +447,6 @@ packages:
   '@csstools/css-tokenizer@4.0.0':
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
-
-  '@date-fns/tz@1.5.0':
-    resolution: {integrity: sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg==}
 
   '@esbuild/aix-ppc64@0.28.2':
     resolution: {integrity: sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==}
@@ -1776,9 +1770,6 @@ packages:
   data-urls@7.0.0:
     resolution: {integrity: sha512-23XHcCF+coGYevirZceTVD7NdJOqVn+49IHyxgszm+JIiHLoB2TkmPtsYkNWT1pvRSGkc35L6NHs0yHkN2SumA==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
-
-  date-fns@4.4.0:
-    resolution: {integrity: sha512-+1UMbeh68lH1SegH83CGWwpb6OHHbpSgr3+s5Eww5M4CAgswBpoWS0AjTOfEJ33HiYKz1hdj/KTFprzXHmq/6w==}
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -3395,8 +3386,6 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@date-fns/tz@1.5.0': {}
-
   '@esbuild/aix-ppc64@0.28.2':
     optional: true
 
@@ -4511,8 +4500,6 @@ snapshots:
       whatwg-url: 16.0.1
     transitivePeerDependencies:
       - '@noble/hashes'
-
-  date-fns@4.4.0: {}
 
   debug@4.4.3:
     dependencies:

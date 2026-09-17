@@ -1,5 +1,5 @@
 /**
- * Date / time utilities, locale + timezone aware.
+ * Date / time formatting, locale + timezone aware.
  *
  * Every user-visible formatter reads `globalConfig.defaultLocale`
  * and `globalConfig.defaultTimezone`, both seeded from
@@ -8,28 +8,24 @@
  * relative-time strings in the chosen locale + zone.
  *
  * Implementation:
- *  - `Intl.DateTimeFormat` for absolute dates / times — gives
- *    correct localized month names, 12h/24h conventions, day-
- *    month order, etc., without a dependency.
+ *  - `Intl.DateTimeFormat` for absolute dates / times: correct
+ *    localized month names, 12h/24h conventions, day-month order,
+ *    and range collapsing (`formatDateRange`), with no dependency.
  *  - `Intl.RelativeTimeFormat` for "5 minutes ago" / "yesterday"
- *    style strings — same locale awareness for free.
+ *    style strings, same locale awareness for free.
  *  - Fluent (`utils/i18n` via the `t` callable returned by
  *    `useFluent`) for the connecting copy we author ourselves,
  *    e.g. inbox-time's "Yesterday at {time}". Module functions
  *    can't call `useFluent()` directly because that's a Vue
- *    composable; callers that need localized connecting copy use
- *    the `formatInboxTimeI18n` variant that takes a translator.
+ *    composable; callers that need localized connecting copy pass
+ *    a translator to `formatInboxTime`.
  *
- * date-fns is retained only for callers that still pass a
- * literal format string (`"MMM d, yyyy"`). We translate the
- * five strings actually in use across the codebase into
- * `Intl.DateTimeFormat` options below; anything else falls
- * through to date-fns and is locale-agnostic — acceptable for
- * filename stamps, calendar IDs, and similar machine-facing
- * uses, not for new user-facing copy.
+ * Absolute formats are named presets (`DatePreset`), never pattern
+ * strings: a pattern fixes the field order, which is the locale's
+ * to decide. Calendar arithmetic lives in `dateMath`.
  */
 
-import { format, formatDistance, parseISO } from 'date-fns'
+import { getLocalTimeZone } from '@internationalized/date'
 
 // ============================================
 // CONFIGURATION
@@ -62,22 +58,27 @@ export function getDateConfig(): DateConfig {
 // ============================================
 
 /**
- * Parse a backend-issued ISO string (TIMESTAMPTZ → has a zone
- * marker) or a TIMESTAMP-without-zone (NaiveDateTime → we treat
- * as UTC by appending Z) into a `Date`.
+ * Parse a backend-issued ISO string (TIMESTAMPTZ, has a zone
+ * marker), a TIMESTAMP-without-zone (NaiveDateTime, treated as UTC)
+ * or a bare `YYYY-MM-DD` (UTC midnight) into a `Date`. Zoneless
+ * input is completed to the full ISO form before parsing, which is
+ * the one shape every engine's `Date` parser agrees on.
  */
 export function parseDate(dateString: string | Date | null | undefined): Date | null {
   if (!dateString) return null
 
   let date: Date
   if (typeof dateString === 'string') {
-    const normalized =
+    const hasZone =
       dateString.endsWith('Z') ||
       dateString.includes('+') ||
       dateString.includes('-', 10)
-        ? dateString
-        : dateString + 'Z'
-    date = parseISO(normalized)
+    const normalized = hasZone
+      ? dateString
+      : dateString.length === 10
+        ? `${dateString}T00:00:00Z`
+        : `${dateString}Z`
+    date = new Date(normalized)
   } else {
     date = dateString
   }
@@ -110,83 +111,65 @@ function intlFormatter(
 }
 
 /**
- * Map the small set of date-fns format strings used across the
- * codebase to `Intl.DateTimeFormat` options. Returns `null` for
- * unrecognised strings so the caller can fall through to
- * date-fns (locale-agnostic — fine for filename stamps).
+ * Named absolute formats. Field order and separators come from the
+ * locale (`en-US` "Sep 17", `en-AU` "17 Sep", `fr` "17 sept."), so a
+ * preset says which fields, never how they are arranged.
  */
-function presetForFormatString(s: string): Intl.DateTimeFormatOptions | null {
-  switch (s) {
-    case 'MMM d':
-      return { month: 'short', day: 'numeric' }
-    case 'MMM d, yyyy':
-      return { year: 'numeric', month: 'short', day: 'numeric' }
-    case 'MMM d, yyyy h:mm a':
-      return {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      }
-    case 'MMMM d, yyyy':
-      return { year: 'numeric', month: 'long', day: 'numeric' }
-    case 'MMMM d, yyyy h:mm a':
-      return {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      }
-    case 'h:mm a':
-      return { hour: 'numeric', minute: '2-digit' }
-    case 'MMMM yyyy':
-      return { year: 'numeric', month: 'long' }
-    default:
-      return null
-  }
-}
+export const DATE_PRESETS = {
+  /** "Sep 17, 2026", the default. */
+  date: { year: 'numeric', month: 'short', day: 'numeric' },
+  /** "Sep 17, 2026, 3:42 PM". */
+  dateTime: { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' },
+  /** "September 17, 2026, 3:42 PM". */
+  longDateTime: { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' },
+  /** "Sep 17". */
+  monthDay: { month: 'short', day: 'numeric' },
+  /** "Sep 2026". */
+  monthYear: { month: 'short', year: 'numeric' },
+  /** "Sep". */
+  month: { month: 'short' },
+  /** "17". */
+  day: { day: 'numeric' },
+  /** "Thu". */
+  weekday: { weekday: 'short' },
+} as const satisfies Record<string, Intl.DateTimeFormatOptions>
+
+export type DatePreset = keyof typeof DATE_PRESETS
 
 // ============================================
 // ABSOLUTE FORMATTERS
 // ============================================
 
 /**
- * Default absolute-date formatter. `formatString` is recognised
- * for the small set of patterns we map to Intl options (so
- * existing call sites stay locale-aware); unrecognised strings
- * fall through to date-fns. `timezone` overrides the global.
+ * Absolute date in the active locale. `preset` picks the fields
+ * (default `date`); `timezone` overrides the configured zone, which
+ * a caller holding browser-local calendar dates (the Gantt) must do,
+ * or a local midnight renders as the previous or next day.
  */
 export function formatDate(
   dateString: string | Date | null | undefined,
-  formatString?: string,
+  preset: DatePreset = 'date',
   timezone?: string,
 ): string {
   const date = parseDate(dateString)
   if (!date) return ''
+  return intlFormatter(DATE_PRESETS[preset], timezone).format(date)
+}
 
-  if (formatString) {
-    const preset = presetForFormatString(formatString)
-    if (preset) {
-      return intlFormatter(preset, timezone).format(date)
-    }
-    // Fall through to date-fns for unrecognised patterns. These
-    // are machine-facing (filenames, calendar IDs) — not user
-    // copy — so locale-agnostic output is the right tradeoff.
-    try {
-      return format(date, formatString)
-    } catch (error) {
-      console.error('formatDate: date-fns failed', error)
-      return ''
-    }
-  }
-
-  // No format string: short date in the active locale + zone.
-  return intlFormatter(
-    { year: 'numeric', month: 'short', day: 'numeric' },
-    timezone,
-  ).format(date)
+/**
+ * Inclusive date range with the shared parts collapsed the way the
+ * locale does it: "Sep 7 – 13" / "7–13 Sep" / "Aug 28 – Sep 3".
+ */
+export function formatDateRange(
+  from: string | Date | null | undefined,
+  to: string | Date | null | undefined,
+  preset: DatePreset = 'monthDay',
+  timezone?: string,
+): string {
+  const start = parseDate(from)
+  const end = parseDate(to)
+  if (!start || !end) return ''
+  return intlFormatter(DATE_PRESETS[preset], timezone).formatRange(start, end)
 }
 
 export function formatDateTime(
@@ -413,10 +396,8 @@ export function formatSmartDate(
 }
 
 /**
- * "Clean" relative formatter: same as `formatRelativeTime` since
- * we now use `Intl.RelativeTimeFormat` directly (the old version
- * filtered out date-fns's "about" prefix manually). Kept under
- * the old name so existing call sites don't break.
+ * Relative for the recent N days, compact absolute after. Kept under
+ * its historical name so existing call sites don't break.
  */
 export function formatCleanRelativeTime(
   dateString: string | Date | null | undefined,
@@ -439,7 +420,7 @@ export function formatCleanRelativeTime(
 // ============================================
 
 export function getUserTimezone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone
+  return getLocalTimeZone()
 }
 
 /**
@@ -472,32 +453,6 @@ export function isThisYear(dateString: string | Date | null | undefined): boolea
   return fmt.format(date) === fmt.format(new Date())
 }
 
-export function formatForCalendar(date: Date): string {
-  // ISO calendar key — must stay locale-agnostic.
-  return format(date, 'yyyy-MM-dd')
-}
-
-export function formatForFilename(date: Date = new Date()): string {
-  // ISO filename stamp — must stay locale-agnostic.
-  return format(date, 'yyyy-MM-dd-HHmmss')
-}
-
 export function getCurrentUTCDateTime(): string {
   return new Date().toISOString()
-}
-
-export function formatDistanceBetween(
-  startDate: string | Date,
-  endDate: string | Date,
-  options?: { addSuffix?: boolean },
-): string {
-  const start = parseDate(startDate)
-  const end = parseDate(endDate)
-  if (!start || !end) return ''
-  try {
-    return formatDistance(start, end, options)
-  } catch (error) {
-    console.error('formatDistanceBetween: date-fns failed', error)
-    return ''
-  }
 }

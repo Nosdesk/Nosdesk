@@ -38,7 +38,7 @@ export default defineConfig({
       'vue-router',
       'pinia',
       'axios',
-      'date-fns',
+      '@internationalized/date',
       'yjs',
       'prosemirror-state',
       'prosemirror-view',
@@ -116,7 +116,7 @@ export default defineConfig({
             },
             {
               name: 'vendor-utils',
-              test: /node_modules[\\/](axios|date-fns|@date-fns|dompurify|marked)[\\/]/,
+              test: /node_modules[\\/](axios|dompurify|marked)[\\/]/,
               priority: 20,
             },
             {

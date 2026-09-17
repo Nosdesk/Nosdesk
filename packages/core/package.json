@@ -15,8 +15,8 @@
   },
   "dependencies": {
     "@pinia/colada": "^1.4.4",
+    "@internationalized/date": "^3.12.4",
     "axios": "^1.20.0",
-    "date-fns": "^4.1.0",
     "fluent-vue": "^3.8.2",
     "pinia": "^4.0.3",
     "vue": "^3.5.42",
