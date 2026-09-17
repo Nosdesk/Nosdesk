@@ -39,7 +39,9 @@ import {
 import { formatInboxTime, parseDate } from '@nosdesk/core/utils/dateUtils'
 import NotificationSnoozeMenu from '@/components/NotificationSnoozeMenu.vue'
 import { useFluent } from 'fluent-vue'
+import { ToolbarButton } from 'reka-ui'
 import Icon from '@/components/common/Icon.vue'
+import BulkActionBar from '@/components/common/BulkActionBar.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import PageScroll from '@/components/common/PageScroll.vue'
 import AsyncBoundary from '@/components/common/AsyncBoundary.vue'
@@ -410,59 +412,38 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <!-- Bulk action bar. Lives in the page chrome (outside the
-         scroll region) so it stays anchored as the user scrolls
-         through a long selection. -->
-    <Transition
-      enter-active-class="transition duration-150 ease-out"
-      enter-from-class="-translate-y-2 opacity-0"
-      enter-to-class="translate-y-0 opacity-100"
-      leave-active-class="transition duration-100 ease-in"
-      leave-from-class="translate-y-0 opacity-100"
-      leave-to-class="-translate-y-2 opacity-0"
+    <!-- Bulk action bar: the shared floating pill, fixed to the
+         viewport so it stays put as the user scrolls a long
+         selection. -->
+    <BulkActionBar
+      :selected-count="selectedCount"
+      selection-copy-key="inbox-selected-count"
+      @clear="clearSelection"
     >
-      <div
-        v-if="hasSelection"
-        class="flex-shrink-0 border-b border-default bg-accent/5"
-        role="region"
-        :aria-label="t('inbox-aria-bulk-actions')"
-      >
-        <div class="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:px-6 lg:px-8">
-          <div class="flex items-center gap-3">
-            <button
-              type="button"
-              @click="clearSelection"
-              class="rounded p-1 text-tertiary hover:bg-surface-hover hover:text-primary"
-              :aria-label="t('inbox-aria-clear-selection')"
-            >
-              <Icon name="close" size="sm" />
-            </button>
-            <span class="text-xs font-medium text-primary">
-              {{ t('inbox-selected-count', { count: selectedCount }) }}
-            </span>
-          </div>
-          <div class="flex items-center gap-1">
-            <button
-              type="button"
-              :disabled="!selectedHasUnread"
-              @click="handleBulkMarkRead"
-              class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-surface-hover hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Icon name="check" size="xs" />
-              {{ t('inbox-action-mark-read') }}
-            </button>
-            <button
-              type="button"
-              @click="handleBulkDelete"
-              class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-status-error transition-colors hover:bg-status-error-muted"
-            >
-              <Icon name="trash" size="xs" />
-              {{ t('inbox-action-delete') }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Transition>
+      <template #actions>
+        <ToolbarButton as-child :disabled="!selectedHasUnread">
+          <button
+            type="button"
+            :disabled="!selectedHasUnread"
+            @click="handleBulkMarkRead"
+            class="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-surface-hover hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <Icon name="check" size="xs" />
+            {{ t('inbox-action-mark-read') }}
+          </button>
+        </ToolbarButton>
+        <ToolbarButton as-child>
+          <button
+            type="button"
+            @click="handleBulkDelete"
+            class="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium text-status-error transition-colors hover:bg-status-error-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <Icon name="trash" size="xs" />
+            {{ t('inbox-action-delete') }}
+          </button>
+        </ToolbarButton>
+      </template>
+    </BulkActionBar>
     </template>
 
     <!-- Empty state slot. PageScroll's `#empty` wrapper handles

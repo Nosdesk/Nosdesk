@@ -296,9 +296,16 @@ const bulkSelection = useBulkSelection<CardData>({
   cacheKey: bulkCacheKey,
   totalCount: computed(() => sortedCards.value.length),
 })
+// Every matching card is on the client, so "select all" is the
+// visible set.
+function selectAllCards() {
+  if (!bulkSelection.areAllOnPageSelected.value) bulkSelection.toggleAllOnPage()
+}
 
 // Esc clears the selection. Doesn't conflict with split-view's
 // keyboard shortcuts because they're scoped to ArrowUp/Down/Enter.
+// An Escape inside an open overlay (a bulk bar picker, a dialog)
+// belongs to that overlay.
 function onKeydownClearBulk(e: KeyboardEvent): void {
   if (e.key !== 'Escape') return
   if (bulkSelection.selectedCount.value === 0) return
@@ -309,6 +316,7 @@ function onKeydownClearBulk(e: KeyboardEvent): void {
   ) {
     return
   }
+  if (target?.closest('[data-dismissable-layer], [role="dialog"]')) return
   bulkSelection.clear()
 }
 if (typeof window !== 'undefined') {
@@ -1110,6 +1118,7 @@ function startPaneResize(event: PointerEvent): void {
     <TicketsBulkBar
       :selected-ids="bulkSelection.selectedIds.value"
       :total-count="sortedCards.length"
+      @select-all="selectAllCards"
       @clear="bulkSelection.clear"
       @set-status="handleBulkSetStatus"
       @set-priority="handleBulkSetPriority"

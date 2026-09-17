@@ -261,6 +261,41 @@ test.describe('accessibility floor', () => {
     await expectNoSeriousViolations(page, '[role="radiogroup"]')
   })
 
+  test('the tickets bulk bar is a toolbar whose pickers open listboxes', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    await page.locator('table tbody tr').first().hover()
+    await page.getByRole('checkbox', { name: /^Select ticket/ }).first().click()
+    const bar = page.getByRole('toolbar', { name: 'Bulk actions' })
+    await expect(bar).toBeVisible()
+    await expect(bar).toContainText('1 ticket selected')
+    await expectNoSeriousViolations(page, '[role="toolbar"]')
+
+    // One tab stop; arrows walk the buttons.
+    const status = bar.getByRole('button', { name: 'Status' })
+    await status.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(bar.getByRole('button', { name: 'Priority' })).toBeFocused()
+    await page.keyboard.press('ArrowLeft')
+    await expect(status).toBeFocused()
+    await expect(status).toHaveAttribute('aria-haspopup', 'dialog')
+
+    // Status opens a grouped listbox, focus on an option; Escape returns.
+    await page.keyboard.press('Enter')
+    const dialog = page.locator('#overlays [role="dialog"]')
+    await expect(dialog).toBeVisible()
+    const listbox = dialog.getByRole('listbox')
+    expect(await listbox.getByRole('option').count()).toBeGreaterThan(0)
+    expect(await listbox.getByRole('group').count()).toBeGreaterThan(0)
+    await expect(listbox.locator('[role="option"][data-highlighted]')).toBeFocused()
+    await expectNoSeriousViolations(page, '#overlays')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(status).toBeFocused()
+
+    await bar.getByRole('button', { name: 'Clear' }).click()
+    await expect(bar).toHaveCount(0)
+  })
+
   test('an inline edit opens from keyboard focus, commits on Enter and cancels on Escape', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await page.locator('table tbody tr').first().dblclick()
