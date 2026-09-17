@@ -304,6 +304,8 @@ function selectAllCards() {
 
 // Esc clears the selection. Doesn't conflict with split-view's
 // keyboard shortcuts because they're scoped to ArrowUp/Down/Enter.
+// An Escape inside an open overlay (a bulk bar picker, a dialog)
+// belongs to that overlay.
 function onKeydownClearBulk(e: KeyboardEvent): void {
   if (e.key !== 'Escape') return
   if (bulkSelection.selectedCount.value === 0) return
@@ -314,6 +316,7 @@ function onKeydownClearBulk(e: KeyboardEvent): void {
   ) {
     return
   }
+  if (target?.closest('[data-dismissable-layer], [role="dialog"]')) return
   bulkSelection.clear()
 }
 if (typeof window !== 'undefined') {
