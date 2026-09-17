@@ -1,50 +1,58 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends string | number = string">
 /**
- * Select-style dropdown. Public API (props, emits, slots) is
- * unchanged from the standalone implementation; the entire
- * positioning, click-outside-dismiss, scroll-tracking and focus
- * machinery now delegates to `<Popover>`. What's left in this
- * file is the dropdown's actual job: trigger rendering, option
- * rendering, multi-select wiring, keyboard navigation.
+ * Select-style dropdown. Public API (props, emits) is unchanged; the
+ * implementation is Reka UI's Select at `md` and above, and the app's
+ * bottom sheet on phones.
+ *
+ * Reka owns the select semantics: `role=combobox` trigger with
+ * `aria-expanded` and `aria-controls`, `role=listbox` content with
+ * `role=option` rows, roving focus with Home/End/PageUp/PageDown,
+ * typeahead in the open list and on the closed trigger (type to select,
+ * like a native `<select>`), Enter/Space select, a hidden native select
+ * for forms (`name`), and the dismiss layer. Positioning is floating-ui
+ * (`position="popper"`), matching the trigger width with a readable
+ * floor.
+ *
+ * Values are `string` by default; number-valued lists pass `T = number`
+ * (the Select compares with `===`, no adapter needed). Multi-select
+ * keeps the list open and understands the `all` meta option: selecting it
+ * selects every real option, clearing it clears them, and it reads as
+ * checked when all are.
+ *
+ * `class` goes to the wrapper; `aria-label`, `aria-labelledby` and
+ * `title` go to the trigger.
  */
-import { computed, nextTick, ref, useId, watch } from 'vue'
-import ResponsiveMenu from './ResponsiveMenu.vue'
+import { computed, ref, useAttrs, useId } from 'vue'
+import {
+  SelectContent,
+  SelectItem,
+  SelectItemText,
+  SelectPortal,
+  SelectRoot,
+  SelectTrigger,
+  SelectViewport,
+} from 'reka-ui'
+import BottomSheet from './BottomSheet.vue'
 import Icon from './Icon.vue'
+import DropdownValue from './dropdown/DropdownValue.vue'
+import DropdownOptionRow from './dropdown/DropdownOptionRow.vue'
+import { useResponsiveSheet } from '@/composables/useResponsiveSheet'
+import type { DropdownOption } from './dropdownOption'
 
-export interface DropdownOption {
-  value: string
-  label: string
-  description?: string
-  icon?: string
-  /**
-   * One or more Tailwind background-color classes rendered as small
-   * leading dots before the label (in both the trigger and menu).
-   * Use a single tone for options that map to one domain value
-   * (e.g. Open → status-open), or multiple tones for meta options
-   * that span several (e.g. Active → open + in-progress, All → all
-   * three). Single tones render as one 8px dot; multiple tones
-   * render as a chip-stack of smaller 4px dots in sequence.
-   */
-  tones?: string[]
-  /** Renders the option muted and non-selectable (click + keyboard
-   * skip it). Use for choices the current actor isn't allowed to
-   * pick while still showing them in context. */
-  disabled?: boolean
-}
+export type { DropdownOption }
+
+defineOptions({ inheritAttrs: false })
 
 const props = withDefaults(
   defineProps<{
-    modelValue: string | string[]
-    options: DropdownOption[]
+    modelValue: T | T[]
+    options: DropdownOption<T>[]
     placeholder?: string
     disabled?: boolean
     size?: 'xs' | 'sm' | 'md' | 'lg'
     multiple?: boolean
     /** Optional label rendered above the trigger in the same
-     * uppercase-tertiary shell as FormInput / FormNumber, so a
-     * dropdown sitting alongside text inputs in a form looks
-     * coherent without the consumer wrapping it in a hand-rolled
-     * `<label>`. */
+     * uppercase-tertiary shell as FormInput / FormNumber. */
     label?: string
     /** Helper text shown below the trigger. */
     description?: string
@@ -64,59 +72,67 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  (e: 'update:modelValue', value: string | string[]): void
+  (e: 'update:modelValue', value: T | T[]): void
 }>()
 
+const attrs = useAttrs()
+const rootAttrs = computed(() => ({ class: attrs.class, style: attrs.style }))
+const triggerAttrs = computed(() => {
+  const { class: _c, style: _s, ...rest } = attrs
+  return rest
+})
+
 const isOpen = ref(false)
-const triggerRef = ref<HTMLElement | null>(null)
-const menuContentRef = ref<HTMLElement | null>(null)
-const highlightedIndex = ref(-1)
 const generatedId = useId()
 const triggerId = computed(() => `dropdown-${generatedId}`)
 const describedById = computed(() =>
   props.error || props.description ? `${triggerId.value}-desc` : undefined,
 )
 
-// Anchor descriptor passed to <Popover>. The function form keeps
-// the lookup live so the popover repositions correctly even if
-// the trigger element re-mounts (e.g. v-if elsewhere in the
-// parent tree).
-const anchor = computed(() => ({
-  type: 'element' as const,
-  element: () => triggerRef.value,
-}))
+const { isMobile } = useResponsiveSheet({
+  open: isOpen,
+  onDismiss: () => (isOpen.value = false),
+})
 
-// Min width 240px gives 30-35ch of option text before wrapping
-// kicks in. Short triggers ("Priority", icon-only, etc.) still
-// get a readable menu; wide triggers still match.
+// Min width 240px gives 30-35ch of option text before wrapping kicks
+// in. Short triggers still get a readable menu; wide triggers still match.
 const MENU_MIN_WIDTH = 240
 
 // ---- Selection state -------------------------------------------------
 
-const selectedValues = computed((): string[] => {
-  if (props.multiple) {
-    return Array.isArray(props.modelValue) ? props.modelValue : []
-  }
-  return props.modelValue ? [props.modelValue as string] : []
+const ALL = 'all' as T
+
+const selectedValues = computed((): T[] => {
+  if (props.multiple) return Array.isArray(props.modelValue) ? props.modelValue : []
+  return props.modelValue !== '' && props.modelValue != null ? [props.modelValue as T] : []
 })
 
-const isSelected = (value: string): boolean => selectedValues.value.includes(value)
+const isSelected = (value: T): boolean => selectedValues.value.includes(value)
 
 const selectedOption = computed(() =>
   props.options.find((option) => option.value === props.modelValue),
 )
 
+const realOptionValues = computed(() =>
+  props.options.filter((o) => o.value !== ALL).map((o) => o.value),
+)
+
+const allSelected = computed(() => {
+  if (!props.multiple) return false
+  return realOptionValues.value.every((v) => selectedValues.value.includes(v))
+})
+
+const isChecked = (option: DropdownOption<T>): boolean =>
+  option.value === ALL ? allSelected.value : isSelected(option.value)
+
 const displayText = computed(() => {
   if (props.multiple) {
-    const selected = selectedValues.value.filter((v) => v !== 'all')
+    const selected = selectedValues.value.filter((v) => v !== ALL)
     if (selected.length === 0) return props.placeholder
-    const allOption = props.options.find((o) => o.value === 'all')
-    const nonAllOptions = props.options.filter((o) => o.value !== 'all')
-    if (selected.length === nonAllOptions.length && allOption) {
-      return allOption.label
-    }
+    const allOption = props.options.find((o) => o.value === ALL)
+    if (selected.length === realOptionValues.value.length && allOption) return allOption.label
     if (selected.length === 1) {
-      return props.options.find((o) => o.value === selected[0])?.label || selected[0]
+      return props.options.find((o) => o.value === selected[0])?.label || String(selected[0])
     }
     return `${selected.length} selected`
   }
@@ -124,38 +140,52 @@ const displayText = computed(() => {
 })
 
 const hasSelection = computed(() => {
-  if (props.multiple) {
-    return selectedValues.value.filter((v) => v !== 'all').length > 0
-  }
+  if (props.multiple) return selectedValues.value.filter((v) => v !== ALL).length > 0
   return !!selectedOption.value
 })
 
-// ---- "All" meta-option handling for multi-select ---------------------
+// Reka reports the raw toggled array; translate the `all` meta option
+// into the real selection before it reaches the consumer.
+function onModelUpdate(next: T | T[] | undefined) {
+  if (!props.multiple) {
+    if (next !== undefined && next !== null) emit('update:modelValue', next as T)
+    return
+  }
+  const arr = Array.isArray(next) ? next : []
+  const wasAll = allSelected.value
+  const hasAllToken = arr.includes(ALL)
+  if (hasAllToken && !wasAll) return emit('update:modelValue', [...realOptionValues.value])
+  if (hasAllToken && wasAll) return emit('update:modelValue', [])
+  emit('update:modelValue', arr.filter((v) => v !== ALL))
+}
 
-const allOptionValues = computed(() =>
-  props.options.filter((o) => o.value !== 'all').map((o) => o.value),
-)
-
-const allSelected = computed(() => {
-  if (!props.multiple) return false
-  return allOptionValues.value.every((v) => selectedValues.value.includes(v))
-})
+// The sheet has no Reka model; it toggles the same way.
+function selectFromSheet(option: DropdownOption<T>) {
+  if (option.disabled) return
+  if (!props.multiple) {
+    emit('update:modelValue', option.value)
+    isOpen.value = false
+    return
+  }
+  const current = selectedValues.value.filter((v) => v !== ALL)
+  if (option.value === ALL) {
+    emit('update:modelValue', allSelected.value ? [] : [...realOptionValues.value])
+    return
+  }
+  const i = current.indexOf(option.value)
+  if (i === -1) current.push(option.value)
+  else current.splice(i, 1)
+  emit('update:modelValue', current)
+}
 
 // ---- Sizing ---------------------------------------------------------
 
 const sizeClasses = computed(() => {
   switch (props.size) {
     case 'xs':
-      // `py-0.5` gives a 26px-tall trigger, well under the 44px a finger needs,
-      // and `xs` is what the toolbars use — it was the only sub-44px control in
-      // the project views. Grow the target on a coarse pointer without touching
-      // the dense desktop size. Keyed on pointer type rather than a breakpoint
-      // so a narrow desktop window does not get touch sizing it has no use for.
-      //
-      // `min-h` rather than more padding: the trigger is already `flex
-      // items-center`, so stating the 44px floor once is exact, where padding
-      // arithmetic has to be re-derived whenever the font metrics move (2.5
-      // landed it on 42px).
+      // A 26px trigger is what the toolbars use; grow the target on a
+      // coarse pointer (44px floor) without touching the dense desktop
+      // size.
       return {
         button: 'px-1.5 py-0.5 text-sm pointer-coarse:min-h-[44px] pointer-coarse:px-3',
         menu: 'text-sm',
@@ -170,106 +200,34 @@ const sizeClasses = computed(() => {
   }
 })
 
-// ---- Open/close + selection -----------------------------------------
+const triggerClasses = computed(() => [
+  'w-full bg-surface-alt border rounded-lg text-left flex items-center justify-between transition-all duration-200',
+  sizeClasses.value.button,
+  props.error ? 'border-status-error' : 'border-subtle',
+  props.disabled
+    ? 'opacity-50 cursor-not-allowed'
+    : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent cursor-pointer',
+  isOpen.value && !props.disabled ? 'border-accent ring-1 ring-accent' : '',
+])
 
-const openDropdown = () => {
-  if (props.disabled) return
-  isOpen.value = true
-  highlightedIndex.value = props.options.findIndex((o) => o.value === props.modelValue)
+const optionClasses = (option: DropdownOption<T>) => [
+  'w-full text-left text-primary transition-colors flex items-center gap-3 outline-none',
+  sizeClasses.value.option,
+  option.disabled
+    ? 'opacity-40 cursor-not-allowed'
+    : isChecked(option)
+      ? 'bg-accent/10 text-accent'
+      : 'hover:bg-surface-hover data-[highlighted]:bg-surface-hover',
+]
+
+const contentStyle = {
+  minWidth: `max(${MENU_MIN_WIDTH}px, var(--reka-select-trigger-width))`,
+  maxHeight: 'min(16rem, var(--reka-select-content-available-height))',
 }
-
-const closeDropdown = () => {
-  isOpen.value = false
-}
-
-const toggleDropdown = () => {
-  if (isOpen.value) closeDropdown()
-  else openDropdown()
-}
-
-const selectOption = (option: DropdownOption) => {
-  if (option.disabled) return
-  if (props.multiple) {
-    if (option.value === 'all') {
-      if (allSelected.value) {
-        emit('update:modelValue', [])
-      } else {
-        emit('update:modelValue', [...allOptionValues.value])
-      }
-      return
-    }
-    const currentValues = [...selectedValues.value].filter((v) => v !== 'all')
-    const index = currentValues.indexOf(option.value)
-    if (index === -1) currentValues.push(option.value)
-    else currentValues.splice(index, 1)
-    emit('update:modelValue', currentValues)
-    // Stay open in multi-select so the user can pick more.
-  } else {
-    emit('update:modelValue', option.value)
-    closeDropdown()
-  }
-}
-
-// ---- Keyboard navigation -------------------------------------------
-//
-// Trigger keydown: Enter / Space / ArrowDown opens the menu and
-// focuses the first option. Once open, the popover root has focus
-// and we route arrow / Enter / Escape through the same handler.
-
-// Step the highlight in `dir` (+1/-1), skipping disabled options and
-// clamping at the ends so the highlight never lands on an unselectable
-// row.
-const nextEnabledIndex = (from: number, dir: 1 | -1): number => {
-  let i = from
-  while (true) {
-    const next = i + dir
-    if (next < 0 || next >= props.options.length) return i
-    i = next
-    if (!props.options[i].disabled) return i
-  }
-}
-
-const handleKeydown = (event: KeyboardEvent) => {
-  if (!isOpen.value) {
-    if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
-      event.preventDefault()
-      openDropdown()
-    }
-    return
-  }
-  switch (event.key) {
-    case 'ArrowDown':
-      event.preventDefault()
-      highlightedIndex.value = nextEnabledIndex(highlightedIndex.value, 1)
-      break
-    case 'ArrowUp':
-      event.preventDefault()
-      highlightedIndex.value = nextEnabledIndex(highlightedIndex.value, -1)
-      break
-    case 'Enter':
-    case ' ':
-      event.preventDefault()
-      if (highlightedIndex.value >= 0) selectOption(props.options[highlightedIndex.value])
-      break
-    case 'Escape':
-      event.preventDefault()
-      closeDropdown()
-      break
-  }
-}
-
-// Keep the highlighted item visible inside the menu's overflow
-// container as the user arrow-keys down a long list.
-watch(highlightedIndex, async (index) => {
-  if (index < 0) return
-  await nextTick()
-  const items = menuContentRef.value?.querySelectorAll('[role="option"]')
-  items?.[index]?.scrollIntoView({ block: 'nearest' })
-})
 </script>
 
 <template>
-  <div class="flex flex-col gap-1.5">
+  <div class="flex flex-col gap-1.5" v-bind="rootAttrs">
     <label
       v-if="label"
       :for="triggerId"
@@ -278,173 +236,118 @@ watch(highlightedIndex, async (index) => {
       {{ label
       }}<span v-if="required" class="text-status-error ml-0.5" aria-hidden="true">*</span>
     </label>
-    <div class="relative" ref="triggerRef">
+
+    <!-- Phone: hand-rolled trigger + the app's bottom sheet, with
+         option rows on the same DropdownOptionRow as the desktop list. -->
+    <template v-if="isMobile">
       <button
         :id="triggerId"
         type="button"
-        @click="toggleDropdown"
-        @keydown="handleKeydown"
+        v-bind="triggerAttrs"
         :disabled="disabled"
         :aria-expanded="isOpen"
-        :aria-haspopup="true"
+        aria-haspopup="listbox"
         :aria-invalid="error ? 'true' : undefined"
         :aria-describedby="describedById"
-        class="w-full bg-surface-alt border rounded-lg text-left flex items-center justify-between transition-all duration-200"
-        :class="[
-          sizeClasses.button,
-          error ? 'border-status-error' : 'border-subtle',
-          disabled
-            ? 'opacity-50 cursor-not-allowed'
-            : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent cursor-pointer',
-          isOpen && !disabled ? 'border-accent ring-1 ring-accent' : '',
-        ]"
+        :class="triggerClasses"
+        @click="!disabled && (isOpen = !isOpen)"
       >
-      <span
-        class="truncate flex items-center gap-2 min-w-0"
-        :class="hasSelection ? 'text-primary' : 'text-tertiary'"
-      >
+        <DropdownValue :text="displayText" :has-selection="hasSelection" :option="selectedOption" />
         <span
-          v-if="selectedOption?.tones?.length"
-          aria-hidden="true"
-          class="flex items-center gap-0.5 flex-shrink-0"
+          class="text-tertiary flex-shrink-0 ml-2 transition-transform duration-200 inline-flex"
+          :class="{ 'rotate-180': isOpen }"
         >
-          <span
-            v-for="(t, i) in selectedOption.tones"
-            :key="i"
-            :class="[
-              t,
-              'rounded-full',
-              selectedOption.tones.length === 1 ? 'w-2 h-2' : 'w-1 h-1',
-            ]"
-          />
+          <Icon name="chevronDown" />
         </span>
-        <span class="truncate">{{ displayText }}</span>
-      </span>
-      <span
-        class="text-tertiary flex-shrink-0 ml-2 transition-transform duration-200 inline-flex"
-        :class="{ 'rotate-180': isOpen }"
+      </button>
+      <BottomSheet
+        :open="isOpen"
+        :title="label ?? placeholder"
+        body-role="listbox"
+        @close="isOpen = false"
       >
-        <Icon name="chevronDown" />
-      </span>
-    </button>
+        <div class="py-1" :class="sizeClasses.menu">
+          <button
+            v-for="option in options"
+            :key="String(option.value)"
+            type="button"
+            role="option"
+            :aria-selected="isChecked(option)"
+            :disabled="option.disabled"
+            :class="optionClasses(option)"
+            @click="selectFromSheet(option)"
+          >
+            <DropdownOptionRow :option="option" :multiple="multiple" :checked="isChecked(option)" />
+          </button>
+        </div>
+      </BottomSheet>
+    </template>
 
-    <!--
-      ResponsiveMenu picks the layout from viewport width: at md+
-      it renders as the previous Popover (anchored, fade-scale,
-      click-outside dismiss). On phone it renders as a bottom
-      sheet — the touch-native pattern. Same slot content; no
-      consumer of BaseDropdown needs to opt in. The trigger
-      button label is mirrored into the sheet's title so the
-      user knows what they're choosing on mobile.
-    -->
-    <ResponsiveMenu
-      :open="isOpen"
-      :anchor="anchor"
-      :title="placeholder"
-      placement="bottom-start"
-      react-to-scroll="reposition"
-      match-anchor-width
-      :min-width="MENU_MIN_WIDTH"
-      :offset="2"
-      role="listbox"
-      :auto-focus="false"
-      popover-class="bg-surface border border-default rounded-lg shadow-xl overflow-hidden"
-      @close="closeDropdown"
+    <!-- Desktop: Reka Select. -->
+    <SelectRoot
+      v-else
+      v-model:open="isOpen"
+      :model-value="modelValue"
+      :multiple="multiple"
+      :disabled="disabled"
+      @update:model-value="onModelUpdate"
     >
-      <div
-        ref="menuContentRef"
-        class="py-1 overflow-y-auto max-h-64"
-        :class="sizeClasses.menu"
-        @keydown="handleKeydown"
+      <SelectTrigger
+        :id="triggerId"
+        v-bind="triggerAttrs"
+        :aria-invalid="error ? 'true' : undefined"
+        :aria-describedby="describedById"
+        :class="triggerClasses"
       >
-        <button
-          type="button"
-          v-for="(option, index) in options"
-          :key="option.value"
-          role="option"
-          :aria-selected="isSelected(option.value)"
-          :aria-disabled="option.disabled || undefined"
-          :disabled="option.disabled"
-          @click="selectOption(option)"
-          @mouseenter="!option.disabled && (highlightedIndex = index)"
-          class="w-full text-left text-primary transition-colors flex items-center gap-3"
-          :class="[
-            sizeClasses.option,
-            option.disabled
-              ? 'opacity-40 cursor-not-allowed'
-              : (option.value === 'all' ? allSelected : isSelected(option.value))
-                ? 'bg-accent/10 text-accent'
-                : highlightedIndex === index
-                  ? 'bg-surface-hover'
-                  : 'hover:bg-surface-hover',
-          ]"
+        <DropdownValue :text="displayText" :has-selection="hasSelection" :option="selectedOption" />
+        <span
+          class="text-tertiary flex-shrink-0 ml-2 transition-transform duration-200 inline-flex"
+          :class="{ 'rotate-180': isOpen }"
         >
-          <template v-if="multiple">
-            <div
-              class="w-4 h-4 border rounded flex-shrink-0 flex items-center justify-center transition-colors"
-              :class="
-                (option.value === 'all' ? allSelected : isSelected(option.value))
-                  ? 'bg-accent border-accent'
-                  : 'border-default'
-              "
+          <Icon name="chevronDown" />
+        </span>
+      </SelectTrigger>
+      <SelectPortal>
+        <SelectContent
+          position="popper"
+          side="bottom"
+          align="start"
+          :side-offset="2"
+          :collision-padding="8"
+          class="popover-inner select-surface z-overlay bg-surface border border-default rounded-lg shadow-xl overflow-hidden"
+          :style="contentStyle"
+        >
+          <SelectViewport class="py-1 overflow-y-auto" :class="sizeClasses.menu">
+            <SelectItem
+              v-for="option in options"
+              :key="String(option.value)"
+              as-child
+              :value="option.value"
+              :disabled="option.disabled"
+              :text-value="option.label"
             >
-              <svg
-                v-if="option.value === 'all' ? allSelected : isSelected(option.value)"
-                class="w-3 h-3 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-          </template>
+              <button type="button" :class="optionClasses(option)">
+                <DropdownOptionRow :option="option" :multiple="multiple" :checked="isChecked(option)">
+                  <template #label>
+                    <SelectItemText>{{ option.label }}</SelectItemText>
+                  </template>
+                </DropdownOptionRow>
+              </button>
+            </SelectItem>
+          </SelectViewport>
+        </SelectContent>
+      </SelectPortal>
+    </SelectRoot>
 
-          <!--
-            Left gutter for single-select. A fixed-size box keeps
-            every row's label column aligned regardless of what
-            the gutter is showing: check when selected, a dot
-            (single tone) or dot-cluster (multi-tone meta option)
-            when the option carries tones, empty otherwise.
-          -->
-          <span v-else class="w-4 h-4 flex items-center justify-center flex-shrink-0">
-            <svg
-              v-if="isSelected(option.value)"
-              class="w-4 h-4 text-accent"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
-            <span v-else-if="option.tones?.length" aria-hidden="true" class="flex items-center gap-0.5">
-              <span
-                v-for="(t, i) in option.tones"
-                :key="i"
-                :class="[
-                  t,
-                  'rounded-full',
-                  option.tones.length === 1 ? 'w-2 h-2' : 'w-1 h-1',
-                ]"
-              />
-            </span>
-          </span>
-
-          <div class="flex-1 min-w-0">
-            <div :class="(option.value === 'all' ? allSelected : isSelected(option.value)) ? 'font-medium' : ''">
-              {{ option.label }}
-            </div>
-            <div v-if="option.description" class="text-xs text-tertiary mt-0.5 leading-snug">
-              {{ option.description }}
-            </div>
-          </div>
-        </button>
-      </div>
-    </ResponsiveMenu>
-    </div>
     <p v-if="error" :id="describedById" class="text-xs text-status-error">{{ error }}</p>
     <p v-else-if="description" :id="describedById" class="text-xs text-tertiary">
       {{ description }}
     </p>
   </div>
 </template>
+
+<style>
+.select-surface {
+  transform-origin: var(--reka-select-content-transform-origin);
+}
+</style>
