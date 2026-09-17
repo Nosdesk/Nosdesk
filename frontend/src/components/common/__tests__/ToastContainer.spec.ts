@@ -48,6 +48,9 @@ describe('ToastContainer', () => {
     expect(region.getAttribute('aria-label')).toBe('toast-region-label')
     const toast = region.querySelector('li')!
     expect(toast.getAttribute('data-state')).toBe('open')
+    // Layout classes land on the list the toasts live in, not the region.
+    expect(toast.parentElement?.tagName).toBe('OL')
+    expect(toast.parentElement?.classList.contains('flex-col-reverse')).toBe(true)
     expect(toast.textContent).toContain('Saved')
     expect(toast.textContent).toContain('Your changes are in.')
     expect(toast.querySelector('[aria-label="common-toast-dismiss"]')).not.toBeNull()
