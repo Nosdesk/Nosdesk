@@ -175,7 +175,13 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
           <h3 class="text-3xs uppercase tracking-wide font-semibold text-tertiary px-3 mb-1">
             {{ $t('views-display-menu-properties') }}
           </h3>
-          <div class="max-h-[20rem] overflow-y-auto">
+          <!-- The checkbox items need a menu parent; the panel around
+               them is a dialog. -->
+          <div
+            class="max-h-[20rem] overflow-y-auto"
+            role="menu"
+            :aria-label="$t('views-display-menu-properties')"
+          >
             <MenuItem
               v-for="col in availableColumns"
               :key="col.id"
