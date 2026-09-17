@@ -42,4 +42,17 @@ describe('CollapsibleSection', () => {
     expect(trigger.attributes('aria-expanded')).toBe('false')
     expect(wrapper.text()).not.toContain('body')
   })
+
+  it('takes layout class and style on its root, as the resizable sidebar relies on', async () => {
+    wrapper = mountWithProviders(CollapsibleSection, {
+      title: 'Docs',
+      isCollapsed: false,
+      class: 'docs-section',
+      style: 'max-height: 120px',
+    })
+    await nextTick()
+    const root = wrapper.get('[data-state="open"]').element as HTMLElement
+    expect(root.classList.contains('docs-section')).toBe(true)
+    expect(root.style.maxHeight).toBe('120px')
+  })
 })

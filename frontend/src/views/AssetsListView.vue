@@ -814,7 +814,7 @@ async function exportAssetsCsv(scope?: 'history') {
           {{ $t('asset-rollout-bulk-action', { count: selectedCount }) }}
         </button>
       </ToolbarButton>
-      <ToolbarButton as-child>
+      <ToolbarButton as-child :disabled="bulkDelete.asyncStatus.value === 'loading'">
         <button
           type="button"
           class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-status-error hover:bg-status-error/10 transition-colors whitespace-nowrap disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"

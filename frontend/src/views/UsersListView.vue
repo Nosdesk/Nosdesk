@@ -630,7 +630,11 @@ function formatPurgeAt(deletedAt: string): string {
       </template>
 
       <template #bulk-actions="{ selectedCount }">
-        <ToolbarButton v-if="!isHostedDeploymentRef" as-child>
+        <ToolbarButton
+          v-if="!isHostedDeploymentRef"
+          as-child
+          :disabled="bulkActionMutation.asyncStatus.value === 'loading'"
+        >
           <button
             type="button"
             class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-secondary hover:text-primary hover:bg-surface-hover transition-colors whitespace-nowrap disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -643,7 +647,7 @@ function formatPurgeAt(deletedAt: string): string {
             {{ $t('user-mgmt-bulk-role') }}
           </button>
         </ToolbarButton>
-        <ToolbarButton as-child>
+        <ToolbarButton as-child :disabled="bulkActionMutation.asyncStatus.value === 'loading'">
           <button
             type="button"
             class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-status-error hover:bg-status-error/10 transition-colors whitespace-nowrap disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"

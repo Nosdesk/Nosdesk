@@ -20,8 +20,9 @@ Anatomy from left to right:
 
 The pill is a Reka Toolbar: one tab stop, arrows walk the controls.
 Consumers own the buttons + handlers in the `#actions` slot and wrap
-each in `ToolbarButton as-child`, or it stays outside the roving group
-as its own tab stop. The bar knows nothing about what the actions DO.
+each in `ToolbarButton as-child` (passing `disabled` to it too, so the
+roving focus skips it), or it stays outside the group as its own tab
+stop. The bar knows nothing about what the actions DO.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
