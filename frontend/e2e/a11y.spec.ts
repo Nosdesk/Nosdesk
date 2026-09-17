@@ -520,6 +520,36 @@ test.describe('accessibility floor', () => {
     await expect(input).toBeFocused()
   })
 
+  test('the editor toolbar menus are menus that walk with the arrows', async ({ page }) => {
+    await gotoAndSettle(page, '/documentation/collections/getting-started')
+    // Land on the page by URL and let the editor connect: it remounts as
+    // the document resolves, which would drop a menu opened too early.
+    const href = await page.getByRole('tree').getByRole('treeitem').first().getAttribute('href')
+    await gotoAndSettle(page, href!)
+    const trigger = page.getByRole('button', { name: 'Text Style' })
+    await expect(trigger).toBeVisible()
+    await expect(trigger).toHaveAttribute('aria-haspopup', 'menu')
+    await trigger.click()
+    const menu = page.locator('#overlays [role="menu"]')
+    await expect(menu).toBeVisible()
+    const items = menu.getByRole('menuitem')
+    await expect(items.first()).toHaveText('Plain')
+    await expectNoSeriousViolations(page, '#overlays')
+    await page.keyboard.press('ArrowDown')
+    await expect(items.first()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(items.nth(1)).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+
+    const insert = page.getByRole('button', { name: 'Insert' })
+    await insert.click()
+    await expect(menu.getByRole('menuitem', { name: 'Bullet List' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

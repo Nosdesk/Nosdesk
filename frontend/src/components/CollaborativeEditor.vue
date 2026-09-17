@@ -12,6 +12,8 @@ import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue"
 import { useRouter } from "vue-router";
 import { useFluent } from "fluent-vue";
 import Spinner from "@/components/common/Spinner.vue";
+import ResponsiveMenu from "@/components/common/ResponsiveMenu.vue";
+import MenuList, { type MenuItem } from "@/components/common/MenuList.vue";
 import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
 import { WebsocketProvider } from "y-websocket";
@@ -356,26 +358,14 @@ const toggleRevisionHistory = () => {
 };
 
 // Custom dropdown state for toolbar
-const typeMenuRef = ref<HTMLElement | null>(null);
+// Toolbar menus: hand-rolled triggers over `ResponsiveMenu` (a Reka
+// DropdownMenu on desktop, a sheet on phones), rows from `MenuList`.
 const typeButtonRef = ref<HTMLElement | null>(null);
-const insertMenuRef = ref<HTMLElement | null>(null);
 const insertButtonRef = ref<HTMLElement | null>(null);
-const moreMenuRef = ref<HTMLElement | null>(null);
-const moreButtonRef = ref<HTMLElement | null>(null);
-
 const showTypeMenu = ref(false);
 const showInsertMenu = ref(false);
-const showMoreMenu = ref(false);
-
-// Dropdown position state (for viewport-aware positioning)
-import { useDropdownPosition } from '@/composables/useDropdownPosition';
-
-const { position: typeMenuPosition, updatePosition: _updateTypeMenuPosition } =
-    useDropdownPosition(typeButtonRef, showTypeMenu, { preferredWidth: 160 });
-const { position: insertMenuPosition, updatePosition: _updateInsertMenuPosition } =
-    useDropdownPosition(insertButtonRef, showInsertMenu, { preferredWidth: 180 });
-const { position: _moreMenuPosition, updatePosition: _updateMoreMenuPosition } =
-    useDropdownPosition(moreButtonRef, showMoreMenu, { preferredWidth: 160 });
+const typeMenuAnchor = computed(() => ({ type: 'element' as const, element: () => typeButtonRef.value }));
+const insertMenuAnchor = computed(() => ({ type: 'element' as const, element: () => insertButtonRef.value }));
 
 // Link tooltip state
 const linkTooltipState = ref<LinkTooltipState>({
@@ -1313,58 +1303,6 @@ const focusEditor = (event: MouseEvent | TouchEvent) => {
     }
 };
 
-// Event listeners for click outside
-const handleClickOutside = (event: MouseEvent) => {
-    const target = event.target as Node;
-
-    // Handle Type menu
-    if (showTypeMenu.value && typeMenuRef.value && typeButtonRef.value) {
-        if (
-            !typeMenuRef.value.contains(target) &&
-            !typeButtonRef.value.contains(target)
-        ) {
-            showTypeMenu.value = false;
-        }
-    }
-
-    // Handle Insert menu
-    if (showInsertMenu.value && insertMenuRef.value && insertButtonRef.value) {
-        if (
-            !insertMenuRef.value.contains(target) &&
-            !insertButtonRef.value.contains(target)
-        ) {
-            showInsertMenu.value = false;
-        }
-    }
-
-    // Handle More menu
-    if (showMoreMenu.value && moreMenuRef.value && moreButtonRef.value) {
-        if (
-            !moreMenuRef.value.contains(target) &&
-            !moreButtonRef.value.contains(target)
-        ) {
-            showMoreMenu.value = false;
-        }
-    }
-};
-
-const handleKeydown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-        if (showTypeMenu.value) {
-            showTypeMenu.value = false;
-            typeButtonRef.value?.focus();
-        }
-        if (showInsertMenu.value) {
-            showInsertMenu.value = false;
-            insertButtonRef.value?.focus();
-        }
-        if (showMoreMenu.value) {
-            showMoreMenu.value = false;
-            moreButtonRef.value?.focus();
-        }
-    }
-};
-
 // Handle tab visibility changes with debounce to prevent aggressive disconnection
 // When browser backgrounds tab for extended periods, disconnect to save resources
 // Short tab switches (< 30 seconds) should maintain the connection
@@ -1392,18 +1330,52 @@ const handleVisibilityChange = () => {
 
 const toggleTypeMenu = () => {
     showTypeMenu.value = !showTypeMenu.value;
-    if (showTypeMenu.value) {
-        showInsertMenu.value = false;
-        showMoreMenu.value = false;
-    }
+    if (showTypeMenu.value) showInsertMenu.value = false;
 };
 
 const toggleInsertMenu = () => {
     showInsertMenu.value = !showInsertMenu.value;
-    if (showInsertMenu.value) {
-        showTypeMenu.value = false;
-        showMoreMenu.value = false;
-    }
+    if (showInsertMenu.value) showTypeMenu.value = false;
+};
+
+const typeMenuItems = computed<MenuItem[]>(() => [
+    { id: 'paragraph', label: t('editor-type-menu-plain') },
+    { id: 'heading-1', label: t('editor-type-menu-heading-1') },
+    { id: 'heading-2', label: t('editor-type-menu-heading-2') },
+    { id: 'heading-3', label: t('editor-type-menu-heading-3') },
+    { id: 'blockquote', label: t('editor-type-menu-blockquote') },
+    { id: 'code-block', label: t('editor-type-menu-code-block') },
+]);
+
+const onTypeMenuSelect = (id: string) => {
+    showTypeMenu.value = false;
+    if (id === 'paragraph') setParagraph();
+    else if (id.startsWith('heading-')) setHeading(Number(id.slice('heading-'.length)));
+    else if (id === 'blockquote') toggleBlockquote();
+    else if (id === 'code-block') toggleCodeBlock();
+};
+
+const insertMenuItems = computed<MenuItem[]>(() => [
+    { id: 'bullet-list', label: t('editor-insert-menu-bullet-list') },
+    { id: 'ordered-list', label: t('editor-insert-menu-numbered-list') },
+    { id: 'blockquote', label: t('editor-insert-menu-blockquote') },
+    { id: 'code-block', label: t('editor-insert-menu-code-block') },
+    { id: 'link', label: t('editor-insert-menu-link') },
+    { id: 'embed-document', label: t('editor-insert-menu-embed-document') },
+    { id: 'image', label: t('editor-insert-menu-image') },
+    ...(supportsCameraCapture ? [{ id: 'take-photo', label: t('editor-insert-menu-take-photo') }] : []),
+]);
+
+const onInsertMenuSelect = (id: string) => {
+    showInsertMenu.value = false;
+    if (id === 'bullet-list') toggleBulletList();
+    else if (id === 'ordered-list') toggleOrderedList();
+    else if (id === 'blockquote') toggleBlockquote();
+    else if (id === 'code-block') toggleCodeBlock();
+    else if (id === 'link') insertLink();
+    else if (id === 'embed-document') showDocumentPicker.value = true;
+    else if (id === 'image') imagePickerRef.value?.click();
+    else if (id === 'take-photo') cameraPickerRef.value?.click();
 };
 
 // Functions to handle toolbar actions
@@ -1788,8 +1760,6 @@ declare global {
 
 onMounted(() => {
     initEditor();
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeydown);
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     // Add network status monitoring with stored handler references for proper cleanup
@@ -1817,8 +1787,6 @@ onBeforeUnmount(() => {
     revisionHandle = null;
 
     cleanup();
-    document.removeEventListener("mousedown", handleClickOutside);
-    document.removeEventListener("keydown", handleKeydown);
     window.removeEventListener("beforeunload", handleBeforeUnload);
 
     // Remove network status monitoring using stored handler references
@@ -2057,90 +2025,18 @@ defineExpose({
                     </svg>
                 </button>
 
-                <!-- Type Menu Dropdown -->
-                <Teleport to="body">
-                    <div
-                        v-if="showTypeMenu"
-                        ref="typeMenuRef"
-                        class="dropdown-menu-fixed"
-                        :class="{ 'open-up': typeMenuPosition.openDirection === 'up' }"
-                        :style="{
-                            top: typeMenuPosition.openDirection === 'up' ? 'auto' : `${typeMenuPosition.top}px`,
-                            bottom: typeMenuPosition.openDirection === 'up' ? `${typeMenuPosition.bottom}px` : 'auto',
-                            left: `${typeMenuPosition.left}px`,
-                            maxWidth: typeMenuPosition.maxWidth ? `${typeMenuPosition.maxWidth}px` : undefined
-                        }"
-                        role="menu"
-                        tabindex="-1"
-                    >
-                        <button
-                            type="button"
-                            @click="
-                                setParagraph();
-                                showTypeMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-type-menu-plain') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                setHeading(1);
-                                showTypeMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-type-menu-heading-1') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                setHeading(2);
-                                showTypeMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-type-menu-heading-2') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                setHeading(3);
-                                showTypeMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-type-menu-heading-3') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                toggleBlockquote();
-                                showTypeMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-type-menu-blockquote') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                toggleCodeBlock();
-                                showTypeMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-type-menu-code-block') }}
-                        </button>
-                    </div>
-                </Teleport>
+                <ResponsiveMenu
+                    :open="showTypeMenu"
+                    :anchor="typeMenuAnchor"
+                    :title="$t('editor-toolbar-text-style')"
+                    placement="bottom-start"
+                    react-to-scroll="reposition"
+                    role="menu"
+                    popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[160px]"
+                    @close="showTypeMenu = false"
+                >
+                    <MenuList :items="typeMenuItems" @select="onTypeMenuSelect" />
+                </ResponsiveMenu>
             </div>
 
             <div class="toolbar-divider"></div>
@@ -2266,113 +2162,18 @@ defineExpose({
                     </svg>
                 </button>
 
-                <!-- Insert Menu Dropdown -->
-                <Teleport to="body">
-                    <div
-                        v-if="showInsertMenu"
-                        ref="insertMenuRef"
-                        class="dropdown-menu-fixed"
-                        :class="{ 'open-up': insertMenuPosition.openDirection === 'up' }"
-                        :style="{
-                            top: insertMenuPosition.openDirection === 'up' ? 'auto' : `${insertMenuPosition.top}px`,
-                            bottom: insertMenuPosition.openDirection === 'up' ? `${insertMenuPosition.bottom}px` : 'auto',
-                            left: `${insertMenuPosition.left}px`,
-                            maxWidth: insertMenuPosition.maxWidth ? `${insertMenuPosition.maxWidth}px` : undefined
-                        }"
-                        role="menu"
-                        tabindex="-1"
-                    >
-                        <button
-                            type="button"
-                            @click="
-                                toggleBulletList();
-                                showInsertMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-insert-menu-bullet-list') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                toggleOrderedList();
-                                showInsertMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-insert-menu-numbered-list') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                toggleBlockquote();
-                                showInsertMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-insert-menu-blockquote') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                toggleCodeBlock();
-                                showInsertMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-insert-menu-code-block') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                insertLink();
-                                showInsertMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-insert-menu-link') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                showDocumentPicker = true;
-                                showInsertMenu = false;
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-insert-menu-embed-document') }}
-                        </button>
-                        <button
-                            type="button"
-                            @click="
-                                showInsertMenu = false;
-                                imagePickerRef?.click();
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-insert-menu-image') }}
-                        </button>
-                        <button
-                            type="button"
-                            v-if="supportsCameraCapture"
-                            @click="
-                                showInsertMenu = false;
-                                cameraPickerRef?.click();
-                            "
-                            class="dropdown-item"
-                            role="menuitem"
-                        >
-                            {{ $t('editor-insert-menu-take-photo') }}
-                        </button>
-                    </div>
-                </Teleport>
+                <ResponsiveMenu
+                    :open="showInsertMenu"
+                    :anchor="insertMenuAnchor"
+                    :title="$t('editor-toolbar-insert')"
+                    placement="bottom-start"
+                    react-to-scroll="reposition"
+                    role="menu"
+                    popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[180px]"
+                    @close="showInsertMenu = false"
+                >
+                    <MenuList :items="insertMenuItems" @select="onInsertMenuSelect" />
+                </ResponsiveMenu>
             </div>
 
             <!-- Image sources. Hidden inputs rather than a native plugin: the
@@ -2736,59 +2537,6 @@ defineExpose({
     .toolbar-divider {
         margin: 0 0.125rem;
     }
-}
-
-.dropdown-menu {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    margin-top: 0.25rem;
-    width: 12rem;
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-default);
-    border-radius: 0.5rem; /* rounded-lg */
-    box-shadow:
-        0 10px 15px -3px rgba(0, 0, 0, 0.1),
-        0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    z-index: 50;
-    overflow: hidden;
-}
-
-/* Fixed positioned dropdown for Teleport usage (viewport-aware) */
-.dropdown-menu-fixed {
-    position: fixed;
-    width: 12rem;
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-default);
-    border-radius: 0.5rem;
-    box-shadow:
-        0 10px 15px -3px rgba(0, 0, 0, 0.1),
-        0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    z-index: 300; /* z-overlay */
-    overflow: hidden;
-    transform-origin: top left;
-}
-
-.dropdown-menu-fixed.open-up {
-    transform-origin: bottom left;
-}
-
-.dropdown-item {
-    display: block;
-    width: 100%;
-    padding: 0.5rem 1rem;
-    text-align: left;
-    font-size: 0.875rem;
-    color: var(--color-primary);
-    background-color: transparent;
-    border: none;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.dropdown-item:hover {
-    background-color: var(--color-surface-hover);
-    color: var(--color-primary);
 }
 
 .connection-status-connecting,
@@ -3952,9 +3700,7 @@ defineExpose({
   .editor-toolbar,
   .connection-status-connecting,
   .connection-status-disconnected,
-  .mention-dropdown,
-  .dropdown-menu,
-  .dropdown-menu-fixed {
+  .mention-dropdown {
     display: none !important;
   }
 
