@@ -1,6 +1,23 @@
+<!--
+List footer: page size, page navigation and position. Navigation is
+Reka's Pagination: it computes the page list (edges, siblings, ellipses),
+the `nav` landmark, `aria-current=page` on the current page and the
+prev/next disabled states. Our `totalPages` is backend-authoritative and
+can disagree with `totalItems / pageSize`, so the root is fed
+`total=totalPages` with one item per page, which makes Reka's page count
+ours exactly. Infinite mode (pageSize 0) renders no navigation.
+-->
 <script setup lang="ts">
 import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref, watch } from 'vue'
+import {
+  PaginationEllipsis,
+  PaginationList,
+  PaginationListItem,
+  PaginationNext,
+  PaginationPrev,
+  PaginationRoot,
+} from 'reka-ui'
 import { useFluent } from 'fluent-vue'
 import BaseDropdown from './BaseDropdown.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
@@ -77,27 +94,9 @@ const handleInputFocus = (event: FocusEvent) => {
   (event.target as HTMLInputElement).select()
 }
 
-// Page numbers for pagination mode
-const pageNumbers = computed(() => {
-  if (props.totalPages <= 1) return []
-
-  const maxVisible = isMobile.value ? 3 : 5
-
-  if (props.totalPages <= maxVisible + 2) {
-    return Array.from({ length: props.totalPages }, (_, i) => i + 1)
-  }
-
-  const pages: (number | string)[] = [1]
-  const start = Math.max(2, props.currentPage - Math.floor(maxVisible / 2))
-  const end = Math.min(props.totalPages - 1, props.currentPage + Math.floor(maxVisible / 2))
-
-  if (start > 2) pages.push('...')
-  for (let i = start; i <= end; i++) pages.push(i)
-  if (end < props.totalPages - 1) pages.push('...')
-  if (props.totalPages > 1) pages.push(props.totalPages)
-
-  return pages
-})
+// Reka lists every page when the count fits, else edges + siblings
+// around the current page with ellipses; fewer siblings on phones.
+const siblingCount = computed(() => (isMobile.value ? 1 : 2))
 
 // Page size dropdown options
 const pageSizeDropdownOptions = computed(() => {
@@ -146,24 +145,34 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
       />
 
       <!-- Right: Navigation buttons (pagination mode only) -->
-      <div v-if="hasMultiplePages" class="flex items-center gap-1">
-        <IconButton
-          :label="$t('pagination-controls-previous')"
-          icon="chevronLeft"
-          variant="secondary"
-          size="sm"
-          :disabled="currentPage <= 1"
-          @click="changePage(currentPage - 1)"
-        />
-        <IconButton
-          :label="$t('pagination-controls-next')"
-          icon="chevronRight"
-          variant="secondary"
-          size="sm"
-          :disabled="currentPage >= totalPages"
-          @click="changePage(currentPage + 1)"
-        />
-      </div>
+      <PaginationRoot
+        v-if="hasMultiplePages"
+        :page="currentPage"
+        :total="totalPages"
+        :items-per-page="1"
+        :aria-label="t('pagination-controls-nav-aria')"
+        class="flex items-center gap-1"
+        @update:page="changePage"
+      >
+        <PaginationPrev as-child>
+          <IconButton
+            :label="$t('pagination-controls-previous')"
+            icon="chevronLeft"
+            variant="secondary"
+            size="sm"
+            :disabled="currentPage <= 1"
+          />
+        </PaginationPrev>
+        <PaginationNext as-child>
+          <IconButton
+            :label="$t('pagination-controls-next')"
+            icon="chevronRight"
+            variant="secondary"
+            size="sm"
+            :disabled="currentPage >= totalPages"
+          />
+        </PaginationNext>
+      </PaginationRoot>
     </div>
 
     <!-- Desktop Layout -->
@@ -191,46 +200,54 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
            sits on the right beside where "Page x of y" goes. -->
       <div class="flex-1 flex items-center justify-center min-w-0">
         <!-- Pagination mode: Page numbers -->
-        <template v-if="hasMultiplePages && !isInfiniteMode">
-          <div class="flex items-center gap-2">
+        <PaginationRoot
+          v-if="hasMultiplePages"
+          :page="currentPage"
+          :total="totalPages"
+          :items-per-page="1"
+          :sibling-count="siblingCount"
+          show-edges
+          :aria-label="t('pagination-controls-nav-aria')"
+          class="flex items-center gap-2"
+          @update:page="changePage"
+        >
+          <PaginationPrev as-child>
             <IconButton
               :label="$t('pagination-controls-previous')"
               icon="chevronLeft"
               variant="secondary"
               size="sm"
               :disabled="currentPage <= 1"
-              @click="changePage(currentPage - 1)"
             />
+          </PaginationPrev>
 
-            <div class="flex items-center gap-0.5">
-              <template v-for="page in pageNumbers" :key="page">
+          <PaginationList v-slot="{ items }" class="flex items-center gap-0.5">
+            <template v-for="(item, index) in items" :key="index">
+              <PaginationListItem v-if="item.type === 'page'" :value="item.value" as-child>
                 <button
                   type="button"
-                  v-if="typeof page === 'number'"
-                  @click="changePage(page)"
-                  :class="[
-                    'py-0.5 text-sm rounded transition-colors w-8 text-center',
-                    page === currentPage
-                      ? 'bg-accent text-on-accent'
-                      : 'bg-surface-alt text-primary hover:bg-surface-hover'
-                  ]"
+                  :aria-label="t('pagination-controls-page-n', { page: item.value })"
+                  class="py-0.5 text-sm rounded transition-colors w-8 text-center bg-surface-alt text-primary hover:bg-surface-hover data-[selected]:bg-accent data-[selected]:text-on-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                  {{ page }}
+                  {{ item.value }}
                 </button>
-                <span v-else class="text-sm text-secondary w-6 text-center">...</span>
-              </template>
-            </div>
+              </PaginationListItem>
+              <PaginationEllipsis v-else class="text-sm text-secondary w-6 text-center" aria-hidden="true">
+                …
+              </PaginationEllipsis>
+            </template>
+          </PaginationList>
 
+          <PaginationNext as-child>
             <IconButton
               :label="$t('pagination-controls-next')"
               icon="chevronRight"
               variant="secondary"
               size="sm"
               :disabled="currentPage >= totalPages"
-              @click="changePage(currentPage + 1)"
             />
-          </div>
-        </template>
+          </PaginationNext>
+        </PaginationRoot>
       </div>
 
       <!-- Right: page info. The infinite-mode branch used to hold a

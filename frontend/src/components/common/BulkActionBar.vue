@@ -18,13 +18,15 @@ Anatomy from left to right:
  - Action slot (consumer renders inline buttons + an overflow menu
    if it has more than ~3 actions, see Q5 research)
 
-The bar is intentionally chrome-only: it knows nothing about what
-the actions DO, just that there are actions to render. Consumers
-own the buttons + handlers in the `#actions` slot.
+The pill is a Reka Toolbar: one tab stop, arrows walk the controls.
+Consumers own the buttons + handlers in the `#actions` slot and wrap
+each in `ToolbarButton as-child`, or it stays outside the roving group
+as its own tab stop. The bar knows nothing about what the actions DO.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
+import { ToolbarButton, ToolbarRoot } from 'reka-ui'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
@@ -100,10 +102,9 @@ const countCopy = computed(() => {
     <div
       v-if="selectedCount > 0"
       class="fixed bottom-6 inset-x-0 z-overlay flex justify-center px-4 pointer-events-none"
-      role="region"
-      :aria-label="t('common-bulk-actions-aria')"
     >
-      <div
+      <ToolbarRoot
+        :aria-label="t('common-bulk-actions-aria')"
         class="pointer-events-auto inline-flex items-stretch gap-2 px-2 py-1.5 rounded-full bg-surface border border-default shadow-lg"
       >
         <!-- Count pill + scope toggles -->
@@ -115,21 +116,24 @@ const countCopy = computed(() => {
           </div>
           <div class="flex items-center gap-2 text-xs">
             <span class="text-secondary whitespace-nowrap">{{ countCopy }}</span>
-            <button
-              v-if="showSelectAllMatching"
-              type="button"
-              @click="emit('select-all-matching')"
-              class="text-accent hover:underline whitespace-nowrap"
-            >
-              {{ t('bulk-bar-select-all-matching', { count: totalCount }) }}
-            </button>
-            <button
-              type="button"
-              @click="emit('clear')"
-              class="text-tertiary hover:text-secondary whitespace-nowrap"
-            >
-              {{ t('bulk-bar-clear') }}
-            </button>
+            <ToolbarButton v-if="showSelectAllMatching" as-child>
+              <button
+                type="button"
+                @click="emit('select-all-matching')"
+                class="text-accent hover:underline whitespace-nowrap rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {{ t('bulk-bar-select-all-matching', { count: totalCount }) }}
+              </button>
+            </ToolbarButton>
+            <ToolbarButton as-child>
+              <button
+                type="button"
+                @click="emit('clear')"
+                class="text-tertiary hover:text-secondary whitespace-nowrap rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {{ t('bulk-bar-clear') }}
+              </button>
+            </ToolbarButton>
           </div>
         </div>
 
@@ -139,7 +143,7 @@ const countCopy = computed(() => {
         <div class="flex items-center gap-1 pr-1">
           <slot name="actions" :selected-count="selectedCount" :is-all-matching="isAllMatchingSelected" />
         </div>
-      </div>
+      </ToolbarRoot>
     </div>
   </Transition>
 </template>

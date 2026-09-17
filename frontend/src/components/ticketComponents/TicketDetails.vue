@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import IconButton from '@/components/common/IconButton.vue'
-import { computed, ref, watchEffect, onMounted } from 'vue';
+import { computed, ref, watchEffect, onMounted, useId } from 'vue';
 import { useRouter } from 'vue-router';
 import { shareableRouteUrl } from '@/utils/shareUrl';
 import { useFluent } from 'fluent-vue';
@@ -32,6 +32,7 @@ import LinkedTicketChip from "@/components/ticketComponents/LinkedTicketChip.vue
 import { useTicketDocs } from "@/composables/usePageTicketLinks";
 import SlaExplainPopover from "@/components/sla/SlaExplainPopover.vue";
 import DatePicker from "@/components/common/DatePicker.vue";
+import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger } from "reka-ui";
 import { getDateConfig } from "@nosdesk/core/utils/dateUtils";
 import type { Asset } from "@nosdesk/core/types/asset";
 import type { CommentWithAttachments } from "@nosdesk/core/types/comment";
@@ -360,6 +361,8 @@ const schedulingHasValue = computed<boolean>(() => {
 });
 
 const schedulingOpen = ref<boolean>(schedulingHasValue.value);
+// Own id for the panel: Reka's is assigned after the trigger renders.
+const schedulingPanelId = useId();
 
 /** Inline preview rendered in the Scheduling summary line so the
  * user can read state without expanding. Empty string falls back
@@ -1145,32 +1148,38 @@ watchEffect(async () => {
                    the body is open, the preview is redundant);
                  - body hugs the header (smaller top padding than
                    inter-field gap), so expanded reads as one unit. -->
-          <div class="flex flex-col gap-1">
-            <button
-              type="button"
-              class="flex items-center justify-between gap-2 -mx-2 px-2 py-1 rounded-md hover:bg-surface-hover transition-colors text-left"
-              :aria-expanded="schedulingOpen"
-              @click="schedulingOpen = !schedulingOpen"
-            >
-              <span class="flex items-center gap-1.5 min-w-0">
-                <Icon
-                  name="chevronDown"
-                  class="w-3 h-3 text-tertiary transition-transform shrink-0"
-                  :class="{ '-rotate-90': !schedulingOpen }"
-                />
-                <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">
-                  {{ t('ticket-detail-scheduling-label') }}
-                </h3>
-              </span>
-              <span
-                v-if="!schedulingOpen"
-                class="text-xs text-tertiary truncate"
-              >
-                {{ schedulingPreview || t('ticket-detail-scheduling-none') }}
-              </span>
-            </button>
+          <CollapsibleRoot v-model:open="schedulingOpen" class="flex flex-col gap-1">
+            <!-- Reka's Collapsible: the heading holds the trigger, which
+                 carries aria-expanded and aria-controls to the panel. -->
+            <h3 class="m-0">
+              <CollapsibleTrigger as-child>
+                <button
+                  type="button"
+                  :aria-controls="schedulingPanelId"
+                  class="flex w-full items-center justify-between gap-2 -mx-2 px-2 py-1 rounded-md hover:bg-surface-hover transition-colors text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <span class="flex items-center gap-1.5 min-w-0">
+                    <Icon
+                      name="chevronDown"
+                      class="w-3 h-3 text-tertiary transition-transform shrink-0"
+                      :class="{ '-rotate-90': !schedulingOpen }"
+                    />
+                    <span class="text-xs font-medium text-tertiary min-h-6 flex items-center">
+                      {{ t('ticket-detail-scheduling-label') }}
+                    </span>
+                  </span>
+                  <span
+                    v-if="!schedulingOpen"
+                    class="text-xs text-tertiary truncate"
+                  >
+                    {{ schedulingPreview || t('ticket-detail-scheduling-none') }}
+                  </span>
+                </button>
+              </CollapsibleTrigger>
+            </h3>
 
-            <div v-if="schedulingOpen" class="flex flex-col gap-3 pt-1 pl-5">
+            <CollapsibleContent as-child>
+              <div :id="schedulingPanelId" class="flex flex-col gap-3 pt-1 pl-5">
               <!-- Start date: the gantt's planning field. Unset means
                    the timeline anchors the bar at created_at. -->
               <div class="flex flex-col gap-1">
@@ -1233,8 +1242,9 @@ watchEffect(async () => {
                   @update:model-value="(v) => handleRecurrenceChange(v as string)"
                 />
               </div>
-            </div>
-          </div>
+              </div>
+            </CollapsibleContent>
+          </CollapsibleRoot>
           </div><!-- /Cluster B -->
 
           <!-- Cluster C — Classification. How the ticket is bucketed. -->

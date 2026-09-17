@@ -6983,3 +6983,6 @@ form-number-increment = Verhogen
 form-number-decrement = Verlagen
 # MACHINE TRANSLATION, pending native review
 otp-digit-aria = Cijfer { $index } van { $count }
+# MACHINE TRANSLATION, pending native review
+pagination-controls-nav-aria = Pagina's
+pagination-controls-page-n = Pagina { $page }
