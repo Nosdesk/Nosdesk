@@ -193,6 +193,10 @@ test.describe('accessibility floor', () => {
 
   test('the search palette is a modal dialog with a combobox over grouped results', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
+    // The seed writes straight to the database, so the search index is
+    // empty until an admin rebuilds it.
+    const csrf = (await page.context().cookies()).find((c) => c.name.endsWith('csrf_token'))?.value ?? ''
+    await page.request.post('/api/search/rebuild', { headers: { 'X-CSRF-Token': csrf } })
     await page.keyboard.press('Control+k')
     const dialog = page.getByRole('dialog', { name: 'Search' })
     await expect(dialog).toBeVisible()
@@ -210,7 +214,7 @@ test.describe('accessibility floor', () => {
 
     // Typing lists results as options in named groups; arrows move the
     // active descendant without leaving the input.
-    await input.fill('a')
+    await input.fill('laptop')
     await expect(listbox.getByRole('group').first()).toBeVisible()
     const options = listbox.getByRole('option')
     expect(await options.count()).toBeGreaterThan(1)
