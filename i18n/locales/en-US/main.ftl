@@ -6887,3 +6887,5 @@ inline-edit-hint = Click to edit
 form-number-increment = Increase
 form-number-decrement = Decrease
 otp-digit-aria = Digit { $index } of { $count }
+pagination-controls-nav-aria = Pages
+pagination-controls-page-n = Page { $page }

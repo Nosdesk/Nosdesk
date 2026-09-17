@@ -277,6 +277,24 @@ test.describe('accessibility floor', () => {
     await expectNoSeriousViolations(page, 'header')
   })
 
+  test('a sidebar section is one heading button that controls its panel', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    const trigger = page.getByRole('button', { name: 'Recent tickets' })
+    await expect(trigger).toBeVisible()
+    const expanded = (await trigger.getAttribute('aria-expanded')) === 'true'
+    const panelId = await trigger.getAttribute('aria-controls')
+    expect(panelId).toBeTruthy()
+    await trigger.focus()
+    await page.keyboard.press('Space')
+    await expect(trigger).toHaveAttribute('aria-expanded', expanded ? 'false' : 'true')
+    // The panel exists whenever the section is open, and carries the id
+    // the trigger points at.
+    if (!expanded) await expect(page.locator(`[id="${panelId}"]`)).toBeVisible()
+    await page.keyboard.press('Space')
+    await expect(trigger).toHaveAttribute('aria-expanded', expanded ? 'true' : 'false')
+    await expectNoSeriousViolations(page, 'nav')
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

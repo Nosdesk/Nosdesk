@@ -8,6 +8,7 @@ import { useToastStore } from '@nosdesk/core/stores/toast'
 
 import DataTable from '@/components/common/DataTable.vue'
 import Icon from '@/components/common/Icon.vue'
+import { ToolbarButton } from 'reka-ui'
 import PaginationControls from '@/components/common/PaginationControls.vue'
 import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
@@ -803,23 +804,27 @@ async function exportAssetsCsv(scope?: 'history') {
     </template>
 
     <template #bulk-actions="{ selectedCount }">
-      <button
-        type="button"
-        class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-accent hover:bg-accent/10 transition-colors whitespace-nowrap"
-        @click="openRolloutFromSelection"
-      >
-        <Icon name="send" size="sm" />
-        {{ $t('asset-rollout-bulk-action', { count: selectedCount }) }}
-      </button>
-      <button
-        type="button"
-        class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-status-error hover:bg-status-error/10 transition-colors whitespace-nowrap disabled:opacity-50"
-        :disabled="bulkDelete.asyncStatus.value === 'loading'"
-        @click="showDeleteConfirm = true"
-      >
-        <Icon name="trash" size="sm" />
-        {{ selectedCount > 0 ? $t('assets-list-bulk-delete-count', { count: selectedCount }) : $t('assets-list-bulk-delete') }}
-      </button>
+      <ToolbarButton as-child>
+        <button
+          type="button"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-accent hover:bg-accent/10 transition-colors whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          @click="openRolloutFromSelection"
+        >
+          <Icon name="send" size="sm" />
+          {{ $t('asset-rollout-bulk-action', { count: selectedCount }) }}
+        </button>
+      </ToolbarButton>
+      <ToolbarButton as-child :disabled="bulkDelete.asyncStatus.value === 'loading'">
+        <button
+          type="button"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-status-error hover:bg-status-error/10 transition-colors whitespace-nowrap disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          :disabled="bulkDelete.asyncStatus.value === 'loading'"
+          @click="showDeleteConfirm = true"
+        >
+          <Icon name="trash" size="sm" />
+          {{ selectedCount > 0 ? $t('assets-list-bulk-delete-count', { count: selectedCount }) : $t('assets-list-bulk-delete') }}
+        </button>
+      </ToolbarButton>
     </template>
 
     <template #footer>

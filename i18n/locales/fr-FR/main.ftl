@@ -6991,3 +6991,6 @@ form-number-increment = Augmenter
 form-number-decrement = Diminuer
 # MACHINE TRANSLATION, pending native review
 otp-digit-aria = Chiffre { $index } sur { $count }
+# MACHINE TRANSLATION, pending native review
+pagination-controls-nav-aria = Pages
+pagination-controls-page-n = Page { $page }
