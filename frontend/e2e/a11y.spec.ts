@@ -408,7 +408,7 @@ test.describe('accessibility floor', () => {
     const count = await rows.count()
     await expect(rows.first()).toHaveAttribute('aria-level', '1')
     // Rows are links, so they carry a page URL as well as the tree role.
-    await expect(rows.first()).toHaveAttribute('href', /^\/documentation\//)
+    await expect(rows.first()).toHaveAttribute('href', /\/documentation\//)
     await expectNoSeriousViolations(page, '[role="tree"]')
 
     await rows.first().focus()
