@@ -98,10 +98,19 @@ export function createI18n(pinia: Pinia): FluentVue {
     bundles: bundlesForLocale(dateStore.locale),
   })
 
+  // `<html lang>` follows the active locale so assistive tech picks the
+  // right voice and hyphenation; the static `lang="en"` in index.html is
+  // the pre-boot fallback.
+  const applyLang = (locale: string) => {
+    if (typeof document !== 'undefined') document.documentElement.lang = locale
+  }
+  applyLang(dateStore.locale)
+
   watch(
     () => dateStore.locale,
     (locale) => {
       fluent.bundles = bundlesForLocale(locale)
+      applyLang(locale)
     },
   )
 
