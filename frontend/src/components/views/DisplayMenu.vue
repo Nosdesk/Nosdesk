@@ -101,7 +101,7 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
         ? 'text-primary bg-surface-hover'
         : 'text-secondary hover:text-primary hover:bg-surface-hover'"
       :aria-expanded="open"
-      aria-haspopup="menu"
+      aria-haspopup="dialog"
       :title="$t('views-display-menu-trigger-tooltip')"
       @click="open = !open"
     >
@@ -109,6 +109,9 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
       <span>{{ $t('views-display-menu-trigger') }}</span>
     </button>
 
+    <!-- A dialog, not a menu: it holds grouped controls (segmented
+         density, grouping choices), not a list of menuitems, and axe
+         rejects a menu without them. -->
     <ResponsiveMenu
       :open="open"
       :anchor="anchor"
@@ -116,7 +119,8 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
       placement="bottom-end"
       react-to-scroll="reposition"
       :offset="4"
-      role="menu"
+      role="dialog"
+      :aria-label="$t('views-display-menu-trigger-tooltip')"
       :auto-focus="false"
       popover-class="bg-surface border border-default rounded-lg shadow-xl overflow-hidden min-w-[18rem] max-w-[calc(100vw-1rem)] sm:max-w-[22rem]"
       @close="open = false"

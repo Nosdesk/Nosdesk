@@ -105,11 +105,11 @@ test.describe('accessibility floor', () => {
     await expect(opener).toBeFocused()
   })
 
-  test('a popover menu opens on its trigger, closes on Escape, and returns focus', async ({ page }) => {
+  test('a popover opens on its trigger, toggles, and closes on Escape', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     const trigger = page.getByRole('button', { name: 'Display' })
     await trigger.click()
-    const menu = page.locator('#overlays [role="menu"]')
+    const menu = page.locator('#overlays [role="dialog"]')
     await expect(menu).toBeVisible()
     await expect(trigger).toHaveAttribute('aria-expanded', 'true')
     await expectNoSeriousViolations(page, '#overlays')
