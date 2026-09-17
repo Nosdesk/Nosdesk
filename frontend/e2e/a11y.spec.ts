@@ -39,7 +39,7 @@ async function expectNoSeriousViolations(page: Page, scope?: string): Promise<vo
 test.describe('accessibility floor', () => {
   test.skip(({ hasTouch }) => hasTouch, 'hover and focus are pointer/keyboard concerns')
 
-  test('icon buttons expose a tooltip on focus and describe the trigger', async ({ page }) => {
+  test('icon buttons expose a tooltip on hover and focus and describe the trigger', async ({ page }) => {
     // The ticket detail sidebar always renders icon buttons (clear
     // requester/assignee, scheduling); the list views only do so
     // conditionally.
@@ -48,19 +48,30 @@ test.describe('accessibility floor', () => {
     // on click otherwise; a double-click covers both.
     await page.locator('table tbody tr').first().dblclick()
     await page.waitForURL(/\/tickets\/\d+/)
+    // Let the page's own autofocus (the editor) settle before we move focus.
+    await page.waitForTimeout(3000)
+
     const trigger = page.locator('button[data-icon-only]').first()
     await expect(trigger).toBeAttached()
-    await trigger.focus()
-    const tooltip = page.getByRole('tooltip')
-    await expect(tooltip).toBeVisible()
-    await expect(tooltip).toHaveText((await trigger.getAttribute('aria-label')) ?? '')
-    // aria-describedby is set on open so screen readers read the hint.
-    await expect(trigger).toHaveAttribute('aria-describedby', /.+/)
-    await page.keyboard.press('Escape')
-    await expect(tooltip).toBeHidden()
-    // Hover opens it too, after the provider delay.
+    const name = (await trigger.getAttribute('aria-label')) ?? ''
+    expect(name).not.toBe('')
+    // Reka renders the visible bubble plus a visually-hidden role=tooltip
+    // node that carries the accessible text; the bubble is what a sighted
+    // user sees, the role node is what a screen reader reads.
+    const bubble = page.locator('#overlays [data-state="delayed-open"], #overlays [data-state="instant-open"]')
+    const tooltip = page.locator('#overlays [role="tooltip"]')
+
     await trigger.hover()
-    await expect(page.getByRole('tooltip')).toBeVisible()
+    await expect(bubble.first()).toBeVisible()
+    await expect(tooltip).toHaveText(name)
+    await expect(trigger).toHaveAttribute('aria-describedby', /.+/)
+
+    await page.keyboard.press('Escape')
+    await expect(tooltip).toHaveCount(0)
+
+    await page.mouse.move(0, 0)
+    await trigger.focus()
+    await expect(tooltip).toHaveText(name)
   })
 
   test('tickets list has no serious violations', async ({ page }) => {
