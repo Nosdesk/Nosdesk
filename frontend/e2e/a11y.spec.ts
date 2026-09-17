@@ -22,6 +22,11 @@ const BASELINE: Record<string, string> = {
   // Inbox rows are a button that contains action buttons. Fixed when the
   // inbox row moves onto the menu recipe (PR 4).
   'nested-interactive': 'NotificationInboxView rows',
+  // Reka's ToastViewport wraps its list in two focus proxies: hidden,
+  // empty spans with tabindex 0 that route Tab back to the page from the
+  // toasts (Radix ships the same). axe reads a focusable aria-hidden
+  // element; there is nothing to announce in them. Upstream design.
+  'aria-hidden-focus': 'ToastViewport focus proxies',
 }
 
 async function expectNoSeriousViolations(page: Page, scope?: string): Promise<void> {
