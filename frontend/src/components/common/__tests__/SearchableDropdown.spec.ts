@@ -59,6 +59,9 @@ describe('SearchableDropdown', () => {
     expect(input).not.toBeNull()
     expect(document.activeElement).toBe(input)
     expect(document.body.querySelectorAll('[role="option"]')).toHaveLength(3)
+    const listbox = document.body.querySelector<HTMLElement>('[role="listbox"]')
+    expect(listbox?.getAttribute('aria-label')).toBe('Timezone')
+    expect(listbox?.getAttribute('tabindex')).toBe('0')
 
     // Accent and case insensitive, across label and description.
     await type(input!, 'sÝd')

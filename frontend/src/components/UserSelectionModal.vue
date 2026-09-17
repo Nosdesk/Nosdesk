@@ -163,7 +163,12 @@ const clearUser = () => {
       </div>
 
       <!-- User List -->
-      <ListboxContent v-else-if="users.length > 0" class="flex flex-col gap-1 max-h-96 overflow-y-auto">
+      <ListboxContent
+        v-else-if="users.length > 0"
+        class="flex flex-col gap-1 max-h-96 overflow-y-auto outline-none"
+        tabindex="0"
+        :aria-label="t('ui-user-selection-modal-title')"
+      >
         <ListboxItem
           v-for="user in users"
           :key="user.uuid"
