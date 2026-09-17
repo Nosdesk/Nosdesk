@@ -83,7 +83,7 @@ function onRemove(e: MouseEvent): void {
         class="inline-flex items-center gap-1 pl-2 pr-1.5 h-full transition-colors"
         :class="open ? 'bg-accent/20' : 'hover:bg-accent/15'"
         :aria-expanded="open"
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         @click="open = !open"
       >
         <span class="font-medium">{{ label }}:</span>

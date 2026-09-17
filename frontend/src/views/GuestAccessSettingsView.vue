@@ -114,25 +114,15 @@
 
             <!-- Rate limit -->
             <div class="flex flex-col gap-2">
-              <label for="guest-rate-limit" class="text-sm font-medium text-primary">
-                {{ $t('admin-guest-rate-limit-label') }}
-              </label>
-              <div class="relative">
-                <input
-                  id="guest-rate-limit"
-                  type="number"
-                  min="1"
-                  max="1000"
-                  v-model.number="settings.guest_ticket_rate_limit_per_hour"
-                  class="w-full bg-surface-alt border border-default rounded-lg pl-3 pr-24 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-tertiary pointer-events-none select-none">
-                  {{ $t('admin-guest-rate-limit-suffix') }}
-                </span>
-              </div>
-              <p class="text-xs text-tertiary">
-                {{ $t('admin-guest-rate-limit-hint') }}
-              </p>
+              <FormNumber
+                :model-value="settings.guest_ticket_rate_limit_per_hour"
+                :label="`${$t('admin-guest-rate-limit-label')} (${$t('admin-guest-rate-limit-suffix')})`"
+                :description="$t('admin-guest-rate-limit-hint')"
+                :min="1"
+                :max="1000"
+                integer
+                @update:model-value="setRateLimit"
+              />
             </div>
           </div>
 
@@ -177,6 +167,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
+import FormNumber from '@/components/common/FormNumber.vue';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
 import {
@@ -261,6 +252,11 @@ const priorityOptions = computed<DropdownOption[]>(() => [
 const priorityValue = computed(
   () => settings.value?.guest_ticket_default_priority ?? DEFAULT_PRIORITY
 );
+
+// Empty is not a setting: the field keeps the last value.
+function setRateLimit(value: number | null) {
+  if (value !== null && settings.value) settings.value.guest_ticket_rate_limit_per_hour = value;
+}
 
 function onPriorityChange(value: string | string[]) {
   if (!settings.value || Array.isArray(value)) return;

@@ -71,6 +71,26 @@ describe('FormNumber', () => {
     expect(updates.at(-1)).toBeNull()
   })
 
+  it('snaps to the step unless snapping is off', async () => {
+    const updates: Array<number | null> = []
+    const onUpdate = (v: number | null) => updates.push(v)
+    wrapper = mountWithProviders(FormNumber, { modelValue: 1, step: 0.01, 'onUpdate:modelValue': onUpdate })
+    await nextTick()
+    await typeAndBlur(wrapper.get('[role="spinbutton"]').element as HTMLInputElement, '1.2345')
+    expect(updates.at(-1)).toBe(1.23)
+    wrapper.unmount()
+
+    wrapper = mountWithProviders(FormNumber, {
+      modelValue: 1,
+      step: 0.01,
+      stepSnapping: false,
+      'onUpdate:modelValue': onUpdate,
+    })
+    await nextTick()
+    await typeAndBlur(wrapper.get('[role="spinbutton"]').element as HTMLInputElement, '1.2345')
+    expect(updates.at(-1)).toBe(1.2345)
+  })
+
   it('refuses a decimal separator when integer', async () => {
     wrapper = mountWithProviders(FormNumber, { modelValue: 1, integer: true })
     await nextTick()

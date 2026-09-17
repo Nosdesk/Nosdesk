@@ -23,7 +23,7 @@
  * not a primary scan target, and explicit pagination keeps the
  * hot DOM small.
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, useId, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import {
   getTicketActivity,
@@ -40,6 +40,7 @@ import Spinner from '@/components/common/Spinner.vue'
 import Icon from '@/components/common/Icon.vue'
 
 const fluent = useFluent()
+const listId = `ticket-activity-${useId()}`
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{
@@ -602,7 +603,7 @@ const hiddenRowCount = computed(() =>
       {{ t('ticket-activity-empty') }}
     </div>
 
-    <ul v-else class="flex flex-col gap-1.5">
+    <ul v-else :id="listId" class="flex flex-col gap-1.5">
       <!-- Each item is either a standalone event (comment, ticket
            creation, or a lone change) or a collapsed run of
            consecutive field changes by one actor ("made N changes").
@@ -618,6 +619,7 @@ const hiddenRowCount = computed(() =>
             type="button"
             class="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-surface-hover/40 transition-colors text-left w-full"
             :aria-expanded="expanded.has(item.anchorId)"
+            :aria-controls="`${listId}-bundle-${item.anchorId}`"
             @click="toggleBundle(item.anchorId)"
           >
             <UserAvatar
@@ -652,6 +654,7 @@ const hiddenRowCount = computed(() =>
 
           <ul
             v-if="expanded.has(item.anchorId)"
+            :id="`${listId}-bundle-${item.anchorId}`"
             class="ml-7 mt-1 flex flex-col gap-1 border-l border-subtle pl-3"
           >
             <li
@@ -744,6 +747,7 @@ const hiddenRowCount = computed(() =>
       type="button"
       class="text-xs text-tertiary hover:text-primary px-2 py-1.5 rounded hover:bg-surface-hover transition-colors flex items-center gap-1.5 self-start"
       :aria-expanded="showAllRows"
+      :aria-controls="listId"
       @click="showAllRows = !showAllRows"
     >
       <Icon :name="showAllRows ? 'chevronUp' : 'chevronDown'" class="w-3.5 h-3.5" />

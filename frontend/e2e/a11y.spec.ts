@@ -423,6 +423,42 @@ test.describe('accessibility floor', () => {
     await page.waitForURL((url) => url.pathname === href)
   })
 
+  test('a ticket property picker opens a listbox of options that walks with the arrows', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    await page.locator('table tbody tr').first().dblclick()
+    await page.waitForURL(/\/tickets\/\d+/)
+    await page.waitForTimeout(3000)
+
+    // The priority row: its trigger is the button after the "Priority"
+    // heading in the sidebar.
+    const heading = page.getByRole('heading', { name: 'Priority', exact: true }).first()
+    const trigger = heading.locator('xpath=following-sibling::*[1]').getByRole('button').first()
+    await expect(trigger).toHaveAttribute('aria-haspopup', 'dialog')
+    const current = (await trigger.textContent())?.trim() ?? ''
+    await trigger.click()
+    const dialog = page.locator('#overlays [role="dialog"]')
+    await expect(dialog).toBeVisible()
+    const listbox = dialog.getByRole('listbox')
+    await expect(listbox).toBeVisible()
+    const options = listbox.getByRole('option')
+    expect(await options.count()).toBeGreaterThan(1)
+    await expect(listbox.getByRole('option', { selected: true })).toHaveText(new RegExp(current))
+    await expectNoSeriousViolations(page, '#overlays')
+    // Focus opens on the current option; arrows move it; Escape hands
+    // focus back to the trigger and leaves the ticket as it was.
+    const highlighted = listbox.locator('[role="option"][data-highlighted]')
+    await expect(highlighted).toHaveText(new RegExp(current))
+    await expect(highlighted).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(highlighted).toHaveCount(1)
+    await expect(highlighted).not.toHaveText(new RegExp(current))
+    await expect(highlighted).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await expect(trigger).toHaveText(new RegExp(current))
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

@@ -89,7 +89,7 @@ function applyCustom(): void {
         'hover:bg-surface-hover hover:text-primary',
         open ? 'bg-surface-hover text-primary' : '',
       ]"
-      :aria-haspopup="true"
+      aria-haspopup="dialog"
       :aria-expanded="open"
       @click="togglePopover"
     >

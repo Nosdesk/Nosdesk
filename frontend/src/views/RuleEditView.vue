@@ -24,6 +24,7 @@ import Button from '@/components/common/Button.vue';
 import IconButton from '@/components/common/IconButton.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import FormInput from '@/components/common/FormInput.vue';
+import FormNumber from '@/components/common/FormNumber.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import rulesService from '@nosdesk/core/services/rulesService';
 import { extractErrorMessage } from '@/utils/errors';
@@ -344,11 +345,12 @@ const priorityOptions = [
           </template>
 
           <template v-else-if="action.kind === 'set_status'">
-            <FormInput
-              :model-value="String((action.config as any)?.workflow_state_id ?? '')"
-              @update:model-value="updateConfigField(i, 'workflow_state_id', Number($event))"
+            <FormNumber
+              :model-value="Number((action.config as any)?.workflow_state_id) || null"
+              @update:model-value="updateConfigField(i, 'workflow_state_id', $event ?? undefined)"
               :label="t('admin-rules-action-chip-set-status', { state_id: '' })"
-              type="number"
+              :min="1"
+              integer
             />
           </template>
 
@@ -387,11 +389,11 @@ const priorityOptions = [
       <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
         {{ t('admin-rule-editor-section-state') }}
       </h2>
-      <FormInput
-        :model-value="String(priority)"
-        @update:model-value="priority = Number($event) || 100"
+      <FormNumber
+        :model-value="priority"
+        @update:model-value="priority = $event ?? 100"
         :label="t('admin-rule-editor-priority-label')"
-        type="number"
+        integer
       />
       <Checkbox
         v-model="overrideSelfRef"

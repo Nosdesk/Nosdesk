@@ -15,7 +15,8 @@ Behaviour:
 - modelValue: number | null. Null means "empty"; the input renders
   the empty string. Required fields catch null at submit time.
 - The value commits on blur, Enter and the steppers, clamped to
-  min / max and snapped to `step`; mid-typing text is not pushed.
+  min / max and snapped to `step` (unless `stepSnapping` is off);
+  mid-typing text is not pushed.
 - integer: no fraction digits, so a decimal separator is refused.
 - Grouping separators are off: every field here is a port, a count
   or an order, never a quantity to read in thousands.
@@ -49,6 +50,9 @@ interface Props {
   max?: number;
   /** Stepper increment + ArrowUp/Down step. Default 1. */
   step?: number;
+  /** Snap the committed value to a multiple of `step`. Off, `step`
+   * only drives the steppers and any typed decimal is kept. */
+  stepSnapping?: boolean;
   /** Whole numbers only. */
   integer?: boolean;
 }
@@ -58,6 +62,7 @@ defineOptions({ inheritAttrs: false });
 const props = withDefaults(defineProps<Props>(), {
   size: 'md',
   step: 1,
+  stepSnapping: true,
   integer: false,
 });
 
@@ -70,9 +75,12 @@ const describedById = computed(() =>
   props.error || props.description ? `${inputId.value}-desc` : undefined,
 );
 
+// Intl's default of three fraction digits would round a typed
+// decimal; the field keeps what was typed and leaves rounding to
+// `step`.
 const formatOptions = computed<Intl.NumberFormatOptions>(() => ({
   useGrouping: false,
-  ...(props.integer ? { maximumFractionDigits: 0 } : {}),
+  maximumFractionDigits: props.integer ? 0 : 20,
 }));
 
 // Reka reports an empty field as undefined (and NaN mid-clear).
@@ -102,6 +110,7 @@ const stepperClasses = computed(() => [
       :min="min"
       :max="max"
       :step="step"
+      :step-snapping="stepSnapping"
       :format-options="formatOptions"
       :disabled="disabled"
       :required="required"
