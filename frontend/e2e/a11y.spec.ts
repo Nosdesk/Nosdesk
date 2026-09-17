@@ -192,11 +192,9 @@ test.describe('accessibility floor', () => {
   })
 
   test('the search palette is a modal dialog with a combobox over grouped results', async ({ page }) => {
+    // The CI stack restarts the backend after seeding so the index holds
+    // the demo tickets (the seed bypasses the write-time indexer).
     await gotoAndSettle(page, '/tickets')
-    // The seed writes straight to the database, so the search index is
-    // empty until an admin rebuilds it.
-    const csrf = (await page.context().cookies()).find((c) => c.name.endsWith('csrf_token'))?.value ?? ''
-    await page.request.post('/api/search/rebuild', { headers: { 'X-CSRF-Token': csrf } })
     await page.keyboard.press('Control+k')
     const dialog = page.getByRole('dialog', { name: 'Search' })
     await expect(dialog).toBeVisible()
