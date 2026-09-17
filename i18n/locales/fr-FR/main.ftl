@@ -6981,3 +6981,6 @@ settings-export-rate-limited = Vous pouvez demander un export par jour. Veuillez
 settings-export-in-progress = Un export est déjà en cours.
 settings-export-success = Votre export est prêt à être téléchargé.
 settings-export-error = Impossible de démarrer l'export. Veuillez réessayer.
+
+# MACHINE TRANSLATION, pending native review
+filter-toggle-clear-hint = { $label }. Cliquer pour effacer.

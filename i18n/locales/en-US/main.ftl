@@ -6881,3 +6881,5 @@ settings-export-rate-limited = You can request one export per day. Please try ag
 settings-export-in-progress = An export is already in progress.
 settings-export-success = Your export is ready to download.
 settings-export-error = Could not start the export. Please try again.
+
+filter-toggle-clear-hint = { $label }. Click to clear.

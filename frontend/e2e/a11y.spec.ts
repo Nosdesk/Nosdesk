@@ -206,6 +206,56 @@ test.describe('accessibility floor', () => {
     await expectNoSeriousViolations(page, '[role="tablist"]')
   })
 
+  test('a switch is named by its label and toggles from the keyboard and the label', async ({ page }) => {
+    await gotoAndSettle(page, '/profile/settings/appearance')
+    const sw = page.getByRole('switch', { name: 'Compact view' })
+    await expect(sw).toBeVisible()
+    const before = await sw.getAttribute('aria-checked')
+    await sw.focus()
+    await page.keyboard.press('Space')
+    await expect(sw).toHaveAttribute('aria-checked', before === 'true' ? 'false' : 'true')
+    // The visible label is a real <label for>, so it toggles the switch too.
+    await page.getByText('Compact view', { exact: true }).click()
+    await expect(sw).toHaveAttribute('aria-checked', before ?? 'false')
+    await expectNoSeriousViolations(page, 'main')
+  })
+
+  test('a checkbox reports its state and a radio group walks with the arrows', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    // Row checkboxes show on hover; the header's select-all appears once
+    // a row is selected (bulk mode).
+    await page.locator('table tbody tr').first().hover()
+    const rowBox = page.getByRole('checkbox', { name: /^Select ticket/ }).first()
+    await expect(rowBox).toBeVisible()
+    await expect(rowBox).toHaveAttribute('aria-checked', 'false')
+    await rowBox.click()
+    await expect(rowBox).toHaveAttribute('aria-checked', 'true')
+    const selectAll = page.getByRole('checkbox', { name: 'Select all visible tickets' })
+    await expect(selectAll).toBeVisible()
+    await expect(selectAll).toHaveAttribute('aria-checked', 'mixed')
+    await selectAll.focus()
+    await page.keyboard.press('Space')
+    await expect(selectAll).toHaveAttribute('aria-checked', 'true')
+    await page.keyboard.press('Escape')
+
+    const density = page.getByRole('radiogroup', { name: 'Row density' })
+    await expect(density).toBeVisible()
+    const radios = density.getByRole('radio')
+    await expect(radios).toHaveCount(3)
+    const checked = density.locator('[role="radio"][aria-checked="true"]')
+    await expect(checked).toHaveCount(1)
+    await checked.focus()
+    // Arrows move focus and select together, like native radios. Reka
+    // checks the newly focused radio while the arrow key is still held,
+    // so hold it for a beat rather than a synthetic instant press.
+    await page.keyboard.down('ArrowRight')
+    await page.waitForTimeout(80)
+    await page.keyboard.up('ArrowRight')
+    await expect(density.locator('[role="radio"]:focus')).toHaveAttribute('aria-checked', 'true')
+    await expect(checked).toHaveCount(1)
+    await expectNoSeriousViolations(page, '[role="radiogroup"]')
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

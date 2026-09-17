@@ -1,8 +1,16 @@
 <script setup lang="ts">
 /**
  * Three-step row density control (compact / cosy / comfortable).
- * Shared by tickets and projects list toolbars.
+ * Shared by tickets and projects list toolbars. Always has a value, so
+ * it is a radio group (Reka's RadioGroup: arrows move and select, the
+ * group is one tab stop). Each icon-only item is named by its aria-label
+ * and hinted by a Tooltip, which also reaches keyboard users.
+ *
+ * Styled on `aria-checked` rather than `data-state`: the tooltip trigger
+ * writes its own `data-state` onto the same element.
  */
+import { RadioGroupItem, RadioGroupRoot } from 'reka-ui'
+import Tooltip from './Tooltip.vue'
 import type { Density } from '@/composables/useTicketsDensity'
 
 defineProps<{
@@ -33,35 +41,34 @@ const densityOptions: ReadonlyArray<{ value: Density; svg: string; labelKey: str
 </script>
 
 <template>
-  <div
-    class="inline-flex items-center rounded-md border border-subtle overflow-hidden h-7"
-    role="group"
+  <RadioGroupRoot
+    :model-value="density"
     :aria-label="$t('views-display-menu-density-aria')"
+    orientation="horizontal"
+    loop
+    class="inline-flex items-center rounded-md border border-subtle overflow-hidden h-7"
+    @update:model-value="emit('set-density', $event as Density)"
   >
-    <button
-      v-for="opt in densityOptions"
-      :key="opt.value"
-      type="button"
-      class="h-full w-7 flex items-center justify-center transition-colors"
-      :class="density === opt.value
-        ? 'bg-accent/15 text-accent'
-        : 'text-tertiary hover:text-primary hover:bg-surface-hover'"
-      :aria-pressed="density === opt.value"
-      :title="$t(opt.labelKey)"
-      :aria-label="$t(opt.labelKey)"
-      @click="emit('set-density', opt.value)"
-    >
-      <svg
-        viewBox="0 0 20 20"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linecap="round"
-        class="w-3.5 h-3.5"
-        aria-hidden="true"
-      >
-        <path :d="opt.svg" />
-      </svg>
-    </button>
-  </div>
+    <Tooltip v-for="opt in densityOptions" :key="opt.value" :text="$t(opt.labelKey)">
+      <RadioGroupItem :value="opt.value" as-child>
+        <button
+          type="button"
+          class="h-full w-7 flex items-center justify-center transition-colors text-tertiary hover:text-primary hover:bg-surface-hover aria-checked:bg-accent/15 aria-checked:text-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent"
+          :aria-label="$t(opt.labelKey)"
+        >
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            class="w-3.5 h-3.5"
+            aria-hidden="true"
+          >
+            <path :d="opt.svg" />
+          </svg>
+        </button>
+      </RadioGroupItem>
+    </Tooltip>
+  </RadioGroupRoot>
 </template>
