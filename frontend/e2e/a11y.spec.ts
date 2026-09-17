@@ -74,6 +74,37 @@ test.describe('accessibility floor', () => {
     await expect(tooltip).toHaveText(name)
   })
 
+  test('a dialog traps focus, hides the page and restores focus on close', async ({ page }) => {
+    // Dashboard > Edit dashboard > Add widget opens a Modal with tabs and
+    // a list, enough to exercise the trap.
+    await gotoAndSettle(page, '/')
+    const edit = page.getByRole('button', { name: 'Edit dashboard' })
+    await edit.click()
+    const opener = page.getByRole('button', { name: 'Add widget' })
+    await opener.click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAccessibleName('Add widget')
+    // Everything outside the dialog is hidden from assistive tech. The
+    // aria-hidden library keeps live regions reachable, and the app has
+    // three inside #app, so the marks land on the page chrome rather than
+    // on #app itself; the sidebar nav is a representative sibling.
+    const nav = page.locator('nav').first()
+    await expect(nav).toHaveAttribute('aria-hidden', 'true')
+    // Focus starts inside and Tab never leaves.
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest('[role="dialog"]') !== null)).toBe(true)
+    for (let i = 0; i < 12; i++) await page.keyboard.press('Tab')
+    expect(await page.evaluate(() => document.activeElement?.closest('[role="dialog"]') !== null)).toBe(true)
+    await expectNoSeriousViolations(page, '[role="dialog"]')
+
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(nav).not.toHaveAttribute('aria-hidden', 'true')
+    // Focus returns to the opener.
+    await expect(opener).toBeFocused()
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

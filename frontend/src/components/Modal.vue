@@ -1,20 +1,42 @@
 <!-- Modal.vue -->
 <script setup lang="ts">
 /**
- * App-standard dialog / bottom-sheet surface.
+ * App-standard dialog / bottom-sheet surface, on Reka UI's Dialog.
  *
- * Layout is driven by CSS grid regions (see scoped styles) — not
- * breakpoint class stacks. Mobile renders as a bottom sheet with
- * [title · close] [body] [footer]. Desktop renders as a centred
- * card with compact h-9 header (SectionCard vocabulary).
+ * Reka owns the behaviour: focus trapped against keyboard, pointer and
+ * programmatic focus, the rest of the page hidden from assistive tech
+ * (`aria-hidden`), body scroll lock, Escape and backdrop dismiss, focus
+ * restored to the opener on close, nested dialogs stacked. This file owns
+ * the chrome: CSS grid regions [title · close] [body] [footer], a bottom
+ * sheet below `sm`, a centred card above it.
+ *
+ * `alert` switches to Reka's AlertDialog: no backdrop dismiss, and focus
+ * lands on the Cancel action (wrap it in `AlertDialogCancel`), for
+ * confirmations where a stray click must not decide anything.
  *
  * Footer actions: wrap buttons in `.modal-actions` for touch-sized
  * mobile targets and stacked full-width layout.
+ *
+ * `autofocus` on an element inside the body still wins the initial focus;
+ * otherwise Reka focuses the first tabbable element.
  */
-import { computed, toRef } from 'vue'
+import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { useScrollLock } from '@/composables/useScrollLock'
-import { useModalDialog } from '@/composables/useModalDialog'
+import {
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogOverlay,
+  AlertDialogPortal,
+  AlertDialogRoot,
+  AlertDialogTitle,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogOverlay,
+  DialogPortal,
+  DialogRoot,
+  DialogTitle,
+} from 'reka-ui'
 import Icon from '@/components/common/Icon.vue'
 
 const props = withDefaults(defineProps<{
@@ -28,19 +50,18 @@ const props = withDefaults(defineProps<{
   scrollContent?: boolean
   size?: 'sm' | 'md' | 'lg' | 'xl'
   closeAriaLabel?: string
+  /** AlertDialog semantics: backdrop click does not dismiss, focus opens
+   *  on the Cancel action. */
+  alert?: boolean
 }>(), {
   scrollContent: true,
+  alert: false,
 })
 
 const emit = defineEmits<{ close: [] }>()
 
 const fluent = useFluent()
 const closeLabel = computed(() => props.closeAriaLabel ?? fluent.$t('common-modal-close'))
-
-const titleId = computed(() => `modal-title-${Math.random().toString(36).slice(2, 9)}`)
-const descriptionId = computed(() =>
-  props.description ? `modal-desc-${Math.random().toString(36).slice(2, 9)}` : undefined,
-)
 
 const sizeClass = computed(() => {
   switch (props.size) {
@@ -51,121 +72,134 @@ const sizeClass = computed(() => {
   }
 })
 
-const showRef = toRef(props, 'show')
-useScrollLock(showRef)
-const { dialogRef, onTrapKeydown } = useModalDialog(showRef, () => emit('close'))
+// The Dialog and AlertDialog parts share one prop and emit surface, so the
+// chrome is written once and the primitive is picked per prop.
+const parts = computed(() =>
+  props.alert
+    ? {
+        Root: AlertDialogRoot,
+        Portal: AlertDialogPortal,
+        Overlay: AlertDialogOverlay,
+        Content: AlertDialogContent,
+        Title: AlertDialogTitle,
+        Description: AlertDialogDescription,
+      }
+    : {
+        Root: DialogRoot,
+        Portal: DialogPortal,
+        Overlay: DialogOverlay,
+        Content: DialogContent,
+        Title: DialogTitle,
+        Description: DialogDescription,
+      },
+)
+
+function onOpenChange(open: boolean) {
+  if (!open) emit('close')
+}
+
+const contentRef = ref<{ $el?: HTMLElement } | null>(null)
+
+// Honour an explicit `autofocus` inside the body over Reka's
+// first-tabbable default, so forms open on the field they mean to.
+function onOpenAutoFocus(event: Event) {
+  const preferred = contentRef.value?.$el?.querySelector<HTMLElement>('[autofocus]')
+  if (preferred) {
+    event.preventDefault()
+    preferred.focus()
+  }
+}
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="modal" appear>
-      <div v-if="show" class="modal-root">
-        <div
-          class="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm"
-          aria-hidden="true"
-          @click="emit('close')"
-        />
-
-        <div
-          ref="dialogRef"
-          role="dialog"
-          aria-modal="true"
-          :aria-labelledby="titleId"
-          :aria-describedby="descriptionId"
-          tabindex="-1"
-          class="modal-panel"
-          :class="[sizeClass, contentClass]"
-          @keydown="onTrapKeydown"
+  <component :is="parts.Root" :open="show" @update:open="onOpenChange">
+    <component :is="parts.Portal">
+      <component
+        :is="parts.Overlay"
+        class="modal-backdrop bg-black/40 dark:bg-black/60 backdrop-blur-sm"
+      />
+      <!-- Without a Description part, Reka would still point
+           aria-describedby at an id that renders nothing; unset it. -->
+      <component
+        :is="parts.Content"
+        ref="contentRef"
+        class="modal-panel"
+        :class="[sizeClass, contentClass]"
+        v-bind="description ? {} : { 'aria-describedby': undefined }"
+        @open-auto-focus="onOpenAutoFocus"
+      >
+        <header
+          class="modal-header"
+          :class="[description && 'modal-header--described', headerClass]"
         >
-          <header
-            class="modal-header"
-            :class="[description && 'modal-header--described', headerClass]"
-          >
-            <div class="modal-header__main">
-              <h2 :id="titleId" class="modal-header__title">{{ title }}</h2>
-              <p
-                v-if="description"
-                :id="descriptionId"
-                class="modal-header__description"
-              >
-                {{ description }}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              class="modal-header__close"
-              :aria-label="closeLabel"
-              @click="emit('close')"
+          <div class="modal-header__main">
+            <component :is="parts.Title" as="h2" class="modal-header__title">{{ title }}</component>
+            <component
+              :is="parts.Description"
+              v-if="description"
+              as="p"
+              class="modal-header__description"
             >
-              <Icon name="close" size="sm" />
-            </button>
-          </header>
-
-          <div
-            class="modal-body"
-            :class="[
-              scrollContent === false
-                ? 'modal-body--fixed'
-                : 'modal-body--scroll',
-              removePadding && 'modal-body--flush',
-            ]"
-          >
-            <slot />
+              {{ description }}
+            </component>
           </div>
 
-          <footer
-            v-if="$slots.footer"
-            class="modal-footer"
-            :class="footerClass"
-          >
-            <slot name="footer" />
-          </footer>
+          <DialogClose class="modal-header__close" :aria-label="closeLabel">
+            <Icon name="close" size="sm" />
+          </DialogClose>
+        </header>
+
+        <div
+          class="modal-body"
+          :class="[
+            scrollContent === false
+              ? 'modal-body--fixed'
+              : 'modal-body--scroll',
+            removePadding && 'modal-body--flush',
+          ]"
+        >
+          <slot />
         </div>
-      </div>
-    </Transition>
-  </Teleport>
+
+        <footer
+          v-if="$slots.footer"
+          class="modal-footer"
+          :class="footerClass"
+        >
+          <slot name="footer" />
+        </footer>
+      </component>
+    </component>
+  </component>
 </template>
 
 <style scoped>
-/* --- Overlay --------------------------------------------------- */
+/* --- Backdrop -------------------------------------------------- */
 
-.modal-root {
+/* Colour and blur are Tailwind utilities on the element (`dark:` compiles
+   to a correctly scoped selector; a scoped `:global(.dark)` rule once
+   leaked onto every .dark element). */
+.modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: var(--z-overlay);
-  display: flex;
-  align-items: flex-end;
-  justify-content: stretch;
-}
-
-/* Backdrop styling lives on the element as Tailwind utilities
-   (absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm),
-   matching GlobalSearchModal. It used to be scoped CSS with
-   `:global(.dark) .modal-backdrop`, but that selector mis-compiled to a
-   bare global `.dark { background }` that leaked onto every .dark
-   element (notably <html class="dark">). Tailwind's dark: variant
-   compiles to a correctly-scoped `.dark .selector`, so the bug class
-   can't recur. */
-
-@media (min-width: 640px) {
-  .modal-root {
-    align-items: center;
-    justify-content: center;
-    padding: 1rem;
-  }
 }
 
 /* --- Panel shell ----------------------------------------------- */
 
+/* Fixed and self-positioned (no centring wrapper): below `sm` it is a
+   bottom sheet pinned to the viewport's bottom edge; from `sm` up
+   `inset: 0; margin: auto` centres the content-sized panel without a
+   transform, which leaves transform free for the motion below. */
 .modal-panel {
   --modal-pad-x: 1rem;
   --modal-pad-body: 1rem;
   --modal-footer-pad-y: 0.75rem;
   --modal-header-close: 2.75rem;
 
-  position: relative;
-  z-index: 1;
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: var(--z-overlay);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
@@ -183,6 +217,7 @@ const { dialogRef, onTrapKeydown } = useModalDialog(showRef, () => emit('close')
     0 0 0 1px var(--color-border-default);
   border-bottom: 0;
   padding-bottom: env(safe-area-inset-bottom);
+  outline: none;
 }
 
 @media (min-width: 640px) {
@@ -192,6 +227,10 @@ const { dialogRef, onTrapKeydown } = useModalDialog(showRef, () => emit('close')
     --modal-footer-pad-y: 0.5rem;
     --modal-header-close: 1.75rem;
 
+    inset: 0;
+    margin: auto;
+    height: fit-content;
+    width: calc(100% - 2rem);
     max-height: min(85vh, 920px);
     border-radius: 1rem;
     box-shadow:
@@ -201,7 +240,7 @@ const { dialogRef, onTrapKeydown } = useModalDialog(showRef, () => emit('close')
   }
 }
 
-/* Size caps apply on desktop only — mobile sheets are full-bleed. */
+/* Size caps apply on desktop only; mobile sheets are full-bleed. */
 @media (min-width: 640px) {
   .modal-panel--sm { max-width: 28rem; }
   .modal-panel--md { max-width: 32rem; }
@@ -407,42 +446,30 @@ const { dialogRef, onTrapKeydown } = useModalDialog(showRef, () => emit('close')
 
 /* --- Motion ---------------------------------------------------- */
 
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.15s ease;
-}
-
-.modal-enter-active .modal-panel,
-.modal-leave-active .modal-panel {
-  transition:
-    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 0.15s ease;
-}
-
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-
-.modal-enter-from .modal-panel,
-.modal-leave-to .modal-panel {
-  opacity: 0;
-  transform: translateY(100%);
-}
+/* Driven by Reka's `data-state`; Presence keeps the element mounted
+   until the closed animation ends. The sheet slides up, the card scales
+   in; the backdrop fades. */
+.modal-backdrop[data-state='open'] { animation: modal-fade-in 0.15s ease; }
+.modal-backdrop[data-state='closed'] { animation: modal-fade-out 0.15s ease; }
+.modal-panel[data-state='open'] { animation: modal-sheet-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+.modal-panel[data-state='closed'] { animation: modal-sheet-out 0.15s ease; }
 
 @media (min-width: 640px) {
-  .modal-enter-from .modal-panel,
-  .modal-leave-to .modal-panel {
-    transform: scale(0.97) translateY(-6px);
-  }
+  .modal-panel[data-state='open'] { animation: modal-card-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+  .modal-panel[data-state='closed'] { animation: modal-card-out 0.15s ease; }
 }
 
+@keyframes modal-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes modal-sheet-in { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: none; } }
+@keyframes modal-sheet-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(100%); } }
+@keyframes modal-card-in { from { opacity: 0; transform: scale(0.97) translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes modal-card-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(0.97) translateY(-6px); } }
+
 @media (prefers-reduced-motion: reduce) {
-  .modal-enter-active,
-  .modal-leave-active,
-  .modal-enter-active .modal-panel,
-  .modal-leave-active .modal-panel {
-    transition: none;
+  .modal-backdrop[data-state],
+  .modal-panel[data-state] {
+    animation-duration: 1ms;
   }
 }
 </style>
