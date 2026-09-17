@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { gotoAndSettle } from './helpers'
+import { PROJECT_TIMELINE, gotoAndSettle } from './helpers'
 
 /**
  * Accessibility floor for the surfaces being moved onto Reka UI. Each
@@ -141,6 +141,25 @@ test.describe('accessibility floor', () => {
     await expect(items.last()).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+  })
+
+  test('a select opens a listbox, walks options with arrow keys, and closes on Escape', async ({ page }) => {
+    await gotoAndSettle(page, `/projects/${PROJECT_TIMELINE}/gantt`)
+    const trigger = page.getByRole('combobox', { name: 'Group by' })
+    await trigger.click()
+    const listbox = page.locator('#overlays [role="listbox"]')
+    await expect(listbox).toBeVisible()
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    await expectNoSeriousViolations(page, '#overlays')
+    const options = listbox.getByRole('option')
+    expect(await options.count()).toBeGreaterThan(1)
+    // The selected option holds focus on open; arrows walk from there.
+    await expect(page.locator('#overlays [role="option"][aria-selected="true"]')).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(page.locator('#overlays [role="option"]:focus')).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await expect(listbox).toHaveCount(0)
     await expect(trigger).toBeFocused()
   })
 
