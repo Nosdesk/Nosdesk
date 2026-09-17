@@ -93,10 +93,13 @@ describe('ColorHueSlider', () => {
     await input.setValue('#0F0')
     await input.trigger('blur')
     expect(updates.at(-1)).toBe('#00ff00')
+    await input.setValue('rgba(10, 20, 30, 0.5)')
+    await input.trigger('blur')
+    expect(updates.at(-1)).toBe('#0a141e')
     await input.setValue('nonsense')
     await input.trigger('blur')
-    expect(updates.at(-1)).toBe('#00ff00')
-    expect((input.element as HTMLInputElement).value).toBe('#00ff00')
+    expect(updates.at(-1)).toBe('#0a141e')
+    expect((input.element as HTMLInputElement).value).toBe('#0a141e')
   })
 
   it('discloses presets and tone sliders; a preset selects once and stays selected', async () => {
