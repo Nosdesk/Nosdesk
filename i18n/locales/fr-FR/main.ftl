@@ -6928,6 +6928,8 @@ admin-asset-groups-field-color = Couleur
 
 # MACHINE TRANSLATION, pending native review (asset groups agent surface)
 asset-tabs-groups = Groupes
+# MACHINE TRANSLATION, pending native review
+asset-tabs-aria = Vues de la section actifs
 asset-detail-groups-create-new = Nouveau groupe
 asset-detail-groups-create-placeholder = Nom du groupe
 asset-detail-groups-create-confirm = Créer

@@ -6920,6 +6920,8 @@ admin-asset-groups-field-color = Kleur
 
 # MACHINE TRANSLATION, pending native review (asset groups agent surface)
 asset-tabs-groups = Groepen
+# MACHINE TRANSLATION, pending native review
+asset-tabs-aria = Weergaven van de assetsectie
 asset-detail-groups-create-new = Nieuwe groep
 asset-detail-groups-create-placeholder = Groepsnaam
 asset-detail-groups-create-confirm = Aanmaken

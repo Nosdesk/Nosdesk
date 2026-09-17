@@ -186,6 +186,26 @@ test.describe('accessibility floor', () => {
     await expect(trigger).toBeFocused()
   })
 
+  test('tab bars walk with the arrow keys and activate on focus', async ({ page }) => {
+    await gotoAndSettle(page, '/inbox')
+    const tablist = page.getByRole('tablist').first()
+    await expect(tablist).toBeVisible()
+    const tabs = tablist.getByRole('tab')
+    expect(await tabs.count()).toBe(3)
+    await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
+    // Entering the group lands on the active tab; arrows move and select.
+    await tabs.first().focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(tabs.nth(1)).toBeFocused()
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('End')
+    await expect(tabs.last()).toBeFocused()
+    await expect(tabs.last()).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('Home')
+    await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
+    await expectNoSeriousViolations(page, '[role="tablist"]')
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

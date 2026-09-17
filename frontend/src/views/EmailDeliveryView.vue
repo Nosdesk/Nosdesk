@@ -13,6 +13,7 @@
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
+import TabBar, { type TabBarItem } from '@/components/common/TabBar.vue';
 
 import EmailSettingsView from './EmailSettingsView.vue';
 import EmailSendingDomainView from './EmailSendingDomainView.vue';
@@ -34,10 +35,10 @@ function selectTab(next: Tab) {
   router.replace({ query: { ...route.query, tab: next === 'setup' ? undefined : next } });
 }
 
-const tabs: { id: Tab; labelKey: string }[] = [
-  { id: 'setup', labelKey: 'admin-email-delivery-tab-setup' },
-  { id: 'activity', labelKey: 'admin-email-delivery-tab-activity' },
-];
+const tabItems = computed<TabBarItem<Tab>[]>(() => [
+  { value: 'setup', label: t('admin-email-delivery-tab-setup') },
+  { value: 'activity', label: t('admin-email-delivery-tab-activity') },
+]);
 </script>
 
 <template>
@@ -48,20 +49,13 @@ const tabs: { id: Tab; labelKey: string }[] = [
         <p class="text-secondary">{{ t('admin-email-delivery-description') }}</p>
       </header>
 
-      <nav class="flex gap-1 border-b border-default" role="tablist">
-        <button
-          v-for="tb in tabs"
-          :key="tb.id"
-          type="button"
-          role="tab"
-          :aria-selected="tab === tb.id"
-          class="px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors"
-          :class="tab === tb.id ? 'border-accent text-primary' : 'border-transparent text-secondary hover:text-primary'"
-          @click="selectTab(tb.id)"
-        >
-          {{ t(tb.labelKey) }}
-        </button>
-      </nav>
+      <TabBar
+        :model-value="tab"
+        :items="tabItems"
+        variant="underline"
+        :label="t('admin-email-delivery-title')"
+        @update:model-value="selectTab"
+      />
 
       <div v-if="tab === 'setup'" class="flex flex-col gap-6">
         <EmailSettingsView embedded />

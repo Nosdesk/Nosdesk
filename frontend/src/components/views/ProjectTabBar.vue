@@ -17,6 +17,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
+import TabBar, { type TabBarItem } from '@/components/common/TabBar.vue'
 
 const props = defineProps<{ projectId: number | string }>()
 
@@ -43,34 +44,27 @@ const activeId = computed<string>(() => {
   return 'board'
 })
 
-function go(tab: Tab): void {
-  if (tab.id === activeId.value) return
+const tabItems = computed<TabBarItem[]>(() =>
+  tabs.value.map((tab) => ({ value: tab.id, label: tab.label })),
+)
+
+function go(id: string): void {
+  const tab = tabs.value.find((t) => t.id === id)
+  if (!tab || tab.id === activeId.value) return
   router.push(tab.to)
 }
 </script>
 
 <template>
   <nav class="flex flex-wrap items-center justify-between gap-y-1 px-3 sm:px-6 border-b border-subtle bg-app">
-    <div
-      class="flex items-center gap-0.5"
-      role="tablist"
-      :aria-label="$t('views-project-tab-aria')"
-    >
-      <button
-        v-for="tab in tabs"
-        :key="tab.id"
-        type="button"
-        role="tab"
-        :aria-selected="tab.id === activeId"
-        class="text-sm font-medium px-3 py-2 min-h-[44px] sm:min-h-0 inline-flex items-center -mb-px border-b-2 transition-colors"
-        :class="tab.id === activeId
-          ? 'text-primary border-accent'
-          : 'text-tertiary border-transparent hover:text-secondary hover:border-subtle'"
-        @click="go(tab)"
-      >
-        {{ tab.label }}
-      </button>
-    </div>
+    <TabBar
+      :model-value="activeId"
+      :items="tabItems"
+      variant="underline"
+      :label="$t('views-project-tab-aria')"
+      list-class="border-b-0 -mb-px"
+      @update:model-value="go"
+    />
 
     <!-- View-shape controls (group-by, gantt viewport, …) ride the
          same row as the tabs, pinned to the right. -->

@@ -29,6 +29,7 @@ import {
   useSnoozeMutation,
   useNotificationsStore,
 } from '@/stores/notifications'
+import TabBar, { type TabBarItem } from '@/components/common/TabBar.vue'
 import {
   iconForNotificationType,
   useNotificationFeed,
@@ -49,6 +50,15 @@ const fluent = useFluent()
 const tInbox = (key: string, args?: Record<string, string>) => fluent.$t(key, args)
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 const filterTabs = useNotificationFilterTabs()
+const inboxTabs = computed<TabBarItem<NotificationFilter>[]>(() =>
+  filterTabs.value.map((tab) => ({
+    value: tab.value,
+    label: tab.label,
+    badge: tab.value === 'unread' && unreadCount.value > 0
+      ? unreadCount.value > 99 ? '99+' : unreadCount.value
+      : undefined,
+  })),
+)
 
 // Shared notification wiring (queries, mutations, derived state,
 // presentation helpers). The bell consumes the same composable;
@@ -390,39 +400,13 @@ onBeforeUnmount(() => {
             {{ markAllLabel }}
           </button>
         </div>
-        <div
-          role="tablist"
-          :aria-label="t('inbox-aria-filter')"
-          class="-mx-2 flex items-center gap-1 overflow-x-auto"
-        >
-          <button
-            v-for="tab in filterTabs"
-            :key="tab.value"
-            type="button"
-            role="tab"
-            :aria-selected="filter === tab.value"
-            @click="filter = tab.value"
-            class="relative flex flex-shrink-0 items-center gap-1.5 px-3 py-2.5 text-sm font-medium transition-colors"
-            :class="
-              filter === tab.value
-                ? 'text-primary'
-                : 'text-tertiary hover:text-secondary'
-            "
-          >
-            {{ tab.label }}
-            <span
-              v-if="tab.value === 'unread' && unreadCount > 0"
-              class="rounded-full bg-accent/15 px-1.5 py-0.5 text-2xs font-semibold leading-none text-accent"
-            >
-              {{ unreadCount > 99 ? '99+' : unreadCount }}
-            </span>
-            <span
-              v-if="filter === tab.value"
-              class="absolute inset-x-2 bottom-0 h-0.5 rounded-t bg-accent"
-              aria-hidden="true"
-            />
-          </button>
-        </div>
+        <TabBar
+          v-model="filter"
+          :items="inboxTabs"
+          variant="underline"
+          :label="t('inbox-aria-filter')"
+          list-class="-mx-2 border-b-0 overflow-x-auto"
+        />
       </div>
     </header>
 
