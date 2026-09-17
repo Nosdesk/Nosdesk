@@ -282,6 +282,9 @@ fn seed(
     // Idempotent belt-and-braces: guarantees workflow states / categories
     // exist even on an unusual instance where onboarding ran a partial path.
     backend::services::seed::seed_workspace_defaults(conn, Some(admin_uuid))?;
+    // The welcome page normally arrives with hosted provisioning; a
+    // bootstrapped install has the collection but no page in it.
+    backend::services::seed::seed_getting_started(conn, admin_uuid)?;
 
     // --- Users -------------------------------------------------------------
     // key -> (uuid, is_agent)
