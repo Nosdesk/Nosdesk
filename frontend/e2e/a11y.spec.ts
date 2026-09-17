@@ -44,7 +44,9 @@ test.describe('accessibility floor', () => {
     // requester/assignee, scheduling); the list views only do so
     // conditionally.
     await gotoAndSettle(page, '/tickets')
-    await page.locator('a[href*="/tickets/"]').first().click()
+    // Desktop rows open on double-click when the split preview is on and
+    // on click otherwise; a double-click covers both.
+    await page.locator('table tbody tr').first().dblclick()
     await page.waitForURL(/\/tickets\/\d+/)
     const trigger = page.locator('button[data-icon-only]').first()
     await expect(trigger).toBeAttached()
