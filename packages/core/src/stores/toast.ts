@@ -1,8 +1,13 @@
 /**
  * Toast Store
  *
- * Manages toast notifications in the application.
- * Supports multiple types including notification toasts from the notification system.
+ * The queue behind the app's toasts. Supports multiple types including
+ * notification toasts from the notification system.
+ *
+ * Auto-dismiss is NOT timed here: `duration` is carried on the toast and
+ * the renderer (`ToastContainer` on Reka's Toast) runs the timer, so it
+ * can pause while the pointer or focus is on the toast or the window is
+ * in the background. `removeToast` is the immediate drop.
  */
 
 import { defineStore } from 'pinia';
@@ -78,14 +83,6 @@ export const useToastStore = defineStore('toast', () => {
     };
 
     toasts.value.push(newToast);
-
-    // Auto-dismiss if duration > 0
-    if (newToast.duration > 0) {
-      setTimeout(() => {
-        removeToast(id);
-      }, newToast.duration);
-    }
-
     return id;
   }
 

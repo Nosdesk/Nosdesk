@@ -6986,3 +6986,8 @@ otp-digit-aria = Cijfer { $index } van { $count }
 # MACHINE TRANSLATION, pending native review
 pagination-controls-nav-aria = Pagina's
 pagination-controls-page-n = Pagina { $page }
+# MACHINE TRANSLATION, pending native review
+toast-region-label = Meldingen ({ $hotkey })
+toast-label = Melding
+toast-action-alt = { $label }. Druk op { $hotkey } om naar het meldingengebied te gaan.
+toast-notification-view = Klik om te bekijken

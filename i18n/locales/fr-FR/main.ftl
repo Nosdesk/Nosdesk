@@ -6994,3 +6994,8 @@ otp-digit-aria = Chiffre { $index } sur { $count }
 # MACHINE TRANSLATION, pending native review
 pagination-controls-nav-aria = Pages
 pagination-controls-page-n = Page { $page }
+# MACHINE TRANSLATION, pending native review
+toast-region-label = Notifications ({ $hotkey })
+toast-label = Notification
+toast-action-alt = { $label }. Appuyez sur { $hotkey } pour atteindre la zone des notifications.
+toast-notification-view = Cliquer pour afficher

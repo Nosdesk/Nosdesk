@@ -533,7 +533,7 @@ onMounted(async () => {
   <RouteProgress class="print:hidden" />
 
   <!-- Global Toast Container (hidden on print) -->
-  <ToastContainer class="print:hidden" />
+  <ToastContainer />
 
   <!-- Global Search Modal -->
   <GlobalSearchModal />

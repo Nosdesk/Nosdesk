@@ -295,6 +295,31 @@ test.describe('accessibility floor', () => {
     await expectNoSeriousViolations(page, 'nav')
   })
 
+  test('a toast lands in a named region, is announced, pauses on hover and closes on Escape', async ({ page }) => {
+    await gotoAndSettle(page, '/profile/settings/appearance')
+    const sw = page.getByRole('switch', { name: 'Color blind friendly mode' })
+    await sw.click()
+    const region = page.locator('#overlays [role="region"]')
+    await expect(region).toHaveAttribute('aria-label', /Notifications/)
+    const toast = region.locator('li[data-state="open"]').first()
+    await expect(toast).toBeVisible()
+    await expect(toast).toContainText('Color blind friendly mode')
+    // Reka mirrors the toast into a live region for screen readers.
+    await expect(page.locator('[role="alert"][aria-live]').first()).toBeAttached()
+    await expectNoSeriousViolations(page, '#overlays')
+    // Hovering pauses the timer: the toast is still there well past its
+    // five-second life.
+    await toast.hover()
+    await page.waitForTimeout(5500)
+    await expect(toast).toBeVisible()
+    // Escape on the focused toast closes it.
+    await toast.focus()
+    await page.keyboard.press('Escape')
+    await expect(region.locator('li[data-state="open"]')).toHaveCount(0)
+    // Put the setting back.
+    await sw.click()
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)
