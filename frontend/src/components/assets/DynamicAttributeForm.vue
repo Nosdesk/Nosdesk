@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import DatePicker from '@/components/common/DatePicker.vue';
+import FormNumber from '@/components/common/FormNumber.vue';
 import UserAttributePicker from '@/components/assets/UserAttributePicker.vue';
 import AssetAttributePicker from '@/components/assets/AssetAttributePicker.vue';
 
@@ -89,21 +90,24 @@ function updateField(key: string, raw: unknown) {
 }
 
 /**
- * Number inputs come back as strings from the DOM; coerce while
- * keeping empty strings as null (so a cleared field doesn't
- * silently become 0 and pass minimum=1 validation).
+ * FormNumber reports a number or null (empty); null drops the key so
+ * an optional attribute is absent rather than stored as null.
  */
-function onNumberInput(key: string, value: string, prop: SchemaProperty) {
-  const trimmed = value.trim();
-  if (trimmed === '') {
+function onNumberUpdate(key: string, value: number | null) {
+  if (value === null) {
     const next = { ...props.modelValue };
     delete next[key];
     emit('update:modelValue', next);
     return;
   }
-  const parsed = prop.type === 'integer' ? parseInt(trimmed, 10) : Number(trimmed);
-  if (Number.isNaN(parsed)) return;
-  updateField(key, parsed);
+  updateField(key, value);
+}
+
+// Older rows and imports can hold a numeric string; show it.
+function numberValue(key: string): number | null {
+  const v = props.modelValue[key];
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? n : null;
 }
 
 function onArrayInput(key: string, value: string, items: SchemaProperty | undefined) {
@@ -228,16 +232,17 @@ function enumOptions(prop: SchemaProperty): { value: string; label: string }[] {
       />
 
       <!-- number / integer -->
-      <input
+      <FormNumber
         v-else-if="prop.type === 'integer' || prop.type === 'number'"
-        type="number"
+        :model-value="numberValue(key)"
         :disabled="disabled"
-        :value="stringValue(key)"
         :min="prop.minimum"
         :max="prop.maximum"
-        :step="prop.multipleOf ?? (prop.type === 'integer' ? 1 : 'any')"
-        class="bg-surface-alt rounded-lg border border-default px-3 py-2 text-primary text-sm"
-        @input="(e) => onNumberInput(key, (e.target as HTMLInputElement).value, prop)"
+        :step="prop.multipleOf ?? (prop.type === 'integer' ? 1 : 0.01)"
+        :step-snapping="prop.multipleOf != null || prop.type === 'integer'"
+        :integer="prop.type === 'integer'"
+        size="sm"
+        @update:model-value="(v) => onNumberUpdate(key, v)"
       />
 
       <!-- date -> app DatePicker (we never use the native date chrome) -->

@@ -11,6 +11,7 @@ import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
+import { CheckboxGroupRoot, CheckboxRoot } from 'reka-ui';
 import Modal from '@/components/Modal.vue';
 import webhookService from '@nosdesk/core/services/webhookService';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
@@ -174,15 +175,6 @@ const openCreateModal = () => {
 };
 
 // Toggle event selection
-const toggleEvent = (eventValue: string, formEvents: string[]) => {
-  const index = formEvents.indexOf(eventValue);
-  if (index === -1) {
-    formEvents.push(eventValue);
-  } else {
-    formEvents.splice(index, 1);
-  }
-};
-
 // Toggle all events in a category
 const toggleCategory = (category: string, formEvents: string[], isCreate: boolean) => {
   const categoryEvents = WEBHOOK_EVENT_CATEGORIES[category] || [];
@@ -703,27 +695,25 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
                   }) }}
                 </span>
               </div>
-              <!-- Toggle-chip selector: each chip is a single
-                   <button> with role="checkbox" + aria-checked, so
-                   keyboard activation (Space / Enter) and screen-
-                   reader semantics come for free without an
-                   sr-only hidden input. The visible chip is the
-                   affordance; its bg-accent / bg-surface-alt swap
-                   communicates the selection state. -->
-              <div class="px-3 py-2 flex flex-wrap gap-2">
-                <button
-                  v-for="event in events"
-                  :key="event.value"
-                  type="button"
-                  role="checkbox"
-                  :aria-checked="createForm.events.includes(event.value)"
-                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                  :class="createForm.events.includes(event.value) ? 'bg-accent/10 text-accent' : 'bg-surface-alt text-secondary hover:bg-surface-hover'"
-                  @click="toggleEvent(event.value, createForm.events)"
-                >
-                  <span class="text-xs">{{ eventLabel(event.value) }}</span>
-                </button>
-              </div>
+              <!-- Toggle chips on Reka's CheckboxGroup: each chip is a
+                   role=checkbox button whose state the group keeps in
+                   the events array. The bg-accent / bg-surface-alt swap
+                   is the visible state. -->
+              <CheckboxGroupRoot
+                :model-value="createForm.events"
+                :aria-label="$t('admin-webhooks-form-events-label')"
+                class="px-3 py-2 flex flex-wrap gap-2"
+                @update:model-value="createForm.events = $event as string[]"
+              >
+                <CheckboxRoot v-for="event in events" :key="event.value" as-child :value="event.value">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface data-[state=checked]:bg-accent/10 data-[state=checked]:text-accent data-[state=unchecked]:bg-surface-alt data-[state=unchecked]:text-secondary data-[state=unchecked]:hover:bg-surface-hover"
+                  >
+                    <span class="text-xs">{{ eventLabel(event.value) }}</span>
+                  </button>
+                </CheckboxRoot>
+              </CheckboxGroupRoot>
             </div>
           </div>
           <p class="text-xs text-tertiary mt-1">{{ $t('admin-webhooks-form-events-hint') }}</p>
@@ -907,20 +897,21 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
                   }) }}
                 </span>
               </div>
-              <div class="px-3 py-2 flex flex-wrap gap-2">
-                <button
-                  v-for="event in events"
-                  :key="event.value"
-                  type="button"
-                  role="checkbox"
-                  :aria-checked="(editForm.events || []).includes(event.value)"
-                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                  :class="(editForm.events || []).includes(event.value) ? 'bg-accent/10 text-accent' : 'bg-surface-alt text-secondary hover:bg-surface-hover'"
-                  @click="toggleEvent(event.value, editForm.events || [])"
-                >
-                  <span class="text-xs">{{ eventLabel(event.value) }}</span>
-                </button>
-              </div>
+              <CheckboxGroupRoot
+                :model-value="editForm.events || []"
+                :aria-label="$t('admin-webhooks-form-events-label')"
+                class="px-3 py-2 flex flex-wrap gap-2"
+                @update:model-value="editForm.events = $event as string[]"
+              >
+                <CheckboxRoot v-for="event in events" :key="event.value" as-child :value="event.value">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface data-[state=checked]:bg-accent/10 data-[state=checked]:text-accent data-[state=unchecked]:bg-surface-alt data-[state=unchecked]:text-secondary data-[state=unchecked]:hover:bg-surface-hover"
+                  >
+                    <span class="text-xs">{{ eventLabel(event.value) }}</span>
+                  </button>
+                </CheckboxRoot>
+              </CheckboxGroupRoot>
             </div>
           </div>
         </div>

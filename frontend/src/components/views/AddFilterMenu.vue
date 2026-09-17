@@ -201,7 +201,7 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
         ? 'border-default bg-surface-hover text-primary'
         : 'text-tertiary hover:text-primary border-subtle hover:border-default hover:bg-surface-hover'"
       :aria-expanded="open"
-      aria-haspopup="menu"
+      aria-haspopup="dialog"
       @click="open = !open"
     >
       <Icon name="add" class="w-3 h-3" />
