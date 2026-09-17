@@ -9,7 +9,42 @@ import { defineComponent, h, type Component } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { FluentBundle } from '@fluent/bundle'
 import { createFluentVue } from 'fluent-vue'
+import { createPinia } from 'pinia'
 import { ConfigProvider, TooltipProvider } from 'reka-ui'
+
+// Stores read `localStorage` at setup. Newer Node ships its own global that
+// is undefined unless a storage file is configured and shadows jsdom's, so
+// back it with an in-memory Storage when it is not usable.
+if (typeof globalThis.localStorage?.getItem !== 'function') {
+  const store = new Map<string, string>()
+  const memoryStorage: Storage = {
+    get length() {
+      return store.size
+    },
+    clear: () => store.clear(),
+    getItem: (k) => store.get(k) ?? null,
+    key: (i) => [...store.keys()][i] ?? null,
+    removeItem: (k) => void store.delete(k),
+    setItem: (k, v) => void store.set(k, String(v)),
+  }
+  Object.defineProperty(globalThis, 'localStorage', { value: memoryStorage, configurable: true })
+}
+
+// jsdom has no matchMedia; stores that track the system theme need one.
+// Nothing matches by default, and specs that drive a breakpoint install
+// their own mock per test.
+if (typeof window.matchMedia !== 'function') {
+  window.matchMedia = (query: string): MediaQueryList => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })
+}
 
 export function mountWithProviders(
   component: Component,
@@ -25,5 +60,5 @@ export function mountWithProviders(
         )
     },
   })
-  return mount(Host, { attachTo: document.body, global: { plugins: [fluent] } })
+  return mount(Host, { attachTo: document.body, global: { plugins: [fluent, createPinia()] } })
 }

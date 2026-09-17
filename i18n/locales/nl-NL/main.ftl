@@ -6973,3 +6973,6 @@ settings-export-rate-limited = Je kunt één export per dag aanvragen. Probeer h
 settings-export-in-progress = Er is al een export bezig.
 settings-export-success = Je export is klaar om te downloaden.
 settings-export-error = Kan de export niet starten. Probeer het opnieuw.
+
+# MACHINE TRANSLATION, pending native review
+filter-toggle-clear-hint = { $label }. Klik om te wissen.

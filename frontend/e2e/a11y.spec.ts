@@ -206,6 +206,45 @@ test.describe('accessibility floor', () => {
     await expectNoSeriousViolations(page, '[role="tablist"]')
   })
 
+  test('a switch is named by its label and toggles from the keyboard and the label', async ({ page }) => {
+    await gotoAndSettle(page, '/profile/settings/appearance')
+    const sw = page.getByRole('switch', { name: 'Compact view' })
+    await expect(sw).toBeVisible()
+    const before = await sw.getAttribute('aria-checked')
+    await sw.focus()
+    await page.keyboard.press('Space')
+    await expect(sw).toHaveAttribute('aria-checked', before === 'true' ? 'false' : 'true')
+    // The visible label is a real <label for>, so it toggles the switch too.
+    await page.getByText('Compact view', { exact: true }).click()
+    await expect(sw).toHaveAttribute('aria-checked', before ?? 'false')
+    await expectNoSeriousViolations(page, 'main')
+  })
+
+  test('a checkbox reports its state and a radio group walks with the arrows', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    const selectAll = page.getByRole('checkbox', { name: 'Select all visible tickets' })
+    await expect(selectAll).toBeVisible()
+    await expect(selectAll).toHaveAttribute('aria-checked', 'false')
+    await selectAll.focus()
+    await page.keyboard.press('Space')
+    await expect(selectAll).toHaveAttribute('aria-checked', /true|mixed/)
+    await page.keyboard.press('Space')
+    await expect(selectAll).toHaveAttribute('aria-checked', 'false')
+
+    const density = page.getByRole('radiogroup', { name: 'Row density' })
+    await expect(density).toBeVisible()
+    const radios = density.getByRole('radio')
+    await expect(radios).toHaveCount(3)
+    const checked = density.locator('[role="radio"][aria-checked="true"]')
+    await expect(checked).toHaveCount(1)
+    await checked.focus()
+    await page.keyboard.press('ArrowRight')
+    // Arrows move focus and select together, like native radios.
+    await expect(density.locator('[role="radio"]:focus')).toHaveAttribute('aria-checked', 'true')
+    await expect(checked).toHaveCount(1)
+    await expectNoSeriousViolations(page, '[role="radiogroup"]')
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

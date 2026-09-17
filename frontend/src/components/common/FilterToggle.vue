@@ -1,20 +1,23 @@
 <!--
-Icon-only toggle pill for boolean filter controls. Provides the
-standard 24×24 pressed/unpressed treatment used beside dropdown-style
-filters in the dashboard widget subheaders. Takes care of aria-pressed,
-the tinted active background, and the context-aware tooltip ("X only"
-when off, "Showing X — click to clear" when on).
+Icon-only toggle pill for boolean filter controls: the standard 24x24
+pressed/unpressed treatment beside dropdown-style filters in the
+dashboard widget subheaders. On Reka's Toggle (`aria-pressed`, Space and
+Enter toggle), with a Tooltip carrying the context-aware hint (the label
+when off, "label. Click to clear." when on) that keyboard users reach too.
 
 Callers supply the icon via the default slot and a Tailwind class for
 the active-state colour (e.g. `text-priority-high`, `text-accent`).
+Styled on `aria-pressed`, since the tooltip trigger owns `data-state`.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Toggle } from 'reka-ui'
+import { useFluent } from 'fluent-vue'
+import Tooltip from './Tooltip.vue'
 
 const props = defineProps<{
   modelValue: boolean
-  /** The control's name, used for aria-label and as the tooltip root.
-   *  Rendered as-is, so keep it title-cased and human-readable. */
+  /** The control's name, used for aria-label and as the tooltip root. */
   label: string
   /** Tailwind classes applied to the button when the toggle is on.
    *  Typically a tinted bg + coloured text (e.g.
@@ -26,29 +29,24 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
 }>()
 
-const tooltip = computed(() =>
-  props.modelValue
-    ? `Showing ${props.label.toLowerCase()}. Click to clear.`
-    : props.label,
+const fluent = useFluent()
+const hint = computed(() =>
+  props.modelValue ? fluent.$t('filter-toggle-clear-hint', { label: props.label }) : props.label,
 )
-
-function toggle() {
-  emit('update:modelValue', !props.modelValue)
-}
 </script>
 
 <template>
-  <button
-    type="button"
-    :aria-pressed="modelValue"
-    :aria-label="label"
-    :title="tooltip"
-    :class="[
-      'w-6 h-6 inline-flex items-center justify-center rounded-md transition-colors',
-      modelValue ? activeClass : 'text-tertiary hover:text-primary hover:bg-surface/60',
-    ]"
-    @click="toggle"
-  >
-    <slot />
-  </button>
+  <Tooltip :text="hint">
+    <Toggle
+      :model-value="modelValue"
+      :aria-label="label"
+      :class="[
+        'w-6 h-6 inline-flex items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
+        modelValue ? activeClass : 'text-tertiary hover:text-primary hover:bg-surface/60',
+      ]"
+      @update:model-value="emit('update:modelValue', $event)"
+    >
+      <slot />
+    </Toggle>
+  </Tooltip>
 </template>
