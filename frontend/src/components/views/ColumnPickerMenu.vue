@@ -14,7 +14,7 @@ import { computed, ref } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import MenuItem from '@/components/common/MenuItem.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
-import type { PopoverAnchor } from '@/composables/usePopover'
+import type { PopoverAnchor } from '@/composables/popoverAnchor'
 import type { DataTableColumnLike } from '@/composables/useDataTableColumns'
 
 const props = defineProps<{

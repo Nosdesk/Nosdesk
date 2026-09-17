@@ -12,7 +12,7 @@
  */
 import { computed } from 'vue'
 import Popover from '@/components/common/Popover.vue'
-import type { PopoverPlacement } from '@/composables/usePopover'
+import type { PopoverPlacement } from '@/composables/popoverAnchor'
 
 const props = withDefaults(
   defineProps<{

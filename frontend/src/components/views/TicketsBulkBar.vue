@@ -27,7 +27,7 @@ import UserSelectionModal from '@/components/UserSelectionModal.vue'
 import MergeTicketsDialog, {
   type MergeDialogTicket,
 } from '@/components/ticketComponents/MergeTicketsDialog.vue'
-import type { PopoverAnchor } from '@/composables/usePopover'
+import type { PopoverAnchor } from '@/composables/popoverAnchor'
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'

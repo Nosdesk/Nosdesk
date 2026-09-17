@@ -40,7 +40,7 @@ import ResponsiveMenu from './common/ResponsiveMenu.vue'
 import Icon from './common/Icon.vue'
 import AsyncBoundary from './common/AsyncBoundary.vue'
 import UnreadBadge from './common/UnreadBadge.vue'
-import type { PopoverAnchor } from '@/composables/usePopover'
+import type { PopoverAnchor } from '@/composables/popoverAnchor'
 
 const router = useRouter()
 const store = useNotificationsStore()
