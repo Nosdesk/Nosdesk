@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch, computed, onScopeDispose } from 'vue';
+import { ref, watch, computed, onScopeDispose, useId } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { DialogContent, DialogRoot, DialogTitle } from 'reka-ui';
 import { useGlobalSearch, SCOPE_OPTIONS } from '@/composables/useGlobalSearch';
 import { useVisualViewport } from '@/composables/useVisualViewport';
 import SearchResultGroup from './SearchResultGroup.vue';
@@ -88,6 +89,45 @@ const scopeRows = computed(() =>
 const inputRef = ref<HTMLInputElement | null>(null);
 const resultsRef = ref<HTMLDivElement | null>(null);
 
+const selectedId = computed(() => {
+  if (selectedIndex.value >= 0 && selectedIndex.value < flatResults.value.length) {
+    return flatResults.value[selectedIndex.value].id;
+  }
+  return null;
+});
+
+// The palette is a combobox: focus stays in the input, and the row the
+// arrows point at is named through `aria-activedescendant` on it, in
+// whichever list the body currently shows (scope rows, people, results).
+const listboxId = `global-search-list-${useId()}`;
+const optionId = (kind: 'r' | 's' | 'a', key: string | number) => `${listboxId}-${kind}-${key}`;
+const listOpen = computed(
+  () =>
+    (fromPromptActive.value && authorCandidates.value.length > 0) ||
+    scopePromptActive.value ||
+    searchState.value === 'results',
+);
+const activeDescendant = computed(() => {
+  if (fromPromptActive.value) {
+    const user = authorCandidates.value[selectedAuthorIndex.value];
+    return user ? optionId('a', user.id) : undefined;
+  }
+  if (scopePromptActive.value) return optionId('s', SCOPE_OPTIONS[selectedScopeIndex.value]);
+  if (searchState.value === 'results' && selectedId.value) return optionId('r', selectedId.value);
+  return undefined;
+});
+
+// Reka's dialog owns the trap, the `aria-hidden` on the page, Escape
+// and backdrop dismiss, and focus back to the opener. The caret goes
+// to the input rather than the first tabbable (a scope chip).
+const onOpenAutoFocus = (event: Event) => {
+  event.preventDefault();
+  focusInput();
+};
+const onDialogOpenChange = (open: boolean) => {
+  if (!open) closeSearch();
+};
+
 // Take the caret once the sheet is entering. On mobile the keyboard is already
 // up (raised by the primer inside the opening tap), so this only moves focus
 // into the real input, it never has to raise the keyboard itself. `preventScroll`
@@ -116,12 +156,6 @@ watch(selectedIndex, () => {
   }
 });
 
-const selectedId = computed(() => {
-  if (selectedIndex.value >= 0 && selectedIndex.value < flatResults.value.length) {
-    return flatResults.value[selectedIndex.value].id;
-  }
-  return null;
-});
 
 const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
   type,
@@ -352,304 +386,337 @@ onScopeDispose(() => restoreScroll?.());
         v-if="isOpen"
         class="search-overlay fixed inset-0 z-overlay flex items-start justify-center sm:px-4 sm:pt-[15dvh]"
       >
-        <!-- Backdrop. Subtle blur, click to dismiss. Fully covered by
-             the sheet below `sm`, where the header close button takes
-             over dismissal. Opacity is animated by the enter/leave hooks
-             (search-backdrop). -->
-        <div
-          class="search-backdrop absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm"
-          @click="closeSearch"
-        />
+        <!-- The dialog lives inside our own Transition (the WAAPI
+             hooks own the motion), so Reka sees it as always open
+             and the v-if above ends it. -->
+        <DialogRoot :open="true" @update:open="onDialogOpenChange">
+          <!-- Backdrop. Subtle blur; a pointer down on it dismisses
+               (Reka's outside-pointer rule). Fully covered by the sheet
+               below `sm`, where the header close button takes over
+               dismissal. Opacity is animated by the enter/leave hooks
+               (search-backdrop). -->
+          <div class="search-backdrop absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm" />
 
-        <!-- Palette surface. Desktop (sm+): the floating Raycast card
-             — min-h gives a stable lower bound so the frame doesn't
-             shrink when state swaps, max-h is dvh-relative so it
-             grows with the screen. Mobile (<sm): a full-height, top-
-             anchored sheet (see scoped .search-card) whose height
-             tracks the *visual* viewport, so the keyboard shrinks the
-             sheet instead of covering it; the input pinned at the top
-             also avoids WKWebView's scroll-to-reveal jump. -->
-        <div
-          class="search-card relative w-full sm:max-w-[640px] sm:min-h-[420px] sm:max-h-[80dvh] bg-surface sm:rounded-2xl shadow-2xl shadow-black/20 dark:shadow-black/40 overflow-hidden flex flex-col ring-1 ring-default"
-          role="dialog"
-          aria-modal="true"
-          :aria-label="t('search-global-aria-label')"
-          :style="dragStyle"
-          @touchstart.passive="onTouchStart"
-          @touchmove="onTouchMove"
-          @touchend.passive="onTouchEnd"
-          @touchcancel.passive="onTouchEnd"
-        >
-          <!-- Search input bar. Desktop: top header. Mobile: docks to the
-               bottom, above the keyboard (see .search-inputbar), Firefox/Brave
-               style, so the results fill the space above it. The wrapper owns
-               the docking/border/background (and, on mobile, extends its
-               background into the home-indicator safe area); the inner row is a
-               clean fixed-height input line so the safe area never distorts it. -->
-          <div class="search-inputbar flex-shrink-0">
-            <div class="flex items-center gap-2.5 px-4 h-12">
-              <Icon name="search" size="md" class="flex-shrink-0 text-tertiary" />
-
-              <button
-                type="button"
-                v-if="activeTypes"
-                @click="clearTypes"
-                class="inline-flex items-center gap-1 px-2 h-6 text-2xs font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
-              >
-                {{ scopeLabel(activeTypes) }}
-                <Icon name="close" size="xs" />
-              </button>
-
-              <!-- Person filter chip. Composes with the scope chip; the
-                   leading "from" prefix reads as the operator that set it. -->
-              <button
-                type="button"
-                v-if="authorFilter"
-                @click="clearAuthor"
-                class="inline-flex items-center gap-1 px-2 h-6 text-2xs font-medium rounded-md bg-brand-pink/10 text-brand-pink border border-brand-pink/20 hover:bg-brand-pink/20 transition-colors flex-shrink-0 max-w-[10rem]"
-                :title="t('search-global-from-chip', { name: authorFilter.name })"
-              >
-                <Icon name="user" size="xs" class="flex-shrink-0" />
-                <span class="truncate">{{ authorFilter.name }}</span>
-                <Icon name="close" size="xs" class="flex-shrink-0" />
-              </button>
-
-              <input
-                ref="inputRef"
-                v-model="query"
-                type="text"
-                :placeholder="placeholder"
-                class="flex-1 bg-transparent text-primary placeholder-tertiary/60 outline-none text-sm font-medium"
-                autocomplete="off"
-                spellcheck="false"
-              />
-
-              <!-- Mobile-only close. The sheet covers the backdrop and
-                   touch keyboards have no Esc, so the exit affordance
-                   must live in the chrome. -->
-              <button
-                type="button"
-                class="sm:hidden flex-shrink-0 -mr-1 p-1.5 rounded-md text-tertiary hover:text-secondary hover:bg-surface-hover/60 transition-colors"
-                :aria-label="t('search-global-hint-close')"
-                @click="closeSearch"
-              >
-                <Icon name="close" size="sm" />
-              </button>
-            </div>
-          </div>
-
-          <!-- Results region. Holds all body states; `min-h-0`
-               + flex-1 lets the inner scroll container size to
-               the modal's max height without overflowing it.
-               State swaps are instant — no fade transition. With
-               the debounced query, only one state change happens
-               per search cycle, and it lands fast enough that
-               cross-fading just adds visible "in-between" latency. -->
-          <div
-            ref="resultsRef"
-            class="search-results flex-1 overflow-y-auto min-h-0 overscroll-contain"
-          >
+          <!-- Palette surface. Desktop (sm+): the floating Raycast card
+               — min-h gives a stable lower bound so the frame doesn't
+               shrink when state swaps, max-h is dvh-relative so it
+               grows with the screen. Mobile (<sm): a full-height, top-
+               anchored sheet (see scoped .search-card) whose height
+               tracks the *visual* viewport, so the keyboard shrinks the
+               sheet instead of covering it; the input pinned at the top
+               also avoids WKWebView's scroll-to-reveal jump. -->
+          <DialogContent as-child :aria-describedby="undefined" @open-auto-focus="onOpenAutoFocus">
             <div
-              v-if="searchState === 'error'"
-              class="px-4 py-6 text-center text-sm text-status-error"
+              class="search-card relative w-full sm:max-w-[640px] sm:min-h-[420px] sm:max-h-[80dvh] bg-surface sm:rounded-2xl shadow-2xl shadow-black/20 dark:shadow-black/40 overflow-hidden flex flex-col ring-1 ring-default outline-none"
+              aria-modal="true"
+              :style="dragStyle"
+              @touchstart.passive="onTouchStart"
+              @touchmove="onTouchMove"
+              @touchend.passive="onTouchEnd"
+              @touchcancel.passive="onTouchEnd"
             >
-              {{ error }}
-            </div>
+              <DialogTitle class="sr-only">{{ t('search-global-aria-label') }}</DialogTitle>
+              <!-- Search input bar. Desktop: top header. Mobile: docks to the
+                   bottom, above the keyboard (see .search-inputbar), Firefox/Brave
+                   style, so the results fill the space above it. The wrapper owns
+                   the docking/border/background (and, on mobile, extends its
+                   background into the home-indicator safe area); the inner row is a
+                   clean fixed-height input line so the safe area never distorts it. -->
+              <div class="search-inputbar flex-shrink-0">
+                <div class="flex items-center gap-2.5 px-4 h-12">
+                  <Icon name="search" size="md" class="flex-shrink-0 text-tertiary" />
 
-            <!-- Author picker (mid `from:` token). The candidate list of
-                 people replaces the results while active; picking one sets
-                 the person chip and drops the token. -->
-            <div v-else-if="fromPromptActive" class="py-1 px-1">
-              <div class="px-2 pt-2 pb-1">
-                <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
-                  {{ t('search-global-from-heading') }}
-                </span>
+                  <button
+                    type="button"
+                    v-if="activeTypes"
+                    @click="clearTypes"
+                    class="inline-flex items-center gap-1 px-2 h-6 text-2xs font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
+                  >
+                    {{ scopeLabel(activeTypes) }}
+                    <Icon name="close" size="xs" />
+                  </button>
+
+                  <!-- Person filter chip. Composes with the scope chip; the
+                       leading "from" prefix reads as the operator that set it. -->
+                  <button
+                    type="button"
+                    v-if="authorFilter"
+                    @click="clearAuthor"
+                    class="inline-flex items-center gap-1 px-2 h-6 text-2xs font-medium rounded-md bg-brand-pink/10 text-brand-pink border border-brand-pink/20 hover:bg-brand-pink/20 transition-colors flex-shrink-0 max-w-[10rem]"
+                    :title="t('search-global-from-chip', { name: authorFilter.name })"
+                  >
+                    <Icon name="user" size="xs" class="flex-shrink-0" />
+                    <span class="truncate">{{ authorFilter.name }}</span>
+                    <Icon name="close" size="xs" class="flex-shrink-0" />
+                  </button>
+
+                  <input
+                    ref="inputRef"
+                    v-model="query"
+                    type="text"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    :aria-expanded="listOpen"
+                    :aria-controls="listOpen ? listboxId : undefined"
+                    :aria-activedescendant="activeDescendant"
+                    :placeholder="placeholder"
+                    :aria-label="t('search-global-aria-label')"
+                    class="flex-1 bg-transparent text-primary placeholder-tertiary/60 outline-none text-sm font-medium"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+
+                  <!-- Mobile-only close. The sheet covers the backdrop and
+                       touch keyboards have no Esc, so the exit affordance
+                       must live in the chrome. -->
+                  <button
+                    type="button"
+                    class="sm:hidden flex-shrink-0 -mr-1 p-1.5 rounded-md text-tertiary hover:text-secondary hover:bg-surface-hover/60 transition-colors"
+                    :aria-label="t('search-global-hint-close')"
+                    @click="closeSearch"
+                  >
+                    <Icon name="close" size="sm" />
+                  </button>
+                </div>
               </div>
-              <button
-                v-for="(user, index) in authorCandidates"
-                :key="user.id"
-                type="button"
-                tabindex="-1"
-                :data-author-selected="index === selectedAuthorIndex"
-                :class="[
-                  'w-full px-2 py-1.5 flex items-center gap-2.5 text-left rounded-md transition-colors focus:outline-none',
-                  index === selectedAuthorIndex ? 'bg-accent/10' : 'hover:bg-surface-hover/60',
-                ]"
-                @mouseenter="setAuthorIndex(index)"
-                @click="authorAndRefocus(user)"
-              >
-                <span class="flex-shrink-0 inline-flex w-7 h-7 rounded-md items-center justify-center bg-[rgba(255,102,179,0.15)] text-brand-pink">
-                  <Icon name="user" size="xs" />
-                </span>
-                <span class="flex-1 min-w-0">
-                  <span class="block text-sm text-primary font-medium truncate">{{ user.title }}</span>
-                  <span v-if="user.preview" class="block text-2xs text-tertiary truncate">{{ user.preview }}</span>
-                </span>
-                <kbd
-                  v-if="index === selectedAuthorIndex"
-                  class="hidden sm:inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary"
-                >⏎</kbd>
-              </button>
-              <!-- Nothing typed yet, or no matches. -->
+
+              <!-- Results region. Holds all body states; `min-h-0`
+                   + flex-1 lets the inner scroll container size to
+                   the modal's max height without overflowing it.
+                   State swaps are instant — no fade transition. With
+                   the debounced query, only one state change happens
+                   per search cycle, and it lands fast enough that
+                   cross-fading just adds visible "in-between" latency. -->
               <div
-                v-if="authorCandidates.length === 0"
-                class="px-3 py-8 text-center text-xs text-tertiary"
+                ref="resultsRef"
+                class="search-results flex-1 overflow-y-auto min-h-0 overscroll-contain"
               >
-                {{ t('search-global-from-hint') }}
+                <div
+                  v-if="searchState === 'error'"
+                  class="px-4 py-6 text-center text-sm text-status-error"
+                >
+                  {{ error }}
+                </div>
+
+                <!-- Author picker (mid `from:` token). The candidate list of
+                     people replaces the results while active; picking one sets
+                     the person chip and drops the token. -->
+                <div v-else-if="fromPromptActive" class="py-1 px-1">
+                  <div class="px-2 pt-2 pb-1">
+                    <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
+                      {{ t('search-global-from-heading') }}
+                    </span>
+                  </div>
+                  <div
+                    v-if="authorCandidates.length > 0"
+                    :id="listboxId"
+                    role="listbox"
+                    :aria-label="t('search-global-from-heading')"
+                  >
+                  <button
+                    v-for="(user, index) in authorCandidates"
+                    :id="optionId('a', user.id)"
+                    :key="user.id"
+                    type="button"
+                    role="option"
+                    tabindex="-1"
+                    :aria-selected="index === selectedAuthorIndex"
+                    :data-author-selected="index === selectedAuthorIndex"
+                    :class="[
+                      'w-full px-2 py-1.5 flex items-center gap-2.5 text-left rounded-md transition-colors focus:outline-none',
+                      index === selectedAuthorIndex ? 'bg-accent/10' : 'hover:bg-surface-hover/60',
+                    ]"
+                    @mouseenter="setAuthorIndex(index)"
+                    @click="authorAndRefocus(user)"
+                  >
+                    <span class="flex-shrink-0 inline-flex w-7 h-7 rounded-md items-center justify-center bg-[rgba(255,102,179,0.15)] text-brand-pink">
+                      <Icon name="user" size="xs" />
+                    </span>
+                    <span class="flex-1 min-w-0">
+                      <span class="block text-sm text-primary font-medium truncate">{{ user.title }}</span>
+                      <span v-if="user.preview" class="block text-2xs text-tertiary truncate">{{ user.preview }}</span>
+                    </span>
+                    <kbd
+                      v-if="index === selectedAuthorIndex"
+                      class="hidden sm:inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary"
+                    >⏎</kbd>
+                  </button>
+                  </div>
+                  <!-- Nothing typed yet, or no matches. -->
+                  <div
+                    v-if="authorCandidates.length === 0"
+                    class="px-3 py-8 text-center text-xs text-tertiary"
+                  >
+                    {{ t('search-global-from-hint') }}
+                  </div>
+                </div>
+
+                <!-- Prompt, unscoped: the scope rows. Tab/Enter (or tap)
+                     narrows the search before typing — the palette's one
+                     filtering affordance, presented where a filter
+                     decision is actually made: before the query. -->
+                <div v-else-if="scopePromptActive" class="py-1 px-1">
+                  <div class="px-2 pt-2 pb-1">
+                    <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
+                      {{ t('search-global-scope-heading') }}
+                    </span>
+                  </div>
+                  <div :id="listboxId" role="listbox" :aria-label="t('search-global-scope-heading')">
+                  <button
+                    v-for="row in scopeRows"
+                    :id="optionId('s', row.type)"
+                    :key="row.type"
+                    type="button"
+                    role="option"
+                    tabindex="-1"
+                    :aria-selected="row.index === selectedScopeIndex"
+                    :data-scope-selected="row.index === selectedScopeIndex"
+                    :class="[
+                      'w-full px-2 py-1.5 flex items-center gap-2.5 text-left rounded-md transition-colors focus:outline-none',
+                      row.index === selectedScopeIndex ? 'bg-accent/10' : 'hover:bg-surface-hover/60',
+                    ]"
+                    @mouseenter="setScopeIndex(row.index)"
+                    @click="scopeAndRefocus(row.type)"
+                  >
+                    <span class="flex-shrink-0 inline-flex w-7 h-7 rounded-md items-center justify-center bg-surface-alt text-tertiary">
+                      <Icon :name="row.icon" size="xs" />
+                    </span>
+                    <span class="flex-1 text-sm text-primary font-medium truncate">
+                      {{ row.label }}
+                    </span>
+                    <kbd
+                      v-if="row.index === selectedScopeIndex"
+                      class="hidden sm:inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary"
+                    >⇥</kbd>
+                  </button>
+                  </div>
+                </div>
+
+                <!-- Prompt, scoped: the chip already narrates the scope;
+                     plain copy invites the query. -->
+                <div
+                  v-else-if="searchState === 'prompt'"
+                  class="px-4 py-12 text-center"
+                >
+                  <p class="text-sm text-secondary font-medium">{{ t('search-global-prompt-title') }}</p>
+                  <p class="text-xs text-tertiary mt-1">
+                    {{ t('search-global-prompt-subtitle') }}
+                  </p>
+                </div>
+
+                <!-- Results. Best-match keeps the per-type grouped view (with
+                     scope-able headers); Newest collapses to one flat
+                     chronological list, since grouping by kind would fight the
+                     recency order. A slim sort toolbar rides above the list on
+                     mobile (the desktop footer carries the same toggle). -->
+                <div v-else-if="searchState === 'results'">
+                  <div
+                    class="sm:hidden flex items-center justify-end px-3 h-9 border-b border-default"
+                  >
+                    <SearchSortToggle
+                      :model-value="sortOrder"
+                      @update:model-value="setSort"
+                    />
+                  </div>
+
+                  <div
+                    v-if="sortOrder === 'updated'"
+                    :id="listboxId"
+                    role="listbox"
+                    :aria-label="t('search-global-aria-label')"
+                    class="py-1 px-1"
+                  >
+                    <SearchResultItem
+                      v-for="result in flatResults"
+                      :key="result.id"
+                      :result="result"
+                      :is-selected="result.id === selectedId"
+                      :id-prefix="`${listboxId}-r`"
+                      @select="navigateToResult"
+                    />
+                  </div>
+
+                  <div v-else :id="listboxId" role="listbox" :aria-label="t('search-global-aria-label')">
+                    <SearchResultGroup
+                      v-for="group in resultGroups"
+                      :key="group.type"
+                      :type="group.type"
+                      :results="groupedResults[group.key]"
+                      :selected-id="selectedId"
+                      :id-prefix="`${listboxId}-r`"
+                      @select="navigateToResult"
+                      @scope="scopeAndRefocus"
+                    />
+                  </div>
+                </div>
+
+                <!-- `searching`: the input has changed but no fresh
+                     results have landed yet (and there are no stale
+                     ones to keep on screen). Body stays visually
+                     empty so the surface doesn't flash "no results"
+                     mid-type. -->
+                <div
+                  v-else-if="searchState === 'searching'"
+                  aria-hidden="true"
+                  class="flex-1"
+                />
+
+                <div
+                  v-else
+                  class="px-4 py-12 text-center"
+                >
+                  <p class="text-sm text-secondary font-medium">
+                    {{ t('search-global-empty-prefix') }}"<span class="text-primary">{{ query }}</span>"
+                  </p>
+                  <p class="text-xs text-tertiary mt-1">
+                    {{ t('search-global-empty-hint') }}
+                  </p>
+                </div>
               </div>
-            </div>
 
-            <!-- Prompt, unscoped: the scope rows. Tab/Enter (or tap)
-                 narrows the search before typing — the palette's one
-                 filtering affordance, presented where a filter
-                 decision is actually made: before the query. -->
-            <div v-else-if="scopePromptActive" class="py-1 px-1">
-              <div class="px-2 pt-2 pb-1">
-                <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
-                  {{ t('search-global-scope-heading') }}
-                </span>
-              </div>
-              <button
-                v-for="row in scopeRows"
-                :key="row.type"
-                type="button"
-                tabindex="-1"
-                :data-scope-selected="row.index === selectedScopeIndex"
-                :class="[
-                  'w-full px-2 py-1.5 flex items-center gap-2.5 text-left rounded-md transition-colors focus:outline-none',
-                  row.index === selectedScopeIndex ? 'bg-accent/10' : 'hover:bg-surface-hover/60',
-                ]"
-                @mouseenter="setScopeIndex(row.index)"
-                @click="scopeAndRefocus(row.type)"
-              >
-                <span class="flex-shrink-0 inline-flex w-7 h-7 rounded-md items-center justify-center bg-surface-alt text-tertiary">
-                  <Icon :name="row.icon" size="xs" />
-                </span>
-                <span class="flex-1 text-sm text-primary font-medium truncate">
-                  {{ row.label }}
-                </span>
-                <kbd
-                  v-if="row.index === selectedScopeIndex"
-                  class="hidden sm:inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary"
-                >⇥</kbd>
-              </button>
-            </div>
-
-            <!-- Prompt, scoped: the chip already narrates the scope;
-                 plain copy invites the query. -->
-            <div
-              v-else-if="searchState === 'prompt'"
-              class="px-4 py-12 text-center"
-            >
-              <p class="text-sm text-secondary font-medium">{{ t('search-global-prompt-title') }}</p>
-              <p class="text-xs text-tertiary mt-1">
-                {{ t('search-global-prompt-subtitle') }}
-              </p>
-            </div>
-
-            <!-- Results. Best-match keeps the per-type grouped view (with
-                 scope-able headers); Newest collapses to one flat
-                 chronological list, since grouping by kind would fight the
-                 recency order. A slim sort toolbar rides above the list on
-                 mobile (the desktop footer carries the same toggle). -->
-            <div v-else-if="searchState === 'results'">
+              <!-- Persistent footer, desktop only. Keyboard hints on the
+                   left, result stats on the right; always rendered there
+                   so the bottom edge doesn't jump as states swap. On a
+                   phone every one of those is dead weight — no keys to
+                   hint, stats aren't worth a bar — so the results list
+                   takes the height instead. -->
               <div
-                class="sm:hidden flex items-center justify-end px-3 h-9 border-b border-default"
+                class="hidden sm:flex items-center justify-between gap-3 px-3 h-9 border-t border-default bg-surface-alt/50 text-2xs text-tertiary flex-shrink-0"
               >
-                <SearchSortToggle
-                  :model-value="sortOrder"
-                  @update:model-value="setSort"
-                />
+                <div class="hidden sm:flex items-center gap-3">
+                  <span class="inline-flex items-center gap-1">
+                    <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-4xs font-medium text-secondary">↑</kbd>
+                    <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-4xs font-medium text-secondary">↓</kbd>
+                    <span>{{ t('search-global-hint-navigate') }}</span>
+                  </span>
+                  <span v-if="scopePromptActive" class="inline-flex items-center gap-1">
+                    <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary">⇥</kbd>
+                    <span>{{ t('search-global-hint-scope') }}</span>
+                  </span>
+                  <span v-if="searchState === 'results'" class="inline-flex items-center gap-1">
+                    <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary">↵</kbd>
+                    <span>{{ t('search-global-hint-open') }}</span>
+                  </span>
+                  <span class="inline-flex items-center gap-1">
+                    <kbd class="inline-flex items-center justify-center min-w-[1.5rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary">esc</kbd>
+                    <span>{{ t('search-global-hint-close') }}</span>
+                  </span>
+                </div>
+                <div v-if="searchState === 'results'" class="flex items-center gap-3 ml-auto">
+                  <SearchSortToggle
+                    :model-value="sortOrder"
+                    @update:model-value="setSort"
+                  />
+                  <span class="tabular-nums">
+                    {{ t('search-global-results-count', { count: totalResults }) }}
+                    <span class="text-tertiary/60">·</span>
+                    {{ t('search-global-results-took', { ms: searchTookMs }) }}
+                  </span>
+                </div>
               </div>
-
-              <div v-if="sortOrder === 'updated'" class="py-1 px-1">
-                <SearchResultItem
-                  v-for="result in flatResults"
-                  :key="result.id"
-                  :result="result"
-                  :is-selected="result.id === selectedId"
-                  @select="navigateToResult"
-                />
-              </div>
-
-              <template v-else>
-                <SearchResultGroup
-                  v-for="group in resultGroups"
-                  :key="group.type"
-                  :type="group.type"
-                  :results="groupedResults[group.key]"
-                  :selected-id="selectedId"
-                  @select="navigateToResult"
-                  @scope="scopeAndRefocus"
-                />
-              </template>
             </div>
-
-            <!-- `searching`: the input has changed but no fresh
-                 results have landed yet (and there are no stale
-                 ones to keep on screen). Body stays visually
-                 empty so the surface doesn't flash "no results"
-                 mid-type. -->
-            <div
-              v-else-if="searchState === 'searching'"
-              aria-hidden="true"
-              class="flex-1"
-            />
-
-            <div
-              v-else
-              class="px-4 py-12 text-center"
-            >
-              <p class="text-sm text-secondary font-medium">
-                {{ t('search-global-empty-prefix') }}"<span class="text-primary">{{ query }}</span>"
-              </p>
-              <p class="text-xs text-tertiary mt-1">
-                {{ t('search-global-empty-hint') }}
-              </p>
-            </div>
-          </div>
-
-          <!-- Persistent footer, desktop only. Keyboard hints on the
-               left, result stats on the right; always rendered there
-               so the bottom edge doesn't jump as states swap. On a
-               phone every one of those is dead weight — no keys to
-               hint, stats aren't worth a bar — so the results list
-               takes the height instead. -->
-          <div
-            class="hidden sm:flex items-center justify-between gap-3 px-3 h-9 border-t border-default bg-surface-alt/50 text-2xs text-tertiary flex-shrink-0"
-          >
-            <div class="hidden sm:flex items-center gap-3">
-              <span class="inline-flex items-center gap-1">
-                <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-4xs font-medium text-secondary">↑</kbd>
-                <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-4xs font-medium text-secondary">↓</kbd>
-                <span>{{ t('search-global-hint-navigate') }}</span>
-              </span>
-              <span v-if="scopePromptActive" class="inline-flex items-center gap-1">
-                <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary">⇥</kbd>
-                <span>{{ t('search-global-hint-scope') }}</span>
-              </span>
-              <span v-if="searchState === 'results'" class="inline-flex items-center gap-1">
-                <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary">↵</kbd>
-                <span>{{ t('search-global-hint-open') }}</span>
-              </span>
-              <span class="inline-flex items-center gap-1">
-                <kbd class="inline-flex items-center justify-center min-w-[1.5rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary">esc</kbd>
-                <span>{{ t('search-global-hint-close') }}</span>
-              </span>
-            </div>
-            <div v-if="searchState === 'results'" class="flex items-center gap-3 ml-auto">
-              <SearchSortToggle
-                :model-value="sortOrder"
-                @update:model-value="setSort"
-              />
-              <span class="tabular-nums">
-                {{ t('search-global-results-count', { count: totalResults }) }}
-                <span class="text-tertiary/60">·</span>
-                {{ t('search-global-results-took', { ms: searchTookMs }) }}
-              </span>
-            </div>
-          </div>
-        </div>
+          </DialogContent>
+        </DialogRoot>
       </div>
     </Transition>
   </Teleport>

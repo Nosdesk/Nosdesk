@@ -12,6 +12,9 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const props = defineProps<{
   result: SearchResult;
   isSelected: boolean;
+  /** Option id prefix; the palette's input names the selected row
+   *  through `aria-activedescendant`. */
+  idPrefix?: string;
 }>();
 
 const emit = defineEmits<{
@@ -59,8 +62,14 @@ const formattedTime = computed(() => {
 </script>
 
 <template>
+  <!-- An option of the palette's listbox: focus never leaves the
+       input, so the row is out of the tab order. -->
   <button
     type="button"
+    role="option"
+    tabindex="-1"
+    :id="idPrefix ? `${idPrefix}-${result.id}` : undefined"
+    :aria-selected="isSelected"
     :data-selected="isSelected"
     @click="emit('select', result)"
     :class="[

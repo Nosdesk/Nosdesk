@@ -191,6 +191,46 @@ test.describe('accessibility floor', () => {
     await expect(trigger).toBeFocused()
   })
 
+  test('the search palette is a modal dialog with a combobox over grouped results', async ({ page }) => {
+    // The CI stack restarts the backend after seeding so the index holds
+    // the demo tickets (the seed bypasses the write-time indexer).
+    await gotoAndSettle(page, '/tickets')
+    await page.keyboard.press('Control+k')
+    const dialog = page.getByRole('dialog', { name: 'Search' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAttribute('aria-modal', 'true')
+    const input = dialog.getByRole('combobox')
+    await expect(input).toBeFocused()
+    // The page behind is hidden from AT (per sibling, since the header's
+    // live region is kept reachable); the scope rows are the first list.
+    const nav = page.locator('nav').first()
+    await expect(nav).toHaveAttribute('aria-hidden', 'true')
+    await expect(input).toHaveAttribute('aria-expanded', 'true')
+    const listbox = dialog.getByRole('listbox')
+    await expect(listbox.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+    await expectNoSeriousViolations(page, '[role="dialog"]')
+
+    // Typing lists results as options in named groups; arrows move the
+    // active descendant without leaving the input.
+    await input.fill('laptop')
+    await expect(listbox.getByRole('group').first()).toBeVisible()
+    const options = listbox.getByRole('option')
+    expect(await options.count()).toBeGreaterThan(1)
+    const first = await input.getAttribute('aria-activedescendant')
+    expect(first).toBeTruthy()
+    await page.keyboard.press('ArrowDown')
+    await expect(input).not.toHaveAttribute('aria-activedescendant', first!)
+    await expect(input).toBeFocused()
+    await expect(listbox.locator('[role="option"][aria-selected="true"]')).toHaveCount(1)
+    // The sort toggle is an aria-pressed pair inside the trap.
+    await expect(dialog.getByRole('group', { name: 'Sort results' }).getByRole('button', { pressed: true })).toHaveCount(1)
+    await expectNoSeriousViolations(page, '[role="dialog"]')
+
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(nav).not.toHaveAttribute('aria-hidden', 'true')
+  })
+
   test('tab bars walk with the arrow keys and activate on focus', async ({ page }) => {
     await gotoAndSettle(page, '/inbox')
     const tablist = page.getByRole('tablist').first()
