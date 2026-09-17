@@ -52,11 +52,14 @@ export function mountWithProviders(
   slots: Record<string, () => unknown> = {},
 ): VueWrapper {
   const fluent = createFluentVue({ bundles: [new FluentBundle('en-US')] })
+  // The host forwards its attrs on top of the initial props, so
+  // `wrapper.setProps` reaches the component under test.
   const Host = defineComponent({
-    setup() {
+    inheritAttrs: false,
+    setup(_, { attrs }) {
       return () =>
         h(ConfigProvider, {}, () =>
-          h(TooltipProvider, { delayDuration: 0 }, () => h(component, props, slots)),
+          h(TooltipProvider, { delayDuration: 0 }, () => h(component, { ...props, ...attrs }, slots)),
         )
     },
   })

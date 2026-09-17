@@ -1669,17 +1669,19 @@ sla-explain-fmt-days = { $n }j
 
 ticket-detail-sla-explain-aria = Montrer pourquoi ce SLA a été choisi
 
-time-picker-hours-aria = Heures
-time-picker-minutes-aria = Minutes
 date-picker-prev-month-aria = Mois précédent
 date-picker-next-month-aria = Mois suivant
-# Machine-translated, pending native review.
-date-picker-prev-year-aria = Année précédente
-date-picker-next-year-aria = Année suivante
-date-picker-prev-years-aria = Années précédentes
-date-picker-next-years-aria = Années suivantes
-date-picker-select-month-aria = Sélectionner le mois
-date-picker-select-year-aria = Sélectionner l'année
+# MACHINE TRANSLATION, pending native review
+date-picker-open-calendar-aria = Ouvrir le calendrier
+date-segment-day = Jour
+date-segment-month = Mois
+date-segment-year = Année
+date-segment-hour = Heure
+date-segment-minute = Minute
+date-segment-second = Seconde
+date-segment-day-period = AM/PM
+date-range-start-segment = { $segment } de début
+date-range-end-segment = { $segment } de fin
 admin-sla-priority-any = Toutes
 admin-sla-category-any = Toutes
 admin-sla-assignee-group-any = Tous

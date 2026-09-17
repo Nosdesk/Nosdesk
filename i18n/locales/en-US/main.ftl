@@ -1756,17 +1756,21 @@ sla-explain-fmt-days = { $n }d
 
 ticket-detail-sla-explain-aria = Show why this SLA was picked
 
-# Shared TimePicker + DatePicker primitive aria copy.
-time-picker-hours-aria = Hours
-time-picker-minutes-aria = Minutes
+# Shared DatePicker + TimePicker primitive aria copy. The segment
+# names label the spinbuttons of the segmented field; the range
+# variants prefix them with which end of the range they belong to.
 date-picker-prev-month-aria = Previous month
 date-picker-next-month-aria = Next month
-date-picker-prev-year-aria = Previous year
-date-picker-next-year-aria = Next year
-date-picker-prev-years-aria = Previous years
-date-picker-next-years-aria = Next years
-date-picker-select-month-aria = Select month
-date-picker-select-year-aria = Select year
+date-picker-open-calendar-aria = Open calendar
+date-segment-day = Day
+date-segment-month = Month
+date-segment-year = Year
+date-segment-hour = Hour
+date-segment-minute = Minute
+date-segment-second = Second
+date-segment-day-period = AM/PM
+date-range-start-segment = Start { $segment }
+date-range-end-segment = End { $segment }
 admin-sla-priority-any = Any
 admin-sla-category-any = Any
 admin-sla-assignee-group-any = Any
