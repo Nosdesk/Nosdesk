@@ -199,8 +199,10 @@ test.describe('accessibility floor', () => {
     await expect(dialog).toHaveAttribute('aria-modal', 'true')
     const input = dialog.getByRole('combobox')
     await expect(input).toBeFocused()
-    // The page behind is hidden from AT; the scope rows are the first list.
-    await expect(page.locator('#app')).toHaveAttribute('aria-hidden', 'true')
+    // The page behind is hidden from AT (per sibling, since the header's
+    // live region is kept reachable); the scope rows are the first list.
+    const nav = page.locator('nav').first()
+    await expect(nav).toHaveAttribute('aria-hidden', 'true')
     await expect(input).toHaveAttribute('aria-expanded', 'true')
     const listbox = dialog.getByRole('listbox')
     await expect(listbox.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
@@ -224,7 +226,7 @@ test.describe('accessibility floor', () => {
 
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
-    await expect(page.locator('#app')).not.toHaveAttribute('aria-hidden', 'true')
+    await expect(nav).not.toHaveAttribute('aria-hidden', 'true')
   })
 
   test('tab bars walk with the arrow keys and activate on focus', async ({ page }) => {
