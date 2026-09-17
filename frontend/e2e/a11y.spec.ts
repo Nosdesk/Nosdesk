@@ -590,6 +590,32 @@ test.describe('accessibility floor', () => {
     await expect(menu).toHaveCount(0)
   })
 
+  test('a filter value list is a multi-select listbox that toggles from the keyboard', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    await page.getByRole('button', { name: 'Add filter' }).click()
+    const dialog = page.locator('#overlays [role="dialog"]')
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('menuitem', { name: 'Priority' }).click()
+    const listbox = dialog.getByRole('listbox')
+    await expect(listbox).toBeVisible()
+    await expect(listbox).toHaveAttribute('aria-multiselectable', 'true')
+    const options = listbox.getByRole('option')
+    expect(await options.count()).toBeGreaterThan(1)
+    await expect(options.first()).toHaveAttribute('aria-selected', 'false')
+    // Focus opens on the first row; Enter toggles it, so a pill appears.
+    await expect(options.first()).toBeFocused()
+    await expectNoSeriousViolations(page, '#overlays')
+    await page.keyboard.press('Enter')
+    await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    const pill = page.getByRole('button', { name: /^Priority:/ })
+    await expect(pill).toBeVisible()
+    await expect(pill).toHaveAttribute('aria-haspopup', 'dialog')
+    await page.getByRole('button', { name: /^Remove Priority filter/ }).click()
+    await expect(pill).toHaveCount(0)
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

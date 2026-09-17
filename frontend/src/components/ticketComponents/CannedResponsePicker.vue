@@ -3,11 +3,12 @@ Dropdown button that lists the team's canned responses and emits the
 selected body (with template variables already substituted) back up
 to the composer.
 
-Search box appears at the top of the dropdown once any templates
-exist, focused on open (combobox pattern). Substring match on title
-+ first 150 chars of body, case-insensitive, multi-term AND. Arrow
-keys navigate the filtered list whether focus is in the input or
-the panel; Enter inserts the active item.
+The list is a Reka Listbox in a dialog popover (the SearchableDropdown
+shape): a `ListboxFilter` at the top once any templates exist, focused
+on open, owning the keyboard (arrows, Home/End, Enter inserts the
+highlighted row) and naming the highlighted row through
+`aria-activedescendant`. Substring match on title + first 150 chars of
+body, case-insensitive, multi-term AND.
 -->
 <template>
   <div>
@@ -18,7 +19,7 @@ the panel; Enter inserts the active item.
       :disabled="loading"
       class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info transition-colors flex items-center justify-center"
       :aria-expanded="isOpen"
-      aria-haspopup="listbox"
+      aria-haspopup="dialog"
       :aria-label="$t('ticket-picker-canned-trigger-aria')"
       :title="$t('ticket-picker-canned-trigger-title', { shortcut: shortcutLabel })"
     >
@@ -54,14 +55,13 @@ the panel; Enter inserts the active item.
       popover-class="w-72 max-w-[calc(100vw-1rem)] bg-surface border border-default rounded-lg shadow-lg overflow-hidden"
       @close="closePicker(false)"
     >
-      <div
-        ref="panelEl"
-        class="max-h-80 overflow-y-auto flex flex-col"
-        role="listbox"
-        tabindex="-1"
-        :aria-label="$t('ticket-picker-canned-listbox-aria')"
-        :aria-activedescendant="activeOptionId"
-        @keydown="onPanelKeydown"
+      <ListboxRoot
+        :model-value="undefined"
+        selection-behavior="replace"
+        highlight-on-hover
+        class="max-h-80 flex flex-col"
+        @update:model-value="onPick"
+        @highlight="onHighlight"
       >
         <div v-if="loading" class="px-4 py-3 text-sm text-tertiary">
           {{ $t('ticket-picker-canned-loading') }}
@@ -77,22 +77,20 @@ the panel; Enter inserts the active item.
         </div>
         <template v-else>
           <div class="px-3 py-2 border-b border-default">
-            <input
-              ref="searchInputEl"
+            <ListboxFilter
               v-model="searchQuery"
-              type="text"
+              auto-focus
               :placeholder="$t('ticket-picker-canned-search-placeholder')"
               :aria-label="$t('ticket-picker-canned-search-aria')"
-              aria-autocomplete="list"
               autocomplete="off"
               spellcheck="false"
               class="w-full bg-surface-alt border border-default rounded-md px-2 py-1.5 text-sm text-primary placeholder:text-tertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info"
             />
           </div>
-          <!-- One-line warning when the active row references a
+          <!-- One-line warning when the highlighted row references a
                variable not bound in the current ticket context.
                Updates live as the user arrows through matches so the
-               warning travels with the active row. -->
+               warning travels with the row. -->
           <div
             v-if="activeMissingVars.length > 0"
             class="px-3 py-1.5 text-xs text-status-warning bg-status-warning/10 border-b border-default"
@@ -104,53 +102,50 @@ the panel; Enter inserts the active item.
               })
             }}
           </div>
-          <ul
-            v-if="filteredResponses.length > 0"
-            class="flex flex-col"
-            role="presentation"
-          >
-            <li
-              v-for="(r, i) in filteredResponses"
-              :id="optionId(i)"
-              :key="r.id"
-              role="option"
-              :aria-selected="i === activeIndex"
-              @mousemove="activeIndex = i"
-              @click="choose(r)"
-              :class="[
-                'w-full text-left px-4 py-2.5 cursor-pointer flex flex-col gap-0.5 transition-colors',
-                i === activeIndex ? 'bg-surface-hover' : 'hover:bg-surface-hover',
-              ]"
+          <!-- The filter drives the list, so the rows are not focusable
+               and the scrolling list is a tab stop of its own. -->
+          <ListboxContent as-child>
+            <ul
+              class="flex flex-col overflow-y-auto min-h-0 outline-none"
+              tabindex="0"
+              :aria-label="$t('ticket-picker-canned-listbox-aria')"
             >
-              <span
-                class="text-sm font-medium text-primary truncate"
-                v-html="highlightTitle(r.title)"
-              />
-              <!-- Render the substituted body so the agent sees the
-                   final text they're about to insert; variables that
-                   would resolve are visible inline. -->
-              <span
-                class="text-xs text-tertiary line-clamp-2"
-                v-html="highlightPreview(previewBody(r))"
-              />
-            </li>
-          </ul>
-          <div
-            v-else
-            class="px-4 py-3 text-sm text-tertiary"
-            role="status"
-          >
-            {{ $t('ticket-picker-canned-no-matches', { query: searchQuery }) }}
-          </div>
+              <ListboxItem v-for="r in filteredResponses" :key="r.id" as-child :value="r.id">
+                <li
+                  class="w-full text-left px-4 py-2.5 cursor-pointer flex flex-col gap-0.5 transition-colors hover:bg-surface-hover data-[highlighted]:bg-surface-hover outline-none"
+                >
+                  <span
+                    class="text-sm font-medium text-primary truncate"
+                    v-html="highlightTitle(r.title)"
+                  />
+                  <!-- Render the substituted body so the agent sees the
+                       final text they're about to insert; variables that
+                       would resolve are visible inline. -->
+                  <span
+                    class="text-xs text-tertiary line-clamp-2"
+                    v-html="highlightPreview(previewBody(r))"
+                  />
+                </li>
+              </ListboxItem>
+              <li
+                v-if="filteredResponses.length === 0"
+                class="px-4 py-3 text-sm text-tertiary"
+                role="status"
+              >
+                {{ $t('ticket-picker-canned-no-matches', { query: searchQuery }) }}
+              </li>
+            </ul>
+          </ListboxContent>
         </template>
-      </div>
+      </ListboxRoot>
     </ResponsiveMenu>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { ListboxContent, ListboxFilter, ListboxItem, ListboxRoot } from 'reka-ui';
 import { useQuery } from '@pinia/colada';
 import {
   cannedResponsesService,
@@ -194,11 +189,10 @@ const emit = defineEmits<{
 }>();
 
 const triggerEl = ref<HTMLButtonElement | null>(null);
-const panelEl = ref<HTMLDivElement | null>(null);
-const searchInputEl = ref<HTMLInputElement | null>(null);
 const isOpen = ref(false);
 const searchQuery = ref('');
-const activeIndex = ref(0);
+// The highlighted row's id, from Reka.
+const activeId = ref<number | null>(null);
 
 // Shared with the admin CannedResponsesView and EditView so an
 // admin save invalidates the picker's view for every open composer
@@ -263,26 +257,17 @@ function previewBody(r: CannedResponseListItem): string {
  * list tells the agent which slots will be empty.
  */
 const activeMissingVars = computed<string[]>(() => {
-  const r = filteredResponses.value[activeIndex.value];
+  const r = filteredResponses.value.find((x) => x.id === activeId.value);
   if (!r) return [];
   return unboundVariables(r.body, props.vars);
 });
 
+function onHighlight(item: { value: unknown } | undefined) {
+  activeId.value = typeof item?.value === 'number' ? item.value : null;
+}
+
 const highlightTitle = (text: string): string => highlightTerms(text, searchTerms.value);
 const highlightPreview = (text: string): string => highlightTerms(text, searchTerms.value);
-
-// Reset highlight to the top of the (newly filtered) list whenever
-// the query changes so Enter picks the most relevant match.
-watch(searchQuery, () => {
-  activeIndex.value = 0;
-});
-// Unique suffix for the aria-activedescendant ids. Not security bearing,
-// but crypto.randomUUID avoids the weak-RNG lint and is no more code.
-const uid = crypto.randomUUID().slice(0, 8);
-const optionId = (i: number) => `canned-response-opt-${uid}-${i}`;
-const activeOptionId = computed(() =>
-  filteredResponses.value.length > 0 ? optionId(activeIndex.value) : undefined,
-);
 
 // Anchor the Popover to the trigger button (resolved lazily so it tracks the
 // live element across re-renders).
@@ -291,20 +276,16 @@ const anchor = computed<PopoverAnchor>(() => ({
   element: () => triggerEl.value,
 }));
 
-async function toggleOpen() {
+function toggleOpen() {
   if (isOpen.value) {
     closePicker(false);
     return;
   }
   isOpen.value = true;
-  activeIndex.value = 0;
+  activeId.value = null;
   // The list query auto-fetches on first picker mount; nothing to
-  // kick off here. Focus the search input so the user can start
-  // typing immediately (standard combobox UX). Falls back to the
-  // panel itself when the input isn't rendered yet (loading / error
-  // / empty-library states), so arrow keys / Esc / Enter still work.
-  await nextTick();
-  (searchInputEl.value ?? panelEl.value)?.focus();
+  // kick off here. The filter takes focus on mount; Escape reaches
+  // the popover from anywhere.
 }
 
 function closePicker(returnFocus: boolean) {
@@ -313,6 +294,11 @@ function closePicker(returnFocus: boolean) {
   // template cache (`loaded`) is preserved.
   searchQuery.value = '';
   if (returnFocus) triggerEl.value?.focus();
+}
+
+function onPick(value: unknown) {
+  const r = responses.value.find((x) => x.id === value);
+  if (r) choose(r);
 }
 
 function choose(r: CannedResponseListItem) {
@@ -328,63 +314,6 @@ function choose(r: CannedResponseListItem) {
   closePicker(true);
 }
 
-// Keydown lives on the panel so it fires whether focus is in the
-// search input or the listbox; arrow keys always navigate the
-// filtered list. Home/End only apply when focus is NOT in the
-// input — otherwise they jump the text caret, which the user
-// expects in a text field.
-function onPanelKeydown(e: KeyboardEvent) {
-  const n = filteredResponses.value.length;
-  const inSearch = e.target === searchInputEl.value;
-  switch (e.key) {
-    case 'Escape':
-      e.preventDefault();
-      closePicker(true);
-      break;
-    case 'ArrowDown':
-      if (n === 0) return;
-      e.preventDefault();
-      activeIndex.value = (activeIndex.value + 1) % n;
-      scrollActiveIntoView();
-      break;
-    case 'ArrowUp':
-      if (n === 0) return;
-      e.preventDefault();
-      activeIndex.value = (activeIndex.value - 1 + n) % n;
-      scrollActiveIntoView();
-      break;
-    case 'Home':
-      if (n === 0 || inSearch) return;
-      e.preventDefault();
-      activeIndex.value = 0;
-      scrollActiveIntoView();
-      break;
-    case 'End':
-      if (n === 0 || inSearch) return;
-      e.preventDefault();
-      activeIndex.value = n - 1;
-      scrollActiveIntoView();
-      break;
-    case 'Enter':
-      if (n === 0) return;
-      e.preventDefault();
-      choose(filteredResponses.value[activeIndex.value]);
-      break;
-    case ' ':
-      // Space inserts only when the listbox itself has focus —
-      // otherwise we'd block typing a space in the search query.
-      if (n === 0 || inSearch) return;
-      e.preventDefault();
-      choose(filteredResponses.value[activeIndex.value]);
-      break;
-  }
-}
-
-function scrollActiveIntoView() {
-  const el = document.getElementById(optionId(activeIndex.value));
-  el?.scrollIntoView({ block: 'nearest' });
-}
-
 // Global shortcut — Ctrl+/ (Cmd+/ on Mac) toggles the picker.
 // Only fires when the composer area has focus, so it doesn't hijack
 // the shortcut globally across the app.
@@ -394,7 +323,7 @@ function onKeydown(e: KeyboardEvent) {
   const active = document.activeElement as HTMLElement | null;
   if (!active?.closest('form, [contenteditable], textarea, input')) return;
   e.preventDefault();
-  void toggleOpen();
+  toggleOpen();
 }
 onMounted(() => window.addEventListener('keydown', onKeydown));
 onBeforeUnmount(() => {
