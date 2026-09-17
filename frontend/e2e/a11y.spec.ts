@@ -245,8 +245,12 @@ test.describe('accessibility floor', () => {
     const checked = density.locator('[role="radio"][aria-checked="true"]')
     await expect(checked).toHaveCount(1)
     await checked.focus()
-    await page.keyboard.press('ArrowRight')
-    // Arrows move focus and select together, like native radios.
+    // Arrows move focus and select together, like native radios. Reka
+    // checks the newly focused radio while the arrow key is still held,
+    // so hold it for a beat rather than a synthetic instant press.
+    await page.keyboard.down('ArrowRight')
+    await page.waitForTimeout(80)
+    await page.keyboard.up('ArrowRight')
     await expect(density.locator('[role="radio"]:focus')).toHaveAttribute('aria-checked', 'true')
     await expect(checked).toHaveCount(1)
     await expectNoSeriousViolations(page, '[role="radiogroup"]')

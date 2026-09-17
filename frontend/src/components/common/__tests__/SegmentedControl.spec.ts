@@ -51,14 +51,18 @@ describe('SegmentedControl', () => {
     const radios = wrapper.findAll('[role="radio"]').map((r) => r.element as HTMLElement)
     radios[2].click()
     expect(updates).toEqual(['priority'])
+    // Arrow moves focus; Reka then checks the focused radio on the next
+    // macrotask while the key is down (keydown only here, no keyup).
     radios[0].focus()
+    key(radios[0], 'ArrowRight')
+    await nextTick()
+    expect(document.activeElement).toBe(radios[1])
+    await new Promise((r) => setTimeout(r, 1))
+    expect(updates.at(-1)).toBe('assignee')
+    key(radios[1], 'ArrowLeft')
     key(radios[0], 'ArrowLeft')
     await nextTick()
     expect(document.activeElement).toBe(radios[2])
-    expect(updates.at(-1)).toBe('priority')
-    key(radios[2], 'ArrowRight')
-    await nextTick()
-    expect(document.activeElement).toBe(radios[0])
   })
 
   it('does not re-emit the current value', async () => {
