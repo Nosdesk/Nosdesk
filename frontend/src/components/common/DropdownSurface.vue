@@ -30,7 +30,8 @@ interface Props {
   offset?: number
   ariaLabel?: string
   popoverClass?: string
-  /** Move focus into the menu on open (arrow keys then walk rows). */
+  /** Accepted for symmetry with Popover; focus always enters the menu
+   *  (see onCloseAutoFocus). */
   autoFocus?: boolean
 }
 
@@ -59,13 +60,15 @@ function onPointerDownOutside(event: CustomEvent<{ originalEvent: PointerEvent }
   if (target && el?.contains(target)) event.preventDefault()
 }
 
-function onOpenAutoFocus(event: Event) {
-  if (!props.autoFocus) event.preventDefault()
-}
-
+// Focus always moves into the menu on open: the arrow keys, typeahead and
+// Escape are handled on the content element, so a menu that left focus
+// on its trigger would be a keyboard dead end (Radix behaves the same).
+// Pointer users never see it: the container has no ring, and focus goes
+// back to the anchor on close. `autoFocus=false` is therefore accepted
+// for API symmetry with Popover but does not keep focus on the trigger.
 function onCloseAutoFocus(event: Event) {
   event.preventDefault()
-  if (props.autoFocus) anchorElement()?.focus?.()
+  anchorElement()?.focus?.()
 }
 
 useEventListener(
@@ -95,7 +98,6 @@ const contentStyle = computed(() => ({
         :side-offset="offset"
         :collision-padding="8"
         @pointer-down-outside="onPointerDownOutside"
-        @open-auto-focus="onOpenAutoFocus"
         @close-auto-focus="onCloseAutoFocus"
       >
         <div
