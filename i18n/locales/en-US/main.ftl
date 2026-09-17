@@ -341,6 +341,7 @@ nav-asset-planner = Asset Planner
 asset-tabs-inventory = Inventory
 asset-tabs-catalog = Catalog
 asset-tabs-groups = Groups
+asset-tabs-aria = Asset section views
 nav-users = People
 nav-documentation = Documentation
 nav-inbox = Inbox

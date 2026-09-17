@@ -28,6 +28,7 @@ import {
   useUnseenCount,
   useMarkAllSeenMutation,
 } from '@/stores/notifications'
+import TabBar, { type TabBarItem } from '@/components/common/TabBar.vue'
 import {
   iconForNotificationType,
   useNotificationFeed,
@@ -52,6 +53,13 @@ const fluent = useFluent()
 const tInbox = (key: string, args?: Record<string, string>) => fluent.$t(key, args)
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 const filterTabs = useNotificationFilterTabs()
+const bellTabs = computed<TabBarItem<NotificationFilter>[]>(() =>
+  filterTabs.value.map((tab) => ({
+    value: tab.value,
+    label: tab.label,
+    badge: tab.value === 'unread' && hasUnread.value ? displayCount.value : undefined,
+  })),
+)
 
 // Format the structured announcement payload from the store with
 // the active locale. Empty string keeps the live region quiet
@@ -271,39 +279,14 @@ onMounted(() => {
         </button>
       </header>
 
-      <div
-        role="tablist"
-        :aria-label="t('notifications-bell-aria-filter')"
-        class="flex flex-shrink-0 items-center gap-1 border-b border-default px-2"
-      >
-        <button
-          v-for="tab in filterTabs"
-          :key="tab.value"
-          type="button"
-          role="tab"
-          :aria-selected="filter === tab.value"
-          @click="filter = tab.value"
-          class="relative flex items-center justify-center gap-1.5 px-4 sm:px-3 min-h-[44px] sm:min-h-0 sm:py-2 text-xs font-medium transition-colors"
-          :class="
-            filter === tab.value
-              ? 'text-primary'
-              : 'text-tertiary hover:text-secondary'
-          "
-        >
-          {{ tab.label }}
-          <span
-            v-if="tab.value === 'unread' && hasUnread"
-            class="rounded-full bg-accent/15 px-1.5 py-0.5 text-3xs font-semibold leading-none text-accent"
-          >
-            {{ displayCount }}
-          </span>
-          <span
-            v-if="filter === tab.value"
-            class="absolute inset-x-2 bottom-0 h-0.5 rounded-t bg-accent"
-            aria-hidden="true"
-          />
-        </button>
-      </div>
+      <TabBar
+        v-model="filter"
+        :items="bellTabs"
+        variant="underline"
+        size="sm"
+        :label="t('notifications-bell-aria-filter')"
+        list-class="flex-shrink-0 px-2"
+      />
 
       <div class="flex-1 overflow-y-auto">
         <!-- Empty state when there's truly nothing AND we're

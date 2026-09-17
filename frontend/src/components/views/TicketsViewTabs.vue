@@ -28,9 +28,9 @@
  * `<ViewSwitcher>` dropdown that combines built-ins + saved
  * views into one popover — much cleaner at narrow widths.
  */
-import Icon from '@/components/common/Icon.vue'
+import { computed } from 'vue'
+import TabBar, { type TabBarItem } from '@/components/common/TabBar.vue'
 import type { IconName } from '@/components/common/icons'
-
 export interface ViewTabItem {
   id: string
   name: string
@@ -40,7 +40,7 @@ export interface ViewTabItem {
   icon: IconName
 }
 
-defineProps<{
+const props = defineProps<{
   items: readonly ViewTabItem[]
   activeId: string
 }>()
@@ -48,33 +48,22 @@ defineProps<{
 const emit = defineEmits<{
   (e: 'select', id: string): void
 }>()
+
+const tabItems = computed<TabBarItem[]>(() =>
+  props.items.map((item) => ({ value: item.id, label: item.name, icon: item.icon })),
+)
 </script>
 
 <template>
-  <!-- Hidden below lg: (1024px) — narrower viewports use the
-       parent's consolidated dropdown instead. `whitespace-nowrap`
-       on each label is belt-and-braces against the strip getting
-       compressed by sibling header content; without it, "My Open"
-       wraps to two lines the moment the row gets tight. -->
-  <div
-    class="hidden lg:inline-flex items-center gap-0.5 rounded-md bg-surface-alt p-0.5"
-    role="tablist"
-    :aria-label="$t('views-tab-bar-aria')"
-  >
-    <button
-      v-for="item in items"
-      :key="item.id"
-      type="button"
-      role="tab"
-      :aria-selected="item.id === activeId"
-      class="inline-flex items-center gap-1.5 px-2.5 h-7 rounded text-sm font-medium transition-colors whitespace-nowrap shrink-0"
-      :class="item.id === activeId
-        ? 'bg-surface text-primary shadow-sm'
-        : 'text-secondary hover:text-primary hover:bg-surface/60'"
-      @click="emit('select', item.id)"
-    >
-      <Icon :name="item.icon" class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-      <span>{{ item.name }}</span>
-    </button>
-  </div>
+  <!-- Hidden below lg: (1024px), where the parent renders the
+       consolidated dropdown instead. -->
+  <TabBar
+    :model-value="activeId"
+    :items="tabItems"
+    variant="pill"
+    size="sm"
+    :label="$t('views-tab-bar-aria')"
+    list-class="hidden lg:inline-flex"
+    @update:model-value="(id) => emit('select', id)"
+  />
 </template>

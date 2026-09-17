@@ -20,6 +20,7 @@ any other edit.
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import Modal from '@/components/Modal.vue'
+import TabBar, { type TabBarItem } from '@/components/common/TabBar.vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
@@ -41,6 +42,16 @@ const auth = useAuthStore()
 
 type Tab = 'system' | 'saved-views' | 'plugins'
 const tab = ref<Tab>('system')
+
+// Counts ride as badges; the plugins tab only exists when a plugin
+// contributes a widget.
+const tabItems = computed<TabBarItem<Tab>[]>(() => [
+  { value: 'system', label: t('dashboard-add-widget-tab-system'), badge: store.addable.length },
+  { value: 'saved-views', label: t('dashboard-add-widget-tab-saved-views'), badge: pickableSavedViews.value.length },
+  ...(pluginWidgets.value.length > 0
+    ? [{ value: 'plugins' as Tab, label: t('dashboard-add-widget-tab-plugins'), badge: pluginWidgets.value.length }]
+    : []),
+])
 
 // Plugin dashboard widgets are opt-in and gated to technician / admin (matching
 // the synthesised widget's roles). Only offer ones not already on the canvas.
@@ -129,54 +140,13 @@ watch(
       <!-- Tabs. Inline counts beside each tab label so the user
            sees what's pickable in each category without flicking
            between them. -->
-      <div role="tablist" class="flex gap-1 border-b border-default">
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="tab === 'system'"
-          :class="[
-            'px-3 py-1.5 text-xs font-medium transition-colors',
-            tab === 'system'
-              ? 'text-primary border-b-2 border-accent -mb-px'
-              : 'text-tertiary hover:text-primary',
-          ]"
-          @click="tab = 'system'"
-        >
-          {{ t('dashboard-add-widget-tab-system') }}
-          <span class="text-tertiary ml-1">({{ store.addable.length }})</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="tab === 'saved-views'"
-          :class="[
-            'px-3 py-1.5 text-xs font-medium transition-colors',
-            tab === 'saved-views'
-              ? 'text-primary border-b-2 border-accent -mb-px'
-              : 'text-tertiary hover:text-primary',
-          ]"
-          @click="tab = 'saved-views'"
-        >
-          {{ t('dashboard-add-widget-tab-saved-views') }}
-          <span class="text-tertiary ml-1">({{ pickableSavedViews.length }})</span>
-        </button>
-        <button
-          v-if="pluginWidgets.length > 0"
-          type="button"
-          role="tab"
-          :aria-selected="tab === 'plugins'"
-          :class="[
-            'px-3 py-1.5 text-xs font-medium transition-colors',
-            tab === 'plugins'
-              ? 'text-primary border-b-2 border-accent -mb-px'
-              : 'text-tertiary hover:text-primary',
-          ]"
-          @click="tab = 'plugins'"
-        >
-          {{ t('dashboard-add-widget-tab-plugins') }}
-          <span class="text-tertiary ml-1">({{ pluginWidgets.length }})</span>
-        </button>
-      </div>
+      <TabBar
+        v-model="tab"
+        :items="tabItems"
+        variant="underline"
+        size="sm"
+        :label="t('dashboard-add-widget-title')"
+      />
 
       <!-- System widgets tab -->
       <div v-show="tab === 'system'">
