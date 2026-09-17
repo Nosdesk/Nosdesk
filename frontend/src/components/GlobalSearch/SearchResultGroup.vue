@@ -12,6 +12,7 @@ const props = defineProps<{
   type: SearchEntityType;
   results: SearchResult[];
   selectedId: string | null;
+  idPrefix?: string;
 }>();
 
 const emit = defineEmits<{
@@ -29,21 +30,18 @@ const groupLabel = computed(() => {
 </script>
 
 <template>
-  <div v-if="results.length > 0" class="py-1 px-1">
-    <!-- Group header. Pure typography — no icon. The result rows
-         themselves carry the type-coloured icon, so a header glyph
-         on top of that is redundant noise. Raycast lets the label
-         alone do the work. Clicking it scopes the palette to this
-         kind — filtering to something you can already see is the
-         most natural filter gesture, so the header IS the control.
-         Excluded from Tab order (tabindex=-1): keyboard users scope
-         via the prompt rows or `in:`, and the palette's focus must
-         stay on the input. -->
-    <button
-      type="button"
-      tabindex="-1"
+  <div v-if="results.length > 0" class="py-1 px-1" role="group" :aria-label="groupLabel">
+    <!-- Group header. Pure typography, no icon: the result rows carry
+         the type-coloured icon. Clicking it scopes the palette to this
+         kind (filtering to something you can already see is the most
+         natural filter gesture), a pointer affordance only: keyboard
+         users scope via the prompt rows or `in:`, and a control inside
+         a listbox group is not allowed, so it is hidden from AT and
+         the group's own label carries the name. -->
+    <div
+      aria-hidden="true"
       :title="t('search-global-group-scope-title', { type: groupLabel })"
-      class="group/header flex w-full items-baseline gap-2 px-2 pt-2 pb-1 text-left rounded-md transition-colors hover:bg-surface-hover/60"
+      class="group/header flex w-full items-baseline gap-2 px-2 pt-2 pb-1 text-left rounded-md transition-colors hover:bg-surface-hover/60 cursor-pointer select-none"
       @click="emit('scope', props.type)"
     >
       <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
@@ -57,13 +55,14 @@ const groupLabel = computed(() => {
       >
         {{ t('search-global-group-scope-hint') }}
       </span>
-    </button>
+    </div>
 
     <SearchResultItem
       v-for="result in results"
       :key="result.id"
       :result="result"
       :is-selected="result.id === selectedId"
+      :id-prefix="idPrefix"
       @select="emit('select', $event)"
     />
   </div>
