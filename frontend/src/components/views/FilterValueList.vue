@@ -20,6 +20,8 @@ import type { FilterOption } from '@/composables/useListFilters'
 const props = withDefaults(defineProps<{
   options: FilterOption[]
   selected: Set<string>
+  /** Accessible name of the list (the facet's label). */
+  label?: string
   emptyMessage?: string
   /** When the option list is at least this long, render an
    * inline search input. Eight matches the Linear / Notion
@@ -97,6 +99,7 @@ onMounted(async () => {
     <ListboxContent as-child>
       <div
         class="max-h-[18rem] overflow-y-auto py-1 outline-none"
+        :aria-label="label"
         v-bind="showSearch ? { tabindex: 0 } : {}"
       >
         <p

@@ -287,6 +287,7 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
               v-else
               :options="stageOptions"
               :selected="stageSelected"
+              :label="stageMeta?.label"
               :empty-message="$t('views-add-filter-no-matches')"
               @toggle="(v) => activeFacet && emit('toggle', activeFacet, v)"
               @clear="activeFacet && emit('clear', activeFacet)"

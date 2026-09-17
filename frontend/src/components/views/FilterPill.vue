@@ -125,6 +125,7 @@ function onRemove(e: MouseEvent): void {
         v-else
         :options="options"
         :selected="selected"
+        :label="label"
         :empty-message="emptyMessage"
         @toggle="(v) => emit('toggle', v)"
         @clear="emit('clear')"

@@ -26,12 +26,14 @@ describe('FilterValueList', () => {
     wrapper = mountWithProviders(FilterValueList, {
       options: FEW,
       selected: new Set(['closed']),
+      label: 'Status',
       onToggle: (v: string) => toggles.push(v),
     })
     await nextTick()
     await nextTick()
     const listbox = wrapper.get('[role="listbox"]')
     expect(listbox.attributes('aria-multiselectable')).toBe('true')
+    expect(listbox.attributes('aria-label')).toBe('Status')
     expect(wrapper.find('input').exists()).toBe(false)
     expect(options().map((o) => o.attributes('aria-selected'))).toEqual(['false', 'true', 'false'])
     expect(document.activeElement).toBe(options()[1].element)
