@@ -227,6 +227,7 @@ watch(highlightedIndex, async (index) => {
         react-to-scroll="reposition"
         match-anchor-width
         :offset="2"
+        role="dialog"
         :auto-focus="false"
         popover-class="bg-surface border border-default rounded-lg shadow-xl overflow-hidden"
         @close="close"

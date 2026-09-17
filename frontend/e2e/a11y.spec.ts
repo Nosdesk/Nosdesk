@@ -123,6 +123,27 @@ test.describe('accessibility floor', () => {
     await expect(trigger).toHaveAttribute('aria-expanded', 'false')
   })
 
+  test('an action menu walks rows with arrow keys and restores focus on Escape', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    const trigger = page.getByRole('button', { name: 'User menu' })
+    await trigger.click()
+    const menu = page.locator('#overlays [role="menu"]')
+    await expect(menu).toBeVisible()
+    await expectNoSeriousViolations(page, '#overlays')
+    const items = menu.getByRole('menuitem')
+    expect(await items.count()).toBeGreaterThan(1)
+    // ArrowDown lands on the first row, then walks; typeahead is Reka's.
+    await page.keyboard.press('ArrowDown')
+    await expect(items.first()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(items.nth(1)).toBeFocused()
+    await page.keyboard.press('End')
+    await expect(items.last()).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

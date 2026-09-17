@@ -28,6 +28,7 @@ import { monogramDataUri } from '@/utils/monogram'
 import UserAvatar from './UserAvatar.vue'
 import ResponsiveMenu from './common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from './common/MenuList.vue'
+import MenuRow from './common/MenuItem.vue'
 import { ICON_REGISTRY } from './common/icons'
 import BugReportModal from './BugReportModal.vue'
 
@@ -174,9 +175,10 @@ function handleSelect(id: string) {
     <!-- User info card. Click navigates to the profile page;
          the visual treatment doubles as the "you are signed in
          as X" affordance. -->
-    <button
-      type="button"
-      class="w-full px-4 py-3 border-b border-default hover:bg-surface-hover cursor-pointer flex items-center gap-3 min-w-0 text-left"
+    <!-- A menu row, so the menu's required children stay menuitems and
+         the arrow keys reach it. -->
+    <MenuRow
+      class="border-b border-default px-4 py-3 md:py-3 md:text-sm"
       @click="handleProfileClick"
     >
       <UserAvatar
@@ -192,7 +194,7 @@ function handleSelect(id: string) {
         <div class="text-sm font-medium text-primary truncate">{{ user.name }}</div>
         <div class="text-xs text-accent mt-1">{{ $t('user-menu-view-profile') }}</div>
       </div>
-    </button>
+    </MenuRow>
 
     <MenuList :items="items" @select="handleSelect" />
   </ResponsiveMenu>

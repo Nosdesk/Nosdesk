@@ -29,3 +29,28 @@ export interface PopoverAnchorPoint {
 }
 
 export type PopoverAnchor = PopoverAnchorElement | PopoverAnchorPoint
+
+/**
+ * Turn an anchor + placement into what Reka's popper wants: a floating
+ * reference (the element, or a virtual element at a viewport point) and
+ * a side/align pair. Shared by `Popover` and `ResponsiveMenu`.
+ */
+export function floatingFrom(anchor: PopoverAnchor, placement: PopoverPlacement) {
+  const side: 'top' | 'bottom' = placement.startsWith('top') ? 'top' : 'bottom'
+  const align: 'start' | 'center' | 'end' = placement.endsWith('-start')
+    ? 'start'
+    : placement.endsWith('-end')
+      ? 'end'
+      : 'center'
+  const element = anchor.type === 'element' ? anchor.element() : null
+  const reference =
+    anchor.type === 'element'
+      ? (element ?? undefined)
+      : { getBoundingClientRect: () => new DOMRect(anchor.x, anchor.y, 0, 0) }
+  return { side, align, element, reference }
+}
+
+/** Anchor element for outside-dismiss filtering and focus restore. */
+export function anchorElementOf(anchor: PopoverAnchor): HTMLElement | null {
+  return anchor.type === 'element' ? anchor.element() : null
+}

@@ -40,7 +40,7 @@ import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
 import { useFlagTicketMutation } from "@/composables/useKnowledgeGaps";
 import { useQueryCache } from "@pinia/colada";
 import BackButton from "@/components/common/BackButton.vue";
-import Popover from "@/components/common/Popover.vue";
+import ResponsiveMenu from "@/components/common/ResponsiveMenu.vue";
 import MenuList, { type MenuItem } from "@/components/common/MenuList.vue";
 import Icon from "@/components/common/Icon.vue";
 import Modal from "@/components/Modal.vue";
@@ -533,9 +533,10 @@ const rootEl = ref<HTMLElement | null>(null);
                     <Icon name="more" class="w-5 h-5" />
                 </button>
 
-                <Popover
+                <ResponsiveMenu
                     :open="overflowMenuOpen"
                     :anchor="overflowAnchor"
+                    :title="t('ticket-detail-more-actions')"
                     placement="bottom-end"
                     react-to-scroll="reposition"
                     :auto-focus="false"
@@ -544,7 +545,7 @@ const rootEl = ref<HTMLElement | null>(null);
                     @close="overflowMenuOpen = false"
                 >
                     <MenuList :items="overflowMenuItems" @select="handleOverflowSelect" />
-                </Popover>
+                </ResponsiveMenu>
             </div>
 
             <div class="flex flex-col gap-4 px-4 py-4 sm:px-6 mx-auto w-full max-w-8xl">

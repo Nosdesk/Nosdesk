@@ -9,7 +9,8 @@
  * chrome.
  *
  * `tone` is the row's meaning (destructive, toggled on), `highlighted` is
- * keyboard focus tracked by a roving index rather than DOM focus, and the
+ * keyboard focus tracked by a roving index rather than DOM focus (Reka's
+ * menus set `data-highlighted` instead, styled in the base), and the
  * two never fight: a highlighted row shows the accent wash and drops the
  * hover wash, which is what the roving-index menus already did by hand.
  *
@@ -18,7 +19,13 @@
 import { cva, type VariantProps } from 'class-variance-authority';
 
 export const menuItem = cva(
-  'w-full px-3 py-2.5 md:py-1.5 min-h-[44px] md:min-h-0 flex gap-2 text-left text-sm md:text-xs transition-colors',
+  [
+    'w-full px-3 py-2.5 md:py-1.5 min-h-[44px] md:min-h-0 flex gap-2 text-left text-sm md:text-xs transition-colors',
+    // Reka's roving focus marks the current row with data-highlighted; the
+    // `highlighted` variant below is the same wash for hand-kept indexes.
+    // The focus ring is redundant with the wash inside a menu.
+    'data-[highlighted]:bg-accent/10 data-[highlighted]:outline-none',
+  ],
   {
     variants: {
       tone: {
