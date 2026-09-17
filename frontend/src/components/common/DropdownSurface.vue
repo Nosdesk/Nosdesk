@@ -15,6 +15,7 @@ import { DropdownMenuContent, DropdownMenuPortal, DropdownMenuRoot } from 'reka-
 import {
   anchorElementOf,
   floatingFrom,
+  restoreFocusTo,
   type PopoverAnchor,
   type PopoverPlacement,
 } from '@/composables/popoverAnchor'
@@ -74,7 +75,7 @@ function onOpenAutoFocus() {
 // for API symmetry with Popover but does not keep focus on the trigger.
 function onCloseAutoFocus(event: Event) {
   event.preventDefault()
-  if (!closedByOutsidePointer) anchorElement()?.focus?.()
+  if (!closedByOutsidePointer) restoreFocusTo(props.anchor)
   closedByOutsidePointer = false
 }
 

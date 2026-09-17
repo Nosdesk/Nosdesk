@@ -25,6 +25,7 @@ import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui'
 import {
   anchorElementOf,
   floatingFrom,
+  restoreFocusTo,
   type PopoverAnchor,
   type PopoverPlacement,
 } from '@/composables/popoverAnchor'
@@ -94,7 +95,7 @@ function onOpenAutoFocus(event: Event) {
 // fall to the body.
 function onCloseAutoFocus(event: Event) {
   event.preventDefault()
-  if (!closedByOutsidePointer) anchorElement()?.focus?.()
+  if (!closedByOutsidePointer) restoreFocusTo(props.anchor)
   closedByOutsidePointer = false
 }
 
