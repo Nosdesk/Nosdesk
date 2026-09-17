@@ -135,12 +135,23 @@ describe('DatePicker', () => {
     await open()
     expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
     expect(day('2026-09-17')?.getAttribute('data-selected')).toBe('true')
+    // The grid opens on the value's month with the value as the roving stop.
+    expect(day('2026-09-17')?.getAttribute('tabindex')).toBe('0')
     day('2026-09-17')!.click()
     await nextTick()
     expect(updates).toEqual([])
     day('2026-09-21')!.click()
     await nextTick()
     expect(updates).toEqual(['2026-09-21'])
+  })
+
+  it('opens on the value, not on today', async () => {
+    wrapper = mountWithProviders(DatePicker, { modelValue: '2031-03-09' })
+    await nextTick()
+    await open()
+    expect(day('2031-03-09')?.getAttribute('data-selected')).toBe('true')
+    expect(day('2031-03-09')?.getAttribute('data-focused')).toBe('')
+    expect(day('2031-03-09')?.getAttribute('tabindex')).toBe('0')
   })
 
   it('disables days outside the bounds', async () => {

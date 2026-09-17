@@ -346,13 +346,14 @@ test.describe('accessibility floor', () => {
     await trigger.click()
     const dialog = page.locator('#overlays [role="dialog"]')
     await expect(dialog).toBeVisible()
-    // Focus lands on a day; the arrows move it; the trigger gets it back.
-    const focused = dialog.locator('[data-reka-calendar-cell-trigger][data-focused]')
-    await expect(focused).toBeFocused()
+    // Focus lands on a day (the value, else today); the arrows move it;
+    // the trigger gets it back.
+    const focused = dialog.locator('[data-reka-calendar-cell-trigger]:focus')
+    await expect(focused).toHaveCount(1)
     const before = await focused.getAttribute('data-value')
     await page.keyboard.press('ArrowRight')
-    await expect(dialog.locator('[data-reka-calendar-cell-trigger][data-focused]')).toBeFocused()
-    expect(await dialog.locator('[data-reka-calendar-cell-trigger][data-focused]').getAttribute('data-value')).not.toBe(before)
+    await expect(focused).toHaveCount(1)
+    expect(await focused.getAttribute('data-value')).not.toBe(before)
     await expect(dialog.getByRole('button', { name: 'Next month' })).toBeAttached()
     await expectNoSeriousViolations(page, '#overlays')
     // Escape closes without touching the ticket.

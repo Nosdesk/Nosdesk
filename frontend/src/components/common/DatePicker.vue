@@ -187,10 +187,6 @@ function inBounds(iso: string): boolean {
 const minValue = computed(() => toDate(props.min))
 const maxValue = computed(() => toDate(props.max))
 
-// The calendar opens on today when nothing is set; a date-only
-// placeholder also pins the field to three segments.
-const placeholder = today(getLocalTimeZone())
-
 // The field shows what was typed, including a value outside the
 // bounds (Reka flags it invalid); the parent hears about it on commit,
 // and only when it is a value it can accept. Parent writes replace
@@ -224,6 +220,11 @@ function onRangeUpdate(value: DateRange): void {
   rangeDraft.value = value
   dirty = true
 }
+
+// The calendar opens on the value, else today (Reka reads this once and
+// follows the value from then on); a date-only placeholder also pins
+// the field to three segments.
+const placeholder = (props.range ? rangeDraft.value.start : draft.value) ?? today(getLocalTimeZone())
 
 function commit(): void {
   if (!dirty) return
