@@ -61,20 +61,26 @@ const toHhmm = (value: TimeValue | undefined | null): string =>
   value ? `${String(value.hour).padStart(2, '0')}:${String(value.minute).padStart(2, '0')}` : ''
 
 // The field shows what was typed; the parent hears about it on commit.
-// Parent writes replace the draft.
+// Parent writes replace the draft. Only an edit commits: a parent value
+// the field could not parse is left alone, not cleared.
+let dirty = false
 const draft = shallowRef<Time | undefined>(toTime(props.modelValue))
 watch(
   () => props.modelValue,
   (v) => {
     draft.value = toTime(v)
+    dirty = false
   },
 )
 
 function onUpdate(value: TimeValue | undefined): void {
   draft.value = value ? new Time(value.hour, value.minute) : undefined
+  dirty = true
 }
 
 function commit(): void {
+  if (!dirty) return
+  dirty = false
   const next = toHhmm(draft.value)
   if (next !== props.modelValue) emit('update:modelValue', next)
 }

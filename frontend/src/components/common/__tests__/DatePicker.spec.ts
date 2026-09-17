@@ -81,15 +81,30 @@ describe('DatePicker', () => {
     expect(updates).toEqual(['2026-09-18', '2026-09-19'])
   })
 
-  it('follows the parent value', async () => {
-    wrapper = mountWithProviders(DatePicker, { modelValue: '2026-09-17' })
+  it('follows the parent value, from empty and back', async () => {
+    wrapper = mountWithProviders(DatePicker, { modelValue: '' })
     await nextTick()
+    expect(segment('day').attributes('data-placeholder')).toBe('')
     await wrapper.setProps({ modelValue: '2027-01-02' })
     expect(segment('day').attributes('aria-valuenow')).toBe('2')
     expect(segment('month').attributes('aria-valuenow')).toBe('1')
     expect(segment('year').attributes('aria-valuenow')).toBe('2027')
     await wrapper.setProps({ modelValue: '' })
     expect(segment('day').attributes('data-placeholder')).toBe('')
+  })
+
+  it('leaves a value it cannot parse alone', async () => {
+    const updates: string[] = []
+    wrapper = mountWithProviders(DatePicker, {
+      modelValue: 'not-a-date',
+      'onUpdate:modelValue': (v: string) => updates.push(v),
+    })
+    await nextTick()
+    expect(segment('day').attributes('data-placeholder')).toBe('')
+    await blur()
+    wrapper.unmount()
+    wrapper = null
+    expect(updates).toEqual([])
   })
 
   it('holds a value outside the bounds without committing it', async () => {

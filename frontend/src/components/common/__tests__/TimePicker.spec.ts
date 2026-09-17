@@ -82,6 +82,19 @@ describe('TimePicker', () => {
     expect(updates).toEqual([''])
   })
 
+  it('leaves a value it cannot parse alone', async () => {
+    const updates: string[] = []
+    wrapper = mountWithProviders(TimePicker, {
+      modelValue: '9:30',
+      'onUpdate:modelValue': (v: string) => updates.push(v),
+    })
+    await nextTick()
+    await blur()
+    wrapper.unmount()
+    wrapper = null
+    expect(updates).toEqual([])
+  })
+
   it('renders a label tied to the field and puts error on the segments', async () => {
     wrapper = mountWithProviders(TimePicker, { modelValue: '', label: 'Closes at', error: true })
     await nextTick()

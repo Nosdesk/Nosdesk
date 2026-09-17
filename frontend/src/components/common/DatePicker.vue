@@ -194,17 +194,21 @@ const placeholder = today(getLocalTimeZone())
 // The field shows what was typed, including a value outside the
 // bounds (Reka flags it invalid); the parent hears about it on commit,
 // and only when it is a value it can accept. Parent writes replace
-// the draft.
+// the draft. Only an edit commits: a parent value the field could not
+// parse is left alone, not cleared.
+let dirty = false
 const draft = shallowRef<CalendarDate | undefined>(toDate(props.modelValue))
 watch(
   () => props.modelValue,
   (v) => {
     draft.value = toDate(v)
+    dirty = false
   },
 )
 
 function onUpdate(value: DateValue | undefined): void {
   draft.value = value ? parseDate(toIso(value)) : undefined
+  dirty = true
 }
 
 const rangeDraft = shallowRef<DateRange>({ start: toDate(props.start), end: toDate(props.end) })
@@ -212,14 +216,18 @@ watch(
   () => [props.start, props.end],
   ([start, end]) => {
     rangeDraft.value = { start: toDate(start), end: toDate(end) }
+    dirty = false
   },
 )
 
 function onRangeUpdate(value: DateRange): void {
   rangeDraft.value = value
+  dirty = true
 }
 
 function commit(): void {
+  if (!dirty) return
+  dirty = false
   if (props.range) {
     const start = toIso(rangeDraft.value.start)
     const end = toIso(rangeDraft.value.end)
@@ -458,6 +466,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 
 .date-picker--block .date-picker__field {
   width: 100%;
+  min-width: 0;
 }
 </style>
 
