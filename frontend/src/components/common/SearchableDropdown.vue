@@ -242,12 +242,13 @@ const optionClasses = (option: DropdownOption) => [
           <!-- Named, and a tab stop in its own right: the filter drives it
                through aria-activedescendant, but a scrollable list must
                also be reachable directly (axe scrollable-region-focusable). -->
-          <ListboxContent
-            class="py-1 overflow-y-auto max-h-64 outline-none"
-            :class="sizeClasses.menu"
-            tabindex="0"
-            :aria-label="label ?? resolvedPlaceholder"
-          >
+          <ListboxContent as-child>
+            <div
+              class="py-1 overflow-y-auto max-h-64 outline-none"
+              :class="sizeClasses.menu"
+              tabindex="0"
+              :aria-label="label ?? resolvedPlaceholder"
+            >
             <ListboxItem
               v-for="option in filteredOptions"
               :key="option.value"
@@ -268,6 +269,7 @@ const optionClasses = (option: DropdownOption) => [
               class="px-4 py-6 text-center text-sm text-tertiary"
             >
               {{ resolvedEmptyMessage }}
+            </div>
             </div>
           </ListboxContent>
         </ListboxRoot>

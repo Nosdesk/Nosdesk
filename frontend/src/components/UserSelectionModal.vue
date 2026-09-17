@@ -163,8 +163,8 @@ const clearUser = () => {
       </div>
 
       <!-- User List -->
-      <ListboxContent
-        v-else-if="users.length > 0"
+      <ListboxContent v-else-if="users.length > 0" as-child>
+      <div
         class="flex flex-col gap-1 max-h-96 overflow-y-auto outline-none"
         tabindex="0"
         :aria-label="t('ui-user-selection-modal-title')"
@@ -219,6 +219,7 @@ const clearUser = () => {
           </svg>
         </button>
         </ListboxItem>
+      </div>
       </ListboxContent>
 
       <!-- Empty State -->
