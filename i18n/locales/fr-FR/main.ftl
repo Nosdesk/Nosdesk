@@ -6984,3 +6984,10 @@ settings-export-error = Impossible de démarrer l'export. Veuillez réessayer.
 
 # MACHINE TRANSLATION, pending native review
 filter-toggle-clear-hint = { $label }. Cliquer pour effacer.
+# MACHINE TRANSLATION, pending native review
+inline-edit-hint = Cliquer pour modifier
+# MACHINE TRANSLATION, pending native review
+form-number-increment = Augmenter
+form-number-decrement = Diminuer
+# MACHINE TRANSLATION, pending native review
+otp-digit-aria = Chiffre { $index } sur { $count }

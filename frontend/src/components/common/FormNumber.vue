@@ -3,32 +3,31 @@ Shared number-input primitive: label + numeric input with explicit
 ± stepper buttons + hint/error, in the same shell as FormInput so
 forms that mix the two stay visually coherent.
 
-Why not just `<input type="number">`: the native control has
-inconsistent spinners across browsers (Chrome's are tiny, Firefox's
-are different, Safari's barely render), the scroll-wheel-changes-
-value misfeature is hard to disable cleanly, and HTML5 number
-inputs accept Unicode decimal separators inconsistently across
-locales. The input here is `type="text"` underneath with
-`inputmode="numeric"` (or `decimal`) for mobile keyboards, and we
-do our own numeric coercion + clamping in the component so the
-behaviour is identical everywhere.
+On Reka's NumberField: the input is `type="text"` with the right
+`inputmode` for mobile keyboards, parsing and formatting go through
+`Intl.NumberFormat` in the active locale (so "1,5" is a decimal for a
+French user), keystrokes that cannot become a number are refused,
+ArrowUp/Down and PageUp/Down step, Home/End jump to the bounds, the
+steppers hold-to-repeat, and `aria-valuenow/min/max` are on the input.
+Wheel-to-change stays off: scrolling a form must not edit it.
 
 Behaviour:
 - modelValue: number | null. Null means "empty"; the input renders
   the empty string. Required fields catch null at submit time.
-- min / max: clamped on blur and on every stepper click.
-- step: increment for the stepper buttons and ArrowUp/Down.
-  Defaults to 1.
-- integer: forces values to integers (truncates fractions on blur).
-- ArrowUp / ArrowDown step by `step`.
-- Disabled state: input read-only, both stepper buttons disabled.
+- The value commits on blur, Enter and the steppers, clamped to
+  min / max and snapped to `step`; mid-typing text is not pushed.
+- integer: no fraction digits, so a decimal separator is refused.
+- Grouping separators are off: every field here is a port, a count
+  or an order, never a quantity to read in thousands.
 
 Arbitrary native attributes (name, autocomplete, @blur, ...) fall
 through to the inner <input>; a `class` on the component lands on
 the wrapper for layout.
 -->
 <script setup lang="ts">
-import { computed, ref, useId, watch } from 'vue';
+import { computed, useId } from 'vue';
+import { NumberFieldDecrement, NumberFieldIncrement, NumberFieldInput, NumberFieldRoot } from 'reka-ui';
+import { useFluent } from 'fluent-vue';
 
 type Size = 'sm' | 'md';
 
@@ -44,13 +43,13 @@ interface Props {
   size?: Size;
   /** Override the generated id (e.g. to point an external label at it). */
   id?: string;
-  /** Lower bound; clamped on blur and on every stepper click. */
+  /** Lower bound; clamped on commit and on every stepper click. */
   min?: number;
-  /** Upper bound; clamped on blur and on every stepper click. */
+  /** Upper bound; clamped on commit and on every stepper click. */
   max?: number;
   /** Stepper increment + ArrowUp/Down step. Default 1. */
   step?: number;
-  /** Coerce to integer on blur (truncates fractions). */
+  /** Whole numbers only. */
   integer?: boolean;
 }
 
@@ -64,105 +63,27 @@ const props = withDefaults(defineProps<Props>(), {
 
 const model = defineModel<number | null>({ required: true });
 
+const fluent = useFluent();
 const generatedId = useId();
 const inputId = computed(() => props.id ?? generatedId);
 const describedById = computed(() =>
   props.error || props.description ? `${inputId.value}-desc` : undefined,
 );
 
-// Local string for the input element. Lets the user type "-",
-// "1.", "" etc. without us immediately coercing those mid-keystroke
-// into something that doesn't round-trip. Coercion lands on blur.
-const localValue = ref<string>(model.value == null ? '' : String(model.value));
+const formatOptions = computed<Intl.NumberFormatOptions>(() => ({
+  useGrouping: false,
+  ...(props.integer ? { maximumFractionDigits: 0 } : {}),
+}));
 
-// External model changes (parent reset, prop binding) should
-// reflect in the input. Avoids the loop case by skipping when the
-// local string already represents the same number.
-watch(
-  () => model.value,
-  (next) => {
-    const current = parseLocal(localValue.value);
-    if (next === current) return;
-    localValue.value = next == null ? '' : String(next);
-  },
-);
-
-function parseLocal(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (trimmed === '' || trimmed === '-' || trimmed === '.') return null;
-  const n = Number(trimmed);
-  if (Number.isNaN(n)) return null;
-  return n;
+// Reka reports an empty field as undefined (and NaN mid-clear).
+function onUpdate(value: number | undefined) {
+  model.value = value == null || Number.isNaN(value) ? null : value;
 }
 
-function clamp(n: number): number {
-  let result = n;
-  if (props.integer) result = Math.trunc(result);
-  if (props.min != null && result < props.min) result = props.min;
-  if (props.max != null && result > props.max) result = props.max;
-  return result;
-}
-
-function commit(): void {
-  const parsed = parseLocal(localValue.value);
-  if (parsed == null) {
-    model.value = null;
-    localValue.value = '';
-    return;
-  }
-  const clamped = clamp(parsed);
-  model.value = clamped;
-  localValue.value = String(clamped);
-}
-
-function onInput(event: Event): void {
-  // Live-update the local string; defer numeric coercion / clamping
-  // to blur so the admin can type "12-3" -> backspace -> "123"
-  // without the value flipping under them mid-keystroke.
-  localValue.value = (event.target as HTMLInputElement).value;
-  const parsed = parseLocal(localValue.value);
-  if (parsed != null) {
-    // Push intermediate parses to the model so consumers see live
-    // updates; clamping waits for blur so the user isn't trapped
-    // mid-edit.
-    if (props.integer && !Number.isInteger(parsed)) {
-      // Decimal mid-edit for integer-only field: hold the model at
-      // its last known integer so v-model consumers don't see a
-      // bogus fractional value. The blur clamp truncates.
-      return;
-    }
-    model.value = parsed;
-  } else {
-    model.value = null;
-  }
-}
-
-function bumpBy(direction: 1 | -1): void {
-  if (props.disabled) return;
-  const current = model.value ?? props.min ?? 0;
-  const next = clamp(current + props.step * direction);
-  model.value = next;
-  localValue.value = String(next);
-}
-
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'ArrowUp') {
-    event.preventDefault();
-    bumpBy(1);
-  } else if (event.key === 'ArrowDown') {
-    event.preventDefault();
-    bumpBy(-1);
-  }
-}
-
-const stepUpDisabled = computed(
-  () => props.disabled || (props.max != null && (model.value ?? props.min ?? 0) >= props.max),
-);
-const stepDownDisabled = computed(
-  () => props.disabled || (props.min != null && (model.value ?? props.min) <= props.min),
-);
-
-const inputMode = computed(() => (props.integer ? 'numeric' : 'decimal'));
+const stepperClasses = computed(() => [
+  'px-3 text-secondary hover:text-primary hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors leading-none flex items-center justify-center select-none',
+  props.size === 'sm' ? 'text-base' : 'text-lg',
+]);
 </script>
 
 <template>
@@ -175,34 +96,39 @@ const inputMode = computed(() => (props.integer ? 'numeric' : 'decimal'));
       {{ label
       }}<span v-if="required" class="text-status-error ml-0.5" aria-hidden="true">*</span>
     </label>
-    <div
+    <NumberFieldRoot
+      :id="inputId"
+      :model-value="model ?? undefined"
+      :min="min"
+      :max="max"
+      :step="step"
+      :format-options="formatOptions"
+      :disabled="disabled"
+      :required="required"
+      disable-wheel-change
       :class="[
         'flex items-stretch w-full bg-surface-alt border rounded-lg overflow-hidden transition-colors',
         'focus-within:ring-2 focus-within:ring-accent focus-within:border-accent',
         disabled ? 'opacity-50' : '',
         error ? 'border-status-error' : 'border-subtle',
       ]"
+      @update:model-value="onUpdate"
     >
-      <button
-        type="button"
-        :disabled="stepDownDisabled"
-        :aria-label="($attrs['aria-label-decrement'] as string | undefined) ?? 'Decrement'"
-        :class="[
-          'px-3 text-secondary hover:text-primary hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors border-r border-subtle leading-none flex items-center justify-center',
-          size === 'sm' ? 'text-base' : 'text-lg',
-        ]"
-        @click="bumpBy(-1)"
-      >
-        &minus;
-      </button>
-      <input
-        :id="inputId"
-        type="text"
-        :value="localValue"
+      <NumberFieldDecrement as-child>
+        <button
+          type="button"
+          :aria-label="fluent.$t('form-number-decrement')"
+          :class="[stepperClasses, 'border-r border-subtle']"
+        >
+          &minus;
+        </button>
+      </NumberFieldDecrement>
+      <!-- The root's id lands on the input. Reka's English role
+           description is dropped; `spinbutton` already says it. -->
+      <NumberFieldInput
         :placeholder="placeholder"
+        :aria-roledescription="undefined"
         :required="required"
-        :disabled="disabled"
-        :inputmode="inputMode"
         :aria-invalid="error ? 'true' : undefined"
         :aria-describedby="describedById"
         :class="[
@@ -211,24 +137,18 @@ const inputMode = computed(() => (props.integer ? 'numeric' : 'decimal'));
           'disabled:cursor-not-allowed',
           size === 'sm' ? 'px-2 py-1.5 text-sm' : 'px-3 py-2',
         ]"
-        v-bind="{ ...$attrs, class: undefined, 'aria-label-decrement': undefined, 'aria-label-increment': undefined }"
-        @input="onInput"
-        @blur="commit"
-        @keydown="onKeydown"
+        v-bind="{ ...$attrs, class: undefined }"
       />
-      <button
-        type="button"
-        :disabled="stepUpDisabled"
-        :aria-label="($attrs['aria-label-increment'] as string | undefined) ?? 'Increment'"
-        :class="[
-          'px-3 text-secondary hover:text-primary hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors border-l border-subtle leading-none flex items-center justify-center',
-          size === 'sm' ? 'text-base' : 'text-lg',
-        ]"
-        @click="bumpBy(1)"
-      >
-        +
-      </button>
-    </div>
+      <NumberFieldIncrement as-child>
+        <button
+          type="button"
+          :aria-label="fluent.$t('form-number-increment')"
+          :class="[stepperClasses, 'border-l border-subtle']"
+        >
+          +
+        </button>
+      </NumberFieldIncrement>
+    </NumberFieldRoot>
     <p v-if="error" :id="describedById" class="text-xs text-status-error">{{ error }}</p>
     <p v-else-if="description" :id="describedById" class="text-xs text-tertiary">
       {{ description }}

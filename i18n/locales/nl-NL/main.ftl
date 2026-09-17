@@ -6976,3 +6976,10 @@ settings-export-error = Kan de export niet starten. Probeer het opnieuw.
 
 # MACHINE TRANSLATION, pending native review
 filter-toggle-clear-hint = { $label }. Klik om te wissen.
+# MACHINE TRANSLATION, pending native review
+inline-edit-hint = Klik om te bewerken
+# MACHINE TRANSLATION, pending native review
+form-number-increment = Verhogen
+form-number-decrement = Verlagen
+# MACHINE TRANSLATION, pending native review
+otp-digit-aria = Cijfer { $index } van { $count }

@@ -1,9 +1,31 @@
+<!--
+Click-to-edit text on Reka's Editable. The preview is a tab stop that
+opens the editor on focus (keyboard users get in, which the old click-only
+div never allowed), the input takes focus with its text selected, Enter
+and blur submit, Escape cancels, and Reka's dismiss layers handle the
+outside click.
+
+Two contracts this keeps from the old component, both above Reka's
+model:
+- `update:modelValue` fires once per edit session and only when the
+  value changed; this is the event that writes and audits. Reka's submit
+  writes unconditionally, so the wrapper compares against the value at
+  edit start.
+- The parent's value is held constant while editing. The per-keystroke
+  `preview` echoes back through `modelValue` (and a remote update can
+  arrive mid-edit); Reka would copy either into the input and clobber
+  the draft.
+-->
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { EditableArea, EditableInput, EditablePreview, EditableRoot } from 'reka-ui';
+import { useFluent } from 'fluent-vue';
 
 interface Props {
   modelValue: string;
   placeholder?: string;
+  /** Accessible name for the editor; defaults to the placeholder. */
+  label?: string;
   textSize?: 'sm' | 'base' | 'lg' | 'xl' | '2xl';
   canEdit?: boolean;
   prefix?: string;
@@ -23,7 +45,7 @@ const props = withDefaults(defineProps<Props>(), {
   canEdit: true,
   prefix: '',
   showEditHint: true,
-  truncate: false
+  truncate: false,
 });
 
 const emit = defineEmits<{
@@ -32,85 +54,63 @@ const emit = defineEmits<{
   'update:modelValue': [value: string];
   // Transient draft on every keystroke. For live display and optional
   // SSE field-preview broadcast; never commits.
-  'preview': [value: string];
+  preview: [value: string];
 }>();
 
+const fluent = useFluent();
+
 const isEditing = ref(false);
+// What Reka sees. Follows the parent while idle, frozen while editing.
+const held = ref(props.modelValue);
 const originalValue = ref(props.modelValue);
-const inputRef = ref<HTMLInputElement | null>(null);
 
-// Local value for editing - prevents cursor jumping from async parent updates
-// This is the Vue best practice for controlled inputs
-const localValue = ref(props.modelValue);
+watch(
+  () => props.modelValue,
+  (next) => {
+    if (!isEditing.value) held.value = next;
+  },
+);
 
-// Sync from the parent only when NOT editing. Mid-edit we must leave both
-// refs alone: originalValue has to stay the pre-edit snapshot so commit-on-
-// blur can tell a real change from a no-op, and localValue must keep the
-// user's in-progress text (our own per-keystroke `preview` echoes back
-// through modelValue, and so can a remote SSE update).
-watch(() => props.modelValue, (newValue) => {
-  if (!isEditing.value) {
-    originalValue.value = newValue;
-    localValue.value = newValue;
-  }
-});
-
-// Auto-focus and snapshot the starting value when entering edit mode.
-watch(isEditing, async (newValue) => {
-  if (newValue) {
+function onState(state: 'edit' | 'submit' | 'cancel') {
+  if (state === 'edit') {
     originalValue.value = props.modelValue;
-    localValue.value = props.modelValue;
-    await nextTick();
-    inputRef.value?.focus();
-    inputRef.value?.select();
-  }
-});
-
-const handleClick = () => {
-  if (props.canEdit && !isEditing.value) {
+    held.value = props.modelValue;
     isEditing.value = true;
+    return;
   }
-};
+  isEditing.value = false;
+  held.value = props.modelValue;
+  if (state === 'cancel') emit('preview', originalValue.value);
+}
 
-const handleInput = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  localValue.value = target.value;
-  // Per-keystroke draft only: drives live display / SSE preview, never commits.
-  emit('preview', localValue.value);
-};
+// Reka submits unconditionally; only a real change reaches the parent.
+function onSubmit(value: string) {
+  if (value !== originalValue.value) emit('update:modelValue', value);
+}
 
-const handleBlur = () => {
-  if (isEditing.value) {
-    isEditing.value = false;
-    // Commit once at the end of the edit session, and only if it changed,
-    // so an open-then-close with no edit (or an unchanged value) is a no-op.
-    if (localValue.value !== originalValue.value) {
-      emit('update:modelValue', localValue.value);
-    }
-  }
-};
+function onInput(event: Event) {
+  emit('preview', (event.target as HTMLInputElement).value);
+}
 
-const handleKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    (event.target as HTMLInputElement).blur();
-  } else if (event.key === 'Escape') {
-    // Cancel: restore original value, exit, and reset any transient
-    // preview state the parent built up from keystrokes.
-    localValue.value = originalValue.value;
-    isEditing.value = false;
-    emit('preview', originalValue.value);
-  }
-};
-
-// Text size classes
 const textSizeClasses = {
   sm: 'text-sm',
   base: 'text-base',
   lg: 'text-lg',
   xl: 'text-xl',
-  '2xl': 'text-2xl'
+  '2xl': 'text-2xl',
 };
+
+// `maxLines` takes precedence over `truncate`. line-clamp-2 wraps to
+// two lines with ellipsis past that, paired with leading-tight so two
+// lines fit in a header row sized for one.
+const clampClass = computed(() =>
+  props.maxLines === 2
+    ? 'line-clamp-2 leading-tight break-words'
+    : props.maxLines === 1 || props.truncate
+      ? 'truncate'
+      : 'break-words',
+);
+const accessibleName = computed(() => props.label ?? props.placeholder);
 </script>
 
 <template>
@@ -123,75 +123,60 @@ const textSizeClasses = {
       {{ prefix }}
     </span>
 
-    <div class="flex-1 relative min-w-0">
-      <!-- Display mode - shows wrapped text or truncated text -->
-      <div
-        v-if="!isEditing"
-        @click="handleClick"
-        class="w-full font-semibold px-1 py-0.5 rounded-lg hover:bg-surface-hover transition-all duration-150 border-2 border-transparent"
-        :class="[
-          textSizeClasses[textSize],
-          // `maxLines` takes precedence over `truncate`. line-clamp-2
-          // wraps to two lines with ellipsis past that, paired with
-          // leading-tight so two lines comfortably fit in a header
-          // row sized for one. Falls back to single-line truncate or
-          // unlimited break-words depending on the legacy
-          // `truncate` flag.
-          maxLines === 2
-            ? 'line-clamp-2 leading-tight break-words'
-            : maxLines === 1 || truncate
-              ? 'truncate'
-              : 'break-words',
-          {
-            'cursor-pointer': canEdit,
-            'cursor-default': !canEdit,
-            'text-primary': modelValue,
-            'text-tertiary italic': !modelValue
-          }
-        ]"
-        :title="(maxLines || truncate) && modelValue ? modelValue : undefined"
-      >
-        {{ modelValue || placeholder }}
-      </div>
+    <EditableRoot
+      :model-value="held"
+      :placeholder="placeholder"
+      :activation-mode="canEdit ? 'focus' : 'none'"
+      submit-mode="both"
+      select-on-focus
+      class="flex-1 relative min-w-0"
+      @update:model-value="onSubmit"
+      @update:state="onState"
+    >
+      <EditableArea class="w-full">
+        <EditablePreview as-child>
+          <div
+            class="w-full font-semibold px-1 py-0.5 rounded-lg transition-all duration-150 border-2 border-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            :class="[
+              textSizeClasses[textSize],
+              clampClass,
+              canEdit ? 'cursor-pointer hover:bg-surface-hover' : 'cursor-default',
+              held ? 'text-primary' : 'text-tertiary italic',
+            ]"
+            :tabindex="canEdit ? 0 : -1"
+            :title="(maxLines || truncate) && held ? held : undefined"
+          >
+            {{ held || placeholder }}
+          </div>
+        </EditablePreview>
+        <EditableInput as-child>
+          <input
+            type="text"
+            :aria-label="accessibleName"
+            class="w-full bg-surface-hover text-primary font-semibold px-1 py-0.5 rounded-lg focus:bg-surface focus:outline-none transition-all duration-150 border-2 border-transparent focus:border-accent/50 cursor-text"
+            :class="textSizeClasses[textSize]"
+            @input="onInput"
+          />
+        </EditableInput>
+      </EditableArea>
 
-      <!-- Edit mode - input field using local value to preserve cursor position -->
-      <input
-        v-else
-        :value="localValue"
-        @input="handleInput"
-        type="text"
-        class="w-full bg-surface-hover text-primary font-semibold px-1 py-0.5 rounded-lg focus:bg-surface focus:outline-none transition-all duration-150 border-2 border-transparent focus:border-accent/50"
-        :class="[
-          textSizeClasses[textSize],
-          'cursor-text'
-        ]"
-        :placeholder="placeholder"
-        @blur="handleBlur"
-        @keydown="handleKeydown"
-        ref="inputRef"
-      />
-
-      <!-- Edit indicator -->
+      <!-- Edit hint, pointer only (the preview's focus ring covers keyboard). -->
       <span
         v-if="!isEditing && canEdit && showEditHint"
         class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none select-none"
+        aria-hidden="true"
       >
-        Click to edit
+        {{ fluent.$t('inline-edit-hint') }}
       </span>
-    </div>
+    </EditableRoot>
   </div>
 </template>
 
 <style scoped>
-.transition-all {
-  transition-property: all;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .transition-all {
     transition: opacity 0.1s ease-in-out;
     transform: none;
   }
 }
-</style> 
+</style>

@@ -1,44 +1,40 @@
-<template>
-  <div class="relative">
-    <!-- Visual digit boxes. Boxes flex to share the available width
-         (capped per-box) so the group never overflows a narrow column
-         and never stretches awkwardly in a wide one. -->
-    <div class="flex w-full justify-center gap-1.5 sm:gap-2">
-      <div
-        v-for="i in length"
-        :key="i"
-        class="flex-1 min-w-0 max-w-[3.25rem] h-12 sm:h-14 bg-surface-alt border rounded-lg flex items-center justify-center text-primary text-lg sm:text-xl font-mono transition-colors"
-        :class="[
-          isFocused && modelValue.length === i - 1 ? 'border-accent ring-2 ring-accent/50' :
-          modelValue.length >= i ? 'border-strong' : 'border-subtle'
-        ]"
-      >
-        {{ modelValue[i - 1] || '' }}
-      </div>
-    </div>
+<!--
+One-time-code entry on Reka's PinInput: one real input per digit inside a
+named group, so each box is reachable, announced ("Digit 2 of 6") and
+carries `autocomplete=one-time-code` for the SMS suggestion. Typing
+advances, Backspace retreats, arrows and Home/End move, a paste or an
+autofill of the whole code spreads across the boxes, and `complete`
+fires once the last digit lands. Digits only (`type=number`).
 
-    <!-- Hidden input for interaction and autofill -->
-    <input
-      ref="inputRef"
-      type="text"
-      inputmode="numeric"
-      :maxlength="length"
-      autocomplete="one-time-code"
-      :value="modelValue"
-      @input="handleInput"
-      @paste="handlePaste"
-      @focus="isFocused = true"
-      @blur="isFocused = false"
-      @keydown="handleKeydown"
-      class="absolute inset-0 w-full h-full bg-transparent border-none outline-none cursor-text z-10"
-      style="color: transparent; -webkit-text-fill-color: transparent; caret-color: transparent;"
-      :aria-label="ariaLabel"
-    />
-  </div>
+The model stays the plain string the callers submit; a gap left by
+deleting a middle digit closes up, which is the linear entry a code
+wants anyway.
+-->
+<template>
+  <PinInputRoot
+    :model-value="digits"
+    type="number"
+    otp
+    role="group"
+    :aria-label="ariaLabel"
+    class="flex w-full justify-center gap-1.5 sm:gap-2"
+    @update:model-value="onUpdate"
+    @complete="onComplete"
+  >
+    <PinInputInput v-for="(_, i) in length" :key="i" :index="i" as-child>
+      <input
+        :aria-label="fluent.$t('otp-digit-aria', { index: i + 1, count: length })"
+        class="flex-1 min-w-0 max-w-[3.25rem] h-12 sm:h-14 bg-surface-alt border border-subtle rounded-lg text-center text-primary text-lg sm:text-xl font-mono transition-colors focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/50 [&:not(:placeholder-shown)]:border-strong caret-accent"
+        placeholder=" "
+      />
+    </PinInputInput>
+  </PinInputRoot>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed } from 'vue';
+import { PinInputInput, PinInputRoot } from 'reka-ui';
+import { useFluent } from 'fluent-vue';
 
 const props = withDefaults(defineProps<{
   modelValue: string;
@@ -46,7 +42,7 @@ const props = withDefaults(defineProps<{
   ariaLabel?: string;
 }>(), {
   length: 6,
-  ariaLabel: 'One-time password'
+  ariaLabel: undefined,
 });
 
 const emit = defineEmits<{
@@ -54,64 +50,23 @@ const emit = defineEmits<{
   (e: 'complete', value: string): void;
 }>();
 
-const inputRef = ref<HTMLInputElement | null>(null);
-const isFocused = ref(false);
+const fluent = useFluent();
 
-// Handle input changes
-const handleInput = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  const value = target.value.replace(/[^0-9]/g, '').slice(0, props.length);
+const digits = computed<number[]>(() => props.modelValue.split('').map(Number));
 
-  emit('update:modelValue', value);
-  target.value = value;
+function join(values: Array<number | undefined | null>): string {
+  return values
+    .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v))
+    .join('')
+    .slice(0, props.length);
+}
 
-  if (value.length === props.length) {
-    emit('complete', value);
-  }
-};
+function onUpdate(values: number[]) {
+  const next = join(values);
+  if (next !== props.modelValue) emit('update:modelValue', next);
+}
 
-// Handle paste
-const handlePaste = (event: ClipboardEvent) => {
-  event.preventDefault();
-  const pastedText = event.clipboardData?.getData('text') || '';
-  const cleanValue = pastedText.replace(/[^0-9]/g, '').slice(0, props.length);
-
-  emit('update:modelValue', cleanValue);
-
-  if (inputRef.value) {
-    inputRef.value.value = cleanValue;
-  }
-
-  if (cleanValue.length === props.length) {
-    emit('complete', cleanValue);
-  }
-};
-
-// Handle keydown
-const handleKeydown = (event: KeyboardEvent) => {
-  const key = event.key;
-
-  // Allow navigation and control keys
-  if (['Tab', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Delete'].includes(key)) {
-    return;
-  }
-
-  // Allow clipboard shortcuts (Ctrl+V, Cmd+V, etc.)
-  if (event.ctrlKey || event.metaKey) {
-    return;
-  }
-
-  // Only allow numeric input
-  if (!/^[0-9]$/.test(key)) {
-    event.preventDefault();
-  }
-};
-
-// Focus the input programmatically
-const focus = () => {
-  inputRef.value?.focus();
-};
-
-// Expose focus method
-defineExpose({ focus });
+function onComplete(values: number[]) {
+  emit('complete', join(values));
+}
 </script>
