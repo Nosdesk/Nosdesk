@@ -215,7 +215,7 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
       placement="bottom-start"
       react-to-scroll="reposition"
       :offset="4"
-      role="menu"
+      role="dialog"
       :auto-focus="false"
       popover-class="bg-surface border border-default rounded-lg shadow-xl overflow-hidden min-w-[15rem] max-w-[calc(100vw-1rem)] sm:max-w-[22rem]"
       @close="onClose"

@@ -22,7 +22,12 @@
  */
 import { computed } from 'vue'
 import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui'
-import type { PopoverAnchor, PopoverPlacement } from '@/composables/popoverAnchor'
+import {
+  anchorElementOf,
+  floatingFrom,
+  type PopoverAnchor,
+  type PopoverPlacement,
+} from '@/composables/popoverAnchor'
 import { useEventListener } from '@/composables/useEventListener'
 
 interface Props {
@@ -55,26 +60,11 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-// 'bottom-start' -> side bottom, align start; bare 'bottom' -> center.
-const side = computed(() => (props.placement.startsWith('top') ? 'top' : 'bottom'))
-const align = computed<'start' | 'center' | 'end'>(() => {
-  if (props.placement.endsWith('-start')) return 'start'
-  if (props.placement.endsWith('-end')) return 'end'
-  return 'center'
-})
-
-function anchorElement(): HTMLElement | null {
-  return props.anchor.type === 'element' ? props.anchor.element() : null
-}
-
-// floating-ui reference: the element itself, or a virtual element for a
-// viewport point. A new object per anchor change re-measures.
-const reference = computed(() => {
-  const a = props.anchor
-  if (a.type === 'element') return a.element() ?? undefined
-  const rect = () => new DOMRect(a.x, a.y, 0, 0)
-  return { getBoundingClientRect: rect }
-})
+const floating = computed(() => floatingFrom(props.anchor, props.placement))
+const side = computed(() => floating.value.side)
+const align = computed(() => floating.value.align)
+const reference = computed(() => floating.value.reference)
+const anchorElement = () => anchorElementOf(props.anchor)
 
 function onOpenChange(open: boolean) {
   if (!open) emit('close')

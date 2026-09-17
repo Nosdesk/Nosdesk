@@ -48,6 +48,8 @@ the panel; Enter inserts the active item.
       :anchor="anchor"
       placement="top-start"
       react-to-scroll="reposition"
+      role="dialog"
+      :aria-label="$t('ticket-picker-canned-trigger-aria')"
       :auto-focus="false"
       popover-class="w-72 max-w-[calc(100vw-1rem)] bg-surface border border-default rounded-lg shadow-lg overflow-hidden"
       @close="closePicker(false)"

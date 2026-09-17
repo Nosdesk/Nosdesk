@@ -248,7 +248,8 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
         placement="top-start"
         react-to-scroll="reposition"
         :auto-focus="false"
-        role="menu"
+        role="dialog"
+        :aria-label="$t('ticket-list-bulk-status')"
         popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[200px] max-h-[320px] overflow-y-auto"
         @close="statusOpen = false"
       >
@@ -311,7 +312,8 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
         placement="top-start"
         react-to-scroll="reposition"
         :auto-focus="false"
-        role="menu"
+        role="dialog"
+        :aria-label="$t('ticket-list-bulk-priority')"
         popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[160px]"
         @close="priorityOpen = false"
       >

@@ -107,7 +107,7 @@ function onRemove(e: MouseEvent): void {
       placement="bottom-start"
       react-to-scroll="reposition"
       :offset="4"
-      role="menu"
+      role="dialog"
       :auto-focus="!isText"
       popover-class="bg-surface border border-default rounded-lg shadow-xl overflow-hidden min-w-[16rem] max-w-[calc(100vw-1rem)] sm:max-w-[22rem]"
       @close="open = false"

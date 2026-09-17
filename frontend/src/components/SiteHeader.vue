@@ -350,8 +350,9 @@ const handleCreateClick = () => {
             ref="buttonRef"
             @click="toggleUserMenu"
             class="flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 hover:ring-2 hover:ring-accent rounded-full focus:outline-none focus:ring-2 focus:ring-accent"
-            aria-haspopup="true"
+            aria-haspopup="menu"
             :aria-expanded="showUserMenu"
+            :aria-label="$t('user-menu-aria')"
           >
             <UserAvatar
               :showName="false"
