@@ -6089,6 +6089,17 @@ color-cyan = Cyan
 color-blue = Blue
 color-purple = Purple
 color-pink = Pink
+# ColorHueSlider: slider names, spoken values and the disclosure.
+color-slider-hue = Hue
+color-slider-saturation = Saturation
+color-slider-lightness = Lightness
+color-slider-hue-value = { $name }, { $degrees } degrees
+color-slider-percent-value = { $value }%
+color-hex-label = Hex value
+color-picker-expand = More color options
+color-picker-collapse = Fewer color options
+color-picker-reset = Reset to defaults
+color-presets-label = Preset colors
 priority-indicator-low-aria = Low Priority
 priority-indicator-medium-aria = Medium Priority
 priority-indicator-high-aria = High Priority

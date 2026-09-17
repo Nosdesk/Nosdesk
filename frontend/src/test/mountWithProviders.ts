@@ -46,6 +46,22 @@ if (typeof window.matchMedia !== 'function') {
   })
 }
 
+// jsdom has no ResizeObserver; Reka's Slider measures its thumb with one.
+// Nothing resizes in a test, so a stub that never calls back is enough.
+if (typeof globalThis.ResizeObserver !== 'function') {
+  class StubResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(globalThis, 'ResizeObserver', { value: StubResizeObserver, configurable: true })
+}
+
+// jsdom has no scrollIntoView; listboxes call it on the highlighted row.
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = () => {}
+}
+
 export function mountWithProviders(
   component: Component,
   props: Record<string, unknown> = {},
