@@ -222,14 +222,21 @@ test.describe('accessibility floor', () => {
 
   test('a checkbox reports its state and a radio group walks with the arrows', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
+    // Row checkboxes show on hover; the header's select-all appears once
+    // a row is selected (bulk mode).
+    await page.locator('table tbody tr').first().hover()
+    const rowBox = page.getByRole('checkbox', { name: /^Select ticket/ }).first()
+    await expect(rowBox).toBeVisible()
+    await expect(rowBox).toHaveAttribute('aria-checked', 'false')
+    await rowBox.click()
+    await expect(rowBox).toHaveAttribute('aria-checked', 'true')
     const selectAll = page.getByRole('checkbox', { name: 'Select all visible tickets' })
     await expect(selectAll).toBeVisible()
-    await expect(selectAll).toHaveAttribute('aria-checked', 'false')
+    await expect(selectAll).toHaveAttribute('aria-checked', 'mixed')
     await selectAll.focus()
     await page.keyboard.press('Space')
-    await expect(selectAll).toHaveAttribute('aria-checked', /true|mixed/)
-    await page.keyboard.press('Space')
-    await expect(selectAll).toHaveAttribute('aria-checked', 'false')
+    await expect(selectAll).toHaveAttribute('aria-checked', 'true')
+    await page.keyboard.press('Escape')
 
     const density = page.getByRole('radiogroup', { name: 'Row density' })
     await expect(density).toBeVisible()
