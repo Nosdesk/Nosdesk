@@ -397,6 +397,32 @@ test.describe('accessibility floor', () => {
     await expect(dialog).toHaveCount(0)
   })
 
+  test('a collection tree is treeitems that walk with the arrows and open on Enter', async ({ page }) => {
+    // The Getting Started collection exists in every workspace. The demo
+    // seed nests no pages, so collapse and expand are unit-tested only.
+    await gotoAndSettle(page, '/documentation/collections/getting-started')
+    const tree = page.getByRole('tree')
+    await expect(tree).toBeVisible()
+    const rows = tree.getByRole('treeitem')
+    await expect(rows.first()).toBeVisible()
+    const count = await rows.count()
+    await expect(rows.first()).toHaveAttribute('aria-level', '1')
+    // Rows are links, so they carry a page URL as well as the tree role.
+    await expect(rows.first()).toHaveAttribute('href', /\/documentation\//)
+    await expectNoSeriousViolations(page, '[role="tree"]')
+
+    await rows.first().focus()
+    if (count > 1) {
+      await page.keyboard.press('ArrowDown')
+      await expect(rows.nth(1)).toBeFocused()
+      await page.keyboard.press('Home')
+    }
+    await expect(rows.first()).toBeFocused()
+    const href = await rows.first().getAttribute('href')
+    await page.keyboard.press('Enter')
+    await page.waitForURL((url) => url.pathname === href)
+  })
+
   test('tickets list has no serious violations', async ({ page }) => {
     await gotoAndSettle(page, '/tickets')
     await expectNoSeriousViolations(page)

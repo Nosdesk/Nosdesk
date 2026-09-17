@@ -5,7 +5,7 @@
  * does in the app. Translations resolve to the message id (no catalogue is
  * loaded), which keeps assertions readable and locale-free.
  */
-import { defineComponent, h, type Component } from 'vue'
+import { defineComponent, h, type Component, type Plugin } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { FluentBundle } from '@fluent/bundle'
 import { createFluentVue } from 'fluent-vue'
@@ -66,6 +66,7 @@ export function mountWithProviders(
   component: Component,
   props: Record<string, unknown> = {},
   slots: Record<string, () => unknown> = {},
+  plugins: Plugin[] = [],
 ): VueWrapper {
   const fluent = createFluentVue({ bundles: [new FluentBundle('en-US')] })
   // The host forwards its attrs on top of the initial props, so
@@ -79,5 +80,5 @@ export function mountWithProviders(
         )
     },
   })
-  return mount(Host, { attachTo: document.body, global: { plugins: [fluent, createPinia()] } })
+  return mount(Host, { attachTo: document.body, global: { plugins: [fluent, createPinia(), ...plugins] } })
 }
