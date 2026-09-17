@@ -1,23 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { defineComponent, h, nextTick } from 'vue'
-import { mount } from '@vue/test-utils'
-import { ConfigProvider, TooltipProvider } from 'reka-ui'
+import { nextTick } from 'vue'
+import { mountWithProviders } from '@/test/mountWithProviders'
 import IconButton from '../IconButton.vue'
 
-// The app wraps everything in these two providers (App.vue); a bare mount
-// would throw on the missing tooltip context.
 function mountIconButton(props: Record<string, unknown> = {}) {
-  const Host = defineComponent({
-    setup() {
-      return () =>
-        h(ConfigProvider, {}, () =>
-          h(TooltipProvider, { delayDuration: 0 }, () =>
-            h(IconButton, { label: 'Delete', icon: 'trash', ...props }),
-          ),
-        )
-    },
-  })
-  return mount(Host, { attachTo: document.body })
+  return mountWithProviders(IconButton, { label: 'Delete', icon: 'trash', ...props })
 }
 
 describe('IconButton', () => {

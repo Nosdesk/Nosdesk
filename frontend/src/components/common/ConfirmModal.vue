@@ -1,7 +1,9 @@
 <!--
 Styled confirmation dialog that replaces ad-hoc `window.confirm`
-calls. Thin wrapper over the design-system `Modal.vue`; consumer
-owns the `show` state and handles the `confirm` event.
+calls. Thin wrapper over the design-system `Modal.vue` in its `alert`
+mode (Reka AlertDialog): a click outside does not dismiss, and focus
+opens on Cancel so Enter never confirms by accident. Consumer owns the
+`show` state and handles the `confirm` event.
 
 Usage:
   <ConfirmModal
@@ -15,7 +17,7 @@ Usage:
   />
 -->
 <template>
-  <Modal :show="show" :title="title" size="sm" @close="emit('close')">
+  <Modal :show="show" :title="title" size="sm" alert @close="emit('close')">
     <div class="flex flex-col gap-4">
       <p class="text-sm text-secondary whitespace-pre-line leading-relaxed">{{ message }}</p>
       <slot name="body" />
@@ -23,7 +25,10 @@ Usage:
 
     <template #footer>
       <div class="modal-actions">
-        <Button variant="ghost" @click="emit('close')">{{ cancelLabel }}</Button>
+        <!-- Cancel closes through the dialog, which emits `close` once. -->
+        <AlertDialogCancel as-child>
+          <Button variant="ghost">{{ cancelLabel }}</Button>
+        </AlertDialogCancel>
         <Button
           :variant="confirmVariant"
           :disabled="confirmDisabled"
@@ -39,6 +44,7 @@ Usage:
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { AlertDialogCancel } from 'reka-ui'
 import Modal from '@/components/Modal.vue'
 import Button from '@/components/common/Button.vue'
 
