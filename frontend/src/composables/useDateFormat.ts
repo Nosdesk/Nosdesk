@@ -66,10 +66,10 @@ export function useDateFormat(
       case 'time':
         return formatTime(dateValue, dateStore.effectiveTimezone)
       case 'long':
-        return formatDate(dateValue, 'MMMM d, yyyy h:mm a', dateStore.effectiveTimezone)
+        return formatDate(dateValue, 'longDateTime', dateStore.effectiveTimezone)
       case 'short':
       default:
-        return formatDate(dateValue, undefined, dateStore.effectiveTimezone)
+        return formatDate(dateValue, 'date', dateStore.effectiveTimezone)
     }
   })
 

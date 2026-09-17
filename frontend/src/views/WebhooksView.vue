@@ -13,7 +13,7 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
 import webhookService from '@nosdesk/core/services/webhookService';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import type {
   Webhook,
   WebhookCreated,
@@ -112,11 +112,7 @@ const disabledWebhooks = computed(() =>
 // Format date helper
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return t('admin-webhooks-meta-never');
-  try {
-    return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
-  } catch {
-    return dateStr;
-  }
+  return formatRelativeTime(dateStr);
 };
 
 // Extract error message from axios error

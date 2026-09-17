@@ -6,7 +6,7 @@
  */
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { format } from 'date-fns'
+import { dayLabel } from './types'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 import StatusPill from '@/components/common/StatusPill.vue'
@@ -38,7 +38,7 @@ const TONE_BY_CATEGORY: Record<WorkflowStateCategory, StatusPillTone> = {
 const statusTone = computed(() => TONE_BY_CATEGORY[props.card.workflow_state.category])
 
 const dateRange = computed(
-  () => `${format(props.start, 'MMM d')} → ${format(props.end, 'MMM d')}`,
+  () => `${dayLabel(props.start)} → ${dayLabel(props.end)}`,
 )
 
 const blocks = computed(() => props.card.relation_counts?.blocks ?? 0)

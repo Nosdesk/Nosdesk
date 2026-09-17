@@ -12,8 +12,7 @@
  */
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { TZDate } from '@date-fns/tz'
-import { addDays, addHours, set } from 'date-fns'
+import { fromDate } from '@internationalized/date'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
@@ -53,22 +52,21 @@ const menuItems = computed<MenuItem[]>(() => [
 /**
  * Resolve a preset id to its `until` instant as an ISO-8601 string.
  * "Later today" is a pure +3h offset (no zone needed); the calendar
- * presets anchor 9am to the user's timezone via TZDate so "tomorrow"
- * means their morning, not the browser's.
+ * presets anchor 9am in the user's timezone so "tomorrow" means their
+ * morning, not the browser's.
  */
 function untilFor(id: string): string | null {
   const tz = dateStore.effectiveTimezone
   const now = new Date()
   const at9am = (days: number) =>
-    set(addDays(new TZDate(now, tz), days), {
-      hours: 9,
-      minutes: 0,
-      seconds: 0,
-      milliseconds: 0,
-    }).toISOString()
+    fromDate(now, tz)
+      .add({ days })
+      .set({ hour: 9, minute: 0, second: 0, millisecond: 0 })
+      .toDate()
+      .toISOString()
   switch (id) {
     case 'later-today':
-      return addHours(now, 3).toISOString()
+      return new Date(now.getTime() + 3 * 3_600_000).toISOString()
     case 'tomorrow':
       return at9am(1)
     case 'next-week':

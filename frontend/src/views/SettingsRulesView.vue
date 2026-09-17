@@ -13,7 +13,7 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
@@ -75,11 +75,7 @@ const filtered = computed<Rule[]>(() => {
 
 function formatLastFired(value: string | null): string {
   if (!value) return t('admin-rules-last-fired-never');
-  try {
-    return formatDistanceToNow(new Date(value), { addSuffix: true });
-  } catch {
-    return value;
-  }
+  return formatRelativeTime(value);
 }
 
 function triggerLabel(kind: RuleTriggerKind): string {

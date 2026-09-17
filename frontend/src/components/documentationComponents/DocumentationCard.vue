@@ -71,7 +71,7 @@ const formatRelativeDate = (dateStr: string | undefined) => {
   if (diffDays === 1) return t('docs-card-relative-yesterday')
   if (diffDays < 7) return t('docs-card-relative-days', { count: diffDays })
   if (diffDays < 30) return t('docs-card-relative-weeks', { count: Math.floor(diffDays / 7) })
-  return formatDate(dateStr, 'MMM d')
+  return formatDate(dateStr, 'monthDay')
 }
 </script>
 

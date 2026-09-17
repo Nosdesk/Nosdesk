@@ -12,7 +12,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BackButton from '@/components/common/BackButton.vue';
@@ -134,11 +134,7 @@ const deleteMessage = computed<string>(() => {
 // canned-responses sweep.
 const highlight = (value: string): string => highlightTerms(value, searchTerms.value);
 function relativeTime(iso: string): string {
-  try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true });
-  } catch {
-    return iso;
-  }
+  return formatRelativeTime(iso);
 }
 
 function openCreate(): void {

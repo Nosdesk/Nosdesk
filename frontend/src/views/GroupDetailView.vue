@@ -166,18 +166,18 @@ const groupTypeDisplay = computed(() => {
               <!-- Last Synced -->
               <div v-if="group.last_synced_at" class="flex flex-col gap-1">
                 <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('group-detail-field-last-synced') }}</h3>
-                <p class="text-primary text-sm">{{ formatDate(group.last_synced_at, 'MMM d, yyyy h:mm a') }}</p>
+                <p class="text-primary text-sm">{{ formatDate(group.last_synced_at, 'dateTime') }}</p>
               </div>
 
               <!-- Created/Updated -->
               <div class="grid grid-cols-2 gap-3 sm:gap-4 pt-2 sm:pt-3 border-t border-default">
                 <div class="flex flex-col gap-1">
                   <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('group-detail-field-created') }}</h4>
-                  <p class="text-primary text-sm">{{ formatDate(group.created_at, 'MMM d, yyyy') }}</p>
+                  <p class="text-primary text-sm">{{ formatDate(group.created_at) }}</p>
                 </div>
                 <div class="flex flex-col gap-1">
                   <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('group-detail-field-updated') }}</h4>
-                  <p class="text-primary text-sm">{{ formatDate(group.updated_at, 'MMM d, yyyy') }}</p>
+                  <p class="text-primary text-sm">{{ formatDate(group.updated_at) }}</p>
                 </div>
               </div>
             </div>

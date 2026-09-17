@@ -5,8 +5,7 @@
  * `days * pxPerDay`. Both read the same half-open span so inclusive
  * `end_at` days never drift between the two renderers.
  */
-import { addDays } from 'date-fns'
-import { startOfDay } from '@/composables/useGanttViewport'
+import { addDays, startOfDay } from '@nosdesk/core/utils/dateMath'
 import type { GanttCycle } from './types'
 
 export interface CycleSpan {

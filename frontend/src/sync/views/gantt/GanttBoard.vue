@@ -22,19 +22,21 @@
  */
 import { computed, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { useFluent } from 'fluent-vue'
+import type { CardData } from '@nosdesk/core/sync/views/types'
+import type { DependencyEdge } from '@nosdesk/core/services/dependenciesService'
+import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@nosdesk/core/types/workflow'
+import { GANTT_ZOOMS, type GanttViewport } from '@/composables/useGanttViewport'
 import {
   addDays,
   addMonths,
   addWeeks,
-  format,
+  daysBetween,
+  startOfDay,
   startOfMonth,
   startOfQuarter,
   startOfWeek,
-} from 'date-fns'
-import type { CardData } from '@nosdesk/core/sync/views/types'
-import type { DependencyEdge } from '@nosdesk/core/services/dependenciesService'
-import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@nosdesk/core/types/workflow'
-import { GANTT_ZOOMS, daysBetween, startOfDay, type GanttViewport } from '@/composables/useGanttViewport'
+  toCalendarDateString,
+} from '@nosdesk/core/utils/dateMath'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
 import HoverCard from '@/components/common/HoverCard.vue'
@@ -45,7 +47,7 @@ import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
 import { useDragDrop } from '@/sync/views/drag'
 import { useBarDrag } from './useBarDrag'
 import type { GanttCycle } from './types'
-import { naiveDay } from './types'
+import { dayLabel, dayRangeLabel, naiveDay } from './types'
 import {
   cycleBodyClass,
   cycleStripClass,
@@ -219,19 +221,19 @@ const primaryTicks = computed<Tick[]>(() => {
   if (zoom.value === 'week') {
     let d = startOfDay(start)
     while (d.getTime() <= end.getTime()) {
-      out.push({ key: d.toISOString(), x: xOf(d), label: format(d, 'd') })
+      out.push({ key: d.toISOString(), x: xOf(d), label: dayLabel(d, 'day') })
       d = addDays(d, 1)
     }
   } else if (zoom.value === 'month') {
-    let d = startOfWeek(start, { weekStartsOn: 1 })
+    let d = startOfWeek(start)
     while (d.getTime() <= end.getTime()) {
-      out.push({ key: d.toISOString(), x: xOf(d), label: format(d, 'd MMM') })
+      out.push({ key: d.toISOString(), x: xOf(d), label: dayLabel(d) })
       d = addWeeks(d, 1)
     }
   } else {
     let d = startOfMonth(start)
     while (d.getTime() <= end.getTime()) {
-      out.push({ key: d.toISOString(), x: xOf(d), label: format(d, 'MMM') })
+      out.push({ key: d.toISOString(), x: xOf(d), label: dayLabel(d, 'month') })
       d = addMonths(d, 1)
     }
   }
@@ -266,7 +268,7 @@ const secondaryBands = computed<Band[]>(() => {
         key: d.toISOString(),
         x,
         width: xOf(next) - x,
-        label: format(d, 'MMM yyyy'),
+        label: dayLabel(d, 'monthYear'),
       })
       d = next
     }
@@ -302,7 +304,7 @@ const weekendBands = computed<ShadeBand[]>(() => {
   if (zoom.value === 'quarter') return []
   const out: ShadeBand[] = []
   const end = decorationWindow.value.end
-  let d = startOfWeek(decorationWindow.value.start, { weekStartsOn: 1 })
+  let d = startOfWeek(decorationWindow.value.start)
   while (d.getTime() <= end.getTime()) {
     const sat = addDays(d, 5)
     out.push({ key: sat.toISOString(), x: xOf(sat), width: pxPerDay.value * 2 })
@@ -526,7 +528,7 @@ function onBarKeydown(row: BarRow, event: KeyboardEvent): void {
     props.onReschedule(row.card.id, { due_date: naiveDay(newEnd) })
     announcement.value = t('gantt-nudge-announce', {
       title: row.card.title,
-      date: format(newEnd, 'MMM d'),
+      date: dayLabel(newEnd),
     })
   }
 }
@@ -551,7 +553,7 @@ const dragChrome = computed(() => {
     ghostLeft: xOf(p.origStart),
     ghostWidth: Math.max(MIN_BAR_PX, xOf(p.origEnd) - xOf(p.origStart) - 4),
     chipX: xOf(activeDate),
-    chipLabel: format(activeDate, 'MMM d'),
+    chipLabel: dayLabel(activeDate),
   }
 })
 
@@ -565,7 +567,7 @@ const trayDrag = useDragDrop({
     const rect = body.getBoundingClientRect()
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return null
     const day = Math.round((x - rect.left) / pxPerDay.value)
-    return format(addDays(canvasStart.value, day), 'yyyy-MM-dd')
+    return toCalendarDateString(addDays(canvasStart.value, day))
   },
   onDrop: ({ cardIds, targetLane }) => {
     for (const id of cardIds) {
@@ -632,7 +634,7 @@ function scheduleFillWidth(row: BarRow): number {
 /** Accessible name for a bar: title + span. The rich detail lives
  *  in the hover card, which is supplementary. */
 function barAriaLabel(b: BarRow): string {
-  return `${b.card.title}, ${format(b.start, 'MMM d')} - ${format(b.end, 'MMM d')}`
+  return `${b.card.title}, ${dayRangeLabel(b.start, b.end)}`
 }
 
 // ===================== Hover card =====================

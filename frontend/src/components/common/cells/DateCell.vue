@@ -41,10 +41,10 @@ const formattedDate = computed(() => {
     case 'compact':
       return formatCompactDate(props.value)
     case 'long':
-      return formatDate(props.value, 'MMMM d, yyyy h:mm a', dateStore.effectiveTimezone)
+      return formatDate(props.value, 'longDateTime', dateStore.effectiveTimezone)
     case 'short':
     default:
-      return formatDate(props.value, undefined, dateStore.effectiveTimezone)
+      return formatDate(props.value, 'date', dateStore.effectiveTimezone)
   }
 })
 

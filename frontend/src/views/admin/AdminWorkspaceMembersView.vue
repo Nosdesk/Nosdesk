@@ -10,7 +10,7 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BackButton from '@/components/common/BackButton.vue';
@@ -141,11 +141,7 @@ function roleOptionsFor(member: WorkspaceMember) {
 
 function formatWhen(iso: string | null): string {
   if (!iso) return t('admin-workspace-members-accepted-pending');
-  try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true });
-  } catch {
-    return iso;
-  }
+  return formatRelativeTime(iso);
 }
 
 async function addMember(userUuid: string, role: WorkspaceRole) {

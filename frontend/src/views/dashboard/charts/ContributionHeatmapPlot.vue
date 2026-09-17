@@ -70,7 +70,7 @@ function colorClass(count: number): string {
 }
 
 function tooltipDetails(day: ContributionDay) {
-  const formattedDate = formatDate(day.date, 'MMM d, yyyy')
+  const formattedDate = formatDate(day.date)
   if (day.count === 0) {
     return {
       title: fluent.$t('ticket-heatmap-tooltip-empty'),

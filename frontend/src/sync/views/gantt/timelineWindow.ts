@@ -5,7 +5,7 @@
  * Pure so "cycles expand the canvas, tickets do not have to" is an
  * assertion rather than an eyeball of whatever demo data is loaded.
  */
-import { addDays, differenceInCalendarDays, startOfDay } from 'date-fns'
+import { addDays, daysBetween, startOfDay } from '@nosdesk/core/utils/dateMath'
 
 export interface DateSpan {
   start: Date
@@ -35,7 +35,7 @@ export function computeTimelineWindow(
     if (s.end > max) max = s.end
   }
   const start = addDays(startOfDay(min), -1)
-  const spanned = differenceInCalendarDays(max, start) + 2
+  const spanned = daysBetween(start, max) + 2
   const screenful = Math.ceil(opts.viewportHeight / opts.pxPerDay)
   return { start, days: Math.max(3, spanned, screenful) }
 }

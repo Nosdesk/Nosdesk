@@ -38,7 +38,6 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { addDays, differenceInCalendarDays, format, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import { splitSchedule, type ScheduledCard } from './rowModel'
 import {
@@ -51,7 +50,7 @@ import {
 } from './verticalLayout'
 import { computeTimelineWindow, landingScrollTop } from './timelineWindow'
 import type { GanttCycle } from './types'
-import { naiveDay } from './types'
+import { dayLabel, dayRangeLabel, naiveDay } from './types'
 import {
   cycleBodyClass,
   cycleStripClass,
@@ -59,7 +58,7 @@ import {
   projectCycleBand,
 } from './cycleSpans'
 import { useBarDrag } from './useBarDrag'
-import { daysBetween } from '@/composables/useGanttViewport'
+import { addDays, addMonths, daysBetween, startOfDay, startOfMonth, startOfWeek } from '@nosdesk/core/utils/dateMath'
 import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@nosdesk/core/types/workflow'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -224,7 +223,7 @@ const dragGhost = computed(() => {
     height,
     left: GUTTER + origLane * laneWidth.value,
     width: colW,
-    chipLabel: format(p.start, 'MMM d'),
+    chipLabel: dayLabel(p.start),
     chipTop: daysBetween(window_.value.start, p.start) * PX_PER_DAY,
     chipLeft: GUTTER + liveLane * laneWidth.value + colW / 2,
   }
@@ -240,7 +239,7 @@ function fidelity(heightPx: number): 'full' | 'compact' | 'mark' {
 }
 
 function blockHeight(p: { item: ScheduledCard }): number {
-  return Math.max(22, differenceInCalendarDays(p.item.end, p.item.start) * PX_PER_DAY)
+  return Math.max(22, daysBetween(p.item.start, p.item.end) * PX_PER_DAY)
 }
 
 /** The civic ruler, resolved to the coarsest unit the scale can carry legibly:
@@ -252,28 +251,28 @@ const ticks = computed(() => {
   const unit = dayPx >= MIN_TICK_PX ? 'day' : dayPx * 7 >= MIN_TICK_PX ? 'week' : 'month'
   let cursor =
     unit === 'day' ? startOfDay(start)
-      : unit === 'week' ? startOfWeek(start, { weekStartsOn: 1 })
+      : unit === 'week' ? startOfWeek(start)
         : startOfMonth(start)
   const end = addDays(start, days)
   while (cursor < end) {
-    const offset = differenceInCalendarDays(cursor, start)
+    const offset = daysBetween(start, cursor)
     if (offset >= 0) {
       out.push({
         y: offset * dayPx,
         label:
-          unit === 'day' ? format(cursor, 'EEE d')
-            : unit === 'week' ? format(cursor, 'd MMM')
-              : format(cursor, 'MMM'),
+          unit === 'day' ? `${dayLabel(cursor, 'weekday')} ${dayLabel(cursor, 'day')}`
+            : unit === 'week' ? dayLabel(cursor)
+              : dayLabel(cursor, 'month'),
         strong: unit !== 'day' || cursor.getDay() === 1,
       })
     }
-    cursor = unit === 'day' ? addDays(cursor, 1) : unit === 'week' ? addDays(cursor, 7) : startOfMonth(addDays(cursor, 32))
+    cursor = unit === 'day' ? addDays(cursor, 1) : unit === 'week' ? addDays(cursor, 7) : addMonths(cursor, 1)
   }
   return out
 })
 
 const todayY = computed(() => {
-  const offset = differenceInCalendarDays(startOfDay(new Date()), window_.value.start)
+  const offset = daysBetween(window_.value.start, startOfDay(new Date()))
   if (offset < 0 || offset > window_.value.days) return null
   return offset * PX_PER_DAY
 })
@@ -294,14 +293,14 @@ const todayY = computed(() => {
 function landOnTheWork(): void {
   const el = scrollerEl.value
   if (!el) return
-  const tops = placed.value.map((p) => differenceInCalendarDays(p.item.start, window_.value.start) * PX_PER_DAY)
+  const tops = placed.value.map((p) => daysBetween(window_.value.start, p.item.start) * PX_PER_DAY)
   const bottoms = placed.value.map(
     (p, i) => tops[i] + blockHeight(p),
   )
   el.scrollTop = landingScrollTop({
     // Unclamped on purpose: outside the canvas is how an all-past or
     // all-future plan is detected.
-    todayY: differenceInCalendarDays(startOfDay(new Date()), window_.value.start) * PX_PER_DAY,
+    todayY: daysBetween(window_.value.start, startOfDay(new Date())) * PX_PER_DAY,
     firstBarTop: tops.length ? Math.min(...tops) : null,
     lastBarBottom: bottoms.length ? Math.max(...bottoms) : null,
     viewportHeight: el.clientHeight,
@@ -332,7 +331,7 @@ watch(
 )
 
 function blockStyle(p: { item: ScheduledCard; lane: number }) {
-  const top = differenceInCalendarDays(p.item.start, window_.value.start) * PX_PER_DAY
+  const top = daysBetween(window_.value.start, p.item.start) * PX_PER_DAY
   const height = blockHeight(p)
   return {
     top: `${top}px`,
@@ -346,15 +345,11 @@ function blockStyle(p: { item: ScheduledCard; lane: number }) {
  *  the reader measure it against the ruler. Deadline-only tickets say "due X";
  *  planned spans say the range. */
 function dateLabel(item: ScheduledCard): string {
-  if (!item.card.start_date) return t('gantt-due-short', { date: format(item.end, 'd MMM') })
-  // Collapse the month when both ends share one: "7 – 13 Aug", not
-  // "7 Aug – 13 Aug", which wraps mid-range in an 80px column and reads as a
-  // broken string rather than a date.
-  const sameMonth = item.start.getMonth() === item.end.getMonth()
-    && item.start.getFullYear() === item.end.getFullYear()
-  return sameMonth
-    ? `${format(item.start, 'd')} – ${format(item.end, 'd MMM')}`
-    : `${format(item.start, 'd MMM')} – ${format(item.end, 'd MMM')}`
+  if (!item.card.start_date) return t('gantt-due-short', { date: dayLabel(item.end) })
+  // The range collapses a shared month ("7–13 Aug", not "7 Aug – 13 Aug"),
+  // which would wrap mid-range in an 80px column and read as a broken
+  // string rather than a date.
+  return dayRangeLabel(item.start, item.end)
 }
 
 /** Status as a muted fill, matching the desktop bar. Kept separable from

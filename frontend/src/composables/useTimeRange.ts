@@ -17,8 +17,13 @@
  */
 import { computed, type ComputedRef } from 'vue'
 import { useRoute, useRouter, type LocationQuery } from 'vue-router'
-import { TZDate } from '@date-fns/tz'
-import { startOfDay, endOfDay, subDays, subYears } from 'date-fns'
+import {
+  addDays,
+  addYears,
+  endOfDay,
+  fromCalendarDateString,
+  startOfDay,
+} from '@nosdesk/core/utils/dateMath'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 
 /** The six preset chips + the Custom escape hatch. */
@@ -58,11 +63,11 @@ function presetGrain(preset: TimeRangePreset): Grain {
  * Compute the absolute (from, to) window for a preset, with calendar
  * boundaries anchored to the user's timezone `tz` (not the browser's).
  *
- * Calendar-edge presets (today, custom) use `TZDate` so "start of today"
- * is midnight in the user's zone — a Sydney user at 09:00 local gets a
- * window starting at the previous UTC afternoon, matching the backend's
- * tz-aligned buckets. Rolling presets (7d/30d/90d/1y/3y) are pure
- * instants (now minus N), so the zone doesn't affect them.
+ * Calendar-edge presets (today, custom) take midnight in the user's zone,
+ * so a Sydney user at 09:00 local gets a window starting at the previous
+ * UTC afternoon, matching the backend's tz-aligned buckets. Rolling
+ * presets (7d/30d/90d/1y/3y) are now minus N in that zone, keeping the
+ * wall-clock time across a DST change.
  * Returned `Date`s carry the correct UTC instant (`toISOString()`).
  */
 export function presetWindow(
@@ -73,22 +78,22 @@ export function presetWindow(
   const now = new Date()
   switch (preset) {
     case 'today':
-      return { from: startOfDay(new TZDate(now, tz)), to: now }
+      return { from: startOfDay(now, tz), to: now }
     case '7d':
-      return { from: subDays(now, 7), to: now }
+      return { from: addDays(now, -7, tz), to: now }
     case '30d':
-      return { from: subDays(now, 30), to: now }
+      return { from: addDays(now, -30, tz), to: now }
     case '90d':
-      return { from: subDays(now, 90), to: now }
+      return { from: addDays(now, -90, tz), to: now }
     case '1y':
-      return { from: subYears(now, 1), to: now }
+      return { from: addYears(now, -1, tz), to: now }
     case '3y':
-      return { from: subYears(now, 3), to: now }
+      return { from: addYears(now, -3, tz), to: now }
     case 'custom': {
       // The range picker stores date-only `YYYY-MM-DD` values. Anchor
       // `from` to the start of its day and `to` to the end of its day,
       // both in the user's zone, so the selected `to` date is inclusive.
-      const f = custom?.from ? dayBoundary(custom.from, false, tz) : startOfDay(new TZDate(now, tz))
+      const f = custom?.from ? dayBoundary(custom.from, false, tz) : startOfDay(now, tz)
       const t = custom?.to ? dayBoundary(custom.to, true, tz) : now
       return { from: f, to: t }
     }
@@ -99,10 +104,9 @@ export function presetWindow(
  *  start (`end=false`) or end (`end=true`) of that calendar day in the
  *  user's timezone `tz`. */
 function dayBoundary(value: string, end: boolean, tz: string): Date {
-  const [y, m, d] = value.slice(0, 10).split('-').map(Number)
-  if (!y || !m || !d) return new Date()
-  const day = new TZDate(y, m - 1, d, tz)
-  return end ? endOfDay(day) : startOfDay(day)
+  const day = fromCalendarDateString(value, tz)
+  if (!day) return new Date()
+  return end ? endOfDay(day, tz) : day
 }
 
 /** Return the matching prior window for compare-to-prior overlays. */

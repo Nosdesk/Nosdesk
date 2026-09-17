@@ -12,7 +12,7 @@ import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Button from '@/components/common/Button.vue';
@@ -169,11 +169,7 @@ async function doDelete(): Promise<void> {
 }
 
 function relativeTime(iso: string): string {
-  try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true });
-  } catch {
-    return iso;
-  }
+  return formatRelativeTime(iso);
 }
 </script>
 
