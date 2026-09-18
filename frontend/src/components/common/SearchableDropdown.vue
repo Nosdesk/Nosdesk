@@ -216,6 +216,7 @@ const optionClasses = (option: DropdownOption) => [
       >
         <ListboxRoot
           :model-value="modelValue"
+          selection-behavior="replace"
           highlight-on-hover
           class="flex flex-col"
           @update:model-value="onSelect"

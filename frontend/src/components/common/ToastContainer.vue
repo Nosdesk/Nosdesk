@@ -18,7 +18,7 @@ until then.
 -->
 <script setup lang="ts">
 import { computed, reactive } from 'vue';
-import { useRouter } from 'vue-router';
+import { RouterLink, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import {
   ToastAction,
@@ -107,13 +107,18 @@ const getProgressBarClass = (type: Toast['type']) => {
   }
 };
 
-// Notification toasts open the ticket, from a click or Enter on the
-// focused toast. Reka cancels the click that ends a swipe, so a
+// A notification toast's "View" is a real link (keyboard users reach it
+// by Tab, Enter follows it); a pointer click anywhere else on the toast
+// opens the ticket too. Reka cancels the click that ends a swipe, so a
 // half-swipe never navigates.
+const ticketPath = (toast: Toast) =>
+  toast.notification?.ticketId ? `/tickets/${toast.notification.ticketId}` : undefined;
+
 const openNotification = (toast: Toast, event: Event) => {
   if (event.defaultPrevented || !toast.notification) return;
-  const { ticketId } = toast.notification;
-  if (ticketId) router.push(`/tickets/${ticketId}`);
+  if ((event.target as Element | null)?.closest('a, button')) return;
+  const path = ticketPath(toast);
+  if (path) router.push(path);
   toastStore.removeToast(toast.id);
 };
 
@@ -136,7 +141,6 @@ const invokeAction = (toast: Toast, event: Event) => {
       :class="getToastClasses(toast.type)"
       @update:open="onOpenChange(toast, $event)"
       @click="openNotification(toast, $event)"
-      @keydown.enter.self="openNotification(toast, $event)"
     >
       <div class="p-4">
         <div class="flex items-start gap-3">
@@ -198,10 +202,19 @@ const invokeAction = (toast: Toast, event: Event) => {
               </span>
             </div>
 
-            <!-- View link for notifications -->
-            <p v-if="toast.notification" class="mt-2 text-xs text-accent font-medium hover:underline">
-              {{ t('toast-notification-view') }}
-            </p>
+            <!-- View link for notifications; Reka closes the toast on it. -->
+            <ToastAction
+              v-if="ticketPath(toast)"
+              as-child
+              :alt-text="t('toast-action-alt', { label: t('toast-notification-view'), hotkey: 'F8' })"
+            >
+              <RouterLink
+                :to="ticketPath(toast)!"
+                class="mt-2 inline-block text-xs text-accent font-medium hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {{ t('toast-notification-view') }}
+              </RouterLink>
+            </ToastAction>
           </div>
 
           <!-- Inline action button (e.g. Undo). Sits between the

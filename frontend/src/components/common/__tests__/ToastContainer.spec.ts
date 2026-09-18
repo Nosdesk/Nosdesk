@@ -110,13 +110,15 @@ describe('ToastContainer', () => {
     expect(store.toasts).toHaveLength(0)
   })
 
-  it('opens the ticket from a notification toast on click and on Enter', async () => {
+  it('opens the ticket from a notification toast on click and from its link', async () => {
     const store = useToastStore()
     const push = vi.spyOn(router, 'push')
     store.notification('New comment', undefined, 'ticket', 1, 42, 'Ana')
     await settle()
     const toast = document.querySelector('#overlays li') as HTMLElement
-    expect(toast.textContent).toContain('toast-notification-view')
+    const link = toast.querySelector('a')
+    expect(link?.textContent?.trim()).toBe('toast-notification-view')
+    expect(link?.getAttribute('href')).toBe('/tickets/42')
     toast.click()
     expect(push).toHaveBeenCalledWith('/tickets/42')
     await settle()
@@ -124,8 +126,15 @@ describe('ToastContainer', () => {
 
     store.notification('Another', undefined, 'ticket', 1, 7)
     await settle()
-    const next = document.querySelector('#overlays li') as HTMLElement
-    next.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const next = document.querySelector('#overlays li a') as HTMLAnchorElement
+    next.click()
+    await settle()
+    // The link navigates once (the toast's own click handler stands down)
+    // and Reka closes the toast.
+    expect(push).toHaveBeenCalledTimes(2)
     expect(push).toHaveBeenLastCalledWith('/tickets/7')
+    vi.advanceTimersByTime(300)
+    await settle()
+    expect(store.toasts).toHaveLength(0)
   })
 })

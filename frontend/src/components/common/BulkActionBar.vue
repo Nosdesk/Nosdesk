@@ -84,6 +84,9 @@ const countCopy = computed(() => {
 </script>
 
 <template>
+  <!-- Always mounted, so the first selection is announced too; a live
+       region born with the bar would say nothing until the next change. -->
+  <span class="sr-only" aria-live="polite">{{ selectedCount > 0 ? countCopy : '' }}</span>
   <!--
     No Teleport: the inner div uses `position: fixed` which already
     escapes its scroll/overflow ancestors (none of which create a

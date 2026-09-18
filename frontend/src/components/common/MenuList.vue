@@ -72,7 +72,7 @@ const emit = defineEmits<{
          item kind (heading, button). Rendered first so an item
          with `divider: true, heading: true` shows a separator
          above the section heading. -->
-    <div v-if="item.divider" class="my-1 border-t border-subtle"></div>
+    <div v-if="item.divider" role="separator" class="my-1 border-t border-subtle"></div>
 
     <!-- Section heading: non-interactive label for inline groups
          (e.g. "Sort by"). Mirrors the button's flex layout
@@ -86,8 +86,12 @@ const emit = defineEmits<{
       <span>{{ item.label }}</span>
     </div>
 
+    <!-- A row with `checked` is one of a set; the tick is its state, so
+         it reads as a radio item rather than a plain item with an icon. -->
     <MenuItem
       v-else
+      :role="item.checked !== undefined ? 'menuitemradio' : 'menuitem'"
+      :checked="item.checked"
       :tone="item.danger ? 'danger' : item.active ? 'active' : 'default'"
       :disabled="item.disabled"
       @click="!item.disabled && emit('select', item.id)"
