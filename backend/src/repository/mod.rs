@@ -76,6 +76,7 @@ pub mod user_ticket_views;
 pub mod site_settings;
 
 // Per-workspace outbound email identity
+pub mod workspace_activation;
 pub mod workspace_email_settings;
 pub mod workspace_export_jobs;
 pub mod workspace_ldap_settings;

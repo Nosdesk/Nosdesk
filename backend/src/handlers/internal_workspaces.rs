@@ -56,6 +56,10 @@ pub fn config(cfg: &mut actix_web::web::ServiceConfig) {
             web::get().to(workspace_provisioning),
         )
         .route(
+            "/workspaces/{slug}/activation",
+            web::get().to(workspace_activation),
+        )
+        .route(
             "/workspaces/{slug}/restore",
             web::post().to(restore_workspace),
         )
@@ -1122,5 +1126,51 @@ pub async fn workspace_provisioning(
         slug: workspace.slug,
         ready,
         checks,
+    }))
+}
+
+// =====================================================================
+// GET /api/internal/v1/workspaces/{slug}/activation
+// =====================================================================
+//
+// Activation state for the control plane's trial gate: is anyone using
+// the workspace? Facts only (first ticket, first agent reply, members,
+// documents, integrations); the control plane applies its thresholds.
+// Computed on request from the workspace's own tables, nothing is pushed.
+// Read-only, so no Idempotency-Key.
+
+#[derive(Debug, Serialize)]
+struct ActivationResponse {
+    workspace_uuid: Uuid,
+    slug: String,
+    #[serde(flatten)]
+    state: crate::repository::workspace_activation::ActivationState,
+}
+
+pub async fn workspace_activation(
+    _: PlatformAuth,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+) -> Result<HttpResponse, ApiError> {
+    let slug = path.into_inner();
+    let mut conn = pool_conn(&pool, "workspace_activation")?;
+    let workspace = resolve_workspace_or_respond(&mut conn, &slug, "workspace_activation")?;
+
+    let actor = crate::sync::actor::ActorContext::system("workspace:activation")
+        .with_workspace(workspace.id);
+    let state = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &actor,
+        crate::repository::workspace_activation::activation_state,
+    )
+    .map_err(|e| {
+        error!(error = ?e, slug = %slug, "workspace_activation: read failed");
+        ApiError::Internal("Workspace activation check failed".into())
+    })?;
+
+    Ok(HttpResponse::Ok().json(ActivationResponse {
+        workspace_uuid: workspace.uuid,
+        slug: workspace.slug,
+        state,
     }))
 }
