@@ -125,6 +125,7 @@ function onOpenAutoFocus(event: Event) {
         ref="contentRef"
         class="modal-panel"
         :class="[sizeClass, contentClass]"
+        aria-modal="true"
         v-bind="description ? {} : { 'aria-describedby': undefined }"
         @open-auto-focus="onOpenAutoFocus"
       >

@@ -7012,3 +7012,15 @@ toast-region-label = Notifications ({ $hotkey })
 toast-label = Notification
 toast-action-alt = { $label }. Appuyez sur { $hotkey } pour atteindre la zone des notifications.
 toast-notification-view = Cliquer pour afficher
+# MACHINE TRANSLATION, pending native review
+common-confirm = Confirmer
+common-n-selected = { $count } sélectionné(s)
+common-actions-menu-aria = Actions
+common-sheet-aria = Panneau
+common-panel-close = Fermer { $title }
+pagination-controls-page-size-all = Tout
+pagination-controls-page-input-aria = Numéro de page
+inline-edit-placeholder = Saisir du texte
+assignment-picker-search-placeholder = Rechercher des utilisateurs et des groupes
+docs-collection-tree-aria = Pages
+date-picker-calendar-aria = Calendrier

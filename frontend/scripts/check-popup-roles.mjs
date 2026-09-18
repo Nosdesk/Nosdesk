@@ -1,9 +1,9 @@
 /**
  * A trigger's `aria-haspopup` must name the surface it opens. Every
  * literal `aria-haspopup="…"` in a file is checked against the literal
- * `role="…"` values the same file hands `<ResponsiveMenu>` or `<Popover>`
- * (the surfaces a hand-rolled trigger opens); a file with no such
- * surface is left alone. `aria-haspopup="true"` is never allowed: it
+ * `role="…"` values the same file hands `<ResponsiveMenu>` or `<Popover>`,
+ * and `dialog` for every `<BottomSheet>` (the surfaces a hand-rolled
+ * trigger opens); a file with no such surface is left alone. `aria-haspopup="true"` is never allowed: it
  * means `menu`, and says so less clearly than the word.
  *
  * "menu" over a dialog promises arrow keys the dialog does not have;
@@ -25,7 +25,7 @@ function walk(dir, out = []) {
 }
 
 const HASPOPUP = /(?<![:\w-])aria-haspopup="([^"]*)"/g
-const SURFACE = /<(?:ResponsiveMenu|Popover)\b[\s\S]*?>/g
+const SURFACE = /<(ResponsiveMenu|Popover|BottomSheet)\b[\s\S]*?>/g
 const ROLE = /(?<![:\w-])role="([^"]*)"/
 
 const problems = []
@@ -33,8 +33,12 @@ for (const file of walk(ROOT)) {
   const text = readFileSync(file, 'utf8')
   const rel = relative(REPO, file)
   const roles = new Set()
-  for (const tag of text.match(SURFACE) ?? []) {
-    const role = tag.match(ROLE)?.[1]
+  for (const m of text.matchAll(SURFACE)) {
+    if (m[1] === 'BottomSheet') {
+      roles.add('dialog')
+      continue
+    }
+    const role = m[0].match(ROLE)?.[1]
     if (role) roles.add(role)
   }
   for (const m of text.matchAll(HASPOPUP)) {

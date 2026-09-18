@@ -102,7 +102,7 @@ const siblingCount = computed(() => (isMobile.value ? 1 : 2))
 const pageSizeDropdownOptions = computed(() => {
   return props.pageSizeOptions.map(size => ({
     value: size.toString(),
-    label: size === 0 ? 'All' : size.toString()
+    label: size === 0 ? t('pagination-controls-page-size-all') : size.toString()
   }))
 })
 
@@ -129,6 +129,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
             type="number"
             :min="1"
             :max="totalPages"
+            :aria-label="t('pagination-controls-page-input-aria')"
             class="w-10 px-1 py-0.5 text-xs bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
             ref="pageInput"
           />
@@ -273,6 +274,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
               type="number"
               :min="1"
               :max="totalPages"
+            :aria-label="t('pagination-controls-page-input-aria')"
               class="w-10 px-1.5 py-0.5 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
               ref="pageInput"
             />

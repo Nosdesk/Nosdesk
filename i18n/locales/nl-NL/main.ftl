@@ -7004,3 +7004,15 @@ toast-region-label = Meldingen ({ $hotkey })
 toast-label = Melding
 toast-action-alt = { $label }. Druk op { $hotkey } om naar het meldingengebied te gaan.
 toast-notification-view = Klik om te bekijken
+# MACHINE TRANSLATION, pending native review
+common-confirm = Bevestigen
+common-n-selected = { $count } geselecteerd
+common-actions-menu-aria = Acties
+common-sheet-aria = Paneel
+common-panel-close = { $title } sluiten
+pagination-controls-page-size-all = Alles
+pagination-controls-page-input-aria = Paginanummer
+inline-edit-placeholder = Tekst invoeren
+assignment-picker-search-placeholder = Gebruikers en groepen zoeken
+docs-collection-tree-aria = Pagina's
+date-picker-calendar-aria = Kalender

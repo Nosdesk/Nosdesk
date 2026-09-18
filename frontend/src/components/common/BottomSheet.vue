@@ -10,7 +10,8 @@ points come back with it.
 no visible title it still names the sheet through `ariaLabel`.
 -->
 <script setup lang="ts">
-import { toRef } from 'vue'
+import { computed, toRef } from 'vue'
+import { useFluent } from 'fluent-vue'
 import {
   DialogContent,
   DialogOverlay,
@@ -40,6 +41,10 @@ const { dragOffset, isDragging, handleListeners } = useResponsiveSheet({
 function onOpenChange(open: boolean) {
   if (!open) emit('close')
 }
+
+// A dialog needs a name even when the surface has no visible title.
+const fluent = useFluent()
+const hiddenTitle = computed(() => props.ariaLabel ?? fluent.$t('common-sheet-aria'))
 </script>
 
 <template>
@@ -50,7 +55,7 @@ function onOpenChange(open: boolean) {
            the drag transform live on separate elements. Reka names it
            (aria-labelledby the title) and traps focus inside. -->
       <DialogContent as-child :aria-describedby="undefined">
-        <div class="bottom-sheet fixed inset-x-0 bottom-0 z-overlay outline-none">
+        <div class="bottom-sheet fixed inset-x-0 bottom-0 z-overlay outline-none" aria-modal="true">
           <div
             class="flex max-h-[80vh] flex-col rounded-t-xl border-t border-default bg-surface shadow-2xl"
             :class="{ 'sheet-panel-settle': !isDragging }"
@@ -72,14 +77,14 @@ function onOpenChange(open: boolean) {
               {{ title }}
             </DialogTitle>
             <VisuallyHidden v-else as-child>
-              <DialogTitle>{{ ariaLabel }}</DialogTitle>
+              <DialogTitle>{{ hiddenTitle }}</DialogTitle>
             </VisuallyHidden>
             <!-- Bottom padding clears the iPhone home indicator so the last
                  row is not in the dead zone. -->
             <div
               class="flex flex-1 flex-col overflow-y-auto pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
               :role="bodyRole"
-              :aria-label="bodyRole ? (title ?? ariaLabel) : undefined"
+              :aria-label="bodyRole ? (title ?? hiddenTitle) : undefined"
             >
               <slot />
             </div>

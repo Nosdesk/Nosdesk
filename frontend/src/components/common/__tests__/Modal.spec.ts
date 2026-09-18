@@ -41,8 +41,9 @@ describe('Modal', () => {
     await settle()
     const el = dialog()
     expect(el).not.toBeNull()
-    // Modality is conveyed by hiding the rest of the page (next test), the
-    // technique Reka and Radix use instead of aria-modal.
+    // Modality is conveyed by hiding the rest of the page (next test);
+    // aria-modal says so to readers that look for it.
+    expect(el?.getAttribute('aria-modal')).toBe('true')
     const title = document.getElementById(el!.getAttribute('aria-labelledby')!)
     expect(title?.textContent).toBe('Rename ticket')
     expect(el?.hasAttribute('aria-describedby')).toBe(false)
@@ -108,5 +109,12 @@ describe('ConfirmModal', () => {
     buttons.find((b) => b.textContent?.trim() === 'Keep')?.click()
     await nextTick()
     expect(events).toEqual(['confirm', 'close'])
+  })
+
+  it('names its actions from the catalogue when the consumer does not', async () => {
+    wrapper = mountWithProviders(ConfirmModal, { show: true, title: 'Delete ticket?', message: 'Sure?' })
+    await settle()
+    const buttons = Array.from(document.body.querySelectorAll('[role="alertdialog"] button'))
+    expect(buttons.map((b) => b.textContent?.trim()).filter(Boolean)).toEqual(['common-cancel', 'common-confirm'])
   })
 })

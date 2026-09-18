@@ -37,6 +37,8 @@ describe('PaginationControls', () => {
     const current = nav.get('[aria-current="page"]')
     expect(current.text()).toBe('10')
     expect(current.attributes('data-selected')).toBe('true')
+    // The direct page input is named; the "Page" text beside it is not a label.
+    expect(wrapper.get('input[type="number"]').attributes('aria-label')).toBe('pagination-controls-page-input-aria')
   })
 
   it('uses the backend page count rather than deriving it', async () => {
