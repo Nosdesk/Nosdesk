@@ -28,6 +28,10 @@ interface Props {
   ariaLabel?: string
   /** Role for the scrolling body, e.g. `menu` around menu rows. */
   bodyRole?: string
+  /** Tailwind sizing for the panel; content-sized up to 80vh by default.
+   *  A list that filters as the user types passes a fixed height so the
+   *  sheet does not jump. */
+  panelClass?: string
 }
 
 const props = defineProps<Props>()
@@ -57,8 +61,8 @@ const hiddenTitle = computed(() => props.ariaLabel ?? fluent.$t('common-sheet-ar
       <DialogContent as-child :aria-describedby="undefined">
         <div class="bottom-sheet fixed inset-x-0 bottom-0 z-overlay outline-none" aria-modal="true">
           <div
-            class="flex max-h-[80vh] flex-col rounded-t-xl border-t border-default bg-surface shadow-2xl"
-            :class="{ 'sheet-panel-settle': !isDragging }"
+            class="flex flex-col rounded-t-xl border-t border-default bg-surface shadow-2xl"
+            :class="[panelClass ?? 'max-h-[80vh]', { 'sheet-panel-settle': !isDragging }]"
             :style="{ transform: `translateY(${dragOffset}px)` }"
           >
             <!-- Drag handle pill. The tappable area extends beyond the
