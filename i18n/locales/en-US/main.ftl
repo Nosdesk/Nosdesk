@@ -3343,13 +3343,15 @@ error-page-debug-glitch-intensity = Glitch Intensity
 error-page-debug-cursor-influence = Cursor Influence
 
 # No workspace access (NoWorkspaceAccessView)
-no-workspace-access-title = No workspace access
-no-workspace-access-message = Your account isn't a member of any workspace yet.
-no-workspace-access-signed-in-as = You're signed in as { $email }.
-no-workspace-access-description = Ask your administrator to add you to a workspace, then refresh. If you were just added, a refresh should pick it up.
-no-workspace-access-refresh = Refresh
+no-workspace-access-title = No workspace yet
+no-workspace-access-message = You're signed in, but this account hasn't been added to a workspace on this server.
+no-workspace-access-account-label = Account
+no-workspace-access-server-label = Server
+no-workspace-access-description = An administrator adds people to workspaces. Once you've been added, check again to open yours.
+no-workspace-access-check-again = Check again
+no-workspace-access-wrong-account = Not your account?
 no-workspace-access-sign-out = Sign out
-route-title-no-workspace-access = No workspace access
+route-title-no-workspace-access = No workspace yet
 
 # PDF viewer (PDFViewerView)
 pdf-viewer-default-filename = Document
