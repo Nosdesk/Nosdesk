@@ -626,3 +626,36 @@ test.describe('accessibility floor', () => {
     await expectNoSeriousViolations(page)
   })
 })
+
+test.describe('accessibility floor on a phone', () => {
+  test.skip(({ hasTouch }) => !hasTouch, 'sheet layout')
+
+  test('the assignee picker sheet is a modal dialog holding the combobox', async ({ page }) => {
+    await gotoAndSettle(page, '/tickets')
+    await page.locator('ul li button').first().tap()
+    await page.waitForURL(/\/tickets\/\d+/)
+    await page.waitForTimeout(3000)
+
+    const trigger = page.getByRole('button', { name: /^Assign to: / })
+    await expect(trigger).toBeVisible()
+    await trigger.tap()
+    const dialog = page.locator('#overlays [role="dialog"]')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAttribute('aria-modal', 'true')
+    await expect(dialog).toHaveAttribute('aria-labelledby', /.+/)
+    const input = dialog.getByRole('combobox')
+    await expect(input).toBeFocused()
+    await expect(dialog.getByRole('option').first()).toBeVisible()
+    await expectNoSeriousViolations(page, '#overlays')
+    // The sheet holds its height while the list filters under the finger.
+    const before = await dialog.locator('> div').boundingBox()
+    await page.keyboard.type('zz')
+    await page.waitForTimeout(400)
+    const after = await dialog.locator('> div').boundingBox()
+    expect(after?.height).toBe(before?.height)
+    // One Escape closes the sheet and returns focus to the trigger.
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+  })
+})

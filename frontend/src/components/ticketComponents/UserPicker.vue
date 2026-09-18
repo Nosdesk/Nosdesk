@@ -89,6 +89,7 @@ const picker = useUserPicker({
 const isOpen = ref(false)
 const rootRef = ref<{ highlightSelected?: () => Promise<void> } | null>(null)
 const inputRef = ref<{ $el?: HTMLInputElement } | null>(null)
+const sheetButton = ref<HTMLButtonElement | null>(null)
 const inputEl = () => inputRef.value?.$el ?? null
 
 // What the input shows: the query while the list is open (it starts
@@ -132,6 +133,9 @@ async function onOpenChange(open: boolean) {
     await rootRef.value?.highlightSelected?.()
   } else {
     picker.query.value = ''
+    // The sheet's focus scope opened from a blurred button (above), so
+    // it has nothing to restore to; put focus back on the trigger.
+    if (isMobile.value) setTimeout(() => sheetButton.value?.focus(), 0)
   }
 }
 
@@ -208,6 +212,9 @@ function sectionLabel(section: Section): string {
 const uid = useId()
 const labelId = (section: Section) => `user-picker-${uid}-${section}`
 
+const sheetTitle = computed(() =>
+  props.type === 'assignee' ? $t('ticket-picker-user-sheet-title-assignee') : $t('ticket-picker-user-sheet-title-requester'),
+)
 const listLabel = computed(() =>
   props.type === 'assignee' ? $t('ticket-picker-user-listbox-assignees') : $t('ticket-picker-user-listbox-users'),
 )
@@ -298,9 +305,11 @@ const inputPlaceholder = computed(
           />
           <button
             v-else
+            ref="sheetButton"
             type="button"
             aria-haspopup="dialog"
             :aria-expanded="isOpen"
+            :aria-label="`${sheetTitle}: ${picker.selectedDisplayName.value || inputPlaceholder}`"
             class="w-full text-left bg-transparent leading-tight truncate"
             :class="[
               compact ? 'text-2xs py-0' : 'text-sm py-1',
@@ -391,7 +400,7 @@ const inputPlaceholder = computed(
     <ResponsivePanel
       v-if="isMobile"
       :open="isOpen"
-      :title="type === 'assignee' ? $t('ticket-picker-user-sheet-title-assignee') : $t('ticket-picker-user-sheet-title-requester')"
+      :title="sheetTitle"
       side-panel-class="w-80"
       @close="onOpenChange(false)"
     >
