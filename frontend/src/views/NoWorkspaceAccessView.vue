@@ -55,7 +55,7 @@ async function signOut() {
         <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
           {{ $t('no-workspace-access-title') }}
         </h1>
-        <p class="text-base text-secondary">{{ $t('no-workspace-access-message') }}</p>
+        <p class="text-base text-secondary text-pretty">{{ $t('no-workspace-access-message') }}</p>
       </div>
 
       <!-- Who and where. Post-auth, so naming the account is safe, and it
@@ -89,7 +89,8 @@ async function signOut() {
         </div>
       </dl>
 
-      <p class="text-sm leading-relaxed text-secondary text-center lg:text-left">
+      <!-- text-pretty keeps a lone word off the last line, whatever the width or locale. -->
+      <p class="text-sm leading-relaxed text-secondary text-center lg:text-left text-pretty">
         {{ $t('no-workspace-access-description') }}
       </p>
 
