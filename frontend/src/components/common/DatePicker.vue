@@ -80,7 +80,11 @@ interface Props {
   /** Accessible name when there is no visible label. */
   ariaLabel?: string
   disabled?: boolean
-  error?: boolean
+  /** Helper text shown below the field. */
+  description?: string
+  /** Error text shown below the field; the segments are flagged
+   *  invalid. `true` flags them without a message. */
+  error?: string | boolean
   /** Lower bound (ISO YYYY-MM-DD inclusive). Days before it are
    *  disabled in the grid; a typed value below it is held, not committed. */
   min?: string
@@ -120,6 +124,10 @@ const t = (key: string, args?: Record<string, string>) => fluent.$t(key, args)
 const generatedId = useId()
 const inputId = `date-picker-${generatedId}`
 const labelId = computed(() => (props.label ? `${inputId}-label` : undefined))
+const errorText = computed(() => (typeof props.error === 'string' ? props.error : ''))
+const describedById = computed(() =>
+  errorText.value || props.description ? `${inputId}-desc` : undefined,
+)
 // Reka names the grid "Event Date, <month>" unless told otherwise.
 const calendarLabel = computed(() => props.label ?? props.ariaLabel ?? t('date-picker-calendar-aria'))
 
@@ -329,6 +337,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
         ]"
         :aria-label="label ? undefined : ariaLabel"
         :aria-labelledby="labelId"
+        :aria-describedby="describedById"
         @keydown.enter="commit"
       >
         <template v-if="range">
@@ -452,6 +461,8 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
         </component>
       </component>
     </component>
+    <p v-if="errorText" :id="describedById" class="text-xs text-status-error">{{ errorText }}</p>
+    <p v-else-if="description" :id="describedById" class="text-xs text-tertiary">{{ description }}</p>
   </div>
 </template>
 

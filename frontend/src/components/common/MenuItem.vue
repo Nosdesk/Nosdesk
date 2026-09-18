@@ -3,9 +3,10 @@ One row of a popup menu. Wears the shared menu recipe, so every row in the
 app lines up in density, tap target and hover chrome.
 
 Inside a Reka DropdownMenu (the desktop `ResponsiveMenu` path) the row
-becomes a `DropdownMenuItem` / `CheckboxItem` / `RadioItem`: roving
-focus, typeahead, Enter/Space select and `data-highlighted` come from
-Reka. Anywhere else (the mobile sheet, a dialog panel) it is a plain
+becomes a `DropdownMenuItem` / `CheckboxItem`: roving focus, typeahead,
+Enter/Space select and `data-highlighted` come from Reka. A radio row is
+a CheckboxItem wearing `menuitemradio` (Reka's RadioItem needs a
+RadioGroup above it, and the menus here hold their own selection). Anywhere else (the mobile sheet, a dialog panel) it is a plain
 button with the ARIA role given, which is why the recipe carries the
 highlight styling for both `data-highlighted` and the `highlighted` prop.
 
@@ -15,12 +16,7 @@ exactly as before.
 -->
 <script setup lang="ts">
 import { computed } from 'vue';
-import {
-  DropdownMenuCheckboxItem,
-  DropdownMenuItem,
-  DropdownMenuRadioItem,
-  injectDropdownMenuRootContext,
-} from 'reka-ui';
+import { DropdownMenuCheckboxItem, DropdownMenuItem, injectDropdownMenuRootContext } from 'reka-ui';
 import { menuItem, type MenuItemTone } from '@/recipes/menu';
 
 interface Props {
@@ -33,8 +29,6 @@ interface Props {
   disabled?: boolean;
   /** For the checkbox and radio roles. */
   checked?: boolean;
-  /** Radio value, for `menuitemradio` inside a Reka menu. */
-  value?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -52,16 +46,11 @@ const inMenu = injectDropdownMenuRootContext(null) !== null;
 
 const rekaPart = computed(() => {
   if (!inMenu) return null;
-  if (props.role === 'menuitemcheckbox') return DropdownMenuCheckboxItem;
-  if (props.role === 'menuitemradio') return DropdownMenuRadioItem;
-  return DropdownMenuItem;
+  if (props.role === 'menuitem') return DropdownMenuItem;
+  return DropdownMenuCheckboxItem;
 });
 
-const rekaProps = computed(() => {
-  if (props.role === 'menuitemcheckbox') return { modelValue: props.checked ?? false };
-  if (props.role === 'menuitemradio') return { value: props.value ?? '' };
-  return {};
-});
+const rekaProps = computed(() => (props.role === 'menuitem' ? {} : { modelValue: props.checked ?? false }));
 
 const classes = computed(() =>
   menuItem({ tone: props.tone, highlighted: props.highlighted, align: props.align }),
@@ -83,8 +72,10 @@ function keepOpen(event: Event) {
     v-bind="rekaProps"
     @select="keepOpen"
   >
+    <!-- The child's role wins over Reka's, so the radio row reads as one. -->
     <button
       type="button"
+      :role="role"
       :disabled="disabled"
       :data-tone="tone"
       :class="classes"

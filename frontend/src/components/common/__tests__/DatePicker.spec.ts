@@ -219,4 +219,16 @@ describe('DatePicker', () => {
       expect(spin.attributes('aria-invalid')).toBe('true')
     }
   })
+
+  it('shows an error message or a description below the field and describes the group with it', async () => {
+    wrapper = mountWithProviders(DatePicker, { label: 'Due', description: 'Working days only' })
+    await nextTick()
+    let group = wrapper.get('[role="group"]')
+    expect(wrapper.get(`#${group.attributes('aria-describedby')}`).text()).toBe('Working days only')
+    expect(wrapper.get('[role="spinbutton"]').attributes('aria-invalid')).toBeUndefined()
+    await wrapper.setProps({ error: 'Pick a date after today' })
+    group = wrapper.get('[role="group"]')
+    expect(wrapper.get(`#${group.attributes('aria-describedby')}`).text()).toBe('Pick a date after today')
+    expect(wrapper.get('[role="spinbutton"]').attributes('aria-invalid')).toBe('true')
+  })
 })

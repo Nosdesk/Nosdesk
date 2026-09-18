@@ -31,8 +31,11 @@ interface Props {
   /** Accessible name when there is no visible label. */
   ariaLabel?: string
   disabled?: boolean
-  /** Mark the field invalid (parent-side validation). */
-  error?: boolean
+  /** Helper text shown below the field. */
+  description?: string
+  /** Error text shown below the field; the segments are flagged
+   *  invalid. `true` flags them without a message. */
+  error?: string | boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -50,6 +53,10 @@ const t = (key: string) => fluent.$t(key)
 const generatedId = useId()
 const inputId = `time-picker-${generatedId}`
 const labelId = computed(() => (props.label ? `${inputId}-label` : undefined))
+const errorText = computed(() => (typeof props.error === 'string' ? props.error : ''))
+const describedById = computed(() =>
+  errorText.value || props.description ? `${inputId}-desc` : undefined,
+)
 
 const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
@@ -141,6 +148,7 @@ function segmentAttrs(part: SegmentPart): Record<string, string> {
       ]"
       :aria-label="label ? undefined : ariaLabel"
       :aria-labelledby="labelId"
+      :aria-describedby="describedById"
       @update:model-value="onUpdate"
       @keydown.enter="commit"
     >
@@ -154,6 +162,8 @@ function segmentAttrs(part: SegmentPart): Record<string, string> {
         {{ item.value }}
       </TimeFieldInput>
     </TimeFieldRoot>
+    <p v-if="errorText" :id="describedById" class="text-xs text-status-error">{{ errorText }}</p>
+    <p v-else-if="description" :id="describedById" class="text-xs text-tertiary">{{ description }}</p>
   </div>
 </template>
 
