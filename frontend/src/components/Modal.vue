@@ -8,7 +8,8 @@
  * (`aria-hidden`), body scroll lock, Escape and backdrop dismiss, focus
  * restored to the opener on close, nested dialogs stacked. This file owns
  * the chrome: CSS grid regions [title · close] [body] [footer], a bottom
- * sheet below `sm`, a centred card above it.
+ * sheet below `md` (the breakpoint every other sheet in the app uses), a
+ * centred card above it.
  *
  * `alert` switches to Reka's AlertDialog: no backdrop dismiss, and focus
  * lands on the Cancel action (wrap it in `AlertDialogCancel`), for
@@ -188,8 +189,8 @@ function onOpenAutoFocus(event: Event) {
 
 /* --- Panel shell ----------------------------------------------- */
 
-/* Fixed and self-positioned (no centring wrapper): below `sm` it is a
-   bottom sheet pinned to the viewport's bottom edge; from `sm` up
+/* Fixed and self-positioned (no centring wrapper): below `md` it is a
+   bottom sheet pinned to the viewport's bottom edge; from `md` up
    `inset: 0; margin: auto` centres the content-sized panel without a
    transform, which leaves transform free for the motion below. */
 .modal-panel {
@@ -221,7 +222,7 @@ function onOpenAutoFocus(event: Event) {
   outline: none;
 }
 
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .modal-panel {
     --modal-pad-x: 0.75rem;
     --modal-pad-body: 1.25rem;
@@ -242,14 +243,8 @@ function onOpenAutoFocus(event: Event) {
 }
 
 /* Size caps apply on desktop only; mobile sheets are full-bleed. */
-@media (min-width: 640px) {
-  .modal-panel--sm { max-width: 28rem; }
-  .modal-panel--md { max-width: 32rem; }
-  .modal-panel--lg { max-width: 36rem; }
-  .modal-panel--xl { max-width: 42rem; }
-}
-
 @media (min-width: 768px) {
+  .modal-panel--sm { max-width: 28rem; }
   .modal-panel--md { max-width: 42rem; }
   .modal-panel--lg { max-width: 48rem; }
   .modal-panel--xl { max-width: 56rem; }
@@ -331,7 +326,7 @@ function onOpenAutoFocus(event: Event) {
   padding-block: 0.375rem 0.625rem;
 }
 
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .modal-header {
     min-height: 2.25rem;
   }
@@ -419,7 +414,7 @@ function onOpenAutoFocus(event: Event) {
   width: 100%;
 }
 
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .modal-footer :deep(.modal-actions) {
     flex-direction: row;
     justify-content: flex-end;
@@ -438,7 +433,7 @@ function onOpenAutoFocus(event: Event) {
   border-radius: 0.5rem;
 }
 
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .modal-footer :deep(.modal-actions button) {
     min-height: 0;
     padding: 0.5rem 0.875rem;
@@ -455,7 +450,7 @@ function onOpenAutoFocus(event: Event) {
 .modal-panel[data-state='open'] { animation: modal-sheet-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
 .modal-panel[data-state='closed'] { animation: modal-sheet-out 0.15s ease; }
 
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .modal-panel[data-state='open'] { animation: modal-card-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
   .modal-panel[data-state='closed'] { animation: modal-card-out 0.15s ease; }
 }
