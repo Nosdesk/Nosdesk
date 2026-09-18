@@ -3275,14 +3275,16 @@ error-page-description = La page que vous cherchez n'existe pas ou vous n'y avez
 error-page-go-back = Retour
 error-page-go-home = Aller au tableau de bord
 # No workspace access (machine, à relire par un locuteur natif).
-no-workspace-access-title = Aucun accès à un espace de travail
-no-workspace-access-message = Votre compte n'est encore membre d'aucun espace de travail.
 # MACHINE TRANSLATION, pending native review
-no-workspace-access-signed-in-as = Vous êtes connecté en tant que { $email }.
-no-workspace-access-description = Demandez à votre administrateur de vous ajouter à un espace de travail, puis actualisez. Si vous venez d'être ajouté, une actualisation devrait suffire.
-no-workspace-access-refresh = Actualiser
+no-workspace-access-title = Pas encore d'espace de travail
+no-workspace-access-message = Vous êtes connecté, mais ce compte n'a pas encore été ajouté à un espace de travail sur ce serveur.
+no-workspace-access-account-label = Compte
+no-workspace-access-server-label = Serveur
+no-workspace-access-description = Un administrateur ajoute les personnes aux espaces de travail. Une fois ajouté, vérifiez à nouveau pour ouvrir le vôtre.
+no-workspace-access-check-again = Vérifier à nouveau
+no-workspace-access-wrong-account = Ce n'est pas votre compte ?
 no-workspace-access-sign-out = Se déconnecter
-route-title-no-workspace-access = Aucun accès à un espace de travail
+route-title-no-workspace-access = Pas encore d'espace de travail
 error-page-debug-title = Contrôles de débogage (appuyez sur « d » pour basculer)
 error-page-debug-master-toggle = Activation générale des effets
 error-page-debug-global-intensity = Intensité globale

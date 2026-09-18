@@ -3266,14 +3266,16 @@ error-page-description = De pagina die je zoekt bestaat niet, of je hebt er moge
 error-page-go-back = Terug
 error-page-go-home = Naar dashboard
 # No workspace access (machine, te controleren door een moedertaalspreker).
-no-workspace-access-title = Geen toegang tot een werkruimte
-no-workspace-access-message = Je account is nog geen lid van een werkruimte.
 # MACHINE TRANSLATION, pending native review
-no-workspace-access-signed-in-as = Je bent ingelogd als { $email }.
-no-workspace-access-description = Vraag je beheerder om je aan een werkruimte toe te voegen en vernieuw daarna. Als je net bent toegevoegd, zou vernieuwen genoeg moeten zijn.
-no-workspace-access-refresh = Vernieuwen
+no-workspace-access-title = Nog geen werkruimte
+no-workspace-access-message = Je bent ingelogd, maar dit account is nog niet aan een werkruimte op deze server toegevoegd.
+no-workspace-access-account-label = Account
+no-workspace-access-server-label = Server
+no-workspace-access-description = Een beheerder voegt mensen toe aan werkruimten. Zodra je bent toegevoegd, controleer je opnieuw om de jouwe te openen.
+no-workspace-access-check-again = Opnieuw controleren
+no-workspace-access-wrong-account = Niet jouw account?
 no-workspace-access-sign-out = Afmelden
-route-title-no-workspace-access = Geen toegang tot een werkruimte
+route-title-no-workspace-access = Nog geen werkruimte
 error-page-debug-title = Debug-instellingen (druk op 'd' om te wisselen)
 error-page-debug-master-toggle = Hoofdschakelaar effecten
 error-page-debug-global-intensity = Algemene intensiteit
