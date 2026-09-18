@@ -71,7 +71,7 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
       <button
         type="button"
         @click="emit('close')"
-        :aria-label="`Close ${title.toLowerCase()}`"
+        :aria-label="$t('common-panel-close', { title })"
         class="rounded p-1 text-tertiary transition-colors hover:bg-surface-hover hover:text-primary"
       >
         <Icon name="close" size="sm" />
@@ -118,7 +118,7 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
           <button
             type="button"
             @click="emit('close')"
-            :aria-label="`Close ${title.toLowerCase()}`"
+            :aria-label="$t('common-panel-close', { title })"
             class="rounded p-1 text-tertiary transition-colors hover:bg-surface-hover hover:text-primary"
           >
             <Icon name="close" size="sm" />

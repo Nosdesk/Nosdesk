@@ -134,6 +134,10 @@ describe('DatePicker', () => {
     await nextTick()
     await open()
     expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+    // Reka would call the grid "Event Date" otherwise.
+    expect(document.body.querySelector('[role="dialog"] [aria-label$="2026"]')?.getAttribute('aria-label')).toBe(
+      'date-picker-calendar-aria, September 2026',
+    )
     expect(day('2026-09-17')?.getAttribute('data-selected')).toBe('true')
     // The grid opens on the value's month with the value as the roving stop.
     expect(day('2026-09-17')?.getAttribute('tabindex')).toBe('0')

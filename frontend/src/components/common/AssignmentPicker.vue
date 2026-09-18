@@ -42,12 +42,14 @@ const props = withDefaults(defineProps<{
   selectedItems: SelectedPrincipal[]
   placeholder?: string
 }>(), {
-  placeholder: 'Search users and groups...',
+  placeholder: undefined,
 })
 
 const emit = defineEmits<{
   (e: 'update:selectedItems', items: SelectedPrincipal[]): void
 }>()
+
+const resolvedPlaceholder = computed(() => props.placeholder ?? $t('assignment-picker-search-placeholder'))
 
 const searchQuery = ref('')
 const isOpen = ref(false)
@@ -129,8 +131,8 @@ const rowClass =
       <ComboboxAnchor class="relative">
         <ComboboxInput
           v-model="searchQuery"
-          :placeholder="placeholder"
-          :aria-label="placeholder"
+          :placeholder="resolvedPlaceholder"
+          :aria-label="resolvedPlaceholder"
           class="w-full px-3 py-2 text-sm rounded-lg border border-default bg-surface text-primary placeholder:text-tertiary focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent/30"
         />
       </ComboboxAnchor>

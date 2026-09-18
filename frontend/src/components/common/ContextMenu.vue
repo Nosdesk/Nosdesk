@@ -8,6 +8,7 @@
  * that picks "click-anchored surface wraps menu list".
  */
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import ResponsiveMenu from './ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from './MenuList.vue'
 
@@ -24,7 +25,12 @@ const props = defineProps<{
    * mounting the entire ContextMenu would unmount the inner
    * Transition before the leave can run, so it's not supported. */
   open: boolean
+  /** Accessible name for the menu (and the sheet on phones). */
+  label?: string
 }>()
+
+const fluent = useFluent()
+const ariaLabel = computed(() => props.label ?? fluent.$t('common-actions-menu-aria'))
 
 const emit = defineEmits<{
   select: [id: string]
@@ -54,6 +60,7 @@ const anchor = computed(() => ({
     placement="bottom-start"
     react-to-scroll="close"
     role="menu"
+    :aria-label="ariaLabel"
     popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[160px]"
     @close="emit('close')"
   >

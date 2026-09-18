@@ -120,6 +120,8 @@ const t = (key: string, args?: Record<string, string>) => fluent.$t(key, args)
 const generatedId = useId()
 const inputId = `date-picker-${generatedId}`
 const labelId = computed(() => (props.label ? `${inputId}-label` : undefined))
+// Reka names the grid "Event Date, <month>" unless told otherwise.
+const calendarLabel = computed(() => props.label ?? props.ariaLabel ?? t('date-picker-calendar-aria'))
 
 // Single and range pickers are parallel part sets on Reka's side; one
 // template renders either through this map. Typed loosely on purpose:
@@ -390,7 +392,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
         class="date-picker__popover popover-inner z-overlay"
         :class="range && 'date-picker__popover--range'"
       >
-        <component :is="parts.Calendar" v-slot="{ weekDays, grid }">
+        <component :is="parts.Calendar" v-slot="{ weekDays, grid }" :calendar-label="calendarLabel">
           <component :is="parts.Header" class="date-picker__header">
             <component :is="parts.Prev" as-child>
               <button type="button" class="date-picker__nav" :aria-label="t('date-picker-prev-month-aria')">

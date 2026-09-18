@@ -121,10 +121,19 @@ describe('ResponsiveMenu on a phone', () => {
     expect(document.getElementById(dialog!.getAttribute('aria-labelledby')!)?.textContent).toBe(
       'Ticket actions',
     )
+    expect(dialog?.getAttribute('aria-modal')).toBe('true')
     const body = dialog!.querySelector('[role="menu"]')
     expect(body?.querySelector('[role="menuitem"]')?.textContent?.trim()).toBe('Assign')
     dialog!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await nextTick()
     expect(closes).toHaveLength(1)
+  })
+
+  it('never renders a sheet with an empty name', async () => {
+    mountMenu({}, () => h(MenuList, { items: [{ id: 'a', label: 'Assign' }] }))
+    await settle()
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')
+    expect(document.getElementById(dialog!.getAttribute('aria-labelledby')!)?.textContent).toBe('common-sheet-aria')
+    expect(dialog!.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('common-sheet-aria')
   })
 })

@@ -27,7 +27,7 @@ Usage:
       <div class="modal-actions">
         <!-- Cancel closes through the dialog, which emits `close` once. -->
         <AlertDialogCancel as-child>
-          <Button variant="ghost">{{ cancelLabel }}</Button>
+          <Button variant="ghost">{{ cancelLabel ?? $t('common-cancel') }}</Button>
         </AlertDialogCancel>
         <Button
           :variant="confirmVariant"
@@ -35,7 +35,7 @@ Usage:
           :loading="loading"
           @click="emit('confirm')"
         >
-          {{ confirmLabel }}
+          {{ confirmLabel ?? $t('common-confirm') }}
         </Button>
       </div>
     </template>
@@ -60,8 +60,8 @@ const props = withDefaults(
     loading?: boolean
   }>(),
   {
-    confirmLabel: 'Confirm',
-    cancelLabel: 'Cancel',
+    confirmLabel: undefined,
+    cancelLabel: undefined,
     variant: 'info',
     confirmDisabled: false,
     loading: false,

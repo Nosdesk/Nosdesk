@@ -54,7 +54,7 @@ const props = withDefaults(defineProps<Props>(), {
   reactToScroll: 'reposition',
   matchAnchorWidth: false,
   offset: 4,
-  role: 'menu',
+  role: 'dialog',
   autoFocus: true,
   noTransition: false,
 })

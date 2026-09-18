@@ -91,6 +91,7 @@ const hasOverride = (node: TreeNode) => props.overridePageIds?.has(node.id) ?? f
       :get-key="keyOf"
       :get-children="childrenOf"
       :model-value="active"
+      :aria-label="$t('docs-collection-tree-aria')"
       class="flex flex-col"
     >
       <RouterLink v-for="item in flattenItems" :key="item._id" v-slot="{ href, navigate }" :to="docUrl(item.value)" custom>

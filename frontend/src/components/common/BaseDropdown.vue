@@ -23,6 +23,7 @@
  * `title` go to the trigger.
  */
 import { computed, ref, useAttrs, useId } from 'vue'
+import { useFluent } from 'fluent-vue'
 import {
   SelectContent,
   SelectItem,
@@ -64,7 +65,7 @@ const props = withDefaults(
     required?: boolean
   }>(),
   {
-    placeholder: 'Select an option',
+    placeholder: undefined,
     disabled: false,
     size: 'md',
     multiple: false,
@@ -74,6 +75,9 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'update:modelValue', value: T | T[]): void
 }>()
+
+const fluent = useFluent()
+const resolvedPlaceholder = computed(() => props.placeholder ?? fluent.$t('common-dropdown-select-placeholder'))
 
 const attrs = useAttrs()
 const rootAttrs = computed(() => ({ class: attrs.class, style: attrs.style }))
@@ -128,15 +132,15 @@ const isChecked = (option: DropdownOption<T>): boolean =>
 const displayText = computed(() => {
   if (props.multiple) {
     const selected = selectedValues.value.filter((v) => v !== ALL)
-    if (selected.length === 0) return props.placeholder
+    if (selected.length === 0) return resolvedPlaceholder.value
     const allOption = props.options.find((o) => o.value === ALL)
     if (selected.length === realOptionValues.value.length && allOption) return allOption.label
     if (selected.length === 1) {
       return props.options.find((o) => o.value === selected[0])?.label || String(selected[0])
     }
-    return `${selected.length} selected`
+    return fluent.$t('common-n-selected', { count: selected.length })
   }
-  return selectedOption.value?.label || props.placeholder
+  return selectedOption.value?.label || resolvedPlaceholder.value
 })
 
 const hasSelection = computed(() => {
@@ -246,7 +250,7 @@ const contentStyle = {
         v-bind="triggerAttrs"
         :disabled="disabled"
         :aria-expanded="isOpen"
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         :aria-invalid="error ? 'true' : undefined"
         :aria-describedby="describedById"
         :class="triggerClasses"
@@ -262,7 +266,7 @@ const contentStyle = {
       </button>
       <BottomSheet
         :open="isOpen"
-        :title="label ?? placeholder"
+        :title="label ?? resolvedPlaceholder"
         body-role="listbox"
         @close="isOpen = false"
       >

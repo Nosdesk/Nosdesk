@@ -40,7 +40,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  placeholder: 'Enter text...',
+  placeholder: undefined,
   textSize: 'base',
   canEdit: true,
   prefix: '',
@@ -110,7 +110,8 @@ const clampClass = computed(() =>
       ? 'truncate'
       : 'break-words',
 );
-const accessibleName = computed(() => props.label ?? props.placeholder);
+const resolvedPlaceholder = computed(() => props.placeholder ?? fluent.$t('inline-edit-placeholder'));
+const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
 </script>
 
 <template>
@@ -125,7 +126,7 @@ const accessibleName = computed(() => props.label ?? props.placeholder);
 
     <EditableRoot
       :model-value="held"
-      :placeholder="placeholder"
+      :placeholder="resolvedPlaceholder"
       :activation-mode="canEdit ? 'focus' : 'none'"
       submit-mode="both"
       select-on-focus
@@ -146,7 +147,7 @@ const accessibleName = computed(() => props.label ?? props.placeholder);
             :tabindex="canEdit ? 0 : -1"
             :title="(maxLines || truncate) && held ? held : undefined"
           >
-            {{ held || placeholder }}
+            {{ held || resolvedPlaceholder }}
           </div>
         </EditablePreview>
         <EditableInput as-child>

@@ -146,6 +146,7 @@ describe('BaseDropdown on a phone', () => {
   it('opens a sheet listbox and selects from it', async () => {
     const { updates } = mountDropdown()
     await settle()
+    expect(wrapper!.get('button').attributes('aria-haspopup')).toBe('dialog')
     await wrapper!.get('button').trigger('click')
     await settle()
     const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')

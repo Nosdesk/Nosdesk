@@ -164,6 +164,7 @@ function handleSelect(id: string): void {
         placement="bottom-end"
         react-to-scroll="reposition"
         role="menu"
+        :aria-label="$t('gantt-more-controls')"
         :auto-focus="false"
         popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[160px]"
         @close="isOpen = false"
