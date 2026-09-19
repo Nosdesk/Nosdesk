@@ -56,7 +56,7 @@ futures = "0.3"
 # bundle tokens), EdDSA (licence + platform provisioning), ECDSA (APNs), RSA (FCM).
 jsonwebtoken = { version = "11.0.0", features = ["aws_lc_rs"] }
 bcrypt = "0.19.3"  # Legacy hashing - kept for existing recovery codes hashed before the argon2 migration; password hashing also still uses it
-argon2 = "0.5"     # MFA recovery code hashing (and future password migration target); OWASP-recommended memory-hard KDF
+argon2 = "0.6"     # MFA recovery code hashing (and future password migration target); OWASP-recommended memory-hard KDF
 actix-web-httpauth = "0.8.2"
 regex = "1.11.0"
 clap = { version = "4.5", features = ["derive"] }  # nosdesk-cli
