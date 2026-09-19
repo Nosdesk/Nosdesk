@@ -1126,7 +1126,7 @@ route-title-workspace-members = Team
 workspace-members-title = Team
 workspace-members-invite = Teamlid uitnodigen
 # workspace-members-manage-in-control-plane (machine, door een moedertaalspreker na te kijken).
-workspace-members-manage-in-control-plane = Team beheren in het control plane
+workspace-members-manage-in-control-plane = Medewerkers beheren in je Nosdesk-account
 workspace-members-empty-description = Nodig teamleden uit om samen te werken in deze werkruimte.
 workspace-members-error-forbidden = Je kunt alleen agents en leden beheren. Het beheren van beheerders of eigenaren vereist de eigenaarsrol.
 workspace-members-you = (jij)
@@ -2377,7 +2377,7 @@ user-mgmt-deleted-purges-on = Definitief verwijderd op { $date }
 user-mgmt-restore = Gebruiker herstellen
 user-mgmt-restored = { $name } hersteld
 # Automatische vertaling, wacht op controle door een moedertaalspreker.
-user-mgmt-hosted-add-in-control-plane = Leden worden toegevoegd in de Nosdesk-beheerconsole.
+user-mgmt-hosted-add-in-control-plane = Medewerkers worden toegevoegd in je Nosdesk-account, onder Werkruimten en dan Medewerkers.
 user-mgmt-restore-error = Kon die gebruiker niet herstellen.
 user-mgmt-purge-now = Permanent verwijderen
 user-mgmt-purged = { $name } permanent verwijderd
