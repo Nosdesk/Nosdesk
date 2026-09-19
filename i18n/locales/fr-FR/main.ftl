@@ -1129,7 +1129,7 @@ route-title-workspace-members = Équipe
 workspace-members-title = Équipe
 workspace-members-invite = Inviter un coéquipier
 # workspace-members-manage-in-control-plane (machine, à relire par un locuteur natif).
-workspace-members-manage-in-control-plane = Gérer l'équipe dans le plan de contrôle
+workspace-members-manage-in-control-plane = Gérer le personnel dans votre compte Nosdesk
 workspace-members-empty-description = Invitez des coéquipiers à collaborer dans cet espace de travail.
 workspace-members-error-forbidden = Vous ne pouvez gérer que les agents et les membres. La gestion des administrateurs ou des propriétaires nécessite le rôle de propriétaire.
 workspace-members-you = (vous)
@@ -2380,7 +2380,7 @@ user-mgmt-deleted-purges-on = Suppression définitive le { $date }
 user-mgmt-restore = Restaurer l'utilisateur
 user-mgmt-restored = { $name } restauré
 # Traduction automatique, en attente de relecture par un locuteur natif.
-user-mgmt-hosted-add-in-control-plane = Les membres sont ajoutés dans la console de gestion Nosdesk.
+user-mgmt-hosted-add-in-control-plane = Le personnel est ajouté dans votre compte Nosdesk, sous Espaces de travail puis Personnel.
 user-mgmt-restore-error = Impossible de restaurer cet utilisateur.
 user-mgmt-purge-now = Supprimer définitivement
 user-mgmt-purged = { $name } supprimé définitivement
