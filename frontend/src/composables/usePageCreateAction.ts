@@ -13,15 +13,32 @@
  * page-action that conflicts with sibling views, so this
  * simplification doesn't regress it.
  */
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, toValue, watchEffect, type MaybeRefOrGetter } from 'vue'
 
 import { usePageActionsStore, type CreateAction } from '@nosdesk/core/stores/pageActions'
 
+export interface PageCreateOptions {
+  /**
+   * FTL key for the header label when it depends on view state (the
+   * People list's population); the route's first-paint label otherwise.
+   * Followed reactively while the view is mounted.
+   */
+  labelKey?: MaybeRefOrGetter<string | undefined>
+}
+
 export function usePageCreateAction(
   action: CreateAction | (() => void | Promise<void>),
+  options: PageCreateOptions = {},
 ): void {
   const store = usePageActionsStore()
+  const handler = typeof action === 'function' ? action : action.handler
 
-  onMounted(() => store.setCreateAction(action))
-  onUnmounted(() => store.clearCreateAction())
+  let stop: (() => void) | null = null
+  onMounted(() => {
+    stop = watchEffect(() => store.setCreateAction({ handler, labelKey: toValue(options.labelKey) }))
+  })
+  onUnmounted(() => {
+    stop?.()
+    store.clearCreateAction()
+  })
 }

@@ -5698,6 +5698,9 @@ header-create-ticket = Nieuw ticket
 header-create-project = Project aanmaken
 header-add-ticket = Ticket toevoegen
 header-create-user = Gebruiker aanmaken
+# MACHINE TRANSLATION, pending native review
+header-add-requester = Aanvrager toevoegen
+header-manage-staff = Medewerkers beheren
 header-create-asset = Activum aanmaken
 header-create-document = Document aanmaken
 nav-route-announcement = Genavigeerd naar { $title }

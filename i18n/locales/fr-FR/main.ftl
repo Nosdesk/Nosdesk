@@ -5707,6 +5707,9 @@ header-create-ticket = Nouveau ticket
 header-create-project = Créer un projet
 header-add-ticket = Ajouter un ticket
 header-create-user = Créer un utilisateur
+# MACHINE TRANSLATION, pending native review
+header-add-requester = Ajouter un demandeur
+header-manage-staff = Gérer le personnel
 header-create-asset = Créer un actif
 header-create-document = Créer un document
 nav-route-announcement = Vous êtes sur { $title }

@@ -26,6 +26,13 @@ import { computed, ref } from 'vue'
 export interface CreateAction {
   /** Invoked when the header Create button is clicked. */
   handler: () => void | Promise<void>
+  /**
+   * FTL key for the button label, when the view's action is not the one
+   * `route.meta.createButtonTextKey` names for first paint: the People
+   * list adds a requester, creates a user, or hands off to the control
+   * plane depending on population and deployment.
+   */
+  labelKey?: string
 }
 
 export const usePageActionsStore = defineStore('pageActions', () => {

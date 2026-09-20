@@ -312,12 +312,16 @@ const currentPageUrl = computed(() => {
 // Security: Check if system requires initial setup on app initialization
 const initializationChecked = ref(false);
 
+const pageActions = usePageActionsStore();
+
 // Computed properties for create button from route meta.
 // Prefer `createButtonTextKey` (FTL key) so the label translates with
 // the user's locale; fall back to the legacy `createButtonText` string
 // for routes that haven't been migrated yet.
 const createButtonText = computed(() => {
-  const key = route.meta.createButtonTextKey as string | undefined;
+  // A mounted view may name a more specific label than the route's
+  // first-paint one (see CreateAction.labelKey).
+  const key = pageActions.createAction?.labelKey ?? (route.meta.createButtonTextKey as string | undefined);
   if (key) return t(key);
   return (route.meta.createButtonText as string | undefined) || t('header-create-ticket');
 });
@@ -335,7 +339,6 @@ const titleIcon = computed(() => route.meta.titleIcon as string | undefined);
 // ?.[methodName]?.()` indirection.
 const showCreateButton = computed(() => !!(route.meta.createButtonTextKey || route.meta.createButtonText));
 
-const pageActions = usePageActionsStore();
 const handleCreateClick = () => {
   void pageActions.invokeCreate();
 };

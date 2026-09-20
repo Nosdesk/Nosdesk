@@ -76,6 +76,19 @@ describe('Popover', () => {
     expect(closes).toHaveLength(2)
   })
 
+  it('stays open when focus moves to the anchor, closes when it moves elsewhere', async () => {
+    // Chrome focuses a button on mousedown, so a click on the toggle
+    // reaches Reka as focus leaving the surface before the click lands.
+    const { closes, anchor, outside } = mountPopover()
+    await settle()
+    anchor.focus()
+    await settle()
+    expect(closes).toHaveLength(0)
+    outside.focus()
+    await settle()
+    expect(closes).toHaveLength(1)
+  })
+
   it('positions against a viewport point when the anchor is a point', async () => {
     mountPopover({ anchor: { type: 'point', x: 40, y: 50 } })
     await settle()

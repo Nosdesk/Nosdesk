@@ -5739,6 +5739,9 @@ header-create-ticket = New ticket
 header-create-project = Create project
 header-add-ticket = Add ticket
 header-create-user = Create user
+header-add-requester = Add requester
+# Hosted: staff seats live in the control plane; the button opens it.
+header-manage-staff = Manage staff
 header-create-asset = Create asset
 header-create-document = Create document
 nav-route-announcement = Navigated to { $title }

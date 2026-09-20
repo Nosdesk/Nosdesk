@@ -83,7 +83,12 @@ const onPageCreate = () => {
   if (isRequesters.value) showAddRequester.value = true
   else navigateToCreateUser()
 }
-usePageCreateAction(onPageCreate)
+// The label says which of the three the click does.
+const createLabelKey = computed(() => {
+  if (isRequesters.value) return 'header-add-requester'
+  return isHostedDeploymentRef.value ? 'header-manage-staff' : 'header-create-user'
+})
+usePageCreateAction(onPageCreate, { labelKey: createLabelKey })
 
 // Filter facets. Role is multi-select (backend accepts CSV via
 // parse_role); Name is the chip text-facet that drives

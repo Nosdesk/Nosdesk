@@ -63,6 +63,16 @@ function onPointerDownOutside(event: CustomEvent<{ originalEvent: PointerEvent }
   else closedByOutsidePointer = true
 }
 
+// Same for focus: in Chrome a mousedown on the anchor focuses it before
+// the click lands, and Reka reads that focusin as leaving the surface.
+// Unguarded, every click on the toggle closes here and re-opens in the
+// consumer's handler.
+function onFocusOutside(event: CustomEvent<{ originalEvent: FocusEvent }>) {
+  const target = event.detail.originalEvent.target as Node | null
+  const el = anchorElement()
+  if (target && el?.contains(target)) event.preventDefault()
+}
+
 function onOpenAutoFocus() {
   closedByOutsidePointer = false
 }
@@ -106,6 +116,7 @@ const contentStyle = computed(() => ({
         :side-offset="offset"
         :collision-padding="8"
         @pointer-down-outside="onPointerDownOutside"
+        @focus-outside="onFocusOutside"
         @open-auto-focus="onOpenAutoFocus"
         @close-auto-focus="onCloseAutoFocus"
       >
