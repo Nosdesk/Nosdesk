@@ -17,6 +17,7 @@ import type { RecentTicket } from '@nosdesk/core/types/ticket'
 import { logger } from '@nosdesk/core/utils/logger'
 import { translate } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
+import { activeWorkspaceSlugRef } from '@/services/activeWorkspace'
 
 export const RECENT_TICKETS_KEY = ['tickets', 'recent'] as const
 
@@ -25,18 +26,21 @@ export const RECENT_TICKETS_KEY = ['tickets', 'recent'] as const
 const MAX_PERSISTED = 25
 const STORAGE_KEY_PREFIX = 'nosdesk:recent-tickets'
 
-/** Per-account storage key so switching accounts on the same browser
- *  doesn't hydrate the previous account's list. */
-function storageKey(accountUuid: string | null): string {
-  return accountUuid
-    ? `${STORAGE_KEY_PREFIX}:${accountUuid}`
-    : `${STORAGE_KEY_PREFIX}:anon`
+/** Per-account and per-workspace storage key: switching accounts on the
+ *  same browser must not hydrate the previous account's list, and on a
+ *  single-origin instance switching workspace must not hydrate the
+ *  previous workspace's. Host mode has no slug and keeps the shorter key. */
+function storageKey(accountUuid: string | null, workspaceSlug: string | null): string {
+  const account = accountUuid ?? 'anon'
+  return workspaceSlug
+    ? `${STORAGE_KEY_PREFIX}:${account}:${workspaceSlug}`
+    : `${STORAGE_KEY_PREFIX}:${account}`
 }
 
-function loadFromStorage(accountUuid: string | null): RecentTicket[] {
+function loadFromStorage(accountUuid: string | null, workspaceSlug: string | null): RecentTicket[] {
   if (typeof localStorage === 'undefined') return []
   try {
-    const raw = localStorage.getItem(storageKey(accountUuid))
+    const raw = localStorage.getItem(storageKey(accountUuid, workspaceSlug))
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? (parsed as RecentTicket[]) : []
@@ -49,6 +53,7 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   const queryCache = useQueryCache()
   const auth = useAuthStore()
   const accountKey = () => auth.user?.uuid ?? null
+  const workspaceKey = () => activeWorkspaceSlugRef.value
 
   // Account-scoped query key: the signed-in user's uuid is part of the
   // key, so switching accounts (sign-in / sign-out / switch) selects a
@@ -56,7 +61,10 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   // account's load happens automatically, and there's nothing to reset on
   // sign-out. `RECENT_TICKETS_KEY` stays the prefix so external
   // prefix-match invalidations (useTicketDeletionCleanup) still hit it.
-  const recentKey = () => [...RECENT_TICKETS_KEY, accountKey() ?? 'anon']
+  // The workspace slug is in the key too: recents are a per-workspace
+  // list, and a switch on a single-origin instance must select a fresh
+  // entry rather than serve the previous workspace's until a refetch.
+  const recentKey = () => [...RECENT_TICKETS_KEY, accountKey() ?? 'anon', workspaceKey() ?? 'host']
 
   // Recently-removed ids stay suppressed until the next refetch
   // so a quick `recordTicketView` after `removeTicket` doesn't
@@ -77,7 +85,7 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
     // keeps `isLoading` true for a genuine cold load. `enabled` keeps the
     // signed-out (`anon`) key from fetching, so sign-out never 401s.
     initialData: () => {
-      const stored = loadFromStorage(accountKey())
+      const stored = loadFromStorage(accountKey(), workspaceKey())
       return stored.length > 0 ? stored : undefined
     },
   })
@@ -91,7 +99,7 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
     if (typeof localStorage === 'undefined') return
     try {
       localStorage.setItem(
-        storageKey(accountKey()),
+        storageKey(accountKey(), workspaceKey()),
         JSON.stringify(next.slice(0, MAX_PERSISTED)),
       )
     } catch {

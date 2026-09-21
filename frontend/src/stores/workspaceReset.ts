@@ -38,6 +38,15 @@ export async function resetWorkspaceScopedState(): Promise<void> {
     // workspace's users in the "Recent" picker. (recentTickets is a Pinia
     // Colada query, so the cache clear below already resets it.)
     import('@/stores/recentUsers').then((m) => m.useRecentUsersStore().clear()),
+    // Ticket drafts persist by ticket id, which repeats across workspaces on
+    // one origin; park this workspace's under its own key. The new
+    // workspace's are loaded when its slug is published (enterWorkspace).
+    import('@nosdesk/core/stores/ticketDrafts').then((m) =>
+      m.useTicketDraftsStore().setScope(null),
+    ),
+    // Plugins are the workspace's enabled set; their slot and action
+    // registrations must not follow the user to the next workspace.
+    import('@/plugins').then((m) => m.unloadAllPlugins()),
   ]);
   for (const r of storeResets) {
     if (r.status === 'rejected') {
@@ -92,5 +101,25 @@ export async function resetWorkspaceScopedState(): Promise<void> {
     await purgeAllCollabDocs();
   } catch (e) {
     logger.error('Failed to tear down the sync runtime', e);
+  }
+}
+
+/**
+ * The other half of a switch: what a workspace needs loaded once its slug is
+ * published (so the selection header is set). Called by the workspace guard
+ * after `resetWorkspaceScopedState`, and on the first entry of a session.
+ */
+export async function enterWorkspace(slug: string): Promise<void> {
+  const loads = await Promise.allSettled([
+    import('@nosdesk/core/stores/ticketDrafts').then((m) =>
+      m.useTicketDraftsStore().setScope(slug),
+    ),
+    import('@/stores/branding').then((m) => m.useBrandingStore().loadBranding()),
+    import('@/plugins').then((m) => m.loadPlugins()),
+  ]);
+  for (const r of loads) {
+    if (r.status === 'rejected') {
+      logger.error('Failed to load workspace-scoped state', r.reason);
+    }
   }
 }

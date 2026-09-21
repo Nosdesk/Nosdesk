@@ -352,7 +352,11 @@ watch(
   async (isAuthenticated, wasAuthenticated) => {
     if (isAuthenticated && !wasAuthenticated) {
       try {
-        await loadPlugins();
+        // Path mode: the workspace guard loads plugins when it publishes a
+        // slug (and reloads them on a switch), since the enabled set is the
+        // workspace's. Host mode has one workspace per origin, so load here.
+        await fetchInstanceConfig();
+        if (getWorkspaceRouting() !== 'path') await loadPlugins();
         eventDispatcherCleanup = initializeEventDispatcher();
         // Tear down / load plugins in this session as their state changes
         // server-side (disable / quarantine / uninstall / re-enable), not just

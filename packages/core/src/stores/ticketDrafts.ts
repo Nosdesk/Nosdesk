@@ -30,6 +30,13 @@ export interface TicketDraft {
 }
 
 const STORAGE_KEY = 'nosdesk:ticket-drafts'
+/** Ticket ids repeat across workspaces on a single-origin instance, so
+ *  each workspace's drafts live under their own key. `null` (host mode,
+ *  or before a workspace is selected) keeps the original key. */
+let scope: string | null = null
+function storageKey(): string {
+  return scope ? `${STORAGE_KEY}:${scope}` : STORAGE_KEY
+}
 const PERSIST_DEBOUNCE_MS = 400
 
 const EMPTY_DRAFT: TicketDraft = Object.freeze({
@@ -39,7 +46,7 @@ const EMPTY_DRAFT: TicketDraft = Object.freeze({
 
 function loadFromStorage(): Map<number, TicketDraft> {
   try {
-    const raw = storage().getItem(STORAGE_KEY)
+    const raw = storage().getItem(storageKey())
     if (!raw) return new Map()
     const parsed = JSON.parse(raw) as Record<string, TicketDraft>
     const out = new Map<number, TicketDraft>()
@@ -59,12 +66,12 @@ function loadFromStorage(): Map<number, TicketDraft> {
 function persistToStorage(drafts: Map<number, TicketDraft>): void {
   try {
     if (drafts.size === 0) {
-      storage().removeItem(STORAGE_KEY)
+      storage().removeItem(storageKey())
       return
     }
     const obj: Record<string, TicketDraft> = {}
     for (const [id, draft] of drafts) obj[String(id)] = draft
-    storage().setItem(STORAGE_KEY, JSON.stringify(obj))
+    storage().setItem(storageKey(), JSON.stringify(obj))
   } catch (err) {
     // QuotaExceededError, JSON failure, or sandboxed storage.
     // Drafts still work in memory; just no persistence.
@@ -117,9 +124,25 @@ export const useTicketDraftsStore = defineStore('ticketDrafts', () => {
     drafts.value = next
   }
 
+  /** Switch to `workspaceSlug`'s drafts: flush the current set to its
+   *  own key, then load the other workspace's. Called by the workspace
+   *  reset, so a switch never shows one workspace's draft on another's
+   *  ticket of the same id. */
+  function setScope(workspaceSlug: string | null): void {
+    if (workspaceSlug === scope) return
+    if (persistHandle) {
+      clearTimeout(persistHandle)
+      persistHandle = null
+    }
+    persistToStorage(drafts.value)
+    scope = workspaceSlug
+    drafts.value = loadFromStorage()
+  }
+
   return {
     getDraft,
     setDraft,
     clearDraft,
+    setScope,
   }
 })
