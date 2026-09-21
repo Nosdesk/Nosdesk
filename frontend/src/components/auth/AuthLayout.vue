@@ -65,8 +65,12 @@ const heroStyle = computed(() => ({
          min-h-full so short forms centre vertically while tall ones (e.g.
          onboarding with its info cards) flow from the top and scroll, all
          within the panel so the hero stays pinned to the viewport. -->
+    <!-- The panel is `bg-surface`, not the app background: the shared
+         inputs paint `bg-surface-alt` with a subtle border, both of which
+         are the app background's own colour in the light theme, so on
+         `bg-app` a field is only its placeholder text. -->
     <section
-      class="relative w-full overflow-y-auto"
+      class="relative w-full overflow-y-auto bg-surface"
       :class="wide ? 'lg:max-w-[760px] lg:basis-[55%]' : 'lg:max-w-[560px] lg:basis-[45%]'"
     >
       <div
