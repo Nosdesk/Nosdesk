@@ -486,6 +486,15 @@ export async function fetchServerIdentity(): Promise<{
  * session, else a full per-group bootstrap. Idempotent — calling twice with
  * the same group runs no extra work.
  */
+/**
+ * Whether the pool reflects the server: a bootstrap or delta catch-up has
+ * completed since the runtime opened. False after a network failure, when
+ * an empty pool means "unknown", not "nothing there".
+ */
+export function isCaughtUp(): boolean {
+  return state.caughtUp
+}
+
 export async function subscribe(group: string): Promise<void> {
   if (pool.getSubscribedGroups().has(group)) return
   pool.subscribe(group)

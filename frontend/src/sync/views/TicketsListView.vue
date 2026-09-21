@@ -96,7 +96,7 @@ const savedViewsStore = useSavedViewsStore()
 
 // Subscribe to the active workspace's sync group (re-subscribes on switch) and
 // load that workspace's saved views once its bootstrap settles.
-const { ready: bootstrapped } = useWorkspaceGroupSubscription(() =>
+const { ready: bootstrapped, populated } = useWorkspaceGroupSubscription(() =>
   savedViewsStore.ensureLoaded(null),
 )
 
@@ -989,9 +989,11 @@ function startPaneResize(event: PointerEvent): void {
       class="flex-1 flex flex-col items-center justify-center text-tertiary text-sm gap-1"
     >
       <!-- Never had a ticket: the pool holds every ticket in every state, so
-           an empty pool after bootstrap is the first run, not a clear queue. -->
+           an empty pool that reflects the server is the first run, not a
+           clear queue. A pool that never loaded falls through to the
+           ordinary copy rather than claiming there is nothing. -->
       <FirstTicketsState
-        v-if="allCards.length === 0"
+        v-if="populated && allCards.length === 0"
         :is-admin="authStore.isAdmin"
         @create="pageActions.invokeCreate()"
       />
