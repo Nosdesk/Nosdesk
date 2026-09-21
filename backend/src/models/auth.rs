@@ -462,6 +462,12 @@ pub struct ValidateInvitationResponse {
     pub user_email: Option<String>,
     pub user_name: Option<String>,
     pub message: Option<String>,
+    /// Who sent the invitation and into which workspace, from the metadata
+    /// stamped at issue. Absent on older tokens and guest confirmations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invited_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_name: Option<String>,
     /// Classification of the invitation's origin so the frontend can tailor
     /// copy ("confirm your ticket submission" vs generic onboarding).
     /// `"guest_ticket"` when the token was issued by a public ticket

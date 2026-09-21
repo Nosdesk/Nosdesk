@@ -541,6 +541,9 @@ class AuthService {
     message?: string;
     /** `"guest_ticket"` for public-form submissions, `"invitation"` for admin-sent invites. */
     context?: 'guest_ticket' | 'invitation' | string;
+    /** Who sent it and into which workspace; absent on older tokens. */
+    invited_by?: string;
+    workspace_name?: string;
   }> {
     try {
       const response = await apiClient.post('/auth/invitation/validate', { token });
