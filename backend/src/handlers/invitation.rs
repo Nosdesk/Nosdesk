@@ -36,6 +36,8 @@ pub async fn validate_invitation(
                 valid: false,
                 user_email: None,
                 user_name: None,
+                invited_by: None,
+                workspace_name: None,
                 message: Some("Invalid or expired invitation link".to_string()),
                 context: None,
             }));
@@ -48,6 +50,8 @@ pub async fn validate_invitation(
             valid: false,
             user_email: None,
             user_name: None,
+            invited_by: None,
+            workspace_name: None,
             message: Some("Invalid invitation link".to_string()),
             context: None,
         }));
@@ -59,6 +63,8 @@ pub async fn validate_invitation(
             valid: false,
             user_email: None,
             user_name: None,
+            invited_by: None,
+            workspace_name: None,
             message: Some("This invitation has already been used".to_string()),
             context: None,
         }));
@@ -71,6 +77,8 @@ pub async fn validate_invitation(
             valid: false,
             user_email: None,
             user_name: None,
+            invited_by: None,
+            workspace_name: None,
             message: Some("This invitation has expired".to_string()),
             context: None,
         }));
@@ -84,6 +92,8 @@ pub async fn validate_invitation(
                 valid: false,
                 user_email: None,
                 user_name: None,
+                invited_by: None,
+                workspace_name: None,
                 message: Some("User not found".to_string()),
                 context: None,
             }));
@@ -107,11 +117,14 @@ pub async fn validate_invitation(
         })
         .or_else(|| Some("invitation".to_string()));
 
+    let (invited_by, workspace_name) = greeting_fields(token.metadata.as_ref());
     Ok(HttpResponse::Ok().json(ValidateInvitationResponse {
         valid: true,
         user_email,
         user_name: Some(user.name),
         message: None,
+        invited_by,
+        workspace_name,
         context,
     }))
 }
@@ -356,4 +369,42 @@ async fn log_invitation_acceptance_event(
     )?;
 
     Ok(())
+}
+
+/// Who invited the person and into which workspace, from the metadata
+/// stamped when the token was issued (`prepare_invitation`). Either may be
+/// missing on older tokens or guest confirmations; blank strings count as
+/// missing so the accept page falls back to its generic heading.
+pub(crate) fn greeting_fields(
+    metadata: Option<&serde_json::Value>,
+) -> (Option<String>, Option<String>) {
+    let field = |k: &str| {
+        metadata
+            .and_then(|m| m.get(k))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
+    (field("invited_by"), field("workspace_name"))
+}
+
+#[cfg(test)]
+mod greeting_tests {
+    use super::greeting_fields;
+    use serde_json::json;
+
+    #[test]
+    fn reads_both_fields_and_treats_blank_as_missing() {
+        let m = json!({ "invited_by": " Ana ", "workspace_name": "Acme Support", "source": "x" });
+        assert_eq!(
+            greeting_fields(Some(&m)),
+            (Some("Ana".into()), Some("Acme Support".into()))
+        );
+        let blank = json!({ "invited_by": "  ", "workspace_name": "" });
+        assert_eq!(greeting_fields(Some(&blank)), (None, None));
+        assert_eq!(greeting_fields(None), (None, None));
+        let old = json!({ "source": "guest_ticket_submission" });
+        assert_eq!(greeting_fields(Some(&old)), (None, None));
+    }
 }

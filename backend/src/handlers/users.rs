@@ -368,6 +368,22 @@ async fn prepare_invitation(
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
 
+    // The accept page greets with the workspace the person was invited
+    // into (and the inviter, when the caller passes one in `metadata`).
+    let metadata = {
+        let mut m = metadata.unwrap_or_else(|| serde_json::json!({}));
+        if let Some(ws) = req
+            .extensions()
+            .get::<crate::extractors::WorkspaceContext>()
+        {
+            if let Some(obj) = m.as_object_mut() {
+                obj.entry("workspace_name")
+                    .or_insert_with(|| serde_json::Value::String(ws.name.clone()));
+            }
+        }
+        Some(m)
+    };
+
     if let Err(e) = repository::reset_tokens::create_reset_token(
         conn,
         &invitation_token.token_hash,
@@ -421,7 +437,14 @@ pub async fn send_user_invitation(
     user_name: &str,
     admin_name: &str,
 ) -> SendInvitationResult {
-    let prep = match prepare_invitation(conn, req, user_uuid, None).await {
+    let prep = match prepare_invitation(
+        conn,
+        req,
+        user_uuid,
+        Some(serde_json::json!({ "invited_by": admin_name })),
+    )
+    .await
+    {
         Ok(p) => p,
         Err(result) => return result,
     };

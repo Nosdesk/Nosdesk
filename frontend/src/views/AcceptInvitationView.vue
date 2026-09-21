@@ -273,6 +273,11 @@ const errorMessage = ref('');
 const submitError = ref('');
 const userEmail = ref('');
 const userName = ref('');
+// Who added you to what: the orientation an invited person needs. Either
+// may be missing on an older token, in which case the generic welcome
+// stands in.
+const invitedBy = ref('');
+const workspaceName = ref('');
 const context = ref<'guest_ticket' | 'invitation' | string>('invitation');
 const token = ref('');
 
@@ -292,13 +297,15 @@ const initials = computed(() => {
 
 // Copy swaps for the two contexts. Keeping these as computeds — the
 // template reads them and re-renders when the token validation resolves.
-const heading = computed(() =>
-  validating.value
-    ? t('accept-invitation-heading-validating')
-    : isGuestTicket.value
-    ? t('accept-invitation-heading-guest')
-    : t('accept-invitation-heading-welcome', { app: appName.value })
-);
+const heading = computed(() => {
+  if (validating.value) return t('accept-invitation-heading-validating');
+  if (isGuestTicket.value) return t('accept-invitation-heading-guest');
+  if (invitedBy.value && workspaceName.value)
+    return t('accept-invitation-heading-added', { inviter: invitedBy.value, workspace: workspaceName.value });
+  if (workspaceName.value)
+    return t('accept-invitation-heading-workspace', { workspace: workspaceName.value });
+  return t('accept-invitation-heading-welcome', { app: appName.value });
+});
 
 const subheading = computed(() => {
   if (validating.value) return t('accept-invitation-subheading-validating');
@@ -352,6 +359,8 @@ onMounted(async () => {
     if (response.valid) {
       userEmail.value = response.user_email || '';
       userName.value = response.user_name || '';
+      invitedBy.value = response.invited_by || '';
+      workspaceName.value = response.workspace_name || '';
       context.value = response.context ?? 'invitation';
     } else {
       errorMessage.value =
