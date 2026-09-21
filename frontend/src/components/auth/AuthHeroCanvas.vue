@@ -11,9 +11,10 @@ The glyph is a perspective-projected 3D slab (view rays intersected with
 its front/back planes), tilted in space and swaying with the cursor. The
 light is fixed off-screen; the cursor rotates the ray cone and the slab,
 and an autonomous drift keeps both alive while idle. Honours
-`prefers-reduced-motion` (single static frame). A perf governor lowers the
-internal render scale on a struggling GPU, throttles to 30fps while the
-pointer is away, and falls back to a CSS accent glow when WebGL2 is
+`prefers-reduced-motion` (single static frame). A perf governor shortens
+the ray marches on a struggling GPU before it lowers the render scale (never
+below 0.75), throttles to 30fps while the pointer is away, and falls back to
+a CSS accent glow when WebGL2 is
 unavailable or the GPU still can't keep up.
 -->
 <script setup lang="ts">
@@ -60,6 +61,11 @@ uniform vec2 u_mouse;      // mouse position (UV, spring-smoothed)
 uniform vec2 u_tilt;       // glyph slab orientation (pitch, yaw) radians
 uniform float u_aspect;    // h/w
 uniform vec2 u_resolution; // canvas pixel dimensions
+uniform vec2 u_cssTexel;   // one CSS pixel in UV, so kernels keep their
+                           // on-screen width whatever the render scale
+uniform float u_qRays;     // 1.0 full; shortens the god-ray march (every fragment)
+uniform float u_qGlass;    // 1.0 full; shortens the chromatic march (glyph only)
+uniform float u_pxDensity; // backing pixels per CSS pixel (dpr x render scale)
 uniform sampler2D u_logo;  // logo mask texture (white = logo)
 uniform vec3 u_dark;       // accumulation base (near-black in both themes)
 uniform vec3 u_warm;       // primary accent light
@@ -79,8 +85,22 @@ const float EXPOSURE = 0.06;
 // carries the accent; dark mode is unaffected (gated by u_lightMode).
 const float RAY_GAIN_LIGHT = 0.0;
 
-float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-vec2 hash2(vec2 p){ return fract(sin(vec2(dot(p,vec2(127.1,311.7)), dot(p,vec2(269.5,183.3)))) * 43758.5453); }
+// Integer hash (PCG-style). fract(sin()) bands on Intel integrated GPUs
+// even at highp; this stays uniform there and costs the same.
+uint pcg(uint v){
+  uint state = v * 747796405u + 2891336453u;
+  uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (word >> 22u) ^ word;
+}
+float hash(vec2 p){
+  uvec2 q = uvec2(ivec2(floor(p * 64.0)));
+  return float(pcg(q.x ^ pcg(q.y))) / 4294967295.0;
+}
+vec2 hash2(vec2 p){
+  uvec2 q = uvec2(ivec2(floor(p * 64.0)));
+  uint a = pcg(q.x ^ pcg(q.y));
+  return vec2(float(a), float(pcg(a))) / 4294967295.0;
+}
 
 // Henyey-Greenstein phase function - directional scattering
 float HGPhase(float cosTheta, float g){
@@ -122,7 +142,14 @@ void main(){
   vec2 bUV = vec2(dot(hB, axU) + 0.5, dot(hB, axV) / u_aspect + 0.5);
 
   // -- Logo occluder --
-  float logo = texture(u_logo, pUV).r;
+  // Mask level of detail from the screen-space footprint, in uniform flow:
+  // once the mask carries mips, implicit-LOD sampling inside the branches
+  // below would be undefined. The marches add a bias for their step.
+  vec2 maskSize = vec2(textureSize(u_logo, 0));
+  vec2 lodDx = dFdx(pUV) * maskSize;
+  vec2 lodDy = dFdy(pUV) * maskSize;
+  float lod = max(0.0, 0.5 * log2(max(dot(lodDx, lodDx), dot(lodDy, lodDy))));
+  float logo = textureLod(u_logo, pUV, lod).r;
   float occluder = 1.0 - logo;
 
   // -- Distributed ambient - biased toward where light originates --
@@ -140,7 +167,11 @@ void main(){
   float coneAngle = dot(rayDir2d, mainLightDir);
   float coneMask = smoothstep(-0.5, 0.3, coneAngle);
 
-  vec2 deltaUV = rayDir2d * DENSITY / float(NUM_SAMPLES);
+  int activeSamples = max(int(float(NUM_SAMPLES) * u_qRays), 24);
+  vec2 deltaUV = rayDir2d * DENSITY / float(activeSamples);
+  // Longer steps read a coarser mip, so fewer samples look prefiltered
+  // rather than noisy.
+  float rayLod = max(lod, clamp(log2(length(deltaUV * maskSize)), 0.0, 3.0));
 
   float dither = fract(hash(gl_FragCoord.xy) + fract(u_breath * 7.3));
   vec2 samplePos = pUV - deltaUV * dither;
@@ -152,11 +183,14 @@ void main(){
   float godRays = 0.0;
   float hitLogo = 0.0;
   const float FOG_DENSITY = 0.35;
-  const float STEP_LEN = DENSITY / float(NUM_SAMPLES);
+  // Quality shortens the march; the step grows to cover the same span, so
+  // the integral (and the brightness) holds and only the smoothness drops.
+  float STEP_LEN = DENSITY / float(activeSamples);
 
   for(int i = 0; i < NUM_SAMPLES; i++){
+    if (i >= activeSamples) break;
     samplePos -= deltaUV;
-    float logoSample = texture(u_logo, samplePos).r;
+    float logoSample = textureLod(u_logo, samplePos, rayLod).r;
     float occ = 1.0 - logoSample;
     hitLogo = max(hitLogo, logoSample);
     float scatterMask = hitLogo;
@@ -171,11 +205,11 @@ void main(){
   godRays *= t;
 
   // -- Corona glow around the logo edges --
-  vec2 texel = 3.0 / u_resolution;
-  float e1 = texture(u_logo, pUV + vec2(texel.x, 0.0)).r;
-  float e2 = texture(u_logo, pUV - vec2(texel.x, 0.0)).r;
-  float e3 = texture(u_logo, pUV + vec2(0.0, texel.y)).r;
-  float e4 = texture(u_logo, pUV - vec2(0.0, texel.y)).r;
+  vec2 texel = 1.5 * u_cssTexel;
+  float e1 = textureLod(u_logo, pUV + vec2(texel.x, 0.0), lod).r;
+  float e2 = textureLod(u_logo, pUV - vec2(texel.x, 0.0), lod).r;
+  float e3 = textureLod(u_logo, pUV + vec2(0.0, texel.y), lod).r;
+  float e4 = textureLod(u_logo, pUV - vec2(0.0, texel.y), lod).r;
   float edge = length(vec2(e1 - e2, e3 - e4));
 
   vec2 toLight = normalize(u_light - pUV);
@@ -291,7 +325,7 @@ void main(){
     float side = 0.0;
     float frontness = 0.0; // 1 at the front edge, ~0 at the back
     for (int i = 1; i <= DEPTH_STEPS; i++) {
-      float cov = smoothstep(0.3, 0.7, texture(u_logo, pUV + depthOff * float(i)).r);
+      float cov = smoothstep(0.3, 0.7, textureLod(u_logo, pUV + depthOff * float(i), lod).r);
       float gain = max(cov - side, 0.0);
       frontness += gain * (1.0 - (float(i) - 1.0) / float(DEPTH_STEPS));
       side = max(side, cov);
@@ -314,26 +348,26 @@ void main(){
 
   // -- Frosted glass refraction inside the logo --
   if(logo > 0.01){
-    vec2 fineTexel = 1.0 / u_resolution;
-    float f1 = texture(u_logo, pUV + vec2(fineTexel.x, 0.0)).r;
-    float f2 = texture(u_logo, pUV - vec2(fineTexel.x, 0.0)).r;
-    float f3 = texture(u_logo, pUV + vec2(0.0, fineTexel.y)).r;
-    float f4 = texture(u_logo, pUV - vec2(0.0, fineTexel.y)).r;
+    vec2 fineTexel = max(0.5 * u_cssTexel, 1.0 / u_resolution);
+    float f1 = textureLod(u_logo, pUV + vec2(fineTexel.x, 0.0), lod).r;
+    float f2 = textureLod(u_logo, pUV - vec2(fineTexel.x, 0.0), lod).r;
+    float f3 = textureLod(u_logo, pUV + vec2(0.0, fineTexel.y), lod).r;
+    float f4 = textureLod(u_logo, pUV - vec2(0.0, fineTexel.y), lod).r;
     vec2 fineNormal = vec2(f1 - f2, f3 - f4);
 
-    vec2 medTexel = 3.0 / u_resolution;
-    float m1 = texture(u_logo, pUV + vec2(medTexel.x, 0.0)).r;
-    float m2 = texture(u_logo, pUV - vec2(medTexel.x, 0.0)).r;
-    float m3 = texture(u_logo, pUV + vec2(0.0, medTexel.y)).r;
-    float m4 = texture(u_logo, pUV - vec2(0.0, medTexel.y)).r;
+    vec2 medTexel = 1.5 * u_cssTexel;
+    float m1 = textureLod(u_logo, pUV + vec2(medTexel.x, 0.0), lod).r;
+    float m2 = textureLod(u_logo, pUV - vec2(medTexel.x, 0.0), lod).r;
+    float m3 = textureLod(u_logo, pUV + vec2(0.0, medTexel.y), lod).r;
+    float m4 = textureLod(u_logo, pUV - vec2(0.0, medTexel.y), lod).r;
     vec2 medNormal = vec2(m1 - m2, m3 - m4);
 
     // Broad third scale - the chamfer width for the 3D face shading.
-    vec2 bevTexel = 9.0 / u_resolution;
-    float b1 = texture(u_logo, pUV + vec2(bevTexel.x, 0.0)).r;
-    float b2 = texture(u_logo, pUV - vec2(bevTexel.x, 0.0)).r;
-    float b3 = texture(u_logo, pUV + vec2(0.0, bevTexel.y)).r;
-    float b4 = texture(u_logo, pUV - vec2(0.0, bevTexel.y)).r;
+    vec2 bevTexel = 4.5 * u_cssTexel;
+    float b1 = textureLod(u_logo, pUV + vec2(bevTexel.x, 0.0), lod).r;
+    float b2 = textureLod(u_logo, pUV - vec2(bevTexel.x, 0.0), lod).r;
+    float b3 = textureLod(u_logo, pUV + vec2(0.0, bevTexel.y), lod).r;
+    float b4 = textureLod(u_logo, pUV - vec2(0.0, bevTexel.y), lod).r;
     vec2 bevNormal = vec2(b1 - b2, b3 - b4);
 
     vec2 normal2d = normalize(fineNormal * 0.6 + medNormal * 0.4 + 0.001);
@@ -343,7 +377,8 @@ void main(){
     vec2 viewDir = normalize(pUV - vec2(0.5));
     float fresnel = pow(1.0 - abs(dot(viewDir, normal2d)), 2.5) * 0.6;
 
-    vec2 frost = (hash2(gl_FragCoord.xy + fract(u_breath * 3.7)) - 0.5) * 0.006;
+    vec2 frost = (hash2(gl_FragCoord.xy + fract(u_breath * 3.7)) - 0.5) * 0.006
+      * mix(0.5, 1.0, clamp((u_pxDensity - 1.0) / 0.5, 0.0, 1.0));
 
     float iorR = 0.03, iorG = 0.10, iorB = 0.20;
     float caustic = sin(dot(pUV, vec2(40.0, 30.0)) + u_anim * 0.8) *
@@ -362,15 +397,22 @@ void main(){
     const int CH_SAMPLES = 60;
     const float CH_DENSITY = 0.75;
     const float CH_DECAY = 0.97;
+    // Fewer, longer steps at lower quality; the per-step decay is raised
+    // to the same power so the falloff over the span is unchanged, and the
+    // sum is rescaled to the full-quality sample count.
+    int activeCh = max(int(float(CH_SAMPLES) * u_qGlass), 30);
+    float chStepScale = float(CH_SAMPLES) / float(activeCh);
+    float chDecay = pow(CH_DECAY, chStepScale);
 
     vec2 uvR = pUV + refR;
     vec2 uvG = pUV + refG;
     vec2 uvB = pUV + refB;
 
-    vec2 dirR = normalize(uvR - u_light) * CH_DENSITY / float(CH_SAMPLES);
-    vec2 dirG = normalize(uvG - u_light) * CH_DENSITY / float(CH_SAMPLES);
-    vec2 dirB = normalize(uvB - u_light) * CH_DENSITY / float(CH_SAMPLES);
+    vec2 dirR = normalize(uvR - u_light) * CH_DENSITY / float(activeCh);
+    vec2 dirG = normalize(uvG - u_light) * CH_DENSITY / float(activeCh);
+    vec2 dirB = normalize(uvB - u_light) * CH_DENSITY / float(activeCh);
 
+    float chLod = max(lod, clamp(log2(length(dirG * maskSize)), 0.0, 3.0));
     float raysR = 0.0, raysG = 0.0, raysB = 0.0;
     float decR = 1.0, decG = 1.0, decB = 1.0;
     vec2 posR = uvR - dirR * dither;
@@ -378,16 +420,20 @@ void main(){
     vec2 posB = uvB - dirB * dither;
 
     for(int j = 0; j < CH_SAMPLES; j++){
+      if (j >= activeCh) break;
       posR -= dirR;
       posG -= dirG;
       posB -= dirB;
-      raysR += (1.0 - texture(u_logo, posR).r) * decR;
-      raysG += (1.0 - texture(u_logo, posG).r) * decG;
-      raysB += (1.0 - texture(u_logo, posB).r) * decB;
-      decR *= CH_DECAY;
-      decG *= CH_DECAY;
-      decB *= CH_DECAY;
+      raysR += (1.0 - textureLod(u_logo, posR, chLod).r) * decR;
+      raysG += (1.0 - textureLod(u_logo, posG, chLod).r) * decG;
+      raysB += (1.0 - textureLod(u_logo, posB, chLod).r) * decB;
+      decR *= chDecay;
+      decG *= chDecay;
+      decB *= chDecay;
     }
+    raysR *= chStepScale;
+    raysG *= chStepScale;
+    raysB *= chStepScale;
 
     float cosR = dot(normalize(uvR - u_light), normalize(u_light - vec2(0.5)));
     float cosG = dot(normalize(uvG - u_light), normalize(u_light - vec2(0.5)));
@@ -416,10 +462,10 @@ void main(){
       float angle = float(b) * 1.047;
       vec2 dir = vec2(cos(angle), sin(angle));
       float lightAlign = max(0.0, dot(dir, toLightDir));
-      vec2 off1 = dir * 4.0 / u_resolution;
-      float bE1 = abs(texture(u_logo, pUV + off1).r - texture(u_logo, pUV - off1).r);
-      vec2 off2 = dir * 10.0 / u_resolution;
-      float bE2 = abs(texture(u_logo, pUV + off2).r - texture(u_logo, pUV - off2).r);
+      vec2 off1 = dir * 2.0 * u_cssTexel;
+      float bE1 = abs(textureLod(u_logo, pUV + off1, lod).r - textureLod(u_logo, pUV - off1, lod).r);
+      vec2 off2 = dir * 5.0 * u_cssTexel;
+      float bE2 = abs(textureLod(u_logo, pUV + off2, lod).r - textureLod(u_logo, pUV - off2, lod).r);
       bloom += refractedLight * (bE1 * 0.6 + bE2 * 0.4) * lightAlign;
     }
     bloom /= 3.0;
@@ -449,7 +495,7 @@ void main(){
     vec3 H3 = normalize(L3 + vec3(0.0, 0.0, 1.0));
     glassCol += hotWhite * pow(max(dot(N3, H3), 0.0), 28.0) * 0.35 * t * glassCone;
 
-    col = mix(col, glassCol, smoothstep(0.0, 0.15, logo));
+    col = mix(col, glassCol, logo);
   }
 
   // Snapshot before the ambient corona/edge glow so light mode can drop
@@ -616,10 +662,14 @@ function initWebGL(canvas: HTMLCanvasElement, logoCanvas: HTMLCanvasElement) {
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  // Mipmapped: the mask is 2x CSS while the frame is CSS x dpr x scale, so
+  // it is minified on every 1x panel and diagonals undersample without a
+  // chain. The shader samples with textureLod (see `lod` there).
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, logoCanvas);
+  gl.generateMipmap(gl.TEXTURE_2D);
 
   const loc = (n: string) => gl.getUniformLocation(prog, n)!;
   gl.uniform1i(loc('u_logo'), 0);
@@ -636,6 +686,10 @@ function initWebGL(canvas: HTMLCanvasElement, logoCanvas: HTMLCanvasElement) {
       tilt: loc('u_tilt'),
       aspect: loc('u_aspect'),
       resolution: loc('u_resolution'),
+      cssTexel: loc('u_cssTexel'),
+      qRays: loc('u_qRays'),
+      qGlass: loc('u_qGlass'),
+      pxDensity: loc('u_pxDensity'),
       dark: loc('u_dark'),
       warm: loc('u_warm'),
       hot: loc('u_hot'),
@@ -696,7 +750,17 @@ onMounted(() => {
   let lastFrame = -1;
   let lastPointerMove = 0;
   let hasPointer = false;
-  let driftPhase = (w0 % 97) / 13; // deterministic but varied start
+  // Idle orbit (see draw): a slow 2:3 Lissajous around the pose the remaps
+  // were tuned for, entered from wherever the pointer stopped.
+  const ORBIT_CENTRE = { x: 0.75, y: 0.25 };
+  const ORBIT_RADIUS = 0.15;
+  const ORBIT_PERIOD_X = 180_000; // ms per revolution on x
+  const ORBIT_PERIOD_Y = 270_000;
+  const ORBIT_BLEND_MS = 25_000;
+  const driftPhase = (w0 % 97) / 13; // deterministic but varied start
+  let idleSince = -1; // animation time (ms) the idle began, -1 while active
+  let idleHold = { x: 0.75, y: 0.25 }; // where the pointer stopped
+  let idlePhase0 = 0; // orbit phase nearest the hold, so entry is seamless
 
   const INTRO_MS = 5000;
   const IDLE_TIMEOUT = 3000;
@@ -706,9 +770,24 @@ onMounted(() => {
   // first drops the internal render scale (invisible on content this
   // soft); the CSS glow fallback is the last resort. Once a window holds
   // the target, monitoring stops.
+  // Perf governor. The first window is thrown away (it includes shader
+  // compile and page-load JS) and used as the display's frame rate, so a
+  // 30 Hz panel is not mistaken for a struggling GPU. Then, per window:
+  // below 75% of the display rate step one tier down, below a third fall
+  // back; after three clean windows step one tier up. Tiers cut the two
+  // ray marches before touching resolution, since resolution is what the
+  // eye sees on the glyph edges; the scale never drops below 0.75, where
+  // the per-pixel dither, frost and grain would turn into 2x2 blocks.
   const FPS_WINDOW = 60;
-  const FPS_FALLBACK = 20;
-  const FPS_DEGRADE = 45;
+  const TIERS: { rays: number; glass: number; scale: number }[] = [
+    { rays: 1.0, glass: 1.0, scale: 1 },
+    { rays: 0.5, glass: 0.75, scale: 1 },
+    { rays: 0.3, glass: 0.5, scale: 1 },
+    { rays: 0.3, glass: 0.5, scale: 0.75 },
+  ];
+  let tier = 0;
+  let displayFps = 0; // 0 until the first window has measured it
+  let cleanWindows = 0;
   let frameCount = 0;
   let windowStart = 0;
   let governing = true;
@@ -750,12 +829,31 @@ onMounted(() => {
     const now = performance.now();
     const isIdle = !hasPointer || now - lastPointerMove > IDLE_TIMEOUT;
     if (isIdle) {
-      driftPhase += 0.0003;
-      const forceX = Math.sin(driftPhase * 1.7 + 1.0) * 0.0003;
-      const forceY = Math.cos(driftPhase * 0.8 + 2.0) * 0.0015 + Math.sin(driftPhase * 2.3) * 0.0008;
-      smoothX += forceX + (0.75 - smoothX) * 0.001;
-      smoothY += forceY + (0.25 - smoothY) * 0.0003;
+      // Driven by animation time, not per-frame increments, so the 30fps
+      // idle throttle does not halve the speed. The orbit starts at the
+      // phase nearest where the pointer stopped and the target blends from
+      // the hold onto the path over 25s, so entry never jumps. Bounded:
+      // yaw stays within [-0.23, -0.13] rad and pitch within
+      // [-0.01, 0.05] rad, never pointing down.
+      if (idleSince < 0) {
+        idleSince = t;
+        idleHold = { x: smoothX, y: smoothY };
+        idlePhase0 = Math.atan2(smoothY - ORBIT_CENTRE.y, smoothX - ORBIT_CENTRE.x);
+      }
+      const since = t - idleSince;
+      const theta = idlePhase0 + (since / ORBIT_PERIOD_X) * Math.PI * 2;
+      const orbit = {
+        x: ORBIT_CENTRE.x + ORBIT_RADIUS * Math.cos(theta),
+        y: ORBIT_CENTRE.y + ORBIT_RADIUS * Math.sin(theta * (ORBIT_PERIOD_X / ORBIT_PERIOD_Y) + driftPhase),
+      };
+      const blendT = Math.min(since / ORBIT_BLEND_MS, 1);
+      const blend = blendT * blendT * (3 - 2 * blendT);
+      const targetX = idleHold.x + (orbit.x - idleHold.x) * blend;
+      const targetY = idleHold.y + (orbit.y - idleHold.y) * blend;
+      smoothX += (targetX - smoothX) * 0.01;
+      smoothY += (targetY - smoothY) * 0.01;
     } else {
+      idleSince = -1;
       smoothX += (mouseX - smoothX) * SMOOTH_FACTOR;
       smoothY += (mouseY - smoothY) * SMOOTH_FACTOR;
     }
@@ -783,6 +881,7 @@ onMounted(() => {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, createLogoTexture(w, h, props.showLogo));
+      gl.generateMipmap(gl.TEXTURE_2D);
     }
 
     gl.uniform1f(u.time, eased);
@@ -799,6 +898,10 @@ onMounted(() => {
     gl.uniform2f(u.tilt, 0.07 + (smoothY - 0.5) * 0.2, -0.26 + (smoothX - 0.5) * 0.32);
     gl.uniform1f(u.aspect, h / w);
     gl.uniform2f(u.resolution, pw, ph);
+    gl.uniform2f(u.cssTexel, 1 / w, 1 / h);
+    gl.uniform1f(u.qRays, TIERS[tier].rays);
+    gl.uniform1f(u.qGlass, TIERS[tier].glass);
+    gl.uniform1f(u.pxDensity, dpr);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   };
 
@@ -817,17 +920,30 @@ onMounted(() => {
       if (frameCount === FPS_WINDOW) {
         const avgFps = (FPS_WINDOW / (time - windowStart)) * 1000;
         frameCount = 0;
-        if (avgFps < FPS_FALLBACK) {
-          if (renderScale < 0.6) {
+        if (displayFps === 0) {
+          // Warm-up window: take it as the display rate, capped to the
+          // common panels so a slow first window never sets a low bar.
+          displayFps = Math.min(Math.max(avgFps, 30), 120);
+        } else if (avgFps < displayFps / 3) {
+          if (tier === TIERS.length - 1) {
             fallback.value = true;
             return;
           }
-          renderScale = 0.5; // re-measured over the next window
-        } else if (avgFps < FPS_DEGRADE && renderScale === 1) {
-          renderScale = 0.7;
+          tier = TIERS.length - 1;
+          cleanWindows = 0;
+        } else if (avgFps < displayFps * 0.75) {
+          if (tier < TIERS.length - 1) tier += 1;
+          cleanWindows = 0;
+        } else if (tier > 0) {
+          cleanWindows += 1;
+          if (cleanWindows >= 3) {
+            tier -= 1;
+            cleanWindows = 0;
+          }
         } else {
-          governing = false; // holding frame rate, stop measuring
+          governing = false; // full quality holding the display rate
         }
+        renderScale = TIERS[tier].scale;
       }
     } else if (elapsed > INTRO_MS) {
       // Idle throttle: with the pointer away this is a slow ambient glow,
