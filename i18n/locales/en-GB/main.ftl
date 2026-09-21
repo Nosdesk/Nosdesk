@@ -235,6 +235,7 @@ user-menu-workspace-current = Current
 user-menu-account = Account
 user-menu-administration = Administration
 user-menu-team = Team
+user-menu-help = Help
 user-menu-report-problem = Report a problem
 user-menu-sign-out = Sign out
 user-menu-guest-name = Guest

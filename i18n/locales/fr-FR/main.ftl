@@ -336,6 +336,8 @@ user-menu-account = Compte
 user-menu-administration = Administration
 # MACHINE TRANSLATION, pending native review
 user-menu-team = Équipe
+# MACHINE TRANSLATION, pending native review
+user-menu-help = Aide
 user-menu-report-problem = Signaler un problème
 user-menu-sign-out = Se déconnecter
 user-menu-guest-name = Invité
