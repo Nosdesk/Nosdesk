@@ -283,43 +283,10 @@ onUnmounted(() => {
     </template>
     <template #pill>{{ $t('auth-hero-pill') }}</template>
 
-    <!-- Onboarding leads with a deliberate "getting started" column in the
-         hero (instead of the brand slogan login uses). Desktop-only — the
-         hero is hidden under lg; the form keeps an inline token hint for
-         mobile. -->
-    <template #hero-content>
-      <div class="flex flex-col gap-8">
-        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">
-          {{ $t('onboarding-getting-started') }}
-        </p>
-        <ul class="flex flex-col gap-7">
-          <li v-if="!tokenFromUrl" class="flex items-start gap-3.5">
-            <Icon name="key" size="md" class="mt-0.5 flex-shrink-0 text-white/40" />
-            <div class="flex flex-col gap-2">
-              <p class="text-sm font-medium text-white">{{ $t('onboarding-token-help-title') }}</p>
-              <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-token-hint') }}</p>
-              <CodeBlock tone="dark" code="docker compose exec nosdesk nosdesk-cli setup-token" />
-            </div>
-          </li>
-          <li class="flex items-start gap-3.5">
-            <Icon name="database" size="md" class="mt-0.5 flex-shrink-0 text-white/40" />
-            <div class="flex flex-col gap-2">
-              <p class="text-sm font-medium text-white">{{ $t('onboarding-migration-title') }}</p>
-              <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-migration-body-prefix') }}</p>
-              <CodeBlock tone="dark" code="docker compose exec nosdesk nosdesk-cli db restore /path/to/backup.zip" />
-              <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-migration-body-suffix') }}</p>
-            </div>
-          </li>
-          <li class="flex items-start gap-3.5">
-            <Icon name="lock" size="md" class="mt-0.5 flex-shrink-0 text-accent" />
-            <div class="flex flex-col gap-1.5">
-              <p class="text-sm font-medium text-white">{{ $t('onboarding-security-title') }}</p>
-              <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-security-body') }}</p>
-            </div>
-          </li>
-        </ul>
-      </div>
-    </template>
+    <!-- The hero says what happens after this form, and nothing else.
+         Setup-token help sits by the field on every breakpoint. -->
+    <template #hero-title>{{ $t('onboarding-hero-title') }}</template>
+    <template #hero-subtitle>{{ $t('onboarding-hero-subtitle') }}</template>
 
     <div class="flex flex-col gap-6">
       <header class="flex flex-col gap-1.5 text-center lg:text-left">
@@ -366,9 +333,7 @@ onUnmounted(() => {
             class="font-mono"
             :placeholder="$t('onboarding-token-placeholder')"
           />
-          <!-- Desktop gets this guidance in the hero's getting-started
-               column; mobile (hero hidden) keeps it inline by the field. -->
-          <div class="flex flex-col gap-1.5 lg:hidden">
+          <div class="flex flex-col gap-1.5">
             <p class="text-xs text-tertiary">{{ $t('onboarding-token-hint') }}</p>
             <CodeBlock code="docker compose exec nosdesk nosdesk-cli setup-token" />
           </div>

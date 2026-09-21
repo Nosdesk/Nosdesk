@@ -482,9 +482,10 @@ password-reset-body-text =
 # Onboarding administrateur (premier démarrage).
 onboarding-welcome-title = Bienvenue dans Nosdesk
 onboarding-welcome-subtitle = Commençons par créer votre compte administrateur
+# MACHINE TRANSLATION, pending native review
+onboarding-hero-title = Votre centre d'assistance commence ici
+onboarding-hero-subtitle = Créez le compte administrateur, ajoutez un second facteur, puis accédez à votre espace de travail.
 # Onboarding hero (machine, à relire par un locuteur natif).
-onboarding-getting-started = Pour commencer
-onboarding-token-help-title = Où trouver mon jeton d'installation ?
 onboarding-error-setup-status = Impossible de vérifier l'état de l'installation. Veuillez réessayer.
 onboarding-success-logging-in = Compte administrateur créé. Connexion en cours...
 onboarding-success-fallback = Compte créé avec succès. Veuillez vous connecter avec vos identifiants.
@@ -521,12 +522,7 @@ onboarding-progress-title = Configuration de votre compte
 onboarding-progress-subtitle = Cela ne prendra qu'un instant...
 onboarding-complete-title = Bienvenue dans Nosdesk
 onboarding-complete-subtitle = Votre compte administrateur est prêt.
-onboarding-migration-title = Migrer depuis une autre instance Nosdesk ?
 # Reformulé (machine, à relire) : la restauration ne nécessite pas de créer un compte au préalable.
-onboarding-migration-body-prefix = Pas besoin de créer un compte. Restaurez votre sauvegarde existante sur l'hôte :
-onboarding-migration-body-suffix = puis actualisez et connectez-vous avec vos identifiants existants.
-onboarding-security-title = Avis de sécurité
-onboarding-security-body = Cela crée le premier compte administrateur de votre installation Nosdesk. Choisissez un mot de passe fort ; ce compte aura un accès complet au système.
 
 # Assistant de configuration MFA.
 mfa-setup-header-default = Finalisez la configuration de votre compte

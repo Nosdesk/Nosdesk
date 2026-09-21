@@ -479,9 +479,10 @@ password-reset-body-text =
 # Beheerders-onboarding (eerste start).
 onboarding-welcome-title = Welkom bij Nosdesk
 onboarding-welcome-subtitle = Laten we beginnen door uw beheerdersaccount aan te maken
+# MACHINE TRANSLATION, pending native review
+onboarding-hero-title = Je helpdesk begint hier
+onboarding-hero-subtitle = Maak het beheerdersaccount aan, voeg een tweede factor toe en ga naar je werkruimte.
 # Onboarding hero (machine, na te kijken door moedertaalspreker).
-onboarding-getting-started = Aan de slag
-onboarding-token-help-title = Waar vind ik mijn setup-token?
 onboarding-error-setup-status = Kan de installatiestatus niet verifiëren. Probeer het opnieuw.
 onboarding-success-logging-in = Beheerdersaccount aangemaakt. U wordt aangemeld...
 onboarding-success-fallback = Account aangemaakt. Log in met uw gegevens.
@@ -518,12 +519,7 @@ onboarding-progress-title = Uw account instellen
 onboarding-progress-subtitle = Dit duurt slechts een moment...
 onboarding-complete-title = Welkom bij Nosdesk
 onboarding-complete-subtitle = Uw beheerdersaccount is klaar.
-onboarding-migration-title = Migreren vanaf een andere Nosdesk-instantie?
 # Herschreven (machine, na te kijken): voor restore hoeft vooraf geen account te worden aangemaakt.
-onboarding-migration-body-prefix = Geen account nodig. Herstel je bestaande back-up op de host:
-onboarding-migration-body-suffix = vernieuw daarna en log in met je bestaande gegevens.
-onboarding-security-title = Beveiligingsmelding
-onboarding-security-body = Hiermee wordt het eerste beheerdersaccount voor uw Nosdesk-installatie aangemaakt. Kies een sterk wachtwoord; dit account krijgt volledige systeemtoegang.
 
 # MFA-installatiewizard.
 mfa-setup-header-default = Voltooi het instellen van uw account
