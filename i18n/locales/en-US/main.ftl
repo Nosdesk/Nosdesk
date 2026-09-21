@@ -517,8 +517,8 @@ inbox-time-weekday = { $day } at { $time }
 # admin form, fallback / completion screens, migration hint.
 onboarding-welcome-title = Welcome to Nosdesk
 onboarding-welcome-subtitle = Let's get started by creating your administrator account
-onboarding-getting-started = Getting started
-onboarding-token-help-title = Where's my setup token?
+onboarding-hero-title = Your helpdesk starts here
+onboarding-hero-subtitle = Create the administrator account, add a second factor, and land in your workspace.
 onboarding-error-setup-status = Failed to verify setup status. Please try again.
 onboarding-success-logging-in = Admin account created. Logging you in...
 onboarding-success-fallback = Account created successfully. Please log in with your credentials.
@@ -555,11 +555,6 @@ onboarding-progress-title = Setting up your account
 onboarding-progress-subtitle = This will only take a moment...
 onboarding-complete-title = Welcome to Nosdesk
 onboarding-complete-subtitle = Your administrator account is ready.
-onboarding-migration-title = Migrating from another Nosdesk instance?
-onboarding-migration-body-prefix = No need to create an account first. Restore your existing backup on the host:
-onboarding-migration-body-suffix = then refresh and sign in with your existing credentials.
-onboarding-security-title = Security Notice
-onboarding-security-body = This creates the first administrator account for your Nosdesk installation. Choose a strong password; this account will have full system access.
 
 # MFA setup wizard (MFASetupView). Method-choice screen, post-
 # setup offer screens, navigation labels.

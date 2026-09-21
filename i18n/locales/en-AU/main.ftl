@@ -383,11 +383,6 @@ onboarding-progress-title = Setting up your account
 onboarding-progress-subtitle = Won't take a sec...
 onboarding-complete-title = Welcome to Nosdesk
 onboarding-complete-subtitle = Your administrator account is ready.
-onboarding-migration-title = Migrating from another Nosdesk instance?
-onboarding-migration-body-prefix = Create an admin here, then run
-onboarding-migration-body-suffix = on the host. The restore replaces the admin with the imported users.
-onboarding-security-title = Security Notice
-onboarding-security-body = This creates the first administrator account for your Nosdesk installation. Pick a strong password; this account has full system access.
 
 # MFA setup wizard.
 mfa-setup-header-default = Finish setting up your account
