@@ -143,6 +143,23 @@ export function installWorkspaceGuard(router: Router): void {
       // On a workspace route: publish the slug so the axios interceptor sends
       // it as the selection header. Set here (beforeEach), before route loaders
       // fire, so the first data fetch on a fresh navigation already carries it.
+      //
+      // A different slug from the one in force is a workspace switch, however
+      // the person got here: the menu, a typed URL, history, a deep link. The
+      // slug change is the trigger for tearing the previous workspace's state
+      // down, so no path into a workspace can carry another's tickets, docs,
+      // views or plugins with it. Then the new workspace's own state loads
+      // once the slug (and so the selection header) is published.
+      const previous = activeWorkspaceSlug();
+      if (previous !== slug) {
+        const { resetWorkspaceScopedState, enterWorkspace } = await import(
+          '@/stores/workspaceReset'
+        );
+        if (previous !== null) await resetWorkspaceScopedState();
+        setActiveWorkspaceSlug(slug);
+        if (isAuthed(to)) void enterWorkspace(slug);
+        return true;
+      }
       setActiveWorkspaceSlug(slug);
       return true;
     }

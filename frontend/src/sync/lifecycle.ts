@@ -197,6 +197,26 @@ export function ensureSyncRuntime(
   userUuid: string,
   workspaceSlug: string | null,
 ): Promise<void> {
+  // A runtime open for another workspace is torn down first. The workspace
+  // guard normally does this before the slug changes; this is the backstop
+  // that keeps one workspace's rows from ever serving under another's slug.
+  if (runtimePromise && state.openArgs && state.openArgs.workspaceSlug !== workspaceSlug) {
+    logger.warn('sync runtime open for another workspace; re-bootstrapping', {
+      from: state.openArgs.workspaceSlug,
+      to: workspaceSlug,
+    })
+    let rebootstrap: Promise<void> | null = null
+    rebootstrap = (async () => {
+      await tearDown() // clears runtimePromise; restore it so callers share this run
+      runtimePromise = rebootstrap
+      await bootstrapRuntime(userUuid, workspaceSlug)
+    })().catch((e) => {
+      runtimePromise = null
+      logger.warn('Failed to re-bootstrap sync runtime', { error: e })
+    })
+    runtimePromise = rebootstrap
+    return rebootstrap
+  }
   if (!runtimePromise) {
     runtimePromise = bootstrapRuntime(userUuid, workspaceSlug).catch((e) => {
       runtimePromise = null // let a later navigation retry after a failure

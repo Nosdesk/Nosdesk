@@ -1,12 +1,13 @@
 /**
  * Workspace switching (Model C, increment 3, stage 5).
  *
- * In `path` mode (single origin) switching is an in-app teardown + re-hydrate:
- * reset all workspace-scoped state, navigate to the new slug, and let the
- * router's hydrate guard re-establish the sync pool + SSE for the new workspace
- * (its IDB handle was just closed, so it bootstraps fresh), then re-fetch the
- * new workspace's branding. `isSwitchingWorkspace` covers the gap so no stale or
- * empty data flashes between the two workspaces.
+ * In `path` mode (single origin) switching is an in-app teardown + re-hydrate,
+ * done by the workspace guard when the URL's slug changes (see
+ * `router/workspaceRouting.ts`): reset all workspace-scoped state, publish the
+ * new slug, load the new workspace's branding and plugins, and let the hydrate
+ * guard re-establish the sync pool + SSE (its IDB handle was closed, so it
+ * bootstraps fresh). `isSwitchingWorkspace` covers the gap so no stale or empty
+ * data flashes between the two workspaces.
  *
  * In `host` mode each workspace is a separate origin, so switching stays a full
  * navigation to the other subdomain (today's behaviour).
@@ -40,18 +41,14 @@ export function useWorkspaceSwitch() {
     if (isSwitchingWorkspace.value) return;
     isSwitchingWorkspace.value = true;
     try {
-      // Let the shell mask the content (and unmount the current view) before we
-      // tear its data out from under it.
+      // Let the shell mask the content (and unmount the current view) before
+      // the guard tears its data out from under it.
       await nextTick();
-      const { resetWorkspaceScopedState } = await import('@/stores/workspaceReset');
-      await resetWorkspaceScopedState();
-      // Navigate to the target (workspace home, or a specific deep-link path).
-      // The prefix guard sets the active slug and the hydrate guard re-bootstraps
-      // + re-attaches SSE for it (the pool's IDB handle was closed by the reset,
-      // so it starts clean).
+      // The workspace guard owns the switch itself: it sees the slug change,
+      // resets the previous workspace's state, publishes the new slug and
+      // loads what the new workspace needs. The same thing happens for a
+      // typed URL or a deep link, so this composable only adds the mask.
       await router.push(destinationPath ?? `/${entry.slug}`);
-      const { useBrandingStore } = await import('@/stores/branding');
-      await useBrandingStore().loadBranding();
     } catch (e) {
       logger.error('Workspace switch failed', e);
     } finally {

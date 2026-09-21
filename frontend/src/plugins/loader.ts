@@ -214,6 +214,12 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
  * UI stops surfacing it without a full page reload. Idempotent;
  * safe to call on a plugin that wasn't loaded.
  */
+/** Unload every plugin: a workspace switch, since the enabled set is the
+ *  workspace's. `loadPlugins()` afterwards loads the new workspace's. */
+export function unloadAllPlugins(): void {
+  for (const uuid of Array.from(loadedPlugins.value.keys())) unloadPlugin(uuid);
+}
+
 export function unloadPlugin(uuid: string): void {
   if (!loadedPlugins.value.has(uuid)) {
     return;
