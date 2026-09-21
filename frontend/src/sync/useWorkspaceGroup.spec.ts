@@ -5,12 +5,14 @@ import { mount } from '@vue/test-utils'
 
 const lifecycle = vi.hoisted(() => ({
   subscribe: vi.fn(async () => {}),
-  caughtUp: false,
+  caughtUp: { value: false },
 }))
-vi.mock('@/sync/lifecycle', () => ({
-  subscribe: lifecycle.subscribe,
-  isCaughtUp: () => lifecycle.caughtUp,
-}))
+vi.mock('@/sync/lifecycle', async () => {
+  const { ref } = await import('vue')
+  const r = ref(false)
+  lifecycle.caughtUp = r
+  return { subscribe: lifecycle.subscribe, caughtUp: r }
+})
 const workspaceId = ref<number | null>(7)
 vi.mock('@/stores/myWorkspaces', () => ({
   useMyWorkspacesStore: () => ({ activeWorkspaceId: workspaceId }),
@@ -37,7 +39,7 @@ function mountIt() {
 beforeEach(() => {
   setActivePinia(createPinia())
   lifecycle.subscribe.mockClear()
-  lifecycle.caughtUp = false
+  lifecycle.caughtUp.value = false
 })
 
 // `ready` clears loading states whatever happened; `populated` says the
@@ -53,8 +55,19 @@ describe('useWorkspaceGroupSubscription', () => {
     w.unmount()
   })
 
+  it('becomes populated when a deferred bootstrap completes later', async () => {
+    const { w, out } = mountIt()
+    await nextTick()
+    await nextTick()
+    expect(out.populated.value).toBe(false)
+    lifecycle.caughtUp.value = true
+    await nextTick()
+    expect(out.populated.value).toBe(true)
+    w.unmount()
+  })
+
   it('is populated once the pool is caught up', async () => {
-    lifecycle.caughtUp = true
+    lifecycle.caughtUp.value = true
     const { w, out } = mountIt()
     await nextTick()
     await nextTick()

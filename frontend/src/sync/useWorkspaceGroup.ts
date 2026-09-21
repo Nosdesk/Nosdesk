@@ -1,7 +1,7 @@
-import { ref, watch, type Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
-import { isCaughtUp, subscribe } from '@/sync/lifecycle'
+import { caughtUp, subscribe } from '@/sync/lifecycle'
 
 /**
  * Subscribe the sync pool to the ACTIVE workspace's group, re-subscribing when
@@ -17,27 +17,26 @@ import { isCaughtUp, subscribe } from '@/sync/lifecycle'
  */
 export function useWorkspaceGroupSubscription(
   afterSubscribe?: (workspaceId: number) => unknown,
-): { ready: Ref<boolean>; populated: Ref<boolean> } {
+): { ready: Ref<boolean>; populated: Readonly<Ref<boolean>> } {
   const { activeWorkspaceId } = storeToRefs(useMyWorkspacesStore())
   const ready = ref(false)
-  // True only when the pool reflects the server after this subscribe:
-  // `ready` clears loading states even on a failed bootstrap, but a
-  // first-run decision ("this workspace has no tickets") must not be
-  // made on an empty pool that simply never loaded.
-  const populated = ref(false)
+  // True only while the pool reflects the server: `ready` clears loading
+  // states even on a failed bootstrap, but a first-run decision ("this
+  // workspace has no tickets") must not be made on an empty pool that
+  // simply never loaded. Reactive to the runtime, since a subscribe made
+  // before hydration finishes bootstraps later.
+  const populated = computed(() => ready.value && caughtUp.value)
 
   watch(
     activeWorkspaceId,
     async (id) => {
       if (id == null) return
       ready.value = false
-      populated.value = false
       try {
         await subscribe(`workspace:${id}`)
         if (afterSubscribe) await afterSubscribe(id)
       } finally {
         ready.value = true
-        populated.value = isCaughtUp()
       }
     },
     { immediate: true },
