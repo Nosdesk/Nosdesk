@@ -11,7 +11,7 @@
  * - `tearDown()` releases the IndexedDB handle and resets the pool;
  *   called on sign-out.
  */
-import { watch } from 'vue'
+import { readonly, ref, watch } from 'vue'
 import { logger } from '@nosdesk/core/utils/logger'
 import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
@@ -489,10 +489,15 @@ export async function fetchServerIdentity(): Promise<{
 /**
  * Whether the pool reflects the server: a bootstrap or delta catch-up has
  * completed since the runtime opened. False after a network failure, when
- * an empty pool means "unknown", not "nothing there".
+ * an empty pool means "unknown", not "nothing there". Reactive, because a
+ * `subscribe` before the runtime is hydrated returns at once and the
+ * bootstrap it queued completes later.
  */
-export function isCaughtUp(): boolean {
-  return state.caughtUp
+const caughtUpRef = ref(false)
+export const caughtUp = readonly(caughtUpRef)
+function setCaughtUp(v: boolean): void {
+  state.caughtUp = v
+  caughtUpRef.value = v
 }
 
 export async function subscribe(group: string): Promise<void> {
@@ -601,7 +606,7 @@ export async function pullDelta(): Promise<boolean> {
     // Torn-cache prune must land before the advanced cursor is persisted
     // (see pruneTornWatermarks).
     await pruneTornWatermarks()
-    state.caughtUp = true
+    setCaughtUp(true)
     pool.setCursor(body.last_xid8, body.last_sync_id)
     if (state.handle) {
       await idb.setLastSyncId(state.handle, body.last_sync_id)
@@ -705,7 +710,7 @@ async function runBootstrap(groups: string[]): Promise<void> {
           // The end line advances the cursor to now, which tears any cached
           // group not currently subscribed; prune before persisting.
           await pruneTornWatermarks()
-          state.caughtUp = true
+          setCaughtUp(true)
           // Advance the in-memory cursor always; persist it only when IDB is
           // available (memory-only keeps the cursor in the pool for delta polls).
           pool.setCursor(bootstrapMeta.last_xid8, bootstrapMeta.last_sync_id)
@@ -1015,7 +1020,7 @@ export async function tearDown(): Promise<void> {
   state.memoryOnly = false
   state.openArgs = null
   state.resyncing = false
-  state.caughtUp = false
+  setCaughtUp(false)
   watermarksPruned = false
   // Re-arm the single-flight bootstrap so the next navigation rebuilds the
   // runtime for the new session / workspace.
