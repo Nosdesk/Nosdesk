@@ -371,6 +371,17 @@ ticket-list-empty-overdue-title = Niets te laat.
 ticket-list-empty-overdue-description = Elk actief ticket valt nog binnen zijn vervaldatum.
 ticket-list-empty-no-in-view-title = Geen tickets in deze weergave.
 ticket-list-empty-no-in-view-description = Pas het filter aan of kies een andere weergave.
+
+# MACHINE TRANSLATION, pending native review
+ticket-list-first-title = Nog geen tickets.
+ticket-list-first-body-admin = Tickets komen op drie manieren binnen.
+ticket-list-first-body = Maak de eerste aan, of wacht tot er een binnenkomt.
+ticket-list-first-guide = Hoe het werkt
+ticket-list-first-connect-mailbox = Een mailbox koppelen
+ticket-list-first-share-form = Het aanvraagformulier delen
+ticket-list-first-form-copied = Link naar het formulier gekopieerd
+ticket-list-first-create = Er een aanmaken
+ticket-list-first-invite = Je team uitnodigen
 ticket-list-bulk-actions-aria = Bulkacties
 ticket-list-bulk-status = Status
 ticket-list-bulk-priority = Prioriteit

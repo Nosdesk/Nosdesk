@@ -78,6 +78,8 @@ import { ICON_REGISTRY } from '@/components/common/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import { useFlagTicketMutation } from '@/composables/useKnowledgeGaps'
 import { useToastStore } from '@nosdesk/core/stores/toast'
+import { usePageActionsStore } from '@nosdesk/core/stores/pageActions'
+import FirstTicketsState from '@/components/views/FirstTicketsState.vue'
 import { onScopeDispose } from 'vue'
 import { useTicketSelection } from '@/composables/useTicketSelection'
 import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
@@ -414,6 +416,7 @@ function open(cardId: number): void {
 // Right-click context menu on list rows (table + mobile cards).
 const { copy } = useClipboard()
 const toast = useToastStore()
+const pageActions = usePageActionsStore()
 const flagMutation = useFlagTicketMutation()
 const contextMenuTicketId = ref<number | null>(null)
 const contextMenuPos = ref({ x: 0, y: 0 })
@@ -985,7 +988,14 @@ function startPaneResize(event: PointerEvent): void {
       v-else-if="sortedCards.length === 0"
       class="flex-1 flex flex-col items-center justify-center text-tertiary text-sm gap-1"
     >
-      <template v-if="filters.activeFacets.value.length > 0">
+      <!-- Never had a ticket: the pool holds every ticket in every state, so
+           an empty pool after bootstrap is the first run, not a clear queue. -->
+      <FirstTicketsState
+        v-if="allCards.length === 0"
+        :is-admin="authStore.isAdmin"
+        @create="pageActions.invokeCreate()"
+      />
+      <template v-else-if="filters.activeFacets.value.length > 0">
         <p class="font-medium text-primary">{{ $t('ticket-list-empty-no-match-title') }}</p>
         <p class="text-xs">{{ $t('ticket-list-empty-no-match-description') }}</p>
       </template>
