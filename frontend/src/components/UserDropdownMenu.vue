@@ -113,7 +113,10 @@ const items = computed<MenuItem[]>(() => {
   if (authStore.isAdmin) {
     out.push({ id: 'admin', label: fluent.$t('user-menu-administration'), icon: ICON_REGISTRY.admin.d })
   }
-  out.push({ id: 'report-problem', label: fluent.$t('user-menu-report-problem'), icon: ICON_REGISTRY.warning.d, divider: true })
+  // The one pulled link to the seeded Getting Started page (first-run
+  // plan, slice 6): no tour, no checklist, just where the guide lives.
+  out.push({ id: 'help', label: fluent.$t('user-menu-help'), icon: ICON_REGISTRY.book.d, divider: true })
+  out.push({ id: 'report-problem', label: fluent.$t('user-menu-report-problem'), icon: ICON_REGISTRY.warning.d })
   out.push({ id: 'logout', label: fluent.$t('user-menu-sign-out'), danger: true })
   return out
 })
@@ -145,6 +148,9 @@ function handleSelect(id: string) {
       break
     case 'admin':
       router.push('/admin')
+      break
+    case 'help':
+      router.push('/documentation/collections/getting-started')
       break
     case 'report-problem':
       bugReportOpen.value = true

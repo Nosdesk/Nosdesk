@@ -333,6 +333,7 @@ user-menu-account = Account
 user-menu-administration = Beheer
 # MACHINE TRANSLATION, pending native review
 user-menu-team = Team
+user-menu-help = Help
 user-menu-report-problem = Probleem melden
 user-menu-sign-out = Afmelden
 user-menu-guest-name = Gast
