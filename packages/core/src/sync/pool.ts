@@ -129,6 +129,19 @@ export function* iterate<T extends object>(
   }
 }
 
+/**
+ * Every `(id, row)` of an aggregate. For reconciliation against a
+ * snapshot: the caller decides which ids the snapshot did not carry.
+ */
+export function* entries<T extends object>(
+  aggregate: SyncAggregate,
+): IterableIterator<[string, ShallowReactive<T>]> {
+  const prefix = `${aggregate}:`
+  for (const [k, row] of rows) {
+    if (k.startsWith(prefix)) yield [k.slice(prefix.length), row as ShallowReactive<T>]
+  }
+}
+
 export function size(): number {
   return rows.size
 }

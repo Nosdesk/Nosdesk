@@ -59,14 +59,40 @@ export interface IdbHandle {
  * are already isolated per-origin by the browser). The slug is a safe cache key
  * because retired slugs are never reused, so it never points at two workspaces.
  */
+/** Delete this user's sync databases from earlier cache generations. */
+async function dropOlderGenerations(userUuid: string): Promise<void> {
+  if (typeof indexedDB.databases !== 'function') return
+  try {
+    const current = `nosdesk-sync-g${CACHE_GENERATION}-`
+    for (const db of await indexedDB.databases()) {
+      const name = db.name ?? ''
+      const legacy = name.startsWith(`nosdesk-sync-${userUuid}`)
+      const older = /^nosdesk-sync-g\d+-/.test(name) && !name.startsWith(current) && name.includes(userUuid)
+      if (legacy || older) indexedDB.deleteDatabase(name)
+    }
+  } catch {
+    // Enumeration is best-effort; an old database that lingers is unused.
+  }
+}
+
+/**
+ * Bumped when a client bug has left caches holding rows that no stream
+ * will ever remove (a workspace switch that leaked one workspace's rows
+ * into another's cache, fixed 2026-09-22). A new generation opens a fresh
+ * database and drops the old ones for this user, so the next launch is a
+ * clean snapshot rather than a delta over stale rows.
+ */
+export const CACHE_GENERATION = 2
+
 export function open(
   userUuid: string,
   schemaHash: string,
   workspaceSlug?: string | null,
 ): Promise<IdbHandle> {
-  const name = ['nosdesk-sync', userUuid, workspaceSlug || null, schemaHash]
+  const name = ['nosdesk-sync', `g${CACHE_GENERATION}`, userUuid, workspaceSlug || null, schemaHash]
     .filter(Boolean)
     .join('-')
+  void dropOlderGenerations(userUuid)
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(name, 1)
     req.onupgradeneeded = () => {

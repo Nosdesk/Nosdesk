@@ -644,6 +644,52 @@ export async function pullDelta(): Promise<boolean> {
 }
 
 /**
+ * Aggregates a workspace-wide bootstrap streams in full (see the server's
+ * `handlers/sync/bootstrap.rs`: every ticket, project, page, collection,
+ * workflow state, user and asset the caller can see). A snapshot of these
+ * is authoritative, so a local row the snapshot did not carry is stale: a
+ * delete missed while the stream was down, or a row that never belonged
+ * to this workspace. Comments and attachments are streamed per ticket
+ * group only, so they are never pruned here.
+ */
+const SNAPSHOT_COMPLETE_AGGREGATES: SyncAggregate[] = [
+  'ticket',
+  'project',
+  'documentation_collection',
+  'documentation_page',
+  'workflow_state',
+  'user',
+  'asset',
+]
+
+/**
+ * After a bootstrap that carried the workspace group, drop local rows of
+ * the fully-streamed aggregates that the snapshot did not include. The
+ * stream otherwise only upserts, so this is the one place a stale row is
+ * reconciled against the server's whole picture.
+ */
+export async function reconcileWithSnapshot(
+  granted: string[],
+  seen: Map<SyncAggregate, Set<string>>,
+): Promise<void> {
+  if (!granted.some((g) => g.startsWith('workspace:'))) return
+  let pruned = 0
+  for (const aggregate of SNAPSHOT_COMPLETE_AGGREGATES) {
+    const ids = seen.get(aggregate) ?? new Set<string>()
+    const stale: string[] = []
+    for (const [id] of pool.entries(aggregate)) {
+      if (!ids.has(id)) stale.push(id)
+    }
+    for (const id of stale) {
+      pool.remove(aggregate, id)
+      if (state.handle) await idb.deleteModel(state.handle, aggregate, id)
+      pruned += 1
+    }
+  }
+  if (pruned > 0) logger.info('sync bootstrap: pruned rows absent from the snapshot', { pruned })
+}
+
+/**
  * Fetch and stream a bootstrap for the given groups, applying each
  * row to the pool as it arrives. Used both on cold start (with the
  * full subscription list) and for incremental group expansion.
@@ -670,6 +716,9 @@ async function runBootstrap(groups: string[]): Promise<void> {
   const decoder = new TextDecoder()
   let buffer = ''
   let bootstrapMeta: BootstrapMeta | null = null
+  // Ids this snapshot carried, per aggregate, for the reconciliation on
+  // `__end__` (see SNAPSHOT_COMPLETE_AGGREGATES).
+  const seen = new Map<SyncAggregate, Set<string>>()
   const persistBatch: idb.ModelRow[] = []
   const flushPersistBatch = async () => {
     if (state.handle && persistBatch.length > 0) {
@@ -713,6 +762,9 @@ async function runBootstrap(groups: string[]): Promise<void> {
           continue
         }
         pool.upsert(aggregate, id, payload as Record<string, unknown>)
+        let ids = seen.get(aggregate)
+        if (!ids) seen.set(aggregate, (ids = new Set()))
+        ids.add(String(id))
         if (SCHEMA_VERSIONS[aggregate] != null) {
           persistBatch.push({
             aggregate,
@@ -727,6 +779,7 @@ async function runBootstrap(groups: string[]): Promise<void> {
         // advance the cursor.
         await flushPersistBatch()
         if (bootstrapMeta) {
+          await reconcileWithSnapshot(bootstrapMeta.groups_granted ?? [], seen)
           // The end line advances the cursor to now, which tears any cached
           // group not currently subscribed; prune before persisting.
           await pruneTornWatermarks()
