@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, provide, ref, watch } from 'vue'
-import { onBeforeRouteLeave, type NavigationGuardNext } from 'vue-router'
+import { onBeforeRouteLeave, useRouter, type NavigationGuardNext } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardGreeting } from '@/composables/useDashboardGreeting'
@@ -10,6 +10,8 @@ import {
   useDashboardStats,
 } from '@/composables/useDashboardStats'
 import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
+import { useSyncTicketsStore } from '@/sync/stores/tickets'
+import { useWorkspaceGroupSubscription } from '@/sync/useWorkspaceGroup'
 import { useDashboardLiveRefresh } from '@/composables/useDashboardLiveRefresh'
 import DashboardGrid from './dashboard/DashboardGrid.vue'
 import DashboardEditBar from './dashboard/DashboardEditBar.vue'
@@ -72,6 +74,24 @@ const authReady = computed(() => !!authStore.user?.uuid)
 
 onMounted(() => dashboardLayout.loadFromUser())
 watch(() => authStore.user?.uuid, () => dashboardLayout.loadFromUser())
+
+// A workspace that has never had a ticket lands on the queue instead
+// (docs/plans/first-run.md slice 4): nine empty tiles answer none of a
+// new admin's questions, the queue's first-run state does. The pool holds
+// every ticket in every state, so "empty, and reflecting the server" is
+// the whole condition; no flag to persist, and the dashboard is back the
+// moment a ticket exists. Staff only: end users have no queue to land on.
+const router = useRouter()
+const ticketsStore = useSyncTicketsStore()
+const pool = ticketsStore.all()
+const { populated } = useWorkspaceGroupSubscription()
+watch(
+  [populated, () => pool.value.length, () => authStore.isTechnician],
+  ([known, count, staff]) => {
+    if (known && count === 0 && staff) void router.replace('/tickets')
+  },
+  { immediate: true },
+)
 
 function enterEditMode() {
   dashboardLayout.beginEdit()
