@@ -374,6 +374,17 @@ ticket-list-empty-overdue-title = Rien en retard.
 ticket-list-empty-overdue-description = Tous les tickets actifs respectent encore leur échéance.
 ticket-list-empty-no-in-view-title = Aucun ticket dans cette vue.
 ticket-list-empty-no-in-view-description = Ajustez le filtre ou choisissez une autre vue.
+
+# MACHINE TRANSLATION, pending native review
+ticket-list-first-title = Aucun ticket pour le moment.
+ticket-list-first-body-admin = Les tickets arrivent de trois façons.
+ticket-list-first-body = Créez le premier, ou attendez qu'un ticket arrive.
+ticket-list-first-guide = Comment ça marche
+ticket-list-first-connect-mailbox = Connecter une boîte mail
+ticket-list-first-share-form = Partager le formulaire de demande
+ticket-list-first-form-copied = Lien du formulaire copié
+ticket-list-first-create = En créer un
+ticket-list-first-invite = Inviter votre équipe
 ticket-list-bulk-actions-aria = Actions groupées
 ticket-list-bulk-status = Statut
 ticket-list-bulk-priority = Priorité

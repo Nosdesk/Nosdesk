@@ -403,6 +403,17 @@ ticket-list-empty-overdue-title = Nothing overdue.
 ticket-list-empty-overdue-description = Every active ticket is still within its due date.
 ticket-list-empty-no-in-view-title = No tickets in this view.
 ticket-list-empty-no-in-view-description = Adjust the view filter or pick a different view.
+
+# First run: the queue before any ticket has ever existed.
+ticket-list-first-title = No tickets yet.
+ticket-list-first-body-admin = Tickets arrive three ways.
+ticket-list-first-body = Create the first one, or wait for one to arrive.
+ticket-list-first-guide = How it works
+ticket-list-first-connect-mailbox = Connect a mailbox
+ticket-list-first-share-form = Share the request form
+ticket-list-first-form-copied = Request form link copied
+ticket-list-first-create = Create one
+ticket-list-first-invite = Invite your team
 ticket-list-bulk-actions-aria = Bulk actions
 ticket-list-bulk-status = Status
 ticket-list-bulk-priority = Priority
