@@ -15,7 +15,7 @@ describe('CollapsibleSection', () => {
     const toggles: number[] = []
     wrapper = mountWithProviders(
       CollapsibleSection,
-      { title: 'Recent tickets', isCollapsed: false, icon: 'clock', onToggle: () => toggles.push(1) },
+      { title: 'Recent tickets', isCollapsed: false, onToggle: () => toggles.push(1) },
       { default: () => h('p', 'body') },
     )
     await nextTick()

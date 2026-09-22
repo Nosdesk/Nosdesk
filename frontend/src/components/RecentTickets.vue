@@ -253,7 +253,7 @@ onMounted(() => {
           :key="ticket.id"
           role="link"
           tabindex="0"
-          class="ticket-item group flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded hover:bg-surface-hover transition-[colors,opacity,transform,box-shadow] cursor-grab active:cursor-grabbing select-none"
+          class="ticket-item group flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-surface-hover transition-[colors,opacity,transform,box-shadow] cursor-grab active:cursor-grabbing select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
           :class="{
             'ticket-item--source': draggedIndex === index,
             'drop-above': draggedIndex !== null && dropTargetIndex === index && !isOutsideList,
@@ -275,13 +275,15 @@ onMounted(() => {
           @touchcancel="handleTouchCancel"
         >
           <!-- Status indicator -->
-          <StatusIndicator :category="wf.findById(ticket.workflow_state_id ?? -1)?.category ?? 'backlog'" size="xs" />
+          <span class="w-4 shrink-0 flex justify-center">
+            <StatusIndicator :category="wf.findById(ticket.workflow_state_id ?? -1)?.category ?? 'backlog'" size="xs" />
+          </span>
 
           <!-- ID -->
-          <span class="text-xs text-secondary font-medium flex-shrink-0">#{{ ticket.id }}</span>
+          <span class="text-xs text-tertiary tabular-nums flex-shrink-0">#{{ ticket.id }}</span>
 
           <!-- Title -->
-          <span class="text-xs text-primary truncate flex-1 group-hover:text-accent">
+          <span class="text-xs text-primary truncate flex-1">
             {{ ticket.title }}
           </span>
 
@@ -374,6 +376,6 @@ onMounted(() => {
 /* Take leaving items out of layout flow so move animations calculate correctly */
 .ticket-list-leave-active {
   position: absolute;
-  width: calc(100% - 4px); /* Account for mx-0.5 */
+  width: 100%;
 }
 </style>

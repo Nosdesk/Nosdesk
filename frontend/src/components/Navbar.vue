@@ -20,6 +20,7 @@ import { useThemeStore } from "@/stores/theme";
 import Icon from "@/components/common/Icon.vue";
 import UnreadBadge from "@/components/common/UnreadBadge.vue";
 import NavLinkIcon from "@/components/NavLinkIcon.vue";
+import Tooltip from "@/components/common/Tooltip.vue";
 import { getSlotRegistrations } from "@/plugins/loader";
 import { pluginPagePath } from "@/plugins/pluginPage";
 
@@ -367,15 +368,16 @@ const isOverflowRouteActive = computed(() =>
     <!-- Sidebar - Flex item in document flow, hidden on mobile -->
     <nav
         ref="navbarRef"
-        class="h-screen bg-surface border-r border-default flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)]"
+        :aria-label="$t('nav-primary')"
+        class="h-screen bg-surface border-r border-default flex flex-col gap-1 flex-shrink-0 print:hidden transition-[width] duration-300 ease-in-out overflow-hidden pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)]"
         :class="[isCollapsed ? 'w-16' : 'w-64', isMobile ? 'hidden' : '']"
     >
         <!-- Logo - swaps between full logo and icon based on collapsed state -->
-        <div class="flex flex-col p-2 px-2 flex-shrink-0 gap-1">
+        <div class="flex flex-col p-2 gap-2 flex-shrink-0">
             <RouterLink
                 to="/"
                 :aria-label="$t('nav-logo-alt')"
-                class="sidebar-logo flex items-center justify-center h-12 mb-5 hover:opacity-80 transition-opacity select-none"
+                class="sidebar-logo flex items-center justify-center h-12 hover:opacity-80 transition-opacity select-none"
             >
                 <!-- Full logo when expanded -->
                 <img
@@ -404,93 +406,95 @@ const isOverflowRouteActive = computed(() =>
             </RouterLink>
 
 
-            <!-- Search Button - above nav links -->
-            <button
-                type="button"
-                @click="() => openSearch()"
-                class="w-full mb-1.5 rounded-md transition-colors duration-200 flex items-center bg-surface-alt border border-default text-secondary hover:bg-surface-hover hover:text-primary hover:border-subtle"
-                :class="[
-                    isCollapsed
-                        ? 'px-2 py-1.5 justify-center'
-                        : 'px-2.5 py-1 gap-2 justify-between',
-                ]"
-                :title="isCollapsed ? $t('nav-search') : ''"
-            >
-                <div class="flex items-center gap-2">
-                    <Icon name="search" />
-                    <span v-if="!isCollapsed" class="text-sm">{{ $t('nav-search') }}</span>
-                </div>
-                <kbd
-                    v-if="!isCollapsed"
-                    class="hidden sm:inline-flex items-center px-1 py-0 text-xs font-mono bg-surface rounded border border-default text-tertiary"
+            <!-- Search, above the nav links. A field when expanded, a bare
+                 icon with a tooltip in the rail. -->
+            <Tooltip :text="$t('nav-search-with-shortcut', { shortcut: searchShortcut })" side="right" :disabled="!isCollapsed">
+                <button
+                    type="button"
+                    @click="() => openSearch()"
+                    class="w-full h-7 rounded-md transition-colors duration-200 flex items-center text-secondary hover:bg-surface-hover hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                    :class="[
+                        isCollapsed
+                            ? 'px-2 justify-center'
+                            : 'px-2.5 gap-2 justify-between bg-surface-alt border border-default hover:border-subtle',
+                    ]"
+                    :aria-label="$t('nav-search')"
                 >
-                    {{ searchShortcut }}
-                </kbd>
-            </button>
+                    <div class="flex items-center gap-2">
+                        <Icon name="search" />
+                        <span v-if="!isCollapsed" class="text-sm">{{ $t('nav-search') }}</span>
+                    </div>
+                    <kbd
+                        v-if="!isCollapsed"
+                        class="hidden sm:inline-flex items-center px-1 py-0 text-xs font-mono bg-surface rounded border border-default text-tertiary"
+                    >
+                        {{ searchShortcut }}
+                    </kbd>
+                </button>
+            </Tooltip>
 
             <!--
               Three rendering modes for the nav links:
 
-              1. Collapsed sidebar (w-16, icon-only): flat
-                 vertical list of icons. Headers wouldn't fit
-                 horizontally and would just steal vertical
-                 space from the link icons themselves.
-              2. Compact nav (a 6-column icon grid that fires on
-                 short viewports — see useNavbarState): also
-                 flat. The grid is the visual rhythm; section
-                 headers would fragment it into two rows of 3
-                 columns each, which reads as broken.
-              3. Expanded sidebar (default): grouped sections
-                 with small uppercase headers (`Work` /
-                 `Resources`). One step of visual hierarchy,
-                 matching Linear / Notion / GitHub sidebar
-                 conventions.
+              1. Collapsed sidebar (w-16, icon-only): flat vertical
+                 list of icons, each named by a tooltip.
+              2. Compact nav (short viewports, see useNavbarState): a
+                 flat, denser list that keeps the labels but drops the
+                 group headers, giving the lower sections back about
+                 100px without losing the words.
+              3. Expanded sidebar (default): grouped sections with
+                 small uppercase headers (Work / Resources).
             -->
-            <div v-if="isCompactNav && !isCollapsed" class="grid grid-cols-6 gap-0.5">
+            <div v-if="isCompactNav && !isCollapsed" class="flex flex-col gap-0.5">
                 <RouterLink
                     v-for="link in navLinks"
                     :key="link.to"
                     :to="link.to"
                     v-prefetch="link.to"
-                    class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2 py-1.5 justify-center"
+                    class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2.5 py-0.5 gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                     :class="
                         isRouteActive(link.to, link.exact)
                             ? 'bg-surface-alt/80 text-primary font-medium'
                             : 'text-secondary hover:bg-surface-hover hover:text-primary'
                     "
-                    :title="link.rawLabel ?? $t(link.text)"
-                >
-                    <div
-                        v-if="isRouteActive(link.to, link.exact)"
-                        class="absolute left-0 top-0 bottom-0 w-1 bg-accent w-full h-0.5 top-auto"
-                    ></div>
-                    <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
-                </RouterLink>
-            </div>
-
-            <div v-else-if="isCollapsed" class="flex flex-col gap-0.5">
-                <RouterLink
-                    v-for="link in navLinks"
-                    :key="link.to"
-                    :to="link.to"
-                    v-prefetch="link.to"
-                    class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2 py-1.5 justify-center"
-                    :class="
-                        isRouteActive(link.to, link.exact)
-                            ? 'bg-surface-alt/80 text-primary font-medium'
-                            : 'text-secondary hover:bg-surface-hover hover:text-primary'
-                    "
-                    :title="link.rawLabel ?? $t(link.text)"
                 >
                     <div
                         v-if="isRouteActive(link.to, link.exact)"
                         class="absolute left-0 top-0 bottom-0 w-1 bg-accent"
                     ></div>
                     <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
+                    <span class="text-sm whitespace-nowrap">{{ link.rawLabel ?? $t(link.text) }}</span>
                 </RouterLink>
             </div>
 
-            <div v-else class="flex flex-col gap-2.5">
+            <div v-else-if="isCollapsed" class="flex flex-col gap-0.5">
+                <Tooltip
+                    v-for="link in navLinks"
+                    :key="link.to"
+                    :text="link.rawLabel ?? $t(link.text)"
+                    side="right"
+                >
+                    <RouterLink
+                        :to="link.to"
+                        v-prefetch="link.to"
+                        class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2 py-1.5 justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                        :class="
+                            isRouteActive(link.to, link.exact)
+                                ? 'bg-surface-alt/80 text-primary'
+                                : 'text-secondary hover:bg-surface-hover hover:text-primary'
+                        "
+                        :aria-label="link.rawLabel ?? $t(link.text)"
+                    >
+                        <div
+                            v-if="isRouteActive(link.to, link.exact)"
+                            class="absolute left-0 top-0 bottom-0 w-1 bg-accent"
+                        ></div>
+                        <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
+                    </RouterLink>
+                </Tooltip>
+            </div>
+
+            <div v-else class="flex flex-col gap-3">
                 <div
                     v-for="group in navGroups"
                     :key="group.label"
@@ -506,7 +510,7 @@ const isOverflowRouteActive = computed(() =>
                         :key="link.to"
                         :to="link.to"
                         v-prefetch="link.to"
-                        class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2.5 py-1 gap-2.5"
+                        class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2.5 py-1 gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                         :class="
                             isRouteActive(link.to, link.exact)
                                 ? 'bg-surface-alt/80 text-primary font-medium'
@@ -525,13 +529,13 @@ const isOverflowRouteActive = computed(() =>
         </div>
 
         <!-- Separator -->
-        <div class="border-t border-default/50 my-1"></div>
+        <div class="border-t border-default/50"></div>
 
         <!-- Spacer: Always present to push toggle button to bottom -->
         <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
             <!-- Only show sections when navbar is expanded -->
             <div
-                class="flex-1 min-h-0 flex flex-col overflow-hidden"
+                class="flex-1 min-h-0 flex flex-col overflow-hidden px-2"
                 v-if="!isCollapsed"
             >
                 <!-- Recent Tickets section with collapsible header -->
@@ -539,11 +543,10 @@ const isOverflowRouteActive = computed(() =>
                     ref="ticketsSectionComponent"
                     :title="$t('nav-section-recent-tickets')"
                     :is-collapsed="isTicketsCollapsed"
-                    icon="clock"
                     class="tickets-section flex-shrink-0 transition-all duration-200"
                     :style="{
                         maxHeight: isTicketsCollapsed
-                            ? '32px'
+                            ? '28px'
                             : `${ticketsHeight}px`,
                     }"
                     @toggle="toggleTickets"
@@ -551,24 +554,21 @@ const isOverflowRouteActive = computed(() =>
                     <RecentTickets />
                 </CollapsibleSection>
 
-                <!-- Resizer between sections -->
+                <!-- Resizer between sections: a transparent gutter with a
+                     grip pill on hover, accent while dragging. -->
                 <div
                     ref="resizerRef"
-                    class="resizer-handle group relative mx-1 flex items-center justify-center select-none"
+                    class="resizer-handle relative select-none text-tertiary"
                     @pointerdown="startResize"
-                    :class="{ active: isResizing }"
-                >
-                    <!-- Equalize button removed -->
-                    <!-- Drag indicator lines removed -->
-                </div>
+                    :class="{ active: isResizing, 'text-accent': isResizing }"
+                ></div>
 
                 <!-- Documentation section with collapsible header -->
                 <CollapsibleSection
                     ref="docsSectionComponent"
                     :title="$t('nav-section-documentation')"
                     :is-collapsed="isDocsCollapsed"
-                    icon="book"
-                    class="docs-section flex-1 min-h-0 transition-all duration-200 -mt-px"
+                    class="docs-section flex-1 min-h-0 transition-all duration-200"
                     @toggle="toggleDocs"
                 >
                     <DocumentationNav />
@@ -578,40 +578,44 @@ const isOverflowRouteActive = computed(() =>
 
         <!-- Toggle button at the bottom of sidebar (hidden on mobile) -->
         <div class="flex-shrink-0 border-t border-default" v-if="!isMobile">
-            <button
-                type="button"
-                @click="toggleCollapsed"
-                class="w-full h-8 px-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors group flex items-center justify-center"
-                :aria-label="$t('nav-toggle-sidebar')"
-            >
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="h-3.5 w-3.5 group-hover:text-accent transition-colors"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
+            <Tooltip :text="$t('nav-expand-sidebar')" side="right" :disabled="!isCollapsed">
+                <button
+                    type="button"
+                    @click="toggleCollapsed"
+                    class="w-full h-8 px-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors group flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                    :aria-label="isCollapsed ? $t('nav-expand-sidebar') : $t('nav-collapse-sidebar')"
+                    :aria-expanded="!isCollapsed"
                 >
-                    <path
-                        v-if="isCollapsed"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M13 5l7 7-7 7M5 5l7 7-7 7"
-                    />
-                    <path
-                        v-else
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
-                    />
-                </svg>
-                <span
-                    v-if="!isCollapsed"
-                    class="ml-1.5 text-xs whitespace-nowrap"
-                    >{{ $t('nav-collapse') }}</span
-                >
-            </button>
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        class="h-3.5 w-3.5 group-hover:text-accent transition-colors"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                    >
+                        <path
+                            v-if="isCollapsed"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M13 5l7 7-7 7M5 5l7 7-7 7"
+                        />
+                        <path
+                            v-else
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                        />
+                    </svg>
+                    <span
+                        v-if="!isCollapsed"
+                        class="ml-1.5 text-xs whitespace-nowrap"
+                        >{{ $t('nav-collapse') }}</span
+                    >
+                </button>
+            </Tooltip>
         </div>
     </nav>
 
@@ -840,56 +844,33 @@ const isOverflowRouteActive = computed(() =>
     transition: none !important;
 }
 
-/* Styles for resizer handle, active state, etc. */
+/* Resizer: an 8px gutter (useResizableSidebar assumes 8) whose grip takes
+   the handle's text colour, so no theme variables are needed here. */
 .resizer-handle {
     touch-action: none;
-    position: relative;
     z-index: 1;
-    height: 5px;
-    margin: 0;
+    height: 8px;
     cursor: ns-resize;
-    background-color: var(--color-surface);
-    border-top: 1px solid var(--color-border-default);
-    border-bottom: 1px solid var(--color-border-default);
 }
 
-.resizer-handle:hover {
-    background-color: var(--color-surface-hover);
-}
-
-.resizer-handle:active,
-.resizer-handle.active {
-    background-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
-}
-
-/* Keep the accent line indicator on hover/active, but make it more subtle */
-.resizer-handle:hover::after {
+.resizer-handle::after {
     content: "";
     position: absolute;
-    left: 0;
-    right: 0;
-    height: 0.5px; /* Thinner line on hover */
-    background-color: color-mix(in srgb, var(--color-accent) 30%, transparent); /* Much more transparent accent */
+    left: 50%;
     top: 50%;
-    transform: translateY(-50%);
-    opacity: 0.5; /* Lower opacity */
-    z-index: 5;
+    width: 32px;
+    height: 3px;
+    border-radius: 9999px;
+    transform: translate(-50%, -50%);
+    background-color: currentColor;
+    opacity: 0;
+    transition: opacity 120ms ease;
     pointer-events: none;
 }
 
-/* Slightly more visible but still subtle when actively resizing */
+.resizer-handle:hover::after,
 .resizer-handle.active::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 0.5px;
-    background-color: color-mix(in srgb, var(--color-accent) 50%, transparent); /* More visible when active */
-    top: 50%;
-    transform: translateY(-50%);
-    opacity: 0.6;
-    z-index: 5;
-    pointer-events: none;
+    opacity: 1;
 }
 
 /* Visual feedback for resize cursor position */

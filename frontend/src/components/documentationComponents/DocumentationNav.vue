@@ -1201,7 +1201,7 @@ defineExpose({ reloadSidebar });
 </script>
 
 <template>
-  <nav ref="navRef" class="documentation-nav" :class="{ 'is-dragging': isDragging }">
+  <div ref="navRef" class="documentation-nav" :class="{ 'is-dragging': isDragging }">
 
     <!-- Single Global Drop Indicator -->
     <div
@@ -1230,7 +1230,7 @@ defineExpose({ reloadSidebar });
     <div v-if="!showSkeleton && starredPages.length > 0" class="py-1">
       <!-- Starred Header -->
       <div
-        class="group relative flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150 text-secondary hover:text-primary hover:bg-surface-hover"
+        class="group relative flex items-center py-1 pr-2 rounded-md text-xs cursor-pointer transition-all duration-150 text-secondary hover:text-primary hover:bg-surface-hover"
         @click="docNavStore.toggleStarredExpanded()"
       >
         <span class="flex-shrink-0" style="width: 8px"></span>
@@ -1256,7 +1256,7 @@ defineExpose({ reloadSidebar });
             v-for="sp in starredPages"
             :key="sp.page_id"
             :to="docUrl({ slug: sp.slug, id: sp.page_id })"
-            class="group flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
+            class="group flex items-center py-1 pr-2 rounded-md text-xs cursor-pointer transition-all duration-150"
             :class="[
               route.path === docUrl({ slug: sp.slug, id: sp.page_id })
                 ? 'bg-surface text-primary font-medium'
@@ -1265,7 +1265,7 @@ defineExpose({ reloadSidebar });
           >
             <span class="flex-shrink-0" style="width: 20px"></span>
             <span class="flex-shrink-0 w-5 flex items-center justify-center">
-              <span class="text-sm leading-none">{{ sp.icon || '📄' }}</span>
+              <span class="text-xs leading-none">{{ sp.icon || '📄' }}</span>
             </span>
             <span class="flex-1 truncate min-w-0 ml-1">{{ sp.title }}</span>
           </RouterLink>
@@ -1282,7 +1282,7 @@ defineExpose({ reloadSidebar });
       <div v-for="collection in collections" :key="collection.id" class="collection-folder">
         <!-- Collection Header — same interaction pattern as DocumentationNavItem -->
         <div
-          class="group relative flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
+          class="group relative flex items-center py-1 pr-2 rounded-md text-xs cursor-pointer transition-all duration-150"
           :class="[
             route.path === `/documentation/collections/${collection.slug}`
               ? 'bg-surface text-primary font-medium'
@@ -1413,7 +1413,7 @@ defineExpose({ reloadSidebar });
       @close="showContextMenu = false"
     />
 
-  </nav>
+  </div>
 
   <!-- Teleport modals to body so they escape nav overflow/stacking constraints -->
   <Teleport to="body">

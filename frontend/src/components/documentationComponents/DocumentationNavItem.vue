@@ -164,7 +164,7 @@ const handleDrop = (event: DragEvent) => {
     <!-- Main Item -->
     <div
       ref="itemRef"
-      class="group relative flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
+      class="group relative flex items-center py-1 pr-2 rounded-md text-xs cursor-pointer transition-all duration-150"
       :class="[
         isActive
           ? 'bg-surface text-primary font-medium'
@@ -199,9 +199,9 @@ const handleDrop = (event: DragEvent) => {
           :class="{ 'rotate-90': isExpanded }"
         />
         <!-- Page icon (hidden on row hover when has children) -->
-        <span v-if="page.icon && !isIconSvg(page.icon)" class="text-sm leading-none" :class="{ 'group-hover:hidden': hasChildren }">{{ page.icon }}</span>
+        <span v-if="page.icon && !isIconSvg(page.icon)" class="text-xs leading-none" :class="{ 'group-hover:hidden': hasChildren }">{{ page.icon }}</span>
         <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-3.5 h-3.5" :class="{ 'group-hover:hidden': hasChildren }"></span>
-        <span v-else class="text-sm leading-none text-tertiary" :class="{ 'group-hover:hidden': hasChildren }">📄</span>
+        <span v-else class="text-xs leading-none text-tertiary" :class="{ 'group-hover:hidden': hasChildren }">📄</span>
       </span>
 
       <!-- Page Title -->
