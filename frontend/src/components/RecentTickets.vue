@@ -227,6 +227,11 @@ const handleLocalDragEnd = () => {
 // genuine cold load instead of flashing the "empty" message.
 const showLoading = computed(() => recentTicketsStore.isLoading)
 
+// The sidebar shows the newest few; the store keeps more so a removed
+// row is backfilled. The context menu's remove and clear actions prune.
+const MAX_VISIBLE = 8
+const visibleTickets = computed(() => recentTicketsStore.recentTickets.slice(0, MAX_VISIBLE))
+
 onMounted(() => {
   // Always refresh in the background. When the store hydrated from
   // localStorage the cached rows render instantly and this refetch
@@ -249,7 +254,7 @@ onMounted(() => {
     >
       <TransitionGroup name="ticket-list" tag="div" class="py-0.5 relative">
         <div
-          v-for="(ticket, index) in recentTicketsStore.recentTickets"
+          v-for="(ticket, index) in visibleTickets"
           :key="ticket.id"
           role="link"
           tabindex="0"

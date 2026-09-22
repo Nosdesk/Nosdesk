@@ -11,6 +11,9 @@ export type PopoverPlacement =
   | 'bottom-start'
   | 'bottom-end'
   | 'bottom'
+  | 'right-start'
+  | 'right-end'
+  | 'right'
 
 export interface PopoverAnchorElement {
   type: 'element'
@@ -36,7 +39,7 @@ export type PopoverAnchor = PopoverAnchorElement | PopoverAnchorPoint
  * a side/align pair. Shared by `Popover` and `ResponsiveMenu`.
  */
 export function floatingFrom(anchor: PopoverAnchor, placement: PopoverPlacement) {
-  const side: 'top' | 'bottom' = placement.startsWith('top') ? 'top' : 'bottom'
+  const side: 'top' | 'bottom' | 'right' = placement.startsWith('top') ? 'top' : placement.startsWith('right') ? 'right' : 'bottom'
   const align: 'start' | 'center' | 'end' = placement.endsWith('-start')
     ? 'start'
     : placement.endsWith('-end')
