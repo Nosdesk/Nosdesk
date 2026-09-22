@@ -3344,12 +3344,6 @@ error-page-go-back = Go back
 error-page-go-home = Go to Dashboard
 error-page-debug-title = Debug Controls (press 'd' to toggle)
 error-page-debug-master-toggle = Master Effects Toggle
-error-page-debug-global-intensity = Global Intensity
-error-page-debug-channel-separation = Channel Separation
-error-page-debug-distortion-scale = Distortion Scale
-error-page-debug-glitch-frequency = Glitch Frequency
-error-page-debug-glitch-intensity = Glitch Intensity
-error-page-debug-cursor-influence = Cursor Influence
 
 # No workspace access (NoWorkspaceAccessView)
 no-workspace-access-title = No workspace yet

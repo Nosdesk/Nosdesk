@@ -1,1304 +1,829 @@
 <!-- ErrorView.vue -->
 <script setup lang="ts">
+/**
+ * The error code as a still frame on a CRT that has lost its lock: the glyphs
+ * are torn by a two-dimensional turbulence field, split into three colour
+ * channels, and drawn to the pointer like the filament of a plasma globe.
+ * Everything is a pure function of time in seconds and the pointer state, so
+ * 60 Hz and 120 Hz displays show the same motion and nothing re-rolls.
+ *
+ * Per channel c in {-1, 0, +1} (dark: R G B, light: C M Y) at CSS px p:
+ *
+ *   d_c = sH E [ Ab Nb + Af Nf + gBand Ag Ng ] + sH E c (S + g s Sg) + pull_c
+ *
+ * Nb is a one-octave row field (frequency 1:10, the horizontal tear bands),
+ * Nf a three-octave fine field, Ng the field of a scheduled glitch event;
+ * all are |noise| turbulence, translated over time, never re-rolled, with an
+ * explicit 8-bit premultiply term (J) that reproduces the hairline bristles
+ * the original SVG filter produced by accident. E is the hover hold. The
+ * pull anchors the glyph edge nearest the pointer so it lands exactly under
+ * the cursor, with the tear texture concentrated on that row and carried
+ * with the pointer. Glitch events are decided by a hash of the time window,
+ * so they are discrete and deterministic. Scanline luminance is a comb on
+ * the output row. Dark themes add the three channels, light themes multiply.
+ */
 import Button from '@/components/common/Button.vue'
-import { useRoute, useRouter } from "vue-router";
-import { performBack } from "@/router/navigation";
-import { onMounted, onUnmounted, ref, reactive, watchEffect, watch, computed, nextTick } from "vue";
-import { useFluent } from "fluent-vue";
-import { useThemeStore } from "@/stores/theme";
-import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
+import { useRoute, useRouter } from 'vue-router'
+import { performBack } from '@/router/navigation'
+import { onMounted, onBeforeUnmount, ref, reactive, computed, watch, useTemplateRef } from 'vue'
+import { useFluent } from 'fluent-vue'
+import { useThemeStore } from '@/stores/theme'
+import { useReducedMotion } from '@/composables/useReducedMotion'
+import ToggleSwitch from '@/components/common/ToggleSwitch.vue'
 
-const fluent = useFluent();
-const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-// Type definition for the direction of a glitch spike.
-// 'vertical' = vertical glitch, 'horizontal' = horizontal glitch, null = no glitch
-type SpikeDirection = "vertical" | "horizontal" | null;
+const route = useRoute()
+const router = useRouter()
+const goBack = () => performBack(router, route)
+const goHome = () => router.push('/')
 
-// Vue Router instances for accessing route parameters and navigation.
-const route = useRoute();
-const router = useRouter();
+const themeStore = useThemeStore()
+const isDarkMode = computed(() => themeStore.isDarkMode)
+const isEpaperTheme = computed(() => themeStore.effectiveTheme?.meta?.id === 'epaper')
+const reduced = useReducedMotion()
+const isStatic = computed(() => reduced.value || isEpaperTheme.value)
+const fallback = ref(false)
 
-// Theme store for light/dark mode detection
-const themeStore = useThemeStore();
-const isDarkMode = computed(() => themeStore.isDarkMode);
-const isEpaperTheme = computed(() => themeStore.effectiveTheme?.meta?.id === 'epaper');
+const canvasRef = useTemplateRef<HTMLCanvasElement>('mark')
 
-// Navigation functions.
-const goBack = () => performBack(router, route);
-const goHome = () => router.push("/");
+const markWidth = ref('60rem')
+const markHeight = ref('24rem')
+const fontSize = ref('14rem')
+const errorCode = ref(t('error-page-default-code'))
+const errorMessage = ref(t('error-page-default-message'))
 
-// --- Refs for SVG Elements ---
-const svg = ref<SVGSVGElement | null>(null); // Ref for the main SVG element, used to get its dimensions for mouse normalization.
+// --- Parameters ---
+// px amplitudes are for a 400 px tall mark and scale with its height (sH).
+// Spatial frequencies are cycles per CSS px at that height, rates are Hz,
+// radii are fractions of the mark height, times are seconds.
+const H_REF = 400
+const P = reactive({
+  enabled: true,
+  smooth: false,
+  Ab: 5, // band field amplitude, px
+  Kb: [0.001, 0.01], // band field frequency
+  Db: [12, 32], // band field channel offset, px
+  Af: 10, // fine field amplitude, px
+  Kf: [0.004, 0.0009], // fine field frequency
+  Df: [60, 30], // fine field channel offset, px
+  octF: 3, // fine field octaves
+  S: [1.25, 0.6], // constant channel split, px
+  J: 1, // bristle gain
+  Ka: [0.03, 0.003], // bristle field frequencies
+  Ka2: [0.003, 0.03],
+  vb: 12, // band field drift, px/s
+  vf: 25, // fine field drift, px/s
+  Wb: [160, 40], // band sway amplitude, px
+  Pb: [29, 12], // band sway period, s
+  Wa: 8, // bristle sway amplitude, px
+  Pa: [13, 17], // bristle sway period, s
+  sigmaR: 0.12, // hold radius
+  tauIn: 0.12, // hold ease in, s
+  tauOut: 1.2, // hold release, s
+  tauP: 0.07, // pointer lag, s
+  Wg: 6, // glitch window, s
+  Pg: 0.95, // glitch chance per window
+  tauG: 0.45, // glitch length, s
+  rIn: 0.04, // glitch attack, s
+  rOut: 0.16, // glitch release, s
+  tauStep: 0.09, // glitch hold, s
+  vg: 300, // glitch field speed, px/s
+  Pcol: 0.7, // share of column glitches
+  Ag: 23.5, // glitch amplitude, px
+  Kg: [0.001, 0.01], // glitch field frequency
+  sigmaG: 0.25, // glitch band half-width
+  Sg: [5, 4], // glitch channel jump, px
+  Ap: 18, // pull tear amplitude, px
+  Sp: 6, // pull split, px
+  sigX: 0.175, // pull window
+  sigY: 0.045, // pull band half-width
+  sigV: 0.14, // pinch window
+  kY: 0.3, // pinch
+  wTex: 0.35, // pull texture floor across the row
+  dMax: [0.3, 0.15], // pull reach clamp
+  box: [0.35, 0.25], // edge search box
+  lam: 1.5, // same-row preference in the edge search
+  tauE: 0.05, // edge anchor lag, s
+  tauPin: 0.12, // pull strike, s
+  tauPout: 0.3, // pull release, s
+  aT: 0.05, // tap attack, s
+  hT: 0.15, // tap hold, s
+  tauD: 0.35, // tap decay, s
+  tauS: 0.2, // click surge decay, s
+  aPhi: 0.35, // pull flicker depth
+  fPhi: [9.1, 13.7], // pull flicker, Hz
+  vP: 120, // pull field stream, px/s
+  tauPs: 0.25, // pull field re-roll, s
+  ps: 2, // scanline pitch, CSS px
+  as: 0.2, // scanline depth
+  ab: 0.06, // trough depth
+  sigmaB: 0.06, // trough half-width
+  fb: 0.08, // trough roll rate, Hz
+})
 
-// Store channel refs in arrays for easier access
-const turbulenceRefs = ref<SVGFETurbulenceElement[]>([]);
-const offsetRefs = ref<SVGFEOffsetElement[]>([]);
-const displacementRefs = ref<SVGFEDisplacementMapElement[]>([]);
-const colorMatrixRefs = ref<SVGFEColorMatrixElement[]>([]);
-
-// --- Animation State & Mouse Tracking Refs ---
-const frameId = ref<number>(0); // Stores the ID of the requestAnimationFrame, used to cancel the animation.
-const seedCounter = ref(0); // Used to animate the 'seed' for feTurbulence, making the noise pattern evolve over time.
-// The animation uses direct cursor input (no smoothing/velocity calculations) for immediate visual response
-
-// SVG responsive dimensions
-const svgWidth = ref('60rem'); // Default SVG width
-const svgHeight = ref('24rem'); // Default SVG height
-const fontSize = ref('14rem'); // Default font size
-const errorCode = ref(t('error-page-default-code')); // Default error code
-const errorMessage = ref(t('error-page-default-message')); // Default error message
-
-// Raw mouse coordinates (relative to the viewport, not SVG).
-const rawMouseX = ref(0);
-const rawMouseY = ref(0);
-
-// Normalized mouse positions (0-1 relative to SVG dimensions)
-// Direct cursor input without smoothing for immediate response
-const normMouseX = ref(0.5);
-const normMouseY = ref(0.5);
-const mouseHasMoved = ref(false); // Flag to track initial mouse movement
-const isMouseOverSvg = ref(false); // Flag to track if mouse is over SVG
-
-// --- Glitch State Variables (Unified into arrays) ---
-// glitchCounters: Frame countdown for how long a glitch is active for each channel
-const glitchCounters = ref<number[]>([0, 0, 0]);
-// spikeDirections: Whether the current glitch is vertical or horizontal for each channel
-const spikeDirections = ref<(SpikeDirection | null)[]>([null, null, null]);
-
-// --- Click Interaction Variables ---
-// Clicking creates a temporary distortion effect centered on cursor position
-// This effect intensifies all glitch parameters temporarily and then decays
-const clickGlitchIntensity = ref(0); // Current intensity of click-triggered effects (0-1)
-const clickGlitchDecay = 0.75; // Rate at which click effect decays (smaller = faster decay)
-const maxClickGlitchIntensity = 0.4; // Maximum intensity when clicked (gentler effect)
-const clickLocationX = ref(0); // X position of the last click (normalized 0-1) - direct from cursor
-const clickLocationY = ref(0); // Y position of the last click (normalized 0-1) - direct from cursor
-const isClickable = ref(true); // Prevents rapid click spam by throttling clicks
-
-// Phase offset settings for each channel (index 0=red, 1=green, 2=blue)
-const channelPhaseOffsets = [
-  { driftX: 0.3, driftY: 0.2, wobblePhase: 0, cursorXFactor: 0.7, cursorYFactor: 0.7 },
-  { driftX: 0.25, driftY: 0.35, wobblePhase: 2, cursorXFactor: 0.8, cursorYFactor: 0.8 },
-  { driftX: 0.4, driftY: 0.15, wobblePhase: 4, cursorXFactor: 1.2, cursorYFactor: 1.2 }
-];
-
-// Frequency settings for each channel
-const channelFrequencySettings = [
-  { baseX: 0.0020, baseY: 0.0020 }, // Red
-  { baseX: 0.0022, baseY: 0.0022 }, // Green
-  { baseX: 0.0018, baseY: 0.0018 }  // Blue
-];
-
-// Glitch frequency settings for each channel/direction
-const glitchFrequencySettings = {
-  horizontal: { baseX: 0.010, baseY: 0.0010, xAmpFactor: 0.015, yAmpFactor: 0.0015 },
-  vertical: { baseX: 0.0010, baseY: 0.010, xAmpFactor: 0.0015, yAmpFactor: 0.015 }
-};
-
-// General time variable for continuous animation (used in sine/cosine oscillations).
-let wobbleTime = 0.005;
-
-// --- Simplified Effect Parameters ---
-// Core parameters that drive the effect
-let masterEffectEnabled = true; // Master toggle for all effects
-let globalEffectIntensity = 0.5; // Overall strength of all effects
-let baseGlitchIntensity = 0.25; // Glitch jitter amplitude
-let cursorInfluence = 0.8; // Combined cursor influence parameter
-let channelSeparation = 1.5; // Controls how far apart RGB channels drift
-let distortionScale = 15; // Base displacement map scale
-
-// --- Debug Controls ---
-const showDebug = ref(false);
-
-// New simplified parameter system
-const debugControls = reactive({
-  // Main Controls
-  masterEffectEnabled,
-  globalEffectIntensity, // Main control for overall effect strength
-  
-  // Essential Parameters
-  channelSeparation: 1.0, // Controls how far apart the RGB channels are
-  distortionScale: 1.0, // Controls the scale of the displacement map
-  glitchFrequency: 0.15, // How often glitches occur (0-1)
-  glitchIntensity: 1.0, // How strong the glitches are
-  cursorInfluence: 0.05, // Combined parameter for all cursor interactions (reduced for subtlety)
-  
-  // Toggle for advanced parameters (hidden by default)
-  showAdvanced: false
-});
-
-// Sync debugControls -> mutable params
-watchEffect(() => {
-  // E-Paper theme forces effects off for static display
-  masterEffectEnabled = isEpaperTheme.value ? false : debugControls.masterEffectEnabled;
-  globalEffectIntensity = debugControls.globalEffectIntensity;
-
-  // Map simplified controls to core parameters
-  baseGlitchIntensity = 0.25 * debugControls.glitchIntensity;
-  cursorInfluence = 0.4 * debugControls.cursorInfluence; // Reduced multiplier for subtler cursor effect
-  channelSeparation = 1.5 * debugControls.channelSeparation;
-  distortionScale = 15.0 * debugControls.distortionScale;
-});
-
-// Toggle debug overlay with 'd' key
+// Debug sliders (press d). Labels are the parameter symbols, locale-invariant.
+const showDebug = ref(false)
+const debugSliders: Array<{ key: string; label: string; min: number; max: number; step: number }> = [
+  { key: 'Ab', label: 'Ab band px', min: 0, max: 24, step: 0.5 },
+  { key: 'Af', label: 'Af fine px', min: 0, max: 16, step: 0.25 },
+  { key: 'Db.1', label: 'Db,y channel offset px', min: 0, max: 60, step: 1 },
+  { key: 'S.0', label: 'S split px', min: 0, max: 8, step: 0.25 },
+  { key: 'J', label: 'J bristles', min: 0, max: 2, step: 0.05 },
+  { key: 'vb', label: 'vb band drift px/s', min: 0, max: 60, step: 1 },
+  { key: 'vf', label: 'vf fine drift px/s', min: 0, max: 120, step: 1 },
+  { key: 'Ag', label: 'Ag glitch px', min: 0, max: 40, step: 0.5 },
+  { key: 'Pg', label: 'Pg glitch chance', min: 0, max: 1, step: 0.05 },
+  { key: 'tauG', label: 'tauG glitch length s', min: 0.1, max: 1.5, step: 0.05 },
+  { key: 'Ap', label: 'Ap pull tear px', min: 0, max: 40, step: 0.5 },
+  { key: 'Sp', label: 'Sp pull split px', min: 0, max: 12, step: 0.25 },
+  { key: 'sigY', label: 'sigmaY band half-width', min: 0.02, max: 0.15, step: 0.005 },
+  { key: 'kY', label: 'kY pinch', min: 0, max: 1, step: 0.05 },
+  { key: 'as', label: 'as scanline depth', min: 0, max: 0.5, step: 0.01 },
+]
+const params = P as unknown as Record<string, number | number[]>
+const getP = (k: string): number => {
+  const [a, b] = k.split('.')
+  const v = params[a]
+  return Array.isArray(v) ? v[Number(b)] : v
+}
+const setP = (k: string, value: number): void => {
+  const [a, b] = k.split('.')
+  const v = params[a]
+  if (Array.isArray(v)) v[Number(b)] = value
+  else params[a] = value
+}
+const stats = ref('')
 const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === "d" || e.key === "D") {
-    showDebug.value = !showDebug.value;
+  if ((e.key === 'd' || e.key === 'D') && !(e.target instanceof HTMLInputElement)) showDebug.value = !showDebug.value
+}
+
+// --- Shader ---
+const VERT = '#version 300 es\nvoid main(){vec2 v=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(v*2.0-1.0,0,1);}'
+const FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D u_text;
+uniform vec2  u_res;
+uniform float u_dpr;
+uniform float u_sH;
+uniform float u_lightMode;
+uniform vec3  u_bg;
+uniform float u_Ab, u_Af, u_J, u_octF;
+uniform vec2  u_Kb, u_Kf, u_Ka, u_Ka2, u_Db, u_Df, u_S;
+uniform vec2  u_wb, u_wf, u_wa;
+uniform vec2  u_ptr;
+uniform float u_hover, u_sigmaR;
+// pull: the tear drawn to the pointer (see 404 pull design)
+uniform float u_pull, u_kY, u_sigV, u_sigT, u_Ap, u_Sp, u_oP, u_wTex;
+uniform vec2  u_dP, u_sigP, u_Kp;
+uniform float u_g, u_Ag, u_sign, u_ySig, u_yK, u_oK, u_colG;
+uniform vec2  u_Kg, u_Sg;
+uniform float u_pitch, u_as, u_ab, u_yb, u_sigB;
+out vec4 o;
+
+float hash(vec2 p, float s) {
+  p = fract(p * vec2(0.1031, 0.1030) + s);
+  p += dot(p, p.yx + 33.33);
+  return fract((p.x + p.y) * p.x);
+}
+// Perlin gradient noise with the SVG spec's s-curve, peaks near 1.
+float gnoise(vec2 q, float s) {
+  vec2 i = floor(q), f = q - i;
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = 6.2831853 * hash(i, s),              b = 6.2831853 * hash(i + vec2(1, 0), s);
+  float c = 6.2831853 * hash(i + vec2(0, 1), s), d = 6.2831853 * hash(i + vec2(1, 1), s);
+  float n = mix(mix(dot(vec2(cos(a), sin(a)), f),              dot(vec2(cos(b), sin(b)), f - vec2(1, 0)), u.x),
+                mix(dot(vec2(cos(c), sin(c)), f - vec2(0, 1)), dot(vec2(cos(d), sin(d)), f - vec2(1, 1)), u.x), u.y);
+  return n * 1.6;
+}
+// Turbulence: sum of |noise|, lacunarity 2, gain 0.5, normalised to [0, 1].
+float turb(vec2 q, float s, float octaves) {
+  float v = 0.0, norm = 0.0, amp = 1.0;
+  for (int k = 0; k < 3; k++) {
+    if (float(k) >= octaves) break;
+    v += amp * abs(gnoise(q * exp2(float(k)) + 17.3 * float(k), s + 101.0 * float(k)));
+    norm += amp; amp *= 0.5;
   }
-};
+  return v / norm;
+}
+const float MU1 = 0.274, MU3 = 0.273;
+float q8(float v) { return floor(v * 255.0 + 0.5) / 255.0; }
+// The 8-bit premultiplied round trip of the original filter: the bristles.
+float unpre(float R, float A) { return R + u_J * (q8(R * A) / max(q8(A), 1.0 / 255.0) - R); }
+float cov(vec2 pd) { return texture(u_text, pd / u_res).r; }
 
-// Add a new state variable to track mouse entry transition
-const mouseEntryTransition = ref(0); // 0 = no influence, 1 = full influence
+void main() {
+  vec2 pd = vec2(gl_FragCoord.x, u_res.y - gl_FragCoord.y);
+  vec2 p = pd / u_dpr;
+  float sH = u_sH;
+  float Hcss = u_res.y / u_dpr;
 
-// Mouse movement handler - directly calculates normalized positions (0-1) within SVG bounds
-// No velocity or smoothing calculations, for immediate visual response to cursor movement
-const handleMouseMove = (event: MouseEvent) => {
-  rawMouseX.value = event.clientX;
-  rawMouseY.value = event.clientY;
-  
-  // Check if mouse is over the SVG and calculate normalized position in one step
-  const svgRect = svg.value?.getBoundingClientRect();
-  const wasOverSvg = isMouseOverSvg.value;
-  
-  if (svgRect && svgRect.width > 0 && svgRect.height > 0) {
-    // Calculate normalized position directly (0-1 range)
-    normMouseX.value = Math.max(0, Math.min(1, (event.clientX - svgRect.left) / svgRect.width));
-    normMouseY.value = Math.max(0, Math.min(1, (event.clientY - svgRect.top) / svgRect.height));
-    
-    // Check if mouse is over SVG
-    isMouseOverSvg.value = (
-      event.clientX >= svgRect.left &&
-      event.clientX <= svgRect.right &&
-      event.clientY >= svgRect.top &&
-      event.clientY <= svgRect.bottom
-    );
-  } else {
-    isMouseOverSvg.value = false;
-    // Keep last position if not over SVG
+  vec2 dp = p - u_ptr;
+  float E  = 1.0 - u_hover * exp(-dot(dp, dp) / (2.0 * u_sigmaR * u_sigmaR));
+  float Gy = exp(-dp.y * dp.y / (2.0 * u_sigP.y * u_sigP.y));
+  float Gt = exp(-dp.y * dp.y / (2.0 * u_sigT * u_sigT));
+  float Wx = exp(-dp.x * dp.x / (2.0 * u_sigP.x * u_sigP.x));
+  float Gv = exp(-dp.y * dp.y / (2.0 * u_sigV * u_sigV));
+  // the curve: the nearest glyph edge is shifted so it lands on the pointer, rows funnel toward the pointer row
+  vec2  dPull = u_pull * (u_dP * Gy * Wx - vec2(0.0, dp.y * u_kY * Gv * Wx));
+  float tex = u_pull * Gt * mix(u_wTex, 1.0, Wx);
+  float yN = p.y / Hcss;
+  float gBand = u_g * exp(-(yN - u_yK) * (yN - u_yK) / (2.0 * u_ySig * u_ySig));
+
+  vec3 tap = vec3(0.0);
+  for (int i = 0; i < 3; i++) {
+    float c = float(i) - 1.0;
+    vec2 qb  = u_Kb  / sH * (p + u_wb + c * u_Db * sH);
+    vec2 qf  = u_Kf  / sH * (p + u_wf + c * u_Df * sH);
+    vec2 qa  = u_Ka  / sH * (p + u_wa + c * u_Db * sH);
+    vec2 qa2 = u_Ka2 / sH * (p + u_wa + c * u_Df * sH);
+    float Ab = turb(qa + vec2(3.7, 1.3), 53.0, 1.0);
+    float Af = turb(qa2 + vec2(2.1, 4.4), 59.0, 1.0);
+    vec2 Nb = (vec2(unpre(turb(qb, 11.0, 1.0), Ab), unpre(turb(qb, 23.0, 1.0), Ab)) - MU1) / (1.0 - MU1);
+    vec2 Nf = (vec2(unpre(turb(qf, 37.0, u_octF), Af), unpre(turb(qf, 41.0, u_octF), Af)) - MU3) / (1.0 - MU3);
+    vec2 d = u_Ab * Nb + u_Af * Nf + c * u_S;
+    if (u_g > 0.0) {
+      vec2 qg = u_Kg / sH * (p + mix(vec2(0.0, u_oK), vec2(u_oK, 0.0), u_colG) * sH + c * u_Db * sH);
+      vec2 Ng = (vec2(turb(qg, 61.0, 1.0), turb(qg, 67.0, 1.0)) - MU1) / (1.0 - MU1);
+      d += gBand * u_Ag * Ng + u_g * u_sign * c * u_Sg;
+    }
+    d *= sH * E;
+    if (u_pull > 0.0) {
+      vec2 qp = u_Kp / sH * (p - u_ptr + vec2(0.0, u_oP) + c * u_Db * sH);
+      vec2 Np = (vec2(turb(qp, 71.0, 1.0), turb(qp, 73.0, 1.0)) - MU1) / (1.0 - MU1);
+      d += dPull + tex * sH * (u_Ap * Np + c * vec2(u_Sp, 0.4 * u_Sp));
+    }
+    float v = cov(pd - d * u_dpr);
+    if (i == 0) tap.x = v; else if (i == 1) tap.y = v; else tap.z = v;
   }
-  
-  // If mouse just entered the SVG, start transition from 0
-  if (!wasOverSvg && isMouseOverSvg.value) {
-    mouseEntryTransition.value = 0;
+
+  float L = 1.0 - u_as * (0.5 + 0.5 * cos(6.2831853 * pd.y / u_pitch));
+  float B = 1.0 - u_ab * exp(-(yN - u_yb) * (yN - u_yb) / (2.0 * u_sigB * u_sigB));
+  tap *= L * B;
+
+  vec3 col = u_lightMode > 0.5
+    ? u_bg * (1.0 - tap.x * vec3(1, 0, 0)) * (1.0 - tap.y * vec3(0, 1, 0)) * (1.0 - tap.z * vec3(0, 0, 1))
+    : u_bg + tap;
+  o = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`
+const UNIFORMS = [
+  'u_text', 'u_res', 'u_dpr', 'u_sH', 'u_lightMode', 'u_bg', 'u_Ab', 'u_Af', 'u_J', 'u_octF',
+  'u_Kb', 'u_Kf', 'u_Ka', 'u_Ka2', 'u_Db', 'u_Df', 'u_S', 'u_wb', 'u_wf', 'u_wa',
+  'u_ptr', 'u_hover', 'u_sigmaR', 'u_pull', 'u_dP', 'u_sigP', 'u_sigT', 'u_sigV', 'u_kY', 'u_Ap', 'u_Sp', 'u_oP', 'u_wTex', 'u_Kp',
+  'u_g', 'u_Ag', 'u_sign', 'u_ySig', 'u_yK', 'u_oK', 'u_colG', 'u_Kg', 'u_Sg',
+  'u_pitch', 'u_as', 'u_ab', 'u_yb', 'u_sigB',
+] as const
+type UniformName = (typeof UNIFORMS)[number]
+type Uniforms = Record<UniformName, WebGLUniformLocation | null>
+
+// --- Deterministic helpers ---
+// Per-window hash in [0, 1): mulberry32 on (k, salt).
+const hashU = (k: number, salt: number): number => {
+  let a = (Math.imul(k, 0x9e3779b1) ^ Math.imul(salt + 1, 0x85ebca6b)) >>> 0
+  a = (a + 0x6d2b79f5) >>> 0
+  let z = Math.imul(a ^ (a >>> 15), 1 | a)
+  z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z
+  return ((z ^ (z >>> 14)) >>> 0) / 4294967296
+}
+const ramp = (x: number) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(Math.max(x, 0), 1))
+
+// Glitch state for time t: a hash of the window decides whether, when, where
+// and in which orientation a burst happens.
+interface Glitch { g: number; yK: number; sign: number; oK: number; col: boolean }
+const NO_GLITCH: Glitch = { g: 0, yK: 0.5, sign: 1, oK: 0, col: false }
+const glitchAt = (time: number): Glitch => {
+  const k = Math.floor(time / P.Wg)
+  if (hashU(k, 0) >= P.Pg) return NO_GLITCH
+  const start = k * P.Wg + hashU(k, 1) * (P.Wg - P.tauG)
+  if (time < start || time > start + P.tauG) return NO_GLITCH
+  const s = time - start
+  const g = Math.min(ramp(s / P.rIn), ramp((P.tauG - s) / P.rOut))
+  const step = Math.floor(s / P.tauStep)
+  return {
+    g,
+    yK: hashU(k, 4),
+    sign: hashU(k, 3) < 0.5 ? -1 : 1,
+    col: hashU(k, 5) < P.Pcol,
+    oK: (hashU(k, 2) + hashU(k, 10 + step)) * 1000 + P.vg * s,
   }
-  
-  if (!mouseHasMoved.value) {
-    mouseHasMoved.value = true;
+}
+
+// Pointer state, CSS px on the mark, y down. Only h, ptr, pE and pull are
+// smoothed (clamped-dt exponentials); everything else is closed-form in t.
+const st = {
+  h: 0,
+  hTarget: 0,
+  ptr: [0, 0],
+  ptrTarget: [0, 0],
+  pull: 0,
+  pullTap: 0,
+  pE: [0, 0],
+  pEValid: false,
+  tapT: -1e9,
+  relT: -1e9,
+  held: false,
+  surgeT: -1e9,
+}
+
+// --- Rasterised text ---
+interface Edges { W: number; H: number; starts: Uint32Array; xs: Uint16Array }
+let gl: WebGL2RenderingContext | null = null
+let tex: WebGLTexture | null = null
+let U: Uniforms | null = null
+let texDpr = 0
+let edges: Edges | null = null
+let rasterGen = 0
+
+const currentDpr = () => Math.min(window.devicePixelRatio || 1, 2)
+const bgRgb = (): Float32Array => {
+  const m = getComputedStyle(document.documentElement).getPropertyValue('--color-app').trim().match(/^#([0-9a-f]{6})$/i)
+  const n = parseInt(m ? m[1] : '000000', 16)
+  return Float32Array.from([(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255])
+}
+
+const setFilter = (smooth: boolean) => {
+  if (!gl) return
+  const f = smooth ? gl.LINEAR : gl.NEAREST
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, f)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, f)
+}
+
+const initGL = (canvas: HTMLCanvasElement): boolean => {
+  const ctx = canvas.getContext('webgl2', { alpha: false, antialias: false })
+  if (!ctx) return false
+  const compile = (type: number, src: string) => {
+    const s = ctx.createShader(type)
+    if (!s) throw new Error('shader')
+    ctx.shaderSource(s, src)
+    ctx.compileShader(s)
+    if (!ctx.getShaderParameter(s, ctx.COMPILE_STATUS)) throw new Error(ctx.getShaderInfoLog(s) ?? 'shader')
+    return s
   }
-};
-
-// Helper function to calculate distance-based influence using a parabolic fall-off
-// Returns 1.0 at the cursor position and falls off quadratically to 0 at the specified radius
-const getDistanceBasedInfluence = (
-  normX: number, 
-  normY: number, 
-  cursorNormX: number, 
-  cursorNormY: number, 
-  radius: number
-): number => {
-  const dx = normX - cursorNormX;
-  const dy = normY - cursorNormY;
-  const distSquared = dx * dx + dy * dy;
-  const radiusSquared = radius * radius;
-  
-  // If beyond radius, no influence
-  if (distSquared > radiusSquared) {
-    return 0;
+  try {
+    const prog = ctx.createProgram()
+    if (!prog) throw new Error('program')
+    ctx.attachShader(prog, compile(ctx.VERTEX_SHADER, VERT))
+    ctx.attachShader(prog, compile(ctx.FRAGMENT_SHADER, FRAG))
+    ctx.linkProgram(prog)
+    if (!ctx.getProgramParameter(prog, ctx.LINK_STATUS)) throw new Error(ctx.getProgramInfoLog(prog) ?? 'link')
+    ctx.useProgram(prog)
+    U = Object.fromEntries(UNIFORMS.map((n) => [n, ctx.getUniformLocation(prog, n)])) as Uniforms
+    tex = ctx.createTexture()
+    ctx.bindTexture(ctx.TEXTURE_2D, tex)
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE)
+    ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE)
+    gl = ctx
+    setFilter(P.smooth)
+    ctx.uniform1i(U.u_text, 0)
+    return true
+  } catch (err) {
+    console.warn('error mark: WebGL2 unavailable, drawing plain text', err)
+    gl = null
+    return false
   }
-  
-  // Sharper parabolic fall-off: square the term so it drops off faster
-  const baseInfluence = 1 - distSquared / radiusSquared;
-  // Raise to the 3rd power for an even steeper drop-off outside the focus radius
-  return baseInfluence <= 0 ? 0 : Math.pow(baseInfluence, 3);
-};
+}
 
-// --- Main Animation Loop ---
-const animate = () => {
-  const innerAnimate = () => {
-    // Only increment time variables if master effect is enabled
-    if (masterEffectEnabled) {
-      wobbleTime += 0.025;
-      seedCounter.value += 0.05;
+const raster = async (canvas: HTMLCanvasElement): Promise<void> => {
+  const gen = ++rasterGen
+  const dpr = currentDpr()
+  const W = Math.round(canvas.clientWidth * dpr)
+  const H = Math.round(canvas.clientHeight * dpr)
+  if (!gl || W < 2 || H < 2) return
+  const family = getComputedStyle(document.documentElement).getPropertyValue('--font-sans') || 'sans-serif'
+  const font = `bold ${parseFloat(fontSize.value) * dpr}px ${family}`
+  await document.fonts.load(font).catch(() => undefined)
+  if (gen !== rasterGen || !gl) return
+  // White on opaque black, so .r is real coverage at edge texels.
+  const m = document.createElement('canvas')
+  m.width = W
+  m.height = H
+  const c = m.getContext('2d')
+  if (!c) return
+  c.fillStyle = '#000'
+  c.fillRect(0, 0, W, H)
+  c.font = font
+  c.textAlign = 'center'
+  c.textBaseline = 'middle'
+  c.fillStyle = '#fff'
+  c.fillText(errorCode.value, W / 2, H / 2)
+  // Per-row table of glyph edge crossings, for the pull's edge anchor.
+  const img = c.getImageData(0, 0, W, H).data
+  const starts = new Uint32Array(H + 1)
+  const xs: number[] = []
+  for (let r = 0; r < H; r += 1) {
+    starts[r] = xs.length
+    let prev = 0
+    for (let x = 0; x < W; x += 1) {
+      const on = img[(r * W + x) * 4] > 127 ? 1 : 0
+      if (on !== prev) xs.push(x)
+      prev = on
     }
+  }
+  starts[H] = xs.length
+  edges = { W, H, starts, xs: Uint16Array.from(xs) }
+  canvas.width = W
+  canvas.height = H
+  gl.viewport(0, 0, W, H)
+  gl.bindTexture(gl.TEXTURE_2D, tex)
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, gl.RED, gl.UNSIGNED_BYTE, m)
+  texDpr = dpr
+}
 
-    // Decay the click glitch effect over time
-    if (clickGlitchIntensity.value > 0) {
-      clickGlitchIntensity.value *= clickGlitchDecay;
-
-      // Reset to zero if it gets too small
-      if (clickGlitchIntensity.value < 0.01) {
-        clickGlitchIntensity.value = 0;
+// The glyph edge nearest the pointer, CSS px, or null when none is in the box.
+const nearestEdge = (px: number, py: number): number[] | null => {
+  if (!edges) return null
+  const dpr = texDpr
+  const Hc = edges.H / dpr
+  const x0 = px * dpr
+  const y0 = py * dpr
+  const bx = P.box[0] * Hc * dpr
+  const by = P.box[1] * Hc * dpr
+  let best: number[] | null = null
+  let bm = Infinity
+  for (let r = Math.max(0, Math.ceil(y0 - by)); r <= Math.min(edges.H - 1, Math.floor(y0 + by)); r += 1) {
+    let lo = edges.starts[r]
+    let hi = edges.starts[r + 1]
+    if (lo === hi) continue
+    const end = hi
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1
+      if (edges.xs[mid] <= x0) lo = mid
+      else hi = mid
+    }
+    for (let i = lo; i <= lo + 1 && i < end; i += 1) {
+      const dx = edges.xs[i] - x0
+      const dy = r - y0
+      if (Math.abs(dx) > bx) continue
+      const mm = dx * dx + P.lam * P.lam * dy * dy
+      if (mm < bm) {
+        bm = mm
+        best = [edges.xs[i] / dpr, r / dpr]
       }
     }
+  }
+  return best
+}
 
-    // Animate mouse entry transition
-    if (isMouseOverSvg.value && mouseEntryTransition.value < 1) {
-      mouseEntryTransition.value = Math.min(1, mouseEntryTransition.value + 0.05); // Smooth transition in
-    } else if (!isMouseOverSvg.value && mouseEntryTransition.value > 0) {
-      mouseEntryTransition.value = Math.max(0, mouseEntryTransition.value - 0.05); // Smooth transition out
-    }
+const wander = (time: number) => ({
+  wb: [P.Wb[0] * Math.sin((2 * Math.PI * time) / P.Pb[0]), P.vb * time + P.Wb[1] * Math.sin((2 * Math.PI * time) / P.Pb[1] + 1)],
+  wf: [P.vf * time, 0],
+  wa: [P.Wa * Math.sin((2 * Math.PI * time) / P.Pa[0]) + P.vb * 0.3 * time, P.Wa * Math.sin((2 * Math.PI * time) / P.Pa[1] + 2)],
+})
 
-    // Mouse position is already normalized in handleMouseMove - direct input without smoothing
-    // This provides immediate visual response to cursor movements without velocity calculations
-    
-    // Use center position if mouse is outside SVG or hasn't moved
-    const effectiveMouseX = (isMouseOverSvg.value && mouseHasMoved.value) ? normMouseX.value : 0.5;
-    const effectiveMouseY = (isMouseOverSvg.value && mouseHasMoved.value) ? normMouseY.value : 0.5;
+// One frame. flat draws the converged text (epaper, effect off); otherwise the
+// field at time t.
+const draw = (canvas: HTMLCanvasElement, time: number, flat: boolean): void => {
+  if (!gl || !U || !texDpr) return
+  const W = canvas.width
+  const H = canvas.height
+  const dpr = texDpr
+  const sH = H / dpr / H_REF
+  const Hc = H / dpr
+  const f2 = (a: number[]) => Float32Array.from(a)
+  const { wb, wf, wa } = wander(time)
+  const ev = flat ? NO_GLITCH : glitchAt(time)
+  const amp = flat ? 0 : 1
+  const pull = flat ? 0 : Math.max(st.pull, st.pullTap)
+  const Phi = 1 + P.aPhi * (0.6 * Math.sin(2 * Math.PI * P.fPhi[0] * time) + 0.4 * Math.sin(2 * Math.PI * P.fPhi[1] * time + 1))
+  const Sig = 1 + Math.exp(-Math.max(0, time - st.surgeT) / P.tauS)
+  const cl = (v: number, mx: number) => Math.max(-mx, Math.min(mx, v))
+  const dP = [cl(st.ptr[0] - st.pE[0], P.dMax[0] * Hc), cl(st.ptr[1] - st.pE[1], P.dMax[1] * Hc)]
+  const sigX = Math.max(P.sigX * Hc, 0.8 * Math.abs(dP[0]))
+  const sigY = Math.max(P.sigY * Hc * (1 + 0.2 * (Phi - 1)), 0.8 * Math.abs(dP[1]))
+  gl.uniform2f(U.u_res, W, H)
+  gl.uniform1f(U.u_dpr, dpr)
+  gl.uniform1f(U.u_sH, sH)
+  gl.uniform1f(U.u_lightMode, isDarkMode.value ? 0 : 1)
+  gl.uniform3fv(U.u_bg, bgRgb())
+  gl.uniform1f(U.u_Ab, amp * P.Ab)
+  gl.uniform1f(U.u_Af, amp * P.Af)
+  gl.uniform1f(U.u_J, P.J)
+  gl.uniform1f(U.u_octF, P.octF)
+  gl.uniform2fv(U.u_Kb, f2(P.Kb))
+  gl.uniform2fv(U.u_Kf, f2(P.Kf))
+  gl.uniform2fv(U.u_Ka, f2(P.Ka))
+  gl.uniform2fv(U.u_Ka2, f2(P.Ka2))
+  gl.uniform2fv(U.u_Db, f2(P.Db))
+  gl.uniform2fv(U.u_Df, f2(P.Df))
+  gl.uniform2f(U.u_S, amp * P.S[0], amp * P.S[1])
+  gl.uniform2fv(U.u_wb, f2(wb))
+  gl.uniform2f(U.u_wf, wf[0] + wb[0] / 2, wf[1] + wb[1] / 2)
+  gl.uniform2fv(U.u_wa, f2(wa))
+  gl.uniform2fv(U.u_ptr, f2(st.ptr))
+  gl.uniform1f(U.u_hover, flat ? 0 : Math.max(st.h, st.pullTap))
+  gl.uniform1f(U.u_sigmaR, P.sigmaR * Hc)
+  gl.uniform1f(U.u_pull, pull)
+  gl.uniform2fv(U.u_dP, f2(dP))
+  gl.uniform2f(U.u_sigP, sigX, sigY)
+  gl.uniform1f(U.u_sigT, P.sigY * Hc)
+  gl.uniform1f(U.u_sigV, P.sigV * Hc)
+  gl.uniform1f(U.u_kY, P.kY)
+  gl.uniform1f(U.u_wTex, P.wTex)
+  gl.uniform1f(U.u_Ap, P.Ap * Phi * Sig)
+  gl.uniform1f(U.u_Sp, P.Sp * Phi * Sig)
+  gl.uniform1f(U.u_oP, 1000 * hashU(Math.floor(time / P.tauPs), 20) + P.vP * time)
+  gl.uniform2fv(U.u_Kp, f2(P.Kg))
+  gl.uniform1f(U.u_g, ev.g)
+  gl.uniform1f(U.u_Ag, P.Ag)
+  gl.uniform1f(U.u_sign, ev.sign)
+  gl.uniform1f(U.u_ySig, ev.col ? 10 : P.sigmaG)
+  gl.uniform1f(U.u_yK, ev.yK)
+  gl.uniform1f(U.u_oK, ev.oK)
+  gl.uniform1f(U.u_colG, ev.col ? 1 : 0)
+  gl.uniform2fv(U.u_Kg, f2(ev.col ? [P.Kg[1], P.Kg[0]] : P.Kg))
+  gl.uniform2fv(U.u_Sg, f2(ev.col ? [P.Sg[1], P.Sg[0]] : P.Sg))
+  gl.uniform1f(U.u_pitch, Math.max(1, Math.round(P.ps * dpr)))
+  gl.uniform1f(U.u_as, flat ? 0 : P.as)
+  gl.uniform1f(U.u_ab, flat ? 0 : P.ab)
+  gl.uniform1f(U.u_sigB, P.sigmaB)
+  gl.uniform1f(U.u_yb, ((P.fb * time) % 1) * (1 + 6 * P.sigmaB) - 3 * P.sigmaB)
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+}
 
-    // Calculate distance from center (normalized 0-1)
-    const distanceFromCenter = Math.sqrt(
-      Math.pow(effectiveMouseX - 0.5, 2) + 
-      Math.pow(effectiveMouseY - 0.5, 2)
-    ) * 1.414; // Scale by sqrt(2) to normalize to 0-1 range
-    
-    // Calculate center proximity factor (1 at center, approaches 0 at edges)
-    const centerProximityFactor = Math.max(0, 1 - distanceFromCenter);
+// --- Loop ---
+// Field time is absolute; smoothing uses a clamped dt so 60 and 120 Hz agree.
+// A small governor drops the fine field to two octaves, then the bristles,
+// if more than a quarter of a second's frames run long.
+let raf = 0
+let t0 = 0
+let last = 0
+let fps = 0
+let frameMs = 0
+let tier = 0
+let winStart = 0
+let winLong = 0
+let winN = 0
+const frame = (now: number): void => {
+  raf = 0
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const dt = Math.min((now - last) / 1000, 0.1)
+  last = now
+  if (dt > 0) {
+    fps = fps * 0.95 + (1 / dt) * 0.05
+    frameMs = frameMs * 0.9 + dt * 1000 * 0.1
+  }
+  const time = (now - t0) / 1000
+  if (texDpr !== currentDpr()) void raster(canvas)
 
-    // --- Simplified time calculation without cursor modulation ---
-    // The cursor should affect the output, not the time progression itself
-    // This prevents accumulating phase drift over time
-
-    // Apply entry transition for smooth mouse entry
-    const transitionedCursorInfluence = cursorInfluence * mouseEntryTransition.value * 0.3; // Further reduced
-
-    // Boost effects when click is active
-    const clickBoost = 1.0 + (clickGlitchIntensity.value * 1.0); // Reduced click boost
-
-    // Use unmodulated wobble time to prevent phase accumulation
-    // Only apply a simple scale based on hover state, not cursor position
-    const autonomousWobbleScale = isMouseOverSvg.value ? 0.7 : 1.0; // Slower when hovering
-    const effectiveWobbleTime = wobbleTime * autonomousWobbleScale * clickBoost;
-
-    // Calculate cursor influence separately - this will be applied to displacement, not time
-    const cursorDisplacementInfluence = transitionedCursorInfluence * centerProximityFactor;
-    
-    // --- Parabolic Scanline Emanation from Cursor ---
-    // Create a parabolic field that originates from the cursor position
-    // The effect is minimal at the cursor and increases parabolically outward
-
-    // Calculate distance from cursor for radial effect
-    const distFromCursorX = effectiveMouseX - 0.5;
-    const distFromCursorY = effectiveMouseY - 0.5;
-    const radialDistance = Math.sqrt(distFromCursorX * distFromCursorX + distFromCursorY * distFromCursorY);
-
-    // Parabolic influence that's 0 at cursor, 1 at edges
-    // This creates the "eye of the storm" effect at cursor position
-    const parabolaRadius = 0.4; // Effect radius (40% of screen)
-    const parabolicDistortion = radialDistance <= parabolaRadius
-      ? Math.pow(radialDistance / parabolaRadius, 2) // Parabolic increase from center
-      : 1.0; // Full effect outside radius
-
-    // Directional parabolas for X and Y axes
-    // These control how the scanlines bend away from cursor
-    const xDistFromCursor = Math.abs(distFromCursorX);
-    const yDistFromCursor = Math.abs(distFromCursorY);
-
-    // Inverted parabolas - minimal at cursor, maximum away
-    const axisParabolaX = Math.min(1, Math.pow(xDistFromCursor * 2, 2));
-    const axisParabolaY = Math.min(1, Math.pow(yDistFromCursor * 2, 2));
-
-    // Scanline emanation strength based on distance from cursor
-    const scanlineEmanation = parabolicDistortion;
-
-    // --- Apply default values for all channels when effects are disabled ---
-    if (!masterEffectEnabled) {
-      // Set all effects to 0 for a static display
-      for (let i = 0; i < 3; i++) {
-        const turbulence = turbulenceRefs.value[i];
-        const displacement = displacementRefs.value[i];
-        const offset = offsetRefs.value[i];
-        const colorMatrix = colorMatrixRefs.value[i];
-        
-        if (turbulence) {
-          turbulence.setAttributeNS(null, "baseFrequency", "0.0001 0.0001");
-          turbulence.setAttributeNS(null, "numOctaves", "1");
-        }
-        
-        if (displacement) {
-          displacement.setAttributeNS(null, "scale", "0");
-        }
-        
-        if (offset) {
-          offset.setAttributeNS(null, "dx", "0");
-          offset.setAttributeNS(null, "dy", "0");
-        }
-        
-        // Keep color matrices at full intensity
-        if (colorMatrix) {
-          const value = i === 0 ? "1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" :
-                       i === 1 ? "0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" :
-                       "0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0";
-          colorMatrix.setAttributeNS(null, "values", value);
-        }
-      }
-      
-      // Schedule the next animation frame
-      frameId.value = requestAnimationFrame(innerAnimate);
-      return;
-    }
-
-    // --- Channel Drift Parameters ---
-    // Apply global effect intensity to drift amplitude
-    const effectiveDriftAmplitude = globalEffectIntensity <= 0 ? 0 : channelSeparation * globalEffectIntensity;
-    
-    // Mouse influence on drift (simplified to use centerProximityFactor)
-    const mouseDriftInfluence = (globalEffectIntensity <= 0) ? 0 : 
-      (isMouseOverSvg.value && mouseHasMoved.value) 
-        ? effectiveMouseY * centerProximityFactor * globalEffectIntensity * cursorInfluence
-        : 0.5 * centerProximityFactor * globalEffectIntensity; 
-    
-    // Add amplitude boost based on center proximity
-    const centerAmplitudeBoost = (globalEffectIntensity <= 0) ? 0 :
-      isMouseOverSvg.value 
-        ? centerProximityFactor * 0.35 * cursorInfluence * centerProximityFactor
-        : 0;
-        
-    // Suppress ambient movement while hovering
-    const ambientFactor = isMouseOverSvg.value ? 0.05 * cursorInfluence : 1;
-    const driftAmplitude = (globalEffectIntensity <= 0) ? 0 : 
-      (effectiveDriftAmplitude + mouseDriftInfluence + centerAmplitudeBoost) * ambientFactor;
-
-    // --- Simplified warp centering with fewer parameters
-    const defaultNumOctaves = "3";
-    const glitchNumOctaves = "1";
-    const baseWarpCenteringFactor = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 : 5;
-    
-    // Simplified pulsation with fewer parameters  
-    const pulsatingMultiplier = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 :
-      0.75 + 0.25 * Math.cos(effectiveWobbleTime * 0.125);
-    
-    // Effective warp centering strength
-    const effectiveWarpCenteringFactor = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 :
-      baseWarpCenteringFactor * centerProximityFactor * pulsatingMultiplier;
-
-    // --- Color Pulsation ---
-    // Pulsates the intensity of each color channel using a slow sine wave.
-    const colorPulseSpeed = 0.2;
-    const colorPulseMin = 0.75;
-    const colorPulseMax = 1.0;
-    const colorIntensityPulse = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 1.0 :
-      colorPulseMin +
-      ((Math.sin(effectiveWobbleTime * colorPulseSpeed) + 1) / 2) *
-        (colorPulseMax - colorPulseMin);
-
-    // Color matrix values for each channel - varies by theme
-    // Dark mode: RGB channels (Red, Green, Blue)
-    // Light mode: CMY channels (Cyan=G+B, Magenta=R+B, Yellow=R+G)
-    const p = colorIntensityPulse.toFixed(3);
-    const colorMatrixValues = isDarkMode.value ? [
-      // Dark mode RGB
-      `${p} 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0`,  // Red only
-      `0 0 0 0 0  0 ${p} 0 0 0  0 0 0 0 0  0 0 0 1 0`,  // Green only
-      `0 0 0 0 0  0 0 0 0 0  0 0 ${p} 0 0  0 0 0 1 0`   // Blue only
-    ] : [
-      // Light mode CMY
-      `0 0 0 0 0  0 ${p} 0 0 0  0 0 ${p} 0 0  0 0 0 1 0`,  // Cyan (G+B)
-      `${p} 0 0 0 0  0 0 0 0 0  0 0 ${p} 0 0  0 0 0 1 0`,  // Magenta (R+B)
-      `${p} 0 0 0 0  0 ${p} 0 0 0  0 0 0 0 0  0 0 0 1 0`   // Yellow (R+G)
-    ];
-
-    // Modify the glitch frequency and effects when click is active
-    let effectiveGlitchFrequency = debugControls.glitchFrequency;
-    let effectiveGlitchIntensity = baseGlitchIntensity;
-    
-    // Amplify glitch intensity based on click state - with reduced impact
-    if (clickGlitchIntensity.value > 0) {
-      // Very subtle increase in glitch frequency
-      effectiveGlitchFrequency += clickGlitchIntensity.value * 0.02; // Further reduced from 0.05 to 0.02
-      // More moderate increase in glitch intensity
-      effectiveGlitchIntensity *= (1.0 + clickGlitchIntensity.value * 2.0); // Reduced from 4.0 to 2.0
-    }
-    
-    // Glitch trigger probability and duration
-    const glitchProbability = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 : 
-      effectiveGlitchFrequency * globalEffectIntensity;
-    const minGlitchDuration = 50;
-    const maxGlitchDuration = 100;
-
-    // Unified channel animation loop
-    for (let i = 0; i < 3; i++) {
-      // Get references to current channel's filter elements
-      const turbulence = turbulenceRefs.value[i];
-      const displacement = displacementRefs.value[i];
-      const offset = offsetRefs.value[i];
-      const colorMatrix = colorMatrixRefs.value[i];
-      
-      if (!turbulence || !displacement || !offset || !colorMatrix) {
-        continue; // Skip if any ref is null
-      }
-      
-      // Apply color matrix values
-      colorMatrix.setAttributeNS(null, "values", colorMatrixValues[i]);
-      
-      // Randomly trigger glitches for this channel
-      if (Math.random() < glitchProbability && glitchCounters.value[i] === 0) {
-        glitchCounters.value[i] = minGlitchDuration + Math.floor(Math.random() * (maxGlitchDuration - minGlitchDuration + 1));
-        spikeDirections.value[i] = Math.random() < 0.7 ? "horizontal" : "vertical";
-      }
-      
-      // Reset glitch counters when effects are disabled
-      if (globalEffectIntensity <= 0 || !masterEffectEnabled) {
-        glitchCounters.value[i] = 0;
-        spikeDirections.value[i] = null;
-      }
-      
-      // Use phase offsets from config
-      const phaseConfig = channelPhaseOffsets[i];
-      
-      // Calculate base drift for this channel
-      // Use clean time without cursor modulation to prevent phase accumulation
-      const driftIntensityMultiplier = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 : 1;
-      const baseDriftX = Math.sin(
-        effectiveWobbleTime * phaseConfig.driftX +
-        (i === 0 ? 0 : i === 1 ? 1 : 3) // Phase offset specific to channel
-      ) * driftAmplitude * driftIntensityMultiplier;
-
-      const baseDriftY = Math.cos(
-        effectiveWobbleTime * phaseConfig.driftY +
-        (i === 0 ? 0 : i === 1 ? 2 : 4) // Phase offset specific to channel
-      ) * driftAmplitude * driftIntensityMultiplier;
-      
-      // Final displacement values
-      let finalDX = baseDriftX;
-      let finalDY = baseDriftY;
-
-      // Add scanline emanation effect - scanlines appear to radiate from cursor
-      // The effect is minimal at cursor position and increases parabolically outward
-      if (isMouseOverSvg.value && !glitchCounters.value[i]) {
-        // Calculate direction from cursor to current position
-        // This creates the "emanation" effect where scanlines bend away from cursor
-        const directionX = distFromCursorX > 0 ? 1 : -1;
-        const directionY = distFromCursorY > 0 ? 1 : -1;
-
-        // Displacement increases with distance from cursor (parabolic)
-        // Minimal at cursor, maximum at edges - reduced for subtlety
-        const scanlineBendX = directionX * axisParabolaX * scanlineEmanation * 0.8 * (i * 0.1 + 0.9);
-        const scanlineBendY = directionY * axisParabolaY * scanlineEmanation * 0.4 * (i * 0.1 + 0.9);
-
-        // Apply with reduced influence for subtlety
-        finalDX += scanlineBendX * cursorDisplacementInfluence;
-        finalDY += scanlineBendY * cursorDisplacementInfluence;
-      }
-      
-      // Glitch state handling
-      if (glitchCounters.value[i] > 0) {
-        // Active glitch
-        turbulence.setAttributeNS(null, "numOctaves", glitchNumOctaves);
-
-      // Calculate cursor focus factor for localized glitch
-        const cursorFocusRadius = 0.1 * cursorInfluence;
-      let cursorFocusFactor = 0;
-        
-      if (isMouseOverSvg.value) {
-          if (spikeDirections.value[i] === "horizontal") {
-          cursorFocusFactor = getDistanceBasedInfluence(
-              0.5, 0.5, 0.5, effectiveMouseY, cursorFocusRadius
-            ) * 0.25 * cursorInfluence;
-          } else {
-          cursorFocusFactor = getDistanceBasedInfluence(
-              0.5, 0.5, effectiveMouseX, 0.5, cursorFocusRadius
-            ) * 0.25 * cursorInfluence;
-          }
-        }
-        
-        // Get glitch settings based on direction
-        const isHorizontal = spikeDirections.value[i] === "horizontal";
-        const freqSettings = isHorizontal 
-          ? glitchFrequencySettings.horizontal 
-          : glitchFrequencySettings.vertical;
-        
-        // Calculate frequency shifts based on wobble time (not cursor-modulated)
-        // This prevents accumulation of phase offset over time
-        const autoFreqShiftX = Math.sin(
-          effectiveWobbleTime * (0.125 + 0.01 * i) // Use clean time without cursor modulation
-        ) * (freqSettings.xAmpFactor * 0.6 * (1.0 + centerProximityFactor * 0.3));
-
-        const autoFreqShiftY = Math.cos(
-          effectiveWobbleTime * (0.15 + 0.01 * i) // Use clean time without cursor modulation
-        ) * (freqSettings.yAmpFactor * 0.6 * (1.0 + centerProximityFactor * 0.3));
-        
-        // Calculate base frequencies
-        const currentBaseFreqX = freqSettings.baseX + autoFreqShiftX;
-        const currentBaseFreqY = freqSettings.baseY + autoFreqShiftY;
-        
-        // Calculate glitch scale
-        let currentScale;
-        if (isHorizontal) {
-          const horizontalScaleMouseInfluence = (1 - Math.abs(effectiveMouseY - 0.5) * 2) * 20;
-          currentScale = (12 + (horizontalScaleMouseInfluence * centerProximityFactor) + 
-                         (centerProximityFactor * (6 + i)) + (cursorFocusFactor * 8)) * 0.6;
-                           
-          // Add localized displacement if in cursor focus area (reduced intensity)
-        if (cursorFocusFactor > 0) {
-            finalDX += Math.random() * 1.5 * cursorFocusFactor * centerProximityFactor;
-          }
-        } else {
-          currentScale = (12 + effectiveMouseY * 20 * centerProximityFactor +
-                         (centerProximityFactor * (6 + i)) + (cursorFocusFactor * 8)) * 0.6;
-
-          // Add localized displacement if in cursor focus area (reduced intensity)
-        if (cursorFocusFactor > 0) {
-            finalDY += Math.random() * 1.5 * cursorFocusFactor * centerProximityFactor;
-          }
-        }
-        
-        // Use click position to create a directional effect for each channel
-        // This makes glitches appear to be centered on or directed towards the click point
-        if (clickGlitchIntensity.value > 0) {
-          // Use click position to create a directional effect for each channel
-          // This makes glitches appear to be centered on or directed towards the click point
-          if (isHorizontal) {
-            // For horizontal glitches, use click X position to influence scale - reduced multiplier
-            const clickInfluence = 1.0 + Math.abs(clickLocationX.value - 0.5) * 4.0 * clickGlitchIntensity.value; // Reduced from 8.0 to 4.0
-            currentScale *= clickInfluence;
-            
-            // Make jitter stronger at click location - reduced strength
-            const distanceToClickY = Math.abs(clickLocationY.value - effectiveMouseY);
-            if (distanceToClickY < 0.3) {
-              const proximityFactor = (0.3 - distanceToClickY) / 0.3;
-              finalDX += (Math.random() - 0.5) * 5 * proximityFactor * clickGlitchIntensity.value; // Reduced from 10 to 5
-            }
+  st.h += (st.hTarget - st.h) * (1 - Math.exp(-dt / (st.hTarget > st.h ? P.tauIn : P.tauOut)))
+  st.ptr[0] += (st.ptrTarget[0] - st.ptr[0]) * (1 - Math.exp(-dt / P.tauP))
+  st.ptr[1] += (st.ptrTarget[1] - st.ptr[1]) * (1 - Math.exp(-dt / P.tauP))
+  const tH = st.held ? Infinity : Math.max(st.relT, st.tapT + P.aT + P.hT)
+  const pullTap = time < st.tapT ? 0 : ramp((time - st.tapT) / P.aT) * Math.exp(-Math.max(0, time - tH) / P.tauD)
+  const e = st.hTarget > 0 || pullTap > 1e-3 ? nearestEdge(st.ptr[0], st.ptr[1]) : null
+  if (e) {
+    if (!st.pEValid) {
+      st.pE = e
+      st.pEValid = true
     } else {
-            // For vertical glitches, use click Y position to influence scale - reduced multiplier
-            const clickInfluence = 1.0 + Math.abs(clickLocationY.value - 0.5) * 4.0 * clickGlitchIntensity.value; // Reduced from 8.0 to 4.0
-            currentScale *= clickInfluence;
-            
-            // Make jitter stronger at click location - reduced strength
-            const distanceToClickX = Math.abs(clickLocationX.value - effectiveMouseX);
-            if (distanceToClickX < 0.3) {
-              const proximityFactor = (0.3 - distanceToClickX) / 0.3;
-              finalDY += (Math.random() - 0.5) * 5 * proximityFactor * clickGlitchIntensity.value; // Reduced from 10 to 5
-            }
-          }
-        }
-        
-        // Set turbulence parameters
-        turbulence.setAttributeNS(
-        null,
-          "baseFrequency", 
-          `${Math.max(0.0001, currentBaseFreqX).toFixed(4)} ${Math.max(0.0001, currentBaseFreqY).toFixed(4)}`
-        );
-        
-        // Set displacement scale
-        displacement.setAttributeNS(null, "scale", `${Math.max(0, currentScale)}`);
-        
-        // Add jitter to final displacement
-        const jitterX = (Math.random() - 0.5) * 2 * effectiveGlitchIntensity * 
-                       effectiveMouseX * centerProximityFactor * globalEffectIntensity;
-        const jitterY = (Math.random() - 0.5) * 2 * effectiveGlitchIntensity * 
-                       effectiveMouseY * centerProximityFactor * globalEffectIntensity;
-        finalDX += jitterX;
-        finalDY += jitterY;
-        
-                  // Add directional warp based on cursor position
-          // Adding (instead of subtracting) creates an effect where colors diverge outward from cursor
-          // Only applied to green and blue channels to create chromatic separation
-          if (i > 0) { // Only for green and blue channels
-            const turbulenceShiftY = (0.5 + effectiveMouseY) * effectiveWarpCenteringFactor;
-            const turbulenceShiftX = (0.5 + effectiveMouseX) * effectiveWarpCenteringFactor;
-            finalDY += turbulenceShiftY;
-            finalDX += turbulenceShiftX;
-          }
-        
-        // Decrement glitch counter
-        glitchCounters.value[i]--;
-      } else {
-        // Normal non-glitch state
-        // Use 2 octaves for smoother scanline patterns with some detail
-        const scanlineOctaves = isMouseOverSvg.value ? "2" : defaultNumOctaves;
-        turbulence.setAttributeNS(null, "numOctaves", scanlineOctaves);
-        turbulence.setAttributeNS(null, "seed", `${Math.floor(seedCounter.value)}`);
-        
-        // Get frequency settings for this channel
-        const freqSettings = channelFrequencySettings[i];
+      const k = 1 - Math.exp(-dt / P.tauE)
+      st.pE[0] += (e[0] - st.pE[0]) * k
+      st.pE[1] += (e[1] - st.pE[1]) * k
+    }
+  }
+  const want = canHover && st.hTarget > 0 && e ? 1 : 0
+  st.pull += (want - st.pull) * (1 - Math.exp(-dt / (want > st.pull ? P.tauPin : P.tauPout)))
+  if (st.pull < 0.01 && pullTap < 0.01) st.pEValid = false
+  st.pullTap = pullTap
 
-        // Create radial scanline pattern emanating from cursor
-        // Frequency is lowest at cursor position and increases parabolically outward
-        // This creates the appearance of scanlines radiating from the cursor point
+  winN += 1
+  if (dt > 0.02) winLong += 1
+  if (now - winStart > 1000) {
+    if (winN > 10 && winLong / winN > 0.25 && tier < 2) {
+      tier += 1
+      if (tier === 1) P.octF = 2
+      if (tier === 2) P.J = 0
+    }
+    winStart = now
+    winLong = 0
+    winN = 0
+  }
+  if (showDebug.value) stats.value = `${fps.toFixed(0)} fps, ${frameMs.toFixed(1)} ms, tier ${tier}, ${canvas.width}x${canvas.height}`
+  draw(canvas, time, !P.enabled)
+  raf = requestAnimationFrame(frame)
+}
 
-        // Base frequencies that increase with distance from cursor
-        const scanlineBaseFreqX = 0.001 + (parabolicDistortion * 0.03); // Minimal at cursor, increases outward
-        const scanlineBaseFreqY = 0.0001 + (parabolicDistortion * 0.0003); // Very low Y for horizontal scanlines
+const stop = () => {
+  cancelAnimationFrame(raf)
+  raf = 0
+}
+const start = () => {
+  if (raf) return
+  t0 = last = winStart = performance.now()
+  raf = requestAnimationFrame(frame)
+}
+// Static themes draw one frame: reduced motion keeps the field at t = 0,
+// epaper the converged text.
+const drawStatic = (canvas: HTMLCanvasElement) => draw(canvas, 0, isEpaperTheme.value)
 
-        // Add directional frequency modulation based on cursor position
-        // This creates asymmetric patterns above/below cursor
-        const directionalFreqX = scanlineBaseFreqX * (1.0 + Math.abs(distFromCursorY) * 0.5);
-        const directionalFreqY = scanlineBaseFreqY * (1.0 + Math.abs(distFromCursorX) * 0.5);
+// --- Pointer ---
+// CSS px on the mark, y down. Hover is gated on a hover-capable pointer, so
+// touch gets tap and drag only.
+const canHover = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches
+const at = (e: PointerEvent): number[] => {
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  return [e.clientX - r.left, e.clientY - r.top]
+}
+const nowS = () => (performance.now() - t0) / 1000
+const enter = (e: PointerEvent) => {
+  st.ptr = at(e)
+  st.ptrTarget = at(e)
+  st.hTarget = 1
+}
+const onEnter = (e: PointerEvent) => {
+  if (canHover) enter(e)
+}
+// A pointer already resting on the mark when the route lands never crosses
+// its boundary, so move also arms the hold.
+const onMove = (e: PointerEvent) => {
+  if (canHover) {
+    if (st.hTarget === 0) enter(e)
+    else st.ptrTarget = at(e)
+  } else if (st.held) st.ptrTarget = at(e)
+}
+const onLeave = () => {
+  st.hTarget = 0
+}
+const onDown = (e: PointerEvent) => {
+  st.surgeT = nowS()
+  if (canHover) return
+  st.ptr = at(e)
+  st.ptrTarget = at(e)
+  st.pEValid = false
+  st.tapT = nowS()
+  st.held = true
+}
+const onRelease = () => {
+  if (!st.held) return
+  st.held = false
+  st.relT = nowS()
+}
 
-        // Mix scanline frequencies with original turbulence
-        // Stronger scanline effect when hovering
-        const scanlineMixFactor = isMouseOverSvg.value ? 0.85 : 0.2; // Emphasize scanlines when hovering
+// Size the mark from the viewport and the error code's length.
+const adjustMarkSize = () => {
+  const viewportWidth = window.innerWidth
+  const textLength = errorCode.value.length
+  const baseWidth = viewportWidth < 768 ? Math.min(viewportWidth * 0.9, 500) : Math.min(viewportWidth * 0.6, 1000)
+  const widthAdjustment = textLength > 3 ? 1 + (textLength - 3) * 0.15 : 1
+  const finalWidth = baseWidth * widthAdjustment
+  markWidth.value = `${finalWidth}px`
+  const aspectRatio = viewportWidth < 768 ? 2 : 2.5
+  markHeight.value = `${finalWidth / aspectRatio}px`
+  const maxFontPercentage = viewportWidth < 768 ? 0.6 : 0.7
+  const calculatedFontSize = (finalWidth / aspectRatio) * maxFontPercentage
+  const fontSizeAdjustment = textLength > 3 ? 1 / (1 + (textLength - 3) * 0.1) : 1
+  fontSize.value = `${calculatedFontSize * fontSizeAdjustment}px`
+}
 
-        const defaultFreqX = Math.max(0.00001,
-          globalEffectIntensity === 0 ? 0 :
-          (freqSettings.baseX * (1 - scanlineMixFactor) + directionalFreqX * scanlineMixFactor) * globalEffectIntensity
-        );
-        const defaultFreqY = Math.max(0.00001,
-          globalEffectIntensity === 0 ? 0 :
-          (freqSettings.baseY * (1 - scanlineMixFactor) + directionalFreqY * scanlineMixFactor) * globalEffectIntensity
-        );
+let teardown: (() => void) | null = null
 
-        // Set turbulence parameters
-        turbulence.setAttributeNS(
-        null,
-          "baseFrequency",
-          `${defaultFreqX.toFixed(6)} ${defaultFreqY.toFixed(6)}`
-        );
-
-        // Set displacement scale with parabolic emanation from cursor
-        // Scale is minimal at cursor position and increases parabolically outward
-        const baseScale = globalEffectIntensity === 0 ? 0 : distortionScale * 0.2; // Base scale
-
-        // Calculate emanation-based scale
-        // Minimal displacement at cursor, maximum at edges (parabolic increase)
-        const emanationScale = isMouseOverSvg.value
-          ? baseScale * (0.1 + parabolicDistortion * 2.0) // Scale from 10% at cursor to 210% at edges
-          : baseScale * 0.8;
-
-        // Add subtle pulsation to make the emanation "breathe"
-        const pulsation = 1.0 + Math.sin(effectiveWobbleTime * 0.3) * 0.1;
-
-        // Apply the emanation scale with pulsation
-        const effectiveWobbleScale = globalEffectIntensity === 0 ? 0 : emanationScale * pulsation;
-        displacement.setAttributeNS(null, "scale", `${effectiveWobbleScale}`);
+onMounted(async () => {
+  errorCode.value = route.params.code?.toString() || t('error-page-default-code')
+  errorMessage.value = route.params.message?.toString() || t('error-page-default-message')
+  adjustMarkSize()
+  window.addEventListener('resize', adjustMarkSize)
+  window.addEventListener('keydown', handleKeydown)
+  const canvas = canvasRef.value
+  if (!canvas || !initGL(canvas)) {
+    fallback.value = true
+    return
+  }
+  await raster(canvas)
+  const ro = new ResizeObserver(() => {
+    void raster(canvas).then(() => {
+      if (isStatic.value) drawStatic(canvas)
+    })
+  })
+  ro.observe(canvas)
+  const stopSmooth = watch(
+    () => P.smooth,
+    (s) => {
+      if (gl) {
+        gl.bindTexture(gl.TEXTURE_2D, tex)
+        setFilter(s)
       }
-      
-      // Set final offsets
-      offset.setAttributeNS(null, "dx", `${finalDX}`);
-      offset.setAttributeNS(null, "dy", `${finalDY}`);
     }
-
-    // Schedule the next animation frame
-    frameId.value = requestAnimationFrame(innerAnimate);
-  };
-  
-  // Start the animation loop
-  innerAnimate();
-};
-
-// Click handler to trigger glitch and distortion effects
-// Creates a temporary intense visual disturbance centered on click position
-// The click effect decays gradually based on clickGlitchDecay parameter
-const handleSvgClick = (_event: MouseEvent) => {
-  // Only allow click effect if clickable (prevents rapid repeated clicks)
-  if (!isClickable.value) return;
-  
-  // Use direct normalized mouse position for precise click location
-  // This results in distortion effects emanating exactly from click point
-  clickLocationX.value = normMouseX.value;
-  clickLocationY.value = normMouseY.value;
-  
-  // Force a glitch on all channels with a random duration
-  const minDuration = 80; // Reduced from 100 to 80
-  const maxDuration = 130; // Reduced from 180 to 130
-  
-  for (let i = 0; i < 3; i++) {
-    // Longer duration for more dramatic effect
-    glitchCounters.value[i] = minDuration + Math.floor(Math.random() * (maxDuration - minDuration));
-    
-    // Randomize direction, with different probabilities per channel for variety
-    if (i === 0) {
-      spikeDirections.value[i] = Math.random() < 0.8 ? "horizontal" : "vertical"; // Red: favor horizontal
-    } else if (i === 1) {
-      spikeDirections.value[i] = Math.random() < 0.5 ? "horizontal" : "vertical"; // Green: 50/50
-    } else {
-      spikeDirections.value[i] = Math.random() < 0.3 ? "horizontal" : "vertical"; // Blue: favor vertical
-    }
+  )
+  const stopTheme = watch(
+    [isDarkMode, isStatic],
+    () => {
+      if (isStatic.value) {
+        stop()
+        drawStatic(canvas)
+      } else start()
+    },
+    { immediate: true }
+  )
+  teardown = () => {
+    stop()
+    ro.disconnect()
+    stopSmooth()
+    stopTheme()
   }
-  
-  // Set click glitch intensity to max
-  clickGlitchIntensity.value = maxClickGlitchIntensity;
-  
-  // Add a smaller time jump for more subtle effect
-  wobbleTime += 0.4; // Reduced from 0.8 to 0.4
-  
-  // Prevent click spam by temporarily disabling clicking
-  isClickable.value = false;
-  setTimeout(() => {
-    isClickable.value = true;
-  }, 400); // Reduced from 500 to 400ms
-};
+})
 
-// --- Lifecycle Hooks ---
-onMounted(() => {
-  // Initialize mouse positions to screen center
-  rawMouseX.value = window.innerWidth / 2;
-  rawMouseY.value = window.innerHeight / 2;
-  normMouseX.value = 0.5; // Center position
-  normMouseY.value = 0.5; // Center position
-  isMouseOverSvg.value = false; // Start with mouse not over SVG
-
-  // Get the error code and message from route params
-  errorCode.value = route.params.code?.toString() || t('error-page-default-code');
-  errorMessage.value = route.params.message?.toString() || t('error-page-default-message');
-
-  // Adjust SVG size based on viewport and text length
-  adjustSvgSize();
-
-  // Initialize color channel filter refs based on current theme
-  initializeFilterRefs();
-
-  // Add window resize listener for responsive adjustments
-  window.addEventListener('resize', adjustSvgSize);
-
-  // Add mouse move listener to track cursor position.
-  window.addEventListener("mousemove", handleMouseMove);
-
-  // Add keydown listener
-  window.addEventListener('keydown', handleKeydown);
-
-  // Add click handler to SVG element when it's available
-  if (svg.value) {
-    svg.value.addEventListener('click', handleSvgClick);
-  }
-
-  // Start the animation.
-  animate();
-});
-
-onUnmounted(() => {
-  // Clean up: remove event listeners.
-  window.removeEventListener("mousemove", handleMouseMove);
-  window.removeEventListener('resize', adjustSvgSize);
-  
-  // Clean up: cancel the animation frame request if it exists.
-  if (frameId.value) {
-    cancelAnimationFrame(frameId.value);
-  }
-
-  // Remove keydown listener
-  window.removeEventListener('keydown', handleKeydown);
-
-  // Remove click event listener
-  if (svg.value) {
-    svg.value.removeEventListener('click', handleSvgClick);
-  }
-});
-
-// Function to adjust SVG size based on viewport size and text content
-const adjustSvgSize = () => {
-  // Get viewport dimensions
-  const viewportWidth = window.innerWidth;
-  
-  // Get text length (number of characters in error code)
-  const textLength = errorCode.value.length;
-  
-  // Base SVG width on viewport width
-  // For mobile: use nearly full width
-  // For desktop: use proportional width
-  const baseWidth = viewportWidth < 768 
-    ? Math.min(viewportWidth * 0.9, 500) 
-    : Math.min(viewportWidth * 0.6, 1000);
-  
-  // Adjust width further based on text length
-  // Standard length is 3 chars (e.g., 404, 500)
-  // For each additional character, increase width
-  const widthAdjustment = textLength > 3 
-    ? 1 + ((textLength - 3) * 0.15) // Each extra char adds 15% width
-    : 1;
-    
-  // Set SVG width with adjustment
-  const finalWidth = baseWidth * widthAdjustment;
-  svgWidth.value = `${finalWidth}px`;
-  
-  // Height should maintain a good aspect ratio
-  // Taller for mobile, wider for desktop
-  const aspectRatio = viewportWidth < 768 ? 2 : 2.5;
-  svgHeight.value = `${finalWidth / aspectRatio}px`;
-  
-  // Font size should be proportional to SVG height
-  // but with a maximum size to prevent enormous text
-  const maxFontPercentage = viewportWidth < 768 ? 0.6 : 0.7; // Font takes up to 60-70% of height
-  const calculatedFontSize = (finalWidth / aspectRatio) * maxFontPercentage;
-  
-  // Adjust font size inversely with text length to fit longer text
-  const fontSizeAdjustment = textLength > 3 
-    ? 1 / (1 + ((textLength - 3) * 0.1)) // Each extra char reduces font by ~10%
-    : 1;
-    
-  fontSize.value = `${calculatedFontSize * fontSizeAdjustment}px`;
-};
-
-// Initialize filter element refs based on current theme
-// Dark mode uses RGB channels, light mode uses CMY channels
-const initializeFilterRefs = () => {
-  if (isDarkMode.value) {
-    // Dark mode: RGB channels with screen blend
-    const channelIds = ['red', 'green', 'blue'];
-    turbulenceRefs.value = channelIds.map(id => {
-      const element = document.querySelector(`#${id}Turbulence`);
-      return element as unknown as SVGFETurbulenceElement;
-    });
-
-    offsetRefs.value = channelIds.map(id => {
-      const element = document.querySelector(`#${id}Offset`);
-      return element as unknown as SVGFEOffsetElement;
-    });
-
-    displacementRefs.value = channelIds.map(id => {
-      const element = document.querySelector(`#${id}Displacement`);
-      return element as unknown as SVGFEDisplacementMapElement;
-    });
-
-    colorMatrixRefs.value = channelIds.map(id => {
-      const element = document.querySelector(`#${id}ColorMatrix`);
-      return element as unknown as SVGFEColorMatrixElement;
-    });
-  } else {
-    // Light mode: CMY channels with multiply blend
-    const channelIds = ['cyan', 'magenta', 'yellow'];
-    turbulenceRefs.value = channelIds.map(id => {
-      const element = document.querySelector(`#${id}Turbulence`);
-      return element as unknown as SVGFETurbulenceElement;
-    });
-
-    offsetRefs.value = channelIds.map(id => {
-      const element = document.querySelector(`#${id}Offset`);
-      return element as unknown as SVGFEOffsetElement;
-    });
-
-    displacementRefs.value = channelIds.map(id => {
-      const element = document.querySelector(`#${id}Displacement`);
-      return element as unknown as SVGFEDisplacementMapElement;
-    });
-
-    colorMatrixRefs.value = channelIds.map(id => {
-      const element = document.querySelector(`#${id}ColorMatrix`);
-      return element as unknown as SVGFEColorMatrixElement;
-    });
-  }
-};
-
-// Watch for theme changes and reinitialize filter refs
-watch(isDarkMode, () => {
-  // Use nextTick to ensure DOM has updated with the new filter
-  nextTick(() => {
-    initializeFilterRefs();
-  });
-});
-
-// Per-control slider bounds
-const debugMeta = computed(() => ({
-  masterEffectEnabled: { min: 0, max: 1, step: 1 },
-  globalEffectIntensity: { min: 0, max: 1, step: 0.01 },
-  channelSeparation: { min: 0, max: 3, step: 0.1 },
-  distortionScale: { min: 0, max: 30, step: 1 },
-  glitchFrequency: { min: 0, max: 0.5, step: 0.01 },
-  glitchIntensity: { min: 0, max: 2, step: 0.01 },
-  cursorInfluence: { min: 0, max: 2, step: 0.01 }
-}));
+onBeforeUnmount(() => {
+  teardown?.()
+  window.removeEventListener('resize', adjustMarkSize)
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
   <!-- Single root so App.vue's <Transition mode="out-in"> can attach
-       leave/enter classes. Plain div with h-full is the cheapest
-       wrapper; the inner error panel and the fixed-positioned
-       debug overlay both render unaffected. -->
+       leave/enter classes. -->
   <div class="h-full">
-  <div
-    class="error-page-container min-h-screen w-full flex items-center justify-center bg-app p-4 select-none"
-  >
-    <div class="flex flex-col text-center">
-      <svg ref="svg" class="error-svg" :width="svgWidth" :height="svgHeight">
-        <defs>
-          <!--
-            SVG Filter Chain Explanation:
-            The filter works by creating three distorted versions of the source text (one for each color channel)
-            and then blending them together. Each channel's distortion is driven by an feTurbulence (noise)
-            which is then offset and used by an feDisplacementMap. The feColorMatrix isolates the specific channel.
-
-            Dark Mode (RGB + Screen blend):
-            - Uses white text which contains all RGB values (1,1,1)
-            - feColorMatrix isolates Red, Green, or Blue channels
-            - feBlend mode="screen" additively combines channels back to white
-            - Creates chromatic aberration where channels separate into R, G, B
-
-            Light Mode (CMY + Multiply blend):
-            - Uses black text which absorbs all light (0,0,0)
-            - feColorMatrix converts to Cyan (no red), Magenta (no green), Yellow (no blue)
-            - feBlend mode="multiply" subtractively combines channels back to black
-            - Creates chromatic aberration where channels separate into C, M, Y
-          -->
-
-          <!-- Dark Mode Filter (RGB + Screen) -->
-          <filter id="rgbGlitchDark" primitiveUnits="userSpaceOnUse">
-            <!-- Red Channel -->
-            <feTurbulence
-              id="redTurbulence"
-              type="turbulence"
-              baseFrequency="0.01"
-              numOctaves="3"
-              result="redTurb"
-            />
-            <feOffset
-              id="redOffset"
-              in="redTurb"
-              dx="0"
-              result="redOffsetTurb"
-            />
-            <feDisplacementMap
-              id="redDisplacement"
-              in="SourceGraphic"
-              in2="redOffsetTurb"
-              scale="15"
-              xChannelSelector="R"
-              yChannelSelector="G"
-              result="redDistorted"
-            />
-            <feColorMatrix
-              id="redColorMatrix"
-              in="redDistorted"
-              type="matrix"
-              values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"
-              result="red"
-            />
-
-            <!-- Green Channel -->
-            <feTurbulence
-              id="greenTurbulence"
-              type="turbulence"
-              baseFrequency="0.01"
-              numOctaves="3"
-              result="greenTurb"
-            />
-            <feOffset
-              id="greenOffset"
-              in="greenTurb"
-              dx="0"
-              result="greenOffsetTurb"
-            />
-            <feDisplacementMap
-              id="greenDisplacement"
-              in="SourceGraphic"
-              in2="greenOffsetTurb"
-              scale="15"
-              xChannelSelector="R"
-              yChannelSelector="G"
-              result="greenDistorted"
-            />
-            <feColorMatrix
-              id="greenColorMatrix"
-              in="greenDistorted"
-              type="matrix"
-              values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0"
-              result="green"
-            />
-
-            <!-- Blue Channel -->
-            <feTurbulence
-              id="blueTurbulence"
-              type="turbulence"
-              baseFrequency="0.01"
-              numOctaves="3"
-              result="blueTurb"
-            />
-            <feOffset
-              id="blueOffset"
-              in="blueTurb"
-              dx="0"
-              result="blueOffsetTurb"
-            />
-            <feDisplacementMap
-              id="blueDisplacement"
-              in="SourceGraphic"
-              in2="blueOffsetTurb"
-              scale="15"
-              xChannelSelector="R"
-              yChannelSelector="G"
-              result="blueDistorted"
-            />
-            <feColorMatrix
-              id="blueColorMatrix"
-              in="blueDistorted"
-              type="matrix"
-              values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0"
-              result="blue"
-            />
-
-            <!-- Additive Blending with feBlend (screen mode) -->
-            <feBlend in="red" in2="green" mode="screen" result="redGreen" />
-            <feBlend
-              in="redGreen"
-              in2="blue"
-              mode="screen"
-              result="finalGlitchOutput"
-            />
-          </filter>
-
-          <!-- Light Mode Filter (RGB with darken blend for light backgrounds) -->
-          <!-- Uses the same RGB channel separation but with darken blend mode -->
-          <!-- Starting from white text, each channel removes other colors, creating CMY fringing -->
-          <filter id="rgbGlitchLight" primitiveUnits="userSpaceOnUse">
-            <!-- Cyan Channel (white minus red = cyan) -->
-            <feTurbulence
-              id="cyanTurbulence"
-              type="turbulence"
-              baseFrequency="0.01"
-              numOctaves="3"
-              result="cyanTurb"
-            />
-            <feOffset
-              id="cyanOffset"
-              in="cyanTurb"
-              dx="0"
-              result="cyanOffsetTurb"
-            />
-            <feDisplacementMap
-              id="cyanDisplacement"
-              in="SourceGraphic"
-              in2="cyanOffsetTurb"
-              scale="15"
-              xChannelSelector="R"
-              yChannelSelector="G"
-              result="cyanDistorted"
-            />
-            <!-- Cyan = keep G and B, zero R -->
-            <feColorMatrix
-              id="cyanColorMatrix"
-              in="cyanDistorted"
-              type="matrix"
-              values="0 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0"
-              result="cyan"
-            />
-
-            <!-- Magenta Channel (white minus green = magenta) -->
-            <feTurbulence
-              id="magentaTurbulence"
-              type="turbulence"
-              baseFrequency="0.01"
-              numOctaves="3"
-              result="magentaTurb"
-            />
-            <feOffset
-              id="magentaOffset"
-              in="magentaTurb"
-              dx="0"
-              result="magentaOffsetTurb"
-            />
-            <feDisplacementMap
-              id="magentaDisplacement"
-              in="SourceGraphic"
-              in2="magentaOffsetTurb"
-              scale="15"
-              xChannelSelector="R"
-              yChannelSelector="G"
-              result="magentaDistorted"
-            />
-            <!-- Magenta = keep R and B, zero G -->
-            <feColorMatrix
-              id="magentaColorMatrix"
-              in="magentaDistorted"
-              type="matrix"
-              values="1 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0"
-              result="magenta"
-            />
-
-            <!-- Yellow Channel (white minus blue = yellow) -->
-            <feTurbulence
-              id="yellowTurbulence"
-              type="turbulence"
-              baseFrequency="0.01"
-              numOctaves="3"
-              result="yellowTurb"
-            />
-            <feOffset
-              id="yellowOffset"
-              in="yellowTurb"
-              dx="0"
-              result="yellowOffsetTurb"
-            />
-            <feDisplacementMap
-              id="yellowDisplacement"
-              in="SourceGraphic"
-              in2="yellowOffsetTurb"
-              scale="15"
-              xChannelSelector="R"
-              yChannelSelector="G"
-              result="yellowDistorted"
-            />
-            <!-- Yellow = keep R and G, zero B -->
-            <feColorMatrix
-              id="yellowColorMatrix"
-              in="yellowDistorted"
-              type="matrix"
-              values="1 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0"
-              result="yellow"
-            />
-
-            <!-- Darken blending: keeps the darkest value from each channel -->
-            <!-- CMY channels overlap to create black where aligned, colors where separated -->
-            <feBlend in="cyan" in2="magenta" mode="darken" result="cyanMagenta" />
-            <feBlend
-              in="cyanMagenta"
-              in2="yellow"
-              mode="darken"
-              result="finalGlitchOutput"
-            />
-          </filter>
-
-        </defs>
-        <text
-          x="50%"
-          y="50%"
-          text-anchor="middle"
-          dominant-baseline="middle"
-          :filter="masterEffectEnabled ? (isDarkMode ? 'url(#rgbGlitchDark)' : 'url(#rgbGlitchLight)') : 'none'"
-          :class="['error-text', isDarkMode ? 'error-text-dark' : 'error-text-light']"
-          :style="{ fontSize: fontSize }"
-        >
-          {{ errorCode }}
-        </text>
-      </svg>
-      <div class="flex flex-col gap-4">
-        <div class="text-2xl text-secondary">
-          {{ errorMessage }}
+    <div class="error-page-container min-h-screen w-full flex items-center justify-center bg-app p-4 select-none">
+      <div class="flex flex-col text-center">
+        <div class="error-mark" :style="{ width: markWidth, height: markHeight }">
+          <div
+            v-if="fallback"
+            class="flex h-full w-full items-center justify-center font-bold text-primary"
+            :style="{ fontSize }"
+            role="img"
+            :aria-label="errorCode"
+          >
+            {{ errorCode }}
+          </div>
+          <canvas
+            v-else
+            ref="mark"
+            role="img"
+            :aria-label="errorCode"
+            class="error-canvas block w-full h-full"
+            @pointerenter="onEnter"
+            @pointermove="onMove"
+            @pointerleave="onLeave"
+            @pointerdown="onDown"
+            @pointerup="onRelease"
+            @pointercancel="onRelease"
+          />
         </div>
-
-        <p class="mt-2 text-tertiary">
-          {{ $t('error-page-description') }}
-        </p>
-
-        <div class="mt-8 flex gap-4 justify-center">
-          <button
-            type="button"
-            @click="goBack"
-            class="px-4 py-2 text-sm font-medium text-secondary hover:text-primary transition-colors"
-          >
-            &larr; {{ $t('error-page-go-back') }}
-          </button>
-          <Button
-            @click="goHome"
-          >
-            {{ $t('error-page-go-home') }}
-          </Button>
+        <div class="flex flex-col gap-4">
+          <div class="text-2xl text-secondary">
+            {{ errorMessage }}
+          </div>
+          <p class="mt-2 text-tertiary">
+            {{ $t('error-page-description') }}
+          </p>
+          <div class="mt-8 flex gap-4 justify-center">
+            <button
+              type="button"
+              @click="goBack"
+              class="px-4 py-2 text-sm font-medium text-secondary hover:text-primary transition-colors"
+            >
+              &larr; {{ $t('error-page-go-back') }}
+            </button>
+            <Button @click="goHome">
+              {{ $t('error-page-go-home') }}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-  <!-- Debug Panel -->
-  <div v-if="showDebug" class="fixed top-4 right-4 bg-surface/90 text-sm text-secondary p-4 rounded-lg max-h-[90vh] overflow-auto flex flex-col gap-3 z-overlay shadow-lg">
-    <h3 class="font-semibold mb-2">{{ $t('error-page-debug-title') }}</h3>
-
-    <!-- Master Toggle -->
-    <div class="mb-4 border-b border-default pb-2">
-      <ToggleSwitch
-        v-model="debugControls.masterEffectEnabled"
-        :label="$t('error-page-debug-master-toggle')"
-        size="sm"
-      />
+    <!-- Debug panel -->
+    <div
+      v-if="showDebug"
+      class="fixed top-4 right-4 bg-surface/90 text-sm text-secondary p-4 rounded-lg max-h-[90vh] overflow-auto flex flex-col gap-3 z-overlay shadow-lg w-72"
+    >
+      <h3 class="font-semibold">{{ $t('error-page-debug-title') }}</h3>
+      <ToggleSwitch v-model="P.enabled" :label="$t('error-page-debug-master-toggle')" size="sm" />
+      <ToggleSwitch v-model="P.smooth" label="LINEAR taps" size="sm" />
+      <div v-for="slider in debugSliders" :key="slider.key" class="flex flex-col gap-1">
+        <label class="flex justify-between items-center gap-2">
+          <span>{{ slider.label }}</span>
+          <span class="tabular-nums w-14 text-right">{{ getP(slider.key).toFixed(3) }}</span>
+        </label>
+        <input
+          type="range"
+          :value="getP(slider.key)"
+          :min="slider.min"
+          :max="slider.max"
+          :step="slider.step"
+          class="w-full"
+          @input="setP(slider.key, Number(($event.target as HTMLInputElement).value))"
+        />
+      </div>
+      <div class="tabular-nums text-tertiary">{{ stats }}</div>
     </div>
-    
-    <!-- Main Effect Controls -->
-    <div class="flex flex-col gap-3">
-      <!-- Global Intensity -->
-      <div class="flex flex-col gap-1">
-        <label class="flex justify-between items-center gap-2">
-          <span class="font-semibold">{{ $t('error-page-debug-global-intensity') }}</span>
-          <span class="tabular-nums w-12 text-right">{{ debugControls.globalEffectIntensity.toFixed(2) }}</span>
-        </label>
-        <input
-          type="range"
-          v-model.number="debugControls.globalEffectIntensity"
-          :min="debugMeta.globalEffectIntensity.min"
-          :max="debugMeta.globalEffectIntensity.max"
-          :step="debugMeta.globalEffectIntensity.step"
-          class="w-full"
-        />
-      </div>
-      
-      <!-- Channel Separation -->
-      <div class="flex flex-col gap-1">
-        <label class="flex justify-between items-center gap-2">
-          <span>{{ $t('error-page-debug-channel-separation') }}</span>
-          <span class="tabular-nums w-12 text-right">{{ debugControls.channelSeparation.toFixed(2) }}</span>
-        </label>
-        <input
-          type="range"
-          v-model.number="debugControls.channelSeparation"
-          :min="debugMeta.channelSeparation.min"
-          :max="debugMeta.channelSeparation.max"
-          :step="debugMeta.channelSeparation.step"
-          class="w-full"
-        />
-      </div>
-      
-      <!-- Distortion Scale -->
-      <div class="flex flex-col gap-1">
-        <label class="flex justify-between items-center gap-2">
-          <span>{{ $t('error-page-debug-distortion-scale') }}</span>
-          <span class="tabular-nums w-12 text-right">{{ debugControls.distortionScale.toFixed(2) }}</span>
-        </label>
-        <input
-          type="range"
-          v-model.number="debugControls.distortionScale"
-          :min="debugMeta.distortionScale.min"
-          :max="debugMeta.distortionScale.max"
-          :step="debugMeta.distortionScale.step"
-          class="w-full"
-        />
-      </div>
-      
-      <!-- Glitch Frequency -->
-      <div class="flex flex-col gap-1">
-        <label class="flex justify-between items-center gap-2">
-          <span>{{ $t('error-page-debug-glitch-frequency') }}</span>
-          <span class="tabular-nums w-12 text-right">{{ debugControls.glitchFrequency.toFixed(2) }}</span>
-        </label>
-        <input
-          type="range"
-          v-model.number="debugControls.glitchFrequency"
-          :min="debugMeta.glitchFrequency.min"
-          :max="debugMeta.glitchFrequency.max"
-          :step="debugMeta.glitchFrequency.step"
-          class="w-full"
-        />
-      </div>
-      
-      <!-- Glitch Intensity -->
-      <div class="flex flex-col gap-1">
-        <label class="flex justify-between items-center gap-2">
-          <span>{{ $t('error-page-debug-glitch-intensity') }}</span>
-          <span class="tabular-nums w-12 text-right">{{ debugControls.glitchIntensity.toFixed(2) }}</span>
-        </label>
-        <input
-          type="range"
-          v-model.number="debugControls.glitchIntensity"
-          :min="debugMeta.glitchIntensity.min"
-          :max="debugMeta.glitchIntensity.max"
-          :step="debugMeta.glitchIntensity.step"
-          class="w-full"
-        />
-      </div>
-      
-      <!-- Cursor Influence -->
-      <div class="flex flex-col gap-1">
-        <label class="flex justify-between items-center gap-2">
-          <span>{{ $t('error-page-debug-cursor-influence') }}</span>
-          <span class="tabular-nums w-12 text-right">{{ debugControls.cursorInfluence.toFixed(2) }}</span>
-        </label>
-        <input
-          type="range"
-          v-model.number="debugControls.cursorInfluence"
-          :min="debugMeta.cursorInfluence.min"
-          :max="debugMeta.cursorInfluence.max"
-          :step="debugMeta.cursorInfluence.step"
-          class="w-full"
-        />
-      </div>
-    </div>
-  </div>
   </div>
 </template>
 
 <style scoped>
-.error-svg {
+.error-mark {
   max-width: 100%;
   transition: transform 0.2s ease-out;
 }
 
-.error-svg:hover {
-  transform: scale(1.02); /* Subtle scale increase on hover */
+.error-mark:hover {
+  transform: scale(1.02);
+}
+
+.error-canvas {
+  touch-action: pan-y pinch-zoom;
 }
 
 @keyframes float {
@@ -1311,22 +836,9 @@ const debugMeta = computed(() => ({
   }
 }
 
-.error-svg {
-  animation: float 6s ease-in-out infinite;
-}
-
-/* Error text styling */
-.error-text {
-  font-weight: bold;
-}
-
-/* Dark mode: white text for RGB additive mixing (screen blend) */
-.error-text-dark {
-  fill: white;
-}
-
-/* Light mode: white text with CMY darken blend creates colored fringing on light backgrounds */
-.error-text-light {
-  fill: white;
+@media (prefers-reduced-motion: no-preference) {
+  .error-mark {
+    animation: float 6s ease-in-out infinite;
+  }
 }
 </style>

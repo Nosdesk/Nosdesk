@@ -3289,12 +3289,6 @@ no-workspace-access-sign-out = Afmelden
 route-title-no-workspace-access = Nog geen werkruimte
 error-page-debug-title = Debug-instellingen (druk op 'd' om te wisselen)
 error-page-debug-master-toggle = Hoofdschakelaar effecten
-error-page-debug-global-intensity = Algemene intensiteit
-error-page-debug-channel-separation = Kanaalscheiding
-error-page-debug-distortion-scale = Vervormingsschaal
-error-page-debug-glitch-frequency = Glitch-frequentie
-error-page-debug-glitch-intensity = Glitch-intensiteit
-error-page-debug-cursor-influence = Cursorinvloed
 
 # PDF viewer (PDFViewerView)
 pdf-viewer-default-filename = Document
