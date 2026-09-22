@@ -6,7 +6,6 @@ import CollapsibleSection from "@/components/common/CollapsibleSection.vue";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import FaviconIcon from "@/components/icons/FaviconIcon.vue";
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
-import { useResizableSidebar } from "@/composables/useResizableSidebar";
 import { useNavbarState } from "@/composables/useNavbarState";
 import { useGlobalSearch } from "@/composables/useGlobalSearch";
 import { useNotificationFeed } from "@/composables/useNotificationFeed";
@@ -21,6 +20,7 @@ import Icon from "@/components/common/Icon.vue";
 import UnreadBadge from "@/components/common/UnreadBadge.vue";
 import NavLinkIcon from "@/components/NavLinkIcon.vue";
 import Tooltip from "@/components/common/Tooltip.vue";
+import Popover from "@/components/common/Popover.vue";
 import { getSlotRegistrations } from "@/plugins/loader";
 import { pluginPagePath } from "@/plugins/pluginPage";
 
@@ -63,33 +63,17 @@ const {
     cleanup: cleanupNavbarState
 } = useNavbarState();
 
-// Refs for DOM elements - These will be passed to the composable
 const navbarRef = ref<HTMLElement | null>(null);
-const resizerRef = ref<HTMLElement | null>(null);
 
-// Component refs for CollapsibleSection instances
-const ticketsSectionComponent = ref<InstanceType<typeof CollapsibleSection> | null>(null);
-const docsSectionComponent = ref<InstanceType<typeof CollapsibleSection> | null>(null);
-
-// Computed refs that extract DOM elements from component instances
-const ticketsSectionRef = computed(() => ticketsSectionComponent.value?.$el || null);
-const docsSectionRef = computed(() => docsSectionComponent.value?.$el || null);
-
-// Define locally for check in onMounted, or expose from composable if preferred
-const MIN_SECTION_HEIGHT = 60;
-
-// Use the composable for resizing logic
-const {
-    ticketsHeight, // The reactive height value from the composable
-    isResizing, // The reactive resizing status from the composable
-    startResize, // The function to start resizing, attach to resizer handle
-    equalizeHeights, // Utility function to equalize heights
-} = useResizableSidebar(
-    navbarRef,
-    ticketsSectionRef,
-    docsSectionRef,
-    resizerRef,
-);
+// Rail flyout for recent tickets, anchored on its icon button. Closes
+// on navigation (opening a ticket) and when the rail expands.
+const railRecentButton = ref<HTMLElement | null>(null);
+const isRailRecentOpen = ref(false);
+const railRecentAnchor = computed(() => ({ type: "element" as const, element: () => railRecentButton.value }));
+const toggleRailRecent = () => { isRailRecentOpen.value = !isRailRecentOpen.value; };
+const closeRailRecent = () => { isRailRecentOpen.value = false; };
+watch(() => route.fullPath, closeRailRecent);
+watch(isCollapsed, closeRailRecent);
 
 // Emit collapsed state changes to parent (App.vue)
 const emit = defineEmits(["update:collapsed"]);
@@ -103,19 +87,6 @@ watch(isCollapsed, (value) => {
 onMounted(() => {
     // Initialize navbar state (handles localStorage and resize listener)
     initNavbarState();
-
-    // Set initial sizes after mount
-    nextTick(() => {
-        if (!ticketsHeight.value || ticketsHeight.value < MIN_SECTION_HEIGHT) {
-            if (
-                !isCollapsed.value &&
-                !isTicketsCollapsed.value &&
-                !isDocsCollapsed.value
-            ) {
-                equalizeHeights();
-            }
-        }
-    });
 });
 
 // Clean up on unmount
@@ -451,17 +422,13 @@ const isOverflowRouteActive = computed(() =>
                     :key="link.to"
                     :to="link.to"
                     v-prefetch="link.to"
-                    class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2.5 py-0.5 gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                    class="rounded-md transition-colors duration-200 flex items-center px-2.5 py-0.5 gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                     :class="
                         isRouteActive(link.to, link.exact)
                             ? 'bg-surface-alt/80 text-primary font-medium'
                             : 'text-secondary hover:bg-surface-hover hover:text-primary'
                     "
                 >
-                    <div
-                        v-if="isRouteActive(link.to, link.exact)"
-                        class="absolute left-0 top-0 bottom-0 w-1 bg-accent"
-                    ></div>
                     <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
                     <span class="text-sm whitespace-nowrap">{{ link.rawLabel ?? $t(link.text) }}</span>
                 </RouterLink>
@@ -477,21 +444,50 @@ const isOverflowRouteActive = computed(() =>
                     <RouterLink
                         :to="link.to"
                         v-prefetch="link.to"
-                        class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2 py-1.5 justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                        class="rounded-md transition-colors duration-200 flex items-center px-2 py-1.5 justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                         :class="
                             isRouteActive(link.to, link.exact)
-                                ? 'bg-surface-alt/80 text-primary'
+                                ? 'bg-surface-alt/80 text-accent'
                                 : 'text-secondary hover:bg-surface-hover hover:text-primary'
                         "
                         :aria-label="link.rawLabel ?? $t(link.text)"
                     >
-                        <div
-                            v-if="isRouteActive(link.to, link.exact)"
-                            class="absolute left-0 top-0 bottom-0 w-1 bg-accent"
-                        ></div>
                         <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
                     </RouterLink>
                 </Tooltip>
+                <div class="border-t border-default/50 my-1"></div>
+                <Tooltip :text="$t('nav-section-recent-tickets')" side="right">
+                    <button
+                        ref="railRecentButton"
+                        type="button"
+                        class="rounded-md transition-colors duration-200 flex items-center px-2 py-1.5 justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                        :class="isRailRecentOpen ? 'bg-surface-alt/80 text-primary' : 'text-secondary hover:bg-surface-hover hover:text-primary'"
+                        :aria-label="$t('nav-section-recent-tickets')"
+                        aria-haspopup="dialog"
+                        :aria-expanded="isRailRecentOpen"
+                        @click="toggleRailRecent"
+                    >
+                        <Icon name="clock" />
+                    </button>
+                </Tooltip>
+                <Popover
+                    :open="isRailRecentOpen"
+                    :anchor="railRecentAnchor"
+                    placement="right-start"
+                    :offset="8"
+                    :auto-focus="false"
+                    role="dialog"
+                    :aria-label="$t('nav-section-recent-tickets')"
+                    popover-class="w-64 max-h-[70vh] flex flex-col overflow-hidden rounded-lg border border-default bg-surface shadow-lg"
+                    @close="closeRailRecent"
+                >
+                    <div class="px-2.5 h-7 flex items-center text-3xs font-semibold text-tertiary tracking-wide uppercase select-none">
+                        {{ $t('nav-section-recent-tickets') }}
+                    </div>
+                    <div class="px-2 pb-1 min-h-0 flex-1 overflow-y-auto">
+                        <RecentTickets />
+                    </div>
+                </Popover>
             </div>
 
             <div v-else class="flex flex-col gap-3">
@@ -510,17 +506,13 @@ const isOverflowRouteActive = computed(() =>
                         :key="link.to"
                         :to="link.to"
                         v-prefetch="link.to"
-                        class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2.5 py-1 gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                        class="rounded-md transition-colors duration-200 flex items-center px-2.5 py-1 gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                         :class="
                             isRouteActive(link.to, link.exact)
                                 ? 'bg-surface-alt/80 text-primary font-medium'
                                 : 'text-secondary hover:bg-surface-hover hover:text-primary'
                         "
                     >
-                        <div
-                            v-if="isRouteActive(link.to, link.exact)"
-                            class="absolute left-0 top-0 bottom-0 w-1 bg-accent"
-                        ></div>
                         <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
                         <span class="text-sm whitespace-nowrap">{{ link.rawLabel ?? $t(link.text) }}</span>
                     </RouterLink>
@@ -538,37 +530,22 @@ const isOverflowRouteActive = computed(() =>
                 class="flex-1 min-h-0 flex flex-col overflow-hidden px-2"
                 v-if="!isCollapsed"
             >
-                <!-- Recent Tickets section with collapsible header -->
+                <!-- Recent tickets: the newest few, sized to content;
+                     Documentation takes the remainder. -->
                 <CollapsibleSection
-                    ref="ticketsSectionComponent"
                     :title="$t('nav-section-recent-tickets')"
                     :is-collapsed="isTicketsCollapsed"
-                    class="tickets-section flex-shrink-0 transition-all duration-200"
-                    :style="{
-                        maxHeight: isTicketsCollapsed
-                            ? '28px'
-                            : `${ticketsHeight}px`,
-                    }"
+                    class="tickets-section flex-shrink-0"
                     @toggle="toggleTickets"
                 >
                     <RecentTickets />
                 </CollapsibleSection>
 
-                <!-- Resizer between sections: a transparent gutter with a
-                     grip pill on hover, accent while dragging. -->
-                <div
-                    ref="resizerRef"
-                    class="resizer-handle relative select-none text-tertiary"
-                    @pointerdown="startResize"
-                    :class="{ active: isResizing, 'text-accent': isResizing }"
-                ></div>
-
                 <!-- Documentation section with collapsible header -->
                 <CollapsibleSection
-                    ref="docsSectionComponent"
                     :title="$t('nav-section-documentation')"
                     :is-collapsed="isDocsCollapsed"
-                    class="docs-section flex-1 min-h-0 transition-all duration-200"
+                    class="docs-section flex-1 min-h-0"
                     @toggle="toggleDocs"
                 >
                     <DocumentationNav />
@@ -828,67 +805,6 @@ const isOverflowRouteActive = computed(() =>
 </template>
 
 <style scoped>
-/* Optimize resizable sections with hardware acceleration hints */
-.tickets-section,
-.docs-section {
-    will-change: max-height;
-    transform: translateZ(0); /* Force GPU acceleration */
-    backface-visibility: hidden;
-    perspective: 1000px;
-    transition: max-height 0.2s cubic-bezier(0.25, 1, 0.5, 1); /* Optimized easing function */
-}
-
-/* Remove transition during active resizing to prevent lag */
-:global(.resize-active) .tickets-section,
-:global(.resize-active) .docs-section {
-    transition: none !important;
-}
-
-/* Resizer: an 8px gutter (useResizableSidebar assumes 8) whose grip takes
-   the handle's text colour, so no theme variables are needed here. */
-.resizer-handle {
-    touch-action: none;
-    z-index: 1;
-    height: 8px;
-    cursor: ns-resize;
-}
-
-.resizer-handle::after {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 32px;
-    height: 3px;
-    border-radius: 9999px;
-    transform: translate(-50%, -50%);
-    background-color: currentColor;
-    opacity: 0;
-    transition: opacity 120ms ease;
-    pointer-events: none;
-}
-
-.resizer-handle:hover::after,
-.resizer-handle.active::after {
-    opacity: 1;
-}
-
-/* Visual feedback for resize cursor position */
-:global(.resize-active) {
-    cursor: ns-resize !important;
-    user-select: none !important;
-}
-
-:global(.resize-active *) {
-    user-select: none !important;
-    pointer-events: none !important;
-}
-
-/* Ensure the resizer itself remains interactive during resize */
-:global(.resize-active .resizer-handle) {
-    pointer-events: auto !important;
-}
-
 /* Mobile overflow sheet rendered as a native <dialog>. The element
    defaults to a centered margin:auto box; we reposition to a full-
    width bottom anchor so it reads as a sheet rather than a modal.
