@@ -316,7 +316,11 @@ nav-inbox = Postvak
 nav-collapse = Inklappen
 nav-search = Zoeken
 nav-more = Meer
-nav-toggle-sidebar = Zijbalk wisselen
+# Machine translated, pending native review
+nav-primary = Hoofdnavigatie
+nav-expand-sidebar = Zijbalk uitklappen
+nav-collapse-sidebar = Zijbalk inklappen
+nav-search-with-shortcut = Zoeken ({ $shortcut })
 nav-secondary = Secundaire navigatie
 # TODO native-review nl-NL for the bottom-bar pin keys below.
 nav-pins-edit = Bewerken

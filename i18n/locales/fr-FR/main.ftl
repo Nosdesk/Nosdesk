@@ -319,7 +319,11 @@ nav-inbox = Boîte de réception
 nav-collapse = Réduire
 nav-search = Rechercher
 nav-more = Plus
-nav-toggle-sidebar = Basculer la barre latérale
+# Machine translated, pending native review
+nav-primary = Navigation principale
+nav-expand-sidebar = Développer la barre latérale
+nav-collapse-sidebar = Réduire la barre latérale
+nav-search-with-shortcut = Rechercher ({ $shortcut })
 nav-secondary = Navigation secondaire
 # TODO native-review fr-FR for the bottom-bar pin keys below.
 nav-pins-edit = Modifier
