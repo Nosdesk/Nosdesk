@@ -324,6 +324,13 @@ pub fn build_state(
 
     // Licence and push mode set through another replica (or a stored value
     // edited while this one ran) reach this process within a minute.
+    // Renew a stored licence from Nosdesk Cloud once a day (off with
+    // NOSDESK_LICENSE_AUTO_REFRESH=false). Never removes a licence.
+    background_tasks.push(crate::services::license_cloud::spawn_daily_refresh(
+        pool.clone(),
+        push_mode_data.get_ref().clone(),
+        scheduler_shutdown.clone(),
+    ));
     background_tasks.push(spawn_instance_settings_reload(
         pool.clone(),
         push_mode_data.get_ref().clone(),

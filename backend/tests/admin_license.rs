@@ -71,7 +71,13 @@ async fn licence_and_push_mode_round_trip() {
                     .configure(admin_license::config),
             )
     });
-    let client = awc::Client::new();
+    // Generous timeout, and no connection reuse: under a full-suite load a
+    // slow request can outlive the test server's keep-alive, and the next
+    // request then lands on a closed pooled connection.
+    let client = awc::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .add_default_header(("connection", "close"))
+        .finish();
     let bearer = |t: &str| ("Authorization", format!("Bearer {t}"));
 
     // Platform admins only.

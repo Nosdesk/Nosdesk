@@ -60,7 +60,7 @@ struct GitHubRelease {
 // real tag (e.g. "0.1.0-rc.5") via the NOSDESK_VERSION build-arg; local/dev
 // builds fall back to the crate version. CARGO_PKG_VERSION isn't bumped
 // per-rc, so without the injected value the card would always read "0.1.0".
-fn get_current_version() -> String {
+pub(crate) fn get_current_version() -> String {
     option_env!("NOSDESK_VERSION")
         .filter(|v| !v.is_empty())
         .unwrap_or(env!("CARGO_PKG_VERSION"))

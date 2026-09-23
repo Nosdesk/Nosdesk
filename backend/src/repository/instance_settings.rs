@@ -121,6 +121,20 @@ pub fn clear_license(conn: &mut DbConnection) -> QueryResult<()> {
     Ok(())
 }
 
+// sync-audit-only: Instance-global licence renewal bookkeeping, not workspace data.
+/// Record a renewal attempt: when, and the static error kind if it failed.
+pub fn record_refresh(conn: &mut DbConnection, error: Option<&str>) -> QueryResult<()> {
+    ensure_row(conn)?;
+    diesel::update(s::instance_settings)
+        .set((
+            s::license_last_refresh_at.eq(Some(Utc::now())),
+            s::license_last_refresh_error.eq(error),
+            s::updated_at.eq(diesel::dsl::now),
+        ))
+        .execute(conn)?;
+    Ok(())
+}
+
 // sync-audit-only: Instance-global push mode, not workspace data; the handler records a security_events row.
 /// Store the push mode (`native`, `relay`, `off`), or `None` to defer to the
 /// environment.

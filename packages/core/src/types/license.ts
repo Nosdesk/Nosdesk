@@ -35,6 +35,8 @@ export interface LicenseOverview {
     env_managed: boolean;
     error: LicenseErrorKind | null;
     installed_at: string | null;
+    /** The daily renewal from Nosdesk Cloud is on (NOSDESK_LICENSE_AUTO_REFRESH). */
+    auto_refresh: boolean;
     last_refresh_at: string | null;
     last_refresh_error: string | null;
     /** Present whenever the licence verified, including when it has expired. */
@@ -58,4 +60,21 @@ export interface LicenseOverview {
     native_credentials: boolean;
     relay: RelayStatus | null;
   } | null;
+  /** A connection to Nosdesk Cloud this server is running or last ran. */
+  link: LicenseLink | null;
+}
+
+/** Connecting this server to Nosdesk Cloud (RFC 8628 device flow). */
+export interface LicenseLink {
+  id: string;
+  /** `XXXX-XXXX`, to type on the dashboard. */
+  user_code: string;
+  verification_uri: string;
+  /** The dashboard page with the code filled in. */
+  verification_uri_complete: string;
+  /** Unix seconds. */
+  expires_at: number;
+  status: 'pending' | 'connected' | 'denied' | 'expired' | 'failed';
+  /** Why it failed: a licence error kind, `env_managed` or `storage`. */
+  error: string | null;
 }
