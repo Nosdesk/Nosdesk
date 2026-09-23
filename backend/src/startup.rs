@@ -241,6 +241,10 @@ pub fn build_state(
             service.register_channel(email_channel);
         }
 
+        // Every call to Nosdesk Cloud shares one HTTP client whose first build
+        // is slow on some platforms; build it now, off the request path.
+        crate::services::notifications::channels::relay_client::warm_cloud_http();
+
         // Push channel: provider-agnostic. The mode and the licence can be set
         // in the admin UI (instance_settings) as well as the environment, and
         // env wins; see push_mode for the modes. Resolve the stored values now
