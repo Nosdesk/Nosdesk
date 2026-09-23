@@ -1249,7 +1249,7 @@ mod tests {
 
     // (Merge metadata moved to the `ticket_merges` satellite; the merge
     // behaviour and its all-or-nothing integrity are covered by the merge
-    // tests in `repository/ticket_merge.rs` + `tests/ticket_merge.rs`.)
+    // tests in `repository/ticket_merge.rs` + `tests/it/ticket_merge.rs`.)
 
     /// Insert a ticket with an explicit verification state. The shared
     /// fixture helper always passes `None`, which is the wrong shape for

@@ -7,7 +7,7 @@
 //! consumer-side switch arm; no migration required.
 //!
 //! Stays in sync with `backend/sync-models/<name>.json` via
-//! `tests/sync_model_registry.rs`, which fails the build if a
+//! `tests/it/sync_model_registry.rs`, which fails the build if a
 //! manifest's `schema_version` drifts from the registry. A future
 //! `build.rs` pass will generate this file from the manifests
 //! directly; until then the registry test is the SOT-drift guard.

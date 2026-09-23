@@ -9,7 +9,7 @@
 //! Repository writes that mutate a tier-1 aggregate must call
 //! [`emit::record`] in the same Diesel transaction as the SQL write,
 //! once per business event. The `ALLOWLIST` constant in
-//! `tests/sync_emit_lint.rs` enumerates the tables that intentionally
+//! `tests/it/sync_emit_lint.rs` enumerates the tables that intentionally
 //! skip this — the lint test fails CI if a new repository write is
 //! neither emit-wired nor in the allowlist.
 

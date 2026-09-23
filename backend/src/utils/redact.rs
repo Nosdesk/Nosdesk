@@ -14,7 +14,7 @@
 //! DB/connection errors are operational, not customer PII — blunt scrubbing
 //! would hurt debuggability) or opaque IDs (UUIDs, `ticket_id` — safe to log).
 //!
-//! The CI guardrail (`tests/logging_pii_guardrail.rs`) is the source-side
+//! The CI guardrail (`tests/it/logging_pii_guardrail.rs`) is the source-side
 //! companion: it fails the build if PII is interpolated into a log macro in the
 //! first place. Typed redaction at the source, content scrub at the sink, lint
 //! against regressions.
