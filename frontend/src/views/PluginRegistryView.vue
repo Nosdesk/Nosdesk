@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/utils/errors'
 /**
  * Browse plugins published to the Nosdesk registry. Layout mirrors
  * the installed-plugins list (sticky sidebar with search + tier
@@ -226,9 +227,7 @@ async function confirmInstall() {
     setTimeout(() => (successMessage.value = ''), 4000);
     pendingInstall.value = null;
   } catch (err: unknown) {
-    const message =
-      (err as { response?: { data?: string } })?.response?.data ?? t('admin-plugins-registry-error-install');
-    errorMessage.value = typeof message === 'string' ? message : t('admin-plugins-registry-error-install');
+    errorMessage.value = extractErrorMessage(err, t('admin-plugins-registry-error-install'));
     logger.error('Registry install failed', { error: err, plugin: plugin.name });
   } finally {
     installing.value = null;
