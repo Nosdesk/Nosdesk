@@ -130,6 +130,18 @@ impl RelayFailure {
     }
 }
 
+/// The Nosdesk Cloud API this instance talks to, without a trailing slash.
+/// `NOSDESK_RELAY_URL` points an instance at staging; the relay, licence
+/// linking and renewal all use it.
+pub fn cloud_base_url() -> String {
+    std::env::var(RELAY_URL_ENV)
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_RELAY_URL.to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
 /// Map a relay HTTP status onto an action. Pure, so the interesting decision is
 /// testable without a network — and it must agree with the control plane's
 /// handler, which is the thing most likely to drift.
@@ -211,13 +223,9 @@ impl RelayClient {
     /// a shared burst bucket for this customer, which is a degraded but working
     /// state and better than refusing to push at all.
     pub fn new(instance_id: String) -> reqwest::Result<Self> {
-        let base_url = std::env::var(RELAY_URL_ENV)
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_RELAY_URL.to_string());
         Ok(Self {
             http: reqwest::Client::builder().timeout(RELAY_TIMEOUT).build()?,
-            base_url: base_url.trim_end_matches('/').to_string(),
+            base_url: cloud_base_url(),
             instance_id,
             token: Mutex::new(None),
             status: RwLock::new(RelayStatus::default()),

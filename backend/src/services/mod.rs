@@ -14,6 +14,7 @@ pub mod email_verification;
 pub mod imports;
 pub mod inbound_email;
 pub mod ldap;
+pub mod license_cloud;
 pub mod msgraph;
 pub mod notifications;
 pub mod oauth_provisioning;

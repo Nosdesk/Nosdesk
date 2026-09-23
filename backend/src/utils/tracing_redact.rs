@@ -121,6 +121,8 @@ const ALLOWED_FIELDS: &[&str] = &[
     // `source` is where a licence or push mode came from (env / pasted /
     // linked / stored / default), `max_workspaces` a licensed count.
     "edition",
+    // The licence jti: an issuance id, not a key and not user content.
+    "license_id",
     "max_workspaces",
     "source",
     "entity",

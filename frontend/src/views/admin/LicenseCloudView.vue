@@ -10,7 +10,7 @@
  * Reads through Pinia Colada (cache-first); every write returns the whole
  * overview, which replaces the cached copy.
  */
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 
@@ -30,7 +30,7 @@ import { errorCode } from '@/utils/errors';
 import licenseService from '@nosdesk/core/services/licenseService';
 import { getControlPlaneUrl } from '@nosdesk/core/services/instanceConfig';
 import { formatDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
-import type { LicenseOverview, PushMode } from '@nosdesk/core/types/license';
+import type { LicenseLink, LicenseOverview, PushMode } from '@nosdesk/core/types/license';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -117,8 +117,10 @@ const pastedKey = ref('');
 const installing = ref(false);
 const installError = ref('');
 const notice = ref('');
+// Connecting is the primary path now; pasting is the fallback behind a
+// link, or opens by itself when a stored key is unusable.
 const pasteOpen = computed(
-  () => !envManaged.value && (showPaste.value || (!isLicensed.value && !details.value)),
+  () => !envManaged.value && (showPaste.value || (!!license.value?.error && !details.value)),
 );
 
 const INSTALL_ERRORS: Record<string, string> = {
@@ -161,6 +163,141 @@ async function remove() {
     installError.value = t('admin-license-error-remove');
   } finally {
     removing.value = false;
+  }
+}
+
+// --- Connect to Nosdesk Cloud ------------------------------------------------
+//
+// The server polls the cloud itself (the device code never reaches this
+// page); the page polls the server's view of it every two seconds while the
+// code is waiting, and refreshes everything once it resolves.
+
+const link = ref<LicenseLink | null>(null);
+watch(
+  () => overview.value?.link ?? null,
+  (v) => {
+    link.value = v;
+  },
+  { immediate: true },
+);
+const connecting = ref(false);
+const connectError = ref('');
+const now = ref(Date.now());
+let pollTimer: ReturnType<typeof setInterval> | undefined;
+let clockTimer: ReturnType<typeof setInterval> | undefined;
+
+function stopPolling() {
+  clearInterval(pollTimer);
+  clearInterval(clockTimer);
+  pollTimer = clockTimer = undefined;
+}
+
+watch(
+  () => link.value?.status,
+  (status, previous) => {
+    if (status === 'pending' && !pollTimer) {
+      clockTimer = setInterval(() => (now.value = Date.now()), 1000);
+      pollTimer = setInterval(async () => {
+        try {
+          const r = await licenseService.getLink();
+          link.value = r.link;
+        } catch {
+          // Transient; the next tick tries again.
+        }
+      }, 2000);
+    } else if (status !== 'pending') {
+      stopPolling();
+    }
+    if (previous === 'pending' && status === 'connected') {
+      notice.value = t('admin-license-connect-done');
+      queryCache.invalidateQueries({ key: OVERVIEW_KEY });
+      queryCache.invalidateQueries({ key: ['admin-edition'] });
+    }
+  },
+  { immediate: true },
+);
+onBeforeUnmount(stopPolling);
+
+const expiresIn = computed(() => {
+  if (!link.value) return '';
+  const secs = Math.max(0, link.value.expires_at - Math.floor(now.value / 1000));
+  return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+});
+
+const CONNECT_ERRORS: Record<string, string> = {
+  cloud_unreachable: 'admin-license-connect-error-unreachable',
+  cloud_unavailable: 'admin-license-connect-error-unavailable',
+  cloud_unexpected: 'admin-license-connect-error-unexpected',
+  license_env_managed: 'admin-license-env-managed',
+};
+
+async function connect() {
+  connectError.value = '';
+  notice.value = '';
+  connecting.value = true;
+  try {
+    const next = await licenseService.startLink(window.location.host);
+    apply(next);
+    link.value = next.link;
+  } catch (e) {
+    const key = CONNECT_ERRORS[errorCode(e) ?? ''];
+    connectError.value = key ? t(key) : t('admin-license-connect-error-unexpected');
+  } finally {
+    connecting.value = false;
+  }
+}
+
+async function cancelConnect() {
+  try {
+    apply(await licenseService.cancelLink());
+  } finally {
+    link.value = null;
+  }
+}
+
+/** Why a delivered licence was not installed, in words. */
+const linkFailure = computed(() => {
+  const kind = link.value?.error;
+  if (!kind) return t('admin-license-connect-failed');
+  const reason = `admin-license-reason-${kind.replace(/_/g, '-')}`;
+  return fluent.$t(reason) !== reason ? fluent.$t(reason) : t('admin-license-connect-failed');
+});
+
+// --- Renewal -------------------------------------------------------------------
+
+const syncing = ref(false);
+const canSync = computed(
+  () => !envManaged.value && (license.value?.source === 'linked' || license.value?.source === 'pasted'),
+);
+const lastSync = computed(() => {
+  const at = license.value?.last_refresh_at;
+  return at ? formatRelativeTime(at) : '';
+});
+const syncError = computed(() => {
+  const kind = license.value?.last_refresh_error;
+  if (!kind) return '';
+  return kind === 'rejected'
+    ? t('admin-license-sync-rejected')
+    : t('admin-license-sync-unreachable');
+});
+
+async function syncNow() {
+  syncing.value = true;
+  notice.value = '';
+  try {
+    const before = license.value?.details?.license_id;
+    const next = await licenseService.refresh();
+    apply(next);
+    if (!next.license.last_refresh_error) {
+      notice.value =
+        next.license.details?.license_id !== before
+          ? t('admin-license-sync-updated')
+          : t('admin-license-sync-current');
+    }
+  } catch {
+    installError.value = t('admin-license-sync-unreachable');
+  } finally {
+    syncing.value = false;
   }
 }
 
@@ -278,18 +415,78 @@ const relayLastSuccess = computed(() => {
                 {{ isLicensed || details ? $t('admin-license-licensed-subtitle') : $t('admin-license-community-body') }}
               </p>
             </div>
-            <div v-if="!isLicensed && !details" class="flex flex-wrap gap-2 shrink-0">
-              <a
-                :href="licenseDashboardUrl"
-                target="_blank"
-                rel="noopener"
-                :class="button({ variant: 'primary', size: 'sm' })"
+            <div
+              v-if="!isLicensed && !details && !envManaged && link?.status !== 'pending'"
+              class="flex flex-col items-start sm:items-end gap-1.5 shrink-0"
+            >
+              <Button size="sm" icon="link" :loading="connecting" @click="connect">
+                {{ $t('admin-license-connect') }}
+              </Button>
+              <button
+                v-if="!pasteOpen"
+                type="button"
+                class="text-xs text-tertiary hover:text-primary hover:underline"
+                @click="showPaste = true"
               >
-                <span>{{ $t('admin-license-get') }}</span>
-                <Icon name="link" size="xs" />
-              </a>
+                {{ $t('admin-license-paste-instead') }}
+              </button>
             </div>
           </div>
+
+          <AlertMessage v-if="connectError" type="error" :message="connectError" />
+
+          <!-- Connecting: the code to type on the dashboard, and what became of it. -->
+          <div
+            v-if="link?.status === 'pending'"
+            class="rounded-lg border border-default bg-surface-alt p-4 flex flex-col gap-3"
+            aria-live="polite"
+          >
+            <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-tertiary">{{ $t('admin-license-connect-code-label') }}</span>
+                <span class="font-mono text-2xl font-semibold tracking-[0.2em] text-primary select-all">
+                  {{ link.user_code }}
+                </span>
+              </div>
+              <div class="flex flex-wrap gap-2 sm:ml-auto">
+                <a
+                  :href="link.verification_uri_complete"
+                  target="_blank"
+                  rel="noopener"
+                  :class="button({ variant: 'primary', size: 'sm' })"
+                >
+                  <span>{{ $t('admin-license-connect-open') }}</span>
+                  <Icon name="link" size="xs" />
+                </a>
+                <Button size="sm" variant="ghost" @click="cancelConnect">
+                  {{ $t('admin-license-cancel') }}
+                </Button>
+              </div>
+            </div>
+            <p class="text-xs text-tertiary">
+              {{ $t('admin-license-connect-help', { url: link.verification_uri }) }}
+            </p>
+            <p class="text-xs text-secondary flex items-center gap-2">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" aria-hidden="true" />
+              {{ $t('admin-license-connect-waiting', { time: expiresIn }) }}
+            </p>
+          </div>
+          <Callout v-else-if="link?.status === 'denied' || link?.status === 'expired' || link?.status === 'failed'" severity="warning">
+            <div class="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+              <p class="text-sm text-secondary flex-1">
+                {{
+                  link.status === 'denied'
+                    ? $t('admin-license-connect-denied')
+                    : link.status === 'expired'
+                      ? $t('admin-license-connect-expired')
+                      : linkFailure
+                }}
+              </p>
+              <Button size="sm" variant="secondary" :loading="connecting" @click="connect">
+                {{ $t('admin-license-connect-again') }}
+              </Button>
+            </div>
+          </Callout>
 
           <dl v-if="details" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div class="rounded-lg bg-surface-alt px-3 py-2">
@@ -332,7 +529,12 @@ const relayLastSuccess = computed(() => {
           <div v-if="details || envManaged" class="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1 border-t border-subtle text-xs text-tertiary">
             <span v-if="details" class="font-mono truncate">{{ details.license_id }}</span>
             <span v-if="envManaged">{{ $t('admin-license-env-managed') }}</span>
+            <span v-else-if="syncError" class="text-status-warning">{{ syncError }}</span>
+            <span v-else-if="canSync && lastSync">{{ $t('admin-license-sync-last', { when: lastSync }) }}</span>
             <div v-if="!envManaged" class="flex gap-1 ml-auto">
+              <Button v-if="canSync" size="sm" variant="ghost" icon="refresh" :loading="syncing" @click="syncNow">
+                {{ $t('admin-license-sync-now') }}
+              </Button>
               <Button v-if="!pasteOpen" size="sm" variant="ghost" @click="showPaste = true">
                 {{ $t('admin-license-replace') }}
               </Button>

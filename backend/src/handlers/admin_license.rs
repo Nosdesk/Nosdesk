@@ -26,6 +26,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/admin/license", web::get().to(get_license))
         .route("/admin/license", web::put().to(put_license))
         .route("/admin/license", web::delete().to(delete_license))
+        .route("/admin/license/link", web::post().to(start_link))
+        .route("/admin/license/link", web::get().to(get_link))
+        .route("/admin/license/link", web::delete().to(cancel_link))
+        .route("/admin/license/refresh", web::post().to(refresh_license))
         .route("/admin/push-mode", web::put().to(put_push_mode))
         .route("/admin/push-mode/retry", web::post().to(retry_relay));
 }
@@ -92,6 +96,7 @@ pub async fn get_license(
             "env_managed": license::env_managed(),
             "error": state.error().map(|e| e.kind()),
             "installed_at": stored.as_ref().and_then(|r| r.license_installed_at),
+            "auto_refresh": crate::services::license_cloud::auto_refresh_enabled(),
             "last_refresh_at": stored.as_ref().and_then(|r| r.license_last_refresh_at),
             "last_refresh_error": stored.as_ref().and_then(|r| r.license_last_refresh_error.clone()),
             "details": state.info.as_ref().map(|l| serde_json::json!({
@@ -104,6 +109,7 @@ pub async fn get_license(
             })),
         },
         "push": push_json,
+        "link": crate::services::license_cloud::current_link(),
     })))
 }
 
@@ -311,5 +317,107 @@ pub async fn retry_relay(
 ) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     push.reset_relay().await;
+    get_license_after_write(req, pc).await
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct StartLinkRequest {
+    /// The address the admin is using, shown on the confirm screen so they
+    /// can tell their server from someone else's. Defaults to FRONTEND_URL.
+    #[serde(default)]
+    pub display_host: Option<String>,
+}
+
+fn frontend_host() -> Option<String> {
+    let url = url::Url::parse(&std::env::var("FRONTEND_URL").ok()?).ok()?;
+    let host = url.host_str()?;
+    Some(match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    })
+}
+
+/// Start connecting this instance to Nosdesk Cloud: returns the code to show.
+/// The instance then polls the cloud itself until the admin approves it on
+/// the dashboard, and installs the licence that comes back.
+pub async fn start_link(
+    req: HttpRequest,
+    pc: PlatformConn,
+    pool: web::Data<crate::db::Pool>,
+    body: Option<web::Json<StartLinkRequest>>,
+) -> Result<HttpResponse, ApiError> {
+    let claims = rbac::require_platform_admin(&req)?;
+    if let Some(resp) = hosted_refusal() {
+        return Ok(resp);
+    }
+    if license::env_managed() {
+        return Ok(env_managed_response());
+    }
+    let instance_id = pool
+        .get()
+        .ok()
+        .and_then(|mut c| crate::sync::system_meta::instance_id(&mut c).ok())
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| ApiError::Internal("This server has no instance id yet".into()))?;
+    let display_host = body
+        .and_then(|b| b.into_inner().display_host)
+        .filter(|h| !h.trim().is_empty())
+        .or_else(frontend_host);
+    let push = req
+        .app_data::<web::Data<Arc<SwitchablePushSender>>>()
+        .map(|d| d.get_ref().clone());
+
+    match crate::services::license_cloud::start_link(
+        pool.get_ref().clone(),
+        push,
+        instance_id,
+        display_host,
+        actor_uuid(&claims),
+    )
+    .await
+    {
+        Ok(_) => get_license_after_write(req, pc).await,
+        // 502: this server is fine, the cloud behind it did not answer.
+        Err(e) => Ok(errors::with_fields(
+            actix_web::http::StatusCode::BAD_GATEWAY,
+            &format!("cloud_{}", e.kind()),
+            "Nosdesk Cloud could not be reached",
+            serde_json::json!({}),
+        )),
+    }
+}
+
+/// The connection in progress, for polling while the admin approves it.
+pub async fn get_link(req: HttpRequest) -> Result<HttpResponse, ApiError> {
+    rbac::require_platform_admin(&req)?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "link": crate::services::license_cloud::current_link(),
+        "edition": license::current().name(),
+    })))
+}
+
+pub async fn cancel_link(req: HttpRequest, pc: PlatformConn) -> Result<HttpResponse, ApiError> {
+    rbac::require_platform_admin(&req)?;
+    crate::services::license_cloud::cancel_link();
+    get_license_after_write(req, pc).await
+}
+
+/// Ask Nosdesk Cloud for a newer licence now ("Sync now").
+pub async fn refresh_license(
+    req: HttpRequest,
+    pc: PlatformConn,
+    pool: web::Data<crate::db::Pool>,
+) -> Result<HttpResponse, ApiError> {
+    rbac::require_platform_admin(&req)?;
+    if let Some(resp) = hosted_refusal() {
+        return Ok(resp);
+    }
+    if license::env_managed() {
+        return Ok(env_managed_response());
+    }
+    let push = req
+        .app_data::<web::Data<Arc<SwitchablePushSender>>>()
+        .map(|d| d.get_ref().clone());
+    crate::services::license_cloud::refresh(pool.get_ref().clone(), push).await;
     get_license_after_write(req, pc).await
 }

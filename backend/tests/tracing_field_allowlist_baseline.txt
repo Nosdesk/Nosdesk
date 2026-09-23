@@ -292,7 +292,6 @@ src/handlers/workflow_states.rs name
 src/handlers/workspace_members.rs target
 src/license.rs customer_id
 src/license.rs expires_at
-src/license.rs license_id
 src/license.rs licensee
 src/middleware/api_token.rs path
 src/middleware/api_token.rs scope
