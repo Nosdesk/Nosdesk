@@ -31,9 +31,8 @@ use crate::db::Pool;
 use crate::license::{self, InstallError, LicenseSource};
 use crate::services::notifications::channels::push::PushSender;
 use crate::services::notifications::channels::push_mode::SwitchablePushSender;
-use crate::services::notifications::channels::relay_client::cloud_base_url;
+use crate::services::notifications::channels::relay_client::{cloud_base_url, cloud_http};
 
-const TIMEOUT: Duration = Duration::from_secs(10);
 /// RFC 8628 §3.5: a `slow_down` adds five seconds to the interval.
 const SLOW_DOWN_STEP_SECS: u64 = 5;
 /// Env switch for the daily renewal. On unless set to `false`.
@@ -62,14 +61,9 @@ impl CloudError {
     }
 }
 
-/// One client for the process: building one loads the TLS roots, which is
-/// not free, and a poll every few seconds should not repeat it.
+/// The process's shared cloud client (see `relay_client::cloud_http`).
 fn client() -> Result<reqwest::Client, CloudError> {
-    static CLIENT: std::sync::OnceLock<Option<reqwest::Client>> = std::sync::OnceLock::new();
-    CLIENT
-        .get_or_init(|| reqwest::Client::builder().timeout(TIMEOUT).build().ok())
-        .clone()
-        .ok_or(CloudError::Unexpected)
+    cloud_http().ok_or(CloudError::Unexpected)
 }
 
 async fn post(path: &str, body: &serde_json::Value) -> Result<reqwest::Response, CloudError> {

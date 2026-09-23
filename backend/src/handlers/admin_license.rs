@@ -277,8 +277,14 @@ pub async fn put_push_mode(
         .map_err(|e| ApiError::Internal(format!("push mode did not resolve: {e}")))?;
 
     // Build first: a native mode whose credentials are malformed must fail the
-    // request, not be stored and then refused by every replica's reload.
-    if let Err(e) = push.apply(resolved) {
+    // request, not be stored and then refused by every replica's reload. On a
+    // blocking thread: building a sender can read credential files and set up
+    // TLS, which must not stall this worker.
+    let switcher = push.get_ref().clone();
+    let applied = web::block(move || switcher.apply(resolved))
+        .await
+        .map_err(|e| ApiError::Internal(format!("push mode switch did not run: {e}")))?;
+    if let Err(e) = applied {
         tracing::warn!(error = %e, "push mode switch refused");
         return Ok(errors::bad_request_with_code(
             "Push could not be switched to that mode; check the server log",

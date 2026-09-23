@@ -130,6 +130,40 @@ impl RelayFailure {
     }
 }
 
+/// The HTTP client for every call to Nosdesk Cloud (the relay, licence
+/// linking and renewal). Shared, because building one is not cheap: the first
+/// build in a process initialises the platform certificate verifier, which on
+/// macOS walks the system trust store and was measured at 1.8 to 8.8 s cold
+/// (Linux is milliseconds). Built lazily, and warmed off the request path at
+/// boot by [`warm_cloud_http`], so no request ever pays for it.
+///
+/// `None` only if the TLS backend cannot initialise at all, which callers
+/// treat as the cloud being unreachable.
+pub fn cloud_http() -> Option<reqwest::Client> {
+    static CLIENT: std::sync::OnceLock<Option<reqwest::Client>> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(RELAY_TIMEOUT)
+                .build()
+                .ok()
+        })
+        .clone()
+}
+
+/// Build [`cloud_http`] on a blocking thread so the first real call is fast.
+pub fn warm_cloud_http() {
+    tokio::task::spawn_blocking(|| {
+        let started = std::time::Instant::now();
+        let configured = cloud_http().is_some();
+        tracing::debug!(
+            configured,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "cloud HTTP client ready"
+        );
+    });
+}
+
 /// The Nosdesk Cloud API this instance talks to, without a trailing slash.
 /// `NOSDESK_RELAY_URL` points an instance at staging; the relay, licence
 /// linking and renewal all use it.
@@ -222,9 +256,9 @@ impl RelayClient {
     /// `ensure_instance_id` is warn-only on boot; the relay then falls back to
     /// a shared burst bucket for this customer, which is a degraded but working
     /// state and better than refusing to push at all.
-    pub fn new(instance_id: String) -> reqwest::Result<Self> {
+    pub fn new(instance_id: String) -> Result<Self, &'static str> {
         Ok(Self {
-            http: reqwest::Client::builder().timeout(RELAY_TIMEOUT).build()?,
+            http: cloud_http().ok_or("TLS backend unavailable")?,
             base_url: cloud_base_url(),
             instance_id,
             token: Mutex::new(None),
@@ -441,7 +475,7 @@ pub struct CloudRelayPushSender {
 }
 
 impl CloudRelayPushSender {
-    pub fn new(instance_id: String) -> reqwest::Result<Self> {
+    pub fn new(instance_id: String) -> Result<Self, &'static str> {
         Ok(Self {
             client: RelayClient::new(instance_id)?,
         })
