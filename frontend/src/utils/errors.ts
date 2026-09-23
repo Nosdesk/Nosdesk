@@ -4,6 +4,13 @@ import { LogLevel } from '@nosdesk/core/utils/logger'
 export abstract class AppError extends Error {
   public readonly timestamp: Date
   public readonly context?: Record<string, any>
+  /**
+   * The HTTP response this error was built from, in the shape an axios error
+   * has it. Set by `createErrorFromResponse`, so call sites written against a
+   * raw axios error (`err.response?.status`, `err.response?.data?.code`) keep
+   * working after the API client's interceptor has typed the error.
+   */
+  public response?: { status: number; data?: any }
 
   constructor(message: string, context?: Record<string, any>) {
     super(message)
@@ -129,6 +136,8 @@ export class PermissionError extends AppError {
 }
 
 // Error factory for creating errors from API responses
+type AxiosResponseData = NonNullable<NonNullable<AxiosLikeError['response']>['data']>
+
 interface AxiosLikeError {
   response?: {
     status: number;
@@ -170,6 +179,26 @@ export function extractErrorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
+/**
+ * The response body of a failed request, from a raw axios error or a typed
+ * `AppError` (both carry `response`), or undefined when there was none.
+ */
+export function errorBody(error: unknown): Record<string, any> | undefined {
+  const data = (error as { response?: { data?: unknown } } | undefined)?.response?.data
+  return data && typeof data === 'object' ? (data as Record<string, any>) : undefined
+}
+
+/** The server's machine-readable `code`, if the body carried one. */
+export function errorCode(error: unknown): string | undefined {
+  const code = errorBody(error)?.code
+  return typeof code === 'string' ? code : undefined
+}
+
+/** The HTTP status, if the error came from a response. */
+export function errorStatus(error: unknown): number | undefined {
+  return (error as { response?: { status?: number } } | undefined)?.response?.status
+}
+
 export function createErrorFromResponse(error: unknown): AppError {
   const axiosError = error as AxiosLikeError;
   if (!axiosError.response) {
@@ -183,12 +212,24 @@ export function createErrorFromResponse(error: unknown): AppError {
       : new NetworkError('Network request failed', { originalError: axiosError.message })
   }
 
-  const { status, data, config } = axiosError.response
+  const { status, data } = axiosError.response
+  const typed = typedErrorFromResponse(axiosError.response, text(data))
+  typed.response = { status, data }
+  return typed
+}
+
+function text(data: AxiosResponseData | undefined): string | undefined {
   // Two body shapes reach here: the canonical `{ error, code }` envelope and
   // the older `{ status, message }` login bodies. Read `message` first so the
   // older shape keeps its text; `error` carries it for everything else.
-  const text = data?.message || data?.error
+  return data?.message || data?.error
+}
 
+function typedErrorFromResponse(
+  response: NonNullable<AxiosLikeError['response']>,
+  text: string | undefined,
+): AppError {
+  const { status, data, config } = response
   if (status === 401) {
     return new AuthenticationError(
       text || 'Authentication required',

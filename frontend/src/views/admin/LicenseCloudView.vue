@@ -13,7 +13,6 @@
 import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
-import type { AxiosError } from 'axios';
 
 import Button from '@/components/common/Button.vue';
 import Callout from '@/components/common/Callout.vue';
@@ -27,7 +26,7 @@ import StatusPill from '@/components/common/StatusPill.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import type { StatusPillTone } from '@/components/common/statusPillTone';
 import { button } from '@/recipes/button';
-import { ApiError } from '@/utils/errors';
+import { errorCode } from '@/utils/errors';
 import licenseService from '@nosdesk/core/services/licenseService';
 import { getControlPlaneUrl } from '@nosdesk/core/services/instanceConfig';
 import { formatDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
@@ -122,14 +121,6 @@ const pasteOpen = computed(
   () => !envManaged.value && (showPaste.value || (!isLicensed.value && !details.value)),
 );
 
-/** The server's error code. The API client's interceptor rethrows 4xx as a
- *  typed `ApiError` carrying the body in `context.data`; a raw axios error
- *  (interceptor bypassed) keeps it on `response.data`. */
-function codeOf(e: unknown): string | undefined {
-  if (e instanceof ApiError) return e.context?.data?.code;
-  return (e as AxiosError<{ code?: string }>)?.response?.data?.code;
-}
-
 const INSTALL_ERRORS: Record<string, string> = {
   license_malformed: 'admin-license-reason-malformed',
   license_unknown_key: 'admin-license-reason-unknown-key',
@@ -150,7 +141,7 @@ async function install() {
     showPaste.value = false;
     notice.value = t('admin-license-installed');
   } catch (e) {
-    const key = INSTALL_ERRORS[codeOf(e) ?? ''];
+    const key = INSTALL_ERRORS[errorCode(e) ?? ''];
     installError.value = key ? t(key) : t('admin-license-error-install');
   } finally {
     installing.value = false;
@@ -192,7 +183,7 @@ async function setPushMode(mode: PushMode) {
     apply(await licenseService.setPushMode(mode));
   } catch (e) {
     pushError.value =
-      codeOf(e) === 'push_mode_unavailable'
+      errorCode(e) === 'push_mode_unavailable'
         ? t('admin-license-push-error-unavailable')
         : t('admin-license-push-error-save');
   } finally {

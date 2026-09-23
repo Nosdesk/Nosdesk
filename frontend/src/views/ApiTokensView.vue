@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/utils/errors'
 import IconButton from '@/components/common/IconButton.vue'
 import Button from '@/components/common/Button.vue'
 import { ref, computed } from 'vue';
@@ -224,8 +225,7 @@ const createToken = async () => {
     copiedToken.value = false;
     await queryCache.invalidateQueries({ key: API_TOKENS_KEY });
   } catch (error) {
-    const axiosError = error as { response?: { data?: string } };
-    createError.value = axiosError.response?.data || t('admin-api-tokens-error-create');
+    createError.value = extractErrorMessage(error, t('admin-api-tokens-error-create'));
   } finally {
     isSaving.value = false;
   }
@@ -266,8 +266,7 @@ const revokeToken = async () => {
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
-    const axiosError = error as { response?: { data?: string } };
-    errorMessage.value = axiosError.response?.data || t('admin-api-tokens-error-revoke');
+    errorMessage.value = extractErrorMessage(error, t('admin-api-tokens-error-revoke'));
   } finally {
     isSaving.value = false;
   }

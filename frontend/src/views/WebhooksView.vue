@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/utils/errors'
 import IconButton from '@/components/common/IconButton.vue'
 import Button from '@/components/common/Button.vue'
 import { ref, computed } from 'vue';
@@ -116,11 +117,8 @@ const formatDate = (dateStr: string | null) => {
   return formatRelativeTime(dateStr);
 };
 
-// Extract error message from axios error
-const getErrorMessage = (error: unknown, defaultMsg: string): string => {
-  const axiosError = error as { response?: { data?: string } };
-  return axiosError.response?.data || defaultMsg;
-};
+const getErrorMessage = (error: unknown, defaultMsg: string): string =>
+  extractErrorMessage(error, defaultMsg);
 
 // Convert headers object to array format with stable row uids.
 const objectToHeaders = (obj: Record<string, string> | null): HeaderRow[] => {

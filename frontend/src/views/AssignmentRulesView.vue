@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/utils/errors'
 import IconButton from '@/components/common/IconButton.vue'
 import Button from '@/components/common/Button.vue'
 import { ref, onMounted, computed } from 'vue'
@@ -223,8 +224,7 @@ const saveRule = async () => {
     await queryCache.invalidateQueries({ key: ASSIGNMENT_RULES_KEY })
     setTimeout(() => (successMessage.value = ''), 3000)
   } catch (error) {
-    const axiosError = error as { response?: { data?: string } }
-    errorMessage.value = axiosError.response?.data || t('admin-assignment-rules-error-save')
+    errorMessage.value = extractErrorMessage(error, t('admin-assignment-rules-error-save'))
   } finally {
     isSaving.value = false
   }
@@ -236,8 +236,7 @@ const toggleRuleActive = async (rule: AssignmentRuleWithDetails) => {
     await assignmentRuleService.updateRule(rule.id, { is_active: !rule.is_active })
     await queryCache.invalidateQueries({ key: ASSIGNMENT_RULES_KEY })
   } catch (error) {
-    const axiosError = error as { response?: { data?: string } }
-    errorMessage.value = axiosError.response?.data || t('admin-assignment-rules-error-update')
+    errorMessage.value = extractErrorMessage(error, t('admin-assignment-rules-error-update'))
   }
 }
 
@@ -262,8 +261,7 @@ const deleteRule = async () => {
     await queryCache.invalidateQueries({ key: ASSIGNMENT_RULES_KEY })
     setTimeout(() => (successMessage.value = ''), 3000)
   } catch (error) {
-    const axiosError = error as { response?: { data?: string } }
-    errorMessage.value = axiosError.response?.data || t('admin-assignment-rules-error-delete')
+    errorMessage.value = extractErrorMessage(error, t('admin-assignment-rules-error-delete'))
   } finally {
     isSaving.value = false
   }
@@ -290,8 +288,7 @@ const moveRule = async (rule: AssignmentRuleWithDetails, direction: 'up' | 'down
     })
     await queryCache.invalidateQueries({ key: ASSIGNMENT_RULES_KEY })
   } catch (error) {
-    const axiosError = error as { response?: { data?: string } }
-    errorMessage.value = axiosError.response?.data || t('admin-assignment-rules-error-reorder')
+    errorMessage.value = extractErrorMessage(error, t('admin-assignment-rules-error-reorder'))
   }
 }
 
