@@ -117,6 +117,12 @@ const ALLOWED_FIELDS: &[&str] = &[
     // nothing, which defeats the one signal an operator has for telling relay
     // mode from native on a running instance.
     "configured",
+    // Licence and push-mode resolution: `edition` is community|enterprise,
+    // `source` is where a licence or push mode came from (env / pasted /
+    // linked / stored / default), `max_workspaces` a licensed count.
+    "edition",
+    "max_workspaces",
+    "source",
     "entity",
     "event_type",
     "kind",

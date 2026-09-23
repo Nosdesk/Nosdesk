@@ -685,6 +685,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-workspaces', platformAdminRequired: true }
         },
         {
+          path: 'license',
+          name: 'admin-license',
+          component: () => import('../views/admin/LicenseCloudView.vue'),
+          meta: { titleKey: 'route-title-admin-license', platformAdminRequired: true }
+        },
+        {
           path: 'workspaces/:id(\\d+)/members',
           name: 'admin-workspace-members',
           component: () => import('../views/admin/AdminWorkspaceMembersView.vue'),

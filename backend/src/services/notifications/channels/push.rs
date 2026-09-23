@@ -88,6 +88,10 @@ pub trait PushSender: Send + Sync {
         None
     }
 
+    /// Clear any held relay refusal and cached token, so the next send tries
+    /// again. No-op for senders without a relay.
+    async fn reset_relay(&self) {}
+
     /// Short static label for logs ("relay", "native", "none"). Lets the boot
     /// line name the live sender without the caller matching on a concrete type.
     fn name(&self) -> &'static str;

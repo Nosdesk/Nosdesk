@@ -1,4 +1,5 @@
 // Reexport handlers
+pub mod admin_license;
 pub mod admin_workspaces;
 pub mod analytics;
 pub mod api_tokens;

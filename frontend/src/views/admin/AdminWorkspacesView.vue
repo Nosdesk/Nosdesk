@@ -269,7 +269,12 @@ const deleteTypeToConfirmLabel = computed(() => {
         class="rounded-lg border border-subtle bg-surface-alt px-4 py-3 text-sm text-secondary flex items-start gap-2"
       >
         <Icon name="info" size="sm" class="text-tertiary shrink-0 mt-0.5" />
-        <span>{{ workspaceCapNote }}</span>
+        <span>
+          {{ workspaceCapNote }}
+          <router-link to="/admin/license" class="text-accent hover:underline whitespace-nowrap">
+            {{ $t('admin-workspaces-community-cap-link') }}
+          </router-link>
+        </span>
       </div>
 
       <div class="flex flex-wrap items-center gap-4">

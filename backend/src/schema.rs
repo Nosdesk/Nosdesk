@@ -933,6 +933,23 @@ diesel::table! {
 }
 
 diesel::table! {
+    instance_settings (id) {
+        id -> Bool,
+        license_key_encrypted -> Nullable<Bytea>,
+        license_key_kek_id -> Nullable<Int2>,
+        #[max_length = 16]
+        license_source -> Nullable<Varchar>,
+        license_installed_at -> Nullable<Timestamptz>,
+        license_installed_by -> Nullable<Uuid>,
+        license_last_refresh_at -> Nullable<Timestamptz>,
+        license_last_refresh_error -> Nullable<Text>,
+        #[max_length = 16]
+        push_mode -> Nullable<Varchar>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     knowledge_gap_signals (id) {
         id -> Int8,
         gap_id -> Int8,
@@ -2571,6 +2588,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     import_jobs,
     inbound_addresses,
     inbound_dead_letters,
+    instance_settings,
     knowledge_gap_signals,
     knowledge_gaps,
     linked_tickets,

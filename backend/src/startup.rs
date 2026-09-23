@@ -38,6 +38,10 @@ pub struct AppState {
     /// the notification service's channel registry.
     pub push_sender_data:
         web::Data<Arc<dyn crate::services::notifications::channels::push::PushSender>>,
+    /// The same sender, concretely, so the admin push-mode handler can switch
+    /// it without a restart.
+    pub push_mode_data:
+        web::Data<Arc<crate::services::notifications::channels::push_mode::SwitchablePushSender>>,
     pub outbound_resolver_data:
         web::Data<Arc<crate::services::outbound_email::OutboundEmailResolver>>,
     pub webhook_service: web::Data<crate::services::webhooks::WebhookService>,
@@ -202,7 +206,7 @@ pub fn build_state(
     }
 
     // Initialize notification service for in-app and email notifications
-    let (notification_service, push_sender_data) = {
+    let (notification_service, push_sender_data, push_mode_data) = {
         use std::collections::HashMap;
         use std::sync::Arc;
         use tokio::sync::RwLock as TokioRwLock;
@@ -237,84 +241,63 @@ pub fn build_state(
             service.register_channel(email_channel);
         }
 
-        // Push channel: provider-agnostic, selected by `NOSDESK_PUSH_MODE`.
-        //
-        //   unset   — exactly the historical behaviour: native when
-        //             NOSDESK_APNS_* / NOSDESK_FCM_* are set, else inert. Hosted
-        //             therefore needs no new variable.
-        //   native  — same, stated explicitly.
-        //   relay   — forward through the cloud relay, which holds the
-        //             com.nosdesk.app credentials. Native creds are IGNORED in
-        //             this mode, so a self-hoster cannot accidentally send
-        //             official-app device tokens with their own key.
-        //   off     — inert even when credentials are present.
-        //
-        // Inert means is_available=false: push preferences still exist and
-        // device registration still works, nothing is delivered. A
-        // configured-but-malformed provider is fatal, so a half-provisioned
-        // deploy fails loudly rather than going quiet.
-        let push_mode = std::env::var("NOSDESK_PUSH_MODE")
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase();
+        // Push channel: provider-agnostic. The mode and the licence can be set
+        // in the admin UI (instance_settings) as well as the environment, and
+        // env wins; see push_mode for the modes. Resolve the stored values now
+        // that the database is up; the reload task below keeps them current.
+        let (stored_push_mode, instance_id) = match pool.get() {
+            Ok(mut c) => {
+                crate::license::reload(&mut c);
+                let license = crate::license::state();
+                let edition = license.edition();
+                info!(
+                    edition = edition.name(),
+                    max_workspaces = edition.max_workspaces(),
+                    source = license.source.as_str(),
+                    "Edition resolved"
+                );
+                let stored = crate::repository::instance_settings::get(&mut c)
+                    .ok()
+                    .flatten()
+                    .and_then(|r| r.push_mode);
+                // `instance_id` is minted by `initialize_database`, which
+                // `build_server` runs before this. Empty is tolerated:
+                // `ensure_instance_id` is warn-only, and a shared burst bucket
+                // beats refusing to push.
+                let id = crate::sync::system_meta::instance_id(&mut c).unwrap_or_default();
+                (stored, id)
+            }
+            Err(e) => {
+                warn!(error = ?e, "pool checkout failed resolving push mode; using the environment");
+                (None, String::new())
+            }
+        };
+        use crate::services::notifications::channels::push_mode;
+        let resolved = push_mode::resolve(
+            push_mode::env_value().as_deref(),
+            stored_push_mode.as_deref(),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let switchable = Arc::new(
+            push_mode::SwitchablePushSender::new(resolved, instance_id)
+                .unwrap_or_else(|e| panic!("{e}")),
+        );
         let push_sender: Arc<dyn crate::services::notifications::channels::push::PushSender> =
-            match push_mode.as_str() {
-                "relay" => {
-                    // The licence is the relay credential. Without one there is
-                    // nothing to exchange, so stay inert rather than pretending.
-                    match std::env::var("NOSDESK_LICENSE_KEY")
-                        .ok()
-                        .filter(|s| !s.trim().is_empty())
-                    {
-                        Some(license) => {
-                            // `instance_id` is minted by `initialize_database`,
-                            // which `build_server` runs before this. Empty is
-                            // tolerated: `ensure_instance_id` is warn-only, and
-                            // a shared burst bucket beats refusing to push.
-                            let instance_id = pool
-                                .get()
-                                .ok()
-                                .and_then(|mut c| crate::sync::system_meta::instance_id(&mut c).ok())
-                                .unwrap_or_default();
-                            match crate::services::notifications::channels::relay_client::CloudRelayPushSender::new(
-                                license, instance_id,
-                            ) {
-                                Ok(sender) => Arc::new(sender),
-                                Err(e) => panic!("relay push sender is configured but invalid: {e}"),
-                            }
-                        }
-                        None => {
-                            tracing::warn!(
-                                "NOSDESK_PUSH_MODE=relay but NOSDESK_LICENSE_KEY is unset; push is inert"
-                            );
-                            Arc::new(crate::services::notifications::channels::push::NoopPushSender)
-                        }
-                    }
-                }
-                "off" => Arc::new(crate::services::notifications::channels::push::NoopPushSender),
-                "" | "native" => {
-                    match crate::services::notifications::channels::push_sender::NativePushSender::from_env() {
-                        Ok(Some(sender)) => sender,
-                        Ok(None) => {
-                            Arc::new(crate::services::notifications::channels::push::NoopPushSender)
-                        }
-                        Err(e) => panic!("push sender is configured but invalid: {e:#}"),
-                    }
-                }
-                other => panic!(
-                    "NOSDESK_PUSH_MODE={other:?} is not recognised (expected relay, native, or off)"
-                ),
-            };
+            switchable.clone();
+        if resolved.mode == push_mode::PushMode::Relay
+            && crate::license::state().relay_credential().is_none()
+        {
+            tracing::warn!(
+                "push mode is relay but no licence is installed; push is inert until one is"
+            );
+        }
         // Say which sender won, at info. Push has no request the operator can
         // watch and every skip downstream is quiet, so without this line the
         // only way to tell relay mode from native mode on a running instance is
         // to read the process environment.
         tracing::info!(
-            mode = if push_mode.is_empty() {
-                "unset"
-            } else {
-                push_mode.as_str()
-            },
+            mode = resolved.mode.as_str(),
+            source = resolved.source.as_str(),
             sender = push_sender.name(),
             configured = push_sender.is_configured(),
             // Same id the edition surface reports, so an operator on a
@@ -335,8 +318,17 @@ pub fn build_state(
         (
             web::Data::new(service),
             web::Data::new(push_sender_for_state),
+            web::Data::new(switchable),
         )
     };
+
+    // Licence and push mode set through another replica (or a stored value
+    // edited while this one ran) reach this process within a minute.
+    background_tasks.push(spawn_instance_settings_reload(
+        pool.clone(),
+        push_mode_data.get_ref().clone(),
+        scheduler_shutdown.clone(),
+    ));
 
     // Inject the outbound resolver so the comment handler can gate the
     // channel relay on whether outbound is configured at all (the worker
@@ -551,6 +543,7 @@ pub fn build_state(
             sse_state,
             notification_service,
             push_sender_data,
+            push_mode_data,
             outbound_resolver_data,
             webhook_service,
             plugin_proxy_service,
@@ -708,6 +701,49 @@ async fn serve_spa(req: HttpRequest) -> HttpResponse {
 /// portal/auth/public/internal scopes, the authenticated `/api` scope, and the
 /// SPA fallback) onto the App. The app-level wraps + CORS stay in main()'s
 /// factory closure; everything a `ServiceConfig` can carry lives here.
+/// Re-read the stored licence and push mode every minute. Cheap (one row),
+/// and it is what carries an admin change made on one replica to the others.
+fn spawn_instance_settings_reload(
+    pool: Pool,
+    push: Arc<crate::services::notifications::channels::push_mode::SwitchablePushSender>,
+    shutdown: tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    use crate::services::notifications::channels::push_mode;
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        tick.tick().await;
+        loop {
+            tokio::select! {
+                _ = shutdown.cancelled() => break,
+                _ = tick.tick() => {}
+            }
+            let pool = pool.clone();
+            let stored = tokio::task::spawn_blocking(move || {
+                let mut conn = pool.get().ok()?;
+                crate::license::reload(&mut conn);
+                crate::repository::instance_settings::get(&mut conn)
+                    .ok()
+                    .flatten()
+                    .map(|r| r.push_mode)
+            })
+            .await
+            .ok()
+            .flatten();
+            // `None` = the read failed; keep the live mode rather than guess.
+            let Some(stored) = stored else { continue };
+            match push_mode::resolve(push_mode::env_value().as_deref(), stored.as_deref()) {
+                Ok(resolved) => {
+                    if let Err(e) = push.apply(resolved) {
+                        warn!(error = %e, "stored push mode could not be applied; keeping the live sender");
+                    }
+                }
+                Err(e) => warn!(error = %e, "push mode did not resolve"),
+            }
+        }
+    })
+}
+
 pub fn configure_app(
     cfg: &mut web::ServiceConfig,
     state: &AppState,
@@ -725,6 +761,7 @@ pub fn configure_app(
             .app_data(state.sse_state.clone())
             .app_data(state.system_state.clone())
             .app_data(state.push_sender_data.clone())
+            .app_data(state.push_mode_data.clone())
             .app_data(state.storage_data.clone())
             .app_data(state.notification_service.clone())
             .app_data(state.outbound_resolver_data.clone())
@@ -963,6 +1000,7 @@ pub fn configure_app(
                     // archive / restore / hard-delete. Hard-delete
                     // requires ?confirm=<slug> matching the row.
                     .configure(crate::handlers::admin_workspaces::config)
+                    .configure(crate::handlers::admin_license::config)
                     .configure(crate::handlers::workspace_export::config)
                     // Self-serve, Owner-gated workspace data export (DSAR return).
                     .configure(crate::handlers::workspace_data_export::config)

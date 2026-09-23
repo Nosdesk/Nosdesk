@@ -10,6 +10,7 @@ import {
   filterAdminNavGroupsForRole
 } from '@/components/admin/adminNavData';
 import { useAuthStore } from '@/stores/auth';
+import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
 import Icon from '@/components/common/Icon.vue';
 
 const route = useRoute();
@@ -23,7 +24,8 @@ const roleGroups = computed(() =>
   filterAdminNavGroupsForRole(adminNavGroups, {
     isAdmin: authStore.isAdmin,
     isAuditReviewer: authStore.isAuditReviewer,
-    isPlatformAdmin: authStore.isPlatformAdmin
+    isPlatformAdmin: authStore.isPlatformAdmin,
+    isHosted: isHostedDeployment()
   })
 );
 

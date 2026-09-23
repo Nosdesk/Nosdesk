@@ -51,6 +51,13 @@ const RELAY_TIMEOUT: Duration = Duration::from_secs(10);
 /// fires with a token that lapses in flight.
 const REFRESH_MARGIN_SECS: u64 = 120;
 
+/// How long a refusal (bad licence, DPA not accepted) keeps the channel off
+/// before one more exchange is tried. Both are fixed outside this process, on
+/// the dashboard, so the instance has to look again to notice; this bounds how
+/// long that takes without hammering the exchange. A licence change or an
+/// admin retry clears it at once.
+const REFUSAL_RETRY_SECS: u64 = 600;
+
 /// What happened on the last relay interaction, for the admin edition surface.
 ///
 /// This is the only diagnostic a self-hoster has when push stops working, so it
@@ -100,6 +107,8 @@ pub enum RelayFailure {
     OverCap,
     /// The relay is deployed but not configured (missing keys on its side).
     RelayUnavailable,
+    /// No licence is installed, so there is nothing to exchange.
+    NoLicense,
     /// Could not reach the relay at all, or it timed out.
     Unreachable,
     /// The relay answered with something unexpected.
@@ -114,6 +123,7 @@ impl RelayFailure {
             Self::RateLimited => "rate_limited",
             Self::OverCap => "usage_cap",
             Self::RelayUnavailable => "relay_unavailable",
+            Self::NoLicense => "no_license",
             Self::Unreachable => "unreachable",
             Self::Unexpected => "unexpected",
         }
@@ -167,20 +177,32 @@ struct PushResponse {
 struct CachedToken {
     token: String,
     exp: u64,
+    /// Licence generation the token was exchanged for. A different current
+    /// generation means the licence changed, so the token is stale.
+    generation: u64,
+}
+
+/// A refusal that holds the channel off: which licence it applied to and when.
+#[derive(Clone, Copy)]
+struct Refusal {
+    generation: u64,
+    at: u64,
 }
 
 /// Talks to the cloud relay on behalf of one instance.
 pub struct RelayClient {
     http: reqwest::Client,
     base_url: String,
-    license: String,
     instance_id: String,
     token: Mutex<Option<CachedToken>>,
     status: RwLock<RelayStatus>,
+    refusal: RwLock<Option<Refusal>>,
 }
 
 impl RelayClient {
-    /// Build from env plus the instance's durable id.
+    /// Build from env plus the instance's durable id. The licence is read from
+    /// [`crate::license::state`] at each exchange, so installing, replacing or
+    /// removing one takes effect without rebuilding the client.
     ///
     /// `instance_id` comes from `system_meta`, which means the client must be
     /// constructed **after** `initialize_database` — that is where the id is
@@ -188,7 +210,7 @@ impl RelayClient {
     /// `ensure_instance_id` is warn-only on boot; the relay then falls back to
     /// a shared burst bucket for this customer, which is a degraded but working
     /// state and better than refusing to push at all.
-    pub fn new(license: String, instance_id: String) -> reqwest::Result<Self> {
+    pub fn new(instance_id: String) -> reqwest::Result<Self> {
         let base_url = std::env::var(RELAY_URL_ENV)
             .ok()
             .filter(|s| !s.trim().is_empty())
@@ -196,10 +218,10 @@ impl RelayClient {
         Ok(Self {
             http: reqwest::Client::builder().timeout(RELAY_TIMEOUT).build()?,
             base_url: base_url.trim_end_matches('/').to_string(),
-            license,
             instance_id,
             token: Mutex::new(None),
             status: RwLock::new(RelayStatus::default()),
+            refusal: RwLock::new(None),
         })
     }
 
@@ -221,21 +243,49 @@ impl RelayClient {
         }
     }
 
+    fn record_refusal(&self, failure: RelayFailure, generation: u64) {
+        if matches!(
+            failure,
+            RelayFailure::InvalidLicense | RelayFailure::DpaRequired
+        ) {
+            *self.refusal.write().expect("RwLock poisoned") = Some(Refusal {
+                generation,
+                at: unix_now(),
+            });
+        }
+    }
+
+    /// Forget any refusal and cached token, then exchange once so the status
+    /// the admin sees reflects the relay's answer now rather than after the
+    /// next notification. The "retry" action, and run after a licence change.
+    pub async fn reset(&self) {
+        *self.refusal.write().expect("RwLock poisoned") = None;
+        self.invalidate_token().await;
+        let _ = self.token().await;
+    }
+
     /// A usable derived token, exchanging when the cached one is absent or
     /// close to expiry.
     async fn token(&self) -> Result<String, RelayFailure> {
+        let license = crate::license::state();
+        let generation = license.generation;
         let mut guard = self.token.lock().await;
         if let Some(cached) = guard.as_ref() {
-            if cached.exp > unix_now() + REFRESH_MARGIN_SECS {
+            if cached.generation == generation && cached.exp > unix_now() + REFRESH_MARGIN_SECS {
                 return Ok(cached.token.clone());
             }
         }
+        let Some(credential) = license.relay_credential() else {
+            *guard = None;
+            self.record(Some(RelayFailure::NoLicense.kind()));
+            return Err(RelayFailure::NoLicense);
+        };
 
         let res = self
             .http
             .post(format!("{}/api/relay/v1/token", self.base_url))
             .json(&ExchangeRequest {
-                license: &self.license,
+                license: &credential,
                 instance_id: &self.instance_id,
             })
             .send()
@@ -251,6 +301,7 @@ impl RelayClient {
         let status = res.status().as_u16();
         if let Err(failure) = classify_status(status) {
             self.record(Some(failure.kind()));
+            self.record_refusal(failure, generation);
             log::warn!("relay exchange refused: error_kind={}", failure.kind());
             return Err(failure);
         }
@@ -263,7 +314,9 @@ impl RelayClient {
         *guard = Some(CachedToken {
             token: body.token.clone(),
             exp: body.exp,
+            generation,
         });
+        *self.refusal.write().expect("RwLock poisoned") = None;
         self.record(Some("ok"));
         Ok(body.token)
     }
@@ -349,16 +402,27 @@ impl RelayClient {
     /// Deliberately not "have we had a successful exchange". `is_configured`
     /// gates the channel, and the channel is what triggers the first exchange,
     /// so latching false until success would deadlock: no exchange, so never
-    /// configured, so no exchange. Instead this is false only once the relay
-    /// has told us this licence will *not* work — a bad licence or an
-    /// unaccepted DPA. Transient failures stay usable so the next notification
-    /// retries, which is also the plan's "do not cache configured independently
-    /// of the last exchange".
+    /// configured, so no exchange. Instead this is false when there is no
+    /// licence to present, or while the relay's refusal of *this* licence (a
+    /// bad licence or an unaccepted DPA) is fresh. Both are fixed elsewhere, so
+    /// the refusal lapses after [`REFUSAL_RETRY_SECS`] and clears at once when
+    /// the licence changes. Transient failures stay usable so the next
+    /// notification retries.
     pub fn is_usable(&self) -> bool {
-        !matches!(
-            self.status().last_outcome,
-            Some("invalid_license") | Some("dpa_required")
-        )
+        let license = crate::license::state();
+        if license.relay_credential().is_none() {
+            return false;
+        }
+        let refusal = *self.refusal.read().expect("RwLock poisoned");
+        refusal_allows(refusal, license.generation, unix_now())
+    }
+}
+
+/// Pure half of [`RelayClient::is_usable`].
+fn refusal_allows(refusal: Option<Refusal>, generation: u64, now: u64) -> bool {
+    match refusal {
+        None => true,
+        Some(r) => r.generation != generation || now >= r.at + REFUSAL_RETRY_SECS,
     }
 }
 
@@ -369,9 +433,9 @@ pub struct CloudRelayPushSender {
 }
 
 impl CloudRelayPushSender {
-    pub fn new(license: String, instance_id: String) -> reqwest::Result<Self> {
+    pub fn new(instance_id: String) -> reqwest::Result<Self> {
         Ok(Self {
-            client: RelayClient::new(license, instance_id)?,
+            client: RelayClient::new(instance_id)?,
         })
     }
 }
@@ -384,6 +448,10 @@ impl super::push::PushSender for CloudRelayPushSender {
 
     fn relay_status(&self) -> Option<RelayStatus> {
         Some(self.client.status())
+    }
+
+    async fn reset_relay(&self) {
+        self.client.reset().await;
     }
 
     fn name(&self) -> &'static str {
@@ -456,6 +524,7 @@ mod tests {
             RelayFailure::DpaRequired.kind(),
             RelayFailure::RateLimited.kind(),
             RelayFailure::RelayUnavailable.kind(),
+            RelayFailure::NoLicense.kind(),
             RelayFailure::Unreachable.kind(),
             RelayFailure::Unexpected.kind(),
         ];
@@ -469,7 +538,6 @@ mod tests {
         assert_eq!(deduped.len(), kinds.len(), "kinds must be distinguishable");
     }
 
-    #[test]
     /// Being over the usage cap must NOT latch the channel off.
     ///
     /// The cap clears by itself at the period rollover, so latching would leave
@@ -493,7 +561,7 @@ mod tests {
 
     #[test]
     fn status_starts_empty_and_records_outcomes() {
-        let client = RelayClient::new("licence".into(), "inst".into()).expect("client");
+        let client = RelayClient::new("inst".into()).expect("client");
         let s = client.status();
         assert!(s.last_outcome.is_none());
         assert!(s.last_attempt_at.is_none());
@@ -512,10 +580,31 @@ mod tests {
     }
 
     #[test]
+    fn a_refusal_holds_only_for_its_licence_and_only_for_a_while() {
+        let r = Some(Refusal {
+            generation: 5,
+            at: 1_000,
+        });
+        assert!(refusal_allows(None, 5, 1_000));
+        assert!(
+            !refusal_allows(r, 5, 1_001),
+            "fresh refusal of this licence holds"
+        );
+        assert!(
+            refusal_allows(r, 6, 1_001),
+            "a new licence is tried at once"
+        );
+        assert!(
+            refusal_allows(r, 5, 1_000 + REFUSAL_RETRY_SECS),
+            "a DPA accepted on the dashboard is noticed without a restart"
+        );
+    }
+
+    #[test]
     fn relay_url_is_overridable_and_trims_a_trailing_slash() {
         // Not using the env var here (tests share a process); the constructor's
         // trimming is what matters, since the paths are joined with a leading /.
-        let client = RelayClient::new("l".into(), "i".into()).expect("client");
+        let client = RelayClient::new("i".into()).expect("client");
         assert!(!client.base_url.ends_with('/'));
     }
 }

@@ -12,6 +12,8 @@ export interface AdminNavItem {
   /** Visible only to platform admins (Nosdesk operators), not per-workspace
    * owners/admins. For cross-tenant operator tools. */
   platformAdminOnly?: boolean;
+  /** Hidden on hosted deployments, where Nosdesk runs the instance. */
+  selfHostedOnly?: boolean;
 }
 
 export interface AdminNavGroup {
@@ -184,6 +186,15 @@ export const adminNavGroups: AdminNavGroup[] = [
         platformAdminOnly: true
       },
       {
+        titleKey: 'admin-nav-license-title',
+        descriptionKey: 'admin-nav-license-description',
+        icon: 'key',
+        route: '/admin/license',
+        keywords: ['license', 'licence', 'cloud', 'relay', 'push', 'enterprise', 'plan', 'subscription', 'key'],
+        platformAdminOnly: true,
+        selfHostedOnly: true
+      },
+      {
         titleKey: 'admin-nav-guest-access-title',
         descriptionKey: 'admin-nav-guest-access-description',
         icon: 'user',
@@ -252,8 +263,13 @@ export const allAdminNavItems = adminNavGroups.flatMap(g => g.items);
  */
 export function filterAdminNavGroupsForRole(
   groups: AdminNavGroup[],
-  opts: { isAdmin: boolean; isAuditReviewer: boolean; isPlatformAdmin: boolean },
+  opts: { isAdmin: boolean; isAuditReviewer: boolean; isPlatformAdmin: boolean; isHosted?: boolean },
 ): AdminNavGroup[] {
+  if (opts.isHosted) {
+    groups = groups
+      .map(group => ({ ...group, items: group.items.filter(i => !i.selfHostedOnly) }))
+      .filter(group => group.items.length > 0);
+  }
   if (opts.isAdmin) {
     if (opts.isPlatformAdmin) return groups;
     // A per-workspace admin who isn't a platform operator: hide cross-tenant
