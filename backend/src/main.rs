@@ -12,7 +12,6 @@
 )]
 
 use backend::config;
-use backend::license;
 use backend::startup;
 use backend::telemetry;
 
@@ -83,13 +82,8 @@ async fn main() -> std::io::Result<()> {
 
     // === SECURITY STARTUP VALIDATION ===
     info!("Starting Nosdesk API Server");
-    // Resolve + log the edition once at boot (verifies NOSDESK_LICENSE_KEY,
-    // if any). Community caps self-hosted deployments at one workspace.
-    info!(
-        edition = crate::license::current().name(),
-        max_workspaces = crate::license::current().max_workspaces(),
-        "Edition resolved"
-    );
+    // The edition is logged by startup once the stored licence is loaded;
+    // resolving it here would see only NOSDESK_LICENSE_KEY.
 
     // Debug: Print some environment variables to see what's available
     debug!("Environment check:");

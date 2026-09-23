@@ -6,6 +6,7 @@
 pub mod email;
 pub mod in_app;
 pub mod push;
+pub mod push_mode;
 pub mod push_sender;
 pub mod relay_client;
 

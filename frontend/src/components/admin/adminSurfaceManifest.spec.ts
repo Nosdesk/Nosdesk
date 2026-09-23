@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { adminNavGroups } from './adminNavData'
+import { adminNavGroups, filterAdminNavGroupsForRole } from './adminNavData'
 import { ADMIN_SURFACE_TIER } from './adminSurfaceManifest'
 
 /**
@@ -34,3 +34,19 @@ describe('admin surface gating manifest', () => {
     }
   })
 })
+
+describe('selfHostedOnly nav items', () => {
+  const opts = { isAdmin: true, isAuditReviewer: false, isPlatformAdmin: true };
+  const routes = (isHosted: boolean) =>
+    filterAdminNavGroupsForRole(adminNavGroups, { ...opts, isHosted })
+      .flatMap(g => g.items.map(i => i.route));
+
+  it('shows the license page to a self-hosted platform admin', () => {
+    expect(routes(false)).toContain('/admin/license');
+  });
+
+  it('hides it on hosted, where Nosdesk licenses the instance', () => {
+    expect(routes(true)).not.toContain('/admin/license');
+    expect(routes(true)).toContain('/admin/workspaces');
+  });
+});

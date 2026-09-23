@@ -16,10 +16,11 @@ UUID that survives reissues), a display name (`licensee`), a per-issuance
 id (`jti`, required), an active-workspace cap, an expiry, and an optional
 `features` list (empty in v1.1 — nothing new is gated on it). The public
 verification key is compiled into the binary; the private signing key is
-held only by Nosdesk. The server reads `NOSDESK_LICENSE_KEY` at boot,
-verifies it, and lifts the workspace cap to the license's `max_workspaces`.
-An absent, malformed, expired, or wrong-issuer license falls back to
-Community without failing startup.
+held only by Nosdesk and selected by the token's `kid` header. A verified
+license lifts the workspace cap to its `max_workspaces`; one that expires
+while the server runs stops granting at `exp`. An absent, malformed,
+expired, or wrong-issuer license falls back to Community without failing
+startup.
 
 Like any open-source gate, this is bypassable by patching the binary. The
 license is a genuine signed artifact, not an honor-system flag.
@@ -55,18 +56,25 @@ The token (prefixed `nsk_lic_`) is printed to stdout.
 
 ## Applying a license (self-hosters)
 
-Set the token in the backend environment and restart:
+Paste the key in **Admin › License**. It is verified on the server before
+it is stored (encrypted) and takes effect without a restart.
+
+Or set it in the environment, which wins over a pasted key and makes the
+admin page read-only:
 
 ```bash
 NOSDESK_LICENSE_KEY=nsk_lic_...
 ```
 
-The startup log line `Edition resolved edition=enterprise` confirms it
-verified. `GET /api/admin/edition` reports the active edition, cap,
-customer id, features, and current workspace count.
+The startup line `Edition resolved edition=enterprise` confirms it.
+`GET /api/admin/license` reports the edition, source, cap and expiry.
+
+Push mode works the same way: choose it on the same page, or set
+`NOSDESK_PUSH_MODE` to pin it.
 
 ## Rotating the key
 
-Regenerate with the `openssl` commands above, replace
-`backend/license_pubkey.pem`, and recompile. Existing licenses signed with the
-old key stop verifying, so reissue them.
+Add the new public key beside the old one in `LICENSE_PUBLIC_KEYS`
+(`backend/src/license.rs`) and release; tokens pick their key by `kid`.
+Reissue current licenses from the control plane, then drop the old key in a
+later release.

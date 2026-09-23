@@ -184,7 +184,7 @@ pub async fn get_edition(
     let max = edition.max_workspaces();
     // Gated on the edition's workspace cap, not the deployment mode (see
     // license::workspace_creation_allowed).
-    let can_create = crate::license::workspace_creation_allowed(edition, active as u64);
+    let can_create = crate::license::workspace_creation_allowed(&edition, active as u64);
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "edition": edition.name(),
         "self_hosted": self_hosted,
@@ -251,7 +251,7 @@ pub async fn create_workspace(
             return Err(ApiError::Internal("Failed to create workspace".into()));
         }
     };
-    if !crate::license::workspace_creation_allowed(edition, active as u64) {
+    if !crate::license::workspace_creation_allowed(&edition, active as u64) {
         warn!(
             active,
             max,

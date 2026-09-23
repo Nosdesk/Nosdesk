@@ -40,6 +40,7 @@ export const ADMIN_SURFACE_TIER: Record<string, AdminSurfaceTier> = {
 
   // Platform operator: cross-tenant lifecycle and instance infrastructure.
   '/admin/workspaces': 'platform',
+  '/admin/license': 'platform',
   '/admin/auth-providers': 'platform',
   '/admin/search': 'platform',
   '/admin/backup-restore': 'platform',

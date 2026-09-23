@@ -548,6 +548,21 @@ async fn admin_workspaces_config_routes_registered() {
 }
 
 #[actix_web::test]
+async fn admin_license_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::admin_license::config,
+        &[
+            ("GET", "/admin/license"),
+            ("PUT", "/admin/license"),
+            ("DELETE", "/admin/license"),
+            ("PUT", "/admin/push-mode"),
+            ("POST", "/admin/push-mode/retry"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn guest_settings_config_routes_registered() {
     assert_config_registers(
         crate::handlers::guest_settings::config,

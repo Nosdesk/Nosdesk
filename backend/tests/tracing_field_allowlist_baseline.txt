@@ -22,7 +22,6 @@ src/db.rs user_count
 src/extractors/platform_auth.rs path
 src/extractors/platform_auth.rs scope
 src/handlers/admin_workspaces.rs active
-src/handlers/admin_workspaces.rs edition
 src/handlers/admin_workspaces.rs max
 src/handlers/admin_workspaces.rs name
 src/handlers/admin_workspaces.rs slug
@@ -295,9 +294,6 @@ src/license.rs customer_id
 src/license.rs expires_at
 src/license.rs license_id
 src/license.rs licensee
-src/license.rs max_workspaces
-src/main.rs edition
-src/main.rs max_workspaces
 src/middleware/api_token.rs path
 src/middleware/api_token.rs scope
 src/middleware/api_token.rs token_uuid
