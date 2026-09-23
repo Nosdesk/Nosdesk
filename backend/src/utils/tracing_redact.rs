@@ -192,7 +192,7 @@ const ALLOWED_FIELDS: &[&str] = &[
     // someone reading a running instance's output can tell how it is
     // configured, and every one of them shipped empty until now. Same defect as
     // the push boot line in #312, found by the ratchet in
-    // tests/tracing_field_allowlist_lint.rs.
+    // tests/it/tracing_field_allowlist_lint.rs.
     //
     // Values are operator configuration, not tenant data: a bind address, a
     // filesystem directory this process created, counts, bools, and the

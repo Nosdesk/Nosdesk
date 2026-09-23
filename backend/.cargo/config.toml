@@ -47,3 +47,8 @@ TEST_DATABASE_URL = "postgres://nosdesk:nosdesk_password@127.0.0.1:54329/nosdesk
 # override; db index 15 isolates test keys from the dev backend's cache
 # on db 0. Uses the dev-default REDIS_PASSWORD.
 TEST_REDIS_URL = "redis://:nosdesk_redis_password@127.0.0.1:63799/15"
+# libpq's default gssencmode=prefer tries a GSSAPI-encrypted session first.
+# On macOS that probe stalls ~7s on the first connection in every process,
+# and every integration test binary is a fresh process. The dev and CI
+# Postgres never offer GSSAPI, so skipping the probe changes nothing else.
+PGGSSENCMODE = "disable"

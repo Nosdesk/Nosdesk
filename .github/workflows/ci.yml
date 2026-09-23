@@ -42,7 +42,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       # Redis for the collab ownership-claim integration tests
-      # (tests/collab_ownership.rs). Mirrors compose.dev.yaml's redis,
+      # (tests/it/collab_ownership.rs). Mirrors compose.dev.yaml's redis,
       # minus the password: Actions service containers can't override the
       # image command to set `requirepass`, so CI runs it open and
       # TEST_REDIS_URL below omits credentials (db 15 isolates test keys).
@@ -88,10 +88,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
           toolchain: '1.95.0'
-          components: rustfmt, clippy
+          components: rustfmt
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
@@ -100,10 +100,6 @@ jobs:
       - name: cargo fmt
         working-directory: backend
         run: cargo fmt --all -- --check
-
-      - name: cargo clippy
-        working-directory: backend
-        run: cargo clippy --all-targets --all-features
 
       - name: cargo test
         working-directory: backend
@@ -168,6 +164,30 @@ jobs:
       - name: cargo deny check
         working-directory: backend
         run: cargo deny check
+
+  # Clippy in its own job so its check build runs beside the test build
+  # instead of before it. It warns but does not gate (no -D warnings), so it
+  # is not a required check.
+  backend-clippy:
+    name: Backend clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+        with:
+          toolchain: '1.95.0'
+          components: clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: backend
+
+      - name: cargo clippy
+        working-directory: backend
+        run: cargo clippy --all-targets --all-features
 
   frontend:
     name: Frontend (Vue)

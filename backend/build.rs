@@ -16,7 +16,13 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 fn main() {
-    let migrations_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    // Read at run time, not with env!(): the compiled build script is reused
+    // across checkouts that share a target dir (same unit hash for every
+    // worktree), and a baked-in path would keep pointing at whichever
+    // checkout compiled it. A stale path hashes a missing directory and
+    // leaves the fingerprint permanently dirty, so every build recompiled.
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
+    let migrations_dir = Path::new(&manifest_dir).join("migrations");
     println!("cargo:rerun-if-changed={}", migrations_dir.display());
 
     let hash = hash_migrations_dir(&migrations_dir);

@@ -293,7 +293,7 @@ pub fn update(
 /// without renaming pass an otherwise-empty `patch`.
 ///
 /// This sits in the repo layer rather than the handler so the lint
-/// (`tests/sync_emit_lint.rs`) sees the emit, and so an admin script
+/// (`tests/it/sync_emit_lint.rs`) sees the emit, and so an admin script
 /// or background job can promote a default with the same emit shape
 /// the HTTP handler produces.
 pub fn promote_default(

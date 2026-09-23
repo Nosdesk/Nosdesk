@@ -13,7 +13,7 @@ variations. Each directory contains three files:
                                 entirely when the expected value is
                                 `None`.
 
-The harness lives at `backend/tests/email_quote_corpus.rs` and
+The harness lives at `backend/tests/it/email_quote_corpus.rs` and
 iterates this directory, asserting one split per fixture. When a
 real-world email arrives that misfires, drop it in as a new
 fixture rather than reproducing the issue inline in unit tests:
