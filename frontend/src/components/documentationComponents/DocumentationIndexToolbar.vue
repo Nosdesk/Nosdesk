@@ -4,12 +4,12 @@
  * represented as browse sections below — scoped search, collection
  * creation, and an overflow menu for maintenance / admin tasks.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
-import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings'
+import { useWorkspacePortal } from '@/composables/useWorkspacePortal'
 import { useSyncDocsStore, isActivePage } from '@nosdesk/core/sync/stores/documentation'
 import { useGlobalSearch } from '@/composables/useGlobalSearch'
 import { useDetectClustersMutation } from '@/composables/useKnowledgeGaps'
@@ -30,7 +30,7 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const authStore = useAuthStore()
 const { isAdmin, isTechnician } = storeToRefs(authStore)
 const router = useRouter()
-const publicSettings = usePublicSettingsStore()
+const { portal, portalUrl } = useWorkspacePortal()
 const docs = useSyncDocsStore()
 const { openSearch } = useGlobalSearch()
 const detectMutation = useDetectClustersMutation()
@@ -51,9 +51,7 @@ const trashCount = computed(
 const activePageCount = computed(() => docs.allPages.filter(isActivePage).length)
 const collectionCount = computed(() => docs.allCollections.length)
 
-const publicDocsEnabled = computed(
-  () => publicSettings.settings?.guest_public_docs_enabled === true,
-)
+const publicDocsEnabled = computed(() => portal.value?.public_docs_enabled === true)
 
 const menuAnchor = computed(() => ({
   type: 'element' as const,
@@ -169,7 +167,7 @@ function handleMenuSelect(id: string) {
       router.push('/documentation/trash')
       break
     case 'public-site':
-      window.open('/docs', '_blank', 'noopener,noreferrer')
+      window.open(portalUrl('/docs'), '_blank', 'noopener,noreferrer')
       break
     case 'guest-settings':
       router.push('/admin/guest-access')
@@ -177,11 +175,6 @@ function handleMenuSelect(id: string) {
   }
 }
 
-onMounted(() => {
-  if (isAdmin.value || isTechnician.value) {
-    void publicSettings.load()
-  }
-})
 </script>
 
 <template>

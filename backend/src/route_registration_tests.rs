@@ -576,6 +576,7 @@ async fn guest_settings_config_routes_registered() {
         &[
             ("GET", "/admin/guest-settings"),
             ("PATCH", "/admin/guest-settings"),
+            ("GET", "/workspace/portal"),
         ],
     )
     .await;

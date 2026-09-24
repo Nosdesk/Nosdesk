@@ -8,6 +8,7 @@ import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { useToastStore } from '@nosdesk/core/stores/toast'
+import { useWorkspacePortal } from '@/composables/useWorkspacePortal'
 
 const props = defineProps<{
   /** Workspace admin: shows the mailbox, request form and invite links. */
@@ -20,8 +21,10 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 const toast = useToastStore()
 const { copy } = useClipboard()
 
-// The public request form lives on this workspace's origin.
-const requestFormUrl = computed(() => `${window.location.origin}/submit-ticket`)
+// The public request form lives on the workspace's portal, which on hosted is
+// not the origin this page is served from.
+const { portalUrl } = useWorkspacePortal()
+const requestFormUrl = computed(() => portalUrl('/submit-ticket'))
 
 async function copyRequestForm(): Promise<void> {
   await copy(requestFormUrl.value)
