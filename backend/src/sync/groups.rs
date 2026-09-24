@@ -36,6 +36,15 @@ pub const WORKSPACE_GROUP: &str = "workspace";
 
 /// Groups attached to a ticket-scoped event.
 pub fn for_ticket(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<Vec<String>> {
+    // A guest ticket waiting for its submitter to confirm their email isn't in
+    // the workspace yet: its events reach only viewers of the ticket itself,
+    // and nobody can view a pending ticket (ticket_visibility). Consumers that
+    // don't read groups (webhooks, notifications, the activity feed) skip an
+    // action with no workspace audience; see `has_workspace_audience`.
+    // Confirmation emits `ticket.created` with the full audience.
+    if ticket.verification_state.as_deref() == Some(PENDING_VERIFICATION) {
+        return Ok(vec![format!("ticket:{}", ticket.id)]);
+    }
     let mut out = vec![WORKSPACE_GROUP.to_string(), format!("ticket:{}", ticket.id)];
     let project_ids: Vec<i32> = project_tickets::table
         .filter(project_tickets::ticket_id.eq(ticket.id))
@@ -43,6 +52,20 @@ pub fn for_ticket(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<Vec<S
         .load(conn)?;
     out.extend(project_ids.iter().map(|id| format!("project:{}", id)));
     Ok(out)
+}
+
+/// `tickets.verification_state` of a guest ticket awaiting email confirmation.
+pub const PENDING_VERIFICATION: &str = "pending";
+
+/// True when an action reaches the workspace (has a `workspace:<id>` group),
+/// as it is stored in `sync_actions`. Held actions (a pending guest ticket's)
+/// don't, and consumers that fan out by event type rather than by group
+/// (webhooks, notifications, the activity feed) skip them.
+pub fn has_workspace_audience(groups: &[Option<String>]) -> bool {
+    groups
+        .iter()
+        .flatten()
+        .any(|g| g.starts_with("workspace:") || g == WORKSPACE_GROUP)
 }
 
 /// Groups attached to a project-scoped event.

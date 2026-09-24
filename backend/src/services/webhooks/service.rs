@@ -157,15 +157,17 @@ impl WebhookService {
             // workspace_id is load-bearing: this drain runs BYPASSRLS, so
             // subscribers must be scoped to the event's own workspace by hand
             // (RLS gives no cover here).
-            let rows: Vec<(i64, i32, String, serde_json::Value)> = sync_actions::table
-                .filter(sync_actions::sync_id.eq_any(&claimed))
-                .select((
-                    sync_actions::sync_id,
-                    sync_actions::workspace_id,
-                    sync_actions::event_type,
-                    sync_actions::data,
-                ))
-                .load(conn)?;
+            let rows: Vec<(i64, i32, String, serde_json::Value, Vec<Option<String>>)> =
+                sync_actions::table
+                    .filter(sync_actions::sync_id.eq_any(&claimed))
+                    .select((
+                        sync_actions::sync_id,
+                        sync_actions::workspace_id,
+                        sync_actions::event_type,
+                        sync_actions::data,
+                        sync_actions::groups,
+                    ))
+                    .load(conn)?;
 
             // Cache the subscriber lookup per (workspace, event type) so a batch
             // of N same-type rows in a workspace is one query, not N. Build
@@ -176,7 +178,12 @@ impl WebhookService {
             > = std::collections::HashMap::new();
             let mut pending: Vec<(i32, DeliveryTask)> = Vec::new();
 
-            for (_sync_id, workspace_id, event_type, data) in &rows {
+            for (_sync_id, workspace_id, event_type, data, groups) in &rows {
+                // Not a workspace event yet (a pending guest ticket's): its
+                // `ticket.created` goes out when the submitter confirms.
+                if !crate::sync::groups::has_workspace_audience(groups) {
+                    continue;
+                }
                 let Some(webhook_type) = WebhookEventType::from_sync_action(event_type) else {
                     continue;
                 };
