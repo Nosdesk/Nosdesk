@@ -1266,6 +1266,9 @@ pub struct EmailService {
     /// The configured transport (SMTP by default). Composition stays in
     /// `EmailService`; the transport only performs the provider hand-off.
     transport: Arc<dyn EmailTransport>,
+    /// A workspace's own SMTP server (`smtp_relay` mode) rather than the
+    /// instance relay. The queue gives each one its own circuit breaker.
+    tenant_relay: bool,
 }
 
 impl EmailService {
@@ -1273,7 +1276,11 @@ impl EmailService {
     pub fn new(config: EmailConfig) -> Self {
         // SMTP is the only transport and the self-host standard.
         let transport: Arc<dyn EmailTransport> = Arc::new(SmtpEmailTransport::new(config.clone()));
-        Self { config, transport }
+        Self {
+            config,
+            transport,
+            tenant_relay: false,
+        }
     }
 
     /// Create an SMTP email service that DKIM-signs every send with `dkim`.
@@ -1282,7 +1289,11 @@ impl EmailService {
     pub fn smtp_with_dkim(config: EmailConfig, dkim: Option<DkimSigner>) -> Self {
         let transport: Arc<dyn EmailTransport> =
             Arc::new(SmtpEmailTransport::with_dkim(config.clone(), dkim));
-        Self { config, transport }
+        Self {
+            config,
+            transport,
+            tenant_relay: false,
+        }
     }
 
     /// Create a service for a tenant-supplied SMTP relay (`smtp_relay` mode).
@@ -1300,7 +1311,16 @@ impl EmailService {
     ) -> Self {
         let transport: Arc<dyn EmailTransport> =
             Arc::new(SmtpEmailTransport::new_untrusted(config.clone(), timeout));
-        Self { config, transport }
+        Self {
+            config,
+            transport,
+            tenant_relay: true,
+        }
+    }
+
+    /// True for a workspace's own SMTP server, false for the instance relay.
+    pub fn is_tenant_relay(&self) -> bool {
+        self.tenant_relay
     }
 
     /// Create the email service from environment variables. SMTP is the only

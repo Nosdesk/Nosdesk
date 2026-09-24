@@ -123,21 +123,42 @@ impl Default for CircuitBreaker {
     }
 }
 
-/// Per-transport circuit breakers, keyed by relay host.
+/// Which transport a breaker guards.
 ///
-/// A single shared breaker would let one tenant's broken SMTP relay
-/// (`smtp_relay` mode, its own host) trip the breaker for *every* send,
-/// including the platform/auth mail that goes through a different, healthy
-/// instance relay. Keying by relay host isolates fate: a broken relay pauses
-/// only its own host's sends. Workspaces that share a relay (the instance relay
-/// carries platform mail, verified-domain mail, and the fallback) share one
-/// breaker, which is correct — if that relay is down, they are all affected.
-///
-/// Breakers are created lazily on first use and live for the process; the host
-/// set is tiny (one per configured relay).
+/// The instance relay (`workspace_id: None`) carries platform mail, the
+/// fallback and verified-domain mail, so every workspace shares its breaker:
+/// if it is down, they are all affected. A workspace's own SMTP server is
+/// keyed by workspace as well as host, so one workspace's wrong password on
+/// `smtp.gmail.com` never pauses another workspace that uses Gmail too, nor
+/// the instance relay if it happens to be the same host.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BreakerKey {
+    pub workspace_id: Option<i32>,
+    pub host: String,
+}
+
+impl BreakerKey {
+    pub fn instance(host: &str) -> Self {
+        Self {
+            workspace_id: None,
+            host: host.to_string(),
+        }
+    }
+
+    pub fn tenant(workspace_id: i32, host: &str) -> Self {
+        Self {
+            workspace_id: Some(workspace_id),
+            host: host.to_string(),
+        }
+    }
+}
+
+/// Circuit breakers per transport, created lazily on first use and kept for
+/// the process. The set is small: the instance relay plus one per workspace
+/// that sends through its own server.
 #[derive(Debug, Default)]
 pub struct CircuitBreakerRegistry {
-    breakers: Mutex<HashMap<String, Arc<CircuitBreaker>>>,
+    breakers: Mutex<HashMap<BreakerKey, Arc<CircuitBreaker>>>,
 }
 
 impl CircuitBreakerRegistry {
@@ -147,10 +168,10 @@ impl CircuitBreakerRegistry {
         }
     }
 
-    /// The breaker for `relay_host`, creating it on first use.
-    pub async fn for_host(&self, relay_host: &str) -> Arc<CircuitBreaker> {
+    /// The breaker for `key`, creating it on first use.
+    pub async fn get(&self, key: BreakerKey) -> Arc<CircuitBreaker> {
         let mut map = self.breakers.lock().await;
-        map.entry(relay_host.to_string())
+        map.entry(key)
             .or_insert_with(|| Arc::new(CircuitBreaker::new()))
             .clone()
     }
@@ -192,20 +213,44 @@ mod tests {
         assert_eq!(cb.state().await, BreakerState::Closed);
     }
 
+    async fn trip(cb: &CircuitBreaker) {
+        for _ in 0..FAILURE_THRESHOLD {
+            cb.record_failure().await;
+        }
+    }
+
     #[tokio::test]
     async fn registry_isolates_breakers_by_host() {
         let reg = CircuitBreakerRegistry::new();
-        let a = reg.for_host("relay-a").await;
-        for _ in 0..FAILURE_THRESHOLD {
-            a.record_failure().await;
-        }
-        // relay-a is open; relay-b is a different transport and untouched.
-        assert!(!reg.for_host("relay-a").await.allow().await);
-        assert!(reg.for_host("relay-b").await.allow().await);
-        // The same host returns the same breaker, so state persists.
-        assert_eq!(
-            reg.for_host("relay-a").await.state().await,
-            BreakerState::Open
+        trip(&*reg.get(BreakerKey::instance("relay-a")).await).await;
+        assert!(!reg.get(BreakerKey::instance("relay-a")).await.allow().await);
+        assert!(reg.get(BreakerKey::instance("relay-b")).await.allow().await);
+    }
+
+    #[tokio::test]
+    async fn a_workspace_server_trips_only_its_own_breaker() {
+        let reg = CircuitBreakerRegistry::new();
+        // Workspace 1 has a wrong password for a shared provider.
+        trip(&*reg.get(BreakerKey::tenant(1, "smtp.gmail.com")).await).await;
+        assert!(
+            !reg.get(BreakerKey::tenant(1, "smtp.gmail.com"))
+                .await
+                .allow()
+                .await
+        );
+        // Workspace 2 on the same provider, and the instance relay on the
+        // same host, keep sending.
+        assert!(
+            reg.get(BreakerKey::tenant(2, "smtp.gmail.com"))
+                .await
+                .allow()
+                .await
+        );
+        assert!(
+            reg.get(BreakerKey::instance("smtp.gmail.com"))
+                .await
+                .allow()
+                .await
         );
     }
 }
