@@ -80,6 +80,8 @@ pub struct Claimed {
     pub actor_kind: Option<String>,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub occurred_at: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<diesel::sql_types::Array<Nullable<Text>>>)]
+    pub groups: Option<Vec<Option<String>>>,
 }
 
 /// Claim due rows and load their source events in one short transaction.
@@ -105,7 +107,8 @@ pub fn claim_batch(conn: &mut crate::db::DbConnection) -> QueryResult<Vec<Claime
          RETURNING o.sync_id, o.attempts
         )
         SELECT c.sync_id, c.attempts,
-               s.workspace_id, s.event_type, s.data, s.actor_uuid, s.actor_kind, s.occurred_at
+               s.workspace_id, s.event_type, s.data, s.actor_uuid, s.actor_kind, s.occurred_at,
+               s.groups
           FROM claimed c
           LEFT JOIN sync_actions s ON s.sync_id = c.sync_id
          ORDER BY c.sync_id
@@ -238,6 +241,12 @@ impl Dispatcher {
                 done.push(c.sync_id);
                 continue;
             };
+            // Not a workspace event yet (a pending guest ticket's): nothing to
+            // notify until the submitter confirms and it's emitted for real.
+            if !crate::sync::groups::has_workspace_audience(c.groups.as_deref().unwrap_or(&[])) {
+                done.push(c.sync_id);
+                continue;
+            }
             if (now - occurred_at).num_seconds() > MAX_AGE_SECS {
                 debug!(
                     sync_id = c.sync_id,

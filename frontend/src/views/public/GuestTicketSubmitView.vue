@@ -108,6 +108,7 @@
       </div>
 
       <form
+        ref="formEl"
         @submit.prevent="submit"
         novalidate
         class="bg-surface border border-default rounded-xl shadow-sm p-5 sm:p-6 flex flex-col gap-4"
@@ -161,6 +162,11 @@
           :label="t('guest-submit-field-title')"
           :placeholder="t('guest-submit-field-title-placeholder')"
           :error="fieldErrors.title ?? undefined"
+          :description="
+            form.title.length > TITLE_COUNTER_FROM
+              ? t('guest-submit-title-counter', { count: form.title.length, max: 255 })
+              : undefined
+          "
           required
           maxlength="255"
           @blur="validateField('title')"
@@ -247,8 +253,9 @@
           </ul>
           <p v-if="attachmentError" class="text-xs text-status-error">{{ attachmentError }}</p>
         </div>
-        <div class="flex justify-end">
-          <Button type="submit" :loading="submitting">
+        <div class="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
+          <p class="text-xs text-tertiary">{{ t('guest-submit-privacy-note') }}</p>
+          <Button type="submit" :loading="submitting" class="self-end sm:self-auto shrink-0">
             {{ submitting ? t('guest-submit-submitting') : t('guest-submit-submit') }}
           </Button>
         </div>
@@ -264,7 +271,7 @@
 
 <script setup lang="ts">
 import LinkButton from '@/components/common/LinkButton.vue'
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, nextTick } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
@@ -303,6 +310,11 @@ const store = usePublicSettingsStore();
 const loading = ref(true);
 const submitting = ref(false);
 const error = ref<string | null>(null);
+const formEl = ref<HTMLFormElement | null>(null);
+/** Matches the server's minimum; a subject shorter than this says nothing. */
+const MIN_TITLE_CHARS = 3;
+/** Show the subject's length only as it nears the 255 limit. */
+const TITLE_COUNTER_FROM = 200;
 const success = ref<SubmitGuestTicketResponse | null>(null);
 const submittedEmail = ref('');
 const copied = ref(false);
@@ -365,8 +377,11 @@ function fieldError(field: FieldKey): string | null {
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
         ? null
         : t('guest-submit-error-email');
-    case 'title':
-      return form.title.trim().length < 1 ? t('guest-submit-error-title') : null;
+    case 'title': {
+      const length = form.title.trim().length;
+      if (length < 1) return t('guest-submit-error-title');
+      return length < MIN_TITLE_CHARS ? t('guest-submit-error-title-short') : null;
+    }
     case 'description':
       return form.description.trim().length < 1 ? t('guest-submit-error-description') : null;
   }
@@ -383,7 +398,12 @@ function validate(): boolean {
 
 async function submit() {
   error.value = null;
-  if (!validate()) return;
+  if (!validate()) {
+    // Take the person to the first thing to fix, not just paint it red.
+    await nextTick();
+    formEl.value?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+    return;
+  }
   if (uploading.value) {
     error.value = t('guest-submit-error-uploads-pending');
     return;

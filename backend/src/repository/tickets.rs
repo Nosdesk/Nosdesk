@@ -153,6 +153,45 @@ fn workflow_state_payload(
 
 /// Bare create — UI handlers, the import binary, and any caller
 /// without specific channel/portal context land here.
+/// The `ticket.created` payload: the ticket as a card, plus how it was created.
+/// Shared by creation and by the release of a guest ticket on email
+/// confirmation, so the two can't drift.
+fn ticket_created_data(
+    conn: &mut DbConnection,
+    ticket: &Ticket,
+    created_via: serde_json::Value,
+) -> QueryResult<serde_json::Value> {
+    let workflow_state = workflow_state_payload(conn, ticket.workflow_state_id)?;
+    Ok(json!({
+        "id": ticket.id,
+        "uuid": ticket.uuid,
+        "title": ticket.title,
+        // Nested state so the kanban can place the card; the
+        // flat id stays the write source of truth.
+        "workflow_state": workflow_state,
+        "workflow_state_id": ticket.workflow_state_id,
+        "priority": ticket.priority.as_str(),
+        "requester_uuid": ticket.requester_uuid,
+        "assignee_uuid": ticket.assignee_uuid,
+        // A ticket created with an assignee is an assignment;
+        // the null previous value is what lets the deriver
+        // see it without a special case. Status is not: a
+        // fresh ticket's state is nobody's change.
+        "previous_assignee_uuid": null,
+        "category_id": ticket.category_id,
+        "triage_state": ticket.triage_state,
+        "spam_suspected": ticket.spam_suspected,
+        "due_date": ticket.due_date,
+        "start_date": ticket.start_date,
+        "created_at": ticket.created_at,
+        "updated_at": ticket.updated_at,
+        "last_activity_at": ticket.updated_at,
+        "submitted_via": ticket.submitted_via,
+        "origin_channel_id": ticket.origin_channel_id,
+        "created_via": created_via,
+    }))
+}
+
 pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryResult<Ticket> {
     create_ticket_with_annotation(conn, new_ticket, TicketCreationAnnotation::default(), None)
 }
@@ -217,7 +256,6 @@ pub fn create_ticket_with_annotation(
             None
         };
         let groups = groups::for_ticket(conn, &ticket)?;
-        let workflow_state = workflow_state_payload(conn, ticket.workflow_state_id)?;
         // `created_via` is an additive nested object: legacy
         // consumers that look at the existing top-level fields keep
         // working; the activity renderer reads `created_via.source`
@@ -230,6 +268,7 @@ pub fn create_ticket_with_annotation(
             "from_name": annotation.from_name,
             "subject": annotation.subject,
         });
+        let data = ticket_created_data(conn, &ticket, created_via)?;
         emit::record(
             conn,
             SyncEmit {
@@ -237,34 +276,7 @@ pub fn create_ticket_with_annotation(
                 aggregate_id: ticket.id.to_string(),
                 op: SyncOp::Insert,
                 event_type: "ticket.created",
-                data: json!({
-                    "id": ticket.id,
-                    "uuid": ticket.uuid,
-                    "title": ticket.title,
-                    // Nested state so the kanban can place the card; the
-                    // flat id stays the write source of truth.
-                    "workflow_state": workflow_state,
-                    "workflow_state_id": ticket.workflow_state_id,
-                    "priority": ticket.priority.as_str(),
-                    "requester_uuid": ticket.requester_uuid,
-                    "assignee_uuid": ticket.assignee_uuid,
-                    // A ticket created with an assignee is an assignment;
-                    // the null previous value is what lets the deriver
-                    // see it without a special case. Status is not: a
-                    // fresh ticket's state is nobody's change.
-                    "previous_assignee_uuid": null,
-                    "category_id": ticket.category_id,
-                    "triage_state": ticket.triage_state,
-                    "spam_suspected": ticket.spam_suspected,
-                    "due_date": ticket.due_date,
-                    "start_date": ticket.start_date,
-                    "created_at": ticket.created_at,
-                    "updated_at": ticket.updated_at,
-                    "last_activity_at": ticket.updated_at,
-                    "submitted_via": ticket.submitted_via,
-                    "origin_channel_id": ticket.origin_channel_id,
-                    "created_via": created_via,
-                }),
+                data,
                 groups,
                 causation_id: None,
             },
@@ -306,7 +318,6 @@ pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult
         .first(conn)
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 /// Flip every `verification_state = 'pending'` ticket requested by the given
 /// user over to `'verified'` and return the newly-released tickets.
 ///
@@ -314,20 +325,65 @@ pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult
 /// own the email they gave us, every guest ticket they've filed (potentially
 /// more than one within the 7-day invitation window) is released into the
 /// tech queue at the same time.
+///
+/// While pending, a ticket's events were held (no workspace audience; see
+/// `groups::for_ticket`), so this is where the workspace first hears of it:
+/// one `ticket.created` with the full audience, carrying the `created_via`
+/// the held one recorded (who submitted it, from where).
 pub fn verify_pending_tickets_for_user(
     conn: &mut DbConnection,
     user_uuid: Uuid,
 ) -> QueryResult<Vec<Ticket>> {
-    diesel::update(
-        tickets::table
-            .filter(tickets::requester_uuid.eq(Some(user_uuid)))
-            .filter(tickets::verification_state.eq("pending")),
-    )
-    .set((
-        tickets::verification_state.eq("verified"),
-        tickets::updated_at.eq(chrono::Utc::now().naive_utc()),
-    ))
-    .get_results(conn)
+    conn.transaction(|conn| {
+        let released: Vec<Ticket> = diesel::update(
+            tickets::table
+                .filter(tickets::requester_uuid.eq(Some(user_uuid)))
+                .filter(tickets::verification_state.eq(groups::PENDING_VERIFICATION)),
+        )
+        .set((
+            tickets::verification_state.eq("verified"),
+            tickets::updated_at.eq(chrono::Utc::now().naive_utc()),
+        ))
+        .get_results(conn)?;
+        for ticket in &released {
+            let created_via = held_created_via(conn, ticket.id)?.unwrap_or_else(|| {
+                json!({ "source": "guest_portal", "from_email": null, "from_name": null, "subject": ticket.title })
+            });
+            let data = ticket_created_data(conn, ticket, created_via)?;
+            let groups = groups::for_ticket(conn, ticket)?;
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::Ticket,
+                    aggregate_id: ticket.id.to_string(),
+                    op: SyncOp::Insert,
+                    event_type: "ticket.created",
+                    data,
+                    groups,
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(released)
+    })
+}
+
+/// The `created_via` of a ticket's held `ticket.created` (recorded while it
+/// was pending), if there is one.
+fn held_created_via(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<Option<serde_json::Value>> {
+    use crate::schema::sync_actions;
+    let data: Option<serde_json::Value> = sync_actions::table
+        .filter(sync_actions::aggregate_id.eq(ticket_id.to_string()))
+        .filter(sync_actions::event_type.eq("ticket.created"))
+        .filter(sync_actions::groups.contains(vec![Some(format!("ticket:{ticket_id}"))]))
+        .order(sync_actions::sync_id.asc())
+        .select(sync_actions::data)
+        .first(conn)
+        .optional()?;
+    Ok(data.and_then(|d| d.get("created_via").cloned()))
 }
 
 pub fn update_ticket(

@@ -168,6 +168,16 @@ impl VisibilityContext {
     }
 }
 
+/// Tickets not awaiting guest email confirmation (NULL or any other state).
+fn not_pending() -> diesel::dsl::Or<
+    diesel::dsl::IsNull<tickets::verification_state>,
+    diesel::dsl::NotEq<tickets::verification_state, &'static str>,
+> {
+    tickets::verification_state
+        .is_null()
+        .or(tickets::verification_state.ne(crate::sync::groups::PENDING_VERIFICATION))
+}
+
 /// Returns a boxed Diesel query filtered to tickets the given user
 /// is allowed to read. List endpoints consume this directly so they
 /// can paginate / order / filter without re-deriving the predicate.
@@ -177,7 +187,9 @@ impl VisibilityContext {
 /// type-level branching would force every caller to use a trait
 /// object anyway.
 pub fn visible_tickets_query<'a>(ctx: &VisibilityContext) -> tickets::BoxedQuery<'a, Pg> {
-    let base = tickets::table.into_boxed();
+    // A guest ticket awaiting email confirmation isn't in the workspace yet:
+    // nobody sees it, staff included, until the submitter confirms.
+    let base = tickets::table.into_boxed().filter(not_pending());
     if ctx.sees_all() {
         return base;
     }
@@ -237,16 +249,17 @@ pub fn can_view_ticket(
     ticket_id: i32,
 ) -> QueryResult<bool> {
     if ctx.sees_all() {
-        // Admin / Technician: visibility check collapses to "does
-        // the ticket exist?" Cheap single-keyed lookup.
-        return select(exists(tickets::table.find(ticket_id))).get_result(conn);
+        // Admin / Technician: visibility check collapses to "does the ticket
+        // exist (and isn't awaiting confirmation)?" Cheap single-keyed lookup.
+        return select(exists(tickets::table.find(ticket_id).filter(not_pending())))
+            .get_result(conn);
     }
     // End-user: requester OR watcher.
     let watched_ticket_ids = ticket_watchers::table
         .filter(ticket_watchers::user_uuid.eq(ctx.user_uuid))
         .select(ticket_watchers::ticket_id);
     select(exists(
-        tickets::table.find(ticket_id).filter(
+        tickets::table.find(ticket_id).filter(not_pending()).filter(
             tickets::requester_uuid
                 .eq(ctx.user_uuid)
                 .or(tickets::id.eq_any(watched_ticket_ids)),

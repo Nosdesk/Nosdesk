@@ -427,6 +427,12 @@ pub async fn get_ticket_activity(
         // separate count query — same trick `delta` uses.
         let mut q = sync_actions::table
             .filter(sync_actions::groups.contains(vec![Some(group_marker)]))
+            // Only workspace events: a guest ticket's actions from before its
+            // submitter confirmed (held, no workspace audience) would show a
+            // second "created" next to the one emitted at confirmation.
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+                "EXISTS (SELECT 1 FROM unnest(sync_actions.groups) g WHERE g LIKE 'workspace:%')",
+            ))
             .order((
                 sync_actions::occurred_at.desc(),
                 sync_actions::sync_id.desc(),

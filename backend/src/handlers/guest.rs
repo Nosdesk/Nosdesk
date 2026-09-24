@@ -77,6 +77,7 @@ const GUEST_MAX_NAME_LENGTH: usize = 120;
 
 /// Upper bound on the free-text description of a ticket. Matches the
 /// `maxlength` attribute on the frontend textarea.
+const GUEST_MIN_TITLE_CHARS: usize = 3;
 const GUEST_MAX_DESCRIPTION_LENGTH: usize = 10_000;
 
 /// Upper bound on a public documentation search query — prevents a
@@ -383,7 +384,9 @@ pub async fn submit_guest_ticket(
             "We can't deliver mail to that address.".into(),
         ));
     }
-    if title.is_empty() || title.len() > 255 {
+    // A subject of a character or two doesn't tell anyone what the ticket is
+    // about; the form asks for at least three.
+    if title.chars().count() < GUEST_MIN_TITLE_CHARS || title.len() > 255 {
         return Err(ApiError::BadRequest("Invalid title".into()));
     }
     if description.is_empty() || description.len() > GUEST_MAX_DESCRIPTION_LENGTH {
