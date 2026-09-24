@@ -40,6 +40,7 @@ pub async fn validate_invitation(
                 workspace_name: None,
                 message: Some("Invalid or expired invitation link".to_string()),
                 context: None,
+                password_required: false,
             }));
         }
     };
@@ -54,6 +55,7 @@ pub async fn validate_invitation(
             workspace_name: None,
             message: Some("Invalid invitation link".to_string()),
             context: None,
+            password_required: false,
         }));
     }
 
@@ -67,6 +69,7 @@ pub async fn validate_invitation(
             workspace_name: None,
             message: Some("This invitation has already been used".to_string()),
             context: None,
+            password_required: false,
         }));
     }
 
@@ -81,6 +84,7 @@ pub async fn validate_invitation(
             workspace_name: None,
             message: Some("This invitation has expired".to_string()),
             context: None,
+            password_required: false,
         }));
     }
 
@@ -96,6 +100,7 @@ pub async fn validate_invitation(
                 workspace_name: None,
                 message: Some("User not found".to_string()),
                 context: None,
+                password_required: false,
             }));
         }
     };
@@ -118,6 +123,8 @@ pub async fn validate_invitation(
         .or_else(|| Some("invitation".to_string()));
 
     let (invited_by, workspace_name) = greeting_fields(token.metadata.as_ref());
+    let password_required = context.as_deref() != Some("guest_ticket")
+        || crate::middleware::workspace_context::local_credentials_permitted();
     Ok(HttpResponse::Ok().json(ValidateInvitationResponse {
         valid: true,
         user_email,
@@ -126,6 +133,7 @@ pub async fn validate_invitation(
         invited_by,
         workspace_name,
         context,
+        password_required,
     }))
 }
 
@@ -246,6 +254,124 @@ pub async fn accept_invitation(
         }
     }
 
+    complete_verification(
+        &db_pool,
+        &mut conn,
+        &search_service,
+        &user,
+        Completion::PasswordSet,
+    )?;
+
+    // Log security event for invitation acceptance
+    if let Err(e) =
+        record_verification_event(&user.uuid, "invitation_accepted", &http_request, &mut conn)
+    {
+        warn!("Failed to log invitation acceptance event: {}", e);
+        // Don't fail the request if logging fails
+    }
+
+    info!(
+        "Invitation accepted successfully for user: {} (uuid={})",
+        user.name, user.uuid
+    );
+
+    Ok(HttpResponse::Ok().json(AcceptInvitationResponse {
+        success: true,
+        message:
+            "Your account has been activated. You can now log in with your email and password."
+                .to_string(),
+    }))
+}
+
+/// Confirm a guest ticket submission from the emailed link, without setting a
+/// password. Hosted has no local credentials, so the password step of
+/// [`accept_invitation`] can't run there; confirming the address is what
+/// releases the held ticket either way.
+///
+/// The token is checked first and claimed only after the release succeeds, so
+/// a failed release leaves the link usable. Releasing is idempotent, so a
+/// double click can't release twice.
+pub async fn confirm_guest_submission(
+    db_pool: web::Data<crate::db::Pool>,
+    search_service: web::Data<Arc<SearchService>>,
+    request_data: web::Json<ValidateInvitationRequest>,
+    http_request: HttpRequest,
+) -> Result<HttpResponse, ApiError> {
+    let mut conn = helpers::db_conn(&db_pool)?;
+    let invalid = || ApiError::BadRequest("Invalid or expired confirmation link".into());
+
+    let token_hash = crate::utils::reset_tokens::ResetTokenUtils::hash_token(&request_data.token);
+    let token = repository::reset_tokens::find_token_by_hash(&mut conn, &token_hash)
+        .map_err(|_| invalid())?;
+    let expires_at = chrono::DateTime::<Utc>::from_naive_utc_and_offset(token.expires_at, Utc);
+    let is_guest = token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("source"))
+        .and_then(|s| s.as_str())
+        == Some("guest_ticket_submission");
+    if token.token_type != TokenType::Invitation.as_str()
+        || token.is_used
+        || crate::utils::reset_tokens::ResetTokenUtils::is_token_expired(expires_at)
+        || !is_guest
+    {
+        return Err(invalid());
+    }
+
+    let user = repository::get_user_by_uuid(&token.user_uuid, &mut conn).map_err(|_| invalid())?;
+
+    complete_verification(
+        &db_pool,
+        &mut conn,
+        &search_service,
+        &user,
+        Completion::GuestConfirmed,
+    )?;
+
+    if let Err(e) = repository::reset_tokens::validate_and_consume_token(
+        &mut conn,
+        &request_data.token,
+        TokenType::Invitation.as_str(),
+    ) {
+        // A concurrent confirm claimed it first; the release already happened.
+        info!(user_uuid = %user.uuid, error = %e, "Guest confirmation token already claimed");
+    }
+
+    if let Err(e) = record_verification_event(
+        &user.uuid,
+        "guest_submission_confirmed",
+        &http_request,
+        &mut conn,
+    ) {
+        warn!("Failed to log guest confirmation event: {}", e);
+    }
+
+    Ok(HttpResponse::Ok().json(AcceptInvitationResponse {
+        success: true,
+        message: "Your request has been confirmed.".to_string(),
+    }))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Completion {
+    /// Invitation accepted with a new local password.
+    PasswordSet,
+    /// Guest submission confirmed without a password. The release is the
+    /// point of the request, so a failed release is an error the caller
+    /// surfaces (the token is still unclaimed and the link can be retried).
+    GuestConfirmed,
+}
+
+/// Steps shared by every token-verified acceptance: stamp the membership
+/// accepted, mark the primary email verified, and release any guest tickets
+/// held on this confirmation.
+fn complete_verification(
+    db_pool: &web::Data<crate::db::Pool>,
+    conn: &mut DbConnection,
+    search_service: &web::Data<Arc<SearchService>>,
+    user: &crate::models::User,
+    completion: Completion,
+) -> Result<(), ApiError> {
     // Pre-session (token-verified) flow: resolve the audit workspace once
     // from the user's primary membership, then thread it through the audited
     // writes below (users.password_changed_at and the ticket release). The
@@ -255,7 +381,7 @@ pub async fn accept_invitation(
     // Fail loud if the user genuinely has no membership.
     let workspace_id =
         // cross-tenant: pre-session workspace resolution: only the invited user is known here.
-        match crate::sync::session::background_run(&db_pool, "background:invitation_accept", |c| {
+        match crate::sync::session::background_run(db_pool, "background:invitation_accept", |c| {
             crate::repository::workspaces::primary_workspace_for_user(c, user.uuid)
         }) {
             Ok(ws) => ws,
@@ -271,12 +397,14 @@ pub async fn accept_invitation(
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
 
     // Update password_changed_at timestamp in users table
-    let now = Utc::now().naive_utc();
-    if let Err(e) = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
-        repository::users::set_password_changed_at(c, &user.uuid, now)
-    }) {
-        warn!("Failed to update password_changed_at: {:?}", e);
-        // Don't fail the request for this
+    if completion == Completion::PasswordSet {
+        let now = Utc::now().naive_utc();
+        if let Err(e) = crate::sync::session::with_actor_context(conn, &actor, |c| {
+            repository::users::set_password_changed_at(c, &user.uuid, now)
+        }) {
+            warn!("Failed to update password_changed_at: {:?}", e);
+            // Don't fail the request for this
+        }
     }
 
     // Stamp the user's membership(s) as accepted so the workspace
@@ -284,7 +412,7 @@ pub async fn accept_invitation(
     // is display-only (the 403 membership gate checks row existence,
     // not this column), so a best-effort failure here doesn't block the
     // accept. Audited table, so route through with_actor_context.
-    if let Err(e) = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+    if let Err(e) = crate::sync::session::with_actor_context(conn, &actor, |c| {
         repository::workspaces::mark_memberships_accepted(c, user.uuid)
     }) {
         warn!("Failed to stamp workspace membership accepted_at: {:?}", e);
@@ -292,7 +420,7 @@ pub async fn accept_invitation(
     }
 
     // Mark user's primary email as verified (they proved ownership by receiving the invitation)
-    if let Err(e) = repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
+    if let Err(e) = repository::user_emails::mark_primary_verified(conn, &user.uuid) {
         warn!("Failed to mark email as verified: {:?}", e);
         // Don't fail the request for this
     }
@@ -302,7 +430,7 @@ pub async fn accept_invitation(
     // stream and the search index so techs pick it up immediately — the
     // same side-effects that would have fired at submit time for a
     // non-gated ticket.
-    match crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+    match crate::sync::session::with_actor_context(conn, &actor, |c| {
         repository::tickets::verify_pending_tickets_for_user(c, user.uuid)
     }) {
         Ok(released) if !released.is_empty() => {
@@ -324,31 +452,19 @@ pub async fn accept_invitation(
         Ok(_) => {}
         Err(e) => {
             warn!(user_uuid = %user.uuid, error = %e, "Failed to release pending tickets");
+            if completion == Completion::GuestConfirmed {
+                return Err(ApiError::Internal("Failed to confirm submission".into()));
+            }
         }
     }
 
-    // Log security event for invitation acceptance
-    if let Err(e) = log_invitation_acceptance_event(&user.uuid, &http_request, &mut conn).await {
-        warn!("Failed to log invitation acceptance event: {}", e);
-        // Don't fail the request if logging fails
-    }
-
-    info!(
-        "Invitation accepted successfully for user: {} (uuid={})",
-        user.name, user.uuid
-    );
-
-    Ok(HttpResponse::Ok().json(AcceptInvitationResponse {
-        success: true,
-        message:
-            "Your account has been activated. You can now log in with your email and password."
-                .to_string(),
-    }))
+    Ok(())
 }
 
-/// Helper function to log invitation acceptance security event
-async fn log_invitation_acceptance_event(
+/// Record a token-verified acceptance as a security event.
+fn record_verification_event(
     user_uuid: &uuid::Uuid,
+    action: &'static str,
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -358,10 +474,10 @@ async fn log_invitation_acceptance_event(
         conn,
         SecurityEventInput {
             user_uuid: Some(*user_uuid),
-            event_type: "invitation_accepted",
+            event_type: action,
             severity: "info",
             details: Some(json!({
-                "action": "invitation_accepted",
+                "action": action,
                 "success": true
             })),
             request: Some(request),

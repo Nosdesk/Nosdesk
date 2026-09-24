@@ -544,6 +544,8 @@ class AuthService {
     /** Who sent it and into which workspace; absent on older tokens. */
     invited_by?: string;
     workspace_name?: string;
+    /** False for a guest confirmation where no password is set (hosted). */
+    password_required?: boolean;
   }> {
     try {
       const response = await apiClient.post('/auth/invitation/validate', { token });
@@ -566,6 +568,19 @@ class AuthService {
       return response.data;
     } catch (error) {
       logger.error('Failed to accept invitation', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Confirm a guest ticket submission without setting a password
+   */
+  async confirmGuestSubmission(token: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await apiClient.post('/auth/invitation/confirm-guest', { token });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to confirm guest submission', { error });
       throw error;
     }
   }
