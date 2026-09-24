@@ -953,31 +953,6 @@ admin-search-mgmt-rebuild-confirm-label = Rebuild
 admin-search-mgmt-rebuild-error-unexpected = Something went wrong while rebuilding the index
 
 # Admin: Email Configuration.
-admin-email-settings-title = Email Configuration
-admin-email-settings-description = View email configuration status and send test emails. Email settings live in environment variables.
-admin-email-settings-env-notice-prefix = Email settings are configured through environment variables in your
-admin-email-settings-env-notice-suffix = file or Docker environment. Use the "Send Test Email" feature to verify your configuration is working.
-admin-email-settings-loading = Loading email configuration...
-admin-email-settings-service = SMTP Email Service
-admin-email-settings-configured = Configured
-admin-email-settings-not-configured = Not configured
-admin-email-settings-enabled = Enabled
-admin-email-settings-server = Server
-admin-email-settings-from-address = From Address
-admin-email-settings-password = Password
-admin-email-settings-password-not-set = Not set
-admin-email-settings-env-vars-label = Env:
-admin-email-settings-test-send = Send test:
-admin-email-settings-test-placeholder = recipient@example.com
-admin-email-settings-test-send-button = Send
-admin-email-settings-test-sending = Sending...
-admin-email-settings-empty-title = Email is not configured
-admin-email-settings-empty-description = Configure email settings in your environment variables to enable email functionality
-admin-email-settings-error-load = Couldn't load email configuration
-admin-email-settings-error-no-address = Enter an email address
-admin-email-settings-error-bad-address = Enter a valid email address
-admin-email-settings-test-success = Test email sent
-admin-email-settings-error-test = Couldn't send test email
 
 # Admin: Guest Access.
 admin-guest-title = Guest Access

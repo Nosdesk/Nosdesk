@@ -1,20 +1,14 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
-use serde::Deserialize;
+use actix_web::{web, HttpRequest, HttpResponse};
 use serde_json::json;
 
 use crate::errors::ApiError;
 use crate::extractors::TenantConn;
 use crate::utils::email::EmailService;
-use crate::utils::email_branding::get_email_branding;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route(
         "/admin/email/config",
         web::get().to(crate::handlers::email::get_email_config),
-    )
-    .route(
-        "/admin/email/test",
-        web::post().to(crate::handlers::email::send_test_email),
     )
     // Per-workspace verified sending domain (DKIM)
     .route(
@@ -24,6 +18,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/email/outbound",
         web::delete().to(crate::handlers::workspace_email::reset),
+    )
+    .route(
+        "/admin/email/outbound/mode",
+        web::put().to(crate::handlers::workspace_email::set_mode),
     )
     .route(
         "/admin/email/outbound/domain",
@@ -54,12 +52,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/admin/email/outbound/relay/test",
         web::post().to(crate::handlers::workspace_email::test_relay),
     );
-}
-
-/// Test email request
-#[derive(Deserialize)]
-pub struct TestEmailRequest {
-    pub to: String,
 }
 
 /// Get email configuration status (admin only, read-only)
@@ -160,60 +152,5 @@ pub async fn get_email_config(
             "is_configured": false,
             "error": e
         }))),
-    }
-}
-
-/// Send a test email (admin only)
-pub async fn send_test_email(
-    mut tc: TenantConn,
-    req: HttpRequest,
-    request: web::Json<TestEmailRequest>,
-) -> Result<HttpResponse, ApiError> {
-    // Per-workspace test send (targets this workspace's identity). A workspace
-    // admin owns it, matching the sibling outbound endpoints. Was platform-admin.
-    crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
-
-    // Create email service
-    let email_service = match EmailService::from_env() {
-        Ok(service) => service,
-        Err(e) => {
-            return Err(ApiError::BadRequest(format!(
-                "Email is not configured: {}",
-                e
-            )))
-        }
-    };
-
-    // Get branding for test email. site_settings is workspace-scoped,
-    // so the lookup rides on TenantConn's RLS-primed transaction. The link host
-    // is this workspace's canonical origin (the test send targets the current
-    // workspace), then FRONTEND_URL, then a local default.
-    let ws_origin = req
-        .extensions()
-        .get::<crate::extractors::WorkspaceContext>()
-        .and_then(|ws| ws.canonical_origin());
-    let base_url = crate::utils::tenant_origin::email_link_base(ws_origin)
-        .unwrap_or_else(|| "http://localhost:3000".to_string());
-    let branding =
-        match tc.run(|conn| Ok::<_, diesel::result::Error>(get_email_branding(conn, &base_url))) {
-            Ok(b) => b,
-            Err(e) => {
-                return Err(ApiError::Internal(format!(
-                    "Failed to load email branding: {}",
-                    e
-                )))
-            }
-        };
-
-    // Send test email
-    match email_service.send_test_email(&request.to, &branding).await {
-        Ok(_) => Ok(HttpResponse::Ok().json(json!({
-            "status": "success",
-            "message": format!("Test email sent successfully to {}", request.to)
-        }))),
-        Err(e) => Err(ApiError::Internal(format!(
-            "Failed to send test email: {}",
-            e
-        ))),
     }
 }
