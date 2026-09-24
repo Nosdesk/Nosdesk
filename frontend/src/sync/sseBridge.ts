@@ -1,7 +1,8 @@
 /**
  * Wires the existing SSE service's `sync-actions` event into the
- * sync engine's `applySseFrame`. One subscription per app instance,
- * registered at lifecycle bootstrap.
+ * sync engine's `applySseFrame`, and holds the stream open for as long
+ * as the sync runtime runs. One subscription per app instance,
+ * registered at lifecycle bootstrap, released at teardown.
  *
  * The frame shape mirrors the Rust-side `SseEvent::SyncActions`:
  * `{ actions: SyncAction[], last_xid8: number, last_sync_id: number }`.
@@ -38,6 +39,7 @@ export function attachSseBridge(): void {
   }
   attachedHandler = handler
   sse.addEventListener('sync-actions', handler)
+  sse.start()
 }
 
 export function detachSseBridge(): void {
@@ -45,6 +47,7 @@ export function detachSseBridge(): void {
   const sse = useSSE()
   sse.removeEventListener('sync-actions', attachedHandler)
   attachedHandler = null
+  sse.stop()
 }
 
 function parseFrame(raw: unknown): SyncActionsFrame | null {

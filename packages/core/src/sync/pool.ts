@@ -190,7 +190,18 @@ export function unsubscribe(group: string): boolean {
  * Wipe every row, reset the cursor and subscriptions. Called by
  * the lifecycle layer on schema-hash mismatch or sign-out.
  */
+// Bumped by `reset` (workspace teardown). A fetch that started before a reset
+// captures the epoch and drops its result if it changed: its rows belong to
+// the previous workspace.
+let epoch = 0
+
+/** The pool's current epoch, for async writers to compare after a fetch. */
+export function currentEpoch(): number {
+  return epoch
+}
+
 export function reset(): void {
+  epoch++
   rows.clear()
   subscribedGroups.clear()
   lastSyncId = 0

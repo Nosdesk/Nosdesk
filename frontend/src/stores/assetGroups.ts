@@ -17,6 +17,9 @@ export const useAssetGroupsStore = defineStore('assetGroups', () => {
   const error = ref<string | null>(null)
 
   let inflight: Promise<AssetGroupSummary[]> | null = null
+  // Bumped by reset(): a load started before a workspace switch must not
+  // write its result, nor clear the new workspace's in-flight load.
+  let generation = 0
 
   async function load(force = false): Promise<AssetGroupSummary[]> {
     if (loaded.value && !force) return groups.value
@@ -25,14 +28,17 @@ export const useAssetGroupsStore = defineStore('assetGroups', () => {
     loading.value = true
     error.value = null
 
-    inflight = (async () => {
+    const gen = generation
+    const run: Promise<AssetGroupSummary[]> = (async () => {
       try {
         // The picker / facet never want archived groups.
         const next = await listAssetGroups(false)
+        if (gen !== generation) return next
         groups.value = next
         loaded.value = true
         return next
       } catch (e) {
+        if (gen !== generation) return groups.value
         logger.error('Failed to load asset groups', e)
         error.value =
           e instanceof Error
@@ -40,15 +46,21 @@ export const useAssetGroupsStore = defineStore('assetGroups', () => {
             : translate('error-store-asset-groups-load', undefined, 'Failed to load asset groups')
         return groups.value
       } finally {
-        loading.value = false
-        inflight = null
+        if (gen === generation) {
+          inflight = null
+          loading.value = false
+        }
       }
     })()
+    inflight = run
 
-    return inflight
+    return run
   }
 
   function reset() {
+    generation++
+    inflight = null
+    loading.value = false
     groups.value = []
     loaded.value = false
     error.value = null

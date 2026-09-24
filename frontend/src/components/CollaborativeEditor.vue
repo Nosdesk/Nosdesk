@@ -1073,15 +1073,18 @@ const initEditor = async () => {
                 timestamp: new Date().toISOString(),
             });
 
-            // If content exists in Yjs but not in editor, log a warning
-            if (yXmlFragment && yXmlFragment.length > 0 && editorView) {
-                const pmContent = editorView.state.doc.textContent;
-                if (!pmContent || pmContent.length === 0) {
-                    log.warn("⚠️ Content exists in Yjs but not visible in ProseMirror editor!");
-                    log.warn("yXmlFragment length:", yXmlFragment.length);
-                    log.warn("ProseMirror content:", pmContent);
+            // y-prosemirror maps each top-level Yjs node to one editor node, so
+            // fewer editor nodes than Yjs nodes means content didn't render.
+            // Counted after y-prosemirror's own render tick, and by nodes, not
+            // text: a note holding only an image or an embed has no text.
+            setTimeout(() => {
+                if (!yXmlFragment || !editorView) return;
+                const yjsNodes = yXmlFragment.length;
+                const editorNodes = editorView.state.doc.childCount;
+                if (yjsNodes > editorNodes) {
+                    log.warn("Yjs content not rendered in the editor", { yjsNodes, editorNodes });
                 }
-            }
+            }, 0);
         };
         ydoc.on("updateV2", updateV2DiagnosticHandler);
 

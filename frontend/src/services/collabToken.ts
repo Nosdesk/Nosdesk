@@ -16,6 +16,8 @@ interface CollabTokenResponse {
 }
 
 let cached: { token: string; expiresAt: number } | null = null;
+/** One fetch shared by every caller that finds the cache empty. */
+let inflight: Promise<string> | null = null;
 
 // Refetch a little before expiry so a long editing session never connects with
 // an about-to-expire token. The backend serves this alongside `expires_in`
@@ -31,22 +33,32 @@ const FALLBACK_BUFFER_RATIO = 0.5;
  * workspace switch (the WS rejects a token whose workspace doesn't match the doc).
  */
 export async function getCollabToken(): Promise<string> {
-  const now = Date.now();
-  if (cached && now < cached.expiresAt) {
-    return cached.token;
-  }
-  const { data } = await apiClient.post<CollabTokenResponse>('/collaboration/token');
-  const bufferSecs = data.refresh_buffer ?? data.expires_in * FALLBACK_BUFFER_RATIO;
-  // Store the moment we should stop using it, not the raw expiry, so the
-  // buffer is applied once here rather than at every read.
-  cached = {
-    token: data.token,
-    expiresAt: now + Math.max(0, data.expires_in - bufferSecs) * 1000,
-  };
-  return cached.token;
+  const valid = peekCollabToken();
+  if (valid) return valid;
+  inflight ??= (async () => {
+    const now = Date.now();
+    const { data } = await apiClient.post<CollabTokenResponse>('/collaboration/token');
+    const bufferSecs = data.refresh_buffer ?? data.expires_in * FALLBACK_BUFFER_RATIO;
+    // Store the moment we should stop using it, not the raw expiry, so the
+    // buffer is applied once here rather than at every read.
+    cached = {
+      token: data.token,
+      expiresAt: now + Math.max(0, data.expires_in - bufferSecs) * 1000,
+    };
+    return data.token;
+  })().finally(() => {
+    inflight = null;
+  });
+  return inflight;
+}
+
+/** The cached token while it is still good to connect with, else null. */
+export function peekCollabToken(): string | null {
+  return cached && Date.now() < cached.expiresAt ? cached.token : null;
 }
 
 /** Drop the cached token (workspace switch / logout). */
 export function resetCollabToken(): void {
   cached = null;
+  inflight = null;
 }

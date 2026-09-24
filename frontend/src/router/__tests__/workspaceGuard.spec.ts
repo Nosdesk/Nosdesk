@@ -17,7 +17,9 @@ vi.mock('@nosdesk/core/services/instanceConfig', () => ({
   getWorkspaceRouting: () => 'path',
 }))
 let slug: string | null = null
+const { beginSwitch } = vi.hoisted(() => ({ beginSwitch: vi.fn() }))
 vi.mock('@/services/activeWorkspace', () => ({
+  beginWorkspaceSwitch: beginSwitch,
   activeWorkspaceSlug: () => slug,
   setActiveWorkspaceSlug: (s: string | null) => {
     slug = s
@@ -42,6 +44,7 @@ function makeRouter() {
 beforeEach(() => {
   reset.mockClear()
   enter.mockClear()
+  beginSwitch.mockClear()
   slug = null
 })
 
@@ -55,6 +58,7 @@ describe('workspace guard', () => {
 
     await router.push('/mercury/tickets')
     expect(reset).not.toHaveBeenCalled()
+    expect(beginSwitch).not.toHaveBeenCalled()
     expect(enter).toHaveBeenCalledTimes(1)
 
     // A typed URL, a back button, a deep link: no menu involved.
@@ -68,11 +72,15 @@ describe('workspace guard', () => {
     const router = makeRouter()
     await router.push('/mercury')
     let slugDuringReset: string | null = 'unset'
+    let heldDuringReset = false
     reset.mockImplementationOnce(async () => {
       slugDuringReset = slug
+      heldDuringReset = beginSwitch.mock.calls.length > 0
     })
     await router.push('/venus')
     expect(slugDuringReset).toBe('mercury')
+    // Requests are held from before the reset until the new slug is set.
+    expect(heldDuringReset).toBe(true)
     expect(slug).toBe('venus')
   })
 })

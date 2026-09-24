@@ -19,6 +19,9 @@ export const useWorkflowStatesStore = defineStore('workflowStates', () => {
   const error = ref<string | null>(null)
 
   let inflight: Promise<WorkflowState[]> | null = null
+  // Bumped by reset(): a load started before a workspace switch must not
+  // write its result, nor clear the new workspace's in-flight load.
+  let generation = 0
 
   async function load(force = false): Promise<WorkflowState[]> {
     if (loaded.value && !force) return states.value
@@ -27,13 +30,16 @@ export const useWorkflowStatesStore = defineStore('workflowStates', () => {
     loading.value = true
     error.value = null
 
-    inflight = (async () => {
+    const gen = generation
+    const run: Promise<WorkflowState[]> = (async () => {
       try {
         const next = await workflowStatesService.list()
+        if (gen !== generation) return next
         states.value = next
         loaded.value = true
         return next
       } catch (e) {
+        if (gen !== generation) return states.value
         logger.error('Failed to load workflow states', e)
         error.value =
           e instanceof Error
@@ -41,15 +47,21 @@ export const useWorkflowStatesStore = defineStore('workflowStates', () => {
             : translate('error-store-workflow-states-load', undefined, 'Failed to load workflow states')
         return states.value
       } finally {
-        loading.value = false
-        inflight = null
+        if (gen === generation) {
+          inflight = null
+          loading.value = false
+        }
       }
     })()
+    inflight = run
 
-    return inflight
+    return run
   }
 
   function reset() {
+    generation++
+    inflight = null
+    loading.value = false
     states.value = []
     loaded.value = false
     error.value = null

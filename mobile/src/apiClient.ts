@@ -9,7 +9,15 @@
  * concerns layered on later, not part of the bootstrap.
  */
 import apiClient from '@nosdesk/core/apiClient'
-import { apiBaseUrl, requestHeaders, transport } from '@nosdesk/core/transport'
+import {
+  apiBaseUrl,
+  passRequestGates,
+  refuseResponse,
+  rememberHostHeaders,
+  requestHeaders,
+  transport,
+} from '@nosdesk/core/transport'
+import axios, { CanceledError } from 'axios'
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { tauriHttpAdapter } from './tauriHttpAdapter'
 
@@ -34,7 +42,9 @@ export function setupApiClient(): void {
   apiClient.interceptors.request.clear()
   apiClient.interceptors.response.clear()
 
-  apiClient.interceptors.request.use((config) => {
+  apiClient.interceptors.request.use(async (config) => {
+    // Held while a workspace switch is in progress.
+    await passRequestGates()
     config.baseURL = apiBaseUrl()
     config.withCredentials = transport().auth.useCredentials
     // Use AxiosHeaders.set (not Object.assign) so values land in the instance's
@@ -46,15 +56,24 @@ export function setupApiClient(): void {
     // Host per-request headers (workspace selection + diagnostics) from the
     // seam: the web apiConfig attaches these, but this bootstrap cleared it, so
     // apply the composed union here.
-    for (const [key, value] of Object.entries(requestHeaders())) {
+    const hostHeaders = requestHeaders()
+    for (const [key, value] of Object.entries(hostHeaders)) {
       config.headers.set(key, value)
     }
+    rememberHostHeaders(config, hostHeaders)
     return config
   })
 
   apiClient.interceptors.response.use(
-    (response) => response,
+    (response) => {
+      // A response to a request sent under a previous workspace must not land.
+      const refused = refuseResponse(response.config)
+      return refused ? Promise.reject(new CanceledError(refused)) : response
+    },
     async (error: AxiosError) => {
+      if (axios.isCancel(error)) return Promise.reject(error)
+      const refused = refuseResponse(error.config)
+      if (refused) return Promise.reject(new CanceledError(refused))
       const original = error.config as RetryConfig | undefined
       if (error.response?.status !== 401 || !original || original._retry) {
         return Promise.reject(error)

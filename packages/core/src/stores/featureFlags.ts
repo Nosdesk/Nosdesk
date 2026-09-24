@@ -15,6 +15,9 @@ export const useFeatureFlagsStore = defineStore('featureFlags', () => {
   const error = ref<string | null>(null);
 
   let inflight: Promise<FeatureFlagMap> | null = null;
+  // Bumped by reset(): a load started before a workspace switch must not
+  // write its result, nor clear the new workspace's in-flight load.
+  let generation = 0;
 
   async function load(force = false): Promise<FeatureFlagMap> {
     if (loaded.value && !force) return flags.value;
@@ -23,13 +26,16 @@ export const useFeatureFlagsStore = defineStore('featureFlags', () => {
     loading.value = true;
     error.value = null;
 
-    inflight = (async () => {
+    const gen = generation;
+    const run: Promise<FeatureFlagMap> = (async () => {
       try {
         const next = await featureFlagsService.getMine();
+        if (gen !== generation) return next;
         flags.value = next;
         loaded.value = true;
         return next;
       } catch (e) {
+        if (gen !== generation) return flags.value;
         logger.error('Failed to load feature flags', e);
         error.value =
           e instanceof Error
@@ -37,15 +43,21 @@ export const useFeatureFlagsStore = defineStore('featureFlags', () => {
             : translate('error-store-feature-flags-load', undefined, 'Failed to load feature flags');
         return flags.value;
       } finally {
-        loading.value = false;
-        inflight = null;
+        if (gen === generation) {
+          inflight = null;
+          loading.value = false;
+        }
       }
     })();
+    inflight = run;
 
-    return inflight;
+    return run;
   }
 
   function reset() {
+    generation++;
+    inflight = null;
+    loading.value = false;
     flags.value = {};
     loaded.value = false;
     error.value = null;
