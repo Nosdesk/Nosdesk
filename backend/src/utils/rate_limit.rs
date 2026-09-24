@@ -252,6 +252,20 @@ impl RateLimiter {
     }
 }
 
+/// Connection tests per admin: 10 per 10 minutes, shared by the SMTP and IMAP
+/// tests (each opens a real session to a server the admin names). Fails open
+/// on a Redis error: a test only reaches the caller, so availability wins.
+pub async fn admin_test_allowed(user: &uuid::Uuid) -> bool {
+    let key = format!("connection_test:{user}");
+    match RateLimiter::check_rate_limit(&get_redis_url(), &key, 10, 600).await {
+        Ok(allowed) => allowed,
+        Err(e) => {
+            tracing::warn!(error = %e, "connection test rate limit unavailable; allowing");
+            true
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,44 +1,51 @@
 <script setup lang="ts">
 /**
- * The outcome of a test send: which step failed and the one thing to check,
- * with the server's own reply underneath. "Accepted", never "delivered": a
- * server taking the message says nothing about the inbox.
+ * The outcome of a connection test: which step failed and the one thing to
+ * check, with the server's own reply underneath. For a test send the copy
+ * says "accepted", never "delivered": a server taking the message says
+ * nothing about the inbox.
  */
 import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import Icon from '@/components/common/Icon.vue';
-import type { EmailTestResult } from '@nosdesk/core/services/workspaceEmailService';
-
-const props = defineProps<{
-  result: EmailTestResult;
-  /** Hosted hides the operator-only allowlist hint. */
-  managed?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    result: { ok: boolean; code: string | null; detail: string | null; to?: string };
+    /** `smtp`: a test send. `imap`: a mailbox sign-in. */
+    kind?: 'smtp' | 'imap';
+    /** Hosted hides the operator-only allowlist hint. */
+    managed?: boolean;
+    /** Replaces the hint for a failure the caller knows more about. */
+    hint?: string;
+  }>(),
+  { kind: 'smtp', managed: false, hint: undefined },
+);
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string>) => fluent.$t(key, args);
 
+const KNOWN = {
+  smtp: ['dns', 'egress_blocked', 'connect', 'tls', 'auth', 'rejected', 'timeout', 'incomplete', 'invalid'],
+  imap: ['dns', 'egress_blocked', 'connect', 'tls', 'auth', 'mailbox', 'timeout', 'invalid'],
+};
+
 const copy = computed(() => {
   const r = props.result;
+  const prefix = props.kind === 'imap' ? 'imap-test' : 'email-test';
   if (r.ok) {
-    return { title: t('email-test-ok-title'), hint: t('email-test-ok-hint', { to: r.to }) };
+    return { title: t(`${prefix}-ok-title`), hint: t(`${prefix}-ok-hint`, { to: r.to ?? '' }) };
   }
   const code = r.code ?? 'unknown';
-  const known = [
-    'dns',
-    'egress_blocked',
-    'connect',
-    'tls',
-    'auth',
-    'rejected',
-    'timeout',
-    'incomplete',
-    'invalid',
-  ];
-  const key = known.includes(code) ? code.replace('_', '-') : 'unknown';
+  const key = KNOWN[props.kind].includes(code) ? code.replace('_', '-') : 'unknown';
+  // The egress hints are shared: whether the operator can allow a host
+  // depends on hosting, not on the protocol.
   const hintKey =
-    code === 'egress_blocked' && props.managed ? 'email-test-egress-blocked-hosted-hint' : `email-test-${key}-hint`;
-  return { title: t(`email-test-${key}-title`), hint: t(hintKey) };
+    code === 'egress_blocked'
+      ? props.managed
+        ? 'email-test-egress-blocked-hosted-hint'
+        : 'email-test-egress-blocked-hint'
+      : `${prefix}-${key}-hint`;
+  return { title: t(`${prefix}-${key}-title`), hint: props.hint ?? t(hintKey) };
 });
 </script>
 

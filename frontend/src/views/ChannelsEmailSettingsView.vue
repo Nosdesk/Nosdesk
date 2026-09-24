@@ -129,6 +129,42 @@
             :description="$t('admin-channels-email-toggle-enabled-description')"
           />
 
+          <div class="flex flex-col gap-2">
+            <span class="text-xs font-medium text-tertiary uppercase tracking-wide">
+              {{ $t('email-relay-provider-label') }}
+            </span>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="p in IMAP_PRESETS"
+                :key="p.id"
+                type="button"
+                class="rounded-full border px-3 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                :class="
+                  preset === p.id
+                    ? 'border-accent bg-accent/10 text-primary'
+                    : 'border-default text-secondary hover:text-primary hover:bg-surface-hover'
+                "
+                :aria-pressed="preset === p.id"
+                @click="applyPreset(p)"
+              >
+                {{ p.id === 'other' ? $t('email-relay-preset-other') : p.name }}
+              </button>
+            </div>
+            <p v-if="preset === 'google'" class="text-xs text-secondary">
+              {{ $t('imap-preset-google-help') }}
+            </p>
+            <p v-else-if="preset === 'm365'" class="text-xs text-secondary">
+              {{ $t('imap-preset-m365-help') }}
+              <RouterLink
+                v-if="forwardingEnabled"
+                :to="{ name: 'admin-channels-forwarding' }"
+                class="text-accent hover:underline"
+              >
+                {{ $t('imap-preset-m365-forwarding-link') }}
+              </RouterLink>
+            </p>
+          </div>
+
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormInput
               v-model="form.name"
@@ -183,11 +219,11 @@
             />
 
             <div class="flex flex-col gap-2 md:col-span-2">
-              <FormInput
+              <PasswordInput
                 v-model="form.password"
-                type="password"
                 :label="$t('admin-channels-email-field-password-label')"
                 :description="channel?.has_credential ? $t('admin-channels-email-field-password-keep-existing') : undefined"
+                :error="passwordError"
                 :placeholder="channel?.has_credential ? $t('admin-channels-email-field-password-placeholder-stored') : $t('admin-channels-email-field-password-placeholder-new')"
                 autocomplete="new-password"
               />
@@ -214,36 +250,24 @@
             </div>
           </details>
 
+          <EmailTestResult
+            v-if="testResult"
+            :result="testResult"
+            kind="imap"
+            :managed="hosted"
+            :hint="testHint"
+          />
+
           <div class="flex items-center justify-between gap-4 flex-wrap border-t border-default pt-4">
             <div class="flex items-center gap-3">
               <Button
-                v-if="channel"
                 variant="secondary"
                 :loading="testing"
                 :disabled="!canTest"
-                :title="formIsDirty ? $t('admin-channels-email-test-dirty-hint') : undefined"
                 @click="testConnection"
               >
                 {{ testing ? $t('admin-channels-email-testing') : $t('admin-channels-email-test') }}
               </Button>
-              <span
-                v-if="formIsDirty && channel"
-                class="text-sm text-tertiary"
-              >
-                {{ $t('admin-channels-email-test-dirty-hint') }}
-              </span>
-              <span v-else-if="testResult === 'ok'" class="text-sm text-status-success inline-flex items-center gap-1.5">
-                <span class="inline-block w-1.5 h-1.5 rounded-full bg-status-success"></span>
-                {{ $t('admin-channels-email-test-connected') }}
-              </span>
-              <span
-                v-else-if="testResult === 'failed'"
-                class="text-sm text-status-error inline-flex items-center gap-1.5"
-                :title="testErrorMessage"
-              >
-                <span class="inline-block w-1.5 h-1.5 rounded-full bg-status-error"></span>
-                {{ testErrorMessage || $t('admin-channels-email-test-failed') }}
-              </span>
             </div>
             <div class="flex items-center gap-3">
               <Button
@@ -340,8 +364,11 @@ import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
+import PasswordInput from '@/components/common/PasswordInput.vue';
+import EmailTestResult from '@/components/admin/email/EmailTestResult.vue';
 import {
   channelsService,
+  type ImapTestResult,
   type Channel,
   type ImapChannelConfig,
   type ImapRuntimeState
@@ -349,8 +376,12 @@ import {
 import brandingService, { type BrandingConfig } from '@nosdesk/core/services/brandingService';
 import apiClient from '@nosdesk/core/apiClient';
 import { useToastStore } from '@nosdesk/core/stores/toast';
-import { createErrorFromResponse } from '@/utils/errors';
+import { createErrorFromResponse, errorCode, errorStatus } from '@/utils/errors';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
+import {
+  isHostedDeployment,
+  isInboundForwardingEnabled,
+} from '@nosdesk/core/services/instanceConfig';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 
 const fluent = useFluent();
@@ -458,8 +489,8 @@ const savingAutoAck = ref(false);
 const form = ref<FormState>(emptyForm());
 const autoAckEnabled = ref(true);
 const autoAckTemplate = ref('');
-const testResult = ref<'idle' | 'ok' | 'failed'>('idle');
-const testErrorMessage = ref('');
+const testResult = ref<ImapTestResult | null>(null);
+const passwordError = ref('');
 const errorMessage = ref('');
 
 // Seed the editable form once per component lifetime from the
@@ -516,54 +547,64 @@ const canSave = computed(() => {
   );
 });
 
-// Test-connection is enabled when we have either a candidate password
-// on the form or a stored one on the channel. Without either there's
-// nothing to authenticate with. We also disable it when the form is
-// dirty against the saved config: the test endpoint authenticates
-// against the *stored* settings, so testing unsaved edits would
-// silently check the wrong host/port and confuse the admin.
-const formIsDirty = computed(() => {
+const hosted = isHostedDeployment();
+const forwardingEnabled = isInboundForwardingEnabled();
+
+// Quick fills. Microsoft 365 fills nothing: Exchange Online no longer accepts
+// passwords over IMAP, so the help points at forwarding instead.
+const IMAP_PRESETS = [
+  { id: 'google', name: 'Gmail / Google Workspace', host: 'imap.gmail.com', port: 993 },
+  { id: 'm365', name: 'Microsoft 365' },
+  { id: 'other', name: 'Other' },
+] as const;
+type ImapPreset = (typeof IMAP_PRESETS)[number];
+const preset = ref<ImapPreset['id'] | null>(null);
+function applyPreset(p: ImapPreset) {
+  preset.value = p.id;
+  if ('host' in p) {
+    form.value.host = p.host;
+    form.value.port = p.port;
+  }
+}
+
+/** The saved server, whose stored password a blank field reuses. */
+const sameServerAsSaved = computed(() => {
   const ch = channel.value;
-  if (!ch) return false;
+  if (!ch?.has_credential) return false;
   const cfg = (ch.config ?? {}) as unknown as ImapChannelConfig;
-  const f = form.value;
   return (
-    f.name !== ch.name ||
-    f.enabled !== ch.enabled ||
-    f.host !== (cfg.host ?? '') ||
-    f.port !== (cfg.port ?? DEFAULT_CONFIG.port) ||
-    f.username !== (cfg.username ?? '') ||
-    f.mailbox !== (cfg.mailbox ?? DEFAULT_CONFIG.mailbox) ||
-    f.reply_domain !== (cfg.reply_domain ?? '') ||
-    f.insecure_skip_cert_verify !== (cfg.insecure_skip_cert_verify ?? false)
+    form.value.host.trim().toLowerCase() === (cfg.host ?? '').trim().toLowerCase() &&
+    form.value.username.trim() === (cfg.username ?? '').trim()
   );
 });
-const canTest = computed(() => {
-  if (formIsDirty.value) return false;
-  return form.value.password.length > 0 || (channel.value?.has_credential ?? false);
-});
 
-// Any edit invalidates a previous test result. The green "Connected"
-// pip would otherwise survive an admin changing the host away from
-// the value that actually authenticated.
+// Tests the form as typed, saved or not. Needs a password: the one typed,
+// or the stored one while the server and username are unchanged.
+const canTest = computed(
+  () =>
+    form.value.host.trim().length > 0 &&
+    form.value.username.trim().length > 0 &&
+    (form.value.password.length > 0 || sameServerAsSaved.value),
+);
+
+// A result belongs to the settings it ran with; any edit clears it.
 watch(
   () => {
     const f = form.value;
-    return [
-      f.host,
-      f.port,
-      f.username,
-      f.mailbox,
-      f.reply_domain,
-      f.password,
-      f.insecure_skip_cert_verify,
-    ];
+    return [f.host, f.port, f.username, f.mailbox, f.password, f.insecure_skip_cert_verify];
   },
   () => {
-    testResult.value = 'idle';
-    testErrorMessage.value = '';
+    testResult.value = null;
+    passwordError.value = '';
   },
 );
+
+// Microsoft 365 refuses every password over IMAP, so say so on a sign-in failure.
+const testHint = computed(() => {
+  const host = form.value.host.toLowerCase();
+  const microsoft = host.includes('office365.com') || host.includes('outlook.');
+  return testResult.value?.code === 'auth' && microsoft ? t('imap-preset-m365-help') : undefined;
+});
 
 /** Transient "saved" feedback via the toast store (the convention for
  *  action feedback; page-level errors stay inline). */
@@ -629,7 +670,6 @@ function clearMessages() {
 
 async function save() {
   clearMessages();
-  testResult.value = 'idle';
   if (!canSave.value) return;
   saving.value = true;
   const f = form.value;
@@ -669,25 +709,25 @@ async function save() {
 }
 
 async function testConnection() {
-  if (!channel.value || !canTest.value) return;
+  if (!canTest.value) return;
   clearMessages();
   testing.value = true;
-  testResult.value = 'idle';
-  testErrorMessage.value = '';
+  testResult.value = null;
+  passwordError.value = '';
   try {
-    const result = await channelsService.testConnection(
-      channel.value.id,
-      form.value.password.length > 0 ? form.value.password : undefined
-    );
-    if (result.ok) {
-      testResult.value = 'ok';
-    } else {
-      testResult.value = 'failed';
-      testErrorMessage.value = result.error ?? t('admin-channels-email-test-unknown-error');
-    }
+    testResult.value = await channelsService.testImap({
+      channel_id: channel.value?.id,
+      config: buildConfig(),
+      password: form.value.password || undefined,
+    });
   } catch (e: unknown) {
-    testResult.value = 'failed';
-    testErrorMessage.value = createErrorFromResponse(e).getUserMessage();
+    if (errorCode(e) === 'IMAP_PASSWORD_REQUIRED') {
+      passwordError.value = t('email-relay-error-password-required');
+    } else if (errorStatus(e) === 429) {
+      errorMessage.value = t('email-relay-error-rate-limited');
+    } else {
+      errorMessage.value = createErrorFromResponse(e).getUserMessage();
+    }
   } finally {
     testing.value = false;
   }

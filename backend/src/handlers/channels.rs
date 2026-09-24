@@ -1,5 +1,5 @@
-//! Admin-only CRUD for `channels`, `channel_credentials`, plus a
-//! `test-connection` probe that verifies an IMAP mailbox is reachable.
+//! Admin-only CRUD for `channels`, `channel_credentials`, plus an IMAP
+//! probe that tests a mailbox's settings before they are saved.
 //!
 //! All routes live under `/api/admin/channels` and require
 //! `role = admin`. Credentials never ride back out to the client — the
@@ -55,8 +55,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::delete().to(crate::handlers::channels::clear_credential),
     )
     .route(
-        "/admin/channels/{id}/test-connection",
-        web::post().to(crate::handlers::channels::test_connection),
+        "/admin/channels/email/test",
+        web::post().to(crate::handlers::channels::test_email),
     );
 }
 
@@ -157,9 +157,8 @@ pub struct CreateChannelRequest {
     #[serde(default)]
     pub enabled: bool,
     pub config: JsonValue,
-    /// Optional at create time — admins who want to verify the config
-    /// via `POST /test-connection` before locking credentials in can
-    /// omit this and set it afterwards via `PUT /credentials`.
+    /// Optional at create time; the admin can test the settings first via
+    /// `POST /email/test` and set the password later.
     #[serde(default)]
     pub password: Option<String>,
 }
@@ -176,11 +175,16 @@ pub struct UpdateChannelRequest {
     pub password: Option<String>,
 }
 
-/// Body of `POST /api/admin/channels/{id}/test-connection`. If the
-/// stored password should be used, omit this field. If not, the
-/// caller can pass a candidate password to try before committing.
-#[derive(Debug, Deserialize, Default)]
-pub struct TestConnectionRequest {
+/// Body of `POST /api/admin/channels/email/test`: the form as typed. A
+/// blank `password` reuses the saved channel's, but only while the host and
+/// username are the saved ones; otherwise any admin could aim the saved
+/// password at a server they run.
+#[derive(Debug, Deserialize)]
+pub struct TestEmailRequest {
+    /// The saved channel whose password a blank `password` falls back to.
+    #[serde(default)]
+    pub channel_id: Option<i32>,
+    pub config: JsonValue,
     #[serde(default)]
     pub password: Option<String>,
 }
@@ -500,92 +504,101 @@ pub async fn clear_credential(
     Ok(HttpResponse::NoContent().finish())
 }
 
-/// Possible outcomes when preparing a test-connection: load the
-/// channel + its stored credential, surfacing validation / not-found
-/// branches without taking the cheaper happy path through a separate
-/// error type.
-enum TestPrep {
-    Ready(ImapChannelConfig, String),
-    NotFound,
-    Validation(HttpResponse),
+/// Where the password for a test comes from.
+enum TestPassword {
+    Ready(String),
+    Required,
 }
 
-/// POST /api/admin/channels/{id}/test-connection
+/// POST /api/admin/channels/email/test
 ///
-/// Opens an IMAP session against the channel's config using either the
-/// caller-supplied candidate password or the stored one. Does not
-/// persist anything. Body field `password` is optional.
-pub async fn test_connection(
+/// Opens an IMAP session with the unsaved settings, examines the mailbox and
+/// logs out. Saves nothing. Answers `{ ok, code, detail }`, 200 either way;
+/// `code` names the stage that failed.
+pub async fn test_email(
     mut tc: TenantConn,
-    path: web::Path<i32>,
-    body: web::Json<TestConnectionRequest>,
+    body: web::Json<TestEmailRequest>,
     req: HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
-    require_workspace_role(&req, WorkspaceRole::Admin)?;
-    let channel_id = path.into_inner();
-    let candidate = body
-        .password
-        .as_deref()
-        .filter(|p| !p.is_empty())
-        .map(|p| p.to_string());
-
-    let result: diesel::QueryResult<TestPrep> = tc.run(|conn| {
-        let channel = match channels_repo::find(conn, channel_id) {
-            Ok(c) => c,
-            Err(diesel::result::Error::NotFound) => return Ok(TestPrep::NotFound),
-            Err(e) => return Err(e),
-        };
-        if channel.provider != "email_imap" {
-            return Ok(TestPrep::Validation(bad_request(
-                "test-connection is only supported for email_imap",
-            )));
-        }
-        let config: ImapChannelConfig = match serde_json::from_value(channel.config.clone()) {
-            Ok(c) => c,
-            Err(e) => {
-                return Ok(TestPrep::Validation(bad_request(format!(
-                    "Invalid channel config: {e}"
-                ))))
-            }
-        };
-        // Prefer a candidate password from the body; fall back to the
-        // stored one. An empty string in the body is treated as "use
-        // stored" rather than "clear" — clearing goes through the
-        // dedicated DELETE endpoint.
-        let password = match candidate {
-            Some(p) => p,
-            None => match channels_repo::get_credential(conn, channel_id, CRED_TYPE_IMAP_PASSWORD)
-                .map_err(cred_to_diesel)?
-            {
-                Some(p) => p,
-                None => {
-                    return Ok(TestPrep::Validation(bad_request(
-                        "No stored password — provide one in the request body",
-                    )))
-                }
-            },
-        };
-        Ok(TestPrep::Ready(config, password))
-    });
-
-    let (config, password) = match result {
-        Ok(TestPrep::Ready(c, p)) => (c, p),
-        Ok(TestPrep::NotFound) => return Err(ApiError::NotFoundMsg("Not found".into())),
-        Ok(TestPrep::Validation(resp)) => return Ok(resp),
+    let claims = require_workspace_role(&req, WorkspaceRole::Admin)?;
+    let body = body.into_inner();
+    if let Err(msg) = validate_config("email_imap", &body.config) {
+        return Ok(errors::bad_request_with_code(msg, "IMAP_CONFIG_INVALID"));
+    }
+    let config: ImapChannelConfig = match serde_json::from_value(body.config) {
+        Ok(c) => c,
         Err(e) => {
-            error!(error = %e, "failed to load channel for test-connection");
-            return Ok(server_error("Failed to load channel"));
+            return Ok(errors::bad_request_with_code(
+                format!("invalid email_imap config: {e}"),
+                "IMAP_CONFIG_INVALID",
+            ))
         }
+    };
+    let user = uuid::Uuid::parse_str(&claims.sub)
+        .map_err(|_| ApiError::BadRequest("invalid user id".into()))?;
+    if !crate::utils::rate_limit::admin_test_allowed(&user).await {
+        return Ok(errors::with_fields(
+            actix_web::http::StatusCode::TOO_MANY_REQUESTS,
+            "RATE_LIMITED",
+            "Too many tests. Wait a few minutes and try again.",
+            json!({}),
+        ));
+    }
+
+    let candidate = body.password.filter(|p| !p.is_empty());
+    let password = match (candidate, body.channel_id) {
+        (Some(p), _) => TestPassword::Ready(p),
+        (None, None) => TestPassword::Required,
+        (None, Some(channel_id)) => {
+            let loaded: diesel::QueryResult<TestPassword> = tc.run(|conn| {
+                let channel = match channels_repo::find(conn, channel_id) {
+                    Ok(c) => c,
+                    Err(diesel::result::Error::NotFound) => return Ok(TestPassword::Required),
+                    Err(e) => return Err(e),
+                };
+                let saved = serde_json::from_value::<ImapChannelConfig>(channel.config).ok();
+                let same_server = channel.provider == "email_imap"
+                    && saved.is_some_and(|s| {
+                        s.host.trim().eq_ignore_ascii_case(config.host.trim())
+                            && s.username.trim() == config.username.trim()
+                    });
+                if !same_server {
+                    return Ok(TestPassword::Required);
+                }
+                Ok(
+                    match channels_repo::get_credential(conn, channel_id, CRED_TYPE_IMAP_PASSWORD)
+                        .map_err(cred_to_diesel)?
+                    {
+                        Some(p) => TestPassword::Ready(p),
+                        None => TestPassword::Required,
+                    },
+                )
+            });
+            match loaded {
+                Ok(p) => p,
+                Err(e) => {
+                    error!(error = %e, "failed to load channel for IMAP test");
+                    return Ok(server_error("Failed to load channel"));
+                }
+            }
+        }
+    };
+    let TestPassword::Ready(password) = password else {
+        return Ok(errors::bad_request_with_code(
+            "Enter the password. The saved one is only used for the saved server and username.",
+            "IMAP_PASSWORD_REQUIRED",
+        ));
     };
 
     match test_imap_connection(&config, &password).await {
-        Ok(()) => {
-            info!(channel_id, "test-connection succeeded");
-            Ok(HttpResponse::Ok().json(json!({ "ok": true })))
-        }
-        Err(e) => {
-            warn!(channel_id, error = %e, "test-connection failed");
-            Ok(HttpResponse::Ok().json(json!({ "ok": false, "error": e })))
+        Ok(()) => Ok(HttpResponse::Ok().json(json!({ "ok": true, "code": null, "detail": null }))),
+        Err(failure) => {
+            warn!(code = failure.code, "IMAP test failed");
+            Ok(HttpResponse::Ok().json(json!({
+                "ok": false,
+                "code": failure.code,
+                "detail": failure.detail,
+            })))
         }
     }
 }
@@ -601,8 +614,8 @@ mod tests {
     //! - create round-trip → GET returns channel + has_credential
     //! - update rotates the password without leaking it
     //! - delete cascades the credential row
-    //! - test-connection is only allowed for `email_imap` and refuses
-    //!   when no password is available
+    //! - the IMAP test reuses a saved password only for the saved host and
+    //!   username
     //!
     //! The IMAP probe itself (`test_imap_connection` happy-path) is not
     //! unit-tested here — it needs Greenmail, which lives in
@@ -671,10 +684,7 @@ mod tests {
                 "/api/admin/channels/{id}/credentials",
                 web::delete().to(clear_credential),
             )
-            .route(
-                "/api/admin/channels/{id}/test-connection",
-                web::post().to(test_connection),
-            )
+            .route("/api/admin/channels/email/test", web::post().to(test_email))
     }
 
     fn sample_imap_config() -> JsonValue {
@@ -854,17 +864,21 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn test_connection_refuses_when_no_password() {
+    async fn imap_test_reuses_the_saved_password_only_for_the_saved_server() {
         let (pool, claims) = seeded_env("admin", "admin-test");
         let srv = actix_test::init_service(build_app_with_pool(pool)).await;
 
+        // Loopback: the egress guard refuses it before any connection.
+        let mut config = sample_imap_config();
+        config["host"] = json!("127.0.0.1");
         let req = actix_test::TestRequest::post()
             .uri("/api/admin/channels")
             .set_json(json!({
                 "provider": "email_imap",
-                "name": "sans-creds",
+                "name": "with-creds",
                 "enabled": false,
-                "config": sample_imap_config(),
+                "config": config,
+                "password": "stored-pw",
             }))
             .to_request();
         req.extensions_mut().insert(claims.clone());
@@ -872,12 +886,44 @@ mod tests {
         let created: serde_json::Value = actix_test::read_body_json(resp).await;
         let id = created["id"].as_i64().unwrap() as i32;
 
-        let req = actix_test::TestRequest::post()
-            .uri(&format!("/api/admin/channels/{id}/test-connection"))
-            .set_json(json!({}))
-            .to_request();
-        req.extensions_mut().insert(claims);
-        let resp = actix_test::call_service(&srv, req).await;
+        let test = |body: JsonValue| {
+            let req = actix_test::TestRequest::post()
+                .uri("/api/admin/channels/email/test")
+                .set_json(body)
+                .to_request();
+            req.extensions_mut().insert(claims.clone());
+            req
+        };
+
+        // Same server, blank password: the saved one is used, and the probe
+        // gets as far as the egress guard.
+        let resp =
+            actix_test::call_service(&srv, test(json!({ "channel_id": id, "config": config })))
+                .await;
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = actix_test::read_body_json(resp).await;
+        assert_eq!(body["ok"], false);
+        assert_eq!(body["code"], "egress_blocked");
+
+        // Another host, or another username, must not borrow it.
+        for (field, value) in [
+            ("host", "imap.attacker.example"),
+            ("username", "someone@else.example"),
+        ] {
+            let mut other = config.clone();
+            other[field] = json!(value);
+            let resp =
+                actix_test::call_service(&srv, test(json!({ "channel_id": id, "config": other })))
+                    .await;
+            assert_eq!(resp.status(), 400, "{field}");
+            let body: serde_json::Value = actix_test::read_body_json(resp).await;
+            assert_eq!(body["code"], "IMAP_PASSWORD_REQUIRED");
+        }
+
+        // No saved channel and no password: nothing to sign in with.
+        let resp = actix_test::call_service(&srv, test(json!({ "config": config }))).await;
         assert_eq!(resp.status(), 400);
+        let body: serde_json::Value = actix_test::read_body_json(resp).await;
+        assert_eq!(body["code"], "IMAP_PASSWORD_REQUIRED");
     }
 }

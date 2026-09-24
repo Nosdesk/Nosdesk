@@ -592,7 +592,7 @@ async fn channels_config_routes_registered() {
             ("PATCH", "/admin/channels/1"),
             ("DELETE", "/admin/channels/1"),
             ("DELETE", "/admin/channels/1/credentials"),
-            ("POST", "/admin/channels/1/test-connection"),
+            ("POST", "/admin/channels/email/test"),
         ],
     )
     .await;
