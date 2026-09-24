@@ -10,6 +10,8 @@ import { PiniaColada } from '@pinia/colada'
 
 import App from './App.vue'
 import router from './router'
+import { reloadForNewBuild } from './utils/staleBuild'
+
 import { vSafeHtml } from './directives/vSafeHtml'
 import { vTwemoji } from './directives/vTwemoji'
 import { vPrefetch } from './directives/vPrefetch'
@@ -17,6 +19,13 @@ import { vScrollRestore } from './directives/vScrollRestore'
 import { createI18n as createI18nPlugin } from './i18n'
 import { useThemeStore } from './stores/theme'
 import { fetchInstanceConfig } from '@nosdesk/core/services/instanceConfig'
+
+// A lazy import outside routing (a dialog, an editor extension) whose chunk a
+// deploy removed: load the new build instead of failing. Vite fires this for
+// the chunks it preloads; the router handles route chunks itself.
+window.addEventListener('vite:preloadError', (event) => {
+  if (reloadForNewBuild()) event.preventDefault()
+})
 
 async function bootstrap() {
   // Configure the @nosdesk/core seams for the current platform (web: cookies +
