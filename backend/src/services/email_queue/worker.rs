@@ -18,7 +18,9 @@ use crate::db::Pool;
 use crate::models::{outbound_email_sender_identity, NewChannelMessage, OutboundEmail};
 use crate::repository::channels as channels_repo;
 use crate::repository::outbound_emails as repo;
-use crate::services::email_queue::circuit::{BreakerState, CircuitBreaker, CircuitBreakerRegistry};
+use crate::services::email_queue::circuit::{
+    BreakerKey, BreakerState, CircuitBreaker, CircuitBreakerRegistry,
+};
 use crate::services::email_queue::retry::{classify, next_attempt_at, RetryDecision, MAX_ATTEMPTS};
 use crate::services::outbound_email::OutboundEmailResolver;
 use crate::utils::email::{EmailService, OutboundEmailMessage};
@@ -77,13 +79,18 @@ pub async fn run_one_drain(
     // The instance relay carries platform/auth mail and is the default for
     // workspace mail, so if its breaker is open there's little point claiming a
     // batch only to release it. Skip the whole drain then, preserving the old
-    // single-breaker behaviour for the common case. Per-host breakers below
+    // single-breaker behaviour for the common case. Per-workspace breakers below
     // still isolate an individual tenant relay within a drain, so one broken
     // tenant relay never pauses the instance relay's mail.
     let platform = resolver.platform();
     if let Some(p) = &platform {
         let host = p.config().smtp_host.clone();
-        if !registry.for_host(&host).await.allow().await {
+        if !registry
+            .get(BreakerKey::instance(&host))
+            .await
+            .allow()
+            .await
+        {
             debug!("email_queue: instance relay circuit open, skipping drain");
             stats.circuit_skipped = 1;
             return Ok(stats);
@@ -189,10 +196,15 @@ pub async fn run_one_drain(
                 DispatchOutcome::Suppressed
             } else {
                 match service {
-                    // Use the breaker for this row's relay host, so a broken
-                    // tenant relay trips only its own transport.
+                    // A workspace's own server trips only its own breaker.
                     Some(svc) => {
-                        let breaker = registry.for_host(&svc.config().smtp_host).await;
+                        let host = &svc.config().smtp_host;
+                        let key = if svc.is_tenant_relay() {
+                            BreakerKey::tenant(row.workspace_id, host)
+                        } else {
+                            BreakerKey::instance(host)
+                        };
+                        let breaker = registry.get(key).await;
                         dispatch(&row, svc, breaker).await
                     }
                     None => DispatchOutcome::Unconfigured,
