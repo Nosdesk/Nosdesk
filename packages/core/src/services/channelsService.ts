@@ -80,15 +80,22 @@ export interface UpdateChannelRequest {
 }
 
 /**
- * Result of `POST /api/admin/channels/{id}/test-connection`. The
- * backend always responds 200; the `ok` field distinguishes a
- * successful probe from a reachable server that rejected login
- * (wrong credentials, missing mailbox, etc.) so the UI can render
- * the operator-facing error message verbatim.
+ * Result of `POST /api/admin/channels/email/test`, 200 either way. `code`
+ * names the stage that failed; `detail` is the server's own words.
  */
-export interface TestConnectionResult {
+export interface ImapTestResult {
   ok: boolean;
-  error?: string;
+  code:
+    | 'dns'
+    | 'egress_blocked'
+    | 'connect'
+    | 'tls'
+    | 'auth'
+    | 'mailbox'
+    | 'timeout'
+    | 'invalid'
+    | null;
+  detail: string | null;
 }
 
 export const channelsService = {
@@ -134,15 +141,15 @@ export const channelsService = {
   },
 
   /**
-   * Probe the channel's IMAP server. Either uses the stored password
-   * (when `password` is omitted) or a candidate the admin typed into
-   * the form before saving.
+   * Test unsaved IMAP settings. A blank password reuses the saved channel's,
+   * but only while the host and username are the saved ones.
    */
-  async testConnection(id: number, password?: string): Promise<TestConnectionResult> {
-    const { data } = await apiClient.post<TestConnectionResult>(
-      `/admin/channels/${id}/test-connection`,
-      password ? { password } : {}
-    );
+  async testImap(req: {
+    channel_id?: number;
+    config: Record<string, unknown>;
+    password?: string;
+  }): Promise<ImapTestResult> {
+    const { data } = await apiClient.post<ImapTestResult>('/admin/channels/email/test', req);
     return data;
   }
 };

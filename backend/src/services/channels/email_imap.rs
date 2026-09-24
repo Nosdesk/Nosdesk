@@ -442,45 +442,94 @@ fn classify_login_error(e: async_imap::error::Error) -> ChannelError {
     }
 }
 
+/// Why a probe failed: a stage the admin form maps to one fix, and the
+/// server's own words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImapProbeFailure {
+    /// `dns`, `egress_blocked`, `connect`, `tls`, `auth`, `mailbox`,
+    /// `timeout` or `invalid`.
+    pub code: &'static str,
+    pub detail: String,
+}
+
+impl ImapProbeFailure {
+    /// Classify an `open_session` error by the stage labels this file gives
+    /// it: `imap host` (DNS), `imap host rejected` (egress), `tcp connect`,
+    /// `tls handshake`, `login`.
+    fn from_session_error(e: &ChannelError) -> Self {
+        let detail = match e {
+            ChannelError::Transient(m)
+            | ChannelError::Configuration(m)
+            | ChannelError::Other(m) => m.clone(),
+            other => other.to_string(),
+        };
+        let code = if detail.contains("timed out") {
+            "timeout"
+        } else if detail.starts_with("imap host rejected") {
+            "egress_blocked"
+        } else if detail.starts_with("imap host") {
+            "dns"
+        } else if detail.starts_with("tcp connect") {
+            "connect"
+        } else if detail.starts_with("tls") {
+            "tls"
+        } else if detail.starts_with("login") {
+            // A dropped connection during LOGIN is the network, not the password.
+            if matches!(e, ChannelError::Transient(_)) {
+                "connect"
+            } else {
+                "auth"
+            }
+        } else {
+            "invalid"
+        };
+        Self { code, detail }
+    }
+}
+
 /// Probe an IMAP server with the given config and password. Connects,
-/// authenticates, examines the configured mailbox, logs out. Returns
-/// on any error — the admin-UI test-connection endpoint surfaces the
-/// message verbatim so operators can debug bad creds / bad hosts
-/// without digging through logs.
+/// authenticates, examines the configured mailbox, logs out.
 ///
-/// Only exists here (not on `EmailImapAdapter`) because test-connection
-/// runs *before* the channel row is saved — there's no adapter yet.
+/// Only exists here (not on `EmailImapAdapter`) because the admin test runs
+/// *before* the channel row is saved — there's no adapter yet.
 pub async fn test_imap_connection(
     config: &ImapChannelConfig,
     password: &str,
-) -> Result<(), String> {
+) -> Result<(), ImapProbeFailure> {
     let mut session = open_session(config, password)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ImapProbeFailure::from_session_error(&e))?;
 
     // EXAMINE is read-only — it verifies the mailbox exists without
     // touching `\Seen` flags. SELECT would also work but leaves a
     // server-side session state we don't need.
+    let mailbox_failure = |detail: String| ImapProbeFailure {
+        code: "mailbox",
+        detail,
+    };
     match tokio::time::timeout(IMAP_OP_TIMEOUT, session.examine(&config.mailbox)).await {
         Ok(Ok(_)) => {}
-        Ok(Err(e)) => return Err(format!("mailbox '{}' inaccessible: {e}", config.mailbox)),
+        Ok(Err(e)) => {
+            return Err(mailbox_failure(format!(
+                "mailbox '{}' inaccessible: {e}",
+                config.mailbox
+            )))
+        }
         Err(_) => {
-            return Err(format!(
-                "mailbox '{}' inaccessible: timed out after {}s",
-                config.mailbox,
-                IMAP_OP_TIMEOUT.as_secs()
-            ))
+            return Err(ImapProbeFailure {
+                code: "timeout",
+                detail: format!(
+                    "mailbox '{}' inaccessible: timed out after {}s",
+                    config.mailbox,
+                    IMAP_OP_TIMEOUT.as_secs()
+                ),
+            })
         }
     }
 
-    match tokio::time::timeout(IMAP_OP_TIMEOUT, session.logout()).await {
-        Ok(Ok(_)) => Ok(()),
-        Ok(Err(e)) => Err(format!("logout failed: {e}")),
-        Err(_) => Err(format!(
-            "logout failed: timed out after {}s",
-            IMAP_OP_TIMEOUT.as_secs()
-        )),
-    }
+    // A failed LOGOUT after a good EXAMINE still proves the settings work.
+    let _ = tokio::time::timeout(IMAP_OP_TIMEOUT, session.logout()).await;
+    Ok(())
 }
 
 #[async_trait]
@@ -1975,5 +2024,50 @@ I'll be back Monday\r\n";
         let msg = parse_rfc822_into_inbound_message(raw, None).unwrap();
         assert!(msg.loop_markers.any());
         assert!(msg.loop_markers.is_auto_reply);
+    }
+
+    #[test]
+    fn probe_failures_are_classified_by_stage() {
+        let code = |e: ChannelError| ImapProbeFailure::from_session_error(&e).code;
+        assert_eq!(
+            code(ChannelError::Transient("imap host: no such host".into())),
+            "dns"
+        );
+        assert_eq!(
+            code(ChannelError::Configuration(
+                "imap host rejected: private address".into()
+            )),
+            "egress_blocked"
+        );
+        assert_eq!(
+            code(ChannelError::Transient("tcp connect: refused".into())),
+            "connect"
+        );
+        assert_eq!(
+            code(ChannelError::Transient("tls handshake: bad cert".into())),
+            "tls"
+        );
+        assert_eq!(
+            code(ChannelError::Configuration(
+                "login: No Response: AUTHENTICATE failed".into()
+            )),
+            "auth"
+        );
+        assert_eq!(
+            code(ChannelError::Transient("login: connection lost".into())),
+            "connect"
+        );
+        assert_eq!(
+            code(ChannelError::Transient(
+                "tcp connect: timed out after 30s".into()
+            )),
+            "timeout"
+        );
+        assert_eq!(
+            code(ChannelError::Configuration(
+                "plaintext IMAP is not supported".into()
+            )),
+            "invalid"
+        );
     }
 }

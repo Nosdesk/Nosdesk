@@ -187,7 +187,7 @@ pub async fn set_mode(
         return Err(ApiError::BadRequest("no workspace context".into()));
     };
     let mode = body.into_inner().mode;
-    let loaded = tc.run(|conn| ws_settings::get(conn));
+    let loaded = tc.run(ws_settings::get);
     let row = match loaded {
         Ok(r) => r,
         Err(e) => return Err(ApiError::Internal(format!("load outbound settings: {e}"))),
@@ -675,10 +675,6 @@ pub async fn delete_relay_password(
 /// How long a test waits per SMTP step: long enough for a slow provider,
 /// short enough that the form answers.
 const TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-/// Tests per admin per window. They send real mail, if only to the admin.
-const TEST_LIMIT: u32 = 10;
-const TEST_WINDOW_SECS: u64 = 600;
-
 /// The result of a test send, for the form to show. `code` is a closed set
 /// the UI maps to a sentence and a fix; `detail` is the server's own words.
 #[derive(Serialize)]
@@ -740,27 +736,6 @@ async fn send_test(svc: &EmailService, to: String) -> TestResult {
     }
 }
 
-/// Throttle tests per admin. Fails open on a Redis error: a test mails only
-/// the caller, so availability wins.
-async fn test_allowed(user: &uuid::Uuid) -> bool {
-    let key = format!("smtp_test:{user}");
-    let redis = crate::utils::rate_limit::get_redis_url();
-    match crate::utils::rate_limit::RateLimiter::check_rate_limit(
-        &redis,
-        &key,
-        TEST_LIMIT,
-        TEST_WINDOW_SECS,
-    )
-    .await
-    {
-        Ok(allowed) => allowed,
-        Err(e) => {
-            tracing::warn!(error = %e, "smtp test rate limit unavailable; allowing");
-            true
-        }
-    }
-}
-
 fn caller_uuid(claims: &Claims) -> Result<uuid::Uuid, ApiError> {
     uuid::Uuid::parse_str(&claims.sub).map_err(|_| ApiError::BadRequest("invalid user id".into()))
 }
@@ -782,7 +757,7 @@ pub async fn test_relay(
         Ok(r) => r,
         Err(invalid) => return Ok(invalid.response()),
     };
-    if !test_allowed(&user).await {
+    if !crate::utils::rate_limit::admin_test_allowed(&user).await {
         return Ok(crate::errors::with_fields(
             actix_web::http::StatusCode::TOO_MANY_REQUESTS,
             "RATE_LIMITED",
@@ -853,7 +828,7 @@ pub async fn test_send(
         return Err(ApiError::BadRequest("no workspace context".into()));
     };
     let user = caller_uuid(&claims)?;
-    if !test_allowed(&user).await {
+    if !crate::utils::rate_limit::admin_test_allowed(&user).await {
         return Ok(crate::errors::with_fields(
             actix_web::http::StatusCode::TOO_MANY_REQUESTS,
             "RATE_LIMITED",
