@@ -987,6 +987,7 @@ diesel::table! {
         dismissed_by -> Nullable<Uuid>,
         resolved_at -> Nullable<Timestamptz>,
         workspace_id -> Int4,
+        draft_page_id -> Nullable<Int4>,
     }
 }
 
@@ -2416,7 +2417,6 @@ diesel::joinable!(inbound_addresses -> channels (channel_id));
 diesel::joinable!(inbound_addresses -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gap_signals -> knowledge_gaps (gap_id));
 diesel::joinable!(knowledge_gap_signals -> workspaces (workspace_id));
-diesel::joinable!(knowledge_gaps -> documentation_pages (resolved_page_id));
 diesel::joinable!(knowledge_gaps -> workspaces (workspace_id));
 diesel::joinable!(linked_tickets -> users (created_by));
 diesel::joinable!(linked_tickets -> workspaces (workspace_id));

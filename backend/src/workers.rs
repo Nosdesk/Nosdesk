@@ -287,6 +287,17 @@ pub fn spawn_scheduled_jobs(
             move || jobs::loan_due_reminders(p.clone(), ns.clone()),
         );
 
+        // Hourly: detect knowledge gaps in every workspace (clusters, failed
+        // searches, stale docs), so the gaps queue fills by itself.
+        let p = pool.clone();
+        spawn_periodic(
+            "knowledge_gaps.detect",
+            jobs::knowledge_gap_detect_interval(),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::knowledge_gap_detection(p.clone()),
+        );
+
         info!("scheduler: periodic jobs spawned");
     }
     scheduler_status

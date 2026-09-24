@@ -36,6 +36,7 @@ const THUMBNAIL_BACKFILL_LOCK: i64 = 0x004e_6f73_5448_4d42;
 const LOAN_REMINDER_LOCK: i64 = 0x004e_6f73_4c6f_616e;
 const NOTIFICATION_DIGEST_LOCK: i64 = 0x004e_6f73_4e44_4947;
 const LDAP_RECONCILE_LOCK: i64 = 0x004e_6f73_4c44_5243;
+const KNOWLEDGE_GAP_DETECT_LOCK: i64 = 0x004e_6f73_4b47_4450;
 // Partition drops (DETACH CONCURRENTLY + DROP) can't run in a transaction,
 // so they can't use the provisioner's transaction-scoped lock; a session
 // try-lock skips the tick when a peer machine is already pruning. Per-parent
@@ -1375,6 +1376,66 @@ pub async fn loan_due_reminders(
 
     if sent > 0 || failed > 0 {
         info!(sent, failed, "scheduler: loan due reminders swept");
+    }
+    Ok(())
+}
+
+/// How often knowledge-gap detection runs. `NOSDESK_KNOWLEDGE_GAP_DETECT_SECS`
+/// overrides it (for a dev walk, say); default hourly.
+pub fn knowledge_gap_detect_interval() -> std::time::Duration {
+    let secs = std::env::var("NOSDESK_KNOWLEDGE_GAP_DETECT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|n| *n >= 60)
+        .unwrap_or(3600);
+    std::time::Duration::from_secs(secs)
+}
+
+/// Find knowledge gaps in every workspace: ticket clusters, searches that
+/// keep finding nothing, and stale docs that keep resolving tickets. The same
+/// detectors and thresholds as the gaps page's Refresh, so the queue fills
+/// without anyone pressing it. A gap someone dismissed or resolved is not
+/// recreated from the same evidence (see the detectors).
+pub async fn knowledge_gap_detection(pool: Pool) -> Result<()> {
+    use crate::repository::knowledge_gaps as gaps;
+
+    let _lock = match try_job_lock(&pool, KNOWLEDGE_GAP_DETECT_LOCK, "knowledge_gaps.detect")? {
+        Some(guard) => guard,
+        None => return Ok(()), // another machine holds it this tick
+    };
+
+    let workspaces =
+        // cross-tenant: lists workspaces to detect in; detection itself runs pinned per workspace below.
+        crate::sync::session::background_run(&pool, "scheduler:knowledge_gaps:list", |conn| {
+            crate::repository::workspaces::list_workspaces(conn, false)
+        })
+        .map_err(|e| anyhow::anyhow!("list workspaces: {e}"))?;
+    let workspace_ids: Vec<i32> = workspaces.into_iter().map(|w| w.id).collect();
+
+    let (mut count, mut failed) = (0usize, 0usize);
+    for workspace_id in workspace_ids {
+        let ran = crate::sync::session::run_in_workspace(
+            &pool,
+            "scheduler:knowledge_gaps",
+            workspace_id,
+            |conn| {
+                let clusters = gaps::run_cluster_detection(conn, None, 30, 2)?;
+                let searches = gaps::run_failed_search_detection(conn, None, 30, 2)?;
+                let stale = gaps::run_stale_doc_detection(conn, None, 30, 1)?;
+                Ok(clusters.gaps_created + searches.gaps_created + stale.gaps_created)
+            },
+        );
+        match ran {
+            Ok(n) => count += n,
+            Err(e) => {
+                failed += 1;
+                warn!(workspace_id, error = %e, "scheduler:knowledge_gaps: detection failed; retry next tick");
+            }
+        }
+    }
+    if count > 0 || failed > 0 {
+        // `count`: gaps created this run; `failed`: workspaces that errored.
+        info!(count, failed, "scheduler: knowledge gaps detected");
     }
     Ok(())
 }

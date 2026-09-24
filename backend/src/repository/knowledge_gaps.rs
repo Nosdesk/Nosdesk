@@ -40,6 +40,7 @@ fn gap_sync_payload(g: &KnowledgeGap) -> serde_json::Value {
         "status": g.status,
         "assignee_uuid": g.assignee_uuid,
         "resolved_page_id": g.resolved_page_id,
+        "draft_page_id": g.draft_page_id,
         "evidence_count": g.evidence_count,
         "impact_score": g.impact_score,
         "last_evidence_at": g.last_evidence_at,
@@ -509,7 +510,7 @@ pub fn resolve_gap(
     conn: &mut DbConnection,
     gap_id: i64,
     page_id: i32,
-    by_user: Uuid,
+    by_user: Option<Uuid>,
 ) -> Result<KnowledgeGap, Error> {
     use crate::repository::documentation_page_tickets;
 
@@ -525,7 +526,7 @@ pub fn resolve_gap(
                     page_id,
                     ticket_id,
                     documentation_page_tickets::LINK_RESOLVES,
-                    Some(by_user),
+                    by_user,
                 );
             }
         }
@@ -536,11 +537,171 @@ pub fn resolve_gap(
                 status: Some(STATUS_RESOLVED.to_string()),
                 resolved_page_id: Some(Some(page_id)),
                 resolved_at: Some(Some(Utc::now().naive_utc())),
+                draft_page_id: Some(None),
                 updated_at: Some(Utc::now().naive_utc()),
                 ..Default::default()
             },
         )
     })
+}
+
+/// Start writing a gap as `page_id`: the gap moves to `drafting` and
+/// remembers the page, whose publication resolves it.
+pub fn start_drafting(
+    conn: &mut DbConnection,
+    gap_id: i64,
+    page_id: i32,
+) -> Result<KnowledgeGap, Error> {
+    update_gap(
+        conn,
+        gap_id,
+        KnowledgeGapUpdate {
+            status: Some(STATUS_DRAFTING.to_string()),
+            draft_page_id: Some(Some(page_id)),
+            updated_at: Some(Utc::now().naive_utc()),
+            ..Default::default()
+        },
+    )
+}
+
+/// A page was created to fill a gap: the gap drafts on it, or resolves at
+/// once if the page was created published. A gap that is no longer open or
+/// drafting is left alone.
+pub fn write_gap_as_page(
+    conn: &mut DbConnection,
+    gap_id: i64,
+    page_id: i32,
+    published: bool,
+    by_user: Option<Uuid>,
+) -> Result<Option<KnowledgeGap>, Error> {
+    let gap = get_gap(conn, gap_id)?;
+    if gap.status != STATUS_OPEN && gap.status != STATUS_DRAFTING {
+        return Ok(None);
+    }
+    let moved = if published {
+        resolve_gap(conn, gap_id, page_id, by_user)?
+    } else {
+        start_drafting(conn, gap_id, page_id)?
+    };
+    Ok(Some(moved))
+}
+
+/// Keep the gaps a page is drafting in step with the page's status:
+/// publishing resolves them (linking the page to every ticket they cite),
+/// deleting or archiving the draft sends them back to `open`. Called by
+/// `documentation::update_documentation_page`, which every status change
+/// goes through.
+pub fn on_page_status_changed(
+    conn: &mut DbConnection,
+    page_id: i32,
+    status: &crate::models::DocumentationStatus,
+    by_user: Option<Uuid>,
+) -> Result<(), Error> {
+    use crate::models::DocumentationStatus;
+    let drafting: Vec<i64> = knowledge_gaps::table
+        .filter(knowledge_gaps::draft_page_id.eq(page_id))
+        .filter(knowledge_gaps::status.eq(STATUS_DRAFTING))
+        .select(knowledge_gaps::id)
+        .load(conn)?;
+    for gap_id in drafting {
+        match status {
+            DocumentationStatus::Published => {
+                resolve_gap(conn, gap_id, page_id, by_user)?;
+            }
+            DocumentationStatus::Deleted | DocumentationStatus::Archived => {
+                update_gap(
+                    conn,
+                    gap_id,
+                    KnowledgeGapUpdate {
+                        status: Some(STATUS_OPEN.to_string()),
+                        draft_page_id: Some(None),
+                        updated_at: Some(Utc::now().naive_utc()),
+                        ..Default::default()
+                    },
+                )?;
+            }
+            DocumentationStatus::Draft => {}
+        }
+    }
+    Ok(())
+}
+
+/// Link `page_id` as resolving `ticket_id`, and move on the gap flagged for
+/// that ticket: a published page resolves it, a draft starts it drafting.
+/// Only the ticket's own flag gap: a cluster gap cites several tickets, and
+/// one ticket's doc doesn't answer the cluster, so clusters stay manual.
+pub fn link_page_resolves_ticket(
+    conn: &mut DbConnection,
+    page_id: i32,
+    ticket_id: i32,
+    by_user: Option<Uuid>,
+) -> Result<crate::models::DocumentationPageTicket, Error> {
+    use crate::models::DocumentationStatus;
+    use crate::repository::documentation_page_tickets;
+    use crate::schema::documentation_pages;
+
+    let link = documentation_page_tickets::upsert_link(
+        conn,
+        page_id,
+        ticket_id,
+        documentation_page_tickets::LINK_RESOLVES,
+        by_user,
+    )?;
+    let Some(gap) = find_open_gap_for_source(conn, SOURCE_TICKET, &ticket_id.to_string())? else {
+        return Ok(link);
+    };
+    let page_status: DocumentationStatus = documentation_pages::table
+        .find(page_id)
+        .select(documentation_pages::status)
+        .first(conn)?;
+    match page_status {
+        DocumentationStatus::Published => {
+            resolve_gap(conn, gap.id, page_id, by_user)?;
+        }
+        DocumentationStatus::Draft if gap.status == STATUS_OPEN => {
+            start_drafting(conn, gap.id, page_id)?;
+        }
+        _ => {}
+    }
+    Ok(link)
+}
+
+/// What closed gaps (dismissed or resolved) already said about a source:
+/// when the latest of them closed, and the payloads of their signals for it.
+/// Detection uses it so a closed gap isn't recreated from the same evidence
+/// on the next run; only evidence that arrived afterwards opens a new one.
+struct ClosedSource {
+    closed_at: chrono::NaiveDateTime,
+    payloads: Vec<serde_json::Value>,
+}
+
+fn closed_source(
+    conn: &mut DbConnection,
+    source_kind: &str,
+    source_ref: &str,
+) -> Result<Option<ClosedSource>, Error> {
+    let rows: Vec<(
+        Option<chrono::NaiveDateTime>,
+        Option<chrono::NaiveDateTime>,
+        serde_json::Value,
+    )> = knowledge_gaps::table
+        .inner_join(
+            knowledge_gap_signals::table.on(knowledge_gap_signals::gap_id.eq(knowledge_gaps::id)),
+        )
+        .filter(knowledge_gap_signals::source_kind.eq(source_kind))
+        .filter(knowledge_gap_signals::source_ref.eq(source_ref))
+        .filter(knowledge_gaps::status.eq_any([STATUS_RESOLVED, STATUS_DISMISSED]))
+        .select((
+            knowledge_gaps::dismissed_at,
+            knowledge_gaps::resolved_at,
+            knowledge_gap_signals::payload,
+        ))
+        .load(conn)?;
+    let closed_at = rows.iter().filter_map(|(d, r, _)| d.or(*r)).max();
+    Ok(closed_at.map(|closed_at| ClosedSource {
+        closed_at,
+        payloads: rows.into_iter().map(|(_, _, p)| p).collect(),
+    }))
 }
 
 /// Extract the ticket IDs a signal points to. Manual-flag signals
@@ -838,6 +999,27 @@ pub fn run_cluster_detection(
         conn.transaction::<_, Error, _>(|tx| {
             let existing = find_open_gap_for_source(tx, SOURCE_CLUSTER_KEY, &cluster.fingerprint)?;
             let was_created = existing.is_none();
+            // A closed gap for this cluster is reopened only by tickets it
+            // didn't already cite, enough of them to form a cluster.
+            if was_created {
+                if let Some(closed) = closed_source(tx, SOURCE_CLUSTER_KEY, &cluster.fingerprint)? {
+                    let seen: std::collections::HashSet<i64> = closed
+                        .payloads
+                        .iter()
+                        .filter_map(|p| p.get("ticket_ids").and_then(|v| v.as_array()))
+                        .flatten()
+                        .filter_map(|v| v.as_i64())
+                        .collect();
+                    let fresh = cluster
+                        .ticket_ids
+                        .iter()
+                        .filter(|id| !seen.contains(&i64::from(**id)))
+                        .count();
+                    if fresh < min_size {
+                        return Ok(());
+                    }
+                }
+            }
 
             let gap = match existing {
                 Some(g) => g,
@@ -918,6 +1100,20 @@ pub fn run_failed_search_detection(
         conn.transaction::<_, Error, _>(|tx| {
             let existing = find_open_gap_for_source(tx, SOURCE_SEARCH_QUERY, &agg.query_norm)?;
             let was_created = existing.is_none();
+            // A closed gap for this query is reopened only by searches that
+            // failed again after it closed, as many as it takes to count.
+            if was_created {
+                if let Some(closed) = closed_source(tx, SOURCE_SEARCH_QUERY, &agg.query_norm)? {
+                    let since = search_query_log::count_failed_since(
+                        tx,
+                        &agg.query_norm,
+                        closed.closed_at,
+                    )?;
+                    if since < min_count {
+                        return Ok(());
+                    }
+                }
+            }
 
             let gap = match existing {
                 Some(g) => g,
@@ -1108,6 +1304,15 @@ pub fn run_stale_doc_detection(
             let source_ref = candidate.page_id.to_string();
             let existing = find_open_gap_for_source(tx, SOURCE_PAGE, &source_ref)?;
             let was_created = existing.is_none();
+            // A closed gap for this page stands until the page is verified
+            // again and then goes stale again.
+            if was_created {
+                if let Some(closed) = closed_source(tx, SOURCE_PAGE, &source_ref)? {
+                    if closed.closed_at > candidate.verified_at {
+                        return Ok(());
+                    }
+                }
+            }
 
             let days_stale = (now
                 - (candidate.verified_at

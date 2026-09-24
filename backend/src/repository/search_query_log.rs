@@ -40,6 +40,21 @@ pub fn log_query(conn: &mut DbConnection, query_raw: &str, result_count: i32) ->
     Ok(())
 }
 
+/// How often a normalised query found nothing since `since`. The detector
+/// uses it to tell a gap closed earlier from demand that came after.
+pub fn count_failed_since(
+    conn: &mut DbConnection,
+    query_norm: &str,
+    since: chrono::NaiveDateTime,
+) -> Result<i64, Error> {
+    search_query_log::table
+        .filter(search_query_log::result_count.eq(0))
+        .filter(search_query_log::query_norm.eq(query_norm))
+        .filter(search_query_log::searched_at.gt(since))
+        .count()
+        .get_result(conn)
+}
+
 /// One aggregated row per recurring zero-result query. The
 /// detector turns these into `failed_search` signals.
 #[derive(Debug, Clone)]

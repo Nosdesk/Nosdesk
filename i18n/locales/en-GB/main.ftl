@@ -2318,8 +2318,6 @@ docs-gaps-failed-search-count = { $count ->
 docs-gaps-failed-search-range = first { $first }, last { $last }
 docs-gaps-flagged-by = Flagged by { $name }
 docs-gaps-resolve-heading = Resolve this gap
-docs-gaps-resolve-body = Open one of the tickets above and use { $action } from its sidebar. The new doc will auto-link as 'resolves' on every flagged ticket.
-docs-gaps-resolve-action = Save as doc
 
 # Document view (DocumentView): full-page editor for a single doc
 # page (or a ticket note). Covers the header toolbar, metadata

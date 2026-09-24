@@ -167,7 +167,6 @@ src/handlers/internal_workspaces.rs hostname
 src/handlers/internal_workspaces.rs seat_limit
 src/handlers/internal_workspaces.rs slug
 src/handlers/internal_workspaces.rs workspace_uuid
-src/handlers/knowledge_gaps.rs gap_id
 src/handlers/mod.rs attachment
 src/handlers/mod.rs attachment_id
 src/handlers/mod.rs attachment_name

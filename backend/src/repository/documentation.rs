@@ -214,6 +214,11 @@ pub fn update_documentation_page(
         let page: DocumentationPage = diesel::update(documentation_pages::table.find(page_id))
             .set(page_update)
             .get_result(conn)?;
+        // Gaps drafting on this page follow its status (publish resolves,
+        // delete or archive reopens). Every status change comes through here.
+        if let Some(status) = &page_update.status {
+            crate::repository::knowledge_gaps::on_page_status_changed(conn, page.id, status, None)?;
+        }
         let collection_id = collection_id_for_page(conn, page.id)?;
         emit::record(
             conn,

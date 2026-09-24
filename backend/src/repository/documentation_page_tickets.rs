@@ -91,6 +91,36 @@ pub fn links_for_ticket(
         .load::<DocumentationPageTicket>(conn)
 }
 
+/// A live page (draft or published) that resolves `ticket_id`, most recent
+/// first: its id, title and slug. Flagging such a ticket for documentation is
+/// refused, since the doc already exists.
+pub fn resolving_page_for_ticket(
+    conn: &mut DbConnection,
+    ticket_id_arg: i32,
+) -> Result<Option<(i32, String, String)>, Error> {
+    use crate::models::DocumentationStatus;
+    use crate::schema::documentation_pages;
+    documentation_page_tickets::table
+        .inner_join(
+            documentation_pages::table
+                .on(documentation_pages::id.eq(documentation_page_tickets::page_id)),
+        )
+        .filter(documentation_page_tickets::ticket_id.eq(ticket_id_arg))
+        .filter(documentation_page_tickets::link_type.eq(LINK_RESOLVES))
+        .filter(
+            documentation_pages::status
+                .eq_any([DocumentationStatus::Draft, DocumentationStatus::Published]),
+        )
+        .order_by(documentation_page_tickets::created_at.desc())
+        .select((
+            documentation_pages::id,
+            documentation_pages::title,
+            documentation_pages::slug,
+        ))
+        .first(conn)
+        .optional()
+}
+
 /// Pick any 'resolves'-tier ticket for a page. Used by the
 /// resolve_yjs_document fallback when a page predates the dedicated
 /// yjs_document column and only has its content via the ticket's

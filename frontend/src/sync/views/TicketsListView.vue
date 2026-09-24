@@ -585,10 +585,14 @@ async function handleTicketContextMenuSelect(actionId: string): Promise<void> {
       contextAssignTicketIds.value = [ticketId]
       showContextAssignModal.value = true
       break
-    case 'flag-for-docs':
-      await flagMutation.mutateAsync({ ticketId })
-      toast.success(t('ticket-list-context-flagged-toast'))
+    case 'flag-for-docs': {
+      const result = await flagMutation.mutateAsync({ ticketId })
+      if (result.kind === 'flagged') toast.success(t('ticket-list-context-flagged-toast'))
+      else if (result.kind === 'documented')
+        toast.info(t('ticket-flag-already-documented', { title: result.page.title }))
+      else toast.error(t('ticket-flag-failed'))
       break
+    }
     case 'toggle-select':
       bulkSelection.toggle(String(ticketId))
       break
