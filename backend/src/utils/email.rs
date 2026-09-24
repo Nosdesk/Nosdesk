@@ -791,13 +791,6 @@ impl EmailConfig {
     }
 }
 
-/// Build a lettre SMTP mailer from config, connecting to `config.smtp_host`.
-/// Shared by the SMTP transport and the direct-send methods so the
-/// connection/security wiring lives in one place.
-fn build_smtp_mailer(config: &EmailConfig) -> Result<SmtpTransport, String> {
-    build_smtp_mailer_for(config, &config.smtp_host, &config.smtp_host)
-}
-
 /// Build a lettre SMTP mailer that TCP-connects to `connect_host` while
 /// validating TLS against `tls_domain`. For a trusted relay both are the
 /// configured hostname (lettre resolves it). For a tenant relay (`smtp_relay`)
@@ -810,6 +803,7 @@ fn build_smtp_mailer_for(
     config: &EmailConfig,
     connect_host: &str,
     tls_domain: &str,
+    timeout: Option<std::time::Duration>,
 ) -> Result<SmtpTransport, String> {
     use lettre::transport::smtp::client::{Tls, TlsParameters};
 
@@ -829,6 +823,10 @@ fn build_smtp_mailer_for(
         SmtpSecurity::Plaintext => SmtpTransport::builder_dangerous(connect_host),
     };
     let builder = builder.port(config.smtp_port);
+    let builder = match timeout {
+        Some(t) => builder.timeout(Some(t)),
+        None => builder,
+    };
 
     // Only authenticate when the connection can actually carry credentials.
     // lettre refuses PLAIN/LOGIN over an unencrypted link, and attaching
@@ -1122,7 +1120,15 @@ pub struct SmtpEmailTransport {
     /// connect-to-validated-address in `send`. The env relay and the
     /// verified-domain relay are operator config and stay `false`.
     untrusted_host: bool,
+    /// Per-command SMTP timeout. `None` keeps lettre's default (60s), which the
+    /// operator's own relay has always used; a workspace relay gets a shorter
+    /// bound so a dead host cannot hold a send for a minute.
+    timeout: Option<std::time::Duration>,
 }
+
+/// How long a workspace's own relay may take per SMTP command during normal
+/// sending.
+pub const UNTRUSTED_RELAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl SmtpEmailTransport {
     pub fn new(config: EmailConfig) -> Self {
@@ -1130,6 +1136,7 @@ impl SmtpEmailTransport {
             config,
             dkim: None,
             untrusted_host: false,
+            timeout: None,
         }
     }
 
@@ -1140,16 +1147,29 @@ impl SmtpEmailTransport {
             config,
             dkim,
             untrusted_host: false,
+            timeout: None,
         }
     }
 
     /// Construct for a tenant-supplied relay host (`smtp_relay` mode). Every
     /// send SSRF-validates the host and connects to a validated address.
-    pub fn new_untrusted(config: EmailConfig) -> Self {
+    pub fn new_untrusted(config: EmailConfig, timeout: std::time::Duration) -> Self {
         Self {
             config,
             dkim: None,
             untrusted_host: true,
+            timeout: Some(timeout),
+        }
+    }
+
+    /// Whether this transport can send. A workspace's own relay may send
+    /// without credentials (an IP-allowlisted relay), so it needs only a host;
+    /// the operator's env relay keeps requiring credentials, unchanged.
+    fn can_send(&self) -> bool {
+        if self.untrusted_host {
+            self.config.enabled && !self.config.smtp_host.trim().is_empty()
+        } else {
+            self.config.is_configured()
         }
     }
 }
@@ -1157,7 +1177,7 @@ impl SmtpEmailTransport {
 #[async_trait]
 impl EmailTransport for SmtpEmailTransport {
     async fn send(&self, msg: &OutboundEmailMessage<'_>) -> Result<SendOutcome, SmtpError> {
-        if !self.config.is_configured() {
+        if !self.can_send() {
             return Err(SmtpError::NotConfigured);
         }
         let mut message = build_outbound_message(&self.config, msg)?;
@@ -1181,15 +1201,25 @@ impl EmailTransport for SmtpEmailTransport {
                 .ip();
             // All returned addresses are vetted (resolve_and_validate fails
             // closed if any is non-routable), so the first is safe to use.
-            build_smtp_mailer_for(&self.config, &ip.to_string(), &self.config.smtp_host)?
+            build_smtp_mailer_for(
+                &self.config,
+                &ip.to_string(),
+                &self.config.smtp_host,
+                self.timeout,
+            )?
         } else {
-            build_smtp_mailer(&self.config)?
+            build_smtp_mailer_for(
+                &self.config,
+                &self.config.smtp_host,
+                &self.config.smtp_host,
+                self.timeout,
+            )?
         };
         // B1: when a VERP Return-Path is set, send with an explicit envelope so
         // `MAIL FROM` is the bounce-token address, distinct from the `From`
         // header. lettre's default `send` derives the envelope from `From`;
         // overriding it needs `send_raw` with the formatted (DKIM-signed) bytes.
-        match msg.envelope_from {
+        let envelope = match msg.envelope_from {
             Some(return_path) => {
                 let from: lettre::Address = return_path
                     .parse()
@@ -1198,23 +1228,31 @@ impl EmailTransport for SmtpEmailTransport {
                     .to
                     .parse()
                     .map_err(|e| format!("Invalid recipient {}: {e}", msg.to))?;
-                let envelope = lettre::address::Envelope::new(Some(from), vec![to])
-                    .map_err(|e| format!("Invalid envelope: {e}"))?;
-                mailer
-                    .send_raw(&envelope, &message.formatted())
-                    .map_err(SmtpError::from_lettre)?;
+                Some(
+                    lettre::address::Envelope::new(Some(from), vec![to])
+                        .map_err(|e| format!("Invalid envelope: {e}"))?,
+                )
             }
-            None => {
-                mailer.send(&message).map_err(SmtpError::from_lettre)?;
-            }
-        }
+            None => None,
+        };
+        // lettre's SmtpTransport is synchronous: connecting, TLS and every SMTP
+        // round trip block the calling thread, for up to the timeout. Run it on
+        // the blocking pool so a slow or dead relay never stalls an async
+        // worker (the queue worker and the admin test send both land here).
+        tokio::task::spawn_blocking(move || match envelope {
+            Some(envelope) => mailer.send_raw(&envelope, &message.formatted()),
+            None => mailer.send(&message),
+        })
+        .await
+        .map_err(|e| SmtpError::Build(format!("send task failed: {e}")))?
+        .map_err(SmtpError::from_lettre)?;
         Ok(SendOutcome {
             provider_message_id: None,
         })
     }
 
     fn is_configured(&self) -> bool {
-        self.config.is_configured()
+        self.can_send()
     }
 
     fn provider_name(&self) -> &'static str {
@@ -1251,8 +1289,17 @@ impl EmailService {
     /// The relay host is SSRF-validated on every send and the connection goes to
     /// a validated address (see `SmtpEmailTransport::new_untrusted`).
     pub fn new_untrusted_relay(config: EmailConfig) -> Self {
+        Self::new_untrusted_relay_with_timeout(config, UNTRUSTED_RELAY_TIMEOUT)
+    }
+
+    /// [`Self::new_untrusted_relay`] with an explicit per-command timeout; the
+    /// admin test send uses a short one so the form answers promptly.
+    pub fn new_untrusted_relay_with_timeout(
+        config: EmailConfig,
+        timeout: std::time::Duration,
+    ) -> Self {
         let transport: Arc<dyn EmailTransport> =
-            Arc::new(SmtpEmailTransport::new_untrusted(config.clone()));
+            Arc::new(SmtpEmailTransport::new_untrusted(config.clone(), timeout));
         Self { config, transport }
     }
 
@@ -1352,6 +1399,14 @@ impl EmailService {
 
     /// Send a test email to verify configuration
     pub async fn send_test_email(&self, to: &str, branding: &EmailBranding) -> Result<(), String> {
+        self.send_test(to, branding)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// [`Self::send_test_email`] keeping the typed error, so the admin test
+    /// can say which step failed (DNS, blocked host, auth, ...).
+    pub async fn send_test(&self, to: &str, branding: &EmailBranding) -> Result<(), SmtpError> {
         let subject = format!("{} Test Email", branding.app_name);
         let body = format!(
             "This is a test email from {}.\n\n\
@@ -1365,8 +1420,22 @@ impl EmailService {
             self.config.from_name,
             self.config.from_email
         );
-
-        self.send_text_email(to, &subject, &body).await
+        let message_id = self.generate_message_id();
+        let outbound = OutboundEmailMessage {
+            to,
+            subject: &subject,
+            body_text: &body,
+            body_html: None,
+            message_id: &message_id,
+            in_reply_to: None,
+            references: &[],
+            auto_submitted: None,
+            mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
+            reply_to: None,
+            envelope_from: None,
+            list_unsubscribe: None,
+        };
+        self.send_outbound(&outbound).await.map(|_| ())
     }
 
     /// Access the underlying SMTP configuration. Needed by callers
@@ -2309,7 +2378,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         // allowlist never contains 127.0.0.1.
         let mut config = dkim_test_config();
         config.smtp_host = "127.0.0.1".into();
-        let transport = SmtpEmailTransport::new_untrusted(config);
+        let transport = SmtpEmailTransport::new_untrusted(config, UNTRUSTED_RELAY_TIMEOUT);
         let outbound = dkim_test_outbound();
         let err = match transport.send(&outbound).await {
             Err(e) => e,
@@ -2319,6 +2388,26 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             matches!(err, SmtpError::Egress(_)),
             "expected an SSRF/egress rejection, got: {err}"
         );
+    }
+
+    #[test]
+    fn a_workspace_relay_can_send_without_credentials_and_the_env_relay_cannot() {
+        let mut config = dkim_test_config();
+        config.smtp_host = "relay.example.com".into();
+        config.smtp_username = String::new();
+        config.smtp_password = String::new();
+        // An IP-allowlisted office relay: a host is enough.
+        assert!(
+            SmtpEmailTransport::new_untrusted(config.clone(), UNTRUSTED_RELAY_TIMEOUT).can_send()
+        );
+        // The operator's env relay keeps requiring credentials.
+        assert!(!SmtpEmailTransport::new(config.clone()).can_send());
+        // A workspace relay still needs a host and to be enabled.
+        let mut hostless = config.clone();
+        hostless.smtp_host = " ".into();
+        assert!(!SmtpEmailTransport::new_untrusted(hostless, UNTRUSTED_RELAY_TIMEOUT).can_send());
+        config.enabled = false;
+        assert!(!SmtpEmailTransport::new_untrusted(config, UNTRUSTED_RELAY_TIMEOUT).can_send());
     }
 
     #[tokio::test]

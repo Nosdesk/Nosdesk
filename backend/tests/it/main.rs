@@ -80,3 +80,4 @@ mod workspace_member_soft_remove;
 mod workspace_members_active_filter_lint;
 mod workspace_membership_gate;
 mod workspace_role_resolution;
+mod workspace_smtp_relay;

@@ -133,8 +133,12 @@ async function sendTest() {
   actionError.value = '';
   testing.value = true;
   try {
-    const { to } = await workspaceEmailService.sendTest();
-    toast.success(t('email-domain-test-sent') + ' ' + to);
+    const result = await workspaceEmailService.sendTest();
+    if (result.ok) {
+      toast.success(t('email-domain-test-sent') + ' ' + result.to);
+    } else {
+      actionError.value = result.detail ?? t('email-domain-error-test');
+    }
   } catch (error) {
     actionError.value = extractErrorMessage(error, t('email-domain-error-test'));
   } finally {

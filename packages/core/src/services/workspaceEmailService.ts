@@ -13,6 +13,34 @@ export interface OutboundSettings {
   verification_status: string;
   verified_at: string | null;
   dkim_record: DkimRecord | null;
+  /** The workspace's own SMTP server, kept across mode changes. */
+  smtp_host: string;
+  smtp_port: number;
+  smtp_security: 'starttls' | 'tls' | 'plaintext';
+  smtp_username: string;
+  /** A password is stored; it is never returned. */
+  password_configured: boolean;
+  port_security: { level: 'ok' | 'warn' | 'error'; message: string | null };
+}
+
+/** The result of a test send. `code` says which step failed. */
+export interface EmailTestResult {
+  ok: boolean;
+  /** Where the test went: the requesting admin's own address. */
+  to: string;
+  code:
+    | 'incomplete'
+    | 'invalid'
+    | 'dns'
+    | 'egress_blocked'
+    | 'auth'
+    | 'rejected'
+    | 'timeout'
+    | 'tls'
+    | 'connect'
+    | null;
+  /** The server's own words, for the detail line. */
+  detail: string | null;
 }
 
 export interface SetDomainResponse {
@@ -65,11 +93,9 @@ export default {
     return response.data;
   },
 
-  async sendTest(): Promise<{ status: string; to: string }> {
-    const response = await apiClient.post<{ status: string; to: string }>(
-      '/admin/email/outbound/test',
-      {},
-    );
+  /** Test whatever this workspace sends with now, to the caller. */
+  async sendTest(): Promise<EmailTestResult> {
+    const response = await apiClient.post<EmailTestResult>('/admin/email/outbound/test', {});
     return response.data;
   },
 
