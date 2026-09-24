@@ -192,6 +192,11 @@ services:
       - SMTP_PASSWORD=mailpit
       - SMTP_FROM_NAME=Nosdesk
       - SMTP_FROM_EMAIL=noreply@nosdesk.test
+      # Let a workspace's own SMTP server (Email delivery > Your SMTP
+      # server) and an IMAP channel target the sidecars: host `mailpit`,
+      # port 1025, security None; IMAP `greenmail`. Internal hosts are
+      # otherwise refused by the egress guard.
+      - NOSDESK_OUTBOUND_ALLOWED_HOSTS=mailpit,greenmail
     healthcheck:
       start_period: 120s # Longer for dev due to compilation time
 
