@@ -50,8 +50,10 @@ const props = withDefaults(
     variant?: 'full' | 'dense'
     /** When set, the headline links there (the cycle's board). */
     to?: string
+    /** Dense variant: where the chart is (the project's Cycles page). */
+    burnupTo?: string
   }>(),
-  { variant: 'full', burnup: null, to: undefined },
+  { variant: 'full', burnup: null, to: undefined, burnupTo: undefined },
 )
 
 const isFrozen = computed(() => props.cycle.state === 'completed')
@@ -94,13 +96,20 @@ const scopeAdded = computed(() => {
   return 0
 })
 
+const isDated = computed(() => !!props.cycle.start_at && !!props.cycle.end_at)
+
 const showBurnup = computed(
-  () =>
-    props.variant === 'full' &&
-    !isFrozen.value &&
-    !!props.cycle.start_at &&
-    !!props.cycle.end_at &&
-    !!props.burnup,
+  () => props.variant === 'full' && !isFrozen.value && isDated.value && !!props.burnup,
+)
+
+// A live cycle without dates has no burnup; say why rather than show nothing.
+const burnupNeedsDates = computed(
+  () => props.variant === 'full' && !isFrozen.value && !isDated.value,
+)
+
+// The dense hero (cycle page) has no chart; point at where it is.
+const showBurnupLink = computed(
+  () => props.variant === 'dense' && !isFrozen.value && isDated.value && !!props.burnupTo,
 )
 
 const sortedCategories = computed<[string, number][]>(() => {
@@ -221,6 +230,16 @@ function categoryPct(count: number): number {
 
       <!-- Burnup chart (full variant, live cycles with dates only) -->
       <CycleBurnupChart v-if="showBurnup && burnup" :series="burnup" />
+      <p v-else-if="burnupNeedsDates" class="text-xs text-tertiary">
+        {{ t('cycle-burnup-needs-dates') }}
+      </p>
+      <RouterLink
+        v-if="showBurnupLink"
+        :to="burnupTo!"
+        class="text-xs font-medium text-accent hover:underline w-fit"
+      >
+        {{ t('cycle-burnup-view') }}
+      </RouterLink>
 
       <!-- By category: colour-coded dot + proportion bar + count -->
       <div v-if="variant === 'full' && sortedCategories.length" class="flex flex-col gap-1.5">

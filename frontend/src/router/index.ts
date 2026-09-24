@@ -698,22 +698,29 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-workspace-members' }
         },
         {
-          path: 'canned-responses',
+          path: 'saved-replies',
           name: 'admin-canned-responses',
           component: () => import('../views/CannedResponsesView.vue'),
           meta: { titleKey: 'route-title-admin-canned-responses' }
         },
         {
-          path: 'canned-responses/new',
+          path: 'saved-replies/new',
           name: 'admin-canned-responses-new',
           component: () => import('../views/CannedResponseEditView.vue'),
           meta: { titleKey: 'route-title-admin-canned-responses-new' }
         },
         {
-          path: 'canned-responses/:id(\\d+)',
+          path: 'saved-replies/:id(\\d+)',
           name: 'admin-canned-responses-edit',
           component: () => import('../views/CannedResponseEditView.vue'),
           meta: { titleKey: 'route-title-admin-canned-responses-edit' }
+        },
+        // The feature was "canned responses"; old links keep working.
+        { path: 'canned-responses', redirect: { name: 'admin-canned-responses' } },
+        { path: 'canned-responses/new', redirect: { name: 'admin-canned-responses-new' } },
+        {
+          path: 'canned-responses/:id(\\d+)',
+          redirect: (to) => ({ name: 'admin-canned-responses-edit', params: { id: to.params.id } })
         },
         {
           path: 'rules',

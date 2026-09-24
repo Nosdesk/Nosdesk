@@ -71,7 +71,15 @@ body, case-insensitive, multi-term AND.
         </div>
         <div v-else-if="responses.length === 0" class="px-4 py-3 flex flex-col gap-2">
           <p class="text-sm text-secondary">{{ $t('ticket-picker-canned-empty-title') }}</p>
-          <p class="text-xs text-tertiary">
+          <!-- Admins can fill it from the starter catalogue in one step. -->
+          <RouterLink
+            v-if="canManage"
+            :to="{ name: 'admin-canned-responses', query: { starters: '1' } }"
+            class="text-xs font-medium text-accent hover:underline w-fit"
+          >
+            {{ $t('ticket-picker-canned-empty-browse') }}
+          </RouterLink>
+          <p v-else class="text-xs text-tertiary">
             {{ $t('ticket-picker-canned-empty-hint') }}
           </p>
         </div>
@@ -147,6 +155,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { ListboxContent, ListboxFilter, ListboxItem, ListboxRoot } from 'reka-ui';
 import { useQuery } from '@pinia/colada';
+import { RouterLink } from 'vue-router';
 import {
   cannedResponsesService,
   renderTemplate,
@@ -157,6 +166,7 @@ import {
 import { highlightTerms } from '@nosdesk/core/utils/highlight';
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue';
 import type { PopoverAnchor } from '@/composables/popoverAnchor';
+
 
 const { $t } = useFluent();
 
@@ -182,6 +192,9 @@ const props = defineProps<{
    * are inserted on which tickets. Fire-and-forget; logging
    * failures never block the insert. */
   ticketId?: number;
+  /** The viewer can manage saved replies (workspace admin): the empty state
+   *  links to the starter catalogue instead of telling them to ask. */
+  canManage?: boolean;
 }>();
 
 const emit = defineEmits<{

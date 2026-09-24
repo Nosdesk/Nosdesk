@@ -300,3 +300,34 @@ async fn the_hourly_job_detects_gaps_in_each_workspace() {
         open.iter().map(|g| &g.title).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn the_queue_labels_a_gap_by_its_main_signal() {
+    let db = crate::common::TestDb::new();
+    let mut conn = db.conn();
+    let author = crate::common::insert_user(&mut conn, "Writer");
+    for _ in 0..2 {
+        search_query_log::log_query(&mut conn, "wifi password", 0).expect("log");
+    }
+    let search_gap = gaps::run_failed_search_detection(&mut conn, None, 30, 2)
+        .expect("detect")
+        .new_gap_ids[0];
+    let t = ticket(&mut conn, "Wifi password");
+    let (flag_gap, _, _) =
+        gaps::flag_ticket(&mut conn, t, "Wifi password", author.uuid, None).expect("flag");
+
+    let kinds = gaps::primary_signal_types(&mut conn, &[search_gap, flag_gap.id]).expect("kinds");
+    assert_eq!(
+        kinds.get(&search_gap).map(String::as_str),
+        Some(gaps::SIGNAL_FAILED_SEARCH)
+    );
+    assert_eq!(
+        kinds.get(&flag_gap.id).map(String::as_str),
+        Some(gaps::SIGNAL_MANUAL_FLAG)
+    );
+    // Agents' searches count too, so the title doesn't say "Customers".
+    assert!(gaps::get_gap(&mut conn, search_gap)
+        .expect("gap")
+        .title
+        .starts_with("Searched:"));
+}

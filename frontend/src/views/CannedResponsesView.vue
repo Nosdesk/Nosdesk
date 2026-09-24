@@ -9,7 +9,7 @@
  * preview pane on the right (see CannedResponseEditView).
  */
 import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
@@ -118,7 +118,9 @@ const errorMessage = ref('');
 // Browse-starters modal. Selecting a starter navigates to the
 // editor route with `?starter=<slug>` so the editor can pre-fill
 // without us having to round-trip the catalog twice.
-const showStarters = ref(false);
+// `?starters=1` opens it straight away (the composer's empty picker links here).
+const route = useRoute();
+const showStarters = ref(route.query.starters === '1');
 function openStarters(): void {
   showStarters.value = true;
 }

@@ -147,6 +147,38 @@ pub fn find_open_gap_for_source(
         .optional()
 }
 
+/// The most common live signal type per gap, for the list's "5 tickets" /
+/// "12 searches" label. One query for the page of gaps.
+pub fn primary_signal_types(
+    conn: &mut DbConnection,
+    gap_ids: &[i64],
+) -> Result<std::collections::HashMap<i64, String>, Error> {
+    use diesel::dsl::count_star;
+    let rows: Vec<(i64, String, i64)> = knowledge_gap_signals::table
+        .filter(knowledge_gap_signals::gap_id.eq_any(gap_ids))
+        .filter(knowledge_gap_signals::dismissed_at.is_null())
+        .group_by((
+            knowledge_gap_signals::gap_id,
+            knowledge_gap_signals::signal_type,
+        ))
+        .select((
+            knowledge_gap_signals::gap_id,
+            knowledge_gap_signals::signal_type,
+            count_star(),
+        ))
+        .load(conn)?;
+    let mut best: std::collections::HashMap<i64, (String, i64)> = Default::default();
+    for (gap_id, signal_type, n) in rows {
+        let entry = best
+            .entry(gap_id)
+            .or_insert_with(|| (signal_type.clone(), n));
+        if n > entry.1 {
+            *entry = (signal_type, n);
+        }
+    }
+    Ok(best.into_iter().map(|(id, (t, _))| (id, t)).collect())
+}
+
 pub fn get_gap(conn: &mut DbConnection, gap_id: i64) -> Result<KnowledgeGap, Error> {
     knowledge_gaps::table.find(gap_id).first(conn)
 }
@@ -1120,7 +1152,8 @@ pub fn run_failed_search_detection(
                 None => create_gap(
                     tx,
                     NewKnowledgeGap {
-                        title: format!("Customers searched: \"{}\"", agg.query_sample),
+                        // Agents' searches count too, not only customers'.
+                        title: format!("Searched: \"{}\"", agg.query_sample),
                         description: None,
                         status: STATUS_OPEN.to_string(),
                         created_by: detected_by,

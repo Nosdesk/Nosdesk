@@ -681,6 +681,7 @@ watch(documentObj, (newDocument) => {
           @unsubscribe="handleUnsubscribe"
           @insights="docPanel.open('insights')"
           @history="docPanel.open('history')"
+          @verify="verificationOpen = true"
         />
       </div>
     </div>

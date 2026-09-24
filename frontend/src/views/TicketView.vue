@@ -792,6 +792,7 @@ const rootEl = ref<HTMLElement | null>(null);
                             :class="{ 'print:hidden': !hasCommentsWithContent }"
                         >
                             <CommentsAndAttachments
+                                :can-manage-saved-replies="authStore.isAdmin"
                                 :ticket-id="ticketId"
                                 :comments="comments"
                                 :current-user="

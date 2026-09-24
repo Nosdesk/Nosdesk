@@ -43,6 +43,8 @@ export interface KnowledgeGap {
   resolved_at: string | null
   /** Only present on the detail response. */
   signals?: KnowledgeGapSignal[]
+  /** The gap's most common live signal type (list response). */
+  primary_signal_type?: KnowledgeGapSignalType
 }
 
 export interface KnowledgeGapSignalUser {

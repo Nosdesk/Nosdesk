@@ -982,7 +982,7 @@ admin-nav-workflow-title = Workflow
 admin-nav-workflow-description = Ajoutez des états de ticket nommés dans les catégories de workflow standard
 admin-nav-sla-title = SLA
 admin-nav-sla-description = Politiques de niveau de service et calendriers d'heures ouvrées
-admin-nav-canned-responses-title = Réponses prédéfinies
+admin-nav-canned-responses-title = Réponses enregistrées
 admin-nav-canned-responses-description = Modèles de réponse réutilisables avec variables substituées
 admin-nav-api-tokens-title = Jetons d'API
 admin-nav-api-tokens-description = Gérez les jetons d'API pour l'accès programmatique
@@ -1610,27 +1610,27 @@ admin-api-tokens-modal-expires-preset-custom = Personnalisé
 # réponse réutilisables que le sélecteur du composeur insère à la
 # demande. Bibliothèque partagée au niveau de l'espace de travail ;
 # écriture réservée aux administrateurs.
-admin-canned-responses-title = Réponses prédéfinies
+admin-canned-responses-title = Réponses enregistrées
 admin-canned-responses-description = Modèles de réponse réutilisables que les agents peuvent insérer dans le composeur de tickets. Les variables {"{{"}variable{"}}"} sont substituées au moment de l'insertion.
 admin-canned-responses-loading = Chargement des modèles...
 admin-canned-responses-create = Nouveau modèle
-admin-canned-responses-create-title = Nouvelle réponse prédéfinie
-admin-canned-responses-edit-title = Modifier la réponse prédéfinie
+admin-canned-responses-create-title = Nouvelle réponse enregistrée
+admin-canned-responses-edit-title = Modifier la réponse enregistrée
 admin-canned-responses-create-submit = Créer
 admin-canned-responses-save = Enregistrer
 admin-canned-responses-cancel = Annuler
 admin-canned-responses-search-placeholder = Rechercher par titre ou contenu...
-admin-canned-responses-search-aria = Rechercher des réponses prédéfinies
+admin-canned-responses-search-aria = Rechercher des réponses enregistrées
 admin-canned-responses-column-name = Nom
 admin-canned-responses-column-updated = Mis à jour
 admin-canned-responses-column-inserts = Insertions
 admin-canned-responses-column-inserts-title = Nombre d'insertions dans les 30 derniers jours
 admin-canned-responses-delete-title = Supprimer le modèle
 admin-canned-responses-delete-aria = Supprimer le modèle { $name }
-admin-canned-responses-delete-confirm-title = Supprimer la réponse prédéfinie
+admin-canned-responses-delete-confirm-title = Supprimer la réponse enregistrée
 admin-canned-responses-delete-confirm-message = Supprimer définitivement « { $name } » ? Les agents ne la verront plus dans le sélecteur du composeur.
 admin-canned-responses-delete-confirm-button = Supprimer
-admin-canned-responses-empty-title = Aucune réponse prédéfinie pour l'instant
+admin-canned-responses-empty-title = Aucune réponse enregistrée pour l'instant
 admin-canned-responses-empty-description = Créez votre premier modèle de réponse et les agents pourront l'insérer depuis le composeur en un clic.
 admin-canned-responses-no-matches-title = Aucun modèle correspondant
 admin-canned-responses-no-matches-description = Rien ne correspond à « { $query } ». Essayez un autre mot.
@@ -1640,21 +1640,21 @@ admin-canned-responses-field-body = Contenu
 admin-canned-responses-field-body-placeholder = Bonjour {"{{"}customer_name{"}}"}, ...
 admin-canned-responses-field-body-hint = Variables prises en charge : { $variables }
 admin-canned-responses-warn-unknown-variables = Variables inconnues : { $names }. Elles apparaîtront telles quelles dans les réponses aux clients ; corrigez-les ou supprimez-les.
-admin-canned-responses-error-load = Échec du chargement des réponses prédéfinies
+admin-canned-responses-error-load = Échec du chargement des réponses enregistrées
 admin-canned-responses-error-save = Échec de l'enregistrement
 admin-canned-responses-error-delete = Échec de la suppression
 admin-canned-responses-error-title-required = Le titre est obligatoire
 admin-canned-responses-error-body-required = Le contenu est obligatoire
 admin-canned-responses-error-unknown-variables = Variables inconnues : { $names }. Supprimez-les ou corrigez-les avant d'enregistrer.
-admin-canned-responses-success-created = Réponse prédéfinie créée
-admin-canned-responses-success-updated = Réponse prédéfinie enregistrée
-admin-canned-responses-success-deleted = Réponse prédéfinie supprimée
+admin-canned-responses-success-created = Réponse enregistrée créée
+admin-canned-responses-success-updated = Réponse enregistrée enregistrée
+admin-canned-responses-success-deleted = Réponse enregistrée supprimée
 admin-canned-responses-browse-starters = Parcourir les modèles
 admin-canned-responses-editor-insert-label = Insérer :
-admin-canned-responses-edit-back-label = Retour aux réponses prédéfinies
+admin-canned-responses-edit-back-label = Retour aux réponses enregistrées
 admin-canned-responses-editor-variable-aria = Variable : { $name }
 admin-canned-responses-editor-insert-variable-aria = Insérer la variable { $name }
-admin-canned-responses-edit-not-found = Cette réponse prédéfinie est introuvable. Elle a peut-être été supprimée dans un autre onglet.
+admin-canned-responses-edit-not-found = Cette réponse enregistrée est introuvable. Elle a peut-être été supprimée dans un autre onglet.
 admin-canned-responses-preview-heading = Aperçu
 admin-canned-responses-preview-empty = Le contenu est vide. Commencez à saisir dans l'éditeur pour voir l'aperçu.
 admin-canned-responses-preview-hint = Rendu avec des valeurs d'exemple. Les vrais tickets substituent les valeurs disponibles au moment de l'insertion.
@@ -2948,6 +2948,7 @@ project-cycles-health-behind = En retard
 project-cycles-health-complete = Terminé
 # machine, à relire par un locuteur natif
 project-cycles-health-not-started = Non commencé
+project-cycles-health-empty = Aucun ticket pour l'instant
 
 # Cycle detail (CycleDetailView): Scrum board scoped to one
 # cycle, with a burndown pinned above the kanban toolbar.
@@ -3003,10 +3004,13 @@ docs-index-attention-gaps-link = Toutes les lacunes
 docs-index-attention-totals = { $gaps } lacunes · { $stale } à vérifier
 docs-index-verification-never = jamais vérifiée
 docs-index-drafts-strip-count = { $count ->
-    [one] { $count } brouillon
-   *[other] { $count } brouillons
+    [one] { $count } page
+   *[other] { $count } pages
   }
-docs-index-drafts-strip-suffix = ne sont pas encore dans une collection
+docs-index-drafts-strip-suffix = { $count ->
+    [one] n'est pas encore dans une collection
+   *[other] ne sont pas encore dans une collection
+  }
 docs-index-drafts-strip-review = Passer en revue →
 docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = Nouvelle collection
@@ -3095,8 +3099,8 @@ docs-index-chip-trash = { $count ->
 
 # Documentation drafts (DocumentationDraftsView): pages not yet
 # assigned to a collection.
-docs-drafts-title = Brouillons
-docs-drafts-heading = Brouillons
+docs-drafts-title = Hors collection
+docs-drafts-heading = Hors collection
 docs-drafts-description = Pages non encore assignées à une collection
 docs-drafts-back = Retour à la documentation
 docs-drafts-count = { $count ->
@@ -3146,7 +3150,7 @@ docs-gaps-detect-no-results = Aucun nouveau groupe trouvé
 docs-gaps-detect-created = { $count } nouveau(x)
 docs-gaps-detect-updated = { $count } mis à jour
 docs-gaps-loading = Chargement
-docs-gaps-empty = Aucune lacune de connaissances ouverte. Signalez un ticket depuis sa barre latérale pour en ajouter une.
+docs-gaps-empty = Aucune lacune ouverte. Signalez un ticket depuis sa barre latérale pour en ajouter une. Les groupes de tickets similaires et les recherches qui ne trouvent jamais de doc apparaissent ici d'eux-mêmes.
 docs-gaps-impact-searches = recherches
 docs-gaps-impact-recent-tickets = tickets récents
 docs-gaps-impact-tickets = tickets
@@ -3679,15 +3683,16 @@ ticket-picker-linked-count = { $count ->
 }
 
 # Ticket picker: réponses préenregistrées (CannedResponsePicker)
-ticket-picker-canned-trigger-aria = Insérer une réponse préenregistrée
-ticket-picker-canned-trigger-title = Insérer une réponse préenregistrée ({ $shortcut })
-ticket-picker-canned-listbox-aria = Réponses préenregistrées
+ticket-picker-canned-trigger-aria = Insérer une réponse enregistrée
+ticket-picker-canned-trigger-title = Insérer une réponse enregistrée ({ $shortcut })
+ticket-picker-canned-listbox-aria = Réponses enregistrées
 ticket-picker-canned-loading = Chargement…
-ticket-picker-canned-empty-title = Aucune réponse préenregistrée pour le moment.
+ticket-picker-canned-empty-title = Aucune réponse enregistrée pour le moment.
 ticket-picker-canned-empty-hint = Les administrateurs peuvent ajouter des modèles dans la zone d'administration.
+ticket-picker-canned-empty-browse = Parcourir les réponses de départ
 ticket-picker-canned-load-error = Échec du chargement des modèles
 ticket-picker-canned-search-placeholder = Rechercher une réponse…
-ticket-picker-canned-search-aria = Rechercher une réponse préenregistrée
+ticket-picker-canned-search-aria = Rechercher une réponse enregistrée
 ticket-picker-canned-no-matches = Aucun résultat pour « { $query } »
 ticket-picker-canned-missing-vars = Ce modèle utilise {"{{"}{ $names }{"}}"} pour lesquels le ticket actuel n'a pas de valeur. Ces emplacements resteront vides.
 
@@ -4070,6 +4075,7 @@ docs-actions-menu-subscribe = S'abonner
 docs-actions-menu-unsubscribe = Se désabonner
 docs-actions-menu-insights = Statistiques
 docs-actions-menu-history = Historique des révisions
+docs-actions-menu-verify = Vérification…
 docs-actions-menu-print = Imprimer
 docs-actions-menu-duplicate = Dupliquer
 docs-actions-menu-export = Télécharger en Markdown
@@ -5759,6 +5765,7 @@ cycle-burnup-legend-ideal = Idéal
 # Portée de cycle (machine, à relire par un locuteur natif).
 cycle-burnup-legend-start-scope = Portée initiale
 cycle-burnup-needs-dates = Ajoutez des dates de début et de fin pour voir le burnup.
+cycle-burnup-view = Voir le burn-up
 # machine, à relire par un locuteur natif
 cycle-burnup-today = Aujourd'hui
 # machine, à relire par un locuteur natif
@@ -5877,7 +5884,7 @@ route-title-asset-view = Détails de l'actif
 route-title-project-detail = Détails du projet
 route-title-error = Erreur
 route-title-users = Personnes
-route-title-documentation-drafts = Brouillons
+route-title-documentation-drafts = Hors collection
 route-title-collection = Collection
 route-title-documentation-archived = Archivés
 route-title-documentation-trash = Corbeille
@@ -5943,9 +5950,9 @@ route-title-admin-asset-kinds-edit = Modifier le type d'actif
 route-title-admin-api-tokens = Jetons d'API
 route-title-admin-workspaces = Espaces de travail
 route-title-admin-workspace-members = Membres de l'espace de travail
-route-title-admin-canned-responses = Réponses prédéfinies
-route-title-admin-canned-responses-new = Nouvelle réponse prédéfinie
-route-title-admin-canned-responses-edit = Modifier la réponse prédéfinie
+route-title-admin-canned-responses = Réponses enregistrées
+route-title-admin-canned-responses-new = Nouvelle réponse enregistrée
+route-title-admin-canned-responses-edit = Modifier la réponse enregistrée
 route-title-admin-webhooks = Webhooks
 route-title-admin-sla = SLA
 route-title-admin-plugins = Extensions
@@ -6175,7 +6182,7 @@ color-hex-label = Valeur hexadécimale
 color-picker-expand = Plus d'options de couleur
 color-picker-collapse = Moins d'options de couleur
 color-picker-reset = Rétablir les valeurs par défaut
-color-presets-label = Couleurs prédéfinies
+color-presets-label = Couleurs enregistrées
 priority-indicator-low-aria = Priorité basse
 priority-indicator-medium-aria = Priorité moyenne
 priority-indicator-high-aria = Priorité haute
@@ -6409,7 +6416,9 @@ gantt-pan-next = Décaler vers la droite
 # Bouton de débordement de la barre d'outils (machine, à relire par un locuteur natif).
 gantt-more-controls = Plus de commandes
 gantt-unscheduled = Non planifiés ({ $count })
-gantt-nothing-scheduled = Rien n'est encore planifié. Définissez une échéance pour placer les tickets sur la chronologie.
+gantt-unscheduled-drag-hint = Faites glisser sur la chronologie pour planifier.
+gantt-nothing-scheduled = Rien n'est encore planifié. Ouvrez un ticket pour lui donner une échéance.
+gantt-nothing-scheduled-desktop = Rien n'est encore planifié. Faites glisser un ticket depuis « Non planifié » sur la chronologie, ou donnez-lui une échéance.
 # Ligne de date sur un bloc de chronologie verticale (machine, à relire par un locuteur natif).
 gantt-due-short = Échéance { $date }
 # État vide de la chronologie (machine, à relire par un locuteur natif).

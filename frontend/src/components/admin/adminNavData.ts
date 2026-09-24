@@ -78,7 +78,7 @@ export const adminNavGroups: AdminNavGroup[] = [
         titleKey: 'admin-nav-canned-responses-title',
         descriptionKey: 'admin-nav-canned-responses-description',
         icon: 'comment',
-        route: '/admin/canned-responses',
+        route: '/admin/saved-replies',
         keywords: ['canned', 'responses', 'templates', 'replies', 'reusable', 'snippets', 'saved replies', 'macros']
       }
     ]

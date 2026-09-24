@@ -261,7 +261,13 @@ const groupByOptions = computed(() => [
       <!-- Dense hero pinned above the board so progress stays visible
            as the user scrolls horizontally through swimlanes. -->
       <section v-if="cycle && heroStats" class="px-6 py-4 border-b border-subtle bg-surface">
-        <CycleHero :cycle="cycle" :stats="heroStats" :burnup="burnup" variant="dense" />
+        <CycleHero
+          :cycle="cycle"
+          :stats="heroStats"
+          :burnup="burnup"
+          variant="dense"
+          :burnup-to="cyclesFallback"
+        />
       </section>
 
       <KanbanBoard
