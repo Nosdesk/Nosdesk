@@ -301,7 +301,7 @@ export const nodes: {[key: string]: NodeSpec} = {
     toDOM(node) { return ['li', calcYchangeDomAttrs(node.attrs), 0]; }
   },
 
-  // An embedded document - renders a read-only, live-updating block of another document's content
+  // An embedded document: a read-only preview of another page's saved content
   embedded_document: {
     attrs: {
       ychange: { default: null },
