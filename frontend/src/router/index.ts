@@ -1317,6 +1317,7 @@ router.beforeEach(checkPlatformAdminAccess);
 // inside the breadcrumbs helper, so reset tokens and OAuth fragments
 // never enter the ring.
 import { pushRoute as pushRouteBreadcrumb } from '@/services/diagnostics/breadcrumbs'
+import { isStaleChunkError, reloadForNewBuild } from '@/utils/staleBuild'
 router.afterEach((to) => {
   pushRouteBreadcrumb(to.path)
 })
@@ -1325,7 +1326,10 @@ router.afterEach((to) => {
 // previous in-app view (vs. the entry point / a deep link). See ./navigation.
 installNavigationTracking(router)
 
-router.onError((_error) => {
+router.onError((error, to) => {
+  // A tab from before a deploy asked for a route chunk that no longer exists:
+  // load the new build straight into the page it was opening.
+  if (isStaleChunkError(error) && reloadForNewBuild(to.fullPath)) return
   router.push({
     name: 'error',
     params: {
