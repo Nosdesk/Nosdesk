@@ -170,13 +170,14 @@ import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
+import { useWorkspacePortal } from '@/composables/useWorkspacePortal';
 import {
   adminGuestSettingsService,
   type AdminGuestSettings
 } from '@nosdesk/core/services/publicService';
 
 const fluent = useFluent();
-const t = (key: string) => fluent.$t(key);
+const t = (key: string, args?: Record<string, string>) => fluent.$t(key, args);
 const toast = useToastStore();
 
 type ToggleKey =
@@ -210,11 +211,14 @@ const settings = ref<AdminGuestSettings | null>(null);
 const pristine = ref<AdminGuestSettings | null>(null);
 const errorMessage = ref('');
 
+// Full portal URLs, since on hosted the portal is not this page's origin.
+const { portalUrl } = useWorkspacePortal();
+
 const toggles = computed<Array<{ key: ToggleKey; label: string; description: string }>>(() => [
   {
     key: 'guest_tickets_enabled',
     label: t('admin-guest-toggle-tickets-label'),
-    description: t('admin-guest-toggle-tickets-description')
+    description: t('admin-guest-toggle-tickets-description', { url: portalUrl('/submit-ticket') })
   },
   {
     key: 'guest_ticket_lookup_enabled',
@@ -224,7 +228,7 @@ const toggles = computed<Array<{ key: ToggleKey; label: string; description: str
   {
     key: 'guest_public_docs_enabled',
     label: t('admin-guest-toggle-public-docs-label'),
-    description: t('admin-guest-toggle-public-docs-description')
+    description: t('admin-guest-toggle-public-docs-description', { url: portalUrl('/docs') })
   },
   {
     key: 'guest_kb_search_enabled',
@@ -234,7 +238,7 @@ const toggles = computed<Array<{ key: ToggleKey; label: string; description: str
   {
     key: 'guest_help_page_enabled',
     label: t('admin-guest-toggle-help-label'),
-    description: t('admin-guest-toggle-help-description')
+    description: t('admin-guest-toggle-help-description', { url: portalUrl('/help') })
   }
 ]);
 
@@ -316,6 +320,8 @@ async function save() {
     // Keep the cache in lockstep so a later revisit shows the saved
     // values without a network round-trip.
     queryCache.setQueryData(GUEST_SETTINGS_KEY, data);
+    // What the portal offers changed; links elsewhere read it from here.
+    void queryCache.invalidateQueries({ key: ['workspace-portal'] });
     toast.success(t('admin-guest-saved'));
   } catch {
     errorMessage.value = t('admin-guest-error-save');

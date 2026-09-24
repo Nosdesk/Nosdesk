@@ -1,5 +1,6 @@
-//! Admin-only handlers for the guest-access feature flags in `site_settings`.
-//! Exposed at `/api/admin/guest-settings`.
+//! Handlers for the guest-access (public portal) settings in `site_settings`:
+//! the admin flags at `/api/admin/guest-settings`, and `/api/workspace/portal`,
+//! which tells any member where the workspace's portal is and what it offers.
 
 use actix_web::{web, HttpRequest, HttpResponse};
 use serde::Deserialize;
@@ -19,7 +20,48 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/guest-settings",
         web::patch().to(crate::handlers::guest_settings::update_guest_settings),
+    )
+    .route(
+        "/workspace/portal",
+        web::get().to(crate::handlers::guest_settings::get_portal),
     );
+}
+
+/// Where this workspace's public portal lives and what it offers.
+#[derive(Debug, serde::Serialize)]
+pub struct PortalInfo {
+    /// The portal's origin: the workspace's own host (subdomain or custom
+    /// domain), else `FRONTEND_URL`. `None` when neither is known, and the
+    /// client uses its own origin (self-hosted, same host).
+    pub portal_url: Option<String>,
+    pub request_form_enabled: bool,
+    pub public_docs_enabled: bool,
+    pub help_page_enabled: bool,
+}
+
+/// GET /api/workspace/portal — for links to the portal from the agent app.
+///
+/// On hosted, the agent app runs on one shared origin, so a link built from
+/// the page's own origin (`/submit-ticket`, `/docs`) lands on the agent app,
+/// not the workspace's portal, and 404s. The portal's public endpoints resolve
+/// the workspace from the host, so they can't answer this for the agent app
+/// either; this authenticated read does.
+pub async fn get_portal(
+    mut tc: TenantConn,
+    req: HttpRequest,
+    ws: crate::extractors::WorkspaceContext,
+) -> Result<HttpResponse, ApiError> {
+    crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Member)?;
+    let settings = tc.run(site_settings::get_site_settings).map_err(|e| {
+        error!(error = ?e, "Failed to load site_settings for portal info");
+        ApiError::Internal("Failed to load settings".into())
+    })?;
+    Ok(HttpResponse::Ok().json(PortalInfo {
+        portal_url: crate::utils::tenant_origin::email_link_base(ws.canonical_origin()),
+        request_form_enabled: settings.guest_tickets_enabled,
+        public_docs_enabled: settings.guest_public_docs_enabled,
+        help_page_enabled: settings.guest_help_page_enabled,
+    }))
 }
 
 /// Partial update payload for the guest-access admin settings. Any field
