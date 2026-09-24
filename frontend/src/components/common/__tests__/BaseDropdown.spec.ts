@@ -121,6 +121,36 @@ describe('BaseDropdown on desktop', () => {
     expect(updates).toEqual([1])
   })
 
+  it('supports an empty-string "none" option, which Reka alone refuses', async () => {
+    const { updates } = mountDropdown({
+      modelValue: '',
+      options: [
+        { value: '', label: 'None' },
+        { value: 'a', label: 'A' },
+      ],
+    })
+    await settle()
+    expect(wrapper!.get('[role="combobox"]').text()).toContain('None')
+    pointer('pointerdown', wrapper!.get('[role="combobox"]').element)
+    await settle()
+    const options = Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]'))
+    expect(options.map((o) => o.textContent?.trim())).toEqual(['None', 'A'])
+    expect(options[0].getAttribute('aria-selected')).toBe('true')
+    moveAway()
+    pointer('pointerup', options[1], 300)
+    await settle()
+    expect(updates).toEqual(['a'])
+
+    await wrapper!.setProps({ modelValue: 'a' })
+    pointer('pointerdown', wrapper!.get('[role="combobox"]').element)
+    await settle()
+    const reopened = Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]'))
+    moveAway()
+    pointer('pointerup', reopened[0], 300)
+    await settle()
+    expect(updates).toEqual(['a', ''])
+  })
+
   it('translates the all meta option for multi-select', async () => {
     const { updates } = mountDropdown({
       multiple: true,

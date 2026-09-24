@@ -148,14 +148,24 @@ const hasSelection = computed(() => {
   return !!selectedOption.value
 })
 
+// Callers use '' for a "none" / "any" option, but Reka's SelectItem throws on
+// an empty value (Reka keeps '' for "cleared"). Swap it for a sentinel at the
+// Reka boundary only; callers and the phone sheet keep ''.
+const EMPTY = '__base_dropdown_empty__' as T
+const toReka = (v: T): T => (v === '' ? EMPTY : v)
+const fromReka = (v: T): T => (v === EMPTY ? ('' as T) : v)
+const rekaModelValue = computed(() =>
+  Array.isArray(props.modelValue) ? props.modelValue.map(toReka) : toReka(props.modelValue as T),
+)
+
 // Reka reports the raw toggled array; translate the `all` meta option
 // into the real selection before it reaches the consumer.
-function onModelUpdate(next: T | T[] | undefined) {
+function onModelUpdate(raw: T | T[] | undefined) {
   if (!props.multiple) {
-    if (next !== undefined && next !== null) emit('update:modelValue', next as T)
+    if (raw !== undefined && raw !== null) emit('update:modelValue', fromReka(raw as T))
     return
   }
-  const arr = Array.isArray(next) ? next : []
+  const arr = Array.isArray(raw) ? raw.map(fromReka) : []
   const wasAll = allSelected.value
   const hasAllToken = arr.includes(ALL)
   if (hasAllToken && !wasAll) return emit('update:modelValue', [...realOptionValues.value])
@@ -291,7 +301,7 @@ const contentStyle = {
     <SelectRoot
       v-else
       v-model:open="isOpen"
-      :model-value="modelValue"
+      :model-value="rekaModelValue"
       :multiple="multiple"
       :disabled="disabled"
       @update:model-value="onModelUpdate"
@@ -326,7 +336,7 @@ const contentStyle = {
               v-for="option in options"
               :key="String(option.value)"
               as-child
-              :value="option.value"
+              :value="toReka(option.value)"
               :disabled="option.disabled"
               :text-value="option.label"
             >
