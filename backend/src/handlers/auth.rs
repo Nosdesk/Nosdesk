@@ -67,6 +67,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             web::post().to(crate::handlers::invitation::accept_invitation),
         )
         .route(
+            "/invitation/confirm-guest",
+            web::post().to(crate::handlers::invitation::confirm_guest_submission),
+        )
+        .route(
             "/providers",
             web::get().to(crate::handlers::get_enabled_auth_providers),
         )

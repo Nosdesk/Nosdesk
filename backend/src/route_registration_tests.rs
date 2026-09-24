@@ -977,6 +977,7 @@ async fn auth_config_routes_registered() {
             ("POST", "/password-reset/complete"),
             ("POST", "/invitation/validate"),
             ("POST", "/invitation/accept"),
+            ("POST", "/invitation/confirm-guest"),
             ("GET", "/providers"),
             ("POST", "/oauth/authorize"),
             ("GET", "/oauth/callback"),

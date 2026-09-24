@@ -78,6 +78,20 @@
         </div>
       </div>
 
+      <!-- Guest confirmed without a password: nothing to sign in to -->
+      <div
+        v-else-if="acceptSuccess && !passwordRequired"
+        class="bg-surface rounded-xl border border-default shadow-sm p-6 sm:p-8 flex flex-col items-center gap-4 text-center"
+      >
+        <div class="w-12 h-12 rounded-full bg-status-success-muted flex items-center justify-center">
+          <Icon name="checkCircle" size="lg" class="text-status-success" />
+        </div>
+        <div class="flex flex-col gap-1">
+          <h2 class="text-lg font-semibold text-primary">{{ successTitleComplete }}</h2>
+          <p class="text-sm text-secondary">{{ $t('accept-invitation-confirmed-guest') }}</p>
+        </div>
+      </div>
+
       <!-- Manual-login fallback -->
       <div
         v-else-if="acceptSuccess && !loggingIn"
@@ -116,7 +130,23 @@
           </div>
         </div>
 
-        <form @submit.prevent="handleSubmit" class="p-5 sm:p-6 flex flex-col gap-4">
+        <!-- Guest confirmation where no password is set (hosted). A button,
+             not an auto-confirm on load, so link scanners can't spend it. -->
+        <div v-if="!passwordRequired" class="p-5 sm:p-6 flex flex-col gap-4">
+          <div
+            v-if="submitError"
+            role="alert"
+            class="bg-status-error-muted border border-status-error/40 text-status-error rounded-lg px-3 py-2.5 text-sm flex items-start gap-2"
+          >
+            <Icon name="warning" class="shrink-0 mt-0.5" />
+            <span>{{ submitError }}</span>
+          </div>
+          <Button size="lg" :loading="loading" @click="handleConfirmGuest">
+            {{ loading ? $t('accept-invitation-submit-loading-guest') : $t('accept-invitation-submit-guest-confirm') }}
+          </Button>
+        </div>
+
+        <form v-else @submit.prevent="handleSubmit" class="p-5 sm:p-6 flex flex-col gap-4">
           <!-- New password -->
           <div class="flex flex-col gap-2">
             <label for="new-password" class="text-sm font-medium text-primary">{{ $t('accept-invitation-password-label') }}</label>
@@ -213,7 +243,7 @@
       <!-- Back link -->
       <button
         type="button"
-        v-if="!acceptSuccess && !validating && !loggingIn"
+        v-if="!acceptSuccess && !validating && !loggingIn && passwordRequired"
         @click="goToLogin"
         class="self-center inline-flex items-center gap-1.5 text-xs text-tertiary hover:text-primary transition-colors"
       >
@@ -280,6 +310,7 @@ const invitedBy = ref('');
 const workspaceName = ref('');
 const context = ref<'guest_ticket' | 'invitation' | string>('invitation');
 const token = ref('');
+const passwordRequired = ref(true);
 
 const appName = computed(() => brandingStore.appName);
 const customLogoUrl = computed(() =>
@@ -309,7 +340,10 @@ const heading = computed(() => {
 
 const subheading = computed(() => {
   if (validating.value) return t('accept-invitation-subheading-validating');
-  if (isGuestTicket.value) return t('accept-invitation-subheading-guest');
+  if (isGuestTicket.value)
+    return passwordRequired.value
+      ? t('accept-invitation-subheading-guest')
+      : t('accept-invitation-subheading-guest-confirm');
   return t('accept-invitation-subheading-invitation');
 });
 
@@ -362,6 +396,7 @@ onMounted(async () => {
       invitedBy.value = response.invited_by || '';
       workspaceName.value = response.workspace_name || '';
       context.value = response.context ?? 'invitation';
+      passwordRequired.value = response.password_required ?? true;
     } else {
       errorMessage.value =
         response.message || t('accept-invitation-error-default');
@@ -386,6 +421,20 @@ const handleSubmit = async () => {
     if (success) clearSensitiveData();
   } catch (error) {
     console.error('Accept invitation error:', error);
+    submitError.value = extractErrorMessage(error, t('accept-invitation-error-submit'));
+  } finally {
+    loading.value = false;
+  }
+};
+
+const handleConfirmGuest = async () => {
+  if (!token.value) return;
+  submitError.value = '';
+  loading.value = true;
+  try {
+    await authService.confirmGuestSubmission(token.value);
+    acceptSuccess.value = true;
+  } catch (error) {
     submitError.value = extractErrorMessage(error, t('accept-invitation-error-submit'));
   } finally {
     loading.value = false;
