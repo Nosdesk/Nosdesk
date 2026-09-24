@@ -6724,6 +6724,7 @@ markdown-embed-reference-fallback = [Intégré : { $title }]
 # V batch: editor plugins + SSE
 editor-embed-empty-document = Document vide
 editor-embed-load-failed = Impossible de charger le document
+editor-embed-render-failed = Impossible d'afficher cette page
 editor-embed-open-document = Ouvrir le document
 editor-loading = Chargement…
 sse-connection-failed = Échec de la connexion.
