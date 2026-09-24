@@ -55,18 +55,21 @@ pub struct EmailAuthReport {
     pub mx: RecordCheck,
 }
 
-/// Run all four checks for `domain`. `dkim_record_name` is the full
-/// `<selector>._domainkey.<domain>` name and `dkim_expected_b64` is our public
-/// key, both from `workspace_email_settings::dns_record_for`.
-pub async fn check_email_auth(
-    domain: &str,
-    dkim_record_name: &str,
-    dkim_expected_b64: &str,
-) -> EmailAuthReport {
+/// Run the checks for `domain`. `dkim` is our record's full
+/// `<selector>._domainkey.<domain>` name and public key (from
+/// `workspace_email_settings::dns_record_for`), or `None` when the workspace
+/// sends through its own server, whose provider holds the key.
+pub async fn check_email_auth(domain: &str, dkim: Option<(&str, &str)>) -> EmailAuthReport {
     let dmarc_name = format!("_dmarc.{domain}");
-    let (spf, dkim, dmarc, mx) = tokio::join!(
+    let dkim_lookup = async {
+        match dkim {
+            Some((name, _)) => Some(txt_lookup(name).await),
+            None => None,
+        }
+    };
+    let (spf, dkim_result, dmarc, mx) = tokio::join!(
         txt_lookup(domain),
-        txt_lookup(dkim_record_name),
+        dkim_lookup,
         txt_lookup(&dmarc_name),
         mx_lookup(domain),
     );
@@ -74,7 +77,14 @@ pub async fn check_email_auth(
     EmailAuthReport {
         domain: domain.to_string(),
         spf: classify_spf(spf),
-        dkim: classify_dkim(dkim, dkim_expected_b64),
+        dkim: match (dkim, dkim_result) {
+            (Some((_, expected)), Some(result)) => classify_dkim(result, expected),
+            _ => RecordCheck::new(
+                CheckStatus::Info,
+                "Your mail provider signs with its own key. Check DKIM is set up in its settings.",
+                None,
+            ),
+        },
         dmarc: classify_dmarc(dmarc),
         mx: classify_mx(mx),
     }

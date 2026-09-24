@@ -498,9 +498,9 @@ async fn email_config_routes_registered() {
         crate::handlers::email::config,
         &[
             ("GET", "/admin/email/config"),
-            ("POST", "/admin/email/test"),
             ("GET", "/admin/email/outbound"),
             ("DELETE", "/admin/email/outbound"),
+            ("PUT", "/admin/email/outbound/mode"),
             ("PUT", "/admin/email/outbound/domain"),
             ("POST", "/admin/email/outbound/verify"),
             ("GET", "/admin/email/outbound/dns-check"),

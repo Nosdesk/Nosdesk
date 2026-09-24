@@ -3,20 +3,17 @@
  * Email delivery — the consolidated outbound-email admin page.
  *
  * One page, two sub-tabs:
- *   - Setup: sending identity (hosted-aware) + sending domain (DKIM/DNS) + test.
+ *   - Setup: how the workspace sends (server default, own domain, own SMTP
+ *     server), a test send, and the security note.
  *   - Activity: the outbound queue + suppression list.
- *
- * The sub-sections are the existing standalone views rendered with `embedded`
- * (header/page-chrome suppressed) so they compose under one header. The
- * standalone routes are retired in favour of this page + `?tab=`.
  */
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import TabBar, { type TabBarItem } from '@/components/common/TabBar.vue';
 
-import EmailSettingsView from './EmailSettingsView.vue';
-import EmailSendingDomainView from './EmailSendingDomainView.vue';
+import SendingSetup from '@/components/admin/email/SendingSetup.vue';
+import EmailSecurityNoteForm from '@/components/admin/email/EmailSecurityNoteForm.vue';
 import EmailQueueView from './admin/EmailQueueView.vue';
 import EmailSuppressionsView from './admin/EmailSuppressionsView.vue';
 
@@ -58,8 +55,8 @@ const tabItems = computed<TabBarItem<Tab>[]>(() => [
       />
 
       <div v-if="tab === 'setup'" class="flex flex-col gap-6">
-        <EmailSettingsView embedded />
-        <EmailSendingDomainView embedded />
+        <SendingSetup />
+        <EmailSecurityNoteForm />
       </div>
       <div v-else class="flex flex-col gap-8">
         <section class="flex flex-col gap-3">

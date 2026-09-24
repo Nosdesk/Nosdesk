@@ -1397,15 +1397,8 @@ impl EmailService {
             .map_err(|e| e.to_string())
     }
 
-    /// Send a test email to verify configuration
-    pub async fn send_test_email(&self, to: &str, branding: &EmailBranding) -> Result<(), String> {
-        self.send_test(to, branding)
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    /// [`Self::send_test_email`] keeping the typed error, so the admin test
-    /// can say which step failed (DNS, blocked host, auth, ...).
+    /// Send a test email. The typed error lets the admin test say which step
+    /// failed (DNS, blocked host, auth, ...).
     pub async fn send_test(&self, to: &str, branding: &EmailBranding) -> Result<(), SmtpError> {
         let subject = format!("{} Test Email", branding.app_name);
         let body = format!(

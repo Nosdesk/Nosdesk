@@ -280,4 +280,56 @@ async fn relay_save_validate_test_and_keep_across_modes() {
     assert_eq!(body["sending_mode"], "verified_domain");
     assert_eq!(body["smtp_host"], "127.0.0.1");
     assert_eq!(body["smtp_username"], "mailer");
+
+    // Back to the saved server without re-entering it, and to the domain
+    // without regenerating its key.
+    let mode = |m: &str| {
+        client
+            .put(srv.url("/api/admin/email/outbound/mode"))
+            .send_json(&json!({ "mode": m }))
+    };
+    let dkim_before = body["dkim_record"]["txt_value"].clone();
+    let mut resp = mode("smtp_relay").await.expect("send");
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.json::<Value>().await.expect("json")["sending_mode"],
+        "smtp_relay"
+    );
+    let mut resp = mode("verified_domain").await.expect("send");
+    let body: Value = resp.json().await.expect("json");
+    assert_eq!(body["sending_mode"], "verified_domain");
+    assert_eq!(body["dkim_record"]["txt_value"], dkim_before);
+    let mut resp = mode("fallback").await.expect("send");
+    let body: Value = resp.json().await.expect("json");
+    assert_eq!(body["sending_mode"], "fallback");
+    assert_eq!(body["smtp_host"], "127.0.0.1");
+    assert!(body["sending_domain"].is_string(), "domain kept: {body}");
+
+    // A From address moved off the domain cannot send as that domain.
+    let mut resp = put(relay("127.0.0.1", 587, "starttls", "mailer", None))
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 200);
+    let _ = resp.body().await;
+    let mut resp = client
+        .put(srv.url("/api/admin/email/outbound/relay"))
+        .send_json(&json!({
+            "from_name": "Other", "from_email": "hello@other.example", "smtp_host": "127.0.0.1",
+            "smtp_port": 587, "smtp_security": "starttls", "smtp_username": "mailer"
+        }))
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 200);
+    let _ = resp.body().await;
+    let mut resp = mode("verified_domain").await.expect("send");
+    assert_eq!(resp.status(), 400);
+    assert_eq!(
+        resp.json::<Value>().await.expect("json")["code"],
+        "MODE_DOMAIN_MISMATCH"
+    );
+    let mut resp = mode("carrier_pigeon").await.expect("send");
+    assert_eq!(
+        resp.json::<Value>().await.expect("json")["code"],
+        "MODE_INVALID"
+    );
 }

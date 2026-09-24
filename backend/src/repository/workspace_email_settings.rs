@@ -363,6 +363,25 @@ pub fn dns_record_for(
     Ok(Some(dkim_record(selector, domain, &public_b64)))
 }
 
+// sync-audit-only: Workspace outbound mode switch; covered by the workspace_email_settings audit trigger.
+/// Switch which saved identity the workspace sends with, leaving every
+/// identity's settings in place so switching back loses nothing.
+pub fn set_sending_mode(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    mode: &str,
+) -> QueryResult<usize> {
+    use crate::schema::workspace_email_settings::dsl as w;
+    diesel::update(w::workspace_email_settings)
+        .filter(w::workspace_id.eq(workspace_id))
+        .set((
+            w::sending_mode.eq(mode),
+            w::enabled.eq(true),
+            w::updated_at.eq(diesel::dsl::now),
+        ))
+        .execute(conn)
+}
+
 // sync-audit-only: Workspace outbound mode reset; covered by the workspace_email_settings audit trigger.
 /// Revert the workspace to `fallback` mode, clearing the verified-domain DKIM
 /// material and verification state. The identity (`from_*`) and any `smtp_*`

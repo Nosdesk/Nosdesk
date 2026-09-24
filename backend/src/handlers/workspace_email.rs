@@ -169,6 +169,83 @@ pub async fn get_outbound(mut tc: TenantConn, req: HttpRequest) -> Result<HttpRe
 }
 
 #[derive(Deserialize)]
+pub struct SetModeRequest {
+    mode: String,
+}
+
+/// PUT /admin/email/outbound/mode — send with an identity that is already
+/// saved: the server default, the set-up domain, or the saved SMTP server.
+/// Nothing is cleared, so switching back is free. Removing a domain is
+/// `DELETE /admin/email/outbound`.
+pub async fn set_mode(
+    mut tc: TenantConn,
+    req: HttpRequest,
+    body: web::Json<SetModeRequest>,
+) -> Result<HttpResponse, ApiError> {
+    require_admin(&req)?;
+    let Some(workspace_id) = tc.workspace_id() else {
+        return Err(ApiError::BadRequest("no workspace context".into()));
+    };
+    let mode = body.into_inner().mode;
+    let loaded = tc.run(|conn| ws_settings::get(conn));
+    let row = match loaded {
+        Ok(r) => r,
+        Err(e) => return Err(ApiError::Internal(format!("load outbound settings: {e}"))),
+    };
+
+    match mode.as_str() {
+        workspace_email_sending_mode::FALLBACK => {
+            // Nothing saved yet means the workspace already uses the default.
+            if row.is_none() {
+                return Ok(HttpResponse::Ok().json(OutboundSettingsResponse::unconfigured()));
+            }
+        }
+        workspace_email_sending_mode::VERIFIED_DOMAIN => {
+            let Some(domain) = row.as_ref().and_then(|r| r.sending_domain.clone()) else {
+                return Ok(bad("Set up a sending domain first.", "MODE_NOT_SET_UP"));
+            };
+            // The From address is shared by every identity; a domain can only
+            // sign mail sent from itself.
+            let from_domain = row.as_ref().and_then(|r| {
+                r.from_email
+                    .rsplit_once('@')
+                    .map(|(_, d)| d.to_ascii_lowercase())
+            });
+            if from_domain.as_deref() != Some(domain.as_str()) {
+                return Ok(bad(
+                    "The From address is no longer on the set-up domain. Set the domain up again.",
+                    "MODE_DOMAIN_MISMATCH",
+                ));
+            }
+        }
+        workspace_email_sending_mode::SMTP_RELAY => {
+            if row.as_ref().is_none_or(|r| r.smtp_host.trim().is_empty()) {
+                return Ok(bad("Save an SMTP server first.", "MODE_NOT_SET_UP"));
+            }
+        }
+        _ => return Ok(bad("Unknown sending mode.", "MODE_INVALID")),
+    }
+
+    let saved = tc.run(|conn| {
+        ws_settings::set_sending_mode(conn, workspace_id, &mode)?;
+        let row = ws_settings::get(conn)?;
+        let record = match &row {
+            Some(r) => ws_settings::dns_record_for(r)
+                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?,
+            None => None,
+        };
+        Ok::<_, diesel::result::Error>((row, record))
+    });
+    match saved {
+        Ok((Some(row), record)) => {
+            Ok(HttpResponse::Ok().json(OutboundSettingsResponse::from_row(&row, record)))
+        }
+        Ok((None, _)) => Ok(HttpResponse::Ok().json(OutboundSettingsResponse::unconfigured())),
+        Err(e) => Err(ApiError::Internal(format!("switch sending mode: {e}"))),
+    }
+}
+
+#[derive(Deserialize)]
 pub struct SetDomainRequest {
     from_name: String,
     from_email: String,
@@ -392,17 +469,27 @@ pub async fn dns_check(mut tc: TenantConn, req: HttpRequest) -> Result<HttpRespo
         Err(e) => return Err(ApiError::Internal(format!("load sending domain: {e}"))),
     };
 
-    let (Some(row), Some(record)) = (row, record) else {
+    let Some(row) = row else {
         return Err(ApiError::BadRequest("no sending domain configured".into()));
     };
-    let Some(domain) = row.sending_domain else {
+    // Own SMTP server: check the From domain. The provider signs (or not), so
+    // there is no key of ours to look for.
+    if row.sending_mode == workspace_email_sending_mode::SMTP_RELAY {
+        let Some((_, domain)) = row.from_email.rsplit_once('@') else {
+            return Err(ApiError::BadRequest("no From address configured".into()));
+        };
+        let report =
+            crate::services::dns_diagnostics::check_email_auth(&domain.to_ascii_lowercase(), None)
+                .await;
+        return Ok(HttpResponse::Ok().json(report));
+    }
+    let (Some(domain), Some(record)) = (row.sending_domain, record) else {
         return Err(ApiError::BadRequest("no sending domain configured".into()));
     };
 
     let report = crate::services::dns_diagnostics::check_email_auth(
         &domain,
-        &record.name,
-        &record.public_b64,
+        Some((&record.name, &record.public_b64)),
     )
     .await;
     Ok(HttpResponse::Ok().json(report))
