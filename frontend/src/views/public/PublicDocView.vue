@@ -46,9 +46,25 @@
         </header>
 
         <div class="p-5 sm:p-6">
-          <div class="bg-status-info-muted border border-status-info/30 rounded-lg p-4 text-sm text-secondary">
+          <!-- The page's saved content, through the editor's own schema. -->
+          <div
+            v-if="body?.kind === 'html'"
+            class="ProseMirror public-doc-body"
+            v-safe-html="body.html"
+          />
+          <p v-else-if="body?.kind === 'empty'" class="text-sm text-tertiary italic">
+            {{ t('public-doc-empty') }}
+          </p>
+          <div
+            v-else-if="body?.kind === 'error'"
+            class="bg-status-info-muted border border-status-info/30 rounded-lg p-4 text-sm text-secondary"
+          >
             {{ t('public-doc-rich-text-prefix') }}
             <RouterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('public-doc-rich-text-link') }}</RouterLink>{{ t('public-doc-rich-text-suffix') }}
+          </div>
+          <div v-else class="flex flex-col gap-2" aria-hidden="true">
+            <SkeletonBlock width="100%" height="0.875rem" />
+            <SkeletonBlock width="90%" height="0.875rem" />
           </div>
         </div>
       </article>
@@ -79,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useQuery } from '@pinia/colada';
 import { useFluent } from 'fluent-vue';
@@ -111,6 +127,37 @@ const loading = computed(
   () =>
     !settingsLoaded.value ||
     (enabled.value && docQuery.asyncStatus.value === 'loading' && !doc.value),
+);
+
+// Render the saved content. The renderer (Yjs + the editor schema) loads only
+// here, so the portal's other pages don't carry it. Embeds are left out: a
+// public page may embed a private one, and its title would show. Images are
+// left out too: they're served to signed-in viewers only.
+type Body = { kind: 'html'; html: string } | { kind: 'empty' } | { kind: 'error' };
+const body = ref<Body | null>(null);
+watch(
+  doc,
+  async (d) => {
+    if (!d) {
+      body.value = null;
+      return;
+    }
+    if (!d.yjs_document?.length) {
+      body.value = { kind: 'empty' };
+      return;
+    }
+    try {
+      const { savedDocToHtml } = await import('@/components/editor/savedDocHtml');
+      const html = savedDocToHtml(Uint8Array.from(d.yjs_document), {
+        omit: ['embedded_document', 'image'],
+      });
+      body.value = html ? { kind: 'html', html } : { kind: 'empty' };
+    } catch (e) {
+      console.error('Failed to render public doc', e);
+      body.value = { kind: 'error' };
+    }
+  },
+  { immediate: true },
 );
 
 function formatDate(iso: string) {

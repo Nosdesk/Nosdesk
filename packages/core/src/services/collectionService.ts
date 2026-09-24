@@ -98,14 +98,18 @@ export const getCollection = async (id: number): Promise<CollectionWithPages | n
   }
 };
 
-// Get a single collection by slug with pages
+// Get a single collection by slug with pages. `null` means there is no such
+// collection (404); any other failure throws, so a network error or a 500 isn't
+// shown as "not found".
 export const getCollectionBySlug = async (slug: string): Promise<CollectionWithPages | null> => {
   try {
     const response = await apiClient.get(`/documentation/collections/slug/${slug}`);
     return response.data;
   } catch (error) {
+    const status = (error as { response?: { status?: number } }).response?.status;
+    if (status === 404) return null;
     logger.error('Error fetching collection by slug:', error);
-    return null;
+    throw error;
   }
 };
 

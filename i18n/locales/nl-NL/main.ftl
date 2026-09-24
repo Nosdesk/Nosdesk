@@ -3243,6 +3243,9 @@ doc-detail-duplicate-suffix = { $title } (kopie)
 # visibility chips, an expandable list of pages with custom
 # permissions, and the collection's page tree.
 collection-back-to-documentation = Terug naar documentatie
+collection-load-failed-heading = Kon deze collectie niet laden
+collection-load-failed-description = Controleer je verbinding en probeer het opnieuw.
+collection-load-failed-retry = Opnieuw proberen
 collection-not-found-title = Collectie niet gevonden
 collection-action-delete = Verwijderen
 collection-action-manage-access = Toegang beheren
@@ -5347,9 +5350,10 @@ public-docs-updated = Bijgewerkt { $date }
 public-doc-loading-aria = Artikel laden
 public-doc-back = Alle documenten
 public-doc-last-updated = Laatst bijgewerkt op { $date }
-public-doc-rich-text-prefix = Dit artikel maakt gebruik van collaboratieve rijke tekstbewerking. Hier zie je een vereenvoudigde weergave, voor de volledige ervaring met reacties en bijlagen moet je
-public-doc-rich-text-link = inloggen
-public-doc-rich-text-suffix = .
+public-doc-rich-text-prefix = Deze pagina kan hier niet worden weergegeven.
+public-doc-rich-text-link = Meld je aan
+public-doc-rich-text-suffix = { " " }om haar te lezen.
+public-doc-empty = Deze pagina heeft nog geen inhoud.
 public-doc-not-found-title = Document niet gevonden
 public-doc-not-found-message = Het is mogelijk verplaatst of privé gemaakt.
 public-doc-back-to-docs = Terug naar documenten

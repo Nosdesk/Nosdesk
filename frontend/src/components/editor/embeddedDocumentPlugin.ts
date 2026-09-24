@@ -1,12 +1,10 @@
 import { Plugin, PluginKey } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import type { NodeView } from 'prosemirror-view'
-import { Node as ProseMirrorNode, DOMSerializer } from 'prosemirror-model'
-import { schema } from './schema'
-import { sanitiseHtml } from '@/composables/useSanitise'
+import { Node as ProseMirrorNode } from 'prosemirror-model'
+import { base64ToBytes, savedDocToHtml } from './savedDocHtml'
 import apiClient from '@nosdesk/core/apiClient'
 import { translate } from '@/i18n'
-import * as Y from 'yjs'
 
 export const embeddedDocumentPluginKey = new PluginKey('embeddedDocument')
 
@@ -60,7 +58,7 @@ function fetchDocumentContent(uuid: string): Promise<EmbeddedDocContent> {
       }
       let result: EmbeddedDocContent
       try {
-        const html = data.yjs_document ? yjsDocumentToHtml(data.yjs_document) : ''
+        const html = data.yjs_document ? savedDocToHtml(base64ToBytes(data.yjs_document)) : ''
         result = html
           ? { state: 'content', html, ...meta }
           : { state: 'empty', html: notice('editor-embed-empty-document', 'Empty document'), ...meta }
@@ -91,76 +89,6 @@ function fetchDocumentContent(uuid: string): Promise<EmbeddedDocContent> {
   })()
   inflight.set(uuid, run)
   return run
-}
-
-/** Decode a base64 Yjs update and render its ProseMirror fragment to HTML.
- *  Returns '' for an empty page; throws if the content can't be rendered. */
-function yjsDocumentToHtml(base64: string): string {
-  const binaryData = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-  const ydoc = new Y.Doc()
-  try {
-    Y.applyUpdate(ydoc, binaryData)
-    return xmlFragmentToHtml(ydoc.getXmlFragment('prosemirror'))
-  } finally {
-    ydoc.destroy()
-  }
-}
-
-// Convert Yjs XmlFragment to HTML via ProseMirror's DOMSerializer.
-// Converts XmlFragment → ProseMirror JSON → ProseMirror Node → DOM → HTML,
-// so that schema toDOM methods handle all tag mapping and mark rendering.
-function xmlFragmentToHtml(fragment: Y.XmlFragment): string {
-  const content = fragment.toArray().flatMap(child => {
-    if (!(child instanceof Y.XmlElement)) return []
-    const json = xmlElementToJSON(child)
-    return json ? [json] : []
-  })
-  if (content.length === 0) return ''
-
-  const doc = ProseMirrorNode.fromJSON(schema, { type: 'doc', content })
-  const serializer = DOMSerializer.fromSchema(schema)
-  const dom = serializer.serializeFragment(doc.content)
-  const wrapper = document.createElement('div')
-  wrapper.appendChild(dom)
-  return sanitiseHtml(wrapper.innerHTML)
-}
-
-function xmlElementToJSON(element: Y.XmlElement): any {
-  const type = element.nodeName
-  if (!type || type === 'undefined') return null
-
-  const attrs: Record<string, any> = {}
-  for (const [key, value] of Object.entries(element.getAttributes())) {
-    if (key !== 'ychange') attrs[key] = value
-  }
-
-  const content: any[] = []
-  for (const child of element.toArray()) {
-    if (child instanceof Y.XmlElement) {
-      const json = xmlElementToJSON(child)
-      if (json) content.push(json)
-    } else if (child instanceof Y.XmlText) {
-      for (const delta of child.toDelta()) {
-        const textNode: any = { type: 'text', text: delta.insert }
-        if (delta.attributes) {
-          textNode.marks = Object.entries(delta.attributes)
-            .filter(([k]) => k !== 'ychange')
-            .map(([markType, value]) => {
-              if (typeof value === 'object' && value !== null) {
-                return { type: markType, attrs: value }
-              }
-              return { type: markType }
-            })
-        }
-        if (textNode.text) content.push(textNode)
-      }
-    }
-  }
-
-  const node: any = { type }
-  if (Object.keys(attrs).length > 0) node.attrs = attrs
-  if (content.length > 0) node.content = content
-  return node
 }
 
 /** Revalidate at most this often per embed when it scrolls back into view. */

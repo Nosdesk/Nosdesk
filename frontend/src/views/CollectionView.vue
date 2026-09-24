@@ -62,7 +62,14 @@ const collection = computed<CollectionWithPages | null>(() => {
     ? { ...base, name: pooled.name, icon: pooled.icon, color: pooled.color }
     : base
 })
-const loading = computed(() => collectionQuery.asyncStatus.value === 'loading')
+// No answer yet counts as loading: the query starts on mount, so on first paint
+// it is neither loading nor settled, and "not found" must wait for an answer.
+const loading = computed(
+  () => collectionQuery.status.value === 'pending' || collectionQuery.asyncStatus.value === 'loading',
+)
+// Answered: there is no such collection (404), as opposed to failing to ask.
+const notFound = computed(() => collectionQuery.status.value === 'success' && !collection.value)
+const loadFailed = computed(() => collectionQuery.status.value === 'error' && !collection.value)
 // Skeleton only after 300ms with no cached data, so a warm revisit (or a
 // fast load) shows no flash.
 const showSkeleton = useDelayedFlag(() => loading.value && !collection.value, 300)
@@ -100,7 +107,7 @@ watch(
   collection,
   (c) => {
     if (c) titleManager.setCustomTitle(c.name)
-    else if (!loading.value) titleManager.setCustomTitle(t('collection-not-found-title'))
+    else if (notFound.value) titleManager.setCustomTitle(t('collection-not-found-title'))
   },
   { immediate: true },
 )
@@ -309,8 +316,17 @@ const deleteModalTitle = computed(() =>
         </div>
       </div>
 
+      <!-- Couldn't load (network, server): not the same as not found -->
+      <div v-else-if="loadFailed" class="text-center py-16 px-4">
+        <p class="text-primary font-medium mb-1">{{ $t('collection-load-failed-heading') }}</p>
+        <p class="text-tertiary text-sm mb-4">{{ $t('collection-load-failed-description') }}</p>
+        <button type="button" class="text-accent text-sm hover:underline" @click="collectionQuery.refetch()">
+          {{ $t('collection-load-failed-retry') }}
+        </button>
+      </div>
+
       <!-- Not found -->
-      <div v-else-if="!collection && !loading" class="text-center py-16 px-4">
+      <div v-else-if="notFound" class="text-center py-16 px-4">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-tertiary mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
         </svg>
