@@ -47,6 +47,7 @@ const emit = defineEmits<{
   (e: 'unsubscribe'): void
   (e: 'insights'): void
   (e: 'history'): void
+  (e: 'verify'): void
 }>()
 
 const isOpen = ref(false)
@@ -94,6 +95,9 @@ const menuItems = computed<MenuItem[]>(() => {
     },
     { id: 'insights', label: t('docs-actions-menu-insights'), icon: ICON_REGISTRY.insights.d, divider: true },
     { id: 'history', label: t('docs-actions-menu-history'), icon: ICON_REGISTRY.history.d },
+    // Verification (who vouches for the page, and how often it's re-checked)
+    // lives on the author badge; this makes it findable from the menu too.
+    { id: 'verify', label: t('docs-actions-menu-verify'), icon: ICON_REGISTRY.checkCircle.d },
     { id: 'print', label: t('docs-actions-menu-print'), icon: ICON_REGISTRY.print.d, divider: true },
     { id: 'duplicate', label: t('docs-actions-menu-duplicate') },
     { id: 'export', label: t('docs-actions-menu-export'), icon: ICON_REGISTRY.download.d },
@@ -141,6 +145,9 @@ function handleSelect(id: string) {
       break
     case 'history':
       emit('history')
+      break
+    case 'verify':
+      emit('verify')
       break
     case 'print':
       window.print()

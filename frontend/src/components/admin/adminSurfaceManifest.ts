@@ -22,7 +22,7 @@ export const ADMIN_SURFACE_TIER: Record<string, AdminSurfaceTier> = {
   '/admin/workflow': 'tenant',
   '/admin/asset-kinds': 'tenant',
   '/admin/sla': 'tenant',
-  '/admin/canned-responses': 'tenant',
+  '/admin/saved-replies': 'tenant',
   '/admin/channels': 'tenant',
   '/admin/email': 'tenant',
   '/admin/notification-defaults': 'tenant',

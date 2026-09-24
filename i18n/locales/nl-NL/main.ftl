@@ -978,7 +978,7 @@ admin-nav-workflow-title = Workflow
 admin-nav-workflow-description = Voeg ticketstatussen toe binnen de standaard workflowcategorieën
 admin-nav-sla-title = SLA
 admin-nav-sla-description = Servicelevel-beleid en kalenders voor werktijden
-admin-nav-canned-responses-title = Standaardantwoorden
+admin-nav-canned-responses-title = Opgeslagen antwoorden
 admin-nav-canned-responses-description = Herbruikbare antwoordsjablonen met variabelen
 admin-nav-api-tokens-title = API-tokens
 admin-nav-api-tokens-description = Beheer API-tokens voor programmatische toegang
@@ -1606,27 +1606,27 @@ admin-api-tokens-modal-expires-preset-custom = Aangepast
 # antwoordsjablonen die de samensteller-selector op aanvraag
 # invoegt. Werkruimtebrede gedeelde bibliotheek; schrijven alleen
 # voor beheerders.
-admin-canned-responses-title = Standaardantwoorden
+admin-canned-responses-title = Opgeslagen antwoorden
 admin-canned-responses-description = Herbruikbare antwoordsjablonen die agenten met één klik in de ticketsamensteller kunnen invoegen. {"{{"}variable{"}}"}-tokens worden bij het invoegen vervangen.
 admin-canned-responses-loading = Sjablonen laden...
 admin-canned-responses-create = Nieuw sjabloon
-admin-canned-responses-create-title = Nieuw standaardantwoord
-admin-canned-responses-edit-title = Standaardantwoord bewerken
+admin-canned-responses-create-title = Nieuw opgeslagen antwoord
+admin-canned-responses-edit-title = Opgeslagen antwoord bewerken
 admin-canned-responses-create-submit = Aanmaken
 admin-canned-responses-save = Wijzigingen opslaan
 admin-canned-responses-cancel = Annuleren
 admin-canned-responses-search-placeholder = Zoeken op titel of inhoud...
-admin-canned-responses-search-aria = Standaardantwoorden zoeken
+admin-canned-responses-search-aria = Opgeslagen antwoorden zoeken
 admin-canned-responses-column-name = Naam
 admin-canned-responses-column-updated = Bijgewerkt
 admin-canned-responses-column-inserts = Invoegingen
 admin-canned-responses-column-inserts-title = Aantal invoegingen in de laatste 30 dagen
 admin-canned-responses-delete-title = Sjabloon verwijderen
 admin-canned-responses-delete-aria = Sjabloon { $name } verwijderen
-admin-canned-responses-delete-confirm-title = Standaardantwoord verwijderen
+admin-canned-responses-delete-confirm-title = Opgeslagen antwoord verwijderen
 admin-canned-responses-delete-confirm-message = Definitief "{ $name }" verwijderen? Agenten zien het daarna niet meer in de samensteller.
 admin-canned-responses-delete-confirm-button = Verwijderen
-admin-canned-responses-empty-title = Nog geen standaardantwoorden
+admin-canned-responses-empty-title = Nog geen opgeslagen antwoorden
 admin-canned-responses-empty-description = Maak uw eerste antwoordsjabloon aan, dan kunnen agenten het met één klik invoegen vanuit de samensteller.
 admin-canned-responses-no-matches-title = Geen overeenkomende sjablonen
 admin-canned-responses-no-matches-description = Niets komt overeen met "{ $query }". Probeer een ander woord.
@@ -1636,21 +1636,21 @@ admin-canned-responses-field-body = Inhoud
 admin-canned-responses-field-body-placeholder = Beste {"{{"}customer_name{"}}"}, ...
 admin-canned-responses-field-body-hint = Ondersteunde variabelen: { $variables }
 admin-canned-responses-warn-unknown-variables = Onbekende variabelen: { $names }. Ze verschijnen letterlijk in klantenantwoorden; corrigeer of verwijder ze.
-admin-canned-responses-error-load = Kan standaardantwoorden niet laden
+admin-canned-responses-error-load = Kan opgeslagen antwoorden niet laden
 admin-canned-responses-error-save = Opslaan mislukt
 admin-canned-responses-error-delete = Verwijderen mislukt
 admin-canned-responses-error-title-required = Titel is verplicht
 admin-canned-responses-error-body-required = Inhoud is verplicht
 admin-canned-responses-error-unknown-variables = Onbekende variabelen: { $names }. Verwijder of corrigeer ze voor het opslaan.
-admin-canned-responses-success-created = Standaardantwoord aangemaakt
-admin-canned-responses-success-updated = Standaardantwoord opgeslagen
-admin-canned-responses-success-deleted = Standaardantwoord verwijderd
+admin-canned-responses-success-created = Opgeslagen antwoord aangemaakt
+admin-canned-responses-success-updated = Opgeslagen antwoord opgeslagen
+admin-canned-responses-success-deleted = Opgeslagen antwoord verwijderd
 admin-canned-responses-browse-starters = Sjablonen bekijken
 admin-canned-responses-editor-insert-label = Invoegen:
-admin-canned-responses-edit-back-label = Terug naar standaardantwoorden
+admin-canned-responses-edit-back-label = Terug naar opgeslagen antwoorden
 admin-canned-responses-editor-variable-aria = Variabele: { $name }
 admin-canned-responses-editor-insert-variable-aria = Variabele { $name } invoegen
-admin-canned-responses-edit-not-found = Dit standaardantwoord is niet gevonden. Mogelijk is het in een ander tabblad verwijderd.
+admin-canned-responses-edit-not-found = Dit opgeslagen antwoord is niet gevonden. Mogelijk is het in een ander tabblad verwijderd.
 admin-canned-responses-preview-heading = Voorbeeld
 admin-canned-responses-preview-empty = De inhoud is leeg. Begin met typen in de editor om het voorbeeld te zien.
 admin-canned-responses-preview-hint = Weergegeven met voorbeeldwaarden. Echte tickets vervangen de waarden die de selector op het moment van invoegen heeft.
@@ -2944,6 +2944,7 @@ project-cycles-health-behind = Achter
 project-cycles-health-complete = Voltooid
 # machine, na te kijken door moedertaalspreker
 project-cycles-health-not-started = Niet gestart
+project-cycles-health-empty = Nog geen tickets
 
 # Cycle detail (CycleDetailView): Scrum board scoped to one
 # cycle, with a burndown pinned above the kanban toolbar.
@@ -2999,11 +3000,14 @@ docs-index-attention-gaps-link = Alle kennishiaten
 docs-index-attention-totals = { $gaps } hiaten · { $stale } te verifiëren
 docs-index-verification-never = nooit geverifieerd
 docs-index-drafts-strip-count = { $count ->
-    [one] { $count } concept
-   *[other] { $count } concepten
+    [one] { $count } pagina
+   *[other] { $count } pagina's
   }
-docs-index-drafts-strip-suffix = zitten nog niet in een collectie
-docs-index-drafts-strip-review = Concepten bekijken →
+docs-index-drafts-strip-suffix = { $count ->
+    [one] zit nog niet in een collectie
+   *[other] zitten nog niet in een collectie
+  }
+docs-index-drafts-strip-review = Bekijken →
 docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = Nieuwe collectie
 docs-index-toolbar-more = Meer
@@ -3085,8 +3089,8 @@ docs-index-chip-trash = { $count } in prullenbak
 
 # Documentation drafts (DocumentationDraftsView): pages not yet
 # assigned to a collection.
-docs-drafts-title = Concepten
-docs-drafts-heading = Concepten
+docs-drafts-title = Niet in een collectie
+docs-drafts-heading = Niet in een collectie
 docs-drafts-description = Pagina's die nog niet aan een collectie zijn toegewezen
 docs-drafts-back = Terug naar Documentatie
 docs-drafts-count = { $count ->
@@ -3136,7 +3140,7 @@ docs-gaps-detect-no-results = Geen nieuwe clusters gevonden
 docs-gaps-detect-created = { $count } nieuw
 docs-gaps-detect-updated = { $count } bijgewerkt
 docs-gaps-loading = Laden
-docs-gaps-empty = Geen openstaande kennislacunes. Markeer een ticket vanuit de zijbalk om er een toe te voegen.
+docs-gaps-empty = Geen open kennishiaten. Markeer een ticket vanuit de zijbalk om er een toe te voegen. Groepen vergelijkbare tickets en zoekopdrachten die steeds geen document vinden verschijnen hier vanzelf.
 docs-gaps-impact-searches = zoekopdrachten
 docs-gaps-impact-recent-tickets = recente tickets
 docs-gaps-impact-tickets = tickets
@@ -3669,15 +3673,16 @@ ticket-picker-linked-count = { $count ->
 }
 
 # Ticket picker: standaardantwoordenkiezer (CannedResponsePicker)
-ticket-picker-canned-trigger-aria = Standaardantwoord invoegen
-ticket-picker-canned-trigger-title = Standaardantwoord invoegen ({ $shortcut })
-ticket-picker-canned-listbox-aria = Standaardantwoorden
+ticket-picker-canned-trigger-aria = Opgeslagen antwoord invoegen
+ticket-picker-canned-trigger-title = Opgeslagen antwoord invoegen ({ $shortcut })
+ticket-picker-canned-listbox-aria = Opgeslagen antwoorden
 ticket-picker-canned-loading = Laden…
-ticket-picker-canned-empty-title = Nog geen standaardantwoorden.
+ticket-picker-canned-empty-title = Nog geen opgeslagen antwoorden.
 ticket-picker-canned-empty-hint = Beheerders kunnen sjablonen toevoegen in het beheergedeelte.
+ticket-picker-canned-empty-browse = Startantwoorden bekijken
 ticket-picker-canned-load-error = Kan sjablonen niet laden
-ticket-picker-canned-search-placeholder = Zoek een standaardantwoord…
-ticket-picker-canned-search-aria = Zoek standaardantwoord
+ticket-picker-canned-search-placeholder = Zoek een opgeslagen antwoord…
+ticket-picker-canned-search-aria = Zoek opgeslagen antwoord
 ticket-picker-canned-no-matches = Geen resultaten voor "{ $query }"
 ticket-picker-canned-missing-vars = Dit sjabloon gebruikt {"{{"}{ $names }{"}}"} waarvoor het huidige ticket geen waarde heeft. Die plekken blijven leeg.
 
@@ -4060,6 +4065,7 @@ docs-actions-menu-subscribe = Abonneren
 docs-actions-menu-unsubscribe = Afmelden
 docs-actions-menu-insights = Inzichten
 docs-actions-menu-history = Revisiegeschiedenis
+docs-actions-menu-verify = Verificatie…
 docs-actions-menu-print = Afdrukken
 docs-actions-menu-duplicate = Dupliceren
 docs-actions-menu-export = Markdown downloaden
@@ -5749,6 +5755,7 @@ cycle-burnup-legend-ideal = Ideaal
 # Cyclusomvang (machine, nog na te kijken door moedertaalspreker).
 cycle-burnup-legend-start-scope = Beginomvang
 cycle-burnup-needs-dates = Voeg start- en einddatums toe om de burnup te zien.
+cycle-burnup-view = Burn-up bekijken
 # machine, na te kijken door moedertaalspreker
 cycle-burnup-today = Vandaag
 # machine, na te kijken door moedertaalspreker
@@ -5867,7 +5874,7 @@ route-title-asset-view = Activumdetails
 route-title-project-detail = Projectdetails
 route-title-error = Fout
 route-title-users = Personen
-route-title-documentation-drafts = Concepten
+route-title-documentation-drafts = Niet in een collectie
 route-title-collection = Collectie
 route-title-documentation-archived = Gearchiveerd
 route-title-documentation-trash = Prullenbak
@@ -5933,9 +5940,9 @@ route-title-admin-asset-kinds-edit = Activatype bewerken
 route-title-admin-api-tokens = API-tokens
 route-title-admin-workspaces = Werkruimtes
 route-title-admin-workspace-members = Leden van werkruimte
-route-title-admin-canned-responses = Standaardantwoorden
-route-title-admin-canned-responses-new = Nieuw standaardantwoord
-route-title-admin-canned-responses-edit = Standaardantwoord bewerken
+route-title-admin-canned-responses = Opgeslagen antwoorden
+route-title-admin-canned-responses-new = Nieuw opgeslagen antwoord
+route-title-admin-canned-responses-edit = Opgeslagen antwoord bewerken
 route-title-admin-webhooks = Webhooks
 route-title-admin-sla = SLA
 route-title-admin-plugins = Plug-ins
@@ -6399,7 +6406,9 @@ gantt-pan-next = Naar rechts schuiven
 # Overloopknop werkbalk (machine, na te kijken door moedertaalspreker).
 gantt-more-controls = Meer instellingen
 gantt-unscheduled = Niet gepland ({ $count })
-gantt-nothing-scheduled = Er is nog niets gepland. Stel een vervaldatum in om tickets op de tijdlijn te plaatsen.
+gantt-unscheduled-drag-hint = Sleep naar de tijdlijn om te plannen.
+gantt-nothing-scheduled = Nog niets gepland. Open een ticket om het een vervaldatum te geven.
+gantt-nothing-scheduled-desktop = Nog niets gepland. Sleep een ticket vanuit Niet gepland naar de tijdlijn, of geef het een vervaldatum.
 # Datumregel op een verticaal tijdlijnblok (machinevertaling, nog na te kijken door een moedertaalspreker).
 gantt-due-short = Deadline { $date }
 # Lege staat van de tijdlijn (machine, na te kijken door moedertaalspreker).
@@ -6801,7 +6810,7 @@ ticket-merge-destination-label = Doelticket
 ticket-merge-reason-label = Reden (optioneel)
 ticket-merge-reason-placeholder = Wat verbindt deze tickets?
 ticket-merge-notify-customer-label = De klant laten weten dat hun ticket is samengevoegd
-ticket-merge-notify-customer-help = Stuurt een standaardantwoord op het bestaande gesprek van elk bronticket. Standaard uit.
+ticket-merge-notify-customer-help = Stuurt een opgeslagen antwoord op het bestaande gesprek van elk bronticket. Standaard uit.
 ticket-merge-submit-button = { $count } tickets samenvoegen
 ticket-merge-cancel-button = Annuleren
 ticket-merge-conflict-toast = Sommige van deze tickets zijn gewijzigd sinds u dit venster opende. Vernieuw en probeer opnieuw.

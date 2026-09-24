@@ -850,6 +850,7 @@ function open(card: CardData): void {
             {{ t('gantt-unscheduled', { count: unscheduled.length }) }}
           </button>
           <div v-if="trayOpen" class="max-h-48 overflow-auto">
+            <p class="px-3 pb-1 text-2xs text-tertiary">{{ t('gantt-unscheduled-drag-hint') }}</p>
             <!-- Tray rows drag onto the canvas to schedule (drop day
                  becomes start + due); a plain click still opens. -->
             <button
@@ -1119,7 +1120,7 @@ function open(card: CardData): void {
           class="absolute inset-y-0 flex flex-col items-center justify-center gap-3 px-4 text-center"
           :style="{ left: `${scrollX}px`, width: `${viewportWidth > 0 ? viewportWidth : 240}px` }"
         >
-          <p class="text-sm text-tertiary max-w-sm">{{ t('gantt-nothing-scheduled') }}</p>
+          <p class="text-sm text-tertiary max-w-sm">{{ t('gantt-nothing-scheduled-desktop') }}</p>
         </div>
       </div>
     </div>

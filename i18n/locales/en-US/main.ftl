@@ -1093,7 +1093,7 @@ admin-nav-asset-kinds-title = Asset Kinds
 admin-nav-asset-kinds-description = Define the kinds of assets you track and the attributes each kind carries
 admin-nav-sla-title = SLA
 admin-nav-sla-description = Service-level policies and working-hours calendars
-admin-nav-canned-responses-title = Canned Responses
+admin-nav-canned-responses-title = Saved Replies
 admin-nav-canned-responses-description = Reusable reply templates with substituted variables
 admin-nav-api-tokens-title = API Tokens
 admin-nav-api-tokens-description = Manage API tokens for programmatic access
@@ -1689,27 +1689,27 @@ admin-api-tokens-modal-expires-preset-custom = Custom
 # shared library; admin-only writes. The {{variable}} allow-list
 # mirrors `CANNED_RESPONSE_VARIABLES` in the backend; keep both
 # sides in sync when extending.
-admin-canned-responses-title = Canned Responses
+admin-canned-responses-title = Saved Replies
 admin-canned-responses-description = Reusable reply templates agents can insert into the ticket composer. Substitute {"{{"}variable{"}}"} tokens at insert time.
 admin-canned-responses-loading = Loading templates...
 admin-canned-responses-create = New template
-admin-canned-responses-create-title = New canned response
-admin-canned-responses-edit-title = Edit canned response
+admin-canned-responses-create-title = New saved reply
+admin-canned-responses-edit-title = Edit saved reply
 admin-canned-responses-create-submit = Create
 admin-canned-responses-save = Save changes
 admin-canned-responses-cancel = Cancel
 admin-canned-responses-search-placeholder = Search by title or body...
-admin-canned-responses-search-aria = Search canned responses
+admin-canned-responses-search-aria = Search saved replies
 admin-canned-responses-column-name = Name
 admin-canned-responses-column-updated = Updated
 admin-canned-responses-column-inserts = Inserts
 admin-canned-responses-column-inserts-title = Times inserted in the last 30 days
 admin-canned-responses-delete-title = Delete template
 admin-canned-responses-delete-aria = Delete template { $name }
-admin-canned-responses-delete-confirm-title = Delete canned response
+admin-canned-responses-delete-confirm-title = Delete saved reply
 admin-canned-responses-delete-confirm-message = Permanently delete "{ $name }"? Agents will no longer see it in the composer picker.
 admin-canned-responses-delete-confirm-button = Delete
-admin-canned-responses-empty-title = No canned responses yet
+admin-canned-responses-empty-title = No saved replies yet
 admin-canned-responses-empty-description = Create your first reply template and agents can insert it from the ticket composer with one click.
 admin-canned-responses-no-matches-title = No matching templates
 admin-canned-responses-no-matches-description = Nothing matches "{ $query }". Try a different word.
@@ -1719,21 +1719,21 @@ admin-canned-responses-field-body = Body
 admin-canned-responses-field-body-placeholder = Hi {"{{"}customer_name{"}}"}, ...
 admin-canned-responses-field-body-hint = Supported variables: { $variables }
 admin-canned-responses-warn-unknown-variables = Unknown variables: { $names }. They will appear verbatim in customer replies; correct or remove them.
-admin-canned-responses-error-load = Failed to load canned responses
-admin-canned-responses-error-save = Failed to save canned response
-admin-canned-responses-error-delete = Failed to delete canned response
+admin-canned-responses-error-load = Failed to load saved replies
+admin-canned-responses-error-save = Failed to save saved reply
+admin-canned-responses-error-delete = Failed to delete saved reply
 admin-canned-responses-error-title-required = Title is required
 admin-canned-responses-error-body-required = Body is required
 admin-canned-responses-error-unknown-variables = Unknown variables: { $names }. Remove or correct them before saving.
-admin-canned-responses-success-created = Canned response created
-admin-canned-responses-success-updated = Canned response saved
-admin-canned-responses-success-deleted = Canned response deleted
+admin-canned-responses-success-created = Saved reply created
+admin-canned-responses-success-updated = Saved reply saved
+admin-canned-responses-success-deleted = Saved reply deleted
 admin-canned-responses-browse-starters = Browse templates
 admin-canned-responses-editor-insert-label = Insert:
-admin-canned-responses-edit-back-label = Back to canned responses
+admin-canned-responses-edit-back-label = Back to saved replies
 admin-canned-responses-editor-variable-aria = Variable: { $name }
 admin-canned-responses-editor-insert-variable-aria = Insert variable { $name }
-admin-canned-responses-edit-not-found = That canned response wasn't found. It may have been deleted in another tab.
+admin-canned-responses-edit-not-found = That saved reply wasn't found. It may have been deleted in another tab.
 admin-canned-responses-preview-heading = Preview
 admin-canned-responses-preview-empty = Body is empty. Start typing in the editor to see the preview.
 admin-canned-responses-preview-hint = Rendered with sample values. Real tickets substitute the values the picker has at insert time.
@@ -3010,6 +3010,7 @@ project-cycles-health-at-risk = At risk
 project-cycles-health-behind = Behind
 project-cycles-health-complete = Complete
 project-cycles-health-not-started = Not started
+project-cycles-health-empty = No tickets yet
 
 # Cycle detail (CycleDetailView): Scrum board scoped to one
 # cycle, with a burndown pinned above the kanban toolbar.
@@ -3064,11 +3065,14 @@ docs-index-attention-totals = { $gaps } gaps · { $stale } due
 docs-index-verification-never = never verified
 # Drafts strip
 docs-index-drafts-strip-count = { $count ->
-    [one] { $count } draft
-   *[other] { $count } drafts
+    [one] { $count } page
+   *[other] { $count } pages
   }
-docs-index-drafts-strip-suffix = aren't in a collection yet
-docs-index-drafts-strip-review = Review drafts →
+docs-index-drafts-strip-suffix = { $count ->
+    [one] isn't in a collection yet
+   *[other] aren't in a collection yet
+  }
+docs-index-drafts-strip-review = Review →
 docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = New collection
 docs-index-toolbar-more = More
@@ -3150,8 +3154,8 @@ docs-index-chip-trash = { $count } in trash
 
 # Documentation drafts (DocumentationDraftsView): pages not yet
 # assigned to a collection.
-docs-drafts-title = Drafts
-docs-drafts-heading = Drafts
+docs-drafts-title = Not in a collection
+docs-drafts-heading = Not in a collection
 docs-drafts-description = Pages not yet assigned to a collection
 docs-drafts-back = Back to Documentation
 docs-drafts-count = { $count ->
@@ -3201,7 +3205,7 @@ docs-gaps-detect-no-results = No new clusters found
 docs-gaps-detect-created = { $count } new
 docs-gaps-detect-updated = { $count } updated
 docs-gaps-loading = Loading
-docs-gaps-empty = No open knowledge gaps. Flag a ticket from its sidebar to add one.
+docs-gaps-empty = No open knowledge gaps. Flag a ticket from its sidebar to add one. Clusters of similar tickets and searches that keep finding no docs show up here on their own.
 docs-gaps-impact-searches = searches
 docs-gaps-impact-recent-tickets = recent tickets
 docs-gaps-impact-tickets = tickets
@@ -3736,15 +3740,16 @@ ticket-picker-linked-count = { $count ->
 }
 
 # Ticket picker: canned response picker (CannedResponsePicker)
-ticket-picker-canned-trigger-aria = Insert canned response
-ticket-picker-canned-trigger-title = Insert canned response ({ $shortcut })
-ticket-picker-canned-listbox-aria = Canned responses
+ticket-picker-canned-trigger-aria = Insert saved reply
+ticket-picker-canned-trigger-title = Insert saved reply ({ $shortcut })
+ticket-picker-canned-listbox-aria = Saved replies
 ticket-picker-canned-loading = Loading…
-ticket-picker-canned-empty-title = No canned responses yet.
+ticket-picker-canned-empty-title = No saved replies yet.
 ticket-picker-canned-empty-hint = Admins can add templates in the admin area.
+ticket-picker-canned-empty-browse = Browse starter replies
 ticket-picker-canned-load-error = Failed to load templates
-ticket-picker-canned-search-placeholder = Search canned responses…
-ticket-picker-canned-search-aria = Search canned responses
+ticket-picker-canned-search-placeholder = Search saved replies…
+ticket-picker-canned-search-aria = Search saved replies
 ticket-picker-canned-no-matches = No matches for "{ $query }"
 ticket-picker-canned-missing-vars = This template uses {"{{"}{ $names }{"}}"} which the current ticket has no value for. Those slots will be empty.
 
@@ -4122,6 +4127,7 @@ docs-actions-menu-subscribe = Subscribe
 docs-actions-menu-unsubscribe = Unsubscribe
 docs-actions-menu-insights = Insights
 docs-actions-menu-history = Revision history
+docs-actions-menu-verify = Verification…
 docs-actions-menu-print = Print
 docs-actions-menu-duplicate = Duplicate
 docs-actions-menu-export = Download Markdown
@@ -5795,6 +5801,7 @@ cycle-burnup-legend-completed = Completed
 cycle-burnup-legend-ideal = Ideal
 cycle-burnup-legend-start-scope = Start scope
 cycle-burnup-needs-dates = Add start and end dates to see the burnup.
+cycle-burnup-view = View burnup
 cycle-burnup-today = Today
 cycle-burnup-label-pace = Pace
 cycle-burnup-label-forecast = Forecast
@@ -5904,7 +5911,7 @@ route-title-asset-view = Asset details
 route-title-project-detail = Project details
 route-title-error = Error
 route-title-users = People
-route-title-documentation-drafts = Drafts
+route-title-documentation-drafts = Not in a collection
 route-title-collection = Collection
 route-title-documentation-archived = Archived
 route-title-documentation-trash = Trash
@@ -5967,9 +5974,9 @@ route-title-admin-asset-kinds-edit = Edit asset kind
 route-title-admin-api-tokens = API tokens
 route-title-admin-workspaces = Workspaces
 route-title-admin-workspace-members = Workspace members
-route-title-admin-canned-responses = Canned responses
-route-title-admin-canned-responses-new = New canned response
-route-title-admin-canned-responses-edit = Edit canned response
+route-title-admin-canned-responses = Saved replies
+route-title-admin-canned-responses-new = New saved reply
+route-title-admin-canned-responses-edit = Edit saved reply
 route-title-admin-webhooks = Webhooks
 route-title-admin-sla = SLA
 route-title-admin-plugins = Plugins
@@ -6411,7 +6418,9 @@ gantt-pan-previous = Pan earlier
 gantt-pan-next = Pan later
 gantt-more-controls = More controls
 gantt-unscheduled = Unscheduled ({ $count })
-gantt-nothing-scheduled = Nothing is scheduled yet. Set a due date to place tickets on the timeline.
+gantt-unscheduled-drag-hint = Drag onto the timeline to schedule.
+gantt-nothing-scheduled = Nothing is scheduled yet. Open a ticket to give it a due date.
+gantt-nothing-scheduled-desktop = Nothing is scheduled yet. Drag a ticket from Unscheduled onto the timeline, or give it a due date.
 # Date line on a vertical-timeline block that has only a deadline, no planned span.
 gantt-due-short = Due { $date }
 gantt-empty-title = No tickets on the timeline yet

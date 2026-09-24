@@ -187,7 +187,7 @@ function goBack(): void {
            list" navigation behaviour is identical. -->
       <div class="flex flex-col gap-1">
         <BackButton
-          :fallback-route="'/admin/canned-responses'"
+          :fallback-route="'/admin/saved-replies'"
           :label="t('admin-canned-responses-edit-back-label')"
           compact
         />

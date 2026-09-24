@@ -28,7 +28,10 @@ import {
   useResolveGapMutation,
   useWriteGapDocMutation,
 } from '@/composables/useKnowledgeGaps'
-import type { KnowledgeGapSignal } from '@nosdesk/core/services/knowledgeGapsService'
+import type {
+  KnowledgeGap,
+  KnowledgeGapSignal,
+} from '@nosdesk/core/services/knowledgeGapsService'
 import { useSyncDocsStore } from '@nosdesk/core/sync/stores/documentation'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 
@@ -204,13 +207,13 @@ function staleDocPayload(signal: KnowledgeGapSignal): StaleDocPayload {
   return (signal.payload ?? {}) as StaleDocPayload
 }
 
-/** Pick the best label for an impact_score badge based on the
- *  gap's signal mix. We don't have the full signal list in the
- *  queue summary (only the count), so we infer from the gap
- *  title pattern. */
-function impactLabel(gapTitle: string): string {
-  if (gapTitle.startsWith('Customers searched:')) return t('docs-gaps-impact-searches')
-  if (gapTitle.startsWith('Doc may be stale:')) return t('docs-gaps-impact-recent-tickets')
+/** The unit of a gap's impact_score: searches for failed-search gaps,
+ *  recent tickets for stale docs, tickets otherwise. Keyed on the gap's main
+ *  signal type (list response); the detail response carries the signals. */
+function impactLabel(gap: KnowledgeGap): string {
+  const kind = gap.primary_signal_type ?? gap.signals?.[0]?.signal_type
+  if (kind === 'failed_search') return t('docs-gaps-impact-searches')
+  if (kind === 'stale_doc') return t('docs-gaps-impact-recent-tickets')
   return t('docs-gaps-impact-tickets')
 }
 
@@ -332,9 +335,9 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                 </p>
                 <span
                   class="flex-shrink-0 text-3xs px-1.5 py-0.5 rounded bg-surface text-tertiary"
-                  :title="$t('docs-gaps-impact-tooltip', { count: gap.impact_score, label: impactLabel(gap.title) })"
+                  :title="$t('docs-gaps-impact-tooltip', { count: gap.impact_score, label: impactLabel(gap) })"
                 >
-                  {{ gap.impact_score }}&nbsp;{{ impactLabel(gap.title) }}
+                  {{ gap.impact_score }}&nbsp;{{ impactLabel(gap) }}
                 </span>
               </div>
               <div class="flex items-center justify-between gap-2 text-2xs text-tertiary">
@@ -387,7 +390,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                 <span>{{ $t('docs-gaps-status-label') }} <span class="text-secondary">{{ statusLabel(selectedGap.status) }}</span></span>
                 <span>
                   <span class="text-secondary">{{ selectedGap.impact_score }}</span>
-                  {{ impactLabel(selectedGap.title) }}
+                  {{ impactLabel(selectedGap) }}
                 </span>
                 <span v-if="selectedGap.last_evidence_at">
                   {{ $t('docs-gaps-last-evidence', { time: formatRelativeTime(selectedGap.last_evidence_at) }) }}

@@ -30,6 +30,8 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const props = defineProps<{
     comments: CommentWithAttachments[];
     currentUser: string;
+    /** Workspace admin: the saved-replies picker links to the catalogue. */
+    canManageSavedReplies?: boolean;
     /** Ticket id, required for the comment composer's draft to
      *  persist across navigation and refresh (via
      *  `useTicketDraftsStore`). When undefined the composer falls
@@ -684,6 +686,7 @@ const handlePastedFiles = async (files: File[]) => {
                             <CannedResponsePicker
                                 :vars="cannedResponseVars"
                                 :ticket-id="ticketId"
+                                :can-manage="canManageSavedReplies"
                                 @insert="insertCannedResponse"
                             />
 

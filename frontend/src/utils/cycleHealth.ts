@@ -23,6 +23,7 @@ export type CycleHealth =
   | 'behind'
   | 'complete'
   | 'not-started'
+  | 'empty'
 
 export interface CycleHealthInput {
   total: number
@@ -51,7 +52,11 @@ export function cycleHealth(input: CycleHealthInput): CycleHealth {
   const { total, completed, startAt, endAt } = input
   const now = input.now ?? Date.now()
 
-  if (total === 0) return 'not-started'
+  const today = dayMsOf(now)
+  // Before its start date a cycle hasn't started, whatever it holds.
+  if (startAt && today < dayMsOf(new Date(startAt).getTime())) return 'not-started'
+  // Started (or undated) with nothing in it: nothing to judge yet.
+  if (total === 0) return 'empty'
   if (completed >= total) return 'complete'
 
   // No end date means no schedule to fall behind against.
@@ -59,7 +64,6 @@ export function cycleHealth(input: CycleHealthInput): CycleHealth {
 
   const end = dayMsOf(new Date(endAt).getTime())
   const start = dayMsOf(startAt ? new Date(startAt).getTime() : end - 14 * 86_400_000)
-  const today = dayMsOf(now)
 
   // Past the end date with work still open is unambiguously behind.
   if (today >= end) return 'behind'
@@ -102,6 +106,8 @@ export function cycleHealthPresentation(
       return { tone: 'critical', labelKey: 'project-cycles-health-behind' }
     case 'complete':
       return { tone: 'positive', labelKey: 'project-cycles-health-complete' }
+    case 'empty':
+      return { tone: 'neutral', labelKey: 'project-cycles-health-empty' }
     default:
       return { tone: 'neutral', labelKey: 'project-cycles-health-not-started' }
   }

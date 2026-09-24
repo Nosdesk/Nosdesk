@@ -194,7 +194,7 @@ usePageCreateAction(handleCreatePage)
             <Icon name="documentEdit" size="sm" class="text-tertiary shrink-0" aria-hidden="true" />
             <span>
               <span class="font-medium text-primary">{{ $t('docs-index-drafts-strip-count', { count: uncollectedCount }) }}</span>
-              {{ $t('docs-index-drafts-strip-suffix') }}
+              {{ $t('docs-index-drafts-strip-suffix', { count: uncollectedCount }) }}
             </span>
             <span class="ml-auto text-2xs font-medium text-accent group-hover:underline whitespace-nowrap">
               {{ $t('docs-index-drafts-strip-review') }}

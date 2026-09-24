@@ -38,6 +38,10 @@ pub struct KnowledgeGapResponse {
     /// endpoint; the list endpoint returns the gap header alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signals: Option<Vec<KnowledgeGapSignalResponse>>,
+    /// The gap's most common live signal type (list endpoint), so the queue
+    /// can label its demand as tickets or searches.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary_signal_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -167,12 +171,16 @@ pub async fn flag_ticket_as_gap(
     });
 
     match outcome {
-        Ok(FlagOutcome::Created(gap)) => {
-            HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None })
-        }
-        Ok(FlagOutcome::Updated(gap)) => {
-            HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None })
-        }
+        Ok(FlagOutcome::Created(gap)) => HttpResponse::Ok().json(KnowledgeGapResponse {
+            gap,
+            signals: None,
+            primary_signal_type: None,
+        }),
+        Ok(FlagOutcome::Updated(gap)) => HttpResponse::Ok().json(KnowledgeGapResponse {
+            gap,
+            signals: None,
+            primary_signal_type: None,
+        }),
         Ok(FlagOutcome::TicketNotFound) => errors::not_found("Ticket"),
         Ok(FlagOutcome::AlreadyDocumented {
             page_id,
@@ -203,7 +211,11 @@ pub async fn unflag_ticket_as_gap(
     let user_uuid = auth.user_uuid;
 
     match tc.run(|conn| knowledge_gaps::unflag_ticket(conn, ticket_id, user_uuid)) {
-        Ok(Some(gap)) => HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None }),
+        Ok(Some(gap)) => HttpResponse::Ok().json(KnowledgeGapResponse {
+            gap,
+            signals: None,
+            primary_signal_type: None,
+        }),
         Ok(None) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!(error = ?e, ticket_id, "Failed to unflag ticket");
@@ -250,10 +262,16 @@ pub async fn list_knowledge_gaps(
         offset: helpers::clamp_offset(q.offset),
     };
 
-    match tc.run(|conn| knowledge_gaps::list_gaps(conn, filter)) {
-        Ok(gaps) => HttpResponse::Ok().json(
+    match tc.run(|conn| {
+        let gaps = knowledge_gaps::list_gaps(conn, filter)?;
+        let ids: Vec<i64> = gaps.iter().map(|g| g.id).collect();
+        let kinds = knowledge_gaps::primary_signal_types(conn, &ids)?;
+        Ok::<_, diesel::result::Error>((gaps, kinds))
+    }) {
+        Ok((gaps, mut kinds)) => HttpResponse::Ok().json(
             gaps.into_iter()
                 .map(|g| KnowledgeGapResponse {
+                    primary_signal_type: kinds.remove(&g.id),
                     gap: g,
                     signals: None,
                 })
@@ -300,6 +318,7 @@ pub async fn get_knowledge_gap(
         Ok(GapDetailOutcome::Ok(KnowledgeGapResponse {
             gap,
             signals: Some(hydrated),
+            primary_signal_type: None,
         }))
     });
 
@@ -329,7 +348,11 @@ pub async fn dismiss_knowledge_gap(
     let user_uuid = auth.user_uuid;
 
     match tc.run(|conn| knowledge_gaps::dismiss_gap(conn, gap_id, user_uuid)) {
-        Ok(gap) => HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None }),
+        Ok(gap) => HttpResponse::Ok().json(KnowledgeGapResponse {
+            gap,
+            signals: None,
+            primary_signal_type: None,
+        }),
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to dismiss gap");
             errors::internal("Failed to dismiss gap")
@@ -493,7 +516,11 @@ pub async fn resolve_knowledge_gap(
     let page_id = req_body.page_id;
 
     match tc.run(|conn| knowledge_gaps::resolve_gap(conn, gap_id, page_id, Some(user_uuid))) {
-        Ok(gap) => HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None }),
+        Ok(gap) => HttpResponse::Ok().json(KnowledgeGapResponse {
+            gap,
+            signals: None,
+            primary_signal_type: None,
+        }),
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to resolve gap");
             errors::internal("Failed to resolve gap")
