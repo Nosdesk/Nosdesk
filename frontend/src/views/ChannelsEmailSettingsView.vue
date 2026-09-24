@@ -601,8 +601,10 @@ watch(
 
 // Microsoft 365 refuses every password over IMAP, so say so on a sign-in failure.
 const testHint = computed(() => {
-  const host = form.value.host.toLowerCase();
-  const microsoft = host.includes('office365.com') || host.includes('outlook.');
+  const host = form.value.host.trim().toLowerCase();
+  const microsoft = ['office365.com', 'outlook.com', 'office.com'].some(
+    (domain) => host === domain || host.endsWith(`.${domain}`),
+  );
   return testResult.value?.code === 'auth' && microsoft ? t('imap-preset-m365-help') : undefined;
 });
 
