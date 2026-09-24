@@ -51,7 +51,6 @@ function xmlFragmentToHtml(fragment: Y.XmlFragment, omit: ReadonlySet<string>): 
   return sanitiseHtml(wrapper.innerHTML)
 }
 
- 
 function xmlElementToJSON(element: Y.XmlElement, omit: ReadonlySet<string>): any {
   const type = element.nodeName
   if (!type || type === 'undefined' || omit.has(type)) return null
@@ -61,7 +60,6 @@ function xmlElementToJSON(element: Y.XmlElement, omit: ReadonlySet<string>): any
     if (key !== 'ychange') attrs[key] = value
   }
 
-   
   const content: any[] = []
   for (const child of element.toArray()) {
     if (child instanceof Y.XmlElement) {
@@ -69,7 +67,6 @@ function xmlElementToJSON(element: Y.XmlElement, omit: ReadonlySet<string>): any
       if (json) content.push(json)
     } else if (child instanceof Y.XmlText) {
       for (const delta of child.toDelta()) {
-         
         const textNode: any = { type: 'text', text: delta.insert }
         if (delta.attributes) {
           textNode.marks = Object.entries(delta.attributes)
@@ -85,7 +82,6 @@ function xmlElementToJSON(element: Y.XmlElement, omit: ReadonlySet<string>): any
     }
   }
 
-   
   const node: any = { type }
   if (Object.keys(attrs).length > 0) node.attrs = attrs
   if (content.length > 0) node.content = content
