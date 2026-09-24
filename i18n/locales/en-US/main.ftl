@@ -3308,6 +3308,9 @@ doc-detail-duplicate-suffix = { $title } (copy)
 # visibility chips, an expandable list of pages with custom
 # permissions, and the collection's page tree.
 collection-back-to-documentation = Back to Documentation
+collection-load-failed-heading = Couldn't load this collection
+collection-load-failed-description = Check your connection and try again.
+collection-load-failed-retry = Try again
 collection-not-found-title = Collection Not Found
 collection-action-delete = Delete
 collection-action-manage-access = Manage Access
@@ -5373,9 +5376,10 @@ public-docs-updated = Updated { $date }
 public-doc-loading-aria = Loading article
 public-doc-back = All docs
 public-doc-last-updated = Last updated { $date }
-public-doc-rich-text-prefix = This article uses collaborative rich-text editing. A simplified view is shown here, for the full experience with comments and attachments please
+public-doc-rich-text-prefix = This page can't be shown here. Please
 public-doc-rich-text-link = sign in
 public-doc-rich-text-suffix = .
+public-doc-empty = This page has no content yet.
 public-doc-not-found-title = Document not found
 public-doc-not-found-message = It may have been moved or set to private.
 public-doc-back-to-docs = Back to docs

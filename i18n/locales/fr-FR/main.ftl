@@ -3253,6 +3253,9 @@ doc-detail-duplicate-suffix = { $title } (copie)
 # visibility chips, an expandable list of pages with custom
 # permissions, and the collection's page tree.
 collection-back-to-documentation = Retour à la documentation
+collection-load-failed-heading = Impossible de charger cette collection
+collection-load-failed-description = Vérifiez votre connexion et réessayez.
+collection-load-failed-retry = Réessayer
 collection-not-found-title = Collection introuvable
 collection-action-delete = Supprimer
 collection-action-manage-access = Gérer l'accès
@@ -5360,9 +5363,10 @@ public-docs-updated = Mis à jour le { $date }
 public-doc-loading-aria = Chargement de l'article
 public-doc-back = Tous les documents
 public-doc-last-updated = Dernière mise à jour le { $date }
-public-doc-rich-text-prefix = Cet article utilise l'édition collaborative en texte riche. Une vue simplifiée est affichée ici, pour l'expérience complète avec commentaires et pièces jointes veuillez
-public-doc-rich-text-link = vous connecter
-public-doc-rich-text-suffix = .
+public-doc-rich-text-prefix = Cette page ne peut pas être affichée ici. Veuillez vous
+public-doc-rich-text-link = connecter
+public-doc-rich-text-suffix = { " " }pour la lire.
+public-doc-empty = Cette page n'a pas encore de contenu.
 public-doc-not-found-title = Document introuvable
 public-doc-not-found-message = Il a peut-être été déplacé ou rendu privé.
 public-doc-back-to-docs = Retour à la documentation
