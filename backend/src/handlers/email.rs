@@ -40,6 +40,19 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/email/outbound/test",
         web::post().to(crate::handlers::workspace_email::test_send),
+    )
+    // The workspace's own SMTP server
+    .route(
+        "/admin/email/outbound/relay",
+        web::put().to(crate::handlers::workspace_email::put_relay),
+    )
+    .route(
+        "/admin/email/outbound/relay/password",
+        web::delete().to(crate::handlers::workspace_email::delete_relay_password),
+    )
+    .route(
+        "/admin/email/outbound/relay/test",
+        web::post().to(crate::handlers::workspace_email::test_relay),
     );
 }
 

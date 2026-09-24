@@ -505,6 +505,9 @@ async fn email_config_routes_registered() {
             ("POST", "/admin/email/outbound/verify"),
             ("GET", "/admin/email/outbound/dns-check"),
             ("POST", "/admin/email/outbound/test"),
+            ("PUT", "/admin/email/outbound/relay"),
+            ("DELETE", "/admin/email/outbound/relay/password"),
+            ("POST", "/admin/email/outbound/relay/test"),
         ],
     )
     .await;
