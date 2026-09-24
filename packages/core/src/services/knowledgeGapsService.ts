@@ -30,6 +30,8 @@ export interface KnowledgeGap {
   status: KnowledgeGapStatus
   assignee_uuid: string | null
   resolved_page_id: number | null
+  /** The draft page this gap is being written as, while `drafting`. */
+  draft_page_id: number | null
   evidence_count: number
   last_evidence_at: string | null
   impact_score: number
@@ -77,18 +79,33 @@ export interface ListGapsOptions {
   offset?: number
 }
 
+/** Outcome of flagging a ticket: flagged, or refused because a page already
+ *  resolves it (so there is no gap), or failed. */
+export type FlagTicketResult =
+  | { kind: 'flagged'; gap: KnowledgeGap }
+  | { kind: 'documented'; page: { id: number; title: string; slug: string } }
+  | { kind: 'failed' }
+
 export const flagTicketAsGap = async (
   ticketId: number,
   reason?: string,
-): Promise<KnowledgeGap | null> => {
+): Promise<FlagTicketResult> => {
   try {
     const response = await apiClient.post(`/tickets/${ticketId}/flag-as-gap`, {
       reason: reason ?? null,
     })
-    return response.data as KnowledgeGap
+    return { kind: 'flagged', gap: response.data as KnowledgeGap }
   } catch (error) {
+    const body = (error as { response?: { data?: { code?: string; page?: unknown } } }).response
+      ?.data
+    if (body?.code === 'TICKET_ALREADY_DOCUMENTED' && body.page) {
+      return {
+        kind: 'documented',
+        page: body.page as { id: number; title: string; slug: string },
+      }
+    }
     logger.error(`Error flagging ticket ${ticketId}:`, error)
-    return null
+    return { kind: 'failed' }
   }
 }
 
@@ -149,6 +166,29 @@ export const resolveKnowledgeGap = async (
     return response.data as KnowledgeGap
   } catch (error) {
     logger.error(`Error resolving gap ${gapId}:`, error)
+    return null
+  }
+}
+
+/**
+ * Start writing a gap's doc: creates a draft page tied to the gap, which moves
+ * the gap to `drafting`. Publishing the page resolves the gap and links it to
+ * every ticket the gap cites.
+ */
+export const writeDocForGap = async (
+  gapId: number,
+  title: string,
+): Promise<{ id: number; slug: string } | null> => {
+  try {
+    const response = await apiClient.post('/documentation/pages', {
+      title,
+      icon: '📄',
+      status: 'draft',
+      gap_id: gapId,
+    })
+    return { id: response.data.id, slug: response.data.slug }
+  } catch (error) {
+    logger.error(`Error starting a doc for gap ${gapId}:`, error)
     return null
   }
 }
@@ -214,6 +254,7 @@ export const detectStaleDocs = async (
 }
 
 export default {
+  writeDocForGap,
   flagTicketAsGap,
   unflagTicketAsGap,
   listKnowledgeGaps,

@@ -406,6 +406,8 @@ ticket-list-context-merge = { $count ->
 }
 ticket-list-context-merge-hint = Selecteer minimaal 2 tickets om samen te voegen
 ticket-list-context-flagged-toast = Gemarkeerd voor documentatie
+ticket-flag-already-documented = Al gedocumenteerd in ‘{ $title }’
+ticket-flag-failed = Kon het ticket niet markeren.
 ticket-list-row-density-aria = Rijdichtheid
 ticket-list-save-view-title = Huidige status opslaan als privéweergave
 ticket-list-recurring-title = Terugkerend ticket
@@ -3179,9 +3181,23 @@ docs-gaps-failed-search-count = { $count ->
    }
 docs-gaps-failed-search-range = eerste { $first }, laatste { $last }
 docs-gaps-flagged-by = Gemarkeerd door { $name }
+docs-gaps-status-open = Open
+docs-gaps-status-drafting = In concept
+docs-gaps-status-resolved = Opgelost
+docs-gaps-status-dismissed = Afgewezen
+docs-gaps-write-doc = Dit document schrijven
+docs-gaps-write-failed = Kon het document niet starten.
+docs-gaps-draft-link = Wordt geschreven in ‘{ $title }’
+docs-gaps-draft-note = Publiceren lost dit hiaat op en koppelt het aan elk ticket hierboven.
+docs-gaps-resolve-existing = Of los het op met een bestaande pagina
+docs-gaps-resolve-pick = Kies een gepubliceerde pagina
+docs-gaps-resolve-no-pages = Nog geen gepubliceerde pagina's
+docs-gaps-resolve-button = Oplossen
+docs-gaps-resolved-toast = Hiaat opgelost. De pagina is aan de tickets gekoppeld.
+docs-gaps-resolve-failed = Kon het hiaat niet oplossen.
+docs-gaps-detect-schedule = Elk uur gecontroleerd. Vernieuw om nu te controleren.
 docs-gaps-resolve-heading = Deze lacune oplossen
-docs-gaps-resolve-body = Open een van bovenstaande tickets en gebruik { $action } in de zijbalk. Het nieuwe document wordt automatisch gekoppeld als 'lost op' aan elk gemarkeerd ticket.
-docs-gaps-resolve-action = Opslaan als document
+docs-gaps-resolve-body = Schrijf het document of kies een pagina die het al behandelt. In beide gevallen wordt de pagina gekoppeld als oplossing voor elk ticket hierboven.
 
 # Document view (DocumentView): full-page editor for a single doc
 # page (or a ticket note). Covers the header toolbar, metadata

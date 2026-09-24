@@ -113,6 +113,11 @@ enum FlagOutcome {
     Created(KnowledgeGap),
     Updated(KnowledgeGap),
     TicketNotFound,
+    AlreadyDocumented {
+        page_id: i32,
+        title: String,
+        slug: String,
+    },
 }
 
 pub async fn flag_ticket_as_gap(
@@ -140,6 +145,18 @@ pub async fn flag_ticket_as_gap(
             Some(t) => t,
             None => return Ok(FlagOutcome::TicketNotFound),
         };
+        // Already documented: the doc exists, so there is no gap to flag.
+        if let Some((page_id, title, slug)) =
+            crate::repository::documentation_page_tickets::resolving_page_for_ticket(
+                conn, ticket_id,
+            )?
+        {
+            return Ok(FlagOutcome::AlreadyDocumented {
+                page_id,
+                title,
+                slug,
+            });
+        }
         let (gap, _signal, was_created) =
             knowledge_gaps::flag_ticket(conn, ticket_id, &ticket_title, user_uuid, reason)?;
         Ok(if was_created {
@@ -157,6 +174,16 @@ pub async fn flag_ticket_as_gap(
             HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None })
         }
         Ok(FlagOutcome::TicketNotFound) => errors::not_found("Ticket"),
+        Ok(FlagOutcome::AlreadyDocumented {
+            page_id,
+            title,
+            slug,
+        }) => errors::with_fields(
+            actix_web::http::StatusCode::CONFLICT,
+            "TICKET_ALREADY_DOCUMENTED",
+            format!("This ticket is already documented in \"{title}\"."),
+            serde_json::json!({ "page": { "id": page_id, "title": title, "slug": slug } }),
+        ),
         Err(e) => {
             error!(error = ?e, ticket_id, "Failed to flag ticket as gap");
             errors::internal("Failed to flag ticket")
@@ -465,7 +492,7 @@ pub async fn resolve_knowledge_gap(
     let user_uuid = auth.user_uuid;
     let page_id = req_body.page_id;
 
-    match tc.run(|conn| knowledge_gaps::resolve_gap(conn, gap_id, page_id, user_uuid)) {
+    match tc.run(|conn| knowledge_gaps::resolve_gap(conn, gap_id, page_id, Some(user_uuid))) {
         Ok(gap) => HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None }),
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to resolve gap");

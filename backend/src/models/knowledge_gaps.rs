@@ -33,6 +33,8 @@ pub struct KnowledgeGap {
     pub dismissed_by: Option<Uuid>,
     pub resolved_at: Option<NaiveDateTime>,
     pub workspace_id: i32,
+    /// The draft page this gap is being written as, while `drafting`.
+    pub draft_page_id: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -62,6 +64,7 @@ pub struct KnowledgeGapUpdate {
     pub dismissed_at: Option<Option<NaiveDateTime>>,
     pub dismissed_by: Option<Option<Uuid>>,
     pub resolved_at: Option<Option<NaiveDateTime>>,
+    pub draft_page_id: Option<Option<i32>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Queryable, Identifiable, Associations, Clone)]

@@ -360,6 +360,10 @@ pub struct CreateDocumentationPageRequest {
     /// "add existing page to collection" flow is the only path
     /// that resets parent_id to root.
     pub collection_id: Option<i32>,
+    /// The knowledge gap this page is written for ("Write this doc"). The gap
+    /// drafts on the page, and resolves when the page is published.
+    #[serde(default)]
+    pub gap_id: Option<i64>,
 }
 
 /// Resolve the Yjs document for a page: try the page's own yjs_document
@@ -867,14 +871,24 @@ pub async fn create_documentation_page(
         // from ticket" flow one-call rather than forcing the
         // frontend to chase a follow-up POST.
         if let Some(tid) = request.ticket_id {
-            if let Err(e) = repository::documentation_page_tickets::upsert_link(
+            if let Err(e) = repository::knowledge_gaps::link_page_resolves_ticket(
                 conn,
                 created_page.id,
                 tid,
-                repository::documentation_page_tickets::LINK_RESOLVES,
                 Some(user_uuid),
             ) {
                 error!(error = ?e, page_id = created_page.id, ticket_id = tid, "Failed to create page<->ticket link");
+            }
+        }
+        if let Some(gap_id) = request.gap_id {
+            if let Err(e) = repository::knowledge_gaps::write_gap_as_page(
+                conn,
+                gap_id,
+                created_page.id,
+                matches!(status, DocumentationStatus::Published),
+                Some(user_uuid),
+            ) {
+                error!(error = ?e, page_id = created_page.id, gap_id, "Failed to attach page to knowledge gap");
             }
         }
         // Resolve target collection: explicit body field wins,
@@ -1757,11 +1771,10 @@ pub async fn create_documentation_page_from_ticket(
         };
 
         // Record the page<->ticket linkage in the join table.
-        if let Err(e) = repository::documentation_page_tickets::upsert_link(
+        if let Err(e) = repository::knowledge_gaps::link_page_resolves_ticket(
             conn,
             page.id,
             ticket_id,
-            repository::documentation_page_tickets::LINK_RESOLVES,
             Some(user_uuid),
         ) {
             error!(error = ?e, page_id = page.id, ticket_id, "Failed to create page<->ticket link");
@@ -2307,13 +2320,23 @@ pub async fn create_page_ticket_link(
     }
 
     match tc.run(|conn| {
-        repository::documentation_page_tickets::upsert_link(
-            conn,
-            page_id,
-            req_body.ticket_id,
-            &link_type,
-            Some(user_uuid),
-        )
+        // A 'resolves' link also moves on the ticket's flagged gap.
+        if link_type == repository::documentation_page_tickets::LINK_RESOLVES {
+            repository::knowledge_gaps::link_page_resolves_ticket(
+                conn,
+                page_id,
+                req_body.ticket_id,
+                Some(user_uuid),
+            )
+        } else {
+            repository::documentation_page_tickets::upsert_link(
+                conn,
+                page_id,
+                req_body.ticket_id,
+                &link_type,
+                Some(user_uuid),
+            )
+        }
     }) {
         Ok(row) => HttpResponse::Created().json(row),
         Err(e) => {

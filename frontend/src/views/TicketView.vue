@@ -38,6 +38,7 @@ import documentationService from "@nosdesk/core/services/documentationService";
 import { docUrl } from "@nosdesk/core/utils/docUrl";
 import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
 import { useFlagTicketMutation } from "@/composables/useKnowledgeGaps";
+import { useToastStore } from "@nosdesk/core/stores/toast";
 import { useQueryCache } from "@pinia/colada";
 import BackButton from "@/components/common/BackButton.vue";
 import ResponsiveMenu from "@/components/common/ResponsiveMenu.vue";
@@ -238,13 +239,19 @@ const overflowMenuItems = computed<MenuItem[]>(() => {
 
 const queryCache = useQueryCache();
 const flagMutation = useFlagTicketMutation();
+const toast = useToastStore();
 
 /** Mark this ticket as a knowledge gap. Idempotent: the backend
  *  attaches a fresh manual_flag signal to an existing open gap if
  *  one already covers the ticket, otherwise creates a new gap. */
 const handleFlagForDocs = async () => {
     if (ticketId.value === undefined) return;
-    await flagMutation.mutateAsync({ ticketId: ticketId.value });
+    const result = await flagMutation.mutateAsync({ ticketId: ticketId.value });
+    if (result.kind === 'documented') {
+        toast.info(t('ticket-flag-already-documented', { title: result.page.title }));
+    } else if (result.kind === 'failed') {
+        toast.error(t('ticket-flag-failed'));
+    }
 };
 
 /**

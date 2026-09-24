@@ -75,6 +75,7 @@ const ALLOWED_FIELDS: &[&str] = &[
     "comment_id",
     "created_by",
     "cycle_id",
+    "gap_id",
     "holiday_id",
     "id",
     "policy_id",

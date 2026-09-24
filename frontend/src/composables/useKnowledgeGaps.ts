@@ -206,6 +206,17 @@ export function useDetectClustersMutation() {
   })
 }
 
+export function useWriteGapDocMutation() {
+  const queryCache = useQueryCache()
+  return useMutation({
+    mutation: ({ gapId, title }: { gapId: number; title: string }) =>
+      knowledgeGapsService.writeDocForGap(gapId, title),
+    onSettled: () => {
+      queryCache.invalidateQueries({ key: knowledgeGapKeys.root })
+    },
+  })
+}
+
 export function useResolveGapMutation() {
   const queryCache = useQueryCache()
   return useMutation({

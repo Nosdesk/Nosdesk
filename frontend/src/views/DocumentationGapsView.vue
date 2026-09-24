@@ -18,13 +18,19 @@ import { useTitleManager } from '@/composables/useTitleManager'
 import Icon from '@/components/common/Icon.vue'
 import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
+import SearchableDropdown from '@/components/common/SearchableDropdown.vue'
+import Button from '@/components/common/Button.vue'
 import {
   useKnowledgeGaps,
   useKnowledgeGap,
   useDismissGapMutation,
   useDetectClustersMutation,
+  useResolveGapMutation,
+  useWriteGapDocMutation,
 } from '@/composables/useKnowledgeGaps'
 import type { KnowledgeGapSignal } from '@nosdesk/core/services/knowledgeGapsService'
+import { useSyncDocsStore } from '@nosdesk/core/sync/stores/documentation'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 
 defineOptions({ name: 'DocumentationGapsView' })
 
@@ -73,6 +79,73 @@ watch([gaps, selectedId], ([list, current]) => {
 
 const dismissMutation = useDismissGapMutation()
 const isDismissing = ref(false)
+const toast = useToastStore()
+const docs = useSyncDocsStore()
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'open':
+      return t('docs-gaps-status-open')
+    case 'drafting':
+      return t('docs-gaps-status-drafting')
+    case 'resolved':
+      return t('docs-gaps-status-resolved')
+    case 'dismissed':
+      return t('docs-gaps-status-dismissed')
+    default:
+      return status
+  }
+}
+
+// Write this doc: a draft page tied to the gap; publishing it resolves the gap.
+const writeMutation = useWriteGapDocMutation()
+async function writeDoc() {
+  const gap = selectedGap.value
+  if (!gap) return
+  const page = await writeMutation.mutateAsync({ gapId: gap.id, title: gap.title })
+  if (!page) {
+    toast.error(t('docs-gaps-write-failed'))
+    return
+  }
+  router.push(`/documentation/${page.slug}`)
+}
+
+// The draft a drafting gap is being written in.
+const draftPage = docs.pageById(() => selectedGap.value?.draft_page_id ?? null)
+
+// Or resolve with a page that already exists.
+const publishedPages = docs.pagesByStatus('published')
+const resolvePageOptions = computed(() =>
+  publishedPages.value
+    .map((p) => ({ value: String(p.id), label: `${p.icon ?? '📄'} ${p.title}` }))
+    .sort((a, b) => a.label.localeCompare(b.label)),
+)
+const resolvePageId = ref('')
+watch(selectedId, () => {
+  resolvePageId.value = ''
+})
+const resolveMutation = useResolveGapMutation()
+async function resolveWithPage() {
+  const gap = selectedGap.value
+  if (!gap || !resolvePageId.value) return
+  // The service returns null on failure rather than throwing.
+  const resolved = await resolveMutation.mutateAsync({
+    gapId: gap.id,
+    pageId: Number(resolvePageId.value),
+  })
+  if (!resolved) {
+    toast.error(t('docs-gaps-resolve-failed'))
+    return
+  }
+  toast.success(t('docs-gaps-resolved-toast'))
+  await refetchList()
+  const remaining = gaps.value.filter((g) => g.id !== gap.id)
+  if (remaining.length > 0) {
+    router.replace({ name: 'documentation-gap-detail', params: { id: remaining[0].id } })
+  } else {
+    router.replace({ name: 'documentation-gaps' })
+  }
+}
 
 const detectMutation = useDetectClustersMutation()
 const detectMessage = ref<string | null>(null)
@@ -234,6 +307,9 @@ function signalLabel(signal: KnowledgeGapSignal): string {
           <span v-if="detectMessage" class="text-2xs text-tertiary truncate">
             {{ detectMessage }}
           </span>
+          <span v-else class="text-2xs text-tertiary truncate">
+            {{ $t('docs-gaps-detect-schedule') }}
+          </span>
         </div>
       </div>
 
@@ -308,7 +384,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                 {{ selectedGap.description }}
               </p>
               <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-tertiary">
-                <span>{{ $t('docs-gaps-status-label') }} <span class="text-secondary">{{ selectedGap.status }}</span></span>
+                <span>{{ $t('docs-gaps-status-label') }} <span class="text-secondary">{{ statusLabel(selectedGap.status) }}</span></span>
                 <span>
                   <span class="text-secondary">{{ selectedGap.impact_score }}</span>
                   {{ impactLabel(selectedGap.title) }}
@@ -502,17 +578,53 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             <p v-else class="text-sm text-tertiary">{{ $t('docs-gaps-evidence-empty') }}</p>
           </section>
 
-          <!-- Resolve action: punts to "create a doc and link". The
-               actual flow uses Phase 1's existing 'Save as doc'
-               action; an explicit resolve UI lands in 2b once
-               clusters give us multi-ticket gaps. For now, the
-               agent navigates to a ticket and uses Save-as-doc. -->
+          <!-- Resolve: write the doc (a draft tied to the gap, resolved when it
+               is published), or pick a page that already answers it. Either
+               way the page is linked to every ticket the gap cites. -->
           <section
             v-if="selectedGap.status === 'open' || selectedGap.status === 'drafting'"
-            class="rounded-lg border border-dashed border-default p-4 text-sm text-secondary"
+            class="rounded-lg border border-default p-4 flex flex-col gap-4"
           >
-            <p class="font-medium text-primary mb-1">{{ $t('docs-gaps-resolve-heading') }}</p>
-            <p v-safe-html="$t('docs-gaps-resolve-body', { action: `<span class=&quot;font-medium text-primary&quot;>${$t('docs-gaps-resolve-action')}</span>` })"></p>
+            <div class="flex flex-col gap-1">
+              <p class="text-sm font-medium text-primary">{{ $t('docs-gaps-resolve-heading') }}</p>
+              <p class="text-sm text-secondary">{{ $t('docs-gaps-resolve-body') }}</p>
+            </div>
+
+            <div v-if="selectedGap.status === 'drafting' && draftPage" class="flex flex-col gap-1">
+              <RouterLink
+                :to="`/documentation/${draftPage.slug}`"
+                class="text-sm text-accent hover:underline w-fit"
+              >
+                {{ $t('docs-gaps-draft-link', { title: draftPage.title }) }}
+              </RouterLink>
+              <p class="text-xs text-tertiary">{{ $t('docs-gaps-draft-note') }}</p>
+            </div>
+            <div v-else>
+              <Button :loading="writeMutation.asyncStatus.value === 'loading'" @click="writeDoc">
+                {{ $t('docs-gaps-write-doc') }}
+              </Button>
+            </div>
+
+            <div class="flex flex-col gap-2 border-t border-default pt-4">
+              <span class="text-xs text-tertiary">{{ $t('docs-gaps-resolve-existing') }}</span>
+              <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+                <SearchableDropdown
+                  v-model="resolvePageId"
+                  :options="resolvePageOptions"
+                  :placeholder="$t('docs-gaps-resolve-pick')"
+                  :empty-message="$t('docs-gaps-resolve-no-pages')"
+                  class="flex-1 min-w-0"
+                />
+                <Button
+                  variant="secondary"
+                  :disabled="!resolvePageId"
+                  :loading="resolveMutation.asyncStatus.value === 'loading'"
+                  @click="resolveWithPage"
+                >
+                  {{ $t('docs-gaps-resolve-button') }}
+                </Button>
+              </div>
+            </div>
           </section>
         </article>
     </section>

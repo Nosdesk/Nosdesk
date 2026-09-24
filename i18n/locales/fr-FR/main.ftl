@@ -410,6 +410,8 @@ ticket-list-context-merge = { $count ->
 }
 ticket-list-context-merge-hint = Sélectionnez au moins 2 tickets à fusionner
 ticket-list-context-flagged-toast = Signalé pour la documentation
+ticket-flag-already-documented = Déjà documenté dans « { $title } »
+ticket-flag-failed = Impossible de signaler le ticket.
 ticket-list-row-density-aria = Densité des lignes
 ticket-list-save-view-title = Enregistrer l'état actuel comme vue privée
 ticket-list-recurring-title = Ticket récurrent
@@ -3189,9 +3191,23 @@ docs-gaps-failed-search-count = { $count ->
    }
 docs-gaps-failed-search-range = première { $first }, dernière { $last }
 docs-gaps-flagged-by = Signalé par { $name }
+docs-gaps-status-open = Ouvert
+docs-gaps-status-drafting = En rédaction
+docs-gaps-status-resolved = Résolu
+docs-gaps-status-dismissed = Écarté
+docs-gaps-write-doc = Rédiger cette doc
+docs-gaps-write-failed = Impossible de démarrer la doc.
+docs-gaps-draft-link = En cours de rédaction dans « { $title } »
+docs-gaps-draft-note = La publier résout cette lacune et la lie à chaque ticket ci-dessus.
+docs-gaps-resolve-existing = Ou résolvez-la avec une page existante
+docs-gaps-resolve-pick = Choisir une page publiée
+docs-gaps-resolve-no-pages = Aucune page publiée pour l'instant
+docs-gaps-resolve-button = Résoudre
+docs-gaps-resolved-toast = Lacune résolue. La page est liée à ses tickets.
+docs-gaps-resolve-failed = Impossible de résoudre la lacune.
+docs-gaps-detect-schedule = Vérifié toutes les heures. Actualisez pour vérifier maintenant.
 docs-gaps-resolve-heading = Résoudre cette lacune
-docs-gaps-resolve-body = Ouvrez l'un des tickets ci-dessus et utilisez { $action } dans sa barre latérale. Le nouveau document sera automatiquement lié comme 'résout' à chaque ticket signalé.
-docs-gaps-resolve-action = Enregistrer comme document
+docs-gaps-resolve-body = Rédigez la doc ou choisissez une page qui la couvre déjà. Dans les deux cas, la page est liée comme résolvant chaque ticket ci-dessus.
 
 # Document view (DocumentView): full-page editor for a single doc
 # page (or a ticket note). Covers the header toolbar, metadata

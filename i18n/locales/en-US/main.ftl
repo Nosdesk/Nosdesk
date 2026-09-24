@@ -437,6 +437,8 @@ ticket-list-context-merge = { $count ->
 }
 ticket-list-context-merge-hint = Select at least 2 tickets to merge
 ticket-list-context-flagged-toast = Flagged for documentation
+ticket-flag-already-documented = Already documented in “{ $title }”
+ticket-flag-failed = Could not flag the ticket.
 ticket-list-row-density-aria = Row density
 ticket-list-save-view-title = Save current state as a private view
 ticket-list-recurring-title = Recurring ticket
@@ -3244,9 +3246,23 @@ docs-gaps-failed-search-count = { $count ->
    }
 docs-gaps-failed-search-range = first { $first }, last { $last }
 docs-gaps-flagged-by = Flagged by { $name }
+docs-gaps-status-open = Open
+docs-gaps-status-drafting = Drafting
+docs-gaps-status-resolved = Resolved
+docs-gaps-status-dismissed = Dismissed
+docs-gaps-write-doc = Write this doc
+docs-gaps-write-failed = Could not start the doc.
+docs-gaps-draft-link = Being written in “{ $title }”
+docs-gaps-draft-note = Publishing it resolves this gap and links it to every ticket above.
+docs-gaps-resolve-existing = Or resolve it with a page that already exists
+docs-gaps-resolve-pick = Choose a published page
+docs-gaps-resolve-no-pages = No published pages yet
+docs-gaps-resolve-button = Resolve
+docs-gaps-resolved-toast = Gap resolved. The page is linked to its tickets.
+docs-gaps-resolve-failed = Could not resolve the gap.
+docs-gaps-detect-schedule = Checked every hour. Refresh to check now.
 docs-gaps-resolve-heading = Resolve this gap
-docs-gaps-resolve-body = Open one of the tickets above and use { $action } from its sidebar. The new doc will auto-link as 'resolves' on every flagged ticket.
-docs-gaps-resolve-action = Save as doc
+docs-gaps-resolve-body = Write the doc, or pick a page that already covers it. Either way the page is linked as resolving every ticket above.
 
 # Document view (DocumentView): full-page editor for a single doc
 # page (or a ticket note). Covers the header toolbar, metadata
