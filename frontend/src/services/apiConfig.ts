@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { CanceledError } from 'axios';
 import apiClient from '@nosdesk/core/apiClient';
 import { logger } from '@nosdesk/core/utils/logger';
 import { createErrorFromResponse } from '@/utils/errors';
@@ -10,7 +10,15 @@ import { pushApi as pushApiBreadcrumb } from '@/services/diagnostics/breadcrumbs
 // request time so the same axios client serves both the web (cookie + CSRF)
 // and mobile (bearer) surfaces. The host wires the active strategy at
 // bootstrap (web: services/transport.ts).
-import { addRequestHeaderProvider, apiBaseUrl, requestHeaders, transport } from '@nosdesk/core/transport';
+import {
+  addRequestHeaderProvider,
+  apiBaseUrl,
+  passRequestGates,
+  refuseResponse,
+  rememberHostHeaders,
+  requestHeaders,
+  transport,
+} from '@nosdesk/core/transport';
 
 // API Configuration with Structured Logging and Error Handling
 //
@@ -122,7 +130,10 @@ function redirectToLogin() {
 
 // Add request interceptor for CSRF token and correlation ID
 apiClient.interceptors.request.use(
-  (config) => {
+  async (config) => {
+    // Held while a workspace switch is in progress (see activeWorkspace).
+    await passRequestGates();
+
     // Resolve base URL and credential mode from the active transport (web:
     // same-origin + cookies; mobile: absolute base + bearer, no cookies).
     config.baseURL = apiBaseUrl();
@@ -136,7 +147,9 @@ apiClient.interceptors.request.use(
     // seam so the mobile interceptor (which clears this one) sends the identical
     // set. The diagnostics provider registered below sets currentCorrelationId,
     // which the logging just below reads.
-    Object.assign(config.headers, requestHeaders());
+    const hostHeaders = requestHeaders();
+    Object.assign(config.headers, hostHeaders);
+    rememberHostHeaders(config, hostHeaders);
 
     // Verbose logging (development only)
     if (import.meta.env.DEV && localStorage.getItem('api-verbose-logging') === 'true') {
@@ -165,6 +178,10 @@ apiClient.interceptors.request.use(
 // Add response interceptor for error handling
 apiClient.interceptors.response.use(
   (response) => {
+    // A response to a request sent under a previous workspace must not land.
+    const refused = refuseResponse(response.config);
+    if (refused) return Promise.reject(new CanceledError(refused));
+
     // Extract correlation ID from response
     const correlationId = response.headers['x-correlation-id'];
     if (correlationId) {
@@ -206,6 +223,9 @@ apiClient.interceptors.response.use(
     if (axios.isCancel(error)) {
       return Promise.reject(error);
     }
+    // Same rule as a success: a failure for a previous workspace is moot.
+    const refused = refuseResponse(error.config);
+    if (refused) return Promise.reject(new CanceledError(refused));
 
     // Expected auth teardown. An intentional sign-out (or any request that
     // 401s while we're on a public auth page) must not trigger the

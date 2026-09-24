@@ -37,7 +37,7 @@ import { ref } from 'vue'
 import { logger } from '@nosdesk/core/utils/logger'
 import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData'
 import { collabWsBaseUrl } from '@nosdesk/core/transport'
-import { getCollabToken } from '@/services/collabToken'
+import { getCollabToken, peekCollabToken } from '@/services/collabToken'
 
 /**
  * How long after refcount hits 0 we keep the websocket open
@@ -111,27 +111,64 @@ function deriveConnectionStatus(provider: WebsocketProvider): ConnectionStatus {
   return 'disconnected'
 }
 
+/** Wait before reconnecting after a failed token fetch, so an API outage
+ *  can't turn into a tight reconnect loop. */
+const TOKEN_RETRY_DELAY_MS = 2000
+
+/** Providers torn down by `evict`; a token fetch that finishes afterwards
+ *  must not reconnect them. */
+const retiredProviders = new WeakSet<WebsocketProvider>()
+
 /**
- * Fetch the collab connection token, set it on the provider's `params`, and
- * connect. `params` is a plain object the y-websocket URL getter re-reads on
- * every (re)connect, so refreshing it on `connection-close` means a session that
- * outlives the ~1h token reconnects with a fresh one. Owned here so callers
- * (editor, prewarm) never deal with the token.
+ * Connect with a token that is valid at handshake time. y-websocket rebuilds
+ * the URL from `params` on every (re)connect, so the token must be in place
+ * before that happens:
+ * - a still-valid cached token is set synchronously, ahead of y-websocket's
+ *   own reconnect timer (at least 200ms), and the reconnect proceeds;
+ * - an expired one parks the reconnect, fetches a fresh token, then connects.
+ *   Without the pause the first retry after the ~2 minute TTL went out with
+ *   the old token and was refused.
+ */
+async function connectWithValidToken(provider: WebsocketProvider): Promise<void> {
+  const cached = peekCollabToken()
+  if (cached) {
+    provider.params = { token: cached }
+    // Inside a `connection-close` the socket is still attached, so this only
+    // re-arms `shouldConnect`; y-websocket's backoff timer does the reconnect.
+    provider.connect()
+    return
+  }
+  // Park the reconnect y-websocket may have scheduled (its timer checks
+  // `shouldConnect`). Not `disconnect()`: inside `connection-close` that
+  // re-enters the close path.
+  provider.shouldConnect = false
+  // A terminal close (the server said not to reconnect) is emitted after
+  // `connection-close`; it must win over the reconnect below.
+  let terminal = false
+  const onTerminal = () => {
+    terminal = true
+  }
+  provider.on('closed', onTerminal)
+  try {
+    provider.params = { token: await getCollabToken() }
+  } catch (err) {
+    logger.warn('Collab session: token fetch failed; retrying shortly', { err })
+    await new Promise((resolve) => setTimeout(resolve, TOKEN_RETRY_DELAY_MS))
+  } finally {
+    provider.off('closed', onTerminal)
+  }
+  if (!terminal && !retiredProviders.has(provider)) provider.connect()
+}
+
+/**
+ * Connect the provider and keep its token fresh across reconnects. Owned here
+ * so callers (editor, prewarm) never deal with the token.
  */
 async function attachCollabToken(provider: WebsocketProvider): Promise<void> {
-  const setToken = async () => {
-    try {
-      provider.params = { token: await getCollabToken() }
-    } catch (err) {
-      logger.warn('Collab session: token fetch failed; socket will retry', { err })
-    }
-  }
-  await setToken()
-  provider.connect()
-  // Refresh before the auto-reconnect reads the URL again (cached within the
-  // hour, so this only re-fetches once the token has actually expired).
+  await connectWithValidToken(provider)
   provider.on('connection-close', () => {
-    void setToken()
+    // An explicit disconnect (evict, the pause above) is not a reconnect.
+    if (provider.shouldConnect) void connectWithValidToken(provider)
   })
 }
 
@@ -348,6 +385,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     }
     delete connectionStatus.value[docId]
     try {
+      retiredProviders.add(entry.provider)
       entry.provider.destroy()
     } catch (err) {
       logger.warn('Collab session: provider.destroy() threw', {
@@ -382,10 +420,11 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     const existing = sessions.get(docId)
     if (existing) {
       cancelGrace(existing)
-      // Re-connect if the websocket dropped while idle.
+      // Re-connect if the websocket dropped while idle, with a token that is
+      // still valid (a session idle past the TTL holds an expired one).
       if (!existing.provider.wsconnected) {
         try {
-          existing.provider.connect()
+          void connectWithValidToken(existing.provider)
         } catch (err) {
           logger.warn('Collab session: re-connect on acquire failed', {
             docId,

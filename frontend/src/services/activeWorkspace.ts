@@ -10,7 +10,11 @@
  * resolves the workspace from the Host, as today.
  */
 import { computed, readonly, ref, type Ref } from 'vue';
-import { addRequestHeaderProvider } from '@nosdesk/core/transport';
+import {
+  addRequestGate,
+  addRequestHeaderProvider,
+  addResponseGuard,
+} from '@nosdesk/core/transport';
 import {
   getControlPlaneUrl,
   getWorkspaceRouting,
@@ -21,8 +25,40 @@ const LAST_WORKSPACE_KEY = 'nosdesk:last-workspace';
 
 const slug = ref<string | null>(null);
 
+const WORKSPACE_HEADER = 'X-Nosdesk-Workspace';
+
+// An in-app switch clears the old workspace, tears its state down, then sets
+// the new one. Views of the old workspace are still mounted through that and
+// keep fetching; without a hold those requests go out with no workspace and
+// are refused. So a switch holds new requests until the new slug is set, and
+// they go out with it. Bounded, so a switch that never completes can't wedge
+// every request.
+const SWITCH_HOLD_MAX_MS = 10_000;
+let switchHold: { done: Promise<void>; release: () => void } | null = null;
+
+/** Start an in-app workspace switch: hold requests until the new slug is set. */
+export function beginWorkspaceSwitch(): void {
+  if (switchHold) return;
+  let release!: () => void;
+  const done = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const hold = { done, release };
+  switchHold = hold;
+  setTimeout(() => {
+    if (switchHold === hold) endWorkspaceSwitch();
+  }, SWITCH_HOLD_MAX_MS);
+}
+
+/** Release held requests (the new slug is set). */
+function endWorkspaceSwitch(): void {
+  switchHold?.release();
+  switchHold = null;
+}
+
 export function setActiveWorkspaceSlug(next: string | null): void {
   slug.value = next;
+  if (next) endWorkspaceSwitch();
   // Remember the last workspace the user was on so the post-login landing can
   // return them there. Only persist a real slug; clearing on logout/switch
   // (null) must not erase the memory.
@@ -78,7 +114,7 @@ export const activeWorkspaceSlugRef: Readonly<Ref<string | null>> = readonly(slu
  * engine's raw `fetch` calls (which the interceptor doesn't see).
  */
 export function workspaceHeaders(): Record<string, string> {
-  return slug.value ? { 'X-Nosdesk-Workspace': slug.value } : {};
+  return slug.value ? { [WORKSPACE_HEADER]: slug.value } : {};
 }
 
 // Publish the selection header through the core transport seam so every consumer
@@ -87,6 +123,15 @@ export function workspaceHeaders(): Record<string, string> {
 // workspace guard imports this module before any request fires, so the workspace
 // header is available early — ahead of the diagnostics provider apiConfig adds.
 addRequestHeaderProvider(workspaceHeaders);
+addRequestGate(() => switchHold?.done);
+// A response to a request sent under another workspace than the one in force
+// now must not land: it would refill a store the switch just emptied with the
+// previous workspace's data. Requests sent with no workspace (sign-in, config)
+// are never refused.
+addResponseGuard((sent) => {
+  const sentSlug = sent[WORKSPACE_HEADER];
+  return sentSlug && sentSlug !== slug.value ? 'workspace changed' : null;
+});
 
 /**
  * Reactive gate for whether a workspace-scoped request may fire yet. Workspace-

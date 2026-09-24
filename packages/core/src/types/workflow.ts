@@ -144,17 +144,24 @@ export interface WorkflowDropdownOption {
 }
 
 /** Build grouped workflow-state options for ticket status pickers.
- *  Returns an empty list until the store has loaded. */
+ *  Returns an empty list until the store has loaded. `current` is the
+ *  ticket's own state: an archived one is not in `byCategory`, so it is
+ *  added to its group, or the picker could never show it as selected. */
 export function buildWorkflowDropdownOptions(
   byCategory: Record<WorkflowStateCategory, WorkflowState[] | undefined>,
   loaded: boolean,
   statesCount: number,
+  current?: WorkflowState,
 ): WorkflowDropdownOption[] {
   if (!loaded || statesCount === 0) return []
   const out: WorkflowDropdownOption[] = []
   for (const cat of WORKFLOW_CATEGORIES) {
-    const states = byCategory[cat]
-    if (!states || states.length === 0) continue
+    const active = byCategory[cat] ?? []
+    const states =
+      current?.archived_at && current.category === cat && !active.some((s) => s.id === current.id)
+        ? [...active, current]
+        : active
+    if (states.length === 0) continue
     out.push({ value: categoryHeaderValue(cat), label: getCategoryLabel(cat), disabled: true })
     for (const s of states) {
       out.push({

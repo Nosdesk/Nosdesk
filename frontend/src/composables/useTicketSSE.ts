@@ -1,4 +1,4 @@
-import { ref, computed, onMounted, onUnmounted, type Ref } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, type Ref } from "vue";
 import { useSSE } from "@/services/sseService";
 import { useAuthStore } from "@/stores/auth";
 import * as pool from "@nosdesk/core/sync/pool";
@@ -32,7 +32,7 @@ const DEBUG_SSE = import.meta.env.DEV && import.meta.env.VITE_DEBUG_SSE === 'tru
  * by an incoming remote preview.
  */
 export function useTicketSSE(ticketId: Ref<number | undefined>) {
-  const { addEventListener, removeEventListener, isConnected, connect, disconnect } = useSSE();
+  const { addEventListener, removeEventListener, isConnected, watchTicket } = useSSE();
 
   const authStore = useAuthStore();
 
@@ -100,17 +100,30 @@ export function useTicketSSE(ticketId: Ref<number | undefined>) {
     removeEventListener("ticket-field-previewed", handleTicketFieldPreviewed);
   }
 
-  onMounted(async () => {
+  // The stream itself belongs to the sync runtime; this view only adds its
+  // ticket's presence topic, following the ticket id as it changes.
+  let releaseTicket: (() => void) | null = null;
+  onMounted(() => {
     setupEventListeners();
-    if (authStore.isAuthenticated && ticketId.value) {
-      if (DEBUG_SSE) console.log('[SSE] Connecting for ticket:', ticketId.value);
-      await connect(ticketId.value);
-    }
+    watch(
+      ticketId,
+      (id) => {
+        const previous = releaseTicket;
+        releaseTicket = null;
+        if (id && authStore.isAuthenticated) {
+          if (DEBUG_SSE) console.log('[SSE] Watching ticket:', id);
+          releaseTicket = watchTicket(id);
+        }
+        previous?.();
+      },
+      { immediate: true },
+    );
   });
 
   onUnmounted(() => {
     cleanupEventListeners();
-    disconnect();
+    releaseTicket?.();
+    releaseTicket = null;
   });
 
   return {

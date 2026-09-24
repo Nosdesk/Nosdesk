@@ -28,7 +28,11 @@ import type {
   RouteLocationRaw,
 } from 'vue-router';
 import { fetchInstanceConfig, getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
-import { setActiveWorkspaceSlug, activeWorkspaceSlug } from '@/services/activeWorkspace';
+import {
+  setActiveWorkspaceSlug,
+  activeWorkspaceSlug,
+  beginWorkspaceSwitch,
+} from '@/services/activeWorkspace';
 
 const WORKSPACE_PARAM = 'workspace';
 
@@ -155,8 +159,18 @@ export function installWorkspaceGuard(router: Router): void {
         const { resetWorkspaceScopedState, enterWorkspace } = await import(
           '@/stores/workspaceReset'
         );
-        if (previous !== null) await resetWorkspaceScopedState();
-        setActiveWorkspaceSlug(slug);
+        if (previous !== null) {
+          // Hold requests from the outgoing views until the new slug is set;
+          // set it even if the reset fails, so held requests are released.
+          beginWorkspaceSwitch();
+          try {
+            await resetWorkspaceScopedState();
+          } finally {
+            setActiveWorkspaceSlug(slug);
+          }
+        } else {
+          setActiveWorkspaceSlug(slug);
+        }
         if (isAuthed(to)) void enterWorkspace(slug);
         return true;
       }

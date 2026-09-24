@@ -83,6 +83,7 @@ const workflowDropdownOptions = computed(() =>
     workflowStatesStore.byCategory,
     workflowStatesStore.loaded,
     workflowStatesStore.states.length,
+    props.card ? workflowStatesStore.findById(props.card.workflow_state.id) : undefined,
   ),
 )
 

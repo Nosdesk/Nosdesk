@@ -22,6 +22,25 @@
 import { logger } from '@nosdesk/core/utils/logger';
 
 export async function resetWorkspaceScopedState(): Promise<void> {
+  // Sync runtime, SSE bridge, and collab IndexedDB, first: stopping the poll
+  // and the stream before the workspace is cleared below means neither fires
+  // with no workspace set. The sync pool's IDB is keyed
+  // by (user, schema) with no workspace today, so a full teardown is the only
+  // way to keep one workspace's rows from bleeding into the next; re-hydration
+  // is the caller's job.
+  try {
+    const [{ tearDown }, { detachSseBridge }, { purgeAllCollabDocs }] = await Promise.all([
+      import('@/sync/lifecycle'),
+      import('@/sync/sseBridge'),
+      import('@/utils/collabLocalCache'),
+    ]);
+    detachSseBridge();
+    await tearDown();
+    await purgeAllCollabDocs();
+  } catch (e) {
+    logger.error('Failed to tear down the sync runtime', e);
+  }
+
   // Config stores that cache a slow-moving, workspace-scoped set. Reset
   // independently so one failure doesn't skip the rest.
   const storeResets = await Promise.allSettled([
@@ -84,23 +103,6 @@ export async function resetWorkspaceScopedState(): Promise<void> {
     resetCollabToken();
   } catch (e) {
     logger.error('Failed to clear the collab token', e);
-  }
-
-  // Sync runtime, SSE bridge, and collab IndexedDB. The sync pool's IDB is keyed
-  // by (user, schema) with no workspace today, so a full teardown is the only
-  // way to keep one workspace's rows from bleeding into the next; re-hydration
-  // is the caller's job.
-  try {
-    const [{ tearDown }, { detachSseBridge }, { purgeAllCollabDocs }] = await Promise.all([
-      import('@/sync/lifecycle'),
-      import('@/sync/sseBridge'),
-      import('@/utils/collabLocalCache'),
-    ]);
-    detachSseBridge();
-    await tearDown();
-    await purgeAllCollabDocs();
-  } catch (e) {
-    logger.error('Failed to tear down the sync runtime', e);
   }
 }
 

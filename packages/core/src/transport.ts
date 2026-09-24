@@ -89,6 +89,52 @@ export function requestHeaders(): Record<string, string> {
   return out
 }
 
+// Hosts can hold requests until they may be sent (a workspace switch in
+// progress), and refuse responses that no longer apply (a request sent under the
+// previous workspace). Both interceptors, web and mobile, run these, so the rule
+// lives in one place rather than in every store that fetches.
+const requestGates: Array<() => Promise<void> | void> = []
+const responseGuards: Array<(sentHeaders: Record<string, string>) => string | null> = []
+
+/** Register a gate each request awaits before its headers are built. */
+export function addRequestGate(gate: () => Promise<void> | void): void {
+  requestGates.push(gate)
+}
+
+/** Wait for every registered gate. */
+export async function passRequestGates(): Promise<void> {
+  for (const gate of requestGates) await gate()
+}
+
+/**
+ * Register a check on a response, given the host headers its request carried.
+ * Returning a reason refuses the response (the request is treated as cancelled).
+ */
+export function addResponseGuard(
+  guard: (sentHeaders: Record<string, string>) => string | null,
+): void {
+  responseGuards.push(guard)
+}
+
+// The host headers each in-flight request carried, keyed by its request config
+// (the same object comes back on the response).
+const sentHostHeaders = new WeakMap<object, Record<string, string>>()
+
+/** Record the host headers a request is sent with, for `refuseResponse`. */
+export function rememberHostHeaders(requestConfig: object, headers: Record<string, string>): void {
+  sentHostHeaders.set(requestConfig, headers)
+}
+
+/** Why the response to this request must be refused, or null when it may land. */
+export function refuseResponse(requestConfig: object | undefined): string | null {
+  const sent = (requestConfig && sentHostHeaders.get(requestConfig)) || {}
+  for (const guard of responseGuards) {
+    const reason = guard(sent)
+    if (reason) return reason
+  }
+  return null
+}
+
 function active(): TransportConfig {
   if (!config) {
     throw new Error(

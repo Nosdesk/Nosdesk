@@ -602,6 +602,7 @@ export async function pullDelta(): Promise<boolean> {
   // than re-streaming all of history from xid8 0.
   let url = `/sync/delta?from=${from}&groups=${encodeURIComponent(groups.join(','))}`
   if (fromXid8 > 0) url += `&from_xid8=${fromXid8}`
+  const epoch = pool.currentEpoch()
   try {
     const res = await syncFetch(url)
     if (!res.ok) {
@@ -609,6 +610,8 @@ export async function pullDelta(): Promise<boolean> {
       return false
     }
     const body = (await res.json()) as DeltaResponse
+    // The workspace was torn down while this was in flight.
+    if (pool.currentEpoch() !== epoch) return false
     if (body.resync_required) {
       // Return without applying: this page is a partial view of a span we
       // cannot complete, and the re-bootstrap replaces it wholesale.
@@ -626,6 +629,7 @@ export async function pullDelta(): Promise<boolean> {
     // Torn-cache prune must land before the advanced cursor is persisted
     // (see pruneTornWatermarks).
     await pruneTornWatermarks()
+    if (pool.currentEpoch() !== epoch) return false
     setCaughtUp(true)
     pool.setCursor(body.last_xid8, body.last_sync_id)
     if (state.handle) {
@@ -700,6 +704,7 @@ async function runBootstrap(groups: string[]): Promise<void> {
   // the fetch + pool.upsert still run so views populate.
   if (!canFetchWorkspace()) return
   const url = `/sync/bootstrap?groups=${encodeURIComponent(groups.join(','))}&schema=${encodeURIComponent(state.schemaHash)}`
+  const epoch = pool.currentEpoch()
   let res: Response
   try {
     res = await syncFetch(url)
@@ -728,6 +733,11 @@ async function runBootstrap(groups: string[]): Promise<void> {
 
   while (true) {
     const { done, value } = await reader.read()
+    // The workspace was torn down mid-stream: the rest is not ours to apply.
+    if (pool.currentEpoch() !== epoch) {
+      void reader.cancel().catch(() => {})
+      return
+    }
     if (done) break
     buffer += decoder.decode(value, { stream: true })
     let nl: number

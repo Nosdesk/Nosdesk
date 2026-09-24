@@ -60,6 +60,16 @@ class SSEService {
   private tokenExpiryTime: number | null = null;
   // Unique client ID assigned by the server on connection (for echo suppression)
   private _clientId: string | null = null;
+  // Who wants the stream. The sync runtime holds it for as long as a workspace
+  // is open (`start`/`stop`); ticket views add their ticket's presence topic
+  // (`watchTicket`), counted so two views of one ticket share it. One
+  // connection serves all of them; its topic set is rebuilt on every connect.
+  private started = false;
+  private watchedTickets = new Map<number, number>();
+
+  private wanted(): boolean {
+    return this.started || this.watchedTickets.size > 0;
+  }
 
   /** SSE connection client ID (assigned by server, unique per tab/connection) */
   get clientId(): string | null {
@@ -215,7 +225,7 @@ class SSEService {
     this.isConnecting.value = false;
     this.lastError.value = translate('sse-connection-failed', undefined, 'Connection failed');
 
-    this.cleanup(false); // Don't clear listeners
+    this.cleanup();
 
     // Auto-reconnect
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -227,7 +237,7 @@ class SSEService {
 
   // Handle server-requested reconnection
   private handleReconnectRequest() {
-    this.cleanup(false);
+    this.cleanup();
     this.reconnectAttempts = 0; // Reset attempts for server-requested reconnects
     this.connect();
   }
@@ -264,10 +274,73 @@ class SSEService {
     }
   }
 
+  /** Open the stream for the sync runtime; held until `stop`. */
+  start(): void {
+    this.started = true;
+    void this.connect();
+  }
+
+  /** Close the stream and drop every holder (workspace teardown, logout). */
+  stop(): void {
+    this.started = false;
+    this.watchedTickets.clear();
+    this.disconnect();
+  }
+
+  /**
+   * Receive a ticket's presence events (`viewers-changed`, field previews)
+   * on the shared stream. Returns the release function.
+   */
+  watchTicket(ticketId: number): () => void {
+    const count = this.watchedTickets.get(ticketId) ?? 0;
+    this.watchedTickets.set(ticketId, count + 1);
+    if (count === 0) this.reopen();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const left = (this.watchedTickets.get(ticketId) ?? 1) - 1;
+      if (left > 0) {
+        this.watchedTickets.set(ticketId, left);
+        return;
+      }
+      this.watchedTickets.delete(ticketId);
+      this.reopen();
+    };
+  }
+
+  /**
+   * Reconnect so the topic set matches the holders, or close if none remain.
+   * Coalesced into one microtask, so swapping tickets reopens once.
+   */
+  private reopenQueued = false;
+  private reopen(): void {
+    if (this.reopenQueued) return;
+    this.reopenQueued = true;
+    queueMicrotask(() => {
+      this.reopenQueued = false;
+      this.applyReopen();
+    });
+  }
+
+  private applyReopen(): void {
+    if (!this.wanted()) {
+      this.disconnect();
+      return;
+    }
+    // A connect in flight builds its topics after its token fetch, so it
+    // already picks up the change.
+    if (this.isConnecting.value) return;
+    this.cleanup();
+    this.isConnected.value = false;
+    this.reconnectAttempts = 0;
+    void this.connect();
+  }
+
   // Connect to SSE
-  async connect(ticketId?: number): Promise<void> {
-    // Don't connect if already connected or connecting
-    if (this.eventSource || this.isConnecting.value) {
+  async connect(): Promise<void> {
+    // Don't connect if already connected or connecting, or nobody holds it
+    if (this.eventSource || this.isConnecting.value || !this.wanted()) {
       return;
     }
 
@@ -297,8 +370,13 @@ class SSEService {
       // so this can't be used to read another user's notifications
       // or learn that a ticket exists.
       const topicTokens = ["user", "global"];
-      if (ticketId) {
+      for (const ticketId of this.watchedTickets.keys()) {
         topicTokens.push(`ticket-${ticketId}`);
+      }
+      // Released while the token was being fetched.
+      if (!this.wanted()) {
+        this.isConnecting.value = false;
+        return;
       }
       const params = new URLSearchParams({
         sse_token: sseToken,
@@ -325,9 +403,13 @@ class SSEService {
     }
   }
 
-  // Disconnect
+  // Disconnect. Listeners stay registered: each owner removes its own (the
+  // sync bridge outlives every ticket view that opens and closes the stream,
+  // and clearing them here left later streams with no `sync-actions` handler).
   disconnect(): void {
-    this.cleanup(true);
+    this.cleanup();
+    this.sseToken = null;
+    this.tokenExpiryTime = null;
     this.isConnected.value = false;
     this.isConnecting.value = false;
     this.lastError.value = null;
@@ -336,7 +418,7 @@ class SSEService {
   }
 
   // Cleanup resources
-  private cleanup(clearListeners: boolean = true): void {
+  private cleanup(): void {
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -345,12 +427,6 @@ class SSEService {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
-    }
-
-    if (clearListeners) {
-      this.eventListeners.clear();
-      this.sseToken = null;
-      this.tokenExpiryTime = null;
     }
   }
 
@@ -428,8 +504,9 @@ export function useSSE() {
     ),
 
     // Methods
-    connect: sseService.connect.bind(sseService),
-    disconnect: sseService.disconnect.bind(sseService),
+    start: sseService.start.bind(sseService),
+    stop: sseService.stop.bind(sseService),
+    watchTicket: sseService.watchTicket.bind(sseService),
     addEventListener: sseService.addEventListener.bind(sseService),
     removeEventListener: sseService.removeEventListener.bind(sseService),
     triggerReconnection: sseService.triggerReconnection.bind(sseService),

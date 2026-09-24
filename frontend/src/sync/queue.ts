@@ -168,6 +168,7 @@ export async function flush(): Promise<void> {
       }))
 
       let response: PushResponse | null = null
+      const epoch = pool.currentEpoch()
       try {
         // Raw fetch (not apiClient) by design, so resolve base URL, auth
         // headers (the global CSRF middleware requires the double-submit
@@ -193,6 +194,9 @@ export async function flush(): Promise<void> {
         scheduleRetry()
         return
       }
+      // The workspace was torn down while this push was in flight; its
+      // rejections must not roll back rows in the next workspace's pool.
+      if (pool.currentEpoch() !== epoch) return
 
       backoffMs = 0
       // A push does not advance the read cursor. The read cursor is the
