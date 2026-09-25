@@ -1,48 +1,41 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useQuery, useQueryCache } from '@pinia/colada'
+import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
+import Icon from '@/components/common/Icon.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import CommentContent from '@/components/ticketComponents/CommentContent.vue'
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 
-import {
-  getMyTicket,
-  replyToMyTicket,
-  type PortalComment,
-  type PortalTicket,
-} from '../service'
+import PortalLayout from '../components/PortalLayout.vue'
+import { stateTone } from '../stateTone'
+import { attachmentUrl, getMyTicket, replyToMyTicket } from '../service'
 
 const props = defineProps<{ id: string }>()
+const { $t: t } = useFluent()
+const queryCache = useQueryCache()
 
-const ticket = ref<PortalTicket | null>(null)
-const comments = ref<PortalComment[]>([])
-const loading = ref(true)
-const failed = ref(false)
+const ticketId = computed(() => Number(props.id))
+const key = computed(() => ['portal', 'ticket', ticketId.value])
+const detail = useQuery({ key, query: () => getMyTicket(ticketId.value) })
 
 const reply = ref('')
 const sending = ref(false)
 const replyFailed = ref(false)
-
-onMounted(async () => {
-  try {
-    const detail = await getMyTicket(Number(props.id))
-    ticket.value = detail.ticket
-    comments.value = detail.comments
-  } catch {
-    failed.value = true
-  } finally {
-    loading.value = false
-  }
-})
 
 async function sendReply(): Promise<void> {
   if (!reply.value.trim()) return
   sending.value = true
   replyFailed.value = false
   try {
-    const comment = await replyToMyTicket(Number(props.id), reply.value.trim())
-    comments.value.push(comment)
+    await replyToMyTicket(ticketId.value, reply.value.trim())
     reply.value = ''
+    await queryCache.invalidateQueries({ key: key.value })
+    void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
   } catch {
     replyFailed.value = true
   } finally {
@@ -52,48 +45,84 @@ async function sendReply(): Promise<void> {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto p-4">
-    <RouterLink to="/tickets" class="text-sm text-accent hover:underline">
-      &larr; Back to my tickets
+  <PortalLayout>
+    <RouterLink to="/tickets" class="self-start inline-flex items-center gap-1 text-sm text-secondary hover:text-primary">
+      <Icon name="chevronLeft" />
+      {{ t('portal-back-to-requests') }}
     </RouterLink>
 
-    <p v-if="loading" class="text-sm text-secondary mt-4">Loading…</p>
-    <p v-else-if="failed || !ticket" class="text-sm text-status-error mt-4">
-      This ticket couldn't be loaded.
+    <p v-if="detail.error.value && !detail.data.value" class="text-sm text-status-error">
+      {{ t('portal-request-load-failed') }}
     </p>
-    <div v-else class="mt-4">
-      <h1 class="text-xl font-semibold mb-4">{{ ticket.title }}</h1>
-      <ul class="flex flex-col gap-3">
-        <li
-          v-for="c in comments"
-          :key="c.id"
-          class="border border-border rounded-md p-3"
-        >
-          <p class="whitespace-pre-wrap text-sm">{{ c.content }}</p>
-          <p class="text-xs text-secondary mt-2">{{ c.created_at }}</p>
-        </li>
-      </ul>
-      <p v-if="!comments.length" class="text-sm text-secondary">
-        No messages on this ticket yet.
-      </p>
 
-      <form class="mt-6 flex flex-col gap-2" @submit.prevent="sendReply">
+    <template v-else-if="detail.data.value">
+      <div class="flex flex-col gap-2">
+        <div class="flex items-start gap-3">
+          <h1 class="text-xl font-semibold text-primary flex-1 min-w-0">{{ detail.data.value.ticket.title }}</h1>
+          <StatusPill
+            v-if="detail.data.value.ticket.state"
+            size="sm"
+            :label="detail.data.value.ticket.state.name"
+            :tone="stateTone(detail.data.value.ticket.state.category)"
+          />
+        </div>
+        <p class="text-xs text-tertiary">
+          {{ t('portal-request-number', { id: detail.data.value.ticket.id }) }} ·
+          {{ t('portal-opened', { when: formatRelativeTime(detail.data.value.ticket.created) }) }}
+        </p>
+      </div>
+
+      <ol class="flex flex-col gap-3">
+        <li
+          v-for="comment in detail.data.value.comments"
+          :key="comment.id"
+          class="bg-surface border rounded-xl p-4 flex flex-col gap-2"
+          :class="comment.author.is_staff ? 'border-accent/40' : 'border-default'"
+        >
+          <div class="flex items-center gap-2 text-sm">
+            <span class="font-medium text-primary">
+              {{ comment.author.is_you ? t('portal-thread-you') : comment.author.name }}
+            </span>
+            <span v-if="comment.author.is_staff" class="text-xs text-accent">{{ t('portal-thread-staff') }}</span>
+            <time class="ml-auto text-xs text-tertiary" :datetime="comment.created_at">
+              {{ formatRelativeTime(comment.created_at) }}
+            </time>
+          </div>
+          <CommentContent
+            :content="comment.content"
+            :content-format="comment.content_format"
+            :render-kind="comment.render_kind"
+            :new-content="comment.new_content"
+            :quoted-content="comment.quoted_content"
+          />
+          <ul v-if="comment.attachments.length" class="flex flex-wrap gap-2" :aria-label="t('portal-attachments')">
+            <li v-for="file in comment.attachments" :key="file.id">
+              <a
+                :href="attachmentUrl(ticketId, file.id)"
+                class="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-md bg-surface-alt border border-default text-secondary hover:text-primary"
+              >
+                <Icon name="paperclip" />
+                {{ file.name }}
+              </a>
+            </li>
+          </ul>
+        </li>
+      </ol>
+
+      <form class="flex flex-col gap-3 bg-surface border border-default rounded-xl p-4" @submit.prevent="sendReply">
         <FormTextarea
           v-model="reply"
-          label="Add a reply"
-          placeholder="Type your message"
-          :rows="3"
+          :label="t('portal-reply-label')"
+          :placeholder="t('portal-reply-placeholder')"
+          :rows="4"
+          resize="vertical"
           :disabled="sending"
         />
-        <p v-if="replyFailed" class="text-sm text-status-error">
-          Your reply couldn't be sent. Please try again.
-        </p>
-        <div class="flex">
-          <Button type="submit" :loading="sending" :disabled="!reply.trim()" class="ml-auto">
-            Send reply
-          </Button>
-        </div>
+        <p v-if="replyFailed" role="alert" class="text-sm text-status-error">{{ t('portal-reply-failed') }}</p>
+        <Button type="submit" class="self-end" icon="send" :loading="sending" :disabled="!reply.trim()">
+          {{ t('portal-reply-send') }}
+        </Button>
       </form>
-    </div>
-  </div>
+    </template>
+  </PortalLayout>
 </template>

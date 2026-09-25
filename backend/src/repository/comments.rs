@@ -382,7 +382,7 @@ pub fn get_attachments_by_comment_id(
 
 /// Batched `get_attachments_by_comment_id`: one query returning a
 /// `comment_id -> attachments` map for a whole thread.
-fn get_attachments_for_comments(
+pub fn get_attachments_for_comments(
     conn: &mut DbConnection,
     comment_ids: &[i32],
 ) -> QueryResult<std::collections::HashMap<i32, Vec<Attachment>>> {
