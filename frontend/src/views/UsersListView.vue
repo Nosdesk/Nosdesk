@@ -61,7 +61,7 @@ const scrollContainerRef = computed<HTMLElement | null>(
 
 const navigateToCreateUser = () => {
   // In hosted mode identity is owned by the control plane; a user created here
-  // can't sign in. Hand off to the control-plane dashboard (Instances -> Seats)
+  // can't sign in. Hand off to the control-plane dashboard (Workspaces -> Staff)
   // rather than open a create form that produces a dead account.
   if (isHostedDeployment()) {
     // Staff identity is control-plane-owned in hosted; hand off to this

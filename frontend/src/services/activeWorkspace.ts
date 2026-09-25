@@ -87,7 +87,7 @@ export function controlPlaneSeatsUrl(): string {
   const cp = getControlPlaneUrl();
   if (!cp) return '';
   const s = slug.value;
-  return s ? `${cp}/instances?workspace=${encodeURIComponent(s)}` : `${cp}/instances`;
+  return s ? `${cp}/workspaces?workspace=${encodeURIComponent(s)}` : `${cp}/workspaces`;
 }
 
 /**
