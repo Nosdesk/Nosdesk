@@ -23,6 +23,8 @@ interface InstanceConfig {
   inbound_forwarding_enabled: boolean;
   /** Control-plane dashboard base URL (hosted mode); '' when unset. */
   control_plane_url: string;
+  /** The signed-in person's own Nosdesk account settings (hosted). */
+  account_url?: string;
 }
 
 // Default 'host': the subdomain / self-hosted model every current deployment
@@ -45,6 +47,7 @@ let inboundForwardingEnabled = false;
 // until the config resolves; the hosted "add member" hand-off renders its link
 // only when this is non-empty (unset -> a plain explainer, never a dead form).
 let controlPlaneUrl = '';
+let accountUrl = '';
 
 // Memoised so bootstrap and the router guard share one fetch. The guard awaits
 // this before reading the routing mode, so a cold load (hard refresh, deep link)
@@ -114,6 +117,9 @@ export function fetchInstanceConfig(): Promise<void> {
         if (typeof data?.inbound_forwarding_enabled === 'boolean') {
           inboundForwardingEnabled = data.inbound_forwarding_enabled;
         }
+        if (typeof data?.account_url === 'string') {
+          accountUrl = data.account_url;
+        }
         if (typeof data?.control_plane_url === 'string') {
           controlPlaneUrl = data.control_plane_url;
         }
@@ -146,6 +152,7 @@ export function resetInstanceConfig(): void {
   deploymentMode = 'self_hosted';
   inboundForwardingEnabled = false;
   controlPlaneUrl = '';
+  accountUrl = '';
 }
 
 /** Reactive: `true` once {@link fetchInstanceConfig} has settled (success or
@@ -203,6 +210,11 @@ export function isInboundForwardingEnabled(): boolean {
 
 /** Control-plane dashboard base URL (hosted mode); '' when unset. Consumers
  *  render a hand-off link only when non-empty. */
+/** Your own Nosdesk account settings (hosted); '' when not configured. */
+export function getAccountUrl(): string {
+  return accountUrl;
+}
+
 export function getControlPlaneUrl(): string {
   return controlPlaneUrl;
 }
