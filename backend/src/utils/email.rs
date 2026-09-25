@@ -1639,7 +1639,7 @@ impl EmailService {
         locale: &unic_langid::LanguageIdentifier,
     ) -> (String, String, String) {
         let sign_in_link = format!(
-            "{}/portal/auth/callback?token={}",
+            "{}/api/portal/auth/callback?token={}",
             branding.base_url, magic_token
         );
         let template = EmailTemplate::new(branding);
@@ -2674,11 +2674,11 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         write("portal-magic-link", &html);
         // The CTA must carry the portal callback link on the configured origin.
         assert!(
-            html.contains("/portal/auth/callback?token=EXAMPLE-SIGNIN-TOKEN"),
+            html.contains("/api/portal/auth/callback?token=EXAMPLE-SIGNIN-TOKEN"),
             "magic-link html must link to the portal callback"
         );
         assert!(
-            text.contains("/portal/auth/callback?token=EXAMPLE-SIGNIN-TOKEN"),
+            text.contains("/api/portal/auth/callback?token=EXAMPLE-SIGNIN-TOKEN"),
             "magic-link plaintext must carry the callback link"
         );
 

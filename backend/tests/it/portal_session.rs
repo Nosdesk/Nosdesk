@@ -449,3 +449,56 @@ fn a_portal_refresh_cookie_is_refused_at_another_tenants_origin() {
         "and it must not have consumed the customer's own credential"
     );
 }
+
+/// Portal sign-in runs before any workspace is pinned. Under the production
+/// runtime role (NOBYPASSRLS) an unpinned `workspace_members` read sees no
+/// rows, which silently turned every magic-link request into a no-op. The
+/// membership check has to pin itself.
+#[test]
+fn membership_check_sees_the_member_under_the_runtime_role_unpinned() {
+    use diesel::prelude::*;
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool();
+    let mut conn = pool.get().expect("conn");
+    let ws = crate::common::mint_workspace(&mut conn, "portalrls", "Portal RLS");
+    let customer = crate::common::insert_user(&mut conn, "Customer");
+    with_actor_context(
+        &mut conn,
+        &ActorContext::system("test:seed").with_workspace(ws),
+        |c| {
+            add_membership(
+                c,
+                ws,
+                customer.uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )
+        },
+    )
+    .expect("add membership");
+
+    // Production shape: runtime role, no workspace pin.
+    diesel::sql_query("SET ROLE nosdesk_app")
+        .execute(&mut conn)
+        .expect("set role");
+    diesel::sql_query("SELECT set_config('app.workspace_id', '', false)")
+        .execute(&mut conn)
+        .expect("clear pin");
+
+    let unpinned = backend::repository::workspaces::membership(&mut conn, ws, customer.uuid)
+        .expect("unpinned read");
+    assert!(
+        unpinned.is_none(),
+        "RLS hides membership from an unpinned read"
+    );
+    assert!(backend::middleware::cookie_auth::is_workspace_member(
+        &mut conn,
+        ws,
+        customer.uuid
+    ));
+
+    diesel::sql_query("RESET ROLE")
+        .execute(&mut conn)
+        .expect("reset role");
+}

@@ -25,12 +25,30 @@ portalApi.interceptors.request.use((config) => {
   return config
 })
 
-// On an expired / missing portal session, bounce to the sign-in page (unless
-// we're already there). Dynamic import avoids a router <-> api cycle.
+// The access cookie lives 15 minutes; the refresh cookie a week. On a 401,
+// rotate once (shared by every request that failed meanwhile) and retry; only
+// when the refresh itself fails is the session gone, so bounce to sign-in.
+let refreshing: Promise<boolean> | null = null
+
+function refreshSession(): Promise<boolean> {
+  refreshing ??= axios
+    .post('/api/portal/auth/refresh', null, { withCredentials: true })
+    .then(() => true)
+    .catch(() => false)
+    .finally(() => {
+      refreshing = null
+    })
+  return refreshing
+}
+
 portalApi.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error?.response?.status === 401) {
+    const original = error?.config
+    if (error?.response?.status === 401 && original && !original._retried) {
+      original._retried = true
+      if (await refreshSession()) return portalApi(original)
+      // Dynamic import avoids a router <-> api cycle.
       const { default: router } = await import('./router')
       if (router.currentRoute.value.name !== 'login') {
         router.push('/login')
