@@ -48,6 +48,8 @@ pub const INBOUND_ADDRESS_STATUS_RETIRED: &str = "retired";
 /// whose label matched no active workspace slug.
 pub const INBOUND_DEAD_LETTER_REASON_UNKNOWN_TOKEN: &str = "unknown_token";
 pub const INBOUND_DEAD_LETTER_REASON_UNKNOWN_RECIPIENT: &str = "unknown_recipient";
+/// Routed to a known workspace but the raw MIME could not be parsed.
+pub const INBOUND_DEAD_LETTER_REASON_UNPARSEABLE: &str = "unparseable";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::channels)]

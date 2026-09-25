@@ -26,7 +26,7 @@ use crate::errors;
 use crate::handlers::sse::SseState;
 use crate::models::{
     NewInboundDeadLetter, INBOUND_DEAD_LETTER_REASON_UNKNOWN_RECIPIENT,
-    INBOUND_DEAD_LETTER_REASON_UNKNOWN_TOKEN,
+    INBOUND_DEAD_LETTER_REASON_UNKNOWN_TOKEN, INBOUND_DEAD_LETTER_REASON_UNPARSEABLE,
 };
 use crate::repository::channels as channels_repo;
 use crate::repository::{inbound_addresses, inbound_dead_letters, workspaces};
@@ -244,8 +244,15 @@ pub async fn receive(
     let mut msg = match parse_rfc822_into_inbound_message(&raw, None) {
         Ok(m) => m,
         Err(e) => {
-            warn!(error = %e, "inbound: raw MIME failed to parse; dropping");
-            return HttpResponse::Ok().finish();
+            // Recorded, not just logged: a silent drop here once hid every
+            // reply from a sender that omits Message-ID.
+            warn!(error = %e, "inbound: raw MIME failed to parse; dead-lettering");
+            return record_dead_letter(
+                &pool,
+                &notification,
+                &object_key,
+                INBOUND_DEAD_LETTER_REASON_UNPARSEABLE,
+            );
         }
     };
     // Preserve the original for "show original" / re-parsing on policy change.
@@ -355,7 +362,7 @@ async fn ingest(
 }
 
 /// Record clean inbound mail that resolved to no active token or workspace
-/// slug. The table is untenanted, so this runs on a system connection.
+/// slug, or whose MIME could not be parsed. The table is untenanted, so this runs on a system connection.
 fn record_dead_letter(
     pool: &Pool,
     notification: &ses::SesNotification,
