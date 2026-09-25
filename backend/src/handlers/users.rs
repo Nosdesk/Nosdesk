@@ -759,6 +759,7 @@ pub async fn get_user_by_uuid(
     pool: web::Data<crate::db::Pool>,
     ws: WorkspaceContext,
     req: HttpRequest,
+    auth: crate::extractors::AuthContext,
 ) -> Result<HttpResponse, ApiError> {
     let uuid_str = uuid_path.into_inner();
 
@@ -783,7 +784,12 @@ pub async fn get_user_by_uuid(
             // Use helper function to fetch primary email from user_emails table
             let user_response =
                 repository::user_helpers::get_user_with_primary_email(user, &mut conn);
-            Ok(HttpResponse::Ok().json(user_response))
+            let editable = editable_fields(&auth, &user_response);
+            let mut body = serde_json::to_value(&user_response)
+                .map_err(|_| ApiError::Internal("Failed to encode user".into()))?;
+            body["editable"] = serde_json::to_value(editable)
+                .map_err(|_| ApiError::Internal("Failed to encode user".into()))?;
+            Ok(HttpResponse::Ok().json(body))
         }
         // A stranger is indistinguishable from a missing row, so this does not
         // become an oracle for which uuids exist in other workspaces.
@@ -1667,10 +1673,15 @@ pub async fn upload_user_image(
     // control plane — users change it in their Nosdesk account, which projects
     // it here — so a product-side avatar upload would diverge. Reject it.
     // Banners stay product-owned (the CP models only the avatar).
-    if image_type.as_str() == "avatar" && crate::handlers::auth::hosted_local_auth_disabled() {
-        return errors::forbidden(
-            "Your avatar is managed in your Nosdesk account — update it there.",
-        );
+    if image_type.as_str() == "avatar" {
+        let managed = tc
+            .run(|conn| {
+                Ok::<_, diesel::result::Error>(managed_in_account_if(&req, conn, user_uuid_parsed))
+            })
+            .unwrap_or_else(|_| Some(errors::identity_managed_in_account(true, None)));
+        if let Some(resp) = managed {
+            return resp;
+        }
     }
 
     // Determine the upload directory based on image type
@@ -2132,10 +2143,23 @@ pub async fn update_user_by_uuid(
     // name edit so the projected cache can't re-diverge; the user changes it in
     // their Nosdesk account. Pronouns/avatar and preferences stay editable
     // (avatar moves to the CP later, in O5). Self-hosted is unaffected.
-    if user_data.name.is_some() && crate::handlers::auth::hosted_local_auth_disabled() {
-        return errors::forbidden(
-            "Your display name is managed in your Nosdesk account — update it there.",
-        );
+    if user_data.name.is_some() {
+        let managed = tc
+            .run(|conn| {
+                Ok::<_, diesel::result::Error>(
+                    repository::workspaces::nosdesk_account_managed(conn, &[user_uuid_parsed])
+                        .contains(&user_uuid_parsed),
+                )
+            })
+            .unwrap_or(true);
+        if managed {
+            let resp = tc
+                .run(|conn| {
+                    Ok::<_, diesel::result::Error>(managed_in_account(&req, conn, user_uuid_parsed))
+                })
+                .unwrap_or_else(|_| errors::identity_managed_in_account(true, None));
+            return resp;
+        }
     }
 
     // Every DB operation runs through `tc.run`, which wraps the work in
@@ -2545,7 +2569,7 @@ pub async fn add_user_email(
         &helpers::actor_for(&req, "users_email"),
         user.uuid,
     ) {
-        return Ok(errors::identity_managed_in_account());
+        return Ok(managed_in_account(&req, &mut conn, user.uuid));
     }
 
     // Check if email already exists
@@ -2629,7 +2653,7 @@ pub async fn update_user_email(
         &helpers::actor_for(&req, "users_email"),
         user.uuid,
     ) {
-        return Ok(errors::identity_managed_in_account());
+        return Ok(managed_in_account(&req, &mut conn, user.uuid));
     }
 
     // The row must be one of this user's addresses: the path user was
@@ -2831,7 +2855,7 @@ pub async fn delete_user_email(
         &helpers::actor_for(&req, "users_email"),
         user.uuid,
     ) {
-        return Ok(errors::identity_managed_in_account());
+        return Ok(managed_in_account(&req, &mut conn, user.uuid));
     }
 
     // Check if email is primary
@@ -3550,4 +3574,74 @@ pub async fn admin_delete_user_passkey(
         "status": "success",
         "message": "Passkey has been deleted"
     })))
+}
+
+/// What the viewer may change about a person, by field group. Mirrors the
+/// write handlers' gates so the UI can show a field as editable, or locked
+/// with the reason, without a failed save to find out.
+#[derive(Serialize)]
+struct EditableFields {
+    name: bool,
+    avatar: bool,
+    emails: bool,
+    role: bool,
+    lifecycle: bool,
+    credentials: bool,
+    /// The per-workspace display name and avatar: the person's own.
+    workspace_name: bool,
+    contact: bool,
+}
+
+fn editable_fields(
+    auth: &crate::extractors::AuthContext,
+    target: &crate::models::UserResponse,
+) -> EditableFields {
+    let managed = target.managed_by == Some(crate::models::IdentityOwner::NosdeskAccount);
+    let is_self = auth.user_uuid == target.uuid;
+    let platform_admin = auth.is_platform_admin();
+    let hosted = crate::middleware::workspace_context::is_hosted();
+    let target_is_requester = target.workspace_role == Some(crate::models::WorkspaceRole::Member);
+    let own_identity = !managed && (is_self || platform_admin);
+    EditableFields {
+        name: own_identity,
+        avatar: own_identity,
+        emails: own_identity,
+        role: !managed && auth.is_workspace_admin(),
+        lifecycle: !managed && platform_admin,
+        credentials: !hosted && (is_self || platform_admin),
+        workspace_name: is_self,
+        contact: is_self
+            || auth.is_workspace_admin()
+            || (auth.can_handle_tickets() && target_is_requester),
+    }
+}
+
+/// The "managed in your/their Nosdesk account" refusal for `target`, with a
+/// link to where the change can be made.
+fn managed_in_account(req: &HttpRequest, conn: &mut DbConnection, target: Uuid) -> HttpResponse {
+    let is_self = req
+        .extensions()
+        .get::<crate::models::Claims>()
+        .is_some_and(|c| c.sub == target.to_string());
+    let slug = req
+        .extensions()
+        .get::<WorkspaceContext>()
+        .map(|w| w.slug.clone());
+    let email = repository::user_helpers::get_primary_email(&target, conn);
+    errors::identity_managed_in_account(
+        is_self,
+        crate::utils::nosdesk_account::manage_url(is_self, slug.as_deref(), email.as_deref()),
+    )
+}
+
+/// [`managed_in_account`] when `target`'s identity is owned by their Nosdesk
+/// account, else `None`.
+fn managed_in_account_if(
+    req: &HttpRequest,
+    conn: &mut DbConnection,
+    target: Uuid,
+) -> Option<HttpResponse> {
+    repository::workspaces::nosdesk_account_managed(conn, &[target])
+        .contains(&target)
+        .then(|| managed_in_account(req, conn, target))
 }

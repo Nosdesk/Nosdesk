@@ -106,8 +106,27 @@ export interface DashboardLayout {
 /**
  * Complete user object with all fields
  */
+/** Who owns a person's identity: the workspace, or (hosted staff) their Nosdesk account. */
+export type IdentityOwner = 'workspace' | 'nosdesk_account';
+
+/** What the viewer may change about a person (single-user reads only). */
+export interface EditableFields {
+  name: boolean;
+  avatar: boolean;
+  emails: boolean;
+  role: boolean;
+  lifecycle: boolean;
+  credentials: boolean;
+  /** The per-workspace display name and avatar: the person's own. */
+  workspace_name: boolean;
+  contact: boolean;
+}
+
 export interface User {
   uuid: string;
+  /** Absent when the server built the record without a lookup: unknown, not product-owned. */
+  managed_by?: IdentityOwner;
+  editable?: EditableFields;
   name: string;
   email: string;
   platform_role: PlatformRole;

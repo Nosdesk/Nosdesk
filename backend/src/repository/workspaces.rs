@@ -60,6 +60,44 @@ pub fn user_is_staff_anywhere(conn: &mut DbConnection, user_uuid: Uuid) -> Query
     Ok(n > 0)
 }
 
+// sync-audit-only: read-only (calls the staff_seat_holders SQL function)
+/// Which of `user_uuids` hold a staff seat in any workspace, via the
+/// `staff_seat_holders` SECURITY DEFINER function: callable on a tenant
+/// connection, where `workspace_members` only shows the pinned workspace.
+pub fn staff_seat_holders(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> QueryResult<std::collections::HashSet<Uuid>> {
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = diesel::sql_types::Uuid)]
+        staff_seat_holders: Uuid,
+    }
+    if user_uuids.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+    let rows: Vec<Row> = diesel::sql_query("SELECT staff_seat_holders FROM staff_seat_holders($1)")
+        .bind::<diesel::sql_types::Array<diesel::sql_types::Uuid>, _>(user_uuids)
+        .load(conn)?;
+    Ok(rows.into_iter().map(|r| r.staff_seat_holders).collect())
+}
+
+/// Of `user_uuids`, those whose identity (name, avatar, email addresses,
+/// sign-in, seat) is owned by their Nosdesk account: staff anywhere, in hosted
+/// mode. Fails closed: if the lookup errors, everyone is treated as managed.
+pub fn nosdesk_account_managed(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> std::collections::HashSet<Uuid> {
+    if !crate::middleware::workspace_context::is_hosted() {
+        return std::collections::HashSet::new();
+    }
+    staff_seat_holders(conn, user_uuids).unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "staff seat lookup failed; treating users as managed");
+        user_uuids.iter().copied().collect()
+    })
+}
+
 /// Who is performing a staff-membership write. In hosted, only the control
 /// plane may create, re-role, or remove a staff seat (owner/admin/agent); a
 /// product-initiated write is refused and handed off. Passing this makes the

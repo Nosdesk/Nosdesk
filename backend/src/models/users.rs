@@ -253,6 +253,15 @@ pub struct UserUpdateWithPassword {
     pub timezone: Option<String>,
 }
 
+/// Who owns a person's identity: the workspace (product) or, for hosted staff,
+/// their Nosdesk account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityOwner {
+    Workspace,
+    NosdeskAccount,
+}
+
 // User response with minimal information.
 //
 // `theme` / `dashboard_layout` / `signature` / `locale` /
@@ -312,6 +321,10 @@ pub struct UserResponse {
     /// only population rule as `effective_locale`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effective_timezone: Option<String>,
+    /// Who owns this person's identity. Absent when the response was built
+    /// without a database read (treat as unknown, not as product-owned).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub managed_by: Option<IdentityOwner>,
 }
 
 // ============================================================================
@@ -469,6 +482,7 @@ impl From<User> for UserResponse {
             timezone: None,
             effective_locale: None,
             effective_timezone: None,
+            managed_by: None,
         }
     }
 }

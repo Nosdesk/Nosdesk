@@ -218,13 +218,22 @@ pub fn externally_managed() -> HttpResponse {
 
 /// 409 for a change to part of a hosted staff member's identity (name, avatar,
 /// email addresses) that their Nosdesk account owns. Same code as
-/// [`externally_managed`] so clients handle both alike.
-pub fn identity_managed_in_account() -> HttpResponse {
-    let resp = conflict_with_code(
-        "This is managed in their Nosdesk account. Change it there.",
+/// [`externally_managed`] so clients handle both alike; `manage_url` says where
+/// the change can be made (see `utils::nosdesk_account::manage_url`).
+pub fn identity_managed_in_account(is_self: bool, manage_url: Option<String>) -> HttpResponse {
+    let message = if is_self {
+        "This is managed in your Nosdesk account. Change it there."
+    } else {
+        "This is managed in their Nosdesk account. Change it there."
+    };
+    stamp(
+        HttpResponse::Conflict().json(json!({
+            "error": message,
+            "code": "externally_managed",
+            "manage_url": manage_url,
+        })),
         "externally_managed",
-    );
-    stamp(resp, "externally_managed")
+    )
 }
 
 /// 409 for a local-credential action refused because local password auth is

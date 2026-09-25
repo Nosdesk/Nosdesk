@@ -126,6 +126,10 @@ fn spawn(pool: &crate::common::TestPool, user: &User) -> actix_test::TestServer 
                 "/users/{uuid}/profile-fields",
                 web::get().to(backend::handlers::user_contact::get_user_profile_fields),
             )
+            .route(
+                "/users/{uuid}",
+                web::get().to(backend::handlers::users::get_user_by_uuid),
+            )
     })
 }
 
@@ -255,4 +259,50 @@ async fn the_workspace_name_is_the_persons_own_and_survives_a_contact_save() {
         .expect("profile");
     assert_eq!(name.as_deref(), Some("Ali"));
     assert_eq!(title.as_deref(), Some("Lead"));
+}
+
+/// The profile read says who owns the identity and what this viewer may change.
+#[actix_web::test]
+async fn the_profile_says_what_the_viewer_can_change() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let mut conn = pool.get().expect("conn");
+    let alice = member(&mut conn, "Alice", "member");
+    let admin = member(&mut conn, "Admin", "admin");
+    let client = awc::Client::new();
+
+    let as_alice = spawn(&pool, &alice);
+    let own: serde_json::Value = client
+        .get(as_alice.url(&format!("/users/{}", alice.uuid)))
+        .send()
+        .await
+        .expect("send")
+        .json()
+        .await
+        .expect("json");
+    assert_eq!(own["managed_by"], "workspace");
+    assert_eq!(own["editable"]["name"], true);
+    assert_eq!(own["editable"]["workspace_name"], true);
+    assert_eq!(own["editable"]["role"], false);
+
+    let as_admin = spawn(&pool, &admin);
+    let theirs: serde_json::Value = client
+        .get(as_admin.url(&format!("/users/{}", alice.uuid)))
+        .send()
+        .await
+        .expect("send")
+        .json()
+        .await
+        .expect("json");
+    assert_eq!(
+        theirs["editable"]["name"], false,
+        "workspace admin is not platform admin"
+    );
+    assert_eq!(
+        theirs["editable"]["workspace_name"], false,
+        "the person's own"
+    );
+    assert_eq!(theirs["editable"]["role"], true);
+    assert_eq!(theirs["editable"]["contact"], true);
 }

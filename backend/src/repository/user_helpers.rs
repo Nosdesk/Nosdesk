@@ -458,6 +458,7 @@ pub fn get_user_with_primary_email(
     conn: &mut DbConnection,
 ) -> crate::models::UserResponse {
     let primary_email = get_primary_email(&user.uuid, conn);
+    let managed = crate::repository::workspaces::nosdesk_account_managed(conn, &[user.uuid]);
     let prefs = crate::repository::user_preferences::get(conn, user.uuid).ok();
     let workspace_role = workspace_role(conn, user.uuid);
     // O7: render the per-workspace persona (name + avatar) when set (RLS-scoped
@@ -497,6 +498,7 @@ pub fn get_user_with_primary_email(
         timezone: prefs.as_ref().and_then(|p| p.timezone.clone()),
         effective_locale: None,
         effective_timezone: None,
+        managed_by: Some(identity_owner(&managed, user.uuid)),
     }
 }
 
@@ -562,6 +564,7 @@ pub fn get_users_with_primary_emails(
     // name AND avatar so rosters/pickers show the workspace persona when set.
     let persona_map =
         crate::repository::user_contact::persona_overrides(conn, &user_uuids).unwrap_or_default();
+    let managed = crate::repository::workspaces::nosdesk_account_managed(conn, &user_uuids);
 
     users
         .into_iter()
@@ -603,9 +606,21 @@ pub fn get_users_with_primary_emails(
                 timezone: prefs.and_then(|p| p.timezone.clone()),
                 effective_locale: None,
                 effective_timezone: None,
+                managed_by: Some(identity_owner(&managed, user.uuid)),
             }
         })
         .collect()
+}
+
+fn identity_owner(
+    managed: &std::collections::HashSet<Uuid>,
+    user_uuid: Uuid,
+) -> crate::models::IdentityOwner {
+    if managed.contains(&user_uuid) {
+        crate::models::IdentityOwner::NosdeskAccount
+    } else {
+        crate::models::IdentityOwner::Workspace
+    }
 }
 
 #[cfg(test)]

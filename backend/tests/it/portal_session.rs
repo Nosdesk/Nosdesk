@@ -502,3 +502,66 @@ fn membership_check_sees_the_member_under_the_runtime_role_unpinned() {
         .execute(&mut conn)
         .expect("reset role");
 }
+
+/// `staff_seat_holders` answers "staff in any workspace" from a tenant
+/// connection, where `workspace_members` is RLS-hidden, without elevating it.
+#[test]
+fn staff_seat_holders_sees_across_workspaces_under_the_runtime_role() {
+    use diesel::prelude::*;
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool();
+    let mut conn = pool.get().expect("conn");
+    let other = crate::common::mint_workspace(&mut conn, "otherws", "Other");
+    let agent = crate::common::insert_user(&mut conn, "Agent elsewhere");
+    let requester = crate::common::insert_user(&mut conn, "Requester");
+    with_actor_context(
+        &mut conn,
+        &ActorContext::system("test:seed").with_workspace(other),
+        |c| {
+            add_membership(
+                c,
+                other,
+                agent.uuid,
+                "agent",
+                SeatWriteAuthority::ControlPlane,
+            )?;
+            add_membership(
+                c,
+                other,
+                requester.uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )
+        },
+    )
+    .expect("seed");
+
+    diesel::sql_query("SET ROLE nosdesk_app")
+        .execute(&mut conn)
+        .expect("role");
+    diesel::sql_query("SELECT set_config('app.workspace_id', '1', false)")
+        .execute(&mut conn)
+        .expect("pin another workspace");
+    let found = backend::repository::workspaces::staff_seat_holders(
+        &mut conn,
+        &[agent.uuid, requester.uuid],
+    )
+    .expect("lookup");
+    assert!(found.contains(&agent.uuid), "staff in another workspace");
+    assert!(!found.contains(&requester.uuid), "a requester is not staff");
+    let role: String = diesel::sql_query("SELECT current_user AS role")
+        .get_result::<RoleRow>(&mut conn)
+        .expect("role")
+        .role;
+    assert_eq!(role, "nosdesk_app", "the caller's role is not elevated");
+    diesel::sql_query("RESET ROLE")
+        .execute(&mut conn)
+        .expect("reset");
+}
+
+#[derive(diesel::QueryableByName)]
+struct RoleRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    role: String,
+}
