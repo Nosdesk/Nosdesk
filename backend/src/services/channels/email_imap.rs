@@ -1083,6 +1083,13 @@ async fn fetch_single_uid(
 
 // ---------- Pure parser ----------
 
+/// Stable stand-in for a missing Message-ID: a digest of the raw message.
+fn synthesized_message_id(raw: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = hex::encode(Sha256::digest(raw));
+    format!("<{}@no-message-id.nosdesk.invalid>", &digest[..32])
+}
+
 /// Parse raw RFC 5322 bytes into the channel-agnostic [`InboundMessage`]
 /// shape. Called once per fetched message by the future poll loop.
 ///
@@ -1098,8 +1105,12 @@ pub fn parse_rfc822_into_inbound_message(
 
     let headers = &parsed.headers;
 
+    // Message-ID is only RECOMMENDED (RFC 5322 3.6.4) and some senders omit
+    // it. Derive one from the raw bytes so the message still ingests and a
+    // redelivery of the same bytes still dedupes.
     let external_id = header_first(headers, "Message-ID")
-        .ok_or_else(|| ChannelError::Other("message has no Message-ID header".into()))?;
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| synthesized_message_id(raw));
 
     let from_raw = header_first(headers, "From")
         .ok_or_else(|| ChannelError::Other("message has no From header".into()))?;
@@ -1545,6 +1556,21 @@ mod tests {
     }
 
     #[test]
+    fn a_message_without_message_id_still_parses_with_a_stable_id() {
+        let raw = b"From: Guest <guest@example.com>\r\n\
+                    To: token@inbound.example.com\r\n\
+                    Subject: Re: [#51] Printer\r\n\
+                    Content-Type: text/plain\r\n\
+                    \r\nStill broken.\r\n";
+        let first = parse_rfc822_into_inbound_message(raw, None).expect("parses");
+        let again = parse_rfc822_into_inbound_message(raw, None).expect("parses");
+        assert!(first
+            .external_id
+            .ends_with("@no-message-id.nosdesk.invalid>"));
+        assert_eq!(first.external_id, again.external_id, "redelivery dedupes");
+    }
+
+    #[test]
     fn detect_bounce_via_mailer_daemon_sender() {
         let raw = b"From: MAILER-DAEMON@hosting.example.com\r\n\
                     To: support@yourco.com\r\n\
@@ -1939,13 +1965,6 @@ hi\r\n";
     fn falls_back_to_date_header_when_internal_date_missing() {
         let msg = parse_rfc822_into_inbound_message(SIMPLE, None).unwrap();
         assert_eq!(msg.received_at.timestamp(), 1704110400); // 2024-01-01 12:00Z
-    }
-
-    #[test]
-    fn rejects_message_without_message_id() {
-        let raw = b"From: a@b\r\nSubject: x\r\n\r\nbody";
-        let err = parse_rfc822_into_inbound_message(raw, None).unwrap_err();
-        assert!(matches!(err, ChannelError::Other(_)));
     }
 
     #[test]
