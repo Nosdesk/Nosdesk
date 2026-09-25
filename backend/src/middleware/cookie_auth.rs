@@ -320,6 +320,24 @@ fn selected_workspace_context(
     }
 }
 
+/// Whether `user_uuid` is a member of `workspace_id`, read pinned to that
+/// workspace. `workspace_members` is RLS-isolated and a fresh pool connection
+/// carries no pin, so an unpinned read sees no rows: every caller that runs
+/// before a workspace is pinned (the portal sign-in, for one) must use this.
+pub fn is_workspace_member(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: uuid::Uuid,
+) -> bool {
+    let actor = crate::sync::actor::ActorContext::user_at_workspace(user_uuid, workspace_id);
+    matches!(
+        crate::sync::session::with_actor_context(conn, &actor, |c| {
+            crate::repository::workspaces::membership(c, workspace_id, user_uuid)
+        }),
+        Ok(Some(_))
+    )
+}
+
 /// Fail-closed membership check: `Ok(())` iff `user_uuid` is a member of
 /// `workspace_id`, else a 403 (500 on lookup error). This is the raw gate behind
 /// [`resolve_pin_and_gate`]; **agent surfaces (REST / SSE / collab) reach it only

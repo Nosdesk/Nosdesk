@@ -325,11 +325,8 @@ pub async fn request_magic_link(
         Ok(u) => u,
         Err(_) => return magic_link_accepted(),
     };
-    let is_member = matches!(
-        crate::repository::workspaces::membership(&mut conn, ctx.workspace_id, user.uuid),
-        Ok(Some(_))
-    );
-    if !is_member {
+    if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, user.uuid)
+    {
         return magic_link_accepted();
     }
 
@@ -439,10 +436,8 @@ pub async fn magic_link_callback(
 
     // The link is workspace-agnostic, so confirm the subject actually belongs
     // to the workspace this origin serves before minting a session for it.
-    if !matches!(
-        crate::repository::workspaces::membership(&mut conn, ctx.workspace_id, user_uuid),
-        Ok(Some(_))
-    ) {
+    if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, user_uuid)
+    {
         return Ok(sign_in_error_redirect());
     }
 
@@ -450,6 +445,12 @@ pub async fn magic_link_callback(
         Ok(u) => u,
         Err(_) => return Ok(sign_in_error_redirect()),
     };
+
+    // Following the emailed link proves the address, as confirming a guest
+    // submission does. Best-effort: the sign-in doesn't depend on it.
+    if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
+        tracing::warn!(user_uuid = %user.uuid, error = ?e, "portal sign-in: could not mark email verified");
+    }
 
     let session = mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn)?;
     Ok(HttpResponse::Found()

@@ -618,27 +618,52 @@ fn handle_missing_asset(path: &str) -> HttpResponse {
     HttpResponse::NotFound().finish()
 }
 
-/// The SPA shell file for a request's surface: the customer portal
-/// (`portal.html`) on a hosted per-tenant origin (the workspace middleware
-/// host-resolved a `WorkspaceContext` from `<slug>.nosdesk.app` or a verified
-/// custom domain), the agent app (`index.html`) otherwise. Self-host always
-/// serves the agent app, ignoring its ever-present bootstrap workspace.
+/// The SPA shell file for a request: the customer portal (`portal.html`) for
+/// the portal's own routes on a hosted per-tenant origin (the workspace
+/// middleware host-resolved a `WorkspaceContext` from `<slug>.nosdesk.app` or a
+/// verified custom domain), the agent app (`index.html`) otherwise. The guest
+/// pages on a tenant origin (`/submit-ticket`, `/docs/...`) live in the agent
+/// app, so they stay on it. Self-host always serves the agent app, ignoring its
+/// ever-present bootstrap workspace.
 fn spa_shell_path(
     mode: crate::middleware::DeploymentMode,
     host_resolved_workspace: bool,
+    path: &str,
 ) -> &'static str {
-    if mode == crate::middleware::DeploymentMode::Hosted && host_resolved_workspace {
+    if mode == crate::middleware::DeploymentMode::Hosted
+        && host_resolved_workspace
+        && is_portal_route(path)
+    {
         "./public/portal.html"
     } else {
         "./public/index.html"
     }
 }
 
+/// Paths the portal SPA routes (`frontend/src/portal/router.ts`); keep in step.
+fn is_portal_route(path: &str) -> bool {
+    let path = path.trim_end_matches('/');
+    path.is_empty() || path == "/login" || path == "/tickets" || path.starts_with("/tickets/")
+}
+
+/// The shell for `req`, read from disk. `None` when the frontend isn't built.
+async fn read_spa_shell(req: &HttpRequest) -> Option<Vec<u8>> {
+    use actix_web::HttpMessage as _;
+    let host_resolved_workspace = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .is_some();
+    let shell = spa_shell_path(
+        crate::middleware::DeploymentMode::current(),
+        host_resolved_workspace,
+        req.path(),
+    );
+    tokio::fs::read(shell).await.ok()
+}
+
 /// Serve the SPA shell for all non-API routes (SPA routing)
 /// This follows Actix best practices for SPA applications
 async fn serve_spa(req: HttpRequest) -> HttpResponse {
-    use actix_web::HttpMessage as _;
-
     // Check if this is a static asset request (has file extension and not HTML)
     let path = req.path();
 
@@ -654,22 +679,10 @@ async fn serve_spa(req: HttpRequest) -> HttpResponse {
         return HttpResponse::NotFound().finish();
     }
 
-    // Pick the SPA shell by surface (see `spa_shell_path`). The portal origin
-    // host-resolves to a `WorkspaceContext` in hosted mode; the agent origin
-    // resolves to none; self-host always serves the agent app.
-    let host_resolved_workspace = req
-        .extensions()
-        .get::<crate::extractors::WorkspaceContext>()
-        .is_some();
-    let shell = spa_shell_path(
-        crate::middleware::DeploymentMode::current(),
-        host_resolved_workspace,
-    );
-
-    // For all other routes (SPA routes), serve the chosen shell.
+    // Pick the SPA shell by surface and path (see `spa_shell_path`).
     // Use no-cache so browsers always check for updated versions after deployments
-    match tokio::fs::read(shell).await {
-        Ok(content) => {
+    match read_spa_shell(&req).await {
+        Some(content) => {
             HttpResponse::Ok()
                 .content_type("text/html; charset=utf-8")
                 // no-cache: browser may cache but must revalidate with server before using
@@ -677,7 +690,7 @@ async fn serve_spa(req: HttpRequest) -> HttpResponse {
                 .insert_header(("Cache-Control", "no-cache"))
                 .body(content)
         }
-        Err(_) => {
+        None => {
             // Fallback if index.html doesn't exist
             let environment =
                 std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
@@ -1206,19 +1219,22 @@ pub fn configure_app(
                 Files::new("/", "./public")
                     .use_last_modified(true)
                     .use_etag(true)
-                    // SPA fallback: serve index.html for any path not found
+                    // SPA fallback: serve the request's shell (portal or agent
+                    // app, see `spa_shell_path`) for any path not found. Deep
+                    // links like `/tickets` on a tenant origin land here, not
+                    // in `serve_spa`.
                     .default_handler(fn_service(|req: ServiceRequest| async move {
                         let (req, _) = req.into_parts();
                         // Use no-cache so browsers always check for updated frontend builds
-                        match tokio::fs::read("./public/index.html").await {
-                            Ok(content) => {
+                        match read_spa_shell(&req).await {
+                            Some(content) => {
                                 let res = HttpResponse::Ok()
                                     .content_type("text/html; charset=utf-8")
                                     .insert_header(("Cache-Control", "no-cache"))
                                     .body(content);
                                 Ok(ServiceResponse::new(req, res))
                             }
-                            Err(_) => {
+                            None => {
                                 // Frontend not built yet - show friendly rebuilding message
                                 let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
                                 let body = if environment != "production" {
@@ -1950,25 +1966,43 @@ mod tests {
     use crate::middleware::DeploymentMode;
 
     #[test]
-    fn portal_shell_only_on_a_hosted_tenant_origin() {
-        // Hosted + a host-resolved workspace => the customer portal.
-        assert_eq!(
-            spa_shell_path(DeploymentMode::Hosted, true),
-            "./public/portal.html"
-        );
+    fn portal_shell_only_for_portal_routes_on_a_hosted_tenant_origin() {
+        let hosted = DeploymentMode::Hosted;
+        for path in [
+            "/",
+            "/login",
+            "/tickets",
+            "/tickets/",
+            "/tickets/42",
+            "/tickets/new",
+        ] {
+            assert_eq!(
+                spa_shell_path(hosted, true, path),
+                "./public/portal.html",
+                "{path}"
+            );
+        }
+        // Guest pages on the tenant origin live in the agent app.
+        for path in ["/submit-ticket", "/docs/welcome", "/ticket-status/abc"] {
+            assert_eq!(
+                spa_shell_path(hosted, true, path),
+                "./public/index.html",
+                "{path}"
+            );
+        }
         // Hosted agent origin (no host-resolved workspace) => the agent app.
         assert_eq!(
-            spa_shell_path(DeploymentMode::Hosted, false),
+            spa_shell_path(hosted, false, "/tickets"),
             "./public/index.html"
         );
         // Self-host always serves the agent app, even though its bootstrap
         // workspace makes a context ever-present.
         assert_eq!(
-            spa_shell_path(DeploymentMode::SelfHosted, true),
+            spa_shell_path(DeploymentMode::SelfHosted, true, "/tickets"),
             "./public/index.html"
         );
         assert_eq!(
-            spa_shell_path(DeploymentMode::SelfHosted, false),
+            spa_shell_path(DeploymentMode::SelfHosted, false, "/"),
             "./public/index.html"
         );
     }
