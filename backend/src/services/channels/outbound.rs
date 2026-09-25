@@ -223,6 +223,36 @@ pub fn enqueue_for_comment(
                     .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
                 let (channel, thread) = match decision {
                     super::relay::RelayDecision::Relay { channel, thread } => (channel, thread),
+                    super::relay::RelayDecision::Direct { recipient, subject } => {
+                        // No mailbox to thread back through: plain mail from
+                        // the default sender, no Reply-To, no quoted history.
+                        let body = super::reply_body::ReplyBody::from_comment(&comment);
+                        let body = super::signature::append_signature_for_user(
+                            conn,
+                            comment.user_uuid,
+                            body,
+                        );
+                        let domain = crate::utils::email_branding::outbound_email_domain()
+                            .unwrap_or_else(|| "nosdesk.local".to_string());
+                        let new_row = reply_row(
+                            None,
+                            ticket.id,
+                            &comment,
+                            recipient,
+                            subject,
+                            body,
+                            format_outbound_message_id(ticket.id, comment.id, &domain),
+                            None,
+                            Vec::new(),
+                            serde_json::json!({}),
+                        );
+                        let row =
+                            crate::repository::outbound_emails::enqueue_or_suppress(conn, new_row)
+                                .map_err(|e| {
+                                    diesel::result::Error::QueryBuilderError(e.to_string().into())
+                                })?;
+                        return Ok(Some((row.id, ticket.id)));
+                    }
                     other => {
                         tracing::debug!(decision = ?other, "channel relay: skipped");
                         return Ok(None);
@@ -271,28 +301,18 @@ pub fn enqueue_for_comment(
                     None => serde_json::json!({}),
                 };
 
-                let new_row = crate::models::NewOutboundEmail {
-                    channel_id: Some(channel.id),
-                    ticket_id: Some(thread.ticket_id),
-                    comment_id: Some(comment.id),
+                let new_row = reply_row(
+                    Some(channel.id),
+                    thread.ticket_id,
+                    &comment,
                     recipient,
                     subject,
-                    body_text: body.text,
-                    body_html: Some(body.html),
+                    body,
                     message_id,
-                    in_reply_to: thread.external_thread_id,
-                    references_list: thread.references.into_iter().map(Some).collect(),
+                    thread.external_thread_id,
+                    thread.references,
                     headers_json,
-                    // Item S correlation_id flows in once the per-
-                    // request context propagates through this far.
-                    correlation_id: None,
-                    idempotency_key: None,
-                    sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE
-                        .to_string(),
-                    // The agent's reply is conversation mail: workspace identity,
-                    // but transactional (no List-Unsubscribe on a human reply).
-                    mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
-                };
+                );
 
                 let row = crate::repository::outbound_emails::enqueue_or_suppress(conn, new_row)
                     .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
@@ -321,6 +341,41 @@ pub fn enqueue_for_comment(
             }
         }
     });
+}
+
+/// The queue row for a reply to the requester. Agent replies are conversation
+/// mail: workspace identity, but transactional (no List-Unsubscribe on a human
+/// reply).
+#[allow(clippy::too_many_arguments)]
+fn reply_row(
+    channel_id: Option<i32>,
+    ticket_id: i32,
+    comment: &crate::models::Comment,
+    recipient: String,
+    subject: String,
+    body: super::reply_body::ReplyBody,
+    message_id: String,
+    in_reply_to: Option<String>,
+    references: Vec<String>,
+    headers_json: serde_json::Value,
+) -> crate::models::NewOutboundEmail {
+    crate::models::NewOutboundEmail {
+        channel_id,
+        ticket_id: Some(ticket_id),
+        comment_id: Some(comment.id),
+        recipient,
+        subject,
+        body_text: body.text,
+        body_html: Some(body.html),
+        message_id,
+        in_reply_to,
+        references_list: references.into_iter().map(Some).collect(),
+        headers_json,
+        correlation_id: None,
+        idempotency_key: None,
+        sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE.to_string(),
+        mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
+    }
 }
 
 #[cfg(test)]

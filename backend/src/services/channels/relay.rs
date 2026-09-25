@@ -5,20 +5,29 @@
 //! task #20 (comment-creation handler); this module only computes the
 //! decision so it can be unit-tested in isolation.
 //!
-//! Relay is intentionally conservative. We skip when:
+//! A ticket that arrived through a channel replies through it. One that
+//! didn't (web form, guest portal, API) replies through the workspace's email
+//! channel so the requester's answer threads back, or, with no email channel,
+//! as plain mail from the default sender.
+//!
+//! We skip when:
 //!
 //! - The comment is flagged internal (`is_internal`) — tech-to-tech
 //!   notes must never leak back to the requester.
 //! - The comment is soft-deleted (`deleted_at`) — nothing to send.
-//! - The ticket wasn't opened through a channel (`origin_channel_id`
-//!   is null) — nothing to relay to.
 //! - The originating channel has been disabled since the ticket was
 //!   opened. Admins disable for a reason; respect it.
 //! - We can't build a recipient — the requester has no primary email,
 //!   or the ticket has no requester at all. We refuse to guess.
+//! - The requester wrote the comment (their own reply from the portal).
+//! - A ticket with no origin channel is requested by staff, who follow it
+//!   in the app.
 
 use crate::db::DbConnection;
-use crate::models::{Channel, Comment, Ticket};
+use crate::models::{
+    Channel, Comment, Ticket, CHANNEL_PROVIDER_EMAIL_FORWARD, CHANNEL_PROVIDER_EMAIL_IMAP,
+    CHANNEL_PROVIDER_EMAIL_MANAGED,
+};
 use crate::repository::{channels as channels_repo, user_helpers};
 use crate::services::channels::threading::format_outbound_subject;
 use crate::services::channels::{ExternalIdentity, ThreadContext};
@@ -36,9 +45,13 @@ pub enum RelayDecision {
     SkipInternal,
     /// Comment has been soft-deleted; don't resurrect it on the wire.
     SkipDeleted,
-    /// Ticket wasn't opened through a channel (web form, API import,
-    /// etc.) — there's no thread to reply into.
-    SkipNoChannel,
+    /// Ticket wasn't opened through a channel and the workspace has no email
+    /// channel to reply through: send as plain mail from the default sender.
+    Direct { recipient: String, subject: String },
+    /// The requester wrote this comment; don't mail them their own words.
+    SkipAuthorIsRecipient,
+    /// A ticket with no origin channel whose requester is staff.
+    SkipStaffRequester,
     /// Channel is disabled (e.g. admin turned off the mailbox after
     /// the ticket was opened). Queueing for a disabled channel would
     /// silently pile up, so we drop.
@@ -61,13 +74,16 @@ pub fn decide_relay(
     if comment.deleted_at.is_some() {
         return Ok(RelayDecision::SkipDeleted);
     }
-    let Some(channel_id) = ticket.origin_channel_id else {
-        return Ok(RelayDecision::SkipNoChannel);
+    let channel = match ticket.origin_channel_id {
+        Some(channel_id) => {
+            let channel = channels_repo::find(conn, channel_id)?;
+            if !channel.enabled {
+                return Ok(RelayDecision::SkipChannelDisabled);
+            }
+            Some(channel)
+        }
+        None => None,
     };
-    let channel = channels_repo::find(conn, channel_id)?;
-    if !channel.enabled {
-        return Ok(RelayDecision::SkipChannelDisabled);
-    }
 
     // Recipient lookup: the requester's primary email. Phase-1 email is
     // the only concrete channel, so email-only is fine here. When chat
@@ -79,6 +95,28 @@ pub fn decide_relay(
     };
     let Some(recipient_email) = user_helpers::get_primary_email(&requester_uuid, conn) else {
         return Ok(RelayDecision::SkipNoRecipient);
+    };
+    if comment.user_uuid == requester_uuid {
+        return Ok(RelayDecision::SkipAuthorIsRecipient);
+    }
+
+    let subject = format_outbound_subject(ticket.id, &ticket.title);
+    let channel = match channel {
+        Some(channel) => channel,
+        None => {
+            if user_helpers::workspace_role(conn, requester_uuid).is_some_and(|r| r.is_staff()) {
+                return Ok(RelayDecision::SkipStaffRequester);
+            }
+            match workspace_reply_channel(conn)? {
+                Some(channel) => channel,
+                None => {
+                    return Ok(RelayDecision::Direct {
+                        recipient: recipient_email,
+                        subject,
+                    })
+                }
+            }
+        }
     };
 
     // Thread context: the latest inbound message (if any) gives us the
@@ -103,11 +141,30 @@ pub fn decide_relay(
             display_name: recipient_email.clone(),
             known_email: Some(recipient_email),
         },
-        subject: Some(format_outbound_subject(ticket.id, &ticket.title)),
+        subject: Some(subject),
         references,
     };
 
     Ok(RelayDecision::Relay { channel, thread })
+}
+
+/// The email channel a ticket with no origin channel replies through: the
+/// first enabled one that can route a reply back, preferring the managed
+/// address, then a forwarding address, then a polled mailbox.
+fn workspace_reply_channel(
+    conn: &mut DbConnection,
+) -> Result<Option<Channel>, diesel::result::Error> {
+    const PREFERENCE: [&str; 3] = [
+        CHANNEL_PROVIDER_EMAIL_MANAGED,
+        CHANNEL_PROVIDER_EMAIL_FORWARD,
+        CHANNEL_PROVIDER_EMAIL_IMAP,
+    ];
+    let mut channels = channels_repo::list_enabled(conn)?;
+    channels.retain(|c| PREFERENCE.contains(&c.provider.as_str()));
+    channels.sort_by_key(|c| PREFERENCE.iter().position(|p| *p == c.provider));
+    Ok(channels
+        .into_iter()
+        .find(|c| super::outbound::reply_routing(conn, c).is_some()))
 }
 
 #[cfg(test)]
@@ -119,7 +176,7 @@ mod tests {
 
     /// Seed helper: user w/ primary email, channel, ticket opened against
     /// that channel. Returns (channel_id, ticket) so tests can mutate.
-    fn seed(conn: &mut DbConnection) -> (Channel, Ticket) {
+    fn requester(conn: &mut DbConnection) -> crate::models::User {
         let user = crate::models::NewUser {
             uuid: uuid::Uuid::now_v7(),
             name: "Requester".into(),
@@ -145,6 +202,11 @@ mod tests {
         )
         .and_then(|o| o.into_created())
         .unwrap();
+        user
+    }
+
+    fn seed(conn: &mut DbConnection) -> (Channel, Ticket) {
+        let user = requester(conn);
         let channel = TestFixtures::create_channel(conn, "email_imap");
         let ticket = TestFixtures::create_ticket(conn, "Printer fire", Some(user.uuid), None);
         // Point the ticket at the channel — mimics what the pipeline does.
@@ -206,13 +268,79 @@ mod tests {
     }
 
     #[test]
-    fn ticket_without_channel_is_not_relayed() {
+    fn ticket_without_channel_replies_directly() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "U", "user");
-        let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
+        let user = requester(&mut conn);
+        let ticket = TestFixtures::create_ticket(&mut conn, "Printer", Some(user.uuid), None);
         let comment = make_comment(ticket.id, false);
         let decision = decide_relay(&mut conn, &ticket, &comment).unwrap();
-        assert!(matches!(decision, RelayDecision::SkipNoChannel));
+        match decision {
+            RelayDecision::Direct { recipient, subject } => {
+                assert_eq!(recipient, "alice@example.com");
+                assert_eq!(subject, format!("[#{}] Printer", ticket.id));
+            }
+            other => panic!("expected Direct, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ticket_without_channel_replies_through_the_workspace_mailbox() {
+        let mut conn = setup_test_connection();
+        let user = requester(&mut conn);
+        // Unroutable (no config) channels are passed over.
+        TestFixtures::create_channel(&mut conn, "email_imap");
+        let mailbox = channels_repo::create(
+            &mut conn,
+            crate::models::NewChannel {
+                provider: CHANNEL_PROVIDER_EMAIL_IMAP.into(),
+                name: "Support".into(),
+                enabled: true,
+                config: serde_json::json!({
+                    "host": "imap.example.com",
+                    "username": "support@example.com",
+                    "reply_domain": "example.com",
+                }),
+            },
+        )
+        .unwrap();
+        let ticket = TestFixtures::create_ticket(&mut conn, "Printer", Some(user.uuid), None);
+        let comment = make_comment(ticket.id, false);
+        match decide_relay(&mut conn, &ticket, &comment).unwrap() {
+            RelayDecision::Relay { channel, thread } => {
+                assert_eq!(channel.id, mailbox.id);
+                assert_eq!(
+                    thread.recipient.known_email.as_deref(),
+                    Some("alice@example.com")
+                );
+            }
+            other => panic!("expected Relay, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn staff_requester_without_channel_is_not_mailed() {
+        let mut conn = setup_test_connection();
+        let agent = TestFixtures::create_user(&mut conn, "A", "technician");
+        let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(agent.uuid), None);
+        let comment = make_comment(ticket.id, false);
+        let decision = decide_relay(&mut conn, &ticket, &comment).unwrap();
+        assert!(
+            matches!(
+                decision,
+                RelayDecision::SkipStaffRequester | RelayDecision::SkipNoRecipient
+            ),
+            "{decision:?}"
+        );
+    }
+
+    #[test]
+    fn the_requesters_own_comment_is_not_mailed_back() {
+        let mut conn = setup_test_connection();
+        let (_channel, ticket) = seed(&mut conn);
+        let mut comment = make_comment(ticket.id, false);
+        comment.user_uuid = ticket.requester_uuid.unwrap();
+        let decision = decide_relay(&mut conn, &ticket, &comment).unwrap();
+        assert!(matches!(decision, RelayDecision::SkipAuthorIsRecipient));
     }
 
     #[test]

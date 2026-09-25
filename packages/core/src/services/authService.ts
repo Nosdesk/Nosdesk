@@ -544,6 +544,8 @@ class AuthService {
     /** Who sent it and into which workspace; absent on older tokens. */
     invited_by?: string;
     workspace_name?: string;
+    /** Why an invalid link is invalid, when known. */
+    reason?: 'used' | 'expired';
     /** False for a guest confirmation where no password is set (hosted). */
     password_required?: boolean;
   }> {
