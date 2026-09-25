@@ -2267,8 +2267,13 @@ pub async fn mfa_enable_login(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
+    // workspace_members is RLS-isolated and this connection carries no pin, so
+    // the lookup runs elevated (unpinned it sees no rows and enrolment fails).
     let workspace_id =
-        match crate::repository::workspaces::primary_workspace_for_user(&mut conn, user_uuid) {
+        // cross-tenant: pre-session workspace resolution: only the signing-in user is known here.
+        match crate::sync::session::background_run(&db_pool, "background:mfa_enable_login", |c| {
+            crate::repository::workspaces::primary_workspace_for_user(c, user_uuid)
+        }) {
             Ok(ws) => ws,
             Err(e) => {
                 tracing::error!(

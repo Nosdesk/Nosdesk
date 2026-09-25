@@ -60,7 +60,7 @@
             class="bg-status-info-muted border border-status-info/30 rounded-lg p-4 text-sm text-secondary"
           >
             {{ t('public-doc-rich-text-prefix') }}
-            <RouterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('public-doc-rich-text-link') }}</RouterLink>{{ t('public-doc-rich-text-suffix') }}
+            <RequesterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('public-doc-rich-text-link') }}</RequesterLink>{{ t('public-doc-rich-text-suffix') }}
           </div>
           <div v-else class="flex flex-col gap-2" aria-hidden="true">
             <SkeletonBlock width="100%" height="0.875rem" />
@@ -96,6 +96,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
+import RequesterLink from '@/components/public/RequesterLink.vue';
 import { RouterLink } from 'vue-router';
 import { useQuery } from '@pinia/colada';
 import { useFluent } from 'fluent-vue';

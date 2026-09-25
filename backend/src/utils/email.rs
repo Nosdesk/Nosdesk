@@ -103,7 +103,7 @@ fn plaintext_flowed_part(body: String) -> SinglePart {
 }
 
 /// Simple HTML escaping for email content to prevent XSS
-fn escape_html(s: &str) -> String {
+pub(crate) fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

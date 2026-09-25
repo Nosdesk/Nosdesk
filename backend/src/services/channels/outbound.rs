@@ -232,6 +232,7 @@ pub fn enqueue_for_comment(
                             comment.user_uuid,
                             body,
                         );
+                        let body = with_reply_elsewhere_note(conn, &ticket, body);
                         let domain = crate::utils::email_branding::outbound_email_domain()
                             .unwrap_or_else(|| "nosdesk.local".to_string());
                         let new_row = reply_row(
@@ -341,6 +342,48 @@ pub fn enqueue_for_comment(
             }
         }
     });
+}
+
+/// A reply sent with no email channel has nowhere for the customer's email
+/// reply to land, so say where to reply instead: the ticket on the portal
+/// (hosted) or the helpdesk (self-hosted). Unchanged when no link base is
+/// configured.
+fn with_reply_elsewhere_note(
+    conn: &mut DbConnection,
+    ticket: &crate::models::Ticket,
+    mut body: super::reply_body::ReplyBody,
+) -> super::reply_body::ReplyBody {
+    let workspace = crate::repository::workspaces::find_by_id(conn, ticket.workspace_id)
+        .ok()
+        .flatten();
+    let origin = workspace
+        .as_ref()
+        .and_then(|ws| {
+            crate::utils::tenant_origin::canonical_host_for(
+                &ws.slug,
+                ws.custom_domain.as_deref(),
+                crate::utils::tenant_origin::tenant_domain().as_deref(),
+            )
+        })
+        .map(|host| format!("https://{host}"));
+    let Some(base) = crate::utils::tenant_origin::email_link_base(origin) else {
+        return body;
+    };
+    let url = format!("{}/tickets/{}", base.trim_end_matches('/'), ticket.id);
+    let locale = match ticket.requester_uuid {
+        Some(uuid) => crate::repository::user_locale::resolve_effective_locale(conn, uuid),
+        None => crate::utils::locale::effective_locale(None, crate::utils::locale::DEFAULT_LOCALE),
+    };
+    let note = crate::utils::i18n::tr(&locale, "reply-email-reply-elsewhere");
+    body.text = format!("{}\n\n{note}\n{url}", body.text);
+    body.html = format!(
+        "{}<p>{} <a href=\"{url_attr}\">{url_text}</a></p>",
+        body.html,
+        crate::utils::email::escape_html(&note),
+        url_attr = crate::utils::email::escape_html(&url),
+        url_text = crate::utils::email::escape_html(&url),
+    );
+    body
 }
 
 /// The queue row for a reply to the requester. Agent replies are conversation

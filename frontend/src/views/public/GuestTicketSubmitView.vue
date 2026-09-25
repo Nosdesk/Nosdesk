@@ -263,7 +263,7 @@
 
       <p class="text-center text-sm text-tertiary">
         {{ t('guest-submit-have-account') }}
-        <RouterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('guest-submit-sign-in') }}</RouterLink>
+        <RequesterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('guest-submit-sign-in') }}</RequesterLink>
       </p>
     </template>
   </PublicLayout>
@@ -271,8 +271,9 @@
 
 <script setup lang="ts">
 import LinkButton from '@/components/common/LinkButton.vue'
+import RequesterLink from '@/components/public/RequesterLink.vue';
 import { ref, reactive, computed, onMounted, nextTick } from 'vue';
-import { RouterLink } from 'vue-router';
+
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';

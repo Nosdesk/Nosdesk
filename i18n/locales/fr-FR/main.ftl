@@ -460,6 +460,9 @@ settings-saving = Enregistrement...
 settings-localization-saved = Préférences de langue et de fuseau enregistrées
 settings-localization-save-failed = Échec de l'enregistrement des préférences
 
+# Footer on an agent reply sent with no email channel (replies to it are lost).
+reply-email-reply-elsewhere = Les réponses à cet e-mail ne nous parviennent pas. Pour répondre, ouvrez votre demande :
+
 # Channel auto-acknowledgement.
 auto-ack-default-template = Votre demande (#{ $ticket_id }) a été reçue et est en cours d'examen par notre équipe d'assistance. Pour ajouter d'autres commentaires, répondez à cet e-mail.
 
@@ -2415,7 +2418,7 @@ people-tab-requesters = Demandeurs
 # machine translation, en attente de relecture
 people-add-requester-title = Ajouter un demandeur
 # machine translation, en attente de relecture
-people-add-requester-description = Les demandeurs sont les clients qui créent des tickets. Ils se connectent à votre portail avec un lien magique, aucun siège n'est utilisé.
+people-add-requester-description = Les demandeurs sont les clients qui ouvrent des tickets. Ils n'utilisent pas de siège d'équipe.
 # machine translation, en attente de relecture
 people-add-requester-name-label = Nom
 # machine translation, en attente de relecture
@@ -5275,12 +5278,12 @@ guest-submit-disabled-title = L'envoi de tickets n'est pas disponible
 guest-submit-disabled-message = L'envoi de tickets par les invités est actuellement désactivé. Connectez-vous si vous avez un compte.
 guest-submit-verify-title = Vérifiez votre boîte de réception
 guest-submit-verify-message-prefix = Cliquez sur le lien de confirmation que nous avons envoyé à
-guest-submit-verify-message-suffix = pour valider votre ticket et configurer votre portail.
+guest-submit-verify-message-suffix = pour transmettre votre demande à l'équipe.
 guest-submit-verify-spam-hint = Rien reçu ? Vérifiez vos spams, puis réessayez dans quelques minutes.
 guest-submit-another = Envoyer un autre ticket
 guest-submit-success-title = Ticket bien reçu
 guest-submit-success-email-prefix = Nous avons envoyé une confirmation à
-guest-submit-success-email-suffix = avec un lien pour vous connecter et suivre l'avancement.
+guest-submit-success-email-suffix = avec un lien pour confirmer votre adresse e-mail.
 guest-submit-success-no-email = Votre ticket a bien été enregistré. Notre équipe vous recontactera par e-mail.
 guest-submit-success-reference-prefix = Numéro de référence
 guest-submit-track-heading = Suivre sans se connecter
@@ -5387,6 +5390,7 @@ help-card-reset-title = Réinitialiser votre mot de passe
 help-card-reset-desc = Vous n'arrivez plus à accéder à votre compte ? C'est par ici.
 help-card-signin-title = Se connecter
 help-card-signin-desc = Vous avez déjà un compte ?
+help-card-signin-desc-portal = Consultez vos demandes. Nous vous enverrons un lien de connexion par e-mail.
 
 # Settings: appearance pane (AppearanceSettings).
 settings-appearance-title = Apparence

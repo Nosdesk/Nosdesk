@@ -456,6 +456,9 @@ settings-saving = Opslaan...
 settings-localization-saved = Taal- en tijdzonevoorkeuren opgeslagen
 settings-localization-save-failed = Opslaan van voorkeuren mislukt
 
+# Footer on an agent reply sent with no email channel (replies to it are lost).
+reply-email-reply-elsewhere = Antwoorden op deze e-mail komen niet bij ons aan. Open je verzoek om te antwoorden:
+
 # Channel auto-acknowledgement.
 auto-ack-default-template = Uw verzoek (#{ $ticket_id }) is ontvangen en wordt beoordeeld door ons supportteam. Antwoord op deze e-mail om aanvullende opmerkingen toe te voegen.
 
@@ -2411,7 +2414,7 @@ people-tab-requesters = Aanvragers
 # machine translation, wacht op controle
 people-add-requester-title = Aanvrager toevoegen
 # machine translation, wacht op controle
-people-add-requester-description = Aanvragers zijn de klanten die tickets aanmaken. Ze melden zich aan bij uw portaal met een magische link, er wordt geen zetel gebruikt.
+people-add-requester-description = Aanvragers zijn de klanten die tickets aanmaken. Ze gebruiken geen teamplek.
 # machine translation, wacht op controle
 people-add-requester-name-label = Naam
 # machine translation, wacht op controle
@@ -5265,12 +5268,12 @@ guest-submit-disabled-title = Ticket indienen is niet beschikbaar
 guest-submit-disabled-message = Tickets indienen als gast is momenteel uitgeschakeld. Log in als je een account hebt.
 guest-submit-verify-title = Controleer je inbox
 guest-submit-verify-message-prefix = Klik op de bevestigingslink die we hebben gestuurd naar
-guest-submit-verify-message-suffix = om je ticket vrij te geven en je portaal in te stellen.
+guest-submit-verify-message-suffix = om je verzoek naar het team te sturen.
 guest-submit-verify-spam-hint = Niet ontvangen? Controleer je spam en probeer het over een paar minuten opnieuw.
 guest-submit-another = Nog een ticket indienen
 guest-submit-success-title = Ticket ontvangen
 guest-submit-success-email-prefix = We hebben een bevestiging gestuurd naar
-guest-submit-success-email-suffix = met een link om in te loggen en de voortgang te volgen.
+guest-submit-success-email-suffix = met een link om je e-mailadres te bevestigen.
 guest-submit-success-no-email = Je ticket is geregistreerd. Ons team neemt per e-mail contact op.
 guest-submit-success-reference-prefix = Referentienummer
 guest-submit-track-heading = Volgen zonder in te loggen
@@ -5377,6 +5380,7 @@ help-card-reset-title = Wachtwoord opnieuw instellen
 help-card-reset-desc = Geen toegang meer tot je account? Begin hier.
 help-card-signin-title = Inloggen
 help-card-signin-desc = Heb je al een account?
+help-card-signin-desc-portal = Bekijk je verzoeken. We mailen je een inloglink.
 
 # Settings: appearance pane (AppearanceSettings).
 settings-appearance-title = Weergave
