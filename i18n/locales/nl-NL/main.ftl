@@ -7307,3 +7307,7 @@ portal-new-description-placeholder = Vertel ons wat er aan de hand is en hoe we 
 portal-new-submit = Verzoek sturen
 portal-new-failed = Je verzoek is niet verstuurd. Probeer het opnieuw.
 portal-attachments = Bijlagen
+portal-attach-files = Bestanden bijvoegen
+portal-attach-hint = Afbeeldingen, pdf of tekst, max. 10 MB per bestand, hooguit 5 bestanden.
+portal-attach-remove = { $name } verwijderen
+portal-attach-failed = { $name } kon niet worden bijgevoegd.

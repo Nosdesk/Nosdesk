@@ -70,6 +70,7 @@ const ALLOWED_FIELDS: &[&str] = &[
     "actor_uuid",
     "asset_id",
     "assignee_uuid",
+    "attachment_id",
     "calendar_id",
     "channel_id",
     "comment_id",

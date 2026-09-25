@@ -11,9 +11,10 @@ import StatusPill from '@/components/common/StatusPill.vue'
 import CommentContent from '@/components/ticketComponents/CommentContent.vue'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 
+import AttachmentPicker from '../components/AttachmentPicker.vue'
 import PortalLayout from '../components/PortalLayout.vue'
 import { stateTone } from '../stateTone'
-import { attachmentUrl, getMyTicket, replyToMyTicket } from '../service'
+import { attachmentUrl, getMyTicket, replyToMyTicket, type PortalAttachment } from '../service'
 
 const props = defineProps<{ id: string }>()
 const { $t: t } = useFluent()
@@ -24,16 +25,22 @@ const key = computed(() => ['portal', 'ticket', ticketId.value])
 const detail = useQuery({ key, query: () => getMyTicket(ticketId.value) })
 
 const reply = ref('')
+const files = ref<PortalAttachment[]>([])
 const sending = ref(false)
 const replyFailed = ref(false)
 
 async function sendReply(): Promise<void> {
-  if (!reply.value.trim()) return
+  if (!reply.value.trim() && !files.value.length) return
   sending.value = true
   replyFailed.value = false
   try {
-    await replyToMyTicket(ticketId.value, reply.value.trim())
+    await replyToMyTicket(
+      ticketId.value,
+      reply.value.trim(),
+      files.value.map((f) => f.id),
+    )
     reply.value = ''
+    files.value = []
     await queryCache.invalidateQueries({ key: key.value })
     void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
   } catch {
@@ -118,8 +125,15 @@ async function sendReply(): Promise<void> {
           resize="vertical"
           :disabled="sending"
         />
+        <AttachmentPicker v-model="files" :disabled="sending" />
         <p v-if="replyFailed" role="alert" class="text-sm text-status-error">{{ t('portal-reply-failed') }}</p>
-        <Button type="submit" class="self-end" icon="send" :loading="sending" :disabled="!reply.trim()">
+        <Button
+          type="submit"
+          class="self-end"
+          icon="send"
+          :loading="sending"
+          :disabled="!reply.trim() && !files.length"
+        >
           {{ t('portal-reply-send') }}
         </Button>
       </form>
