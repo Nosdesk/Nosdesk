@@ -1633,9 +1633,19 @@ pub async fn upload_user_image(
     mut tc: TenantConn,
     search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
     type_query: web::Query<UserImageTypeQuery>,
+    req: HttpRequest,
 ) -> impl Responder {
     let user_uuid = uuid.into_inner();
     let image_type = &type_query.type_; // "avatar" or "banner"
+
+    // Same rule as the other profile writes: yourself, or a platform admin.
+    let claims = match crate::utils::rbac::require_auth(&req) {
+        Ok(claims) => claims,
+        Err(_) => return errors::unauthorized("Authentication required"),
+    };
+    if claims.sub != user_uuid && !is_platform_admin(&claims) {
+        return errors::forbidden("Not authorized");
+    }
 
     // Validate that the user exists
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
@@ -2528,6 +2538,16 @@ pub async fn add_user_email(
         Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
 
+    // Hosted staff email addresses belong to their Nosdesk account, which
+    // re-projects the whole set; a product-side change would be undone.
+    if helpers::target_is_externally_managed_staff(
+        &mut conn,
+        &helpers::actor_for(&req, "users_email"),
+        user.uuid,
+    ) {
+        return Ok(errors::identity_managed_in_account());
+    }
+
     // Check if email already exists
     if user_emails_repo::find_user_by_any_email(&mut conn, &email).is_ok() {
         return Err(ApiError::BadRequest("Email address already in use".into()));
@@ -2602,13 +2622,32 @@ pub async fn update_user_email(
         Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
 
-    // If setting as primary, unset other primary emails first
-    if update_data
+    // Hosted staff email addresses belong to their Nosdesk account, which
+    // re-projects the whole set; a product-side change would be undone.
+    if helpers::target_is_externally_managed_staff(
+        &mut conn,
+        &helpers::actor_for(&req, "users_email"),
+        user.uuid,
+    ) {
+        return Ok(errors::identity_managed_in_account());
+    }
+
+    // The row must be one of this user's addresses: the path user was
+    // authorised above, not the email id.
+    let email = match user_emails_repo::get_email_by_id(&mut conn, email_id) {
+        Ok(email) if email.user_uuid == user.uuid => email,
+        _ => return Err(ApiError::NotFoundMsg("Email not found".into())),
+    };
+    let make_primary = update_data
         .get("is_primary")
         .and_then(|p| p.as_bool())
-        .unwrap_or(false)
-    {
-        let _ = user_emails_repo::clear_primary(&mut conn, &user.uuid);
+        .unwrap_or(false);
+    // A primary address is the one sign-in links and notifications go to, so
+    // it must be proven first.
+    if make_primary && !email.is_verified {
+        return Err(ApiError::BadRequest(
+            "Verify this address before making it primary".into(),
+        ));
     }
 
     // `is_verified` is deliberately NOT read from the body. This endpoint is
@@ -2630,7 +2669,15 @@ pub async fn update_user_email(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    match user_emails_repo::update_email(&mut conn, email_id, &email_update) {
+    // Swap the primary in one transaction so a failure can't leave the user
+    // with none.
+    let result = conn.transaction(|conn| {
+        if make_primary {
+            user_emails_repo::clear_primary(conn, &user.uuid)?;
+        }
+        user_emails_repo::update_email(conn, email_id, &email_update)
+    });
+    match result {
         Ok(updated_email) => Ok(HttpResponse::Ok().json(json!({
             "status": "success",
             "message": "Email updated successfully",
@@ -2776,6 +2823,16 @@ pub async fn delete_user_email(
         Ok(user) => user,
         Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
+
+    // Hosted staff email addresses belong to their Nosdesk account, which
+    // re-projects the whole set; a product-side change would be undone.
+    if helpers::target_is_externally_managed_staff(
+        &mut conn,
+        &helpers::actor_for(&req, "users_email"),
+        user.uuid,
+    ) {
+        return Ok(errors::identity_managed_in_account());
+    }
 
     // Check if email is primary
     let email: crate::models::UserEmail =

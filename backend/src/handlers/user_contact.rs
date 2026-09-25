@@ -231,14 +231,23 @@ pub async fn get_user_profile_fields(
 pub async fn set_user_profile_fields(
     mut tc: TenantConn,
     params: web::Path<Uuid>,
-    body: web::Json<UserProfileInput>,
+    body: web::Json<serde_json::Value>,
     auth: AuthContext,
 ) -> impl Responder {
     let user_uuid = params.into_inner();
     if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
         return errors::forbidden("You can only edit your own profile");
     }
-    let mut input = body.into_inner();
+    let body = body.into_inner();
+    // The per-workspace name and avatar are the person's own: only they set
+    // them, and a save that leaves them out (the contact card) keeps them.
+    let is_self = auth.user_uuid == user_uuid;
+    let persona_display_name = is_self && body.get("display_name").is_some();
+    let persona_avatar = is_self && body.get("avatar_url").is_some();
+    let mut input: UserProfileInput = match serde_json::from_value(body) {
+        Ok(input) => input,
+        Err(e) => return errors::bad_request(format!("Invalid profile: {e}")),
+    };
 
     let result = tc.run(|conn| {
         let schema = repo::get_field_schema(conn)?;
@@ -267,6 +276,12 @@ pub async fn set_user_profile_fields(
         // Validate the custom-field values against the effective schema.
         if let Err(e) = field_schema::validate_attributes(&schema, &input.custom_fields) {
             return Ok(Err(format!("Invalid custom fields: {e}")));
+        }
+        if !persona_display_name {
+            input.display_name = existing.as_ref().and_then(|p| p.display_name.clone());
+        }
+        if !persona_avatar {
+            input.avatar_url = existing.as_ref().and_then(|p| p.avatar_url.clone());
         }
         // Preserve directory-synced standard columns: a manual edit can't
         // change job_title/organization/department on a Graph-owned profile.

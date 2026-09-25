@@ -61,6 +61,7 @@ mod plugin_bundle_isolation;
 mod plugin_collection_row_scoping;
 mod plugin_permission_gate;
 mod portal_session;
+mod profile_write_authz;
 mod projection_membership_role_model;
 mod push_preference_defaults;
 mod route_auth_funnel_lint;

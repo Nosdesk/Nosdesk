@@ -393,12 +393,11 @@ pub struct UserProfileInput {
     pub department: Option<String>,
     #[serde(default)]
     pub custom_fields: serde_json::Value,
-    /// Per-workspace display-name override (O7). Absent/`None` clears it, so
-    /// the workspace renders the user's global (control-plane) name. Same
-    /// full-replace semantics as the other standard fields on this PUT.
+    /// Per-workspace display-name override (O7). Only the person sets it: the
+    /// handler keeps the stored value when the field is absent or the caller
+    /// is someone else; an explicit `null` clears it.
     pub display_name: Option<String>,
-    /// Per-workspace avatar override. Absent/`None` clears it, so the workspace
-    /// renders the user's global avatar. Full-replace, like the other fields.
+    /// Per-workspace avatar override, with the same rules as `display_name`.
     #[serde(default)]
     pub avatar_url: Option<String>,
 }

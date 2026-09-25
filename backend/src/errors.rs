@@ -216,6 +216,17 @@ pub fn externally_managed() -> HttpResponse {
     stamp(resp, "externally_managed")
 }
 
+/// 409 for a change to part of a hosted staff member's identity (name, avatar,
+/// email addresses) that their Nosdesk account owns. Same code as
+/// [`externally_managed`] so clients handle both alike.
+pub fn identity_managed_in_account() -> HttpResponse {
+    let resp = conflict_with_code(
+        "This is managed in their Nosdesk account. Change it there.",
+        "externally_managed",
+    );
+    stamp(resp, "externally_managed")
+}
+
 /// 409 for a local-credential action refused because local password auth is
 /// disabled (hosted mode), where identity is SSO/portal-owned. Distinct from
 /// [`externally_managed`]: this is not staff-specific (no one has a local
