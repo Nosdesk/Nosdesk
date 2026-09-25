@@ -489,6 +489,9 @@ settings-saving = Saving...
 settings-localization-saved = Language and timezone preferences saved
 settings-localization-save-failed = Failed to save preferences
 
+# Footer on an agent reply sent with no email channel (replies to it are lost).
+reply-email-reply-elsewhere = Replies to this email don't reach us. To reply, open your request:
+
 # Default body for the channel auto-acknowledgement reply when no
 # admin-customised template is set. Picked by the inbound's
 # Content-Language so a French-written ticket gets a French ack.
@@ -2490,7 +2493,7 @@ user-mgmt-tab-deleted = Deleted
 people-tab-team = Team
 people-tab-requesters = Requesters
 people-add-requester-title = Add requester
-people-add-requester-description = Requesters are the customers who raise tickets. They sign in to your portal with a magic link, so no seat is used.
+people-add-requester-description = Requesters are the customers who raise tickets. They don't use a staff seat.
 people-add-requester-name-label = Name
 people-add-requester-name-placeholder = Jane Doe (or a company name)
 people-add-requester-email-label = Email
@@ -5288,12 +5291,12 @@ guest-submit-disabled-title = Ticket submission is not available
 guest-submit-disabled-message = Guest ticket submission is currently disabled. Please sign in if you have an account.
 guest-submit-verify-title = Check your inbox
 guest-submit-verify-message-prefix = Click the confirmation link we sent to
-guest-submit-verify-message-suffix = to release your ticket and set up your portal.
+guest-submit-verify-message-suffix = to send your request to the team.
 guest-submit-verify-spam-hint = Didn't get it? Check spam, then try again in a few minutes.
 guest-submit-another = Submit another ticket
 guest-submit-success-title = Ticket received
 guest-submit-success-email-prefix = We've sent a confirmation to
-guest-submit-success-email-suffix = with a link to sign in and track progress.
+guest-submit-success-email-suffix = with a link to confirm your email address.
 guest-submit-success-no-email = Your ticket has been logged. Our team will follow up by email.
 guest-submit-success-reference-prefix = Reference number
 guest-submit-track-heading = Track without signing in
@@ -5400,6 +5403,7 @@ help-card-reset-title = Reset your password
 help-card-reset-desc = Lost access to your account? Start here.
 help-card-signin-title = Sign in
 help-card-signin-desc = Already have an account?
+help-card-signin-desc-portal = See your requests. We'll email you a sign-in link.
 
 # Settings: appearance pane (AppearanceSettings) — theme picker,
 # device-only sync toggle, accessibility (colorblind-safe shapes),

@@ -6,7 +6,7 @@
        docs, help) since they all wrap this layout. -->
   <div class="min-h-dvh w-full flex flex-col items-center bg-app py-8 px-4 sm:px-6 gap-6">
     <!-- Brand (logo only, LogoIcon already contains the wordmark) -->
-    <RouterLink
+    <RequesterLink
       to="/"
       class="flex items-center justify-center"
       :aria-label="t('public-layout-home-aria', { appName })"
@@ -22,7 +22,7 @@
         class="h-10 text-accent"
         :aria-label="t('public-layout-logo-aria', { appName })"
       />
-    </RouterLink>
+    </RequesterLink>
 
     <!-- Page content (pages control their own width via contentClass) -->
     <div class="w-full flex flex-col gap-6" :class="contentClass">
@@ -47,6 +47,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
+import RequesterLink from '@/components/public/RequesterLink.vue';
 import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import LogoIcon from '@/components/icons/LogoIcon.vue';

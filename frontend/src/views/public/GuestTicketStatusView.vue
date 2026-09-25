@@ -68,7 +68,7 @@
 
       <p class="text-sm text-tertiary text-center">
         {{ t('guest-status-reply-prefix') }}
-        <RouterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('guest-submit-sign-in') }}</RouterLink>
+        <RequesterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('guest-submit-sign-in') }}</RequesterLink>
         {{ t('guest-status-reply-suffix') }}
       </p>
     </template>
@@ -90,7 +90,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { RouterLink } from 'vue-router';
+import RequesterLink from '@/components/public/RequesterLink.vue';
+
 import { useQuery } from '@pinia/colada';
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';

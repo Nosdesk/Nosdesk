@@ -16,7 +16,7 @@
       </div>
 
       <div class="grid gap-3 sm:grid-cols-2">
-        <RouterLink
+        <RequesterLink
           v-for="card in cards"
           :key="card.to"
           :to="card.to"
@@ -34,7 +34,7 @@
             </div>
             <p class="text-xs text-secondary">{{ card.description }}</p>
           </div>
-        </RouterLink>
+        </RequesterLink>
       </div>
     </template>
   </PublicLayout>
@@ -42,7 +42,8 @@
 
 <script setup lang="ts">
 import { h, ref, computed, onMounted } from 'vue';
-import { RouterLink } from 'vue-router';
+import RequesterLink from '@/components/public/RequesterLink.vue';
+import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
@@ -125,18 +126,24 @@ const cards = computed(() => {
       iconColor: 'text-status-info'
     });
   }
-  list.push({
-    to: '/reset-password',
-    title: t('help-card-reset-title'),
-    description: t('help-card-reset-desc'),
-    icon: KeyIcon(),
-    iconBg: 'bg-status-warning-muted',
-    iconColor: 'text-status-warning'
-  });
+  // Hosted requesters sign in with an emailed link; there is no password to
+  // reset.
+  if (!isHostedDeployment()) {
+    list.push({
+      to: '/reset-password',
+      title: t('help-card-reset-title'),
+      description: t('help-card-reset-desc'),
+      icon: KeyIcon(),
+      iconBg: 'bg-status-warning-muted',
+      iconColor: 'text-status-warning'
+    });
+  }
   list.push({
     to: '/login',
     title: t('help-card-signin-title'),
-    description: t('help-card-signin-desc'),
+    description: isHostedDeployment()
+      ? t('help-card-signin-desc-portal')
+      : t('help-card-signin-desc'),
     icon: SignInIcon(),
     iconBg: 'bg-surface-alt',
     iconColor: 'text-secondary'

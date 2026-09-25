@@ -304,33 +304,56 @@ pub async fn reset_password_with_token(
         }
     };
 
-    // Update the user's password hash in user_auth_identities and password_changed_at timestamp in users
-    let now = Utc::now().naive_utc();
+    // Resolve the audit workspace before writing anything, so a failure here
+    // can't leave the password changed behind an error. Pre-session flow
+    // (token-verified, no JWT), and workspace_members is RLS-isolated, so the
+    // lookup runs elevated; unpinned it saw no rows and every reset failed.
+    let workspace_id =
+        // cross-tenant: pre-session workspace resolution: only the token's user is known here.
+        match crate::sync::session::background_run(&db_pool, "background:password_reset_complete", |c| {
+            crate::repository::workspaces::primary_workspace_for_user(c, user.uuid)
+        }) {
+            Ok(ws) => ws,
+            Err(e) => {
+                error!(user_uuid = %user.uuid, error = ?e, "Failed to resolve primary workspace for password reset");
+                return Err(ApiError::Internal("Error updating password".into()));
+            }
+        };
 
-    // Update password hash in user_auth_identities
-    if let Err(e) = crate::repository::user_auth_identities::update_local_password_hash(
+    // Set the password: update the local identity, or create it for a user who
+    // never had one (a requester created from an email or by an admin).
+    let now = Utc::now().naive_utc();
+    let updated = match crate::repository::user_auth_identities::update_local_password_hash(
         &mut conn,
         &user.uuid,
         &new_password_hash,
     ) {
-        error!("Failed to update password hash: {:?}", e);
-        return Err(ApiError::Internal("Error updating password".into()));
+        Ok(n) => n,
+        Err(e) => {
+            error!("Failed to update password hash: {:?}", e);
+            return Err(ApiError::Internal("Error updating password".into()));
+        }
+    };
+    if updated == 0 {
+        let email = repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
+            .unwrap_or_else(|| format!("user-{}", user.uuid));
+        let identity = crate::models::NewUserAuthIdentity {
+            user_uuid: user.uuid,
+            provider_type: "local".to_string(),
+            external_id: email.clone(),
+            email: Some(email),
+            metadata: None,
+            password_hash: Some(new_password_hash.clone()),
+            workspace_id: None,
+        };
+        if let Err(e) =
+            crate::repository::user_auth_identities::create_local_identity(identity, &mut conn)
+        {
+            error!("Failed to create local identity on password reset: {:?}", e);
+            return Err(ApiError::Internal("Error updating password".into()));
+        }
     }
 
-    // Update password_changed_at timestamp in the audited users
-    // table. Pre-session flow (token-verified, no JWT yet), so resolve
-    // the audit workspace from the user's primary membership.
-    let workspace_id =
-        match crate::repository::workspaces::primary_workspace_for_user(&mut conn, user.uuid) {
-            Ok(ws) => ws,
-            Err(e) => {
-                error!(
-                    "Failed to resolve primary workspace for password reset: {:?}",
-                    e
-                );
-                return Err(ApiError::Internal("Error updating password".into()));
-            }
-        };
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
     match crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
         crate::repository::users::set_password_changed_at(c, &user.uuid, now)
