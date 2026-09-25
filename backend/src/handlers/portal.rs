@@ -65,7 +65,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route(
             "/tickets/{id}/attachments/{attachment_id}",
             web::get().to(download_attachment),
-        );
+        )
+        .route("/files", web::post().to(upload_file));
 }
 
 /// The authenticated portal principal for a request: a customer (`user_uuid`)
@@ -843,16 +844,120 @@ pub async fn download_attachment(
     crate::handlers::files::serve_or_not_found(storage, file_path, &req).await
 }
 
+/// `POST /api/portal/files`: stage one file for the requester's next reply or
+/// request. Same validation as the guest form (size cap, safe types); the row
+/// is marked as theirs and claimed by [`claim_uploads`].
+pub async fn upload_file(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    storage: crate::extractors::ScopedStorage,
+    mut payload: actix_multipart::Multipart,
+) -> Result<HttpResponse, ApiError> {
+    use crate::handlers::guest::{read_validated_upload, UploadRejected};
+    let upload = match read_validated_upload(&mut payload).await {
+        Ok(u) => u,
+        Err(UploadRejected::Invalid(msg)) => return Err(ApiError::BadRequest(msg)),
+        Err(UploadRejected::TooLarge(msg)) => return Ok(errors::payload_too_large(msg)),
+    };
+    let stored = storage
+        .0
+        .store_file(&upload.data, &upload.filename, &upload.mime, "temp")
+        .await
+        .map_err(|e| {
+            tracing::error!(error = ?e, "portal: failed to store upload");
+            ApiError::Internal("Failed to store file".into())
+        })?;
+    let new_attachment = crate::models::NewAttachment {
+        url: stored.url.clone(),
+        name: upload.filename.clone(),
+        file_size: Some(upload.data.len() as i64),
+        mime_type: Some(upload.mime.clone()),
+        checksum: Some(upload.checksum),
+        comment_id: None,
+        uploaded_by: Some(portal.user_uuid),
+        transcription: None,
+    };
+    match tc.run(|conn| crate::repository::create_attachment(conn, new_attachment)) {
+        Ok(att) => Ok(HttpResponse::Created().json(json!({
+            "id": att.id,
+            "name": att.name,
+            "file_size": att.file_size,
+            "mime_type": att.mime_type,
+        }))),
+        Err(e) => {
+            let _ = storage.0.delete_file(&stored.path).await;
+            tracing::error!(error = ?e, "portal: failed to record upload");
+            Err(ApiError::Internal("Failed to save attachment".into()))
+        }
+    }
+}
+
+/// Attach the requester's own staged uploads to their comment: move each file
+/// into the ticket's folder and point the row at the comment. Ids that aren't
+/// theirs, are already attached, or have expired are skipped; a failed move
+/// never fails the reply.
+async fn claim_uploads(
+    tc: &mut TenantConn,
+    storage: &crate::extractors::ScopedStorage,
+    ids: &[i32],
+    owner: Uuid,
+    ticket_id: i32,
+    comment_id: i32,
+) {
+    use crate::utils::file_validation::{GUEST_ATTACHMENT_TTL_MINUTES, GUEST_MAX_FILES_PER_TICKET};
+    if ids.is_empty() {
+        return;
+    }
+    let ids: Vec<i32> = ids
+        .iter()
+        .copied()
+        .take(GUEST_MAX_FILES_PER_TICKET)
+        .collect();
+    let since =
+        chrono::Utc::now().naive_utc() - chrono::Duration::minutes(GUEST_ATTACHMENT_TTL_MINUTES);
+    let candidates = match tc
+        .run(|conn| crate::repository::comments::claimable_uploads(conn, &ids, owner, since))
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(error = ?e, ticket_id, "portal: failed to load uploads to attach");
+            return;
+        }
+    };
+    for att in candidates {
+        let temp_path = att.url.trim_start_matches("/uploads/").to_string();
+        let file_only = temp_path.trim_start_matches("temp/").to_string();
+        let new_path = format!("tickets/{ticket_id}/{file_only}");
+        if let Err(e) = storage.0.move_file(&temp_path, &new_path).await {
+            tracing::warn!(error = ?e, attachment_id = att.id, "portal: failed to move upload");
+            continue;
+        }
+        let url = format!("/uploads/{new_path}");
+        if let Err(e) = tc.run(|conn| {
+            crate::repository::comments::reparent_attachment(conn, att.id, &url, comment_id, owner)
+        }) {
+            tracing::warn!(error = ?e, attachment_id = att.id, "portal: failed to attach upload");
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct NewPortalTicket {
     pub title: String,
     #[serde(default)]
     pub description: String,
+    /// Ids from `POST /api/portal/files`.
+    #[serde(default)]
+    pub attachment_ids: Vec<i32>,
 }
 
 #[derive(Deserialize)]
 pub struct NewPortalReply {
+    #[serde(default)]
     pub content: String,
+    /// Ids from `POST /api/portal/files`.
+    #[serde(default)]
+    pub attachment_ids: Vec<i32>,
 }
 
 /// `POST /api/portal/tickets` — the customer opens a ticket. Requester is the
@@ -863,14 +968,17 @@ pub async fn create_my_ticket(
     mut tc: TenantConn,
     portal: PortalContext,
     search_service: web::Data<Arc<SearchService>>,
+    storage: crate::extractors::ScopedStorage,
     body: web::Json<NewPortalTicket>,
 ) -> impl Responder {
     let body = body.into_inner();
+    let attachment_ids = body.attachment_ids.clone();
     let title = body.title.trim().to_string();
     if title.is_empty() {
         return errors::bad_request("Title is required");
     }
     let description = body.description.trim().to_string();
+    let has_files = !attachment_ids.is_empty();
     let user_uuid = portal.user_uuid;
     let search = Arc::clone(search_service.get_ref());
 
@@ -892,9 +1000,11 @@ pub async fn create_my_ticket(
             conn, new_ticket, annotation, None,
         )?;
 
-        // First customer-visible comment carries the description. Non-fatal
-        // (mirrors the guest portal): the ticket is the primary artefact.
-        if !description.is_empty() {
+        // First customer-visible comment carries the description (and any
+        // files). Non-fatal (mirrors the guest portal): the ticket is the
+        // primary artefact.
+        let mut first_comment = None;
+        if !description.is_empty() || has_files {
             let new_comment = NewComment {
                 content: description.clone(),
                 ticket_id: ticket.id,
@@ -907,20 +1017,35 @@ pub async fn create_my_ticket(
                 source: Some("portal".to_string()),
                 ..Default::default()
             };
-            if let Err(e) = crate::repository::comments::create_comment_with_annotation(
+            match crate::repository::comments::create_comment_with_annotation(
                 conn,
                 new_comment,
                 annotation,
                 Some(&search),
             ) {
-                tracing::warn!(error = ?e, ticket_id = ticket.id, "portal: failed to persist initial comment");
+                Ok(c) => first_comment = Some(c.id),
+                Err(e) => {
+                    tracing::warn!(error = ?e, ticket_id = ticket.id, "portal: failed to persist initial comment");
+                }
             }
         }
-        Ok(ticket)
+        Ok((ticket, first_comment))
     });
 
+    if let Ok((ticket, Some(comment_id))) = &result {
+        claim_uploads(
+            &mut tc,
+            &storage,
+            &attachment_ids,
+            user_uuid,
+            ticket.id,
+            *comment_id,
+        )
+        .await;
+    }
+
     match result {
-        Ok(ticket) => HttpResponse::Created().json(CustomerTicket::new(
+        Ok((ticket, _)) => HttpResponse::Created().json(CustomerTicket::new(
             ticket,
             &std::collections::HashMap::new(),
         )),
@@ -938,12 +1063,15 @@ pub async fn reply_to_my_ticket(
     mut tc: TenantConn,
     portal: PortalContext,
     search_service: web::Data<Arc<SearchService>>,
+    storage: crate::extractors::ScopedStorage,
     path: web::Path<i32>,
     body: web::Json<NewPortalReply>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
-    let content = body.into_inner().content.trim().to_string();
-    if content.is_empty() {
+    let body = body.into_inner();
+    let content = body.content.trim().to_string();
+    let attachment_ids = body.attachment_ids;
+    if content.is_empty() && attachment_ids.is_empty() {
         return errors::bad_request("Reply cannot be empty");
     }
     let vis = VisibilityContext::requester_only(portal.user_uuid);
@@ -974,6 +1102,18 @@ pub async fn reply_to_my_ticket(
         )?;
         Ok(Some(comment))
     });
+
+    if let Ok(Some(comment)) = &result {
+        claim_uploads(
+            &mut tc,
+            &storage,
+            &attachment_ids,
+            user_uuid,
+            ticket_id,
+            comment.id,
+        )
+        .await;
+    }
 
     match result {
         Ok(Some(comment)) => HttpResponse::Created().json(comment),

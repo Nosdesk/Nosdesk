@@ -959,6 +959,88 @@ pub async fn search_public_docs(
 
 // ---------- Guest attachment upload ----------
 
+/// A single uploaded file that passed the guest rules (size cap, safe types).
+pub(crate) struct ValidatedUpload {
+    pub filename: String,
+    pub data: Vec<u8>,
+    pub mime: String,
+    /// SHA-256, hex.
+    pub checksum: String,
+}
+
+pub(crate) enum UploadRejected {
+    Invalid(String),
+    TooLarge(String),
+}
+
+/// Read the one `file` field of a multipart upload and validate it with the
+/// guest rules. Shared by the guest form and the customer portal, which accept
+/// the same kinds of file from people outside the team.
+pub(crate) async fn read_validated_upload(
+    payload: &mut Multipart,
+) -> Result<ValidatedUpload, UploadRejected> {
+    let invalid = |m: &str| UploadRejected::Invalid(m.to_string());
+    let mut field = match payload.try_next().await {
+        Ok(Some(f)) => f,
+        Ok(None) => return Err(invalid("No file in request")),
+        Err(e) => {
+            debug!(error = %e, "Multipart parse error");
+            return Err(invalid("Could not read upload"));
+        }
+    };
+    if field.name() != "file" {
+        return Err(invalid("Expected field 'file'"));
+    }
+    let original_filename = match field
+        .content_disposition()
+        .get_filename()
+        .map(|s| s.to_string())
+    {
+        Some(n) if !n.is_empty() => n,
+        _ => return Err(invalid("Filename is required")),
+    };
+    let filename = FileValidator::sanitize_filename(&original_filename)
+        .map_err(|e| UploadRejected::Invalid(e.to_string()))?;
+
+    // Read with an incremental size check against the guest cap.
+    let max_bytes = GUEST_MAX_FILE_SIZE_MB * 1024 * 1024;
+    let mut data = Vec::new();
+    while let Some(chunk) = field.next().await {
+        let chunk = match chunk {
+            Ok(d) => d,
+            Err(e) => {
+                debug!(error = %e, "Read chunk error");
+                return Err(invalid("Upload interrupted"));
+            }
+        };
+        if data.len() + chunk.len() > max_bytes {
+            return Err(UploadRejected::TooLarge(format!(
+                "File exceeds {GUEST_MAX_FILE_SIZE_MB}MB limit"
+            )));
+        }
+        data.extend_from_slice(&chunk);
+    }
+
+    let mime = FileValidator::validate_guest_upload(&data, &filename).map_err(|e| {
+        debug!(error = ?e, filename = %filename, "Upload rejected");
+        UploadRejected::Invalid(e.to_string())
+    })?;
+
+    use ring::digest;
+    let checksum = digest::digest(&digest::SHA256, &data)
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+
+    Ok(ValidatedUpload {
+        filename,
+        data,
+        mime,
+        checksum,
+    })
+}
+
 /// POST /api/public/files/temp
 ///
 /// Unauthenticated single-file upload for guest ticket submissions. Stores
@@ -1023,78 +1105,19 @@ pub async fn upload_guest_attachment(
         }
     }
 
-    // Read exactly one file field. Guests can only attach one file per
-    // request — the client loops if they pick multiple. This keeps the
-    // per-request surface small and maps 1:1 with the rate limiter.
-    let mut field = match payload.try_next().await {
-        Ok(Some(f)) => f,
-        Ok(None) => {
-            return Err(ApiError::BadRequest("No file in request".into()));
-        }
-        Err(e) => {
-            debug!(error = %e, "Multipart parse error");
-            return Err(ApiError::BadRequest("Could not read upload".into()));
-        }
+    // One file per request; the client loops if they pick several. This keeps
+    // the per-request surface small and maps 1:1 with the rate limiter.
+    let upload = match read_validated_upload(&mut payload).await {
+        Ok(u) => u,
+        Err(UploadRejected::Invalid(msg)) => return Err(ApiError::BadRequest(msg)),
+        Err(UploadRejected::TooLarge(msg)) => return Ok(errors::payload_too_large(msg)),
     };
-
-    if field.name() != "file" {
-        return Err(ApiError::BadRequest("Expected field 'file'".into()));
-    }
-
-    let original_filename = match field
-        .content_disposition()
-        .get_filename()
-        .map(|s| s.to_string())
-    {
-        Some(n) if !n.is_empty() => n,
-        _ => {
-            return Err(ApiError::BadRequest("Filename is required".into()));
-        }
-    };
-
-    let sanitized_filename = match FileValidator::sanitize_filename(&original_filename) {
-        Ok(n) => n,
-        Err(e) => {
-            return Err(ApiError::BadRequest(e.to_string()));
-        }
-    };
-
-    // Read with incremental size check against the tighter guest cap.
-    let max_bytes = GUEST_MAX_FILE_SIZE_MB * 1024 * 1024;
-    let mut file_data = Vec::new();
-    while let Some(chunk) = field.next().await {
-        let data = match chunk {
-            Ok(d) => d,
-            Err(e) => {
-                debug!(error = %e, "Read chunk error");
-                return Err(ApiError::BadRequest("Upload interrupted".into()));
-            }
-        };
-        if file_data.len() + data.len() > max_bytes {
-            return Ok(errors::payload_too_large(format!(
-                "File exceeds {GUEST_MAX_FILE_SIZE_MB}MB limit"
-            )));
-        }
-        file_data.extend_from_slice(&data);
-    }
-
-    let detected_mime = match FileValidator::validate_guest_upload(&file_data, &sanitized_filename)
-    {
-        Ok(m) => m,
-        Err(e) => {
-            debug!(error = ?e, filename = %sanitized_filename, "Guest upload rejected");
-            return Err(ApiError::BadRequest(e.to_string()));
-        }
-    };
-
-    // SHA-256 checksum for integrity (mirrors the authenticated upload path).
-    use ring::digest;
-    let checksum_bytes = digest::digest(&digest::SHA256, &file_data);
-    let checksum: String = checksum_bytes
-        .as_ref()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let ValidatedUpload {
+        filename: sanitized_filename,
+        data: file_data,
+        mime: detected_mime,
+        checksum,
+    } = upload;
 
     let total_size = file_data.len();
     let stored_file = match storage

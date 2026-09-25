@@ -8,8 +8,9 @@ import Button from '@/components/common/Button.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
 
+import AttachmentPicker from '../components/AttachmentPicker.vue'
 import PortalLayout from '../components/PortalLayout.vue'
-import { createMyTicket } from '../service'
+import { createMyTicket, type PortalAttachment } from '../service'
 
 const { $t: t } = useFluent()
 const router = useRouter()
@@ -17,6 +18,7 @@ const queryCache = useQueryCache()
 
 const title = ref('')
 const description = ref('')
+const files = ref<PortalAttachment[]>([])
 const submitting = ref(false)
 const failed = ref(false)
 
@@ -25,7 +27,11 @@ async function submit(): Promise<void> {
   submitting.value = true
   failed.value = false
   try {
-    const ticket = await createMyTicket(title.value.trim(), description.value.trim())
+    const ticket = await createMyTicket(
+      title.value.trim(),
+      description.value.trim(),
+      files.value.map((f) => f.id),
+    )
     void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
     void router.push(`/tickets/${ticket.id}`)
   } catch {
@@ -54,6 +60,7 @@ async function submit(): Promise<void> {
         resize="vertical"
         :disabled="submitting"
       />
+      <AttachmentPicker v-model="files" :disabled="submitting" />
       <p v-if="failed" role="alert" class="text-sm text-status-error">{{ t('portal-new-failed') }}</p>
       <Button type="submit" class="self-end" :loading="submitting" :disabled="!title.trim()">
         {{ t('portal-new-submit') }}

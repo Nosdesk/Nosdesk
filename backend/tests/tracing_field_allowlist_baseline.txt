@@ -129,7 +129,6 @@ src/handlers/feature_flags.rs target
 src/handlers/feature_flags.rs user
 src/handlers/files.rs age_hours
 src/handlers/files.rs attachment
-src/handlers/files.rs attachment_id
 src/handlers/files.rs bytes
 src/handlers/files.rs bytes_freed_mb
 src/handlers/files.rs field_name
@@ -144,7 +143,6 @@ src/handlers/files.rs sanitized_filename
 src/handlers/files.rs temp_dir
 src/handlers/files.rs thumbnail_url
 src/handlers/files.rs url
-src/handlers/guest.rs attachment_id
 src/handlers/guest.rs domain
 src/handlers/guest.rs email_sent
 src/handlers/guest.rs filename
@@ -168,7 +166,6 @@ src/handlers/internal_workspaces.rs seat_limit
 src/handlers/internal_workspaces.rs slug
 src/handlers/internal_workspaces.rs workspace_uuid
 src/handlers/mod.rs attachment
-src/handlers/mod.rs attachment_id
 src/handlers/mod.rs attachment_name
 src/handlers/mod.rs attachments_count
 src/handlers/mod.rs comment_count
@@ -437,7 +434,6 @@ src/services/scheduled_jobs.rs still_verified
 src/services/scheduler.rs every_secs
 src/services/scheduler.rs task
 src/services/search/extractors.rs len
-src/services/search/indexer.rs attachment_id
 src/services/search/indexer.rs attachments
 src/services/search/indexer.rs comments
 src/services/search/indexer.rs device_id

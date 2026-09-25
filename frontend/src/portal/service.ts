@@ -84,15 +84,37 @@ export async function getMyTicket(id: number): Promise<PortalTicketDetail> {
   return data
 }
 
-/** Open a new ticket; the description becomes the first comment. */
-export async function createMyTicket(title: string, description: string): Promise<PortalTicket> {
-  const { data } = await portalApi.post<PortalTicket>('/tickets', { title, description })
+/** Open a new ticket; the description (and any files) become the first comment. */
+export async function createMyTicket(
+  title: string,
+  description: string,
+  attachmentIds: number[] = [],
+): Promise<PortalTicket> {
+  const { data } = await portalApi.post<PortalTicket>('/tickets', {
+    title,
+    description,
+    attachment_ids: attachmentIds,
+  })
   return data
 }
 
 /** Reply on one of the customer's own tickets. */
-export async function replyToMyTicket(id: number, content: string): Promise<void> {
-  await portalApi.post(`/tickets/${id}/comments`, { content })
+export async function replyToMyTicket(
+  id: number,
+  content: string,
+  attachmentIds: number[] = [],
+): Promise<void> {
+  await portalApi.post(`/tickets/${id}/comments`, { content, attachment_ids: attachmentIds })
+}
+
+/** Stage a file for the next reply or request; returns its id. */
+export async function uploadFile(file: File): Promise<PortalAttachment> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await portalApi.post<PortalAttachment>('/files', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
 }
 
 /** Download URL for a file on a public comment (portal-authenticated). */

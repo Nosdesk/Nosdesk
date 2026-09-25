@@ -7207,3 +7207,7 @@ portal-new-description-placeholder = Tell us what's going on and how we can help
 portal-new-submit = Send request
 portal-new-failed = Your request didn't send. Try again.
 portal-attachments = Attachments
+portal-attach-files = Attach files
+portal-attach-hint = Images, PDF or text, up to 10 MB each, 5 files at most.
+portal-attach-remove = Remove { $name }
+portal-attach-failed = { $name } couldn't be attached.

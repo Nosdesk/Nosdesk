@@ -7316,3 +7316,7 @@ portal-new-description-placeholder = Dites-nous ce qui se passe et comment nous 
 portal-new-submit = Envoyer la demande
 portal-new-failed = Votre demande n'a pas été envoyée. Réessayez.
 portal-attachments = Pièces jointes
+portal-attach-files = Joindre des fichiers
+portal-attach-hint = Images, PDF ou texte, jusqu'à 10 Mo chacun, 5 fichiers maximum.
+portal-attach-remove = Retirer { $name }
+portal-attach-failed = { $name } n'a pas pu être joint.

@@ -448,6 +448,22 @@ pub fn create_attachment(
     })
 }
 
+/// Temp uploads `owner` made that are still unattached and newer than
+/// `since`: the ones a signed-in requester may attach to their comment.
+pub fn claimable_uploads(
+    conn: &mut DbConnection,
+    ids: &[i32],
+    owner: uuid::Uuid,
+    since: chrono::NaiveDateTime,
+) -> QueryResult<Vec<Attachment>> {
+    attachments::table
+        .filter(attachments::id.eq_any(ids))
+        .filter(attachments::uploaded_by.eq(owner))
+        .filter(attachments::comment_id.is_null())
+        .filter(attachments::created_at.ge(since))
+        .load(conn)
+}
+
 // sync-pending-wire: attachments carry a sync aggregate (see create_attachment), but the temp->comment reparent isn't broadcast yet; the parent comment event covers the promoted set today
 /// Reparent a temp attachment onto a comment: point it at its
 /// permanent URL and set `comment_id` / `uploaded_by`. Used when a
