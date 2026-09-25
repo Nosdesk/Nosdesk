@@ -474,6 +474,10 @@ pub struct ValidateInvitationResponse {
     /// submission; `"invitation"` for an admin-sent invitation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
+    /// Why an invalid link is invalid, when that's known: `"used"` or
+    /// `"expired"`. A used guest confirmation reads as already confirmed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     /// Whether accepting sets a password. False for a guest confirmation
     /// where local credentials are disabled (hosted): the page confirms via
     /// `/invitation/confirm-guest` instead.

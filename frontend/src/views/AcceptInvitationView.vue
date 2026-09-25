@@ -397,7 +397,13 @@ onMounted(async () => {
       workspaceName.value = response.workspace_name || '';
       context.value = response.context ?? 'invitation';
       passwordRequired.value = response.password_required ?? true;
+    } else if (response.context === 'guest_ticket' && response.reason === 'used') {
+      // Already confirmed: show the confirmed state, not an error.
+      context.value = 'guest_ticket';
+      passwordRequired.value = false;
+      acceptSuccess.value = true;
     } else {
+      context.value = response.context ?? 'invitation';
       errorMessage.value =
         response.message || t('accept-invitation-error-default');
     }

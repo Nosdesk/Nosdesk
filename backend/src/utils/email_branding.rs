@@ -74,7 +74,7 @@ fn resolve_security_note(settings: &SiteSettings, base_url: &str) -> Option<Stri
 /// "from" address. Mirrors `SMTP_FROM_EMAIL` resolution in
 /// `EmailConfig::from_env`. `None` when it is unset, so the caller can
 /// fall back to the app host.
-fn outbound_email_domain() -> std::option::Option<String> {
+pub(crate) fn outbound_email_domain() -> std::option::Option<String> {
     std::env::var("SMTP_FROM_EMAIL")
         .ok()
         .and_then(|addr| addr.rsplit_once('@').map(|(_, d)| d.trim().to_string()))

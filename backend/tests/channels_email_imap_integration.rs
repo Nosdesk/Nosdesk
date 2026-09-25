@@ -528,7 +528,24 @@ async fn full_cycle_inbound_internal_outbound() {
     // ============== STEP 3: Public comment -> outbound via Greenmail ==============
     let public_comment = {
         let mut conn = pool.get().unwrap();
-        let commenter = ticket.requester_uuid.unwrap();
+        // An agent answers; the requester's own comment is never mailed back.
+        let commenter: uuid::Uuid = diesel::insert_into(backend::schema::users::table)
+            .values(&backend::models::NewUser {
+                uuid: uuid::Uuid::now_v7(),
+                name: "Agent".into(),
+                pronouns: None,
+                avatar_url: None,
+                banner_url: None,
+                avatar_thumb: None,
+                microsoft_uuid: None,
+                mfa_secret: None,
+                mfa_secret_kek_id: None,
+                mfa_enabled: false,
+                platform_role: None,
+            })
+            .returning(backend::schema::users::uuid)
+            .get_result(&mut conn)
+            .expect("insert agent");
         comments_repo::create_comment(
             &mut conn,
             NewComment {

@@ -40,6 +40,7 @@ pub async fn validate_invitation(
                 workspace_name: None,
                 message: Some("Invalid or expired invitation link".to_string()),
                 context: None,
+                reason: None,
                 password_required: false,
             }));
         }
@@ -55,9 +56,25 @@ pub async fn validate_invitation(
             workspace_name: None,
             message: Some("Invalid invitation link".to_string()),
             context: None,
+            reason: None,
             password_required: false,
         }));
     }
+
+    // Derive context from the metadata we stamped when issuing the token,
+    // so the frontend can swap copy to "confirm your ticket submission"
+    // instead of the generic onboarding flow. Known
+    // before the used/expired checks so those states keep the right copy.
+    let context = token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("source"))
+        .and_then(|s| s.as_str())
+        .map(|s| match s {
+            "guest_ticket_submission" => "guest_ticket".to_string(),
+            other => other.to_string(),
+        })
+        .or_else(|| Some("invitation".to_string()));
 
     // Check if already used
     if token.is_used {
@@ -68,7 +85,8 @@ pub async fn validate_invitation(
             invited_by: None,
             workspace_name: None,
             message: Some("This invitation has already been used".to_string()),
-            context: None,
+            context,
+            reason: Some("used".to_string()),
             password_required: false,
         }));
     }
@@ -83,7 +101,8 @@ pub async fn validate_invitation(
             invited_by: None,
             workspace_name: None,
             message: Some("This invitation has expired".to_string()),
-            context: None,
+            context,
+            reason: Some("expired".to_string()),
             password_required: false,
         }));
     }
@@ -100,6 +119,7 @@ pub async fn validate_invitation(
                 workspace_name: None,
                 message: Some("User not found".to_string()),
                 context: None,
+                reason: None,
                 password_required: false,
             }));
         }
@@ -107,20 +127,6 @@ pub async fn validate_invitation(
 
     // Get user's primary email
     let user_email = repository::user_helpers::get_primary_email(&user.uuid, &mut conn);
-
-    // Derive context from the metadata we stamped when issuing the token,
-    // so the frontend can swap copy to "confirm your ticket submission"
-    // instead of the generic onboarding flow.
-    let context = token
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("source"))
-        .and_then(|s| s.as_str())
-        .map(|s| match s {
-            "guest_ticket_submission" => "guest_ticket".to_string(),
-            other => other.to_string(),
-        })
-        .or_else(|| Some("invitation".to_string()));
 
     let (invited_by, workspace_name) = greeting_fields(token.metadata.as_ref());
     let password_required = context.as_deref() != Some("guest_ticket")
@@ -133,6 +139,7 @@ pub async fn validate_invitation(
         invited_by,
         workspace_name,
         context,
+        reason: None,
         password_required,
     }))
 }
