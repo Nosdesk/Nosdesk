@@ -169,6 +169,25 @@ pub fn create_portal_csrf_cookie(token: &str) -> Cookie<'static> {
         .finish()
 }
 
+/// Expire the three portal cookies (sign-out). Same attributes as the setters
+/// so the browser matches and drops them.
+pub fn delete_portal_cookies() -> [Cookie<'static>; 3] {
+    let expire = |name: &'static str, http_only: bool| {
+        Cookie::build(cookie_name(name), "")
+            .path("/")
+            .http_only(http_only)
+            .secure(auth_cookies_use_secure_flag())
+            .same_site(SameSite::Strict)
+            .max_age(actix_web::cookie::time::Duration::seconds(0))
+            .finish()
+    };
+    [
+        expire(PORTAL_ACCESS_TOKEN_COOKIE, true),
+        expire(PORTAL_REFRESH_TOKEN_COOKIE, true),
+        expire(PORTAL_CSRF_TOKEN_COOKIE, false),
+    ]
+}
+
 /// Whether auth cookies receive the `Secure` attribute. Delegates to the
 /// shared fail-closed [`crate::config_utils::assume_production`] so cookies,
 /// CSP, and HSTS all decide "hardened posture" from one place: an unset,

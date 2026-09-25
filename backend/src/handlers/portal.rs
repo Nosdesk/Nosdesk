@@ -56,10 +56,16 @@ pub fn auth_config(cfg: &mut web::ServiceConfig) {
 /// Authenticated customer-portal routes, mounted inside the `/api/portal` scope
 /// in main.rs (the scope keeps its `portal_auth_middleware` wrap).
 pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg.route("/tickets", web::get().to(list_my_tickets))
+    cfg.route("/me", web::get().to(get_me))
+        .route("/logout", web::post().to(logout))
+        .route("/tickets", web::get().to(list_my_tickets))
         .route("/tickets", web::post().to(create_my_ticket))
         .route("/tickets/{id}", web::get().to(get_my_ticket))
-        .route("/tickets/{id}/comments", web::post().to(reply_to_my_ticket));
+        .route("/tickets/{id}/comments", web::post().to(reply_to_my_ticket))
+        .route(
+            "/tickets/{id}/attachments/{attachment_id}",
+            web::get().to(download_attachment),
+        );
 }
 
 /// The authenticated portal principal for a request: a customer (`user_uuid`)
@@ -465,7 +471,7 @@ pub async fn magic_link_callback(
 /// expired, or already-used link). Uniform regardless of the specific failure.
 fn sign_in_error_redirect() -> HttpResponse {
     HttpResponse::Found()
-        .append_header(("Location", "/?signin_error=1"))
+        .append_header(("Location", "/login?signin_error=1"))
         .finish()
 }
 
@@ -534,6 +540,53 @@ pub async fn portal_auth_middleware(
 /// `guest_lookup_token`, `verification_state`, `category_id`,
 /// `origin_channel_id`, recurrence, planning dates) is deliberately absent, so
 /// serializing the raw struct can never leak them to a customer.
+/// `GET /api/portal/me`: who is signed in, and the locale the portal should
+/// render in (the requester's preference, else the site default).
+pub async fn get_me(mut tc: TenantConn, portal: PortalContext) -> impl Responder {
+    let user_uuid = portal.user_uuid;
+    let result = tc.run(move |conn| {
+        let user = crate::repository::users::find_active_by_uuid(&user_uuid, conn)?;
+        let email = crate::repository::user_helpers::get_primary_email(&user_uuid, conn);
+        let locale = crate::repository::user_locale::resolve_effective_locale(conn, user_uuid);
+        Ok::<_, diesel::result::Error>((user, email, locale))
+    });
+    match result {
+        Ok((user, email, locale)) => HttpResponse::Ok().json(json!({
+            "uuid": user.uuid,
+            "name": user.name,
+            "email": email,
+            "effective_locale": locale.to_string(),
+        })),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to load /me");
+            errors::internal("Failed to load profile")
+        }
+    }
+}
+
+/// `POST /api/portal/logout`: revoke this portal session and expire its cookies.
+pub async fn logout(
+    db_pool: web::Data<Pool>,
+    req: HttpRequest,
+    _portal: PortalContext,
+) -> impl Responder {
+    let sid = req
+        .extensions()
+        .get::<crate::models::Claims>()
+        .and_then(|c| c.session_uuid());
+    if let (Some(sid), Ok(mut conn)) = (sid, db_pool.get()) {
+        if let Err(e) = crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &sid)
+        {
+            tracing::warn!(error = %e, "portal logout: failed to revoke session");
+        }
+    }
+    let mut res = HttpResponse::NoContent();
+    for cookie in crate::utils::cookies::delete_portal_cookies() {
+        res.cookie(cookie);
+    }
+    res.finish()
+}
+
 #[derive(Debug, Serialize)]
 pub struct CustomerTicket {
     pub id: i32,
@@ -547,10 +600,22 @@ pub struct CustomerTicket {
     pub updated_at: NaiveDateTime,
     #[serde(rename = "closed")]
     pub closed_at: Option<NaiveDateTime>,
+    /// The ticket's workflow state, as the requester sees it.
+    pub state: Option<CustomerState>,
 }
 
-impl From<Ticket> for CustomerTicket {
-    fn from(t: Ticket) -> Self {
+#[derive(Debug, Serialize)]
+pub struct CustomerState {
+    pub name: String,
+    pub category: crate::models::WorkflowStateCategory,
+}
+
+impl CustomerTicket {
+    fn new(t: Ticket, states: &std::collections::HashMap<i32, CustomerState>) -> Self {
+        let state = states.get(&t.workflow_state_id).map(|s| CustomerState {
+            name: s.name.clone(),
+            category: s.category,
+        });
         Self {
             id: t.id,
             uuid: t.uuid,
@@ -560,8 +625,110 @@ impl From<Ticket> for CustomerTicket {
             created_at: t.created_at,
             updated_at: t.updated_at,
             closed_at: t.closed_at,
+            state,
         }
     }
+}
+
+/// The workspace's workflow states by id (a handful of rows).
+fn state_map(
+    conn: &mut DbConnection,
+) -> QueryResult<std::collections::HashMap<i32, CustomerState>> {
+    Ok(crate::repository::workflow_states::list_all(conn)?
+        .into_iter()
+        .map(|s| {
+            (
+                s.id,
+                CustomerState {
+                    name: s.name,
+                    category: s.category,
+                },
+            )
+        })
+        .collect())
+}
+
+/// A public comment as the requester sees it: the body fields the shared
+/// `CommentContent` renderer reads, the author, and its attachments.
+#[derive(Debug, Serialize)]
+pub struct CustomerComment {
+    pub id: i32,
+    pub content: String,
+    pub content_format: crate::models::ContentFormat,
+    pub render_kind: Option<String>,
+    pub new_content: Option<String>,
+    pub quoted_content: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub author: CustomerAuthor,
+    pub attachments: Vec<CustomerAttachment>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CustomerAuthor {
+    pub name: String,
+    pub avatar_url: Option<String>,
+    /// Staff reply (agent/admin/owner) rather than the requester's own.
+    pub is_staff: bool,
+    pub is_you: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CustomerAttachment {
+    pub id: i32,
+    pub name: String,
+    pub file_size: Option<i64>,
+    pub mime_type: Option<String>,
+}
+
+/// The ticket's public thread, oldest first, with authors (workspace persona
+/// names, so an agent alias shows) and attachments.
+fn customer_thread(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    viewer: Uuid,
+) -> QueryResult<Vec<CustomerComment>> {
+    let mut comments =
+        crate::repository::comments::get_public_comments_by_ticket_id(conn, ticket_id)?;
+    comments.reverse();
+    let ids: Vec<i32> = comments.iter().map(|c| c.id).collect();
+    let mut attachments = crate::repository::comments::get_attachments_for_comments(conn, &ids)?;
+    let mut authors: Vec<Uuid> = comments.iter().map(|c| c.user_uuid).collect();
+    authors.sort();
+    authors.dedup();
+    let users = crate::repository::users::get_user_map_by_uuids_with_persona(&authors, conn)?;
+    let roles = crate::repository::user_helpers::workspace_roles_batch(&authors, conn);
+    Ok(comments
+        .into_iter()
+        .map(|c| {
+            let user = users.get(&c.user_uuid);
+            CustomerComment {
+                author: CustomerAuthor {
+                    name: user.map(|u| u.name.clone()).unwrap_or_default(),
+                    avatar_url: user.and_then(|u| u.avatar_thumb.clone().or(u.avatar_url.clone())),
+                    is_staff: roles.get(&c.user_uuid).is_some_and(|r| r.is_staff()),
+                    is_you: c.user_uuid == viewer,
+                },
+                attachments: attachments
+                    .remove(&c.id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|a| CustomerAttachment {
+                        id: a.id,
+                        name: a.name,
+                        file_size: a.file_size,
+                        mime_type: a.mime_type,
+                    })
+                    .collect(),
+                id: c.id,
+                content: c.content,
+                content_format: c.content_format,
+                render_kind: c.render_kind,
+                new_content: c.new_content,
+                quoted_content: c.quoted_content,
+                created_at: c.created_at,
+            }
+        })
+        .collect())
 }
 
 /// `GET /api/portal/tickets` — the customer's own tickets in this workspace.
@@ -572,15 +739,18 @@ impl From<Ticket> for CustomerTicket {
 pub async fn list_my_tickets(mut tc: TenantConn, portal: PortalContext) -> impl Responder {
     let vis = VisibilityContext::requester_only(portal.user_uuid);
     let result = tc.run(move |conn| {
-        visible_tickets_query(&vis)
+        let rows = visible_tickets_query(&vis)
             .order(tickets::updated_at.desc())
-            .load::<Ticket>(conn)
+            .load::<Ticket>(conn)?;
+        let states = state_map(conn)?;
+        Ok::<_, diesel::result::Error>(
+            rows.into_iter()
+                .map(|t| CustomerTicket::new(t, &states))
+                .collect::<Vec<_>>(),
+        )
     });
     match result {
-        Ok(rows) => {
-            let dto: Vec<CustomerTicket> = rows.into_iter().map(CustomerTicket::from).collect();
-            HttpResponse::Ok().json(dto)
-        }
+        Ok(dto) => HttpResponse::Ok().json(dto),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to list tickets");
             errors::internal("Failed to list tickets")
@@ -597,19 +767,20 @@ pub async fn get_my_ticket(
     path: web::Path<i32>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
+    let viewer = portal.user_uuid;
     let vis = VisibilityContext::requester_only(portal.user_uuid);
     let result = tc.run(move |conn| {
         if !can_view_ticket(conn, &vis, ticket_id)? {
             return Ok(None);
         }
         let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
-        let comments =
-            crate::repository::comments::get_public_comments_by_ticket_id(conn, ticket_id)?;
-        Ok(Some((ticket, comments)))
+        let states = state_map(conn)?;
+        let comments = customer_thread(conn, ticket_id, viewer)?;
+        Ok(Some((CustomerTicket::new(ticket, &states), comments)))
     });
     match result {
         Ok(Some((ticket, comments))) => HttpResponse::Ok().json(json!({
-            "ticket": CustomerTicket::from(ticket),
+            "ticket": ticket,
             "comments": comments,
         })),
         Ok(None) => errors::not_found("Ticket not found"),
@@ -618,6 +789,58 @@ pub async fn get_my_ticket(
             errors::internal("Failed to load ticket")
         }
     }
+}
+
+/// `GET /api/portal/tickets/{id}/attachments/{attachment_id}`: a file on a
+/// public comment of a ticket the requester can see. The agent file routes
+/// authenticate agent sessions only, so the portal serves its own.
+pub async fn download_attachment(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    path: web::Path<(i32, i32)>,
+    req: HttpRequest,
+    base_storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let (ticket_id, attachment_id) = path.into_inner();
+    let vis = VisibilityContext::requester_only(portal.user_uuid);
+    let url = tc
+        .run(move |conn| {
+            if !can_view_ticket(conn, &vis, ticket_id)? {
+                return Ok(None);
+            }
+            let attachment =
+                match crate::repository::comments::get_attachment_by_id(conn, attachment_id) {
+                    Ok(a) => a,
+                    Err(diesel::result::Error::NotFound) => return Ok(None),
+                    Err(e) => return Err(e),
+                };
+            let Some(comment_id) = attachment.comment_id else {
+                return Ok(None);
+            };
+            let comment = crate::repository::comments::get_comment_by_id(conn, comment_id)?;
+            let visible = comment.ticket_id == ticket_id
+                && !comment.is_internal
+                && comment.deleted_at.is_none();
+            Ok::<_, diesel::result::Error>(visible.then_some(attachment.url))
+        })
+        .map_err(|e| {
+            tracing::error!(error = ?e, ticket_id, "portal: attachment lookup failed");
+            actix_web::error::ErrorInternalServerError("Attachment lookup failed")
+        })?;
+    // Ticket attachments are stored under `tickets/{ticket_id}/...` and linked
+    // as `/uploads/tickets/...`; anything else isn't a ticket file.
+    let Some(file_path) = url
+        .as_deref()
+        .and_then(|u| u.strip_prefix("/uploads/"))
+        .filter(|p| p.starts_with(&format!("tickets/{ticket_id}/")))
+    else {
+        return Err(actix_web::error::ErrorNotFound("File not found"));
+    };
+    let storage = crate::utils::storage::WorkspaceScopedStorage::arc(
+        base_storage.get_ref().clone(),
+        portal.workspace_id,
+    );
+    crate::handlers::files::serve_or_not_found(storage, file_path, &req).await
 }
 
 #[derive(Deserialize)]
@@ -697,7 +920,10 @@ pub async fn create_my_ticket(
     });
 
     match result {
-        Ok(ticket) => HttpResponse::Created().json(CustomerTicket::from(ticket)),
+        Ok(ticket) => HttpResponse::Created().json(CustomerTicket::new(
+            ticket,
+            &std::collections::HashMap::new(),
+        )),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to create ticket");
             errors::internal("Failed to create ticket")

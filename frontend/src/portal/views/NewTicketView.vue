@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useQueryCache } from '@pinia/colada'
+import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
 
+import PortalLayout from '../components/PortalLayout.vue'
 import { createMyTicket } from '../service'
 
+const { $t: t } = useFluent()
 const router = useRouter()
+const queryCache = useQueryCache()
 
 const title = ref('')
 const description = ref('')
@@ -21,7 +26,8 @@ async function submit(): Promise<void> {
   failed.value = false
   try {
     const ticket = await createMyTicket(title.value.trim(), description.value.trim())
-    router.push(`/tickets/${ticket.id}`)
+    void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
+    void router.push(`/tickets/${ticket.id}`)
   } catch {
     failed.value = true
     submitting.value = false
@@ -30,36 +36,28 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto p-4">
-    <RouterLink to="/tickets" class="text-sm text-accent hover:underline">
-      &larr; Back to my tickets
-    </RouterLink>
-
-    <h1 class="text-xl font-semibold mt-4 mb-4">New ticket</h1>
-
-    <form class="flex flex-col gap-4" @submit.prevent="submit">
+  <PortalLayout>
+    <h1 class="text-xl font-semibold text-primary">{{ t('portal-nav-new') }}</h1>
+    <form class="flex flex-col gap-4 bg-surface border border-default rounded-xl p-5" @submit.prevent="submit">
       <FormInput
         v-model="title"
-        label="Subject"
-        placeholder="A short summary"
+        :label="t('portal-new-subject-label')"
+        :placeholder="t('portal-new-subject-placeholder')"
         required
         :disabled="submitting"
       />
       <FormTextarea
         v-model="description"
-        label="How can we help?"
-        placeholder="Describe your issue"
-        :rows="5"
+        :label="t('portal-new-description-label')"
+        :placeholder="t('portal-new-description-placeholder')"
+        :rows="6"
+        resize="vertical"
         :disabled="submitting"
       />
-      <p v-if="failed" class="text-sm text-status-error">
-        Something went wrong. Please try again.
-      </p>
-      <div class="flex">
-        <Button type="submit" :loading="submitting" class="ml-auto">
-          Submit ticket
-        </Button>
-      </div>
+      <p v-if="failed" role="alert" class="text-sm text-status-error">{{ t('portal-new-failed') }}</p>
+      <Button type="submit" class="self-end" :loading="submitting" :disabled="!title.trim()">
+        {{ t('portal-new-submit') }}
+      </Button>
     </form>
-  </div>
+  </PortalLayout>
 </template>
