@@ -231,6 +231,16 @@ pub async fn add_comment_to_ticket(
     let ticket_id = access.ticket_id;
     let user_uuid_parsed = access.auth.user_uuid;
 
+    // Internal notes are staff-to-staff. A requester can reach this handler for
+    // their own ticket, so the toggle alone must not let them write one.
+    if comment_data.is_internal && !access.auth.can_handle_tickets() {
+        return json_error(
+            &request_locale(&req),
+            "backend-error-internal-note-forbidden",
+            StatusCode::FORBIDDEN,
+        );
+    }
+
     debug!(ticket_id, "Adding comment to ticket");
     debug!(content = %comment_data.content, "Comment content");
     debug!(

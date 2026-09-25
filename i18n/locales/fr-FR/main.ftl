@@ -6609,6 +6609,7 @@ backend-error-user-not-found = Compte utilisateur introuvable.
 backend-error-comment-fetch-failed = Impossible de charger les commentaires.
 backend-error-comment-create-failed = Impossible de créer le commentaire.
 backend-error-comment-not-found = Commentaire introuvable.
+backend-error-internal-note-forbidden = Seul le personnel peut ajouter des notes internes.
 backend-error-attachment-not-found = Pièce jointe introuvable.
 backend-error-attachment-delete-failed = Impossible de supprimer la pièce jointe.
 

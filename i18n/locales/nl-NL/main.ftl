@@ -6599,6 +6599,7 @@ backend-error-user-not-found = Gebruikersaccount niet gevonden.
 backend-error-comment-fetch-failed = Reacties laden mislukt.
 backend-error-comment-create-failed = Reactie maken mislukt.
 backend-error-comment-not-found = Reactie niet gevonden.
+backend-error-internal-note-forbidden = Alleen medewerkers kunnen interne notities toevoegen.
 backend-error-attachment-not-found = Bijlage niet gevonden.
 backend-error-attachment-delete-failed = Bijlage verwijderen mislukt.
 

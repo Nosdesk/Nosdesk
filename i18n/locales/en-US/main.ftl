@@ -6603,6 +6603,7 @@ backend-error-user-not-found = User account not found.
 backend-error-comment-fetch-failed = Couldn't load comments.
 backend-error-comment-create-failed = Couldn't create the comment.
 backend-error-comment-not-found = Comment not found.
+backend-error-internal-note-forbidden = Only staff can add internal notes.
 backend-error-attachment-not-found = Attachment not found.
 backend-error-attachment-delete-failed = Couldn't delete the attachment.
 
