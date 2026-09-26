@@ -372,6 +372,13 @@ impl NotificationPayload {
         self.body = Some(body.into());
         self
     }
+
+    /// Replace the type's generic title, for a notification addressed to a
+    /// requester rather than staff.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
 }
 
 /// Notification ready for delivery (after preference checks)

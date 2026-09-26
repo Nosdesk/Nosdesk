@@ -154,7 +154,7 @@ notif-ticket-status-changed = [{ $app }] Status changed: { $title }
 notif-comment-added = [{ $app }] New comment on: { $title }
 notif-mentioned = [{ $app }] { $actor } mentioned you
 notif-ticket-referenced = [{ $app }] { $actor } mentioned your ticket
-notif-ticket-created-requester = [{ $app }] Ticket created: { $title }
+notif-ticket-created-requester = [{ $app }] We've received your request: { $title }
 notif-doc-page-updated = [{ $app }] Page updated: { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
 notif-sla-breached = [{ $app }] SLA breached: { $title }
@@ -174,7 +174,16 @@ notif-body-text =
 
     From: { $actor }
 
-    View in { $app }: { $cta }
+    { $cta_label }: { $cta }
+
+    -- You're receiving this because of your notification preferences in { $app }.
+
+notif-body-text-no-actor =
+    { $title }
+
+    { $body }
+
+    { $cta_label }: { $cta }
 
     -- You're receiving this because of your notification preferences in { $app }.
 
