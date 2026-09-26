@@ -23,6 +23,7 @@ import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import StatusBadgeCell from '@/components/common/cells/StatusBadgeCell.vue'
 import type { WorkspaceMemberRow } from './memberRow'
 import { WORKSPACE_ROLES, type WorkspaceRole } from '@nosdesk/core/types/workspace'
+import { isRoleExternallyManaged } from '@nosdesk/core/services/instanceConfig'
 
 defineOptions({ name: 'MemberRoleMenu' })
 
@@ -64,9 +65,10 @@ const anchor = computed(() => ({
 const roleLabel = (role: WorkspaceRole) => t(`admin-workspace-members-role-${role}`)
 
 // Every role is listed, not just the assignable ones, so the menu
-// doesn't reshuffle between rows.
+// doesn't reshuffle between rows. In hosted, staff roles are seats in the
+// Nosdesk account, never a choice here, so they're left out entirely.
 const menuItems = computed<MenuItem[]>(() =>
-  WORKSPACE_ROLES.map((role) => ({
+  WORKSPACE_ROLES.filter((role) => !isRoleExternallyManaged(role) || role === props.member.role).map((role) => ({
     id: role,
     label: roleLabel(role),
     checked: role === props.member.role,
