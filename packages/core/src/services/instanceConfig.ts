@@ -198,9 +198,13 @@ export function isRoleExternallyManaged(role?: WorkspaceRole | null): boolean {
  *  hands staff management off to the control plane instead of exposing local
  *  controls. Requesters and self-hosted are always locally managed. */
 export function isIdentityExternallyManaged(
-  user?: { workspace_role?: WorkspaceRole | null } | null,
+  user?: { workspace_role?: WorkspaceRole | null; managed_by?: 'workspace' | 'nosdesk_account' } | null,
 ): boolean {
-  return !!user && isRoleExternallyManaged(user.workspace_role);
+  if (!user) return false;
+  // The server's answer (staff in any workspace, fail closed) when present;
+  // the current-workspace role only for records built without it.
+  if (user.managed_by) return user.managed_by === 'nosdesk_account';
+  return isRoleExternallyManaged(user.workspace_role);
 }
 
 /** True when forwarding-based inbound email is available on this instance. */
@@ -208,13 +212,13 @@ export function isInboundForwardingEnabled(): boolean {
   return inboundForwardingEnabled;
 }
 
-/** Control-plane dashboard base URL (hosted mode); '' when unset. Consumers
- *  render a hand-off link only when non-empty. */
 /** Your own Nosdesk account settings (hosted); '' when not configured. */
 export function getAccountUrl(): string {
   return accountUrl;
 }
 
+/** Control-plane dashboard base URL (hosted mode); '' when unset. Consumers
+ *  render a hand-off link only when non-empty. */
 export function getControlPlaneUrl(): string {
   return controlPlaneUrl;
 }

@@ -129,8 +129,11 @@ function canManage(targetRole: WorkspaceRole): boolean {
   return false;
 }
 
-/** Roles the caller may assign (same tier as canManage). */
-const assignableRoles = computed(() => WORKSPACE_ROLES.filter(canManage));
+/** Roles the caller may assign (same tier as canManage). In hosted, staff
+ *  roles are seats in the Nosdesk account, so only requester roles are offered. */
+const assignableRoles = computed(() =>
+  WORKSPACE_ROLES.filter((role) => canManage(role) && !isRoleExternallyManaged(role)),
+);
 
 /**
  * Members joined with their pool-resolved identity. The full uuid never
@@ -166,7 +169,11 @@ const rows = computed<WorkspaceMemberRow[]>(() =>
       // (the header "one door") takes the place of the in-product controls.
       editable:
         canManage(member.role) && !isSoleOwner && !isRoleExternallyManaged(member.role),
-      lockedHint: isSoleOwner ? t('admin-workspace-members-last-owner-hint') : '',
+      lockedHint: isSoleOwner
+        ? t('admin-workspace-members-last-owner-hint')
+        : isRoleExternallyManaged(member.role)
+          ? t('workspace-members-staff-role-hint')
+          : '',
     };
   }),
 );

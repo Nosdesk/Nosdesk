@@ -28,11 +28,15 @@ import {
   SessionsSettings
 } from '@/components/settings';
 import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
+import NosdeskAccountCard from '@/components/identity/NosdeskAccountCard.vue';
+import WorkspaceNameCard from '@/components/identity/WorkspaceNameCard.vue';
 import userService from '@/services/userService';
 import type { User } from '@/services/userService';
 import { effectiveRole, rolesFromTier, type UserRole } from '@nosdesk/core/types/user';
-import { isIdentityExternallyManaged } from '@nosdesk/core/services/instanceConfig';
-import { openControlPlaneSeats } from '@/services/activeWorkspace';
+import {
+  isHostedDeploymentRef,
+  isIdentityExternallyManaged,
+} from '@nosdesk/core/services/instanceConfig';
 import { groupService } from '@nosdesk/core/services/groupService';
 import type { Group } from '@nosdesk/core/types/group';
 import apiClient from '@nosdesk/core/apiClient';
@@ -135,17 +139,18 @@ const loadingTargetUser = computed(
   () => isAdminMode.value && userProfileBundle.isLoading.value,
 );
 
-// In hosted, a staff member's identity is control-plane-owned. When an admin is
-// managing such a user, the whole in-product settings surface (role, security,
-// invitation, delete) is moot, so it's replaced by a control-plane hand-off.
-const managedTargetExternallyManaged = computed(
-  () => isManagingOtherUser.value && isIdentityExternallyManaged(targetUser.value),
-);
-const manageInControlPlane = () => void openControlPlaneSeats();
 const updatingRole = ref(false);
 
 // Get the current user being edited (either targetUser for admin or authStore.user for self)
 const currentUser = computed(() => targetUser.value || authStore.user);
+
+// Hosted staff: their Nosdesk account owns name, photo, email and sign-in, so
+// those sections become one read-only account card; role, invitation and
+// delete belong to the seat. Everything else here stays the workspace's.
+const identityManaged = computed(() => isIdentityExternallyManaged(currentUser.value));
+// In hosted, a role above requester is a seat in the Nosdesk account, so the
+// in-product role grid has nothing to offer.
+const hosted = computed(() => isHostedDeploymentRef.value);
 
 // Groups list comes from the cache-backed query in admin mode.
 const userGroups = computed<Group[]>(() =>
@@ -463,7 +468,7 @@ const cancelDelete = () => {
     </div>
 
     <!-- Mobile Tab Navigation (horizontal scroll) - sticky full-width on mobile -->
-    <div v-if="!managedTargetExternallyManaged" class="lg:hidden sticky top-0 z-20 bg-app border-b border-default">
+    <div class="lg:hidden sticky top-0 z-20 bg-app border-b border-default">
       <div class="px-4 sm:px-6 py-2">
         <HorizontalScrollContainer container-class="gap-2" fade-background="bg-app" :show-dots="false">
           <button
@@ -520,29 +525,8 @@ const cancelDelete = () => {
         {{ error }}
       </div>
 
-      <!-- Hosted staff: identity is control-plane-owned, so the whole
-           in-product settings surface is replaced by a hand-off. -->
-      <div
-        v-if="managedTargetExternallyManaged"
-        class="bg-surface rounded-xl border border-default p-6 flex flex-col items-start gap-4 max-w-2xl"
-      >
-        <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-accent/15 text-accent">
-          <Icon name="team" size="md" />
-        </div>
-        <div class="flex flex-col gap-1">
-          <h2 class="text-lg font-semibold text-primary">{{ t('user-settings-cp-managed-title') }}</h2>
-          <p class="text-sm text-secondary">{{ t('user-settings-cp-managed-body') }}</p>
-        </div>
-        <Button
-          @click="manageInControlPlane"
-          icon="openExternal"
-        >
-          {{ t('user-profile-action-manage-in-control-plane') }}
-        </Button>
-      </div>
-
       <!-- Main content -->
-      <div v-else class="flex flex-col lg:flex-row gap-4 lg:gap-6">
+      <div class="flex flex-col lg:flex-row gap-4 lg:gap-6">
         <!-- Desktop Sidebar Navigation -->
         <aside class="hidden lg:block lg:w-64 flex-shrink-0">
           <div class="sticky top-4">
@@ -593,17 +577,26 @@ const cancelDelete = () => {
           <template v-else>
           <!-- Profile Tab -->
           <div v-if="activeTab === 'profile'" class="flex flex-col gap-6">
+            <NosdeskAccountCard v-if="identityManaged && currentUser" :user="currentUser" />
             <UserProfileCard
               :user="currentUser ?? undefined"
               :can-edit="true"
               :show-editable-fields="true"
+              :identity-locked="identityManaged"
+              @success="handleSuccess"
+              @error="handleError"
+            />
+
+            <WorkspaceNameCard
+              v-if="hosted && !isAdminMode && currentUser?.uuid"
+              :uuid="currentUser.uuid"
               @success="handleSuccess"
               @error="handleError"
             />
 
             <!-- Email Addresses Management -->
             <UserEmailsCard
-              v-if="currentUser?.uuid"
+              v-if="currentUser?.uuid && !identityManaged"
               :user-uuid="currentUser.uuid"
               :can-edit="true"
               @success="handleSuccess"
@@ -659,7 +652,7 @@ const cancelDelete = () => {
             </SectionCard>
 
             <!-- Admin Role Management Card -->
-            <SectionCard v-if="isManagingOtherUser && authStore.isAdmin && targetUser" content-padding="p-4 sm:p-6">
+            <SectionCard v-if="isManagingOtherUser && authStore.isAdmin && targetUser && !identityManaged && !hosted" content-padding="p-4 sm:p-6">
               <template #leading>
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-status-warning flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
@@ -721,7 +714,7 @@ const cancelDelete = () => {
 
             <!-- Account Setup Card (Admin only, for users who haven't completed setup) -->
             <SectionCard
-              v-if="isManagingOtherUser && authStore.isAdmin && targetUser && !userHasCompletedSetup"
+              v-if="isManagingOtherUser && authStore.isAdmin && targetUser && !userHasCompletedSetup && !identityManaged"
               content-padding="p-4 sm:p-6"
             >
               <template #leading>
@@ -801,6 +794,12 @@ const cancelDelete = () => {
 
           <!-- Security Tab -->
           <div v-if="activeTab === 'security'" class="flex flex-col gap-4">
+            <NosdeskAccountCard
+              v-if="identityManaged && currentUser"
+              :user="currentUser"
+              scope="security"
+            />
+            <template v-else>
             <SecuritySettings
               :target-user-uuid="targetUserUuid"
               @success="handleSuccess"
@@ -821,6 +820,7 @@ const cancelDelete = () => {
               @success="handleSuccess"
               @error="handleError"
             />
+            </template>
 
             <!-- Active sessions: self-only. The /auth/sessions
                  endpoints resolve the user from the JWT, so this card
@@ -832,7 +832,7 @@ const cancelDelete = () => {
             />
 
             <!-- Delete Account Section -->
-            <Callout severity="error">
+            <Callout v-if="!identityManaged" severity="error">
               <template #header>
                 <p class="font-medium text-primary">{{ t('user-settings-danger-zone-title') }}</p>
                 <p class="text-secondary mt-0.5">{{ t('user-settings-danger-zone-subtitle') }}</p>

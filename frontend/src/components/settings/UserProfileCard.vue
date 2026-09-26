@@ -5,6 +5,9 @@ import { useFluent } from "fluent-vue";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "@/components/UserAvatar.vue";
 import InlineEdit from "@/components/common/InlineEdit.vue";
+import { extractErrorMessage } from "@/utils/errors";
+import NosdeskAccountChip from "@/components/identity/NosdeskAccountChip.vue";
+import { isIdentityExternallyManaged } from "@nosdesk/core/services/instanceConfig";
 import LoadingSpinner from "@/components/common/LoadingSpinner.vue";
 import Button from "@/components/common/Button.vue";
 import FormInput from "@/components/common/FormInput.vue";
@@ -62,6 +65,8 @@ const props = withDefaults(
         showPronouns?: boolean; // Whether to show pronouns
         showEmail?: boolean; // Whether to show email
         enableAvatarNavigation?: boolean; // Whether clicking avatar navigates to profile
+        /** Name and photo belong to the person's Nosdesk account (hosted staff). */
+        identityLocked?: boolean;
     }>(),
     {
         canEdit: false,
@@ -79,6 +84,8 @@ const displayUser = computed(() => props.user || authStore.user);
 
 // Computed property for determining if component should be in edit mode
 const isEditable = computed(() => props.canEdit && props.showEditableFields);
+// Name and photo: editable here unless the Nosdesk account owns them.
+const canEditIdentity = computed(() => isEditable.value && !props.identityLocked);
 
 // Computed properties for variant-based styling
 const isCompact = computed(() => props.variant === 'compact');
@@ -324,7 +331,7 @@ const updateName = async () => {
             emit("error", t("settings-profile-name-update-error"));
         }
     } catch (err) {
-        emit("error", t("settings-profile-name-update-error"));
+        emit("error", extractErrorMessage(err, t("settings-profile-name-update-error")));
         console.error("Error updating name:", err);
     } finally {
         loading.value = false;
@@ -568,14 +575,14 @@ const getRoleDisplayName = (role: string) => {
                 :class="[
                     avatarSize,
                     showBanner ? `absolute ${avatarOffset} left-3 sm:left-4` : 'mx-auto mt-4',
-                    { 'cursor-pointer': isEditable }
+                    { 'cursor-pointer': canEditIdentity }
                 ]"
-                :role="isEditable ? 'button' : undefined"
-                :tabindex="isEditable ? 0 : undefined"
-                :aria-label="isEditable ? $t('settings-profile-avatar-change') : undefined"
-                @click="isEditable ? handleAvatarClick() : undefined"
-                @keydown.enter.prevent="isEditable ? handleAvatarClick() : undefined"
-                @keydown.space.prevent="isEditable ? handleAvatarClick() : undefined"
+                :role="canEditIdentity ? 'button' : undefined"
+                :tabindex="canEditIdentity ? 0 : undefined"
+                :aria-label="canEditIdentity ? $t('settings-profile-avatar-change') : undefined"
+                @click="canEditIdentity ? handleAvatarClick() : undefined"
+                @keydown.enter.prevent="canEditIdentity ? handleAvatarClick() : undefined"
+                @keydown.space.prevent="canEditIdentity ? handleAvatarClick() : undefined"
             >
                 <UserAvatar
                     :uuid="displayUser?.uuid"
@@ -596,7 +603,7 @@ const getRoleDisplayName = (role: string) => {
                 </div>
                 <!-- Hover overlay for editing -->
                 <div
-                    v-if="isEditable && !avatarUploading"
+                    v-if="canEditIdentity && !avatarUploading"
                     class="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity rounded-full"
                 >
                     <div class="text-white flex flex-col items-center gap-1">
@@ -624,7 +631,7 @@ const getRoleDisplayName = (role: string) => {
                     </div>
                 </div>
                 <input
-                    v-if="isEditable"
+                    v-if="canEditIdentity"
                     ref="fileInput"
                     type="file"
                     accept="image/*"
@@ -652,10 +659,12 @@ const getRoleDisplayName = (role: string) => {
                                 displayUser?.name || $t('settings-profile-name-placeholder')
                             "
                             text-size="2xl"
-                            :can-edit="true"
+                            :can-edit="canEditIdentity"
                             @update:modelValue="handleNameUpdate"
                         />
                     </div>
+
+                    <NosdeskAccountChip v-if="isIdentityExternallyManaged(displayUser)" />
 
                     <!-- Right: Role badge -->
                     <div

@@ -14,6 +14,7 @@ import { openControlPlaneSeats } from '@/services/activeWorkspace';
 import BackButton from "@/components/common/BackButton.vue";
 import UserProfileCard from "@/components/settings/UserProfileCard.vue";
 import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
+import NosdeskAccountCard from "@/components/identity/NosdeskAccountCard.vue";
 import UserContactCard from "@/components/settings/UserContactCard.vue";
 import UserPhonesCard from "@/components/settings/UserPhonesCard.vue";
 import UserAddressesCard from "@/components/settings/UserAddressesCard.vue";
@@ -157,7 +158,8 @@ const canEditContact = computed(
 // hands management off to the control plane instead of exposing the in-product
 // settings surface. Requesters and self-hosted stay locally managed.
 const targetExternallyManaged = computed(() => isIdentityExternallyManaged(userProfile.value));
-const manageInControlPlane = () => void openControlPlaneSeats();
+const canReadEmails = computed(() => isOwnProfile.value || authStore.isPlatformAdmin);
+const manageInControlPlane = () => void openControlPlaneSeats(userProfile.value?.email);
 
 // Update document title when user profile changes
 watch(userProfile, (newProfile) => {
@@ -371,7 +373,7 @@ watch(
                     </LinkButton>
 
                     <!-- Hosted staff: identity lives in the control plane, so
-                         hand off to Instances -> Seats instead of the in-product
+                         hand off to their seat in the Nosdesk account instead of the in-product
                          settings surface (which can't manage a projected seat). -->
                     <button
                         v-else-if="canEditRole && userProfile && !isOwnProfile && targetExternallyManaged"
@@ -674,7 +676,12 @@ watch(
                          instead. md+ switches back to the masonry. -->
                     <div class="flex flex-col gap-4 md:block md:columns-2 xl:columns-3">
                         <!-- Email Addresses Section -->
-                        <div v-if="userProfile?.uuid" class="break-inside-avoid md:mb-4">
+                        <div v-if="userProfile?.uuid && targetExternallyManaged" class="break-inside-avoid md:mb-4">
+                            <NosdeskAccountCard :user="userProfile" />
+                        </div>
+                        <!-- The address list is readable by the person and platform admins;
+                             everyone else sees the primary address in the header. -->
+                        <div v-else-if="userProfile?.uuid && canReadEmails" class="break-inside-avoid md:mb-4">
                             <UserEmailsCard
                                 :user-uuid="userProfile.uuid"
                                 :can-edit="false"
