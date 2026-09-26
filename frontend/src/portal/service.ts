@@ -63,6 +63,11 @@ export async function requestMagicLink(email: string): Promise<void> {
   await portalApi.post('/auth/magic-link', { email })
 }
 
+/** Sign in with the 6-digit code from the sign-in email. */
+export async function signInWithCode(email: string, code: string): Promise<void> {
+  await portalApi.post('/auth/code', { email, code })
+}
+
 export async function getMe(): Promise<PortalMe> {
   const { data } = await portalApi.get<PortalMe>('/me')
   return data

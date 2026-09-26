@@ -370,10 +370,11 @@ pub fn prepare_portal_magic_link(
     recipient: &str,
     user_name: &str,
     magic_token: &str,
+    code: Option<&str>,
     locale: &unic_langid::LanguageIdentifier,
 ) -> NewOutboundEmail {
     let (subject, body_html, body_text) =
-        svc.compose_portal_magic_link(user_name, magic_token, branding, locale);
+        svc.compose_portal_magic_link(user_name, magic_token, code, branding, locale);
     let message_id = make_message_id("portal-signin", &from_email_domain(svc));
     let headers_json = serde_json::json!({
         "Auto-Submitted": "auto-generated",
@@ -408,9 +409,18 @@ pub fn enqueue_portal_magic_link(
     recipient: &str,
     user_name: &str,
     magic_token: &str,
+    code: Option<&str>,
     locale: &unic_langid::LanguageIdentifier,
 ) -> Result<OutboundEmail, DieselError> {
-    let row = prepare_portal_magic_link(svc, branding, recipient, user_name, magic_token, locale);
+    let row = prepare_portal_magic_link(
+        svc,
+        branding,
+        recipient,
+        user_name,
+        magic_token,
+        code,
+        locale,
+    );
     outbound_emails::enqueue_idempotent(conn, row)
 }
 

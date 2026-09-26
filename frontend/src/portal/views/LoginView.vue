@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
@@ -9,10 +9,11 @@ import LogoIcon from '@/components/icons/LogoIcon.vue'
 import { useBrandingStore } from '@/stores/branding'
 import { useThemeStore } from '@/stores/theme'
 
-import { requestMagicLink } from '../service'
+import { requestMagicLink, signInWithCode } from '../service'
 
 const { $t: t } = useFluent()
 const route = useRoute()
+const router = useRouter()
 const branding = useBrandingStore()
 const theme = useThemeStore()
 
@@ -23,6 +24,30 @@ const linkFailed = computed(() => route.query.signin_error === '1')
 const email = ref('')
 const sent = ref(false)
 const submitting = ref(false)
+
+const code = ref('')
+const verifying = ref(false)
+const codeFailed = ref(false)
+
+async function submitCode(): Promise<void> {
+  if (code.value.replace(/\D/g, '').length !== 6) return
+  verifying.value = true
+  codeFailed.value = false
+  try {
+    await signInWithCode(email.value.trim(), code.value)
+    void router.replace('/tickets')
+  } catch {
+    codeFailed.value = true
+  } finally {
+    verifying.value = false
+  }
+}
+
+function useAnotherEmail(): void {
+  sent.value = false
+  code.value = ''
+  codeFailed.value = false
+}
 
 async function submit(): Promise<void> {
   if (!email.value.trim()) return
@@ -54,7 +79,22 @@ async function submit(): Promise<void> {
         <p v-if="linkFailed && !sent" role="alert" class="text-sm text-status-error">{{ t('portal-sign-in-error') }}</p>
         <template v-if="sent">
           <p class="text-sm text-primary">{{ t('portal-sign-in-sent') }}</p>
-          <Button variant="secondary" @click="sent = false">{{ t('portal-sign-in-use-another') }}</Button>
+          <form class="flex flex-col gap-3" @submit.prevent="submitCode">
+            <FormInput
+              v-model="code"
+              :label="t('portal-code-label')"
+              placeholder="123 456"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="7"
+              :disabled="verifying"
+            />
+            <p v-if="codeFailed" role="alert" class="text-sm text-status-error">{{ t('portal-code-invalid') }}</p>
+            <Button type="submit" :loading="verifying" :disabled="code.replace(/\D/g, '').length !== 6">
+              {{ t('portal-code-submit') }}
+            </Button>
+          </form>
+          <Button variant="ghost" @click="useAnotherEmail">{{ t('portal-sign-in-use-another') }}</Button>
         </template>
         <form v-else class="flex flex-col gap-4" @submit.prevent="submit">
           <FormInput
