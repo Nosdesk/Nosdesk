@@ -320,3 +320,101 @@ async fn set_member_role_full_contract() {
         .expect("send no-token");
     assert_eq!(resp.status(), 401, "absent token must 401");
 }
+
+fn session_count(pool: &backend::db::Pool, user_uuid: uuid::Uuid) -> i64 {
+    use backend::schema::active_sessions;
+    let mut conn = pool.get().expect("conn");
+    active_sessions::table
+        .filter(active_sessions::user_uuid.eq(user_uuid))
+        .count()
+        .get_result(&mut conn)
+        .expect("count sessions")
+}
+
+/// The control plane's "sign out everywhere" ends every helpdesk session the
+/// person holds; an unknown identity is a 404; a wrong-scope token is refused.
+#[actix_web::test]
+async fn revoke_member_sessions_signs_the_person_out_of_the_helpdesk() {
+    common::ensure_test_keyring();
+    common::enable_platform_auth();
+    let test_db = common::TestDb::new();
+    let pool = test_db.pool_with_size(4);
+    let platform_token = common::mint_platform_jwt("platform:provision", 300);
+    let wrong_scope_token = common::mint_platform_jwt("platform:other", 300);
+    common::mint_workspace(&mut pool.get().expect("conn"), "acme", "Acme");
+
+    let pool_for_app = pool.clone();
+    let srv = actix_test::start(move || {
+        App::new()
+            .app_data(web::Data::new(pool_for_app.clone()))
+            .service(
+                web::scope("/api/internal/v1")
+                    .wrap(actix_web::middleware::from_fn(idempotency_middleware))
+                    .wrap(actix_web::middleware::from_fn(
+                        backend::extractors::platform_auth_middleware,
+                    ))
+                    .route(
+                        "/workspaces/{slug}/upsert_projected_user",
+                        web::post().to(internal_workspaces::upsert_projected_user),
+                    )
+                    .route(
+                        "/workspaces/{slug}/members/revoke_sessions",
+                        web::post().to(internal_workspaces::revoke_member_sessions),
+                    ),
+            )
+    });
+    let client = awc::Client::new();
+    let upsert = srv.url("/api/internal/v1/workspaces/acme/upsert_projected_user");
+    let revoke = srv.url("/api/internal/v1/workspaces/acme/members/revoke_sessions");
+
+    let iss = "https://id.example";
+    let agent = project_member(&client, &upsert, &platform_token, iss, "agent-sub", "agent").await;
+    {
+        use backend::schema::active_sessions;
+        let mut conn = pool.get().expect("conn");
+        for _ in 0..2 {
+            diesel::insert_into(active_sessions::table)
+                .values((
+                    active_sessions::user_uuid.eq(agent),
+                    active_sessions::session_id.eq(uuid::Uuid::new_v4()),
+                    active_sessions::expires_at.eq(chrono::Utc::now() + chrono::Duration::days(1)),
+                ))
+                .execute(&mut conn)
+                .expect("session");
+        }
+    }
+    assert_eq!(session_count(&pool, agent), 2);
+
+    let post = |token: &str, sub: &str| {
+        client
+            .post(&revoke)
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .send_json(&json!({ "iss": iss, "sub": sub }))
+    };
+    assert_eq!(
+        post(&wrong_scope_token, "agent-sub")
+            .await
+            .expect("send")
+            .status(),
+        401
+    );
+    assert_eq!(
+        session_count(&pool, agent),
+        2,
+        "a refused call revokes nothing"
+    );
+
+    let mut resp = post(&platform_token, "agent-sub").await.expect("send");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.expect("json");
+    assert_eq!(body["revoked"], 2);
+    assert_eq!(session_count(&pool, agent), 0);
+
+    assert_eq!(
+        post(&platform_token, "nobody")
+            .await
+            .expect("send")
+            .status(),
+        404
+    );
+}

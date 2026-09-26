@@ -950,6 +950,7 @@ async fn internal_workspaces_config_routes_registered() {
             ("POST", "/workspaces/1/upsert_projected_user"),
             ("POST", "/workspaces/1/seat_limit"),
             ("POST", "/workspaces/1/members/set_role"),
+            ("POST", "/workspaces/1/members/revoke_sessions"),
             ("PATCH", "/workspaces/1/custom-domain"),
             ("GET", "/workspaces/1/provisioning"),
             ("POST", "/workspaces/1/restore"),
