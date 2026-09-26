@@ -107,24 +107,22 @@ function onRefreshComplete(success: boolean) {
 }
 
 
-// Redirect to login using Vue Router to preserve SPA history stack.
-//
-// Note: we do NOT clear cookies here. The auth cookies (access_token,
-// refresh_token) are httpOnly, so JavaScript can't delete them anyway —
-// the old `document.cookie = ...` lines were silent no-ops that gave a
-// false impression of "logging out". This path only runs on genuine
-// session expiry (the refresh endpoint rejected us / refresh failed),
-// where those cookies are already invalid server-side, and a successful
-// login re-issues fresh ones. Server-initiated logout (/api/auth/logout)
-// is what actually clears the httpOnly cookies.
+// The session can't be renewed (it expired, or was revoked elsewhere): sign
+// out locally and land on /login. Only pushing /login is not enough, since the
+// router sends a still-populated auth store straight back home, and the
+// workspace data would stay on screen. logout() clears both; its own server
+// call 401s quietly because it marks the session as tearing down.
 function redirectToLogin() {
   sessionStorage.setItem('redirecting-to-login', 'true');
   localStorage.removeItem('authProvider');
 
   setTimeout(async () => {
-    sessionStorage.removeItem('redirecting-to-login');
-    const { default: router } = await import('@/router');
-    router.push('/login');
+    try {
+      const { useAuthStore } = await import('@/stores/auth');
+      await useAuthStore().logout();
+    } finally {
+      sessionStorage.removeItem('redirecting-to-login');
+    }
   }, 100);
 }
 
