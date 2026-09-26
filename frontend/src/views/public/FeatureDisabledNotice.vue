@@ -7,9 +7,9 @@
       <h2 class="text-lg font-semibold text-primary">{{ title }}</h2>
       <p class="text-sm text-secondary">{{ message }}</p>
     </div>
-    <LinkButton
-      to="/login"
-    >
+    <!-- href, not to: on a hosted tenant origin sign-in is the portal, which
+         the server serves on a full page load (see RequesterLink). -->
+    <LinkButton href="/login">
       {{ $t('feature-disabled-sign-in') }}
     </LinkButton>
   </div>
