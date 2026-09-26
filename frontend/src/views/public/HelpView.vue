@@ -43,7 +43,7 @@
 <script setup lang="ts">
 import { h, ref, computed, onMounted } from 'vue';
 import RequesterLink from '@/components/public/RequesterLink.vue';
-import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
+import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig';
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
@@ -128,7 +128,7 @@ const cards = computed(() => {
   }
   // Hosted requesters sign in with an emailed link; there is no password to
   // reset.
-  if (!isHostedDeployment()) {
+  if (!isHostedDeploymentRef.value) {
     list.push({
       to: '/reset-password',
       title: t('help-card-reset-title'),
@@ -141,7 +141,7 @@ const cards = computed(() => {
   list.push({
     to: '/login',
     title: t('help-card-signin-title'),
-    description: isHostedDeployment()
+    description: isHostedDeploymentRef.value
       ? t('help-card-signin-desc-portal')
       : t('help-card-signin-desc'),
     icon: SignInIcon(),
