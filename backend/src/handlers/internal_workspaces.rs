@@ -48,6 +48,10 @@ pub fn config(cfg: &mut actix_web::web::ServiceConfig) {
             web::post().to(set_member_role),
         )
         .route(
+            "/workspaces/{slug}/members/revoke_sessions",
+            web::post().to(revoke_member_sessions),
+        )
+        .route(
             "/workspaces/{slug}/custom-domain",
             web::patch().to(set_custom_domain),
         )
@@ -724,6 +728,68 @@ pub async fn upsert_projected_user(
             Err(ApiError::Internal("Failed to project user".into()))
         }
     }
+}
+
+// =====================================================================
+// revoke_member_sessions
+// =====================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct RevokeMemberSessionsRequest {
+    /// OIDC `iss`, `user_auth_identities.provider_type`.
+    pub iss: String,
+    /// OIDC `sub`, `user_auth_identities.external_id`.
+    pub sub: String,
+}
+
+/// `POST /api/internal/v1/workspaces/{slug}/members/revoke_sessions`: end every
+/// helpdesk session a person holds, so an operator's "sign out everywhere" in
+/// the control plane reaches the helpdesk too. Sessions belong to the person,
+/// not the workspace, so one call through any workspace they belong to is
+/// enough, and repeating it is harmless. Their refresh tokens go with the
+/// sessions. 404 when no user has that identity.
+pub async fn revoke_member_sessions(
+    _: PlatformAuth,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+    body: web::Json<RevokeMemberSessionsRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let slug = path.into_inner();
+    let RevokeMemberSessionsRequest { iss, sub } = body.into_inner();
+    if iss.trim().is_empty() || sub.trim().is_empty() {
+        return Err(ApiError::BadRequest(
+            "iss and sub must both be non-empty".into(),
+        ));
+    }
+    let mut conn = pool_conn(&pool, "revoke_member_sessions")?;
+    resolve_workspace_or_respond(&mut conn, &slug, "revoke_member_sessions")?;
+    let user_uuid =
+        match crate::repository::user_auth_identities::find_user_by_identity(&iss, &sub, &mut conn)
+        {
+            Ok(Some(u)) => u,
+            Ok(None) => return Err(ApiError::NotFoundMsg("member not found".into())),
+            Err(e) => {
+                error!(error = ?e, slug = %slug, "revoke_member_sessions: identity lookup failed");
+                return Err(ApiError::Internal("Failed to resolve member".into()));
+            }
+        };
+    let revoked = crate::repository::active_sessions::revoke_all_sessions(&mut conn, &user_uuid)
+        .map_err(|e| {
+            error!(error = ?e, "revoke_member_sessions: revoke failed");
+            ApiError::Internal("Failed to revoke sessions".into())
+        })?;
+    let _ = crate::utils::security_events::record_security_event(
+        &mut conn,
+        crate::utils::security_events::SecurityEventInput {
+            user_uuid: Some(user_uuid),
+            event_type: "session_revoked",
+            severity: "warning",
+            details: Some(serde_json::json!({ "reason": "operator_sign_out", "revoked": revoked })),
+            request: None,
+        },
+    );
+    info!(slug = %slug, count = revoked, "revoke_member_sessions: signed out everywhere");
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "revoked": revoked })))
 }
 
 // =====================================================================
