@@ -22,6 +22,20 @@ use crate::utils::email_branding::get_email_branding;
 /// Rate limit duration in seconds (5 minutes)
 const RATE_LIMIT_SECONDS: i64 = 300;
 
+/// Whether a kind is held to one email per entity per [`RATE_LIMIT_SECONDS`].
+/// A requester's acknowledgement and status updates are not: each one says
+/// something new (status mail already fires only when the state's category
+/// changes), and throttling dropped "Done" when it followed "In Progress".
+fn throttled(notification_type: &str) -> bool {
+    !matches!(
+        NotificationTypeCode::from_str(notification_type),
+        Some(
+            NotificationTypeCode::TicketStatusChanged
+                | NotificationTypeCode::TicketCreatedRequester
+        )
+    )
+}
+
 /// Email notification channel with rate limiting
 pub struct EmailChannel {
     email_service: Arc<EmailService>,
@@ -444,6 +458,9 @@ impl NotificationDeliveryChannel for EmailChannel {
             entity_id, entity_type, id as rate_limit_id, last_notified_at,
             notification_rate_limits, notification_type_id, user_uuid,
         };
+        if !throttled(notification_type) {
+            return true;
+        }
 
         // Get notification type ID from shared cache
         let type_id: i32 = match self.get_notification_type_id(notification_type).await {
@@ -500,7 +517,15 @@ fn notification_link_base(
 
 #[cfg(test)]
 mod tests {
-    use super::notification_link_base;
+    use super::{notification_link_base, throttled};
+
+    #[test]
+    fn requester_updates_are_never_throttled() {
+        assert!(!throttled("ticket_status_changed"));
+        assert!(!throttled("ticket_created_requester"));
+        assert!(throttled("comment_added"));
+        assert!(throttled("ticket_assigned"));
+    }
 
     #[test]
     fn routes_notification_links_by_recipient_surface() {
