@@ -113,7 +113,7 @@ notif-ticket-status-changed = [{ $app }] Statut modifié : { $title }
 notif-comment-added = [{ $app }] Nouveau commentaire : { $title }
 notif-mentioned = [{ $app }] { $actor } vous a mentionné
 notif-ticket-referenced = [{ $app }] { $actor } a mentionné votre ticket
-notif-ticket-created-requester = [{ $app }] Ticket créé : { $title }
+notif-ticket-created-requester = [{ $app }] Nous avons bien reçu votre demande : { $title }
 notif-doc-page-updated = [{ $app }] Page mise à jour : { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
 # MACHINE TRANSLATION, pending native review
@@ -132,7 +132,16 @@ notif-body-text =
 
     De : { $actor }
 
-    Ouvrir dans { $app } : { $cta }
+    { $cta_label } : { $cta }
+
+    -- Vous recevez cet e-mail en raison de vos préférences de notification dans { $app }.
+
+notif-body-text-no-actor =
+    { $title }
+
+    { $body }
+
+    { $cta_label } : { $cta }
 
     -- Vous recevez cet e-mail en raison de vos préférences de notification dans { $app }.
 

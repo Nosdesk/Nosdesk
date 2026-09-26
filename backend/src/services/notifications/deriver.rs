@@ -56,6 +56,14 @@ pub enum Intent {
         previous_state_id: i32,
         state_id: i32,
     },
+    /// A ticket was opened with a requester who didn't arrive through an email
+    /// channel (that path sends its own auto-acknowledgement). Whether they
+    /// hear about it depends on their not being staff, which needs a lookup.
+    Created {
+        ticket_id: i32,
+        ticket_title: String,
+        requester: Uuid,
+    },
     /// A comment landed. Recipients and mentions are resolved against the
     /// ticket's watchers and, for an internal note, its staff.
     Commented {
@@ -163,6 +171,18 @@ pub fn derive(row: &SyncActionRow) -> Vec<Intent> {
         return intents;
     };
     let ticket_title = str_at(data, "title").unwrap_or_default().to_string();
+    if row.event_type == "ticket.created"
+        && data.get("origin_channel_id").is_none_or(Value::is_null)
+        && str_at(data, "submitted_via") != Some("csv_import")
+    {
+        if let Some(requester) = uuid_at(data, "requester_uuid") {
+            intents.push(Intent::Created {
+                ticket_id,
+                ticket_title: ticket_title.clone(),
+                requester,
+            });
+        }
+    }
 
     if data.get("previous_assignee_uuid").is_some() {
         let previous = uuid_at(data, "previous_assignee_uuid");
@@ -299,6 +319,37 @@ pub fn resolve(
                 .from_sync_action(row.sync_id),
             );
         }
+        Intent::Created {
+            ticket_id,
+            ticket_title,
+            requester,
+        } => {
+            // Staff file their own tickets from the app; the acknowledgement is
+            // for the people they help.
+            let is_staff = staff_among(conn, workspace_id, &[requester])
+                .map(|s| s.contains(&requester))
+                .unwrap_or(true);
+            if !is_staff {
+                let actor = actor_for(conn, row);
+                out.push(
+                    NotificationPayload::new(
+                        NotificationTypeCode::TicketCreatedRequester,
+                        requester,
+                        actor,
+                        NotificationEntity::Ticket {
+                            id: ticket_id,
+                            title: ticket_title.clone(),
+                        },
+                        workspace_id,
+                    )
+                    .with_title("Request received")
+                    .with_body(format!(
+                        "We've received your request #{ticket_id}: {ticket_title}. The team will reply by email."
+                    ))
+                    .from_sync_action(row.sync_id),
+                );
+            }
+        }
         Intent::StatusChanged {
             ticket_id,
             ticket_title,
@@ -318,6 +369,12 @@ pub fn resolve(
             let before = category_of(conn, previous_state_id);
             let after = category_of(conn, state_id);
             if before != after {
+                // Say it the way the workspace names it, not the category behind it.
+                let state_name = crate::repository::workflow_states::find_by_id(conn, state_id)
+                    .ok()
+                    .flatten()
+                    .map(|s| s.name)
+                    .unwrap_or_else(|| after.to_string());
                 let actor = actor_for(conn, row);
                 out.push(
                     NotificationPayload::new(
@@ -330,7 +387,8 @@ pub fn resolve(
                         },
                         workspace_id,
                     )
-                    .with_body(format!("Ticket #{ticket_id} status changed to {after}"))
+                    .with_title("Your request was updated")
+                    .with_body(format!("Request #{ticket_id} is now {state_name}."))
                     .from_sync_action(row.sync_id),
                 );
             }
@@ -585,8 +643,27 @@ mod tests {
             Some(B),
         );
         let intents = derive(&r);
-        assert_eq!(intents.len(), 1);
-        assert!(matches!(intents[0], Intent::Assigned { .. }));
+        assert_eq!(intents.len(), 2);
+        assert!(matches!(intents[0], Intent::Created { .. }));
+        assert!(matches!(intents[1], Intent::Assigned { .. }));
+    }
+
+    #[test]
+    fn a_new_ticket_acknowledges_its_requester_unless_it_came_by_email_or_import() {
+        let base = json!({"id": 7, "title": "T", "requester_uuid": C, "workflow_state_id": 1});
+        let r = row("ticket.created", base.clone(), Some(C));
+        assert!(matches!(derive(&r)[..], [Intent::Created { .. }]));
+
+        let mut by_email = base.clone();
+        by_email["origin_channel_id"] = json!(3);
+        assert!(derive(&row("ticket.created", by_email, None)).is_empty());
+
+        let mut imported = base.clone();
+        imported["submitted_via"] = json!("csv_import");
+        assert!(derive(&row("ticket.created", imported, Some(B))).is_empty());
+
+        let no_requester = json!({"id": 7, "title": "T", "workflow_state_id": 1});
+        assert!(derive(&row("ticket.created", no_requester, Some(B))).is_empty());
     }
 
     #[test]

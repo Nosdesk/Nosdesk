@@ -125,6 +125,29 @@ impl EmailChannel {
         }
     }
 
+    /// Whether the recipient is the ticket's requester and not staff, i.e. the
+    /// person the reply relay already emails every public reply to.
+    fn recipient_gets_replies_by_email(&self, notification: &DeliverableNotification) -> bool {
+        let recipient = notification.payload.recipient_uuid;
+        let ticket_id = notification.payload.entity.ticket_id();
+        crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:notification_email_dedupe",
+            notification.payload.workspace_id,
+            move |conn| {
+                let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
+                if ticket.requester_uuid != Some(recipient) {
+                    return Ok(false);
+                }
+                let user = crate::repository::users::find_active_by_uuid(&recipient, conn)?;
+                Ok::<_, diesel::result::Error>(
+                    !crate::repository::user_helpers::user_can_handle_tickets(conn, &user),
+                )
+            },
+        )
+        .unwrap_or(false)
+    }
+
     /// Get the recipient's primary email address
     async fn get_recipient_email(&self, recipient_uuid: &Uuid) -> ChannelResult<String> {
         use crate::schema::user_emails::dsl::{email, is_primary, user_emails, user_uuid};
@@ -229,6 +252,15 @@ impl NotificationDeliveryChannel for EmailChannel {
     }
 
     async fn deliver(&self, notification: &DeliverableNotification) -> ChannelResult<()> {
+        // A public reply already reaches a (non-staff) requester by email, as
+        // the reply itself (services::channels::outbound). Don't send them a
+        // second "new comment" email about the same reply.
+        if notification.payload.notification_type == NotificationTypeCode::CommentAdded
+            && self.recipient_gets_replies_by_email(notification)
+        {
+            return Ok(());
+        }
+
         // Get recipient email
         let recipient_email = self
             .get_recipient_email(&notification.payload.recipient_uuid)
@@ -312,6 +344,7 @@ impl NotificationDeliveryChannel for EmailChannel {
             .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
 
         let subject = self.generate_subject(notification, &branding.app_name, &recipient_locale);
+        let requester_link_used = requester_link.is_some();
         let entity_url =
             requester_link.unwrap_or_else(|| self.generate_entity_url(notification, &base_url));
         let body_text = match notification.payload.body.as_deref() {
@@ -319,7 +352,15 @@ impl NotificationDeliveryChannel for EmailChannel {
             _ => crate::utils::i18n::tr_with(&recipient_locale, "notif-body-fallback", &[]),
         };
         let title = notification.payload.title.clone();
-        let actor_name = notification.payload.actor.name.clone();
+        // An acknowledgement of the recipient's own request has no other actor.
+        let actor_name = if notification.payload.actor.uuid == notification.payload.recipient_uuid {
+            String::new()
+        } else {
+            notification.payload.actor.name.clone()
+        };
+        // A requester's link opens their request signed in; say so on the button.
+        let cta_label = requester_link_used
+            .then(|| crate::utils::i18n::tr(&recipient_locale, "reply-email-view-request"));
 
         // Get notification type ID for rate limit tracking
         let type_id = self
@@ -353,6 +394,7 @@ impl NotificationDeliveryChannel for EmailChannel {
                     &body_text,
                     &actor_name,
                     &entity_url,
+                    cta_label.as_deref(),
                     &event_id,
                     &recipient_uuid_str,
                     &recipient_locale,

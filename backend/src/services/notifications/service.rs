@@ -97,8 +97,11 @@ impl NotificationService {
     ///
     /// This is the single entry point for all notifications in the system.
     pub async fn notify(&self, payload: NotificationPayload) -> Result<(), String> {
-        // Don't notify the actor themselves
-        if payload.recipient_uuid == payload.actor.uuid {
+        // Don't notify the actor themselves, except the acknowledgement of a
+        // request, which is by nature about the requester's own action.
+        if payload.recipient_uuid == payload.actor.uuid
+            && payload.notification_type != super::NotificationTypeCode::TicketCreatedRequester
+        {
             tracing::debug!(
                 recipient = %payload.recipient_uuid,
                 "Skipping self-notification"

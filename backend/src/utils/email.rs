@@ -1961,6 +1961,7 @@ impl EmailService {
         body: &str,
         actor_name: &str,
         cta_url: &str,
+        cta_label: Option<&str>,
         branding: &EmailBranding,
         locale: &unic_langid::LanguageIdentifier,
     ) -> (String, String) {
@@ -1969,22 +1970,30 @@ impl EmailService {
             crate::utils::i18n::tr_with(locale, key, args)
         };
 
-        let from_row = tr(
-            "notif-from-row",
-            &[("actor", escape_html(actor_name).into())],
-        );
+        // No "From" row when there's no separate actor (an acknowledgement of
+        // the recipient's own request).
+        let from_row = (!actor_name.is_empty()).then(|| {
+            tr(
+                "notif-from-row",
+                &[("actor", escape_html(actor_name).into())],
+            )
+        });
 
-        let button_label = tr(
-            "notif-cta-view-in",
-            &[("app", branding.app_name.clone().into())],
-        );
+        let button_label = cta_label.map(str::to_string).unwrap_or_else(|| {
+            tr(
+                "notif-cta-view-in",
+                &[("app", branding.app_name.clone().into())],
+            )
+        });
         let footer = tr("notif-footer-preferences", &[]);
         let html_body = template.render(
             EmailLayout {
                 headline: title,
-                body: vec![text(escape_html(body)), muted(from_row)],
+                body: std::iter::once(text(escape_html(body)))
+                    .chain(from_row.map(muted))
+                    .collect(),
                 cta: Some(Cta {
-                    label: button_label,
+                    label: button_label.clone(),
                     url: cta_url.to_string(),
                 }),
                 notice: None,
@@ -1995,16 +2004,30 @@ impl EmailService {
             locale,
         );
 
-        let body_text = tr(
-            "notif-body-text",
-            &[
-                ("title", title.to_string().into()),
-                ("body", body.to_string().into()),
-                ("actor", actor_name.to_string().into()),
-                ("app", branding.app_name.clone().into()),
-                ("cta", cta_url.to_string().into()),
-            ],
-        );
+        let body_text = if actor_name.is_empty() {
+            tr(
+                "notif-body-text-no-actor",
+                &[
+                    ("title", title.to_string().into()),
+                    ("body", body.to_string().into()),
+                    ("app", branding.app_name.clone().into()),
+                    ("cta", cta_url.to_string().into()),
+                    ("cta_label", button_label.clone().into()),
+                ],
+            )
+        } else {
+            tr(
+                "notif-body-text",
+                &[
+                    ("title", title.to_string().into()),
+                    ("body", body.to_string().into()),
+                    ("actor", actor_name.to_string().into()),
+                    ("app", branding.app_name.clone().into()),
+                    ("cta", cta_url.to_string().into()),
+                    ("cta_label", button_label.clone().into()),
+                ],
+            )
+        };
 
         (html_body, body_text)
     }
@@ -2689,6 +2712,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             "It's still burning. Can someone take a look?",
             "Kyle",
             "https://desk.example.com/tickets/42",
+            None,
             &branding,
             &locale,
         );
