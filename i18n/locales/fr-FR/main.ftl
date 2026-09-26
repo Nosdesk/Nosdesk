@@ -462,6 +462,7 @@ settings-localization-save-failed = Échec de l'enregistrement des préférences
 
 # Footer on an agent reply sent with no email channel (replies to it are lost).
 reply-email-reply-elsewhere = Les réponses à cet e-mail ne nous parviennent pas. Pour répondre, ouvrez votre demande :
+reply-email-view-request = Voir votre demande
 
 # Channel auto-acknowledgement.
 auto-ack-default-template = Votre demande (#{ $ticket_id }) a été reçue et est en cours d'examen par notre équipe d'assistance. Pour ajouter d'autres commentaires, répondez à cet e-mail.

@@ -491,6 +491,7 @@ settings-localization-save-failed = Failed to save preferences
 
 # Footer on an agent reply sent with no email channel (replies to it are lost).
 reply-email-reply-elsewhere = Replies to this email don't reach us. To reply, open your request:
+reply-email-view-request = View your request
 
 # Default body for the channel auto-acknowledgement reply when no
 # admin-customised template is set. Picked by the inbound's

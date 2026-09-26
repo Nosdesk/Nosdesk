@@ -438,7 +438,13 @@ const handleConfirmGuest = async () => {
   submitError.value = '';
   loading.value = true;
   try {
-    await authService.confirmGuestSubmission(token.value);
+    const result = await authService.confirmGuestSubmission(token.value);
+    // Hosted: confirming signed them in to the portal; open their request there
+    // (a full load, since the portal is a separate app).
+    if (result.redirect_to) {
+      window.location.assign(result.redirect_to);
+      return;
+    }
     acceptSuccess.value = true;
   } catch (error) {
     submitError.value = extractErrorMessage(error, t('accept-invitation-error-submit'));

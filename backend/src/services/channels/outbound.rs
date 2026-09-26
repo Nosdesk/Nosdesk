@@ -232,7 +232,7 @@ pub fn enqueue_for_comment(
                             comment.user_uuid,
                             body,
                         );
-                        let body = with_reply_elsewhere_note(conn, &ticket, body);
+                        let body = with_request_link(conn, &ticket, body, true);
                         let domain = crate::utils::email_branding::outbound_email_domain()
                             .unwrap_or_else(|| "nosdesk.local".to_string());
                         let new_row = reply_row(
@@ -270,6 +270,7 @@ pub fn enqueue_for_comment(
                 let body = super::reply_body::ReplyBody::from_comment(&comment);
                 let body =
                     super::signature::append_signature_for_user(conn, comment.user_uuid, body);
+                let body = with_request_link(conn, &ticket, body, false);
                 let body =
                     super::quote_previous::maybe_prepend_quote(conn, &channel, &ticket, body);
 
@@ -344,45 +345,47 @@ pub fn enqueue_for_comment(
     });
 }
 
-/// A reply sent with no email channel has nowhere for the customer's email
-/// reply to land, so say where to reply instead: the ticket on the portal
-/// (hosted) or the helpdesk (self-hosted). Unchanged when no link base is
-/// configured.
-fn with_reply_elsewhere_note(
+/// Close a reply to the requester with a way back to the request: a "View
+/// your request" link (signed in on hosted). A reply sent with no email channel
+/// also says that email replies don't reach the team, since there is nowhere
+/// for them to land. Unchanged when there's no requester or link base.
+fn with_request_link(
     conn: &mut DbConnection,
     ticket: &crate::models::Ticket,
     mut body: super::reply_body::ReplyBody,
+    replies_are_lost: bool,
 ) -> super::reply_body::ReplyBody {
-    let workspace = crate::repository::workspaces::find_by_id(conn, ticket.workspace_id)
-        .ok()
-        .flatten();
-    let origin = workspace
-        .as_ref()
-        .and_then(|ws| {
-            crate::utils::tenant_origin::canonical_host_for(
-                &ws.slug,
-                ws.custom_domain.as_deref(),
-                crate::utils::tenant_origin::tenant_domain().as_deref(),
-            )
-        })
-        .map(|host| format!("https://{host}"));
-    let Some(base) = crate::utils::tenant_origin::email_link_base(origin) else {
+    let Some(requester) = ticket.requester_uuid else {
         return body;
     };
-    let url = format!("{}/tickets/{}", base.trim_end_matches('/'), ticket.id);
-    let locale = match ticket.requester_uuid {
-        Some(uuid) => crate::repository::user_locale::resolve_effective_locale(conn, uuid),
-        None => crate::utils::locale::effective_locale(None, crate::utils::locale::DEFAULT_LOCALE),
+    let Some(url) = crate::utils::portal_ticket_link::view_request_url(
+        conn,
+        ticket.workspace_id,
+        requester,
+        ticket.id,
+    ) else {
+        return body;
     };
-    let note = crate::utils::i18n::tr(&locale, "reply-email-reply-elsewhere");
-    body.text = format!("{}\n\n{note}\n{url}", body.text);
-    body.html = format!(
-        "{}<p>{} <a href=\"{url_attr}\">{url_text}</a></p>",
-        body.html,
-        crate::utils::email::escape_html(&note),
-        url_attr = crate::utils::email::escape_html(&url),
-        url_text = crate::utils::email::escape_html(&url),
-    );
+    let locale = crate::repository::user_locale::resolve_effective_locale(conn, requester);
+    let label = crate::utils::i18n::tr(&locale, "reply-email-view-request");
+    let url_attr = crate::utils::email::escape_html(&url);
+    if replies_are_lost {
+        let note = crate::utils::i18n::tr(&locale, "reply-email-reply-elsewhere");
+        body.text = format!("{}\n\n{note}\n{url}", body.text);
+        body.html = format!(
+            "{}<p>{} <a href=\"{url_attr}\">{}</a></p>",
+            body.html,
+            crate::utils::email::escape_html(&note),
+            crate::utils::email::escape_html(&label),
+        );
+    } else {
+        body.text = format!("{}\n\n{label}: {url}", body.text);
+        body.html = format!(
+            "{}<p><a href=\"{url_attr}\">{}</a></p>",
+            body.html,
+            crate::utils::email::escape_html(&label),
+        );
+    }
     body
 }
 

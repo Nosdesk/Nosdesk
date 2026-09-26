@@ -458,6 +458,7 @@ settings-localization-save-failed = Opslaan van voorkeuren mislukt
 
 # Footer on an agent reply sent with no email channel (replies to it are lost).
 reply-email-reply-elsewhere = Antwoorden op deze e-mail komen niet bij ons aan. Open je verzoek om te antwoorden:
+reply-email-view-request = Je verzoek bekijken
 
 # Channel auto-acknowledgement.
 auto-ack-default-template = Uw verzoek (#{ $ticket_id }) is ontvangen en wordt beoordeeld door ons supportteam. Antwoord op deze e-mail om aanvullende opmerkingen toe te voegen.

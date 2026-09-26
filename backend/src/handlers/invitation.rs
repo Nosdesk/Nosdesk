@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use chrono::Utc;
 use serde_json::json;
 use std::sync::Arc;
@@ -327,7 +327,7 @@ pub async fn confirm_guest_submission(
 
     let user = repository::get_user_by_uuid(&token.user_uuid, &mut conn).map_err(|_| invalid())?;
 
-    complete_verification(
+    let released = complete_verification(
         &db_pool,
         &mut conn,
         &search_service,
@@ -353,6 +353,38 @@ pub async fn confirm_guest_submission(
         warn!("Failed to log guest confirmation event: {}", e);
     }
 
+    // On a hosted tenant origin, confirming is signing in: open a portal
+    // session and send them to the request they just confirmed. Self-hosted has
+    // no portal yet, so the page shows the confirmed state instead.
+    let portal_ctx = http_request
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .cloned()
+        .filter(|_| crate::middleware::workspace_context::is_hosted());
+    if let (Some(ctx), Some(ticket_id)) = (portal_ctx, released.iter().max().copied()) {
+        match crate::handlers::portal::mint_portal_session(
+            &user,
+            ctx.workspace_uuid,
+            &http_request,
+            &mut conn,
+        ) {
+            Ok(session) => {
+                return Ok(HttpResponse::Ok()
+                    .cookie(session.access)
+                    .cookie(session.refresh)
+                    .cookie(session.csrf)
+                    .json(json!({
+                        "success": true,
+                        "message": "Your request has been confirmed.",
+                        "redirect_to": format!("/tickets/{ticket_id}"),
+                    })));
+            }
+            Err(e) => {
+                warn!(user_uuid = %user.uuid, error = ?e, "Guest confirm: could not start a portal session")
+            }
+        }
+    }
+
     Ok(HttpResponse::Ok().json(AcceptInvitationResponse {
         success: true,
         message: "Your request has been confirmed.".to_string(),
@@ -369,7 +401,8 @@ enum Completion {
     GuestConfirmed,
 }
 
-/// Steps shared by every token-verified acceptance: stamp the membership
+/// Steps shared by every token-verified acceptance, returning the ids of any
+/// guest tickets released: stamp the membership
 /// accepted, mark the primary email verified, and release any guest tickets
 /// held on this confirmation.
 fn complete_verification(
@@ -378,7 +411,7 @@ fn complete_verification(
     search_service: &web::Data<Arc<SearchService>>,
     user: &crate::models::User,
     completion: Completion,
-) -> Result<(), ApiError> {
+) -> Result<Vec<i32>, ApiError> {
     // Pre-session (token-verified) flow: resolve the audit workspace once
     // from the user's primary membership, then thread it through the audited
     // writes below (users.password_changed_at and the ticket release). The
@@ -437,10 +470,12 @@ fn complete_verification(
     // stream and the search index so techs pick it up immediately — the
     // same side-effects that would have fired at submit time for a
     // non-gated ticket.
+    let mut released_ids = Vec::new();
     match crate::sync::session::with_actor_context(conn, &actor, |c| {
         repository::tickets::verify_pending_tickets_for_user(c, user.uuid)
     }) {
         Ok(released) if !released.is_empty() => {
+            released_ids = released.iter().map(|t| t.id).collect();
             info!(
                 user_uuid = %user.uuid,
                 count = released.len(),
@@ -465,7 +500,7 @@ fn complete_verification(
         }
     }
 
-    Ok(())
+    Ok(released_ids)
 }
 
 /// Record a token-verified acceptance as a security event.

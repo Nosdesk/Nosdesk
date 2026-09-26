@@ -49,6 +49,7 @@ use diesel::prelude::*;
 pub fn auth_config(cfg: &mut web::ServiceConfig) {
     cfg.route("/magic-link", web::post().to(request_magic_link))
         .route("/callback", web::get().to(magic_link_callback))
+        .route("/ticket", web::get().to(ticket_link_callback))
         // The portal refresh cookie is Path-scoped to exactly this route.
         .route("/refresh", web::post().to(refresh_portal_session));
 }
@@ -132,10 +133,10 @@ pub fn authorize_portal_request(
 /// The cookies + CSRF value that make up a freshly minted portal session,
 /// ready to attach to either a JSON response (XHR) or a redirect (the
 /// magic-link callback's top-level navigation).
-struct PortalSessionCookies {
-    access: Cookie<'static>,
-    refresh: Cookie<'static>,
-    csrf: Cookie<'static>,
+pub(crate) struct PortalSessionCookies {
+    pub(crate) access: Cookie<'static>,
+    pub(crate) refresh: Cookie<'static>,
+    pub(crate) csrf: Cookie<'static>,
     csrf_token: String,
 }
 
@@ -144,7 +145,7 @@ struct PortalSessionCookies {
 /// agent session machinery wholesale (`create_session_record`, refresh-token
 /// rotation, CSRF); only the access token's scope/binding and the cookie names
 /// are portal-specific.
-fn mint_portal_session(
+pub(crate) fn mint_portal_session(
     user: &User,
     workspace_uuid: Uuid,
     request: &HttpRequest,
@@ -470,6 +471,54 @@ pub async fn magic_link_callback(
 
 /// Bounce a failed sign-in back to the portal with a generic error flag (a bad,
 /// expired, or already-used link). Uniform regardless of the specific failure.
+#[derive(Deserialize)]
+pub struct TicketLinkQuery {
+    t: String,
+}
+
+/// `GET /api/portal/auth/ticket?t=…` (portal origin, unauthenticated): the
+/// "View request" link in a requester email. A valid, unexpired link for a
+/// member of this workspace signs them in and opens the ticket; anything else
+/// lands on sign-in with an explanation, never an error page.
+pub async fn ticket_link_callback(
+    req: HttpRequest,
+    query: web::Query<TicketLinkQuery>,
+    pool: web::Data<Pool>,
+) -> Result<HttpResponse, ApiError> {
+    let Some(ctx) = req.extensions().get::<WorkspaceContext>().cloned() else {
+        return Err(ApiError::BadRequest("No workspace for this origin".into()));
+    };
+    let Some((user_uuid, ticket_id)) =
+        crate::utils::portal_ticket_link::verify(ctx.workspace_id, &query.t)
+    else {
+        return Ok(sign_in_error_redirect());
+    };
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(_) => return Err(ApiError::Internal("Database connection failed".into())),
+    };
+    // The link outlives a membership: re-check it, pinned (see is_workspace_member).
+    if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, user_uuid)
+    {
+        return Ok(sign_in_error_redirect());
+    }
+    let user = match crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn) {
+        Ok(u) => u,
+        Err(_) => return Ok(sign_in_error_redirect()),
+    };
+    // The link came to their inbox, which proves the address, as the magic link does.
+    if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
+        tracing::warn!(user_uuid = %user.uuid, error = ?e, "ticket link: could not mark email verified");
+    }
+    let session = mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn)?;
+    Ok(HttpResponse::Found()
+        .cookie(session.access)
+        .cookie(session.refresh)
+        .cookie(session.csrf)
+        .append_header(("Location", format!("/tickets/{ticket_id}")))
+        .finish())
+}
+
 fn sign_in_error_redirect() -> HttpResponse {
     HttpResponse::Found()
         .append_header(("Location", "/login?signin_error=1"))
