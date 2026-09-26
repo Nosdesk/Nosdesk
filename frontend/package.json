@@ -27,7 +27,7 @@
     "@nosdesk/mobile": "workspace:*",
     "@nosdesk/plugin-sdk": "workspace:*",
     "@pinia/colada": "^1.4.4",
-    "@simplewebauthn/browser": "^13.2.2",
+    "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/types": "^12.0.0",
     "@twemoji/api": "^17.0.2",
     "@types/dompurify": "^3.0.5",
