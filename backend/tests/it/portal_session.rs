@@ -666,7 +666,7 @@ fn code_server(pool: &crate::common::TestPool, ctx: WorkspaceContext) -> actix_t
     })
 }
 
-fn issue_code(conn: &mut backend::db::DbConnection, user: uuid::Uuid, code: &str) {
+fn issue_code(conn: &mut backend::db::DbConnection, user: uuid::Uuid, code: &str) -> String {
     use backend::utils::reset_tokens::{ResetTokenUtils, TokenType};
     let issued = ResetTokenUtils::create_reset_token(user, TokenType::PortalMagicLink);
     backend::repository::reset_tokens::create_reset_token(
@@ -683,10 +683,12 @@ fn issue_code(conn: &mut backend::db::DbConnection, user: uuid::Uuid, code: &str
         })),
     )
     .expect("token");
+    issued.token_hash
 }
 
 /// The 6-digit code from the sign-in email signs a member in once; wrong codes
-/// are counted and five spend it; a non-member looks like a wrong code.
+/// are counted and five disable it (the emailed link stays usable); a non-member
+/// looks like a wrong code.
 #[actix_web::test]
 async fn the_sign_in_code_signs_in_once_and_dies_after_five_wrong_tries() {
     crate::common::ensure_test_keyring();
@@ -741,7 +743,7 @@ async fn the_sign_in_code_signs_in_once_and_dies_after_five_wrong_tries() {
             .send_json(&serde_json::json!({ "email": email, "code": code }))
     };
 
-    issue_code(&mut conn, customer.uuid, "123456");
+    let _ = issue_code(&mut conn, customer.uuid, "123456");
     let resp = post("customer@example.com", "123 456").await.expect("send");
     assert_eq!(resp.status(), 200, "the right code, spaced as in the email");
     assert!(resp
@@ -758,7 +760,7 @@ async fn the_sign_in_code_signs_in_once_and_dies_after_five_wrong_tries() {
         "spent"
     );
 
-    issue_code(&mut conn, customer.uuid, "654321");
+    let link_hash = issue_code(&mut conn, customer.uuid, "654321");
     for _ in 0..5 {
         assert_eq!(
             post("customer@example.com", "000000")
@@ -774,7 +776,13 @@ async fn the_sign_in_code_signs_in_once_and_dies_after_five_wrong_tries() {
             .expect("send")
             .status(),
         400,
-        "five wrong tries spend the code"
+        "five wrong tries disable the code"
+    );
+    let link = backend::repository::reset_tokens::find_token_by_hash(&mut conn, &link_hash)
+        .expect("token");
+    assert!(
+        !link.is_used,
+        "the emailed link still works: guessing can't burn it"
     );
 
     assert_eq!(
