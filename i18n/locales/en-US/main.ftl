@@ -128,7 +128,9 @@ portal-magic-link-title = Sign in to { $app }
 portal-magic-link-greeting = Hello <strong>{ $name }</strong>,
 portal-magic-link-intro = Use the button below to sign in to the <strong>{ $app }</strong> support portal and view your tickets.
 portal-magic-link-cta-label = Sign in
-portal-magic-link-notice-expiry = This sign-in link expires in <strong>20 minutes</strong> and can be used once
+portal-magic-link-notice-expiry = This link and code expire in <strong>20 minutes</strong> and work once
+portal-magic-link-code = Or enter this code on the sign-in page: <strong>{ $code }</strong>
+portal-magic-link-code-text = Or enter this code on the sign-in page: { $code }
 portal-magic-link-notice-unexpected = If you didn't request this, you can safely ignore this email
 portal-magic-link-body-text =
     Hello { $name },
@@ -7230,3 +7232,6 @@ workspace-name-label = Name
 workspace-name-save = Save
 workspace-name-saved = Name in this workspace saved.
 workspace-name-error = Your name in this workspace couldn't be saved.
+portal-code-label = Or enter the 6-digit code from the email
+portal-code-submit = Sign in
+portal-code-invalid = That code didn't work. Check it, or send a new one.

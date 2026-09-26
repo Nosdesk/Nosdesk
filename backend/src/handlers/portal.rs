@@ -50,6 +50,7 @@ pub fn auth_config(cfg: &mut web::ServiceConfig) {
     cfg.route("/magic-link", web::post().to(request_magic_link))
         .route("/callback", web::get().to(magic_link_callback))
         .route("/ticket", web::get().to(ticket_link_callback))
+        .route("/code", web::post().to(sign_in_with_code))
         // The portal refresh cookie is Path-scoped to exactly this route.
         .route("/refresh", web::post().to(refresh_portal_session));
 }
@@ -352,6 +353,9 @@ pub async fn request_magic_link(
     }
 
     let token = ResetTokenUtils::create_reset_token(user.uuid, TokenType::PortalMagicLink);
+    // The same sign-in as a 6-digit code (for the email opened on another
+    // device): only its hash is stored, with an attempt counter.
+    let code = new_sign_in_code();
     if crate::repository::reset_tokens::create_reset_token(
         &mut conn,
         &token.token_hash,
@@ -360,7 +364,7 @@ pub async fn request_magic_link(
         None,
         None,
         token.expires_at,
-        None,
+        Some(json!({ "code_hash": sign_in_code_hash(user.uuid, &code), "attempts": 0 })),
     )
     .is_err()
     {
@@ -407,6 +411,7 @@ pub async fn request_magic_link(
                 &recipient,
                 &user_name,
                 &raw_token,
+                Some(&code),
                 &locale,
             )
         },
@@ -517,6 +522,111 @@ pub async fn ticket_link_callback(
         .cookie(session.csrf)
         .append_header(("Location", format!("/tickets/{ticket_id}")))
         .finish())
+}
+
+/// Wrong codes allowed against one sign-in email before its code stops working.
+const SIGN_IN_CODE_ATTEMPTS: i64 = 5;
+
+fn new_sign_in_code() -> String {
+    format!("{:06}", rand::random::<u32>() % 1_000_000)
+}
+
+/// Salted with the user so equal codes for different people hash differently.
+pub fn sign_in_code_hash(user: Uuid, code: &str) -> String {
+    let digest = ring::digest::digest(&ring::digest::SHA256, format!("{user}:{code}").as_bytes());
+    digest.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[derive(Deserialize)]
+pub struct SignInCodeRequest {
+    email: String,
+    code: String,
+}
+
+/// `POST /api/portal/auth/code` (portal origin, unauthenticated): sign in with
+/// the 6-digit code from the sign-in email. Every failure is the same 400 so
+/// the response can't tell a known address from an unknown one; five wrong
+/// codes spend that email's sign-in. A match spends it too (link and code are
+/// one sign-in).
+pub async fn sign_in_with_code(
+    req: HttpRequest,
+    body: web::Json<SignInCodeRequest>,
+    pool: web::Data<Pool>,
+) -> Result<HttpResponse, ApiError> {
+    let invalid = || {
+        Ok(errors::bad_request_with_code(
+            "That code didn't work. Check it, or send a new one.",
+            "invalid_code",
+        ))
+    };
+    let Some(ctx) = req.extensions().get::<WorkspaceContext>().cloned() else {
+        return invalid();
+    };
+    let email = body.email.trim().to_lowercase();
+    let code: String = body.code.chars().filter(char::is_ascii_digit).collect();
+    if code.len() != 6 {
+        return invalid();
+    }
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(_) => return Err(ApiError::Internal("Database connection failed".into())),
+    };
+    let Ok(user) = crate::repository::users::get_user_by_email(&email, &mut conn) else {
+        return invalid();
+    };
+    if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, user.uuid)
+    {
+        return invalid();
+    }
+    let live = crate::repository::reset_tokens::live_tokens(
+        &mut conn,
+        user.uuid,
+        TokenType::PortalMagicLink.as_str(),
+    )
+    .unwrap_or_default();
+    let wanted = sign_in_code_hash(user.uuid, &code);
+    let matched = live.iter().find(|t| {
+        t.metadata
+            .as_ref()
+            .and_then(|m| m.get("code_hash"))
+            .and_then(|h| h.as_str())
+            .is_some_and(|h| constant_time_eq::constant_time_eq(h.as_bytes(), wanted.as_bytes()))
+    });
+    let Some(token) = matched else {
+        // Count the miss against every live code; spend any that reach the limit.
+        for t in &live {
+            let Some(meta) = t.metadata.clone() else {
+                continue;
+            };
+            let attempts = meta.get("attempts").and_then(|a| a.as_i64()).unwrap_or(0) + 1;
+            let result = if attempts >= SIGN_IN_CODE_ATTEMPTS {
+                crate::repository::reset_tokens::claim_unused(&mut conn, &t.token_hash).map(|_| ())
+            } else {
+                let mut meta = meta;
+                meta["attempts"] = json!(attempts);
+                crate::repository::reset_tokens::set_metadata(&mut conn, &t.token_hash, meta)
+                    .map(|_| ())
+            };
+            if let Err(e) = result {
+                tracing::warn!(error = ?e, "sign-in code: could not record a wrong attempt");
+            }
+        }
+        return invalid();
+    };
+    // Spend it; a concurrent use that got there first wins.
+    match crate::repository::reset_tokens::claim_unused(&mut conn, &token.token_hash) {
+        Ok(Some(_)) => {}
+        _ => return invalid(),
+    }
+    if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
+        tracing::warn!(user_uuid = %user.uuid, error = ?e, "sign-in code: could not mark email verified");
+    }
+    let session = mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn)?;
+    Ok(HttpResponse::Ok()
+        .cookie(session.access)
+        .cookie(session.refresh)
+        .cookie(session.csrf)
+        .json(json!({ "status": "ok" })))
 }
 
 fn sign_in_error_redirect() -> HttpResponse {

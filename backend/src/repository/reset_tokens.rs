@@ -60,6 +60,55 @@ pub fn mark_token_as_used(
         .get_result(conn)
 }
 
+/// A user's live tokens of `token_type`: unused and unexpired, newest first.
+/// The portal sign-in code is checked against these.
+pub fn live_tokens(
+    conn: &mut DbConnection,
+    user: Uuid,
+    token_type: &str,
+) -> QueryResult<Vec<ResetToken>> {
+    reset_tokens::table
+        .filter(reset_tokens::user_uuid.eq(user))
+        .filter(reset_tokens::token_type.eq(token_type))
+        .filter(reset_tokens::is_used.eq(false))
+        .filter(reset_tokens::expires_at.gt(Utc::now()))
+        .order(reset_tokens::created_at.desc())
+        .load(conn)
+}
+
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
+/// Claim a token by hash if it is still unused and unexpired, in one UPDATE,
+/// so two concurrent uses can't both succeed. `None` when it was already spent.
+pub fn claim_unused(
+    conn: &mut DbConnection,
+    token_hash_value: &str,
+) -> QueryResult<Option<ResetToken>> {
+    diesel::update(
+        reset_tokens::table
+            .filter(reset_tokens::token_hash.eq(token_hash_value))
+            .filter(reset_tokens::is_used.eq(false))
+            .filter(reset_tokens::expires_at.gt(Utc::now())),
+    )
+    .set((
+        reset_tokens::used_at.eq(Some(Utc::now())),
+        reset_tokens::is_used.eq(true),
+    ))
+    .get_result(conn)
+    .optional()
+}
+
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
+/// Replace a token's metadata (the sign-in code's attempt counter).
+pub fn set_metadata(
+    conn: &mut DbConnection,
+    token_hash_value: &str,
+    metadata: serde_json::Value,
+) -> QueryResult<usize> {
+    diesel::update(reset_tokens::table.filter(reset_tokens::token_hash.eq(token_hash_value)))
+        .set(reset_tokens::metadata.eq(Some(metadata)))
+        .execute(conn)
+}
+
 /// Count tokens for a user created within a time window (for rate limiting)
 pub fn count_recent_tokens(
     conn: &mut DbConnection,

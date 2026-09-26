@@ -87,7 +87,9 @@ portal-magic-link-title = Meld u aan bij { $app }
 portal-magic-link-greeting = Hallo <strong>{ $name }</strong>,
 portal-magic-link-intro = Gebruik de knop hieronder om u aan te melden bij het <strong>{ $app }</strong>-ondersteuningsportaal en uw tickets te bekijken.
 portal-magic-link-cta-label = Aanmelden
-portal-magic-link-notice-expiry = Deze aanmeldlink verloopt over <strong>20 minuten</strong> en kan eenmaal worden gebruikt
+portal-magic-link-notice-expiry = Deze link en code verlopen over <strong>20 minuten</strong> en werken één keer
+portal-magic-link-code = Of vul deze code in op de inlogpagina: <strong>{ $code }</strong>
+portal-magic-link-code-text = Of vul deze code in op de inlogpagina: { $code }
 portal-magic-link-notice-unexpected = Als u dit niet hebt aangevraagd, kunt u deze e-mail negeren
 portal-magic-link-body-text =
     Hallo { $name },
@@ -7330,3 +7332,6 @@ workspace-name-label = Naam
 workspace-name-save = Opslaan
 workspace-name-saved = Naam in deze werkruimte opgeslagen.
 workspace-name-error = Je naam in deze werkruimte kon niet worden opgeslagen.
+portal-code-label = Of vul de 6-cijferige code uit de e-mail in
+portal-code-submit = Inloggen
+portal-code-invalid = Die code werkte niet. Controleer hem of vraag een nieuwe aan.

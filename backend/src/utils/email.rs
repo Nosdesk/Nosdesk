@@ -1635,6 +1635,7 @@ impl EmailService {
         &self,
         user_name: &str,
         magic_token: &str,
+        code: Option<&str>,
         branding: &EmailBranding,
         locale: &unic_langid::LanguageIdentifier,
     ) -> (String, String, String) {
@@ -1663,13 +1664,30 @@ impl EmailService {
             &[("app", app_html.clone().into())],
         );
         let cta_label = tr("portal-magic-link-cta-label", &[]);
-        let notice_items: Vec<String> = [
-            "portal-magic-link-notice-expiry",
-            "portal-magic-link-notice-unexpected",
-        ]
-        .iter()
-        .map(|key| tr(key, &[]))
-        .collect();
+        // The same sign-in as a code, for when the email is open on another
+        // device. Shown as "123 456" so it reads at a glance.
+        let code_display = code.map(|c| {
+            if c.len() == 6 {
+                format!("{} {}", &c[..3], &c[3..])
+            } else {
+                c.to_string()
+            }
+        });
+        let mut notice_items: Vec<String> = Vec::new();
+        if let Some(code) = &code_display {
+            notice_items.push(tr(
+                "portal-magic-link-code",
+                &[("code", escape_html(code).into())],
+            ));
+        }
+        notice_items.extend(
+            [
+                "portal-magic-link-notice-expiry",
+                "portal-magic-link-notice-unexpected",
+            ]
+            .iter()
+            .map(|key| tr(key, &[])),
+        );
 
         let html_body = template.render(
             EmailLayout {
@@ -1694,7 +1712,7 @@ impl EmailService {
             &[("app", branding.app_name.clone().into())],
         );
 
-        let body_text = tr(
+        let mut body_text = tr(
             "portal-magic-link-body-text",
             &[
                 ("name", user_name.to_string().into()),
@@ -1702,6 +1720,13 @@ impl EmailService {
                 ("link", sign_in_link.clone().into()),
             ],
         );
+        if let Some(code) = &code_display {
+            let line = tr(
+                "portal-magic-link-code-text",
+                &[("code", code.clone().into())],
+            );
+            body_text = format!("{body_text}\n\n{line}");
+        }
 
         (subject, html_body, body_text)
     }
@@ -2669,8 +2694,13 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         );
         write("notification", &html);
 
-        let (_subj, html, text) =
-            svc.compose_portal_magic_link("Alex", "EXAMPLE-SIGNIN-TOKEN", &branding, &locale);
+        let (_subj, html, text) = svc.compose_portal_magic_link(
+            "Alex",
+            "EXAMPLE-SIGNIN-TOKEN",
+            Some("123456"),
+            &branding,
+            &locale,
+        );
         write("portal-magic-link", &html);
         // The CTA must carry the portal callback link on the configured origin.
         assert!(

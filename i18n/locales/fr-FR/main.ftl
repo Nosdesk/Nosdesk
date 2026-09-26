@@ -90,7 +90,9 @@ portal-magic-link-title = Connectez-vous à { $app }
 portal-magic-link-greeting = Bonjour <strong>{ $name }</strong>,
 portal-magic-link-intro = Utilisez le bouton ci-dessous pour vous connecter au portail d'assistance <strong>{ $app }</strong> et consulter vos tickets.
 portal-magic-link-cta-label = Se connecter
-portal-magic-link-notice-expiry = Ce lien de connexion expire dans <strong>20 minutes</strong> et ne peut être utilisé qu'une seule fois
+portal-magic-link-notice-expiry = Ce lien et ce code expirent dans <strong>20 minutes</strong> et ne fonctionnent qu'une fois
+portal-magic-link-code = Ou saisissez ce code sur la page de connexion : <strong>{ $code }</strong>
+portal-magic-link-code-text = Ou saisissez ce code sur la page de connexion : { $code }
 portal-magic-link-notice-unexpected = Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail
 portal-magic-link-body-text =
     Bonjour { $name },
@@ -7339,3 +7341,6 @@ workspace-name-label = Nom
 workspace-name-save = Enregistrer
 workspace-name-saved = Nom dans cet espace de travail enregistré.
 workspace-name-error = Votre nom dans cet espace de travail n'a pas pu être enregistré.
+portal-code-label = Ou saisissez le code à 6 chiffres de l'e-mail
+portal-code-submit = Se connecter
+portal-code-invalid = Ce code n'a pas fonctionné. Vérifiez-le ou demandez-en un nouveau.

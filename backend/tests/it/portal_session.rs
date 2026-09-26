@@ -646,3 +646,142 @@ async fn a_view_request_link_signs_the_requester_in_and_opens_the_ticket() {
         "/login?signin_error=1"
     );
 }
+
+fn code_server(pool: &crate::common::TestPool, ctx: WorkspaceContext) -> actix_test::TestServer {
+    use actix_web::dev::Service;
+    use actix_web::{web, App};
+    let pool = pool.clone();
+    actix_test::start(move || {
+        let ctx = ctx.clone();
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(ctx.clone());
+                srv.call(req)
+            })
+            .route(
+                "/api/portal/auth/code",
+                web::post().to(backend::handlers::portal::sign_in_with_code),
+            )
+    })
+}
+
+fn issue_code(conn: &mut backend::db::DbConnection, user: uuid::Uuid, code: &str) {
+    use backend::utils::reset_tokens::{ResetTokenUtils, TokenType};
+    let issued = ResetTokenUtils::create_reset_token(user, TokenType::PortalMagicLink);
+    backend::repository::reset_tokens::create_reset_token(
+        conn,
+        &issued.token_hash,
+        user,
+        TokenType::PortalMagicLink.as_str(),
+        None,
+        None,
+        issued.expires_at,
+        Some(serde_json::json!({
+            "code_hash": backend::handlers::portal::sign_in_code_hash(user, code),
+            "attempts": 0,
+        })),
+    )
+    .expect("token");
+}
+
+/// The 6-digit code from the sign-in email signs a member in once; wrong codes
+/// are counted and five spend it; a non-member looks like a wrong code.
+#[actix_web::test]
+async fn the_sign_in_code_signs_in_once_and_dies_after_five_wrong_tries() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let mut conn = pool.get().expect("conn");
+    let ws = crate::common::mint_workspace(&mut conn, "codews", "Code WS");
+    let customer = backend::repository::user_helpers::create_user_with_email(
+        backend::models::NewUser {
+            uuid: uuid::Uuid::now_v7(),
+            name: "Customer".into(),
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_secret_kek_id: None,
+            mfa_enabled: false,
+            platform_role: None,
+        },
+        backend::models::WorkspaceRole::Member,
+        "customer@example.com".into(),
+        true,
+        Some("test".into()),
+        &mut conn,
+        None,
+        SeatWriteAuthority::ControlPlane,
+    )
+    .and_then(|o| o.into_created())
+    .expect("customer")
+    .0;
+    with_actor_context(
+        &mut conn,
+        &ActorContext::system("test:seed").with_workspace(ws),
+        |c| {
+            add_membership(
+                c,
+                ws,
+                customer.uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )
+        },
+    )
+    .expect("membership");
+    let srv = code_server(&pool, context_of(&mut conn, ws));
+    let client = awc::Client::new();
+    let post = |email: &str, code: &str| {
+        client
+            .post(srv.url("/api/portal/auth/code"))
+            .send_json(&serde_json::json!({ "email": email, "code": code }))
+    };
+
+    issue_code(&mut conn, customer.uuid, "123456");
+    let resp = post("customer@example.com", "123 456").await.expect("send");
+    assert_eq!(resp.status(), 200, "the right code, spaced as in the email");
+    assert!(resp
+        .cookies()
+        .expect("cookies")
+        .iter()
+        .any(|c| c.name().contains("portal_access")));
+    assert_eq!(
+        post("customer@example.com", "123456")
+            .await
+            .expect("send")
+            .status(),
+        400,
+        "spent"
+    );
+
+    issue_code(&mut conn, customer.uuid, "654321");
+    for _ in 0..5 {
+        assert_eq!(
+            post("customer@example.com", "000000")
+                .await
+                .expect("send")
+                .status(),
+            400
+        );
+    }
+    assert_eq!(
+        post("customer@example.com", "654321")
+            .await
+            .expect("send")
+            .status(),
+        400,
+        "five wrong tries spend the code"
+    );
+
+    assert_eq!(
+        post("nobody@example.com", "123456")
+            .await
+            .expect("send")
+            .status(),
+        400
+    );
+}
