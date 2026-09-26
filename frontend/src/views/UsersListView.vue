@@ -7,7 +7,11 @@ import { ToolbarButton } from 'reka-ui'
 import { extractErrorMessage } from '@/utils/errors'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { useToastStore } from '@nosdesk/core/stores/toast'
-import { isHostedDeployment, isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig'
+import {
+  isHostedDeployment,
+  isHostedDeploymentRef,
+  isIdentityExternallyManaged,
+} from '@nosdesk/core/services/instanceConfig'
 import { openControlPlaneSeats } from '@/services/activeWorkspace'
 
 import DataTable from '@/components/common/DataTable.vue'
@@ -27,6 +31,7 @@ import { useAuthStore } from '@/stores/auth'
 
 import { StatusBadgeCell, UserInfoCell, DateCell } from '@/components/common/cells'
 import UserAvatar from '@/components/UserAvatar.vue'
+import NosdeskAccountChip from '@/components/identity/NosdeskAccountChip.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import userService from '@/services/userService'
@@ -526,6 +531,7 @@ function formatPurgeAt(deletedAt: string): string {
                 :avatar="item.avatar_thumb || item.avatar_url"
                 :show-avatar="true"
               />
+              <NosdeskAccountChip v-if="isIdentityExternallyManaged(item)" />
               <span
                 v-if="item.deleted_at"
                 class="inline-flex items-center rounded bg-status-error/10 px-1.5 py-0.5 text-xs font-medium text-status-error whitespace-nowrap"
@@ -603,6 +609,7 @@ function formatPurgeAt(deletedAt: string): string {
           <div class="flex-1 min-w-0">
             <div class="text-sm text-primary font-medium truncate">{{ item.name }}</div>
             <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
+              <NosdeskAccountChip v-if="isIdentityExternallyManaged(item)" />
               <span v-if="item.email" class="text-tertiary truncate max-w-[200px]">{{ item.email }}</span>
               <span
                 class="inline-flex items-center px-1.5 py-0.5 rounded font-medium capitalize"

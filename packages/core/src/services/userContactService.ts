@@ -14,6 +14,8 @@ export interface UserProfileFields {
   custom_fields: Record<string, unknown>;
   /** True when the standard cols came from the directory sync (read-only). */
   directory_synced: boolean;
+  /** The person's own name in this workspace; null shows their account name. */
+  display_name?: string | null;
 }
 
 export interface UserPhone {
@@ -92,6 +94,8 @@ export const setUserProfileFields = async (
     organization?: string | null;
     department?: string | null;
     custom_fields?: Record<string, unknown>;
+    /** Only the person may set it; omit to keep it. */
+    display_name?: string | null;
   },
 ): Promise<UserProfileFields> => {
   try {

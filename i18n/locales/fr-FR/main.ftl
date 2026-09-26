@@ -1264,6 +1264,7 @@ workspace-members-title = Équipe
 workspace-members-invite = Inviter un coéquipier
 # workspace-members-manage-in-control-plane (machine, à relire par un locuteur natif).
 workspace-members-manage-in-control-plane = Gérer le personnel dans votre compte Nosdesk
+workspace-members-staff-role-hint = Son rôle est un siège de votre compte Nosdesk. Modifiez-le là-bas.
 workspace-members-empty-description = Invitez des coéquipiers à collaborer dans cet espace de travail.
 workspace-members-error-forbidden = Vous ne pouvez gérer que les agents et les membres. La gestion des administrateurs ou des propriétaires nécessite le rôle de propriétaire.
 workspace-members-you = (vous)
@@ -2503,7 +2504,7 @@ user-profile-back-to-users = Retour aux utilisateurs
 user-profile-action-profile-settings = Paramètres du profil
 user-profile-action-user-settings = Paramètres utilisateur
 # user-profile-action-manage-in-control-plane (machine, à relire par un locuteur natif).
-user-profile-action-manage-in-control-plane = Gérer dans le plan de contrôle
+user-profile-action-manage-in-control-plane = Gérer dans le compte Nosdesk
 user-profile-create-title = Créer un nouvel utilisateur
 user-profile-create-subtitle = Ajoutez un nouvel utilisateur à votre organisation
 user-profile-section-basic-info = Informations de base
@@ -6469,8 +6470,6 @@ user-settings-managing-for = Gestion des paramètres pour
 user-settings-groups-title = Groupes
 user-settings-role-management-title = Gestion des rôles
 # user-settings-cp-managed-* (machine, à relire par un locuteur natif).
-user-settings-cp-managed-title = Géré dans le plan de contrôle
-user-settings-cp-managed-body = Le compte, le rôle et la connexion de ce membre de l'équipe sont gérés dans le plan de contrôle Nosdesk. Ouvrez-le pour modifier son siège.
 user-settings-account-setup-title = Configuration du compte
 user-settings-account-setup-pending = En attente
 user-settings-invitation-pending = Invitation en attente
@@ -7320,3 +7319,22 @@ portal-attach-files = Joindre des fichiers
 portal-attach-hint = Images, PDF ou texte, jusqu'à 10 Mo chacun, 5 fichiers maximum.
 portal-attach-remove = Retirer { $name }
 portal-attach-failed = { $name } n'a pas pu être joint.
+
+# Identity owned by the Nosdesk account (hosted staff) (machine, pending native review)
+nosdesk-account-title = Compte Nosdesk
+nosdesk-account-profile-self = Votre nom, votre photo et votre adresse e-mail sont gérés dans votre compte Nosdesk.
+nosdesk-account-profile-other = Son nom, sa photo et son adresse e-mail sont gérés dans son compte Nosdesk.
+nosdesk-account-security-self = Votre mot de passe, la validation en deux étapes et vos clés d'accès sont gérés dans votre compte Nosdesk.
+nosdesk-account-security-other = Sa connexion est gérée dans son compte Nosdesk.
+nosdesk-account-name = Nom
+nosdesk-account-email = E-mail
+nosdesk-account-open-self = Modifier dans votre compte Nosdesk
+nosdesk-account-open-other = Gérer dans le compte Nosdesk
+nosdesk-account-chip = Compte Nosdesk
+nosdesk-account-chip-tooltip = Le nom, la photo, l'e-mail et la connexion sont gérés dans son compte Nosdesk.
+workspace-name-title = Nom dans cet espace de travail
+workspace-name-description = Affiché aux membres de cet espace de travail à la place du nom de votre compte. Laissez vide pour utiliser le nom de votre compte.
+workspace-name-label = Nom
+workspace-name-save = Enregistrer
+workspace-name-saved = Nom dans cet espace de travail enregistré.
+workspace-name-error = Votre nom dans cet espace de travail n'a pas pu être enregistré.

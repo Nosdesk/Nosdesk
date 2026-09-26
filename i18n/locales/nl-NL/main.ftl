@@ -1260,6 +1260,7 @@ workspace-members-title = Team
 workspace-members-invite = Teamlid uitnodigen
 # workspace-members-manage-in-control-plane (machine, door een moedertaalspreker na te kijken).
 workspace-members-manage-in-control-plane = Medewerkers beheren in je Nosdesk-account
+workspace-members-staff-role-hint = Hun rol is een plek in je Nosdesk-account. Wijzig die daar.
 workspace-members-empty-description = Nodig teamleden uit om samen te werken in deze werkruimte.
 workspace-members-error-forbidden = Je kunt alleen agents en leden beheren. Het beheren van beheerders of eigenaren vereist de eigenaarsrol.
 workspace-members-you = (jij)
@@ -2499,7 +2500,7 @@ user-profile-back-to-users = Terug naar gebruikers
 user-profile-action-profile-settings = Profielinstellingen
 user-profile-action-user-settings = Gebruikersinstellingen
 # user-profile-action-manage-in-control-plane (machine, door een moedertaalspreker na te kijken).
-user-profile-action-manage-in-control-plane = Beheren in het control plane
+user-profile-action-manage-in-control-plane = Beheren in Nosdesk-account
 user-profile-create-title = Nieuwe gebruiker aanmaken
 user-profile-create-subtitle = Voeg een nieuwe gebruiker toe aan je organisatie
 user-profile-section-basic-info = Basisgegevens
@@ -6459,8 +6460,6 @@ user-settings-managing-for = Instellingen beheren voor
 user-settings-groups-title = Groepen
 user-settings-role-management-title = Rolbeheer
 # user-settings-cp-managed-* (machine, door een moedertaalspreker na te kijken).
-user-settings-cp-managed-title = Beheerd in het control plane
-user-settings-cp-managed-body = Het account, de rol en de aanmelding van dit teamlid worden beheerd in het Nosdesk control plane. Open het om hun zetel te wijzigen.
 user-settings-account-setup-title = Accountinstelling
 user-settings-account-setup-pending = In afwachting
 user-settings-invitation-pending = Uitnodiging in afwachting
@@ -7311,3 +7310,22 @@ portal-attach-files = Bestanden bijvoegen
 portal-attach-hint = Afbeeldingen, pdf of tekst, max. 10 MB per bestand, hooguit 5 bestanden.
 portal-attach-remove = { $name } verwijderen
 portal-attach-failed = { $name } kon niet worden bijgevoegd.
+
+# Identity owned by the Nosdesk account (hosted staff) (machine, pending native review)
+nosdesk-account-title = Nosdesk-account
+nosdesk-account-profile-self = Je naam, foto en e-mailadres worden beheerd in je Nosdesk-account.
+nosdesk-account-profile-other = Hun naam, foto en e-mailadres worden beheerd in hun Nosdesk-account.
+nosdesk-account-security-self = Je wachtwoord, verificatie in twee stappen en passkeys worden beheerd in je Nosdesk-account.
+nosdesk-account-security-other = Hun inloggen wordt beheerd in hun Nosdesk-account.
+nosdesk-account-name = Naam
+nosdesk-account-email = E-mail
+nosdesk-account-open-self = Bewerken in je Nosdesk-account
+nosdesk-account-open-other = Beheren in Nosdesk-account
+nosdesk-account-chip = Nosdesk-account
+nosdesk-account-chip-tooltip = Naam, foto, e-mail en inloggen worden beheerd in hun Nosdesk-account.
+workspace-name-title = Naam in deze werkruimte
+workspace-name-description = Wordt in deze werkruimte getoond in plaats van je accountnaam. Laat leeg om je accountnaam te gebruiken.
+workspace-name-label = Naam
+workspace-name-save = Opslaan
+workspace-name-saved = Naam in deze werkruimte opgeslagen.
+workspace-name-error = Je naam in deze werkruimte kon niet worden opgeslagen.

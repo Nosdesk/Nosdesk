@@ -83,11 +83,13 @@ export function activeWorkspaceSlug(): string | null {
  * slug->instance mapping). Returns `''` when the control-plane URL is unknown
  * (self-hosted, or the config has not resolved), so callers can skip the link.
  */
-export function controlPlaneSeatsUrl(): string {
+export function controlPlaneSeatsUrl(personEmail?: string | null): string {
   const cp = getControlPlaneUrl();
   if (!cp) return '';
   const s = slug.value;
-  return s ? `${cp}/workspaces?workspace=${encodeURIComponent(s)}` : `${cp}/workspaces`;
+  if (!s) return `${cp}/workspaces`;
+  const person = personEmail ? `&person=${encodeURIComponent(personEmail)}` : '';
+  return `${cp}/workspaces?workspace=${encodeURIComponent(s)}${person}`;
 }
 
 /**
@@ -96,8 +98,8 @@ export function controlPlaneSeatsUrl(): string {
  * control-plane URL is unknown. The single hand-off used by every "manage in
  * the control plane" affordance; callers add their own toast/redirect.
  */
-export async function openControlPlaneSeats(): Promise<void> {
-  const url = controlPlaneSeatsUrl();
+export async function openControlPlaneSeats(personEmail?: string | null): Promise<void> {
+  const url = controlPlaneSeatsUrl(personEmail);
   if (!url) return;
   // Dynamic import keeps this dependency-light module free of a static edge to
   // the platform layer (which pulls in apiConfig/transport).
