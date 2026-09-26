@@ -565,3 +565,84 @@ struct RoleRow {
     #[diesel(sql_type = diesel::sql_types::Text)]
     role: String,
 }
+
+fn link_server(pool: &crate::common::TestPool, ctx: WorkspaceContext) -> actix_test::TestServer {
+    use actix_web::dev::Service;
+    use actix_web::{web, App};
+    let pool = pool.clone();
+    actix_test::start(move || {
+        let ctx = ctx.clone();
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(ctx.clone());
+                srv.call(req)
+            })
+            .route(
+                "/api/portal/auth/ticket",
+                web::get().to(backend::handlers::portal::ticket_link_callback),
+            )
+    })
+}
+
+/// The "View request" link in a requester email signs its requester in and
+/// opens the ticket; a forged link, or one for someone no longer a member,
+/// lands on sign-in instead.
+#[actix_web::test]
+async fn a_view_request_link_signs_the_requester_in_and_opens_the_ticket() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let mut conn = pool.get().expect("conn");
+    let ws = crate::common::mint_workspace(&mut conn, "linkws", "Link WS");
+    let customer = crate::common::insert_user(&mut conn, "Customer");
+    let stranger = crate::common::insert_user(&mut conn, "Stranger");
+    with_actor_context(
+        &mut conn,
+        &ActorContext::system("test:seed").with_workspace(ws),
+        |c| {
+            add_membership(
+                c,
+                ws,
+                customer.uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )
+        },
+    )
+    .expect("membership");
+    let ctx = context_of(&mut conn, ws);
+    let srv = link_server(&pool, ctx);
+    let client = awc::Client::builder().disable_redirects().finish();
+    let open = |token: String| {
+        client
+            .get(srv.url(&format!("/api/portal/auth/ticket?t={token}")))
+            .send()
+    };
+
+    let good = backend::utils::portal_ticket_link::sign(ws, customer.uuid, 42).expect("sign");
+    let resp = open(good.clone()).await.expect("send");
+    assert_eq!(resp.status(), 302);
+    assert_eq!(resp.headers().get("location").unwrap(), "/tickets/42");
+    assert!(
+        resp.cookies()
+            .expect("cookies")
+            .iter()
+            .any(|c| c.name().contains("portal_access")),
+        "signed in"
+    );
+
+    let forged = good.replacen(".42.", ".43.", 1);
+    let resp = open(forged).await.expect("send");
+    assert_eq!(
+        resp.headers().get("location").unwrap(),
+        "/login?signin_error=1"
+    );
+
+    let not_member = backend::utils::portal_ticket_link::sign(ws, stranger.uuid, 42).expect("sign");
+    let resp = open(not_member).await.expect("send");
+    assert_eq!(
+        resp.headers().get("location").unwrap(),
+        "/login?signin_error=1"
+    );
+}

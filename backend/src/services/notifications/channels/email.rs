@@ -245,46 +245,75 @@ impl NotificationDeliveryChannel for EmailChannel {
         let workspace_id = notification.payload.workspace_id;
         let recipient_uuid = notification.payload.recipient_uuid;
         let fallback_base = self.base_url.clone();
-        let (base_url, branding, recipient_locale) = crate::sync::session::run_in_workspace(
-            &self.pool,
-            "background:notification_email_prep",
-            workspace_id,
-            move |conn| {
-                // Deep links point to the RECIPIENT's surface. In hosted Model
-                // C an agent views the entity in the agent app (central origin
-                // + slug-in-path); a customer/baseline recipient views it in
-                // the per-tenant portal (`<slug>.<NOSDESK_TENANT_DOMAIN>` or a
-                // custom domain). Self-host has one origin for everyone.
-                let base_url = match crate::repository::workspaces::find_by_id(conn, workspace_id) {
-                    Ok(Some(ws)) => {
-                        let recipient_is_agent =
-                            crate::repository::users::find_active_by_uuid(&recipient_uuid, conn)
-                                .map(|u| {
-                                    crate::repository::user_helpers::user_can_handle_tickets(
-                                        conn, &u,
+        // A ticket notification to a requester links in signed in (see below).
+        let ticket_id = match &notification.payload.entity {
+            crate::services::notifications::types::NotificationEntity::DocumentationPage {
+                ..
+            }
+            | crate::services::notifications::types::NotificationEntity::Asset { .. } => None,
+            entity => Some(entity.ticket_id()),
+        };
+        let (base_url, branding, recipient_locale, requester_link) =
+            crate::sync::session::run_in_workspace(
+                &self.pool,
+                "background:notification_email_prep",
+                workspace_id,
+                move |conn| {
+                    // Deep links point to the RECIPIENT's surface. In hosted Model
+                    // C an agent views the entity in the agent app (central origin
+                    // + slug-in-path); a customer/baseline recipient views it in
+                    // the per-tenant portal (`<slug>.<NOSDESK_TENANT_DOMAIN>` or a
+                    // custom domain). Self-host has one origin for everyone.
+                    let mut requester_link = None;
+                    let base_url =
+                        match crate::repository::workspaces::find_by_id(conn, workspace_id) {
+                            Ok(Some(ws)) => {
+                                let recipient_is_agent =
+                                    crate::repository::users::find_active_by_uuid(
+                                        &recipient_uuid,
+                                        conn,
                                     )
-                                })
-                                .unwrap_or(false);
-                        notification_link_base(
+                                    .map(|u| {
+                                        crate::repository::user_helpers::user_can_handle_tickets(
+                                            conn, &u,
+                                        )
+                                    })
+                                    .unwrap_or(false);
+                                // A requester's link opens the ticket already signed in,
+                                // so an email-only requester never meets a sign-in wall.
+                                if !recipient_is_agent {
+                                    requester_link = ticket_id.and_then(|id| {
+                                        crate::utils::portal_ticket_link::view_request_url(
+                                            conn,
+                                            workspace_id,
+                                            recipient_uuid,
+                                            id,
+                                        )
+                                    });
+                                }
+                                notification_link_base(
                             crate::middleware::workspace_context::selection_resolution_enabled(),
                             recipient_is_agent,
                             &ws.slug,
                             crate::utils::tenant_origin::workspace_origin(&ws).as_deref(),
                             &fallback_base,
                         )
-                    }
-                    _ => fallback_base.clone(),
-                };
-                let branding = get_email_branding(conn, &base_url);
-                let locale =
-                    crate::repository::user_locale::resolve_effective_locale(conn, recipient_uuid);
-                Ok((base_url, branding, locale))
-            },
-        )
-        .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
+                            }
+                            _ => fallback_base.clone(),
+                        };
+                    let branding = get_email_branding(conn, &base_url);
+                    let locale = crate::repository::user_locale::resolve_effective_locale(
+                        conn,
+                        recipient_uuid,
+                    );
+                    Ok((base_url, branding, locale, requester_link))
+                },
+            )
+            .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
 
         let subject = self.generate_subject(notification, &branding.app_name, &recipient_locale);
-        let entity_url = self.generate_entity_url(notification, &base_url);
+        let entity_url =
+            requester_link.unwrap_or_else(|| self.generate_entity_url(notification, &base_url));
         let body_text = match notification.payload.body.as_deref() {
             Some(text) if !text.is_empty() => text.to_string(),
             _ => crate::utils::i18n::tr_with(&recipient_locale, "notif-body-fallback", &[]),

@@ -577,7 +577,9 @@ class AuthService {
   /**
    * Confirm a guest ticket submission without setting a password
    */
-  async confirmGuestSubmission(token: string): Promise<{ success: boolean; message: string }> {
+  async confirmGuestSubmission(
+    token: string,
+  ): Promise<{ success: boolean; message: string; redirect_to?: string }> {
     try {
       const response = await apiClient.post('/auth/invitation/confirm-guest', { token });
       return response.data;

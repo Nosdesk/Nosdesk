@@ -175,6 +175,34 @@ async fn send_auto_ack(
         }
     };
 
+    // Close with a way back to the request (signed in on hosted). Pinned to the
+    // ticket's workspace: the link and the requester's locale are tenant reads.
+    let body = match ticket.requester_uuid {
+        Some(requester) => crate::sync::session::run_in_workspace(
+            pool,
+            "background:auto_ack_link",
+            ticket.workspace_id,
+            |conn| {
+                let url = crate::utils::portal_ticket_link::view_request_url(
+                    conn,
+                    ticket.workspace_id,
+                    requester,
+                    ticket.id,
+                );
+                let locale =
+                    crate::repository::user_locale::resolve_effective_locale(conn, requester);
+                Ok::<_, diesel::result::Error>(url.map(|url| {
+                    let label = crate::utils::i18n::tr(&locale, "reply-email-view-request");
+                    format!("{body}\n\n{label}: {url}")
+                }))
+            },
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(body),
+        None => body,
+    };
+
     // Build outbound email. The Message-ID is stamped by the threading
     // helper so the recipient's reply matches back to this ticket via
     // the References cascade (step 1 — References chain).
