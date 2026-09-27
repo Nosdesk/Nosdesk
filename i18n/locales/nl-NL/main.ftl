@@ -482,6 +482,8 @@ reply-email-view-request = Je verzoek bekijken
 
 # Channel auto-acknowledgement.
 auto-ack-default-template = Uw verzoek (#{ $ticket_id }) is ontvangen en wordt beoordeeld door ons supportteam. Antwoord op deze e-mail om aanvullende opmerkingen toe te voegen.
+# Machinevertaling, te controleren door moedertaalspreker.
+ack-known-issue = We zijn op de hoogte van een probleem dat hiermee te maken kan hebben: { $title }
 
 # Inbox-time connecting copy.
 inbox-time-just-now = Zojuist
@@ -7415,6 +7417,11 @@ notice-duration = { $hours ->
    *[other] { $hours } uur
 }
 notice-follow-hint = Aanvragers kunnen dit ticket vanuit de melding volgen in plaats van zelf een ticket te openen.
+# Machinevertaling, te controleren door moedertaalspreker.
+notice-link-existing = Er staat al een melding online: { $title }. Koppel dit ticket zodat aanvragers het kunnen volgen.
+notice-link-existing-action = Dit ticket koppelen
+notice-incident-label = Incidentticket
+notice-incident-hint = Optioneel. Aanvragers kunnen dit ticket vanuit de melding volgen.
 notice-end-now = Nu beëindigen
 notice-cancel = Annuleren
 notice-post = Melding plaatsen

@@ -26,8 +26,10 @@ pub struct WorkspaceNotice {
 }
 
 /// Fields staff set when posting or editing a notice.
+/// An edit writes every field, so clearing the body or the incident ticket
+/// sticks (`None` sets NULL rather than leaving the column alone).
 #[derive(Debug, Clone, Deserialize, Insertable, AsChangeset)]
-#[diesel(table_name = workspace_notices)]
+#[diesel(table_name = workspace_notices, treat_none_as_null = true)]
 pub struct NoticeFields {
     pub title: String,
     pub body: Option<String>,

@@ -518,6 +518,7 @@ reply-email-view-request = View your request
 # Admin customisation in `site_settings.channel_auto_ack_template`
 # bypasses this entirely (custom copy is the source of truth).
 auto-ack-default-template = Your request (#{ $ticket_id }) has been received and is being reviewed by our support team. To add additional comments, reply to this email.
+ack-known-issue = We're aware of an issue that may be related: { $title }
 
 # Sent to a customer when their ticket is merged into another, only if
 # the agent ticks "Tell the customer" in the merge dialog.
@@ -7312,6 +7313,10 @@ notice-duration = { $hours ->
    *[other] { $hours } hours
 }
 notice-follow-hint = Requesters can follow this ticket from the notice instead of opening their own.
+notice-link-existing = A notice is already live: { $title }. Link this ticket so requesters can follow it.
+notice-link-existing-action = Link this ticket
+notice-incident-label = Incident ticket
+notice-incident-hint = Optional. Requesters can follow this ticket from the notice.
 notice-end-now = End now
 notice-cancel = Cancel
 notice-post = Post notice

@@ -59,6 +59,22 @@ pub fn public_notice(
     Ok(workspace_notices::active(conn, Utc::now())?.map(PublicNotice::from))
 }
 
+/// The paragraph an acknowledgement email adds while a notice is live, so the
+/// person learns about a known issue that may be theirs without waiting for a
+/// reply. `None` when nothing is live.
+pub fn ack_notice_paragraph(
+    conn: &mut crate::db::DbConnection,
+    locale: &unic_langid::LanguageIdentifier,
+) -> Option<String> {
+    let notice = workspace_notices::active(conn, Utc::now()).ok()??;
+    let line =
+        crate::utils::i18n::tr_with(locale, "ack-known-issue", &[("title", notice.title.into())]);
+    Some(match notice.body {
+        Some(body) => format!("{line}\n{body}"),
+        None => line,
+    })
+}
+
 fn validate(fields: &mut NoticeFields) -> Result<(), ApiError> {
     fields.title = fields.title.trim().to_string();
     fields.body = fields
@@ -97,14 +113,17 @@ fn validate(fields: &mut NoticeFields) -> Result<(), ApiError> {
 }
 
 /// The incident ticket must exist in this workspace.
-fn check_incident(
-    conn: &mut crate::db::DbConnection,
-    fields: &NoticeFields,
-) -> Result<(), diesel::result::Error> {
-    if let Some(id) = fields.incident_ticket_id {
-        crate::repository::tickets::get_ticket_by_id(conn, id)?;
+fn check_incident(tc: &mut TenantConn, fields: &NoticeFields) -> Result<(), ApiError> {
+    let Some(id) = fields.incident_ticket_id else {
+        return Ok(());
+    };
+    match tc.run(|conn| crate::repository::tickets::get_ticket_by_id(conn, id)) {
+        Ok(_) => Ok(()),
+        Err(diesel::result::Error::NotFound) => {
+            Err(ApiError::BadRequest(format!("There's no ticket #{id}")))
+        }
+        Err(e) => Err(internal(e, "check the incident ticket")),
     }
-    Ok(())
 }
 
 fn internal(e: diesel::result::Error, what: &str) -> ApiError {
@@ -135,11 +154,9 @@ pub async fn create_notice(
     let mut fields = body.into_inner();
     validate(&mut fields)?;
     let author = auth.user_uuid;
+    check_incident(&mut tc, &fields)?;
     let notice = tc
-        .run(|conn| {
-            check_incident(conn, &fields)?;
-            workspace_notices::create(conn, &fields, author)
-        })
+        .run(|conn| workspace_notices::create(conn, &fields, author))
         .map_err(|e| internal(e, "post the notice"))?;
     Ok(HttpResponse::Created().json(notice))
 }
@@ -154,11 +171,9 @@ pub async fn update_notice(
     let id = path.into_inner();
     let mut fields = body.into_inner();
     validate(&mut fields)?;
+    check_incident(&mut tc, &fields)?;
     let notice = tc
-        .run(|conn| {
-            check_incident(conn, &fields)?;
-            workspace_notices::update(conn, id, &fields)
-        })
+        .run(|conn| workspace_notices::update(conn, id, &fields))
         .map_err(|e| internal(e, "update the notice"))?;
     Ok(HttpResponse::Ok().json(notice))
 }
@@ -175,4 +190,38 @@ pub async fn end_notice(
         .run(|conn| workspace_notices::end_now(conn, id))
         .map_err(|e| internal(e, "end the notice"))?;
     Ok(HttpResponse::Ok().json(notice))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    #[test]
+    fn an_acknowledgement_mentions_only_a_live_notice() {
+        let mut conn = setup_test_connection();
+        let en: unic_langid::LanguageIdentifier = "en-US".parse().unwrap();
+        assert_eq!(ack_notice_paragraph(&mut conn, &en), None);
+
+        let author = TestFixtures::create_user(&mut conn, "ack_notice_author", "technician");
+        let now = Utc::now();
+        let notice = workspace_notices::create(
+            &mut conn,
+            &NoticeFields {
+                title: "Email is down".into(),
+                body: Some("Fixing now.".into()),
+                severity: "outage".into(),
+                starts_at: now - Duration::minutes(1),
+                ends_at: now + Duration::hours(1),
+                incident_ticket_id: None,
+            },
+            author.uuid,
+        )
+        .unwrap();
+        let note = ack_notice_paragraph(&mut conn, &en).expect("a live notice");
+        assert!(note.contains("Email is down") && note.ends_with("\nFixing now."));
+
+        workspace_notices::end_now(&mut conn, notice.id).unwrap();
+        assert_eq!(ack_notice_paragraph(&mut conn, &en), None);
+    }
 }

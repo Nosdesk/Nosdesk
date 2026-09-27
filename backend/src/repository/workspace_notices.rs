@@ -121,4 +121,21 @@ mod tests {
         let ended_early = end_now(&mut conn, scheduled.id).unwrap();
         assert!(ended_early.starts_at < ended_early.ends_at);
     }
+
+    #[test]
+    fn an_edit_can_clear_the_body_and_incident_ticket() {
+        let mut conn = setup_test_connection();
+        let author = TestFixtures::create_user(&mut conn, "notice_clear_author", "technician");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Incident", Some(author.uuid), None);
+        let mut f = fields(-5, 60);
+        f.incident_ticket_id = Some(ticket.id);
+        let notice = create(&mut conn, &f, author.uuid).unwrap();
+        assert_eq!(notice.incident_ticket_id, Some(ticket.id));
+
+        f.body = None;
+        f.incident_ticket_id = None;
+        let cleared = update(&mut conn, notice.id, &f).unwrap();
+        assert_eq!(cleared.body, None);
+        assert_eq!(cleared.incident_ticket_id, None);
+    }
 }

@@ -288,13 +288,18 @@ const handleSaveAsDoc = async () => {
 // Known-issue notice linked to this ticket: post one, or update/end the live one.
 const noticeDialogOpen = ref(false);
 const liveNotice = ref<Notice | null>(null);
+// A live notice not yet tied to any ticket: this ticket can become its incident.
+const linkableNotice = ref<Notice | null>(null);
 const openNoticeDialog = async () => {
     try {
         const notices = await noticeService.list();
         liveNotice.value =
             notices.find((n) => n.incident_ticket_id === ticketId.value && isLive(n)) ?? null;
+        linkableNotice.value =
+            notices.find((n) => n.incident_ticket_id === null && isLive(n)) ?? null;
     } catch {
         liveNotice.value = null;
+        linkableNotice.value = null;
     }
     noticeDialogOpen.value = true;
 };
@@ -877,6 +882,7 @@ const rootEl = ref<HTMLElement | null>(null);
             <NoticeDialog
                 :show="noticeDialogOpen"
                 :notice="liveNotice"
+                :linkable="linkableNotice"
                 :ticket-id="ticketId ?? null"
                 :default-title="ticket?.title ?? ''"
                 @close="noticeDialogOpen = false"
