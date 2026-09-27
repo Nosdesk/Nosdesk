@@ -180,6 +180,12 @@
           @input="fieldErrors.title && validateField('title')"
         />
 
+        <ArticleSuggestions
+          v-if="articleSearch"
+          :subject="form.title"
+          :search="articleSearch"
+        />
+
         <FormTextarea
           v-model="form.description"
           :label="t('guest-submit-field-description')"
@@ -290,6 +296,7 @@ import IconButton from '@/components/common/IconButton.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
+import ArticleSuggestions from '@/components/requester/ArticleSuggestions.vue';
 import RequestTypePicker from '@/components/requester/RequestTypePicker.vue';
 import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings';
 import {
@@ -362,6 +369,12 @@ const attachmentsEnabled = computed(
 );
 const introMessage = computed(() => store.settings?.guest_ticket_intro_message ?? '');
 const requestTypes = computed(() => store.settings?.request_types ?? []);
+// Suggest help articles as the subject is typed, when the help centre is open.
+const articleSearch = computed(() =>
+  store.settings?.guest_public_docs_enabled && store.settings?.guest_kb_search_enabled
+    ? (q: string) => publicService.searchDocs(q)
+    : null
+);
 const requestType = ref<number | null>(null);
 const statusAbsolute = computed(() =>
   success.value?.status_url ? `${window.location.origin}${success.value.status_url}` : ''

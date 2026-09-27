@@ -914,12 +914,39 @@ pub struct PublicDocsSearchQuery {
 pub async fn search_public_docs(
     pool: web::Data<Pool>,
     ws: WorkspaceContext,
+    search_service: web::Data<Arc<SearchService>>,
     query: web::Query<PublicDocsSearchQuery>,
 ) -> Result<HttpResponse, ApiError> {
     let q = query.q.trim().to_string();
     if q.is_empty() || q.len() > GUEST_DOC_SEARCH_MAX_QUERY_LENGTH {
         return Err(ApiError::BadRequest("Invalid query".into()));
     }
+
+    // Full-text over title and body, so "printer error 49" finds "Printer
+    // troubleshooting". Candidates are re-checked against the database below,
+    // which alone decides what's public. Title matching is the fallback when
+    // the index can't answer.
+    let ranked: Option<Vec<i32>> = search_service
+        .search(
+            &crate::services::search::SearchQuery {
+                q: q.clone(),
+                limit: 50,
+                types: Some("documentation".into()),
+                sort: None,
+                author: None,
+            },
+            false,
+            ws.workspace_id as i64,
+        )
+        .map(|r| {
+            r.results
+                .iter()
+                .filter(|hit| hit.entity_type == "documentation")
+                .filter_map(|hit| i32::try_from(hit.entity_id).ok())
+                .collect()
+        })
+        .map_err(|e| warn!(error = %e, "public doc search: index unavailable, matching titles"))
+        .ok();
 
     let mut conn = helpers::db_conn(&pool)?;
 
@@ -934,21 +961,35 @@ pub async fn search_public_docs(
         }
 
         use crate::schema::documentation_pages::dsl::*;
-        let pattern = format!("%{}%", escape_like(&q));
-        let rows = documentation_pages
+        let public = documentation_pages
             .filter(is_public.eq(true))
             .filter(deleted_at.is_null())
-            .filter(title.ilike(&pattern))
             .select((id, uuid, title, slug, icon, updated_at))
-            .limit(GUEST_DOC_SEARCH_RESULT_LIMIT)
-            .load::<(
-                i32,
-                Uuid,
-                String,
-                String,
-                Option<String>,
-                chrono::NaiveDateTime,
-            )>(conn)?;
+            .into_boxed();
+        type Row = (
+            i32,
+            Uuid,
+            String,
+            String,
+            Option<String>,
+            chrono::NaiveDateTime,
+        );
+        let rows: Vec<Row> = match &ranked {
+            Some(ids) => {
+                let found: Vec<Row> = public.filter(id.eq_any(ids)).load(conn)?;
+                // Keep the index's ranking.
+                let mut ordered: Vec<Row> = ids
+                    .iter()
+                    .filter_map(|pid| found.iter().find(|r| r.0 == *pid).cloned())
+                    .collect();
+                ordered.truncate(GUEST_DOC_SEARCH_RESULT_LIMIT as usize);
+                ordered
+            }
+            None => public
+                .filter(title.ilike(format!("%{}%", escape_like(&q))))
+                .limit(GUEST_DOC_SEARCH_RESULT_LIMIT)
+                .load(conn)?,
+        };
         Ok::<_, diesel::result::Error>(Ok(rows))
     });
 

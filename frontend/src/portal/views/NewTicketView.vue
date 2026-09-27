@@ -7,11 +7,12 @@ import { useFluent } from 'fluent-vue'
 import Button from '@/components/common/Button.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
+import ArticleSuggestions from '@/components/requester/ArticleSuggestions.vue'
 import RequestTypePicker from '@/components/requester/RequestTypePicker.vue'
 
 import AttachmentPicker from '../components/AttachmentPicker.vue'
 import PortalLayout from '../components/PortalLayout.vue'
-import { createMyTicket, listRequestTypes, type PortalAttachment } from '../service'
+import { createMyTicket, listRequestTypes, searchHelpArticles, type PortalAttachment } from '../service'
 
 const { $t: t } = useFluent()
 const router = useRouter()
@@ -62,6 +63,7 @@ async function submit(): Promise<void> {
         required
         :disabled="submitting"
       />
+      <ArticleSuggestions :subject="title" :search="searchHelpArticles" />
       <FormTextarea
         v-model="description"
         :label="t('portal-new-description-label')"

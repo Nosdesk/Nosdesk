@@ -7,7 +7,7 @@
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui'
 import { useFluent } from 'fluent-vue'
 
-import type { RequestTypeOption } from './requestTypes'
+import type { RequestTypeOption } from './types'
 
 defineProps<{ types: RequestTypeOption[]; disabled?: boolean }>()
 const model = defineModel<number | null>({ required: true })
