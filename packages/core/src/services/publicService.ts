@@ -16,6 +16,13 @@ export interface PublicSiteSettings {
   guest_ticket_attachments_enabled: boolean;
   /** Admin-configured plain-text blurb shown above the submit form. */
   guest_ticket_intro_message: string | null;
+  /** Request types the submit form offers (empty when none). */
+  request_types?: {
+    id: number;
+    name: string;
+    description: string | null;
+    color: string | null;
+  }[];
 }
 
 export interface SubmitGuestTicketRequest {
@@ -24,6 +31,8 @@ export interface SubmitGuestTicketRequest {
   title: string;
   description: string;
   priority?: 'low' | 'medium' | 'high';
+  /** One of the settings' `request_types`. */
+  category_id?: number | null;
   /** Claim tokens returned from POST /api/public/files/temp, one per
    *  pending upload. Max 5. */
   attachment_tokens?: string[];

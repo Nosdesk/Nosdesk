@@ -14,6 +14,8 @@ export interface TicketCategory {
   icon?: string | null
   display_order: number
   is_active: boolean
+  /** Offered to requesters as a request type. */
+  requester_visible: boolean
   created_at: string
   updated_at: string
   created_by?: string | null
@@ -30,6 +32,7 @@ export interface CreateCategoryRequest {
   color?: string
   icon?: string
   visible_to_group_ids?: number[]
+  requester_visible?: boolean
 }
 
 export interface UpdateCategoryRequest {
@@ -39,6 +42,7 @@ export interface UpdateCategoryRequest {
   icon?: string
   is_active?: boolean
   visible_to_group_ids?: number[]
+  requester_visible?: boolean
 }
 
 export interface CategoryOrder {

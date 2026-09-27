@@ -104,6 +104,9 @@ pub struct CreateCategoryRequest {
     pub color: Option<String>,
     pub icon: Option<String>,
     pub visible_to_group_ids: Option<Vec<i32>>, // If None or empty, category is public
+    /// Offer it to requesters as a request type.
+    #[serde(default)]
+    pub requester_visible: bool,
 }
 
 /// Create a new category (admin only)
@@ -134,6 +137,7 @@ pub async fn create_category(
         display_order,
         is_active: true,
         created_by,
+        requester_visible: body.requester_visible,
     };
 
     let group_ids = body.visible_to_group_ids.clone();
@@ -196,6 +200,7 @@ pub struct UpdateCategoryRequest {
     pub icon: Option<String>,
     pub is_active: Option<bool>,
     pub visible_to_group_ids: Option<Vec<i32>>, // If provided, replaces existing visibility
+    pub requester_visible: Option<bool>,
 }
 
 /// Update an existing category (admin only)
@@ -219,6 +224,7 @@ pub async fn update_category(
         display_order: None,
         is_active: body.is_active,
         updated_at: None,
+        requester_visible: body.requester_visible,
     };
 
     let group_ids = body.visible_to_group_ids.clone();

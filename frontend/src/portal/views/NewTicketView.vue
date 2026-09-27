@@ -1,21 +1,24 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useQueryCache } from '@pinia/colada'
+import { useQuery, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
+import RequestTypePicker from '@/components/requester/RequestTypePicker.vue'
 
 import AttachmentPicker from '../components/AttachmentPicker.vue'
 import PortalLayout from '../components/PortalLayout.vue'
-import { createMyTicket, type PortalAttachment } from '../service'
+import { createMyTicket, listRequestTypes, type PortalAttachment } from '../service'
 
 const { $t: t } = useFluent()
 const router = useRouter()
 const queryCache = useQueryCache()
 
+const types = useQuery({ key: ['portal', 'request-types'], query: listRequestTypes })
+const requestType = ref<number | null>(null)
 const title = ref('')
 const description = ref('')
 const files = ref<PortalAttachment[]>([])
@@ -31,6 +34,7 @@ async function submit(): Promise<void> {
       title.value.trim(),
       description.value.trim(),
       files.value.map((f) => f.id),
+      requestType.value,
     )
     void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
     void router.push(`/tickets/${ticket.id}`)
@@ -45,6 +49,12 @@ async function submit(): Promise<void> {
   <PortalLayout>
     <h1 class="text-xl font-semibold text-primary">{{ t('portal-nav-new') }}</h1>
     <form class="flex flex-col gap-4 bg-surface border border-default rounded-xl p-5" @submit.prevent="submit">
+      <RequestTypePicker
+        v-if="types.data.value?.length"
+        v-model="requestType"
+        :types="types.data.value"
+        :disabled="submitting"
+      />
       <FormInput
         v-model="title"
         :label="t('portal-new-subject-label')"

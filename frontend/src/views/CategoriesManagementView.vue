@@ -184,7 +184,8 @@ const categoryForm = ref({
   color: DEFAULT_COLOR,
   icon: 'folder',
   is_active: true,
-  visible_to_group_ids: [] as number[]
+  visible_to_group_ids: [] as number[],
+  requester_visible: false
 });
 
 // Load groups for visibility selection
@@ -206,7 +207,8 @@ const openCreateModal = () => {
       color: DEFAULT_COLOR,
       icon: 'folder',
       is_active: true,
-      visible_to_group_ids: []
+      visible_to_group_ids: [],
+      requester_visible: false
     };
     showCategoryModal.value = true;
   } else {
@@ -224,7 +226,8 @@ const openEditModal = (category: CategoryWithVisibility) => {
       color: category.color || DEFAULT_COLOR,
       icon: category.icon || 'folder',
       is_active: category.is_active,
-      visible_to_group_ids: category.visible_to_groups.map(g => g.id)
+      visible_to_group_ids: category.visible_to_groups.map(g => g.id),
+      requester_visible: category.requester_visible
     };
     showCategoryModal.value = true;
   } else {
@@ -250,6 +253,7 @@ const saveCategoryFromForm = async (formData: {
   icon: string;
   is_active: boolean;
   visible_to_group_ids: number[];
+  requester_visible: boolean;
 }) => {
   if (!formData.name.trim()) {
     errorMessage.value = t('admin-categories-error-name-required');
@@ -270,6 +274,7 @@ const saveCategoryFromForm = async (formData: {
         color: formData.color,
         icon: formData.icon,
         is_active: formData.is_active,
+        requester_visible: formData.requester_visible,
         visible_to_group_ids: formData.visible_to_group_ids.length > 0
           ? formData.visible_to_group_ids
           : undefined
@@ -282,6 +287,7 @@ const saveCategoryFromForm = async (formData: {
         description: formData.description || undefined,
         color: formData.color,
         icon: formData.icon,
+        requester_visible: formData.requester_visible,
         visible_to_group_ids: formData.visible_to_group_ids.length > 0
           ? formData.visible_to_group_ids
           : undefined
@@ -325,6 +331,7 @@ const onPanelSave = async (formData: {
   icon: string;
   is_active: boolean;
   visible_to_group_ids: number[];
+  requester_visible: boolean;
 }) => {
   await saveCategoryFromForm(formData);
 };
@@ -735,6 +742,12 @@ onMounted(() => {
         v-model="categoryForm.is_active"
         size="sm"
         :label="$t('admin-categories-modal-active-label')"
+      />
+      <ToggleSwitch
+        v-model="categoryForm.requester_visible"
+        size="sm"
+        :label="$t('admin-categories-requester-visible-label')"
+        :description="$t('admin-categories-requester-visible-hint')"
       />
 
       <!-- Group visibility -->

@@ -103,6 +103,9 @@ pub struct SubmitGuestTicketRequest {
     pub title: String,
     pub description: String,
     pub priority: Option<String>,
+    /// One of the settings' `request_types`.
+    #[serde(default)]
+    pub category_id: Option<i32>,
     /// Claim tokens returned by `POST /api/public/files/temp`, one per
     /// pending upload.
     ///
@@ -294,8 +297,26 @@ pub async fn get_public_settings(
     let mut conn = helpers::db_conn(&pool)?;
 
     let actor = guest_actor(&ws, "guest:public_settings");
-    match session::with_actor_context(&mut conn, &actor, site_settings::get_site_settings) {
-        Ok(s) => Ok(HttpResponse::Ok().json(PublicSiteSettings::from(&s))),
+    let loaded = session::with_actor_context(&mut conn, &actor, |conn| {
+        let settings = site_settings::get_site_settings(conn)?;
+        // The request types the submit form offers, when it's on.
+        let types = if settings.guest_tickets_enabled {
+            repository::categories::requester_request_types(conn)?
+        } else {
+            Vec::new()
+        };
+        Ok::<_, diesel::result::Error>((settings, types))
+    });
+    match loaded {
+        Ok((s, types)) => {
+            let mut body =
+                serde_json::to_value(PublicSiteSettings::from(&s)).unwrap_or_else(|_| json!({}));
+            body["request_types"] = json!(types
+                .into_iter()
+                .map(crate::handlers::portal::RequestType::from)
+                .collect::<Vec<_>>());
+            Ok(HttpResponse::Ok().json(body))
+        }
         Err(e) => {
             warn!(error = ?e, "Failed to load site_settings for public endpoint");
             Ok(HttpResponse::Ok().json(json!({
@@ -440,6 +461,7 @@ pub async fn submit_guest_ticket(
     // link in the invitation email flips them to `verified` atomically in
     // accept_invitation::verify_pending_tickets_for_user.
     let verification_required = settings.guest_ticket_email_verification;
+    let requested_type = body.category_id;
     let lookup_token = Uuid::new_v4();
 
     // Provision-or-find user, resolve default workflow state, create
@@ -477,11 +499,13 @@ pub async fn submit_guest_ticket(
             CreateError::Internal
         })?;
 
+        let category_id = repository::categories::offered_request_type(conn, requested_type)?;
         let new_ticket = NewTicket {
             title: title.to_string(),
             workflow_state_id: default_state.id,
             priority,
             requester_uuid: Some(user.uuid),
+            category_id,
             submitted_via: Some("guest".to_string()),
             guest_lookup_token: Some(lookup_token),
             verification_state: if verification_required {

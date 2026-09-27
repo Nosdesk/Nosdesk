@@ -62,6 +62,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route("/logout", web::post().to(logout))
         .route("/tickets", web::get().to(list_my_tickets))
         .route("/tickets", web::post().to(create_my_ticket))
+        .route("/request-types", web::get().to(list_request_types))
         .route("/tickets/{id}", web::get().to(get_my_ticket))
         .route("/tickets/{id}/comments", web::post().to(reply_to_my_ticket))
         .route("/tickets/{id}/resolve", web::post().to(resolve_my_ticket))
@@ -1136,6 +1137,9 @@ async fn claim_uploads(
 #[derive(Deserialize)]
 pub struct NewPortalTicket {
     pub title: String,
+    /// One of the request types from `GET /api/portal/request-types`.
+    #[serde(default)]
+    pub category_id: Option<i32>,
     #[serde(default)]
     pub description: String,
     /// Ids from `POST /api/portal/files`.
@@ -1160,6 +1164,42 @@ pub struct NewPortalReply {
 /// portal user; the optional description lands as the first customer-visible
 /// comment. Created under the pinned actor, so the activity attributes it to
 /// the customer.
+/// A request type as a requester sees it.
+#[derive(Serialize)]
+pub struct RequestType {
+    pub id: i32,
+    pub name: String,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+}
+
+impl From<crate::models::TicketCategory> for RequestType {
+    fn from(c: crate::models::TicketCategory) -> Self {
+        Self {
+            id: c.id,
+            name: c.name,
+            description: c.description,
+            icon: c.icon,
+            color: c.color,
+        }
+    }
+}
+
+/// `GET /api/portal/request-types`: what a requester can pick when opening a
+/// request. Empty when the workspace offers none.
+pub async fn list_request_types(mut tc: TenantConn, _portal: PortalContext) -> impl Responder {
+    match tc.run(crate::repository::categories::requester_request_types) {
+        Ok(types) => {
+            HttpResponse::Ok().json(types.into_iter().map(RequestType::from).collect::<Vec<_>>())
+        }
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to list request types");
+            errors::internal("Failed to load request types")
+        }
+    }
+}
+
 pub async fn create_my_ticket(
     mut tc: TenantConn,
     portal: PortalContext,
@@ -1178,12 +1218,16 @@ pub async fn create_my_ticket(
     let user_uuid = portal.user_uuid;
     let search = Arc::clone(search_service.get_ref());
 
+    let requested_type = body.category_id;
     let result = tc.run(move |conn| {
         let default_state = crate::repository::workflow_states::default_state(conn)?;
+        let category_id =
+            crate::repository::categories::offered_request_type(conn, requested_type)?;
         let new_ticket = NewTicket {
             title: title.clone(),
             workflow_state_id: default_state.id,
             requester_uuid: Some(user_uuid),
+            category_id,
             submitted_via: Some("portal".to_string()),
             ..Default::default()
         };
