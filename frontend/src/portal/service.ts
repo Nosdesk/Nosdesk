@@ -1,6 +1,7 @@
 import axios from 'axios'
 
 import type { ArticleHit, RequestTypeOption } from '@/components/requester/types'
+import type { PublicNotice } from '@nosdesk/core/services/noticeService'
 // Customer-portal API calls. Thin wrappers over the portal axios client; the
 // shapes mirror what the backend `/api/portal` handlers return.
 import portalApi from './api'
@@ -194,4 +195,15 @@ export async function addParticipant(id: number, email: string): Promise<PortalP
 /** Remove someone from a request (or leave it yourself). */
 export async function removeParticipant(id: number, userUuid: string): Promise<void> {
   await portalApi.delete(`/tickets/${id}/participants/${userUuid}`)
+}
+
+/** The live known-issue notice and whether the requester follows its incident. */
+export async function getNotice(): Promise<{ notice: PublicNotice | null; following: boolean }> {
+  const { data } = await portalApi.get<{ notice: PublicNotice | null; following: boolean }>('/notice')
+  return data
+}
+
+/** Follow the incident behind a notice instead of filing a duplicate. */
+export async function followNotice(id: number): Promise<void> {
+  await portalApi.post(`/notices/${id}/follow`)
 }

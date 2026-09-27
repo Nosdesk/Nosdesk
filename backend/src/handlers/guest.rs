@@ -305,16 +305,19 @@ pub async fn get_public_settings(
         } else {
             Vec::new()
         };
-        Ok::<_, diesel::result::Error>((settings, types))
+        let notice = crate::handlers::notices::public_notice(conn)?;
+        Ok::<_, diesel::result::Error>((settings, types, notice))
     });
     match loaded {
-        Ok((s, types)) => {
+        Ok((s, types, notice)) => {
             let mut body =
                 serde_json::to_value(PublicSiteSettings::from(&s)).unwrap_or_else(|_| json!({}));
             body["request_types"] = json!(types
                 .into_iter()
                 .map(crate::handlers::portal::RequestType::from)
                 .collect::<Vec<_>>());
+            // A known issue the team has posted, shown on every public page.
+            body["notice"] = json!(notice);
             Ok(HttpResponse::Ok().json(body))
         }
         Err(e) => {

@@ -1168,6 +1168,8 @@ pub fn configure_app(
                     // ===== SSE / SEARCH / NOTIFICATIONS / BUG REPORTS =====
                     .configure(crate::handlers::sse::config)
                     .configure(crate::handlers::search::config)
+                    // Known-issue notices (agents and up).
+                    .configure(crate::handlers::notices::config)
                     .configure(crate::handlers::notifications::config)
                     .configure(crate::handlers::bug_reports::config)
 

@@ -54,6 +54,7 @@ pub mod ldap_integration;
 pub mod manufacturers;
 pub mod microsoft_graph;
 pub mod msgraph_integration;
+pub mod notices;
 pub mod notifications;
 pub mod passkeys;
 pub mod password_reset;

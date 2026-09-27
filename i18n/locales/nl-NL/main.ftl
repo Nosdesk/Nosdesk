@@ -7388,3 +7388,46 @@ workspace-name-error = Je naam in deze werkruimte kon niet worden opgeslagen.
 portal-code-label = Of vul de 6-cijferige code uit de e-mail in
 portal-code-submit = Inloggen
 portal-code-invalid = Die code werkte niet. Controleer hem of vraag een nieuwe aan.
+
+# Known-issue notices (machine, pending native review)
+tickets-menu-known-issue = Melding bekend probleem…
+notice-dialog-title = Melding over een bekend probleem plaatsen
+notice-dialog-edit-title = Melding bekend probleem
+notice-dialog-description = Bovenaan de portal en het aanvraagformulier, zodat mensen weten dat jullie ermee bezig zijn.
+notice-title-label = Kop
+notice-body-label = Details (optioneel)
+notice-body-placeholder = Wat er is getroffen en wat mensen intussen kunnen doen
+notice-severity-label = Ernst
+notice-severity-info = Info
+notice-severity-degraded = Verstoord
+notice-severity-outage = Storing
+notice-duration-label = Tonen gedurende
+notice-duration = { $hours ->
+    [1] 1 uur
+   *[other] { $hours } uur
+}
+notice-follow-hint = Aanvragers kunnen dit ticket vanuit de melding volgen in plaats van zelf een ticket te openen.
+notice-end-now = Nu beëindigen
+notice-cancel = Annuleren
+notice-post = Melding plaatsen
+notice-update = Melding bijwerken
+notice-save-failed = Opslaan is niet gelukt. Probeer het opnieuw.
+notice-saved-live = Melding staat live
+notice-saved-ended = Melding beëindigd
+notice-follow = Dit probleem volgen
+notice-following = Je volgt dit probleem. Updates verschijnen bij je aanvragen.
+notice-dismiss = Sluiten
+notices-title = Bekende problemen
+notices-description = Meldingen op de portal en het formulier tijdens een storing of gepland werk. Plaats ze vanuit het incidentticket zodat aanvragers het kunnen volgen.
+notices-new = Nieuwe melding
+notices-load-failed = Meldingen konden niet worden geladen.
+notices-empty = Nog geen meldingen.
+notices-status-live = Live
+notices-status-scheduled = Gepland
+notices-status-ended = Beëindigd
+notices-ends = eindigt { $when }
+notices-ended = beëindigd { $when }
+notices-edit = Bewerken
+admin-nav-notices-title = Bekende problemen
+admin-nav-notices-description = Aanvragers informeren over storingen en gepland werk
+route-title-admin-notices = Bekende problemen

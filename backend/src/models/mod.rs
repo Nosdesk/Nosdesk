@@ -61,6 +61,7 @@ mod webhooks;
 mod workflow_states;
 mod workspace_export_jobs;
 mod workspace_ldap_settings;
+mod workspace_notices;
 mod workspaces;
 
 pub use active_sessions::*;
@@ -115,6 +116,7 @@ pub use webhooks::*;
 pub use workflow_states::*;
 pub use workspace_export_jobs::*;
 pub use workspace_ldap_settings::*;
+pub use workspace_notices::*;
 pub use workspaces::*;
 
 use uuid::Uuid;
