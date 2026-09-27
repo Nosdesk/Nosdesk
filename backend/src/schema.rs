@@ -1149,6 +1149,7 @@ diesel::table! {
         sender_identity -> Varchar,
         #[max_length = 16]
         mail_class -> Varchar,
+        skip_if_seen_by -> Nullable<Uuid>,
     }
 }
 

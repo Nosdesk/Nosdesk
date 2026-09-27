@@ -425,6 +425,28 @@ impl NotificationDeliveryChannel for EmailChannel {
                 )
             },
         );
+        // A requester watching the portal live sees the update there: hold the
+        // email a few minutes and drop it if they look.
+        if let Ok(row) = &enqueue {
+            let watcher = notification.payload.recipient_uuid;
+            let ticket_id = notification.payload.entity.ticket_id();
+            if ticket_id > 0
+                && crate::services::connection_registry::global()
+                    .is_connected((watcher, notification.payload.workspace_id))
+            {
+                let id = row.id;
+                let _ = crate::sync::session::run_in_workspace(
+                    &self.pool,
+                    "background:notification_email_hold",
+                    notification.payload.workspace_id,
+                    move |conn| {
+                        crate::repository::outbound_emails::hold_for_live_viewer(
+                            conn, id, watcher, ticket_id,
+                        )
+                    },
+                );
+            }
+        }
         match enqueue {
             Ok(row) => tracing::debug!(
                 queue_id = row.id,

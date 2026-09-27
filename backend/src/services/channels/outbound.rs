@@ -178,6 +178,25 @@ pub(crate) fn reply_routing(
     }
 }
 
+/// Someone watching the portal live sees the reply there; hold their copy a
+/// few minutes and drop it if they view the ticket (see
+/// `outbound_emails::hold_for_live_viewer`). Best effort.
+fn hold_if_watching(
+    conn: &mut DbConnection,
+    row_id: i64,
+    recipient: Option<uuid::Uuid>,
+    ticket: &crate::models::Ticket,
+) {
+    let Some(user) = recipient else { return };
+    if crate::services::connection_registry::global().is_connected((user, ticket.workspace_id)) {
+        if let Err(e) =
+            crate::repository::outbound_emails::hold_for_live_viewer(conn, row_id, user, ticket.id)
+        {
+            warn!(error = %e, queue_id = row_id, "channel relay: could not hold the email for a live viewer");
+        }
+    }
+}
+
 /// Spawn a detached task that composes the outbound reply for a
 /// freshly-created comment and enqueues it on the durable
 /// `outbound_emails` queue (Item J Pass 1). The actual SMTP send
@@ -275,6 +294,7 @@ pub fn enqueue_for_comment(
                             .map_err(|e| {
                                 diesel::result::Error::QueryBuilderError(e.to_string().into())
                             })?;
+                            hold_if_watching(conn, row.id, to_uuid, &ticket);
                             first.get_or_insert(row.id);
                         }
                         return Ok(first.map(|id| (id, ticket.id)));
@@ -358,6 +378,7 @@ pub fn enqueue_for_comment(
                             .map_err(|e| {
                                 diesel::result::Error::QueryBuilderError(e.to_string().into())
                             })?;
+                    hold_if_watching(conn, row.id, to_uuid, &ticket);
                     first.get_or_insert(row.id);
                 }
                 Ok::<_, diesel::result::Error>(first.map(|id| (id, thread.ticket_id)))

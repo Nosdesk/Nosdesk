@@ -599,6 +599,52 @@ pub fn pending_health(conn: &mut DbConnection) -> Result<(i64, Option<i64>), Die
     Ok((row.count, row.oldest_age_seconds))
 }
 
+/// How long a reply waits for someone watching the portal live.
+pub const HOLD_FOR_LIVE_VIEWER: chrono::Duration = chrono::Duration::minutes(3);
+
+// sync-audit-only: operational queue state, no tier-1 event
+/// Hold a queued email for `viewer`, who has the portal open live: it goes out
+/// after [`HOLD_FOR_LIVE_VIEWER`] unless they view the ticket first.
+pub fn hold_for_live_viewer(
+    conn: &mut DbConnection,
+    id: i64,
+    viewer: uuid::Uuid,
+    ticket_id: i32,
+) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        "UPDATE outbound_emails SET next_attempt_at = now() + $2, skip_if_seen_by = $3, \
+                ticket_id = COALESCE(ticket_id, $4) \
+         WHERE id = $1 AND status = 'pending'",
+    )
+    .bind::<BigInt, _>(id)
+    .bind::<diesel::sql_types::Interval, _>(diesel::pg::data_types::PgInterval::from_microseconds(
+        HOLD_FOR_LIVE_VIEWER
+            .num_microseconds()
+            .unwrap_or(180_000_000),
+    ))
+    .bind::<diesel::sql_types::Uuid, _>(viewer)
+    .bind::<Integer, _>(ticket_id)
+    .execute(conn)
+}
+
+/// Whether `viewer` has viewed `ticket_id` since `since` (the email was
+/// queued), so a held email can be dropped.
+pub fn seen_since(
+    conn: &mut DbConnection,
+    viewer: uuid::Uuid,
+    ticket_id: i32,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Result<bool, DieselError> {
+    use crate::schema::user_ticket_views;
+    diesel::select(diesel::dsl::exists(
+        user_ticket_views::table
+            .filter(user_ticket_views::user_uuid.eq(viewer))
+            .filter(user_ticket_views::ticket_id.eq(ticket_id))
+            .filter(user_ticket_views::last_viewed_at.ge(since.naive_utc())),
+    ))
+    .get_result(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -837,5 +883,28 @@ mod tests {
         let ids: Vec<i64> = page.rows.iter().map(|r| r.id).collect();
         assert!(ids.contains(&r3.id), "sent row should be in filter");
         assert!(!ids.contains(&pending.id), "pending row should be excluded");
+    }
+
+    #[test]
+    fn a_held_email_is_dropped_once_its_viewer_looks() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let requester = TestFixtures::create_user(&mut conn, "held_viewer", "user");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Printer", Some(requester.uuid), None);
+        let row = enqueue(&mut conn, fresh_row(ch, "held")).unwrap();
+
+        assert_eq!(
+            hold_for_live_viewer(&mut conn, row.id, requester.uuid, ticket.id).unwrap(),
+            1
+        );
+        let held = get(&mut conn, row.id).unwrap();
+        assert_eq!(held.skip_if_seen_by, Some(requester.uuid));
+        assert_eq!(held.ticket_id, Some(ticket.id));
+        assert!(held.next_attempt_at > Utc::now(), "sends later");
+
+        assert!(!seen_since(&mut conn, requester.uuid, ticket.id, held.created_at).unwrap());
+        crate::repository::user_ticket_views::record_view(&mut conn, requester.uuid, ticket.id)
+            .unwrap();
+        assert!(seen_since(&mut conn, requester.uuid, ticket.id, held.created_at).unwrap());
     }
 }

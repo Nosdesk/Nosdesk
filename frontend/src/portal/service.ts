@@ -207,3 +207,8 @@ export async function getNotice(): Promise<{ notice: PublicNotice | null; follow
 export async function followNotice(id: number): Promise<void> {
   await portalApi.post(`/notices/${id}/follow`)
 }
+
+/** The requester is looking at this request now (the page is visible). */
+export async function markSeen(id: number): Promise<void> {
+  await portalApi.post(`/tickets/${id}/seen`)
+}

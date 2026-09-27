@@ -89,8 +89,11 @@ pub struct OutboundEmail {
     pub sender_identity: String,
     /// Notification vs transactional (see [`outbound_email_mail_class`]).
     /// Drives deliverability headers (List-Unsubscribe on notification only).
-    /// Last field so the column order matches the schema.
     pub mail_class: String,
+    /// Held for someone watching the portal live: dropped instead of sent if
+    /// they view the ticket before it goes out. Last field so the column order
+    /// matches the schema.
+    pub skip_if_seen_by: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Insertable)]

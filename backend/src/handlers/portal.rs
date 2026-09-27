@@ -72,6 +72,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route("/tickets/{id}", web::get().to(get_my_ticket))
         .route("/tickets/{id}/comments", web::post().to(reply_to_my_ticket))
         .route("/tickets/{id}/resolve", web::post().to(resolve_my_ticket))
+        .route("/tickets/{id}/seen", web::post().to(mark_seen))
         .route(
             "/tickets/{id}/participants",
             web::post().to(add_participant),
@@ -1735,6 +1736,34 @@ pub async fn remove_participant(
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to remove participant");
             errors::internal("Failed to remove that person")
+        }
+    }
+}
+
+/// `POST /api/portal/tickets/{id}/seen`: the requester is looking at the
+/// request right now (the page is visible). Emails held for them because they
+/// were watching live are dropped once they've seen the ticket.
+pub async fn mark_seen(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let ticket_id = path.into_inner();
+    let viewer = portal.user_uuid;
+    let result = tc.run(move |conn| {
+        let vis = portal_visibility(conn, viewer)?;
+        if !can_view_ticket(conn, &vis, ticket_id)? {
+            return Ok(false);
+        }
+        crate::repository::user_ticket_views::record_view(conn, viewer, ticket_id)?;
+        Ok::<_, diesel::result::Error>(true)
+    });
+    match result {
+        Ok(true) => HttpResponse::NoContent().finish(),
+        Ok(false) => errors::not_found("Ticket not found"),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to record a view");
+            errors::internal("Failed to record the view")
         }
     }
 }
