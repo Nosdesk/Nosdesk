@@ -5,3 +5,10 @@ export interface RequestTypeOption {
   description: string | null
   color: string | null
 }
+
+/** A help article suggested while a requester writes a new request. */
+export interface ArticleHit {
+  id: number
+  title: string
+  slug: string
+}

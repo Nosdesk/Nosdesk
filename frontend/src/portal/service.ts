@@ -1,4 +1,6 @@
-import type { RequestTypeOption } from '@/components/requester/requestTypes'
+import axios from 'axios'
+
+import type { ArticleHit, RequestTypeOption } from '@/components/requester/types'
 // Customer-portal API calls. Thin wrappers over the portal axios client; the
 // shapes mirror what the backend `/api/portal` handlers return.
 import portalApi from './api'
@@ -154,4 +156,14 @@ export async function uploadFile(file: File): Promise<PortalAttachment> {
 /** Download URL for a file on a public comment (portal-authenticated). */
 export function attachmentUrl(ticketId: number, attachmentId: number): string {
   return `/api/portal/tickets/${ticketId}/attachments/${attachmentId}`
+}
+
+/** Public help articles matching `q` (the same search the help centre uses).
+ *  Rejects when the workspace's knowledge base is off. */
+export async function searchHelpArticles(q: string): Promise<ArticleHit[]> {
+  const { data } = await axios.get<ArticleHit[]>('/api/public/docs/search', {
+    params: { q },
+    withCredentials: false,
+  })
+  return data
 }

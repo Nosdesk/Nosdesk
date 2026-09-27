@@ -7231,6 +7231,7 @@ portal-still-label = What's still wrong?
 portal-still-placeholder = Tell the team what's still happening
 requester-type-label = What do you need help with?
 requester-type-other = Something else
+requester-articles-heading = These articles might help
 portal-request-load-failed = We couldn't load this request.
 portal-back-to-requests = All requests
 portal-new-subject-label = Subject
