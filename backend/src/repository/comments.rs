@@ -100,6 +100,96 @@ pub struct CommentCreationAnnotation {
     pub from_name: Option<String>,
 }
 
+/// "Staff" post-W2: workspace owner/admin/agent in `workspace_id`, or any
+/// platform admin.
+fn is_workspace_staff(conn: &mut DbConnection, user: uuid::Uuid, workspace_id: i32) -> bool {
+    use crate::schema::{users, workspace_members};
+    diesel::dsl::select(diesel::dsl::exists(
+        users::table.filter(users::uuid.eq(user)).filter(
+            users::platform_role
+                .eq("platform_admin")
+                .or(diesel::dsl::exists(
+                    workspace_members::table
+                        .filter(workspace_members::user_uuid.eq(users::uuid))
+                        .filter(workspace_members::workspace_id.eq(workspace_id))
+                        .filter(workspace_members::role.eq_any(vec!["owner", "admin", "agent"]))
+                        .filter(workspace_members::removed_at.is_null()),
+                )),
+        ),
+    ))
+    .get_result::<bool>(conn)
+    .unwrap_or(false)
+}
+
+/// A requester replying to their own done or cancelled request reopens it in
+/// the workspace's default state. The change is written as the requester's,
+/// because their reply made it, so they aren't then emailed about their own
+/// action; the caller's actor is restored afterwards.
+fn reopen_on_requester_reply(
+    conn: &mut DbConnection,
+    parent: &Ticket,
+    author: uuid::Uuid,
+) -> QueryResult<()> {
+    use crate::models::WorkflowStateCategory as Cat;
+    if parent.requester_uuid != Some(author) {
+        return Ok(());
+    }
+    let category = crate::repository::workflow_states::category_of(conn, parent.workflow_state_id)?;
+    if !matches!(category, Some(Cat::Done | Cat::Cancelled))
+        || is_workspace_staff(conn, author, parent.workspace_id)
+    {
+        return Ok(());
+    }
+    let open = crate::repository::workflow_states::default_state(conn)?;
+
+    #[derive(diesel::QueryableByName)]
+    struct Actor {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        uuid: String,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        kind: String,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        reference: String,
+    }
+    let caller: Actor = diesel::sql_query(
+        "SELECT COALESCE(current_setting('app.actor_uuid', true), '') AS uuid, \
+                COALESCE(current_setting('app.actor_kind', true), '') AS kind, \
+                COALESCE(current_setting('app.actor_ref', true), '') AS reference",
+    )
+    .get_result(conn)?;
+    let restore = |conn: &mut DbConnection| {
+        diesel::sql_query(
+            "SELECT set_config('app.actor_uuid', $1, true), \
+                    set_config('app.actor_kind', $2, true), \
+                    set_config('app.actor_ref', $3, true)",
+        )
+        .bind::<diesel::sql_types::Text, _>(&caller.uuid)
+        .bind::<diesel::sql_types::Text, _>(&caller.kind)
+        .bind::<diesel::sql_types::Text, _>(&caller.reference)
+        .execute(conn)
+    };
+    diesel::sql_query(
+        "SELECT set_config('app.actor_uuid', $1, true), \
+                set_config('app.actor_kind', 'user', true), \
+                set_config('app.actor_ref', 'reopened_by_reply', true)",
+    )
+    .bind::<diesel::sql_types::Text, _>(author.to_string())
+    .execute(conn)?;
+    let reopened = crate::repository::tickets::update_ticket_partial(
+        conn,
+        parent.id,
+        crate::models::TicketUpdate {
+            workflow_state_id: Some(open.id),
+            closed_at: Some(None),
+            updated_at: Some(chrono::Utc::now().naive_utc()),
+            ..Default::default()
+        },
+        None,
+    );
+    restore(conn)?;
+    reopened.map(|_| ())
+}
+
 /// Bare create — UI handlers, the import binary, and any caller
 /// without specific channel/portal context land here.
 pub fn create_comment(
@@ -221,6 +311,10 @@ pub fn create_comment_with_annotation(
 
         record_ticket_references(conn, &comment, &parent)?;
 
+        if !comment.is_internal {
+            reopen_on_requester_reply(conn, &parent, new_comment.user_uuid)?;
+        }
+
         // SLA response-timer stamp. The first non-internal comment by
         // a staff member (admin / technician) marks the moment the
         // response target was met. Stamped idempotently with a
@@ -232,32 +326,7 @@ pub fn create_comment_with_annotation(
             // ticket's own workspace, or any platform admin. Scoped to
             // `parent.workspace_id` so the check is correct under hosted
             // multi-tenancy, not just the single-tenant bootstrap.
-            let is_staff = diesel::dsl::select(diesel::dsl::exists(
-                crate::schema::users::table
-                    .filter(crate::schema::users::uuid.eq(new_comment.user_uuid))
-                    .filter(
-                        crate::schema::users::platform_role.eq("platform_admin").or(
-                            diesel::dsl::exists(
-                                crate::schema::workspace_members::table
-                                    .filter(
-                                        crate::schema::workspace_members::user_uuid
-                                            .eq(crate::schema::users::uuid),
-                                    )
-                                    .filter(
-                                        crate::schema::workspace_members::workspace_id
-                                            .eq(parent.workspace_id),
-                                    )
-                                    .filter(
-                                        crate::schema::workspace_members::role
-                                            .eq_any(vec!["owner", "admin", "agent"]),
-                                    )
-                                    .filter(crate::schema::workspace_members::removed_at.is_null()),
-                            ),
-                        ),
-                    ),
-            ))
-            .get_result::<bool>(conn)
-            .unwrap_or(false);
+            let is_staff = is_workspace_staff(conn, new_comment.user_uuid, parent.workspace_id);
             if is_staff {
                 let stamped = diesel::update(tickets::table.find(ticket_id))
                     .filter(tickets::first_response_at.is_null())
@@ -650,6 +719,80 @@ pub fn delete_attachment(conn: &mut DbConnection, attachment_id: i32) -> QueryRe
 mod tests {
     use super::*;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    fn reply(conn: &mut DbConnection, ticket_id: i32, author: uuid::Uuid) {
+        create_comment(
+            conn,
+            NewComment {
+                content: "Still broken".into(),
+                ticket_id,
+                user_uuid: author,
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+    }
+
+    fn state_of(conn: &mut DbConnection, ticket_id: i32) -> (i32, bool) {
+        let t: Ticket = tickets::table.find(ticket_id).first(conn).unwrap();
+        (t.workflow_state_id, t.closed_at.is_some())
+    }
+
+    #[test]
+    fn a_requester_reply_reopens_their_done_request() {
+        use crate::models::WorkflowStateCategory as Cat;
+        use crate::repository::workflow_states;
+        let mut conn = setup_test_connection();
+        let requester = TestFixtures::create_user(&mut conn, "reopen_requester", "user");
+        let agent = TestFixtures::create_user(&mut conn, "reopen_agent", "technician");
+        let bystander = TestFixtures::create_user(&mut conn, "reopen_bystander", "user");
+        let done = workflow_states::first_in_category(&mut conn, Cat::Done).unwrap();
+        let open = workflow_states::default_state(&mut conn).unwrap();
+        let ticket = TestFixtures::create_ticket(&mut conn, "Printer", Some(requester.uuid), None);
+        let close = |conn: &mut DbConnection| {
+            crate::repository::tickets::update_ticket_partial(
+                conn,
+                ticket.id,
+                crate::models::TicketUpdate {
+                    workflow_state_id: Some(done.id),
+                    closed_at: Some(Some(chrono::Utc::now().naive_utc())),
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        };
+
+        close(&mut conn);
+        reply(&mut conn, ticket.id, agent.uuid);
+        assert_eq!(
+            state_of(&mut conn, ticket.id),
+            (done.id, true),
+            "staff reply"
+        );
+        reply(&mut conn, ticket.id, bystander.uuid);
+        assert_eq!(
+            state_of(&mut conn, ticket.id),
+            (done.id, true),
+            "not the requester"
+        );
+
+        reply(&mut conn, ticket.id, requester.uuid);
+        assert_eq!(
+            state_of(&mut conn, ticket.id),
+            (open.id, false),
+            "requester reply"
+        );
+        let actor: Option<uuid::Uuid> = crate::schema::sync_actions::table
+            .filter(crate::schema::sync_actions::event_type.eq("ticket.workflow_state_changed"))
+            .filter(crate::schema::sync_actions::aggregate_id.eq(ticket.id.to_string()))
+            .order(crate::schema::sync_actions::sync_id.desc())
+            .select(crate::schema::sync_actions::actor_uuid)
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(actor, Some(requester.uuid), "the reopen is the requester's");
+    }
 
     #[test]
     fn create_and_retrieve_comment() {

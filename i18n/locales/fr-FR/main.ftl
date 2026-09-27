@@ -7318,6 +7318,7 @@ portal-reply-label = Répondre
 portal-reply-placeholder = Ajoutez une réponse pour l'équipe
 portal-reply-send = Envoyer la réponse
 portal-reply-failed = Votre réponse n'a pas été envoyée. Réessayez.
+portal-reply-reopens = Répondre rouvre cette demande.
 portal-request-load-failed = Impossible de charger cette demande.
 portal-back-to-requests = Toutes les demandes
 portal-new-subject-label = Objet
