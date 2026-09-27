@@ -157,6 +157,13 @@
           @input="fieldErrors.email && validateField('email')"
         />
 
+        <RequestTypePicker
+          v-if="requestTypes.length"
+          v-model="requestType"
+          :types="requestTypes"
+          :disabled="submitting"
+        />
+
         <FormInput
           v-model="form.title"
           :label="t('guest-submit-field-title')"
@@ -283,6 +290,7 @@ import IconButton from '@/components/common/IconButton.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
+import RequestTypePicker from '@/components/requester/RequestTypePicker.vue';
 import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings';
 import {
   publicService,
@@ -353,6 +361,8 @@ const attachmentsEnabled = computed(
   () => store.settings?.guest_ticket_attachments_enabled === true
 );
 const introMessage = computed(() => store.settings?.guest_ticket_intro_message ?? '');
+const requestTypes = computed(() => store.settings?.request_types ?? []);
+const requestType = ref<number | null>(null);
 const statusAbsolute = computed(() =>
   success.value?.status_url ? `${window.location.origin}${success.value.status_url}` : ''
 );
@@ -416,6 +426,7 @@ async function submit() {
       email: form.email.trim(),
       title: form.title.trim(),
       description: form.description.trim(),
+      category_id: requestType.value,
       website: form.website,
       attachment_tokens: attachments.value.map((a) => a.claim_token)
     });

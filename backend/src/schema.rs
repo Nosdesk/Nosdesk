@@ -1735,6 +1735,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
         workspace_id -> Int4,
+        requester_visible -> Bool,
     }
 }
 

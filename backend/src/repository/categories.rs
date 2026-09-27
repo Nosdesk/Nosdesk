@@ -169,6 +169,7 @@ pub fn seed_defaults_if_empty(
                 display_order,
                 is_active: true,
                 created_by,
+                requester_visible: false,
             },
         )
         .collect();
@@ -350,6 +351,36 @@ pub fn can_user_see_category(
         .any(|id| category_group_ids.contains(id)))
 }
 
+/// Active categories an admin offers to requesters as request types, in
+/// display order.
+pub fn requester_request_types(conn: &mut DbConnection) -> QueryResult<Vec<TicketCategory>> {
+    use crate::schema::ticket_categories::dsl as c;
+    c::ticket_categories
+        .filter(c::is_active.eq(true))
+        .filter(c::requester_visible.eq(true))
+        .order((c::display_order.asc(), c::name.asc()))
+        .load(conn)
+}
+
+/// `category_id` when it names an active request type; `None` otherwise, so a
+/// requester can't file into a category that isn't offered to them.
+pub fn offered_request_type(
+    conn: &mut DbConnection,
+    category_id: Option<i32>,
+) -> QueryResult<Option<i32>> {
+    use crate::schema::ticket_categories::dsl as c;
+    let Some(id) = category_id else {
+        return Ok(None);
+    };
+    c::ticket_categories
+        .find(id)
+        .filter(c::is_active.eq(true))
+        .filter(c::requester_visible.eq(true))
+        .select(c::id)
+        .first(conn)
+        .optional()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,5 +526,50 @@ mod tests {
         assert!(visible_ids.contains(&public_cat.id));
         assert!(visible_ids.contains(&restricted_ok.id));
         assert!(!visible_ids.contains(&restricted_no.id));
+    }
+
+    #[test]
+    fn requesters_can_only_file_into_offered_active_types() {
+        let mut conn = setup_test_connection();
+        let offered = TestFixtures::create_category(&mut conn, "Hardware");
+        let hidden = TestFixtures::create_category(&mut conn, "Internal");
+        let retired = TestFixtures::create_category(&mut conn, "Legacy");
+        for (id, active) in [(offered.id, true), (retired.id, false)] {
+            update_category(
+                &mut conn,
+                id,
+                TicketCategoryUpdate {
+                    name: None,
+                    description: None,
+                    color: None,
+                    icon: None,
+                    display_order: None,
+                    is_active: Some(active),
+                    updated_at: None,
+                    requester_visible: Some(true),
+                },
+            )
+            .unwrap();
+        }
+        let listed: Vec<i32> = requester_request_types(&mut conn)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert!(listed.contains(&offered.id));
+        assert!(!listed.contains(&hidden.id) && !listed.contains(&retired.id));
+        assert_eq!(
+            offered_request_type(&mut conn, Some(offered.id)).unwrap(),
+            Some(offered.id)
+        );
+        assert_eq!(
+            offered_request_type(&mut conn, Some(hidden.id)).unwrap(),
+            None
+        );
+        assert_eq!(
+            offered_request_type(&mut conn, Some(retired.id)).unwrap(),
+            None
+        );
+        assert_eq!(offered_request_type(&mut conn, None).unwrap(), None);
     }
 }

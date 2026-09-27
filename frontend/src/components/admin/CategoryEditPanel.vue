@@ -24,6 +24,7 @@ const emit = defineEmits<{
     icon: string;
     is_active: boolean;
     visible_to_group_ids: number[];
+    requester_visible: boolean;
   }];
   close: [];
   delete: [category: CategoryWithVisibility];
@@ -38,7 +39,8 @@ const categoryForm = ref({
   color: '#6366f1',
   icon: 'folder',
   is_active: true,
-  visible_to_group_ids: [] as number[]
+  visible_to_group_ids: [] as number[],
+  requester_visible: false
 });
 
 // Available icons. SVG paths stay literal; labels resolve through
@@ -73,7 +75,8 @@ const populateForm = () => {
       color: props.category.color || '#6366f1',
       icon: props.category.icon || 'folder',
       is_active: props.category.is_active,
-      visible_to_group_ids: props.category.visible_to_groups.map(g => g.id)
+      visible_to_group_ids: props.category.visible_to_groups.map(g => g.id),
+      requester_visible: props.category.requester_visible
     };
   } else {
     categoryForm.value = {
@@ -82,7 +85,8 @@ const populateForm = () => {
       color: '#6366f1',
       icon: 'folder',
       is_active: true,
-      visible_to_group_ids: []
+      visible_to_group_ids: [],
+      requester_visible: false
     };
   }
 };
@@ -184,6 +188,13 @@ const handleSubmit = () => {
           v-model="categoryForm.is_active"
           size="sm"
           :label="$t('admin-categories-edit-active-label')"
+        />
+
+        <ToggleSwitch
+          v-model="categoryForm.requester_visible"
+          size="sm"
+          :label="$t('admin-categories-requester-visible-label')"
+          :description="$t('admin-categories-requester-visible-hint')"
         />
 
         <!-- Group visibility -->

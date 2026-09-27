@@ -1,3 +1,4 @@
+import type { RequestTypeOption } from '@/components/requester/requestTypes'
 // Customer-portal API calls. Thin wrappers over the portal axios client; the
 // shapes mirror what the backend `/api/portal` handlers return.
 import portalApi from './api'
@@ -104,12 +105,20 @@ export async function createMyTicket(
   title: string,
   description: string,
   attachmentIds: number[] = [],
+  categoryId: number | null = null,
 ): Promise<PortalTicket> {
   const { data } = await portalApi.post<PortalTicket>('/tickets', {
     title,
     description,
     attachment_ids: attachmentIds,
+    category_id: categoryId,
   })
+  return data
+}
+
+/** What a requester can pick when opening a request (empty when none). */
+export async function listRequestTypes(): Promise<RequestTypeOption[]> {
+  const { data } = await portalApi.get<RequestTypeOption[]>('/request-types')
   return data
 }
 

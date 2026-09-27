@@ -319,6 +319,7 @@ impl TestFixtures {
             display_order: 0,
             is_active: true,
             created_by: None,
+            requester_visible: false,
         };
 
         diesel::insert_into(ticket_categories::table)

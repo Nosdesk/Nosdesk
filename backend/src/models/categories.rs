@@ -23,6 +23,8 @@ pub struct TicketCategory {
     pub updated_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
     pub workspace_id: i32,
+    /// Offered to requesters as a request type.
+    pub requester_visible: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -35,6 +37,7 @@ pub struct NewTicketCategory {
     pub display_order: i32,
     pub is_active: bool,
     pub created_by: Option<Uuid>,
+    pub requester_visible: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]
@@ -47,6 +50,7 @@ pub struct TicketCategoryUpdate {
     pub display_order: Option<i32>,
     pub is_active: Option<bool>,
     pub updated_at: Option<NaiveDateTime>,
+    pub requester_visible: Option<bool>,
 }
 
 // Category with visibility information for admin views
