@@ -852,6 +852,12 @@ const router = createRouter({
           redirect: { name: 'admin-email-delivery', query: { tab: 'activity' } }
         },
         {
+          path: 'requester-sign-in',
+          name: 'admin-requester-sign-in',
+          component: () => import('../views/RequesterSignInView.vue'),
+          meta: { titleKey: 'route-title-admin-requester-sign-in', adminRequired: true }
+        },
+        {
           path: 'notices',
           name: 'admin-notices',
           component: () => import('../views/NoticesView.vue'),

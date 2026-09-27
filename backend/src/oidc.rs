@@ -610,6 +610,11 @@ fn extract_user_info(
     claims: &CoreIdTokenClaims,
     _config: &OidcConfig,
 ) -> Result<OidcUserInfo, String> {
+    Ok(claims_to_user_info(claims))
+}
+
+/// The user info carried by verified ID token claims.
+fn claims_to_user_info(claims: &CoreIdTokenClaims) -> OidcUserInfo {
     let sub = claims.subject().to_string();
 
     let email = claims.email().map(|e| e.to_string());
@@ -644,7 +649,7 @@ fn extract_user_info(
         "picture": picture,
     });
 
-    Ok(OidcUserInfo {
+    OidcUserInfo {
         sub,
         email,
         email_verified,
@@ -654,7 +659,7 @@ fn extract_user_info(
         family_name,
         picture,
         raw_claims,
-    })
+    }
 }
 
 /// The display name for a user, honoring the operator-configured
@@ -675,6 +680,141 @@ pub fn display_name_from_claim(user_info: &OidcUserInfo, username_claim: &str) -
     from_claim
         .or_else(|| user_info.name.clone())
         .or_else(|| user_info.preferred_username.clone())
+}
+
+// ---------------------------------------------------------------------------
+// Workspace providers (requester SSO)
+//
+// The functions above drive the instance's own OIDC client (env-configured,
+// used for staff). Requester SSO uses a workspace's own provider, so these take
+// the issuer and client explicitly. Discovery documents are cached per issuer.
+// ---------------------------------------------------------------------------
+
+/// How long a workspace provider's discovery document is reused.
+const DISCOVERY_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
+
+static DISCOVERY_CACHE: once_cell::sync::Lazy<
+    dashmap::DashMap<String, (std::time::Instant, CoreProviderMetadata)>,
+> = once_cell::sync::Lazy::new(dashmap::DashMap::new);
+
+/// On hosted, every URL the server will call for a workspace provider (the
+/// issuer, and the token and key endpoints its discovery document names) must
+/// be HTTPS on a public address under the egress policy. Hosted issuers are
+/// built server-side from the Entra and Google presets; this is defence in
+/// depth. Self-hosted skips it: the admin runs the machine, and an internal IdP
+/// (Keycloak on the LAN) is a normal setup.
+async fn check_egress(url: &str) -> Result<(), String> {
+    if !crate::middleware::workspace_context::is_hosted() {
+        return Ok(());
+    }
+    let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL {url}: {e}"))?;
+    if parsed.scheme() != "https" {
+        return Err(format!("{url} must use https"));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("{url} has no host"))?;
+    crate::utils::egress::resolve_and_validate(host, parsed.port_or_known_default().unwrap_or(443))
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("{host} isn't reachable under the egress policy: {e}"))
+}
+
+async fn discover(issuer_url: &str) -> Result<CoreProviderMetadata, String> {
+    if let Some(hit) = DISCOVERY_CACHE.get(issuer_url) {
+        if hit.0.elapsed() < DISCOVERY_TTL {
+            return Ok(hit.1.clone());
+        }
+    }
+    check_egress(issuer_url).await?;
+    let issuer =
+        IssuerUrl::new(issuer_url.to_string()).map_err(|e| format!("Invalid issuer URL: {e}"))?;
+    let metadata = CoreProviderMetadata::discover_async(issuer, &*OIDC_HTTP_CLIENT)
+        .await
+        .map_err(|e| format!("OIDC discovery failed: {e}"))?;
+    check_egress(metadata.jwks_uri().url().as_str()).await?;
+    if let Some(token) = metadata.token_endpoint() {
+        check_egress(token.url().as_str()).await?;
+    }
+    DISCOVERY_CACHE.insert(
+        issuer_url.to_string(),
+        (std::time::Instant::now(), metadata.clone()),
+    );
+    Ok(metadata)
+}
+
+/// A client for a workspace's provider, redirecting to `redirect_uri`.
+pub async fn provider_client(
+    issuer_url: &str,
+    client_id: &str,
+    client_secret: &str,
+    redirect_uri: &str,
+) -> Result<OidcClientKind, String> {
+    let metadata = discover(issuer_url).await?;
+    let redirect = RedirectUrl::new(redirect_uri.to_string())
+        .map_err(|e| format!("Invalid redirect URI: {e}"))?;
+    let client = CoreClient::from_provider_metadata(
+        metadata,
+        ClientId::new(client_id.to_string()),
+        Some(ClientSecret::new(client_secret.to_string())),
+    )
+    .set_redirect_uri(redirect);
+    Ok(OidcClientKind::Discovered(client))
+}
+
+/// Check a provider's discovery document can be fetched (the admin page's
+/// "test" before saving).
+pub async fn check_discovery(issuer_url: &str) -> Result<(), String> {
+    discover(issuer_url).await.map(|_| ())
+}
+
+/// Start a sign-in with a workspace provider. `state` is the caller's own
+/// signed value, returned by the IdP on the callback.
+pub fn begin_provider_login(client: &OidcClientKind, state: String) -> (String, OidcAuthData) {
+    let (pkce_challenge, pkce_verifier) = generate_pkce();
+    let nonce = generate_nonce();
+    let nonce_secret = nonce.secret().to_string();
+    let (url, _, _) = client
+        .authorize_url(move || CsrfToken::new(state), move || nonce)
+        .set_pkce_challenge(pkce_challenge)
+        .add_scope(Scope::new("email".into()))
+        .add_scope(Scope::new("profile".into()))
+        .url();
+    (
+        url.to_string(),
+        OidcAuthData {
+            pkce_verifier: pkce_verifier.secret().to_string(),
+            nonce: nonce_secret,
+        },
+    )
+}
+
+/// Finish a sign-in with a workspace provider: exchange the code and verify the
+/// ID token (signature, issuer, audience, expiry, nonce).
+pub async fn finish_provider_login(
+    client: &OidcClientKind,
+    code: &str,
+    auth_data: &OidcAuthData,
+) -> Result<OidcUserInfo, String> {
+    let token_response = client
+        .exchange_code(
+            AuthorizationCode::new(code.to_string()),
+            PkceCodeVerifier::new(auth_data.pkce_verifier.clone()),
+            None,
+        )
+        .await?;
+    let id_token = token_response
+        .id_token()
+        .ok_or_else(|| "No ID token in response".to_string())?;
+    let claims = verify_id_token(client, id_token, &Nonce::new(auth_data.nonce.clone()))?;
+    let mut info = claims_to_user_info(&claims);
+    // Microsoft omits `email` for most work accounts unless an optional claim
+    // is configured; `preferred_username` is then the UPN, whose domain the
+    // tenant must have verified.
+    if info.email.is_none() {
+        info.email = info.preferred_username.clone().filter(|u| u.contains('@'));
+    }
+    Ok(info)
 }
 
 #[cfg(test)]

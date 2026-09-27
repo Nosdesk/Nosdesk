@@ -2200,6 +2200,24 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_identity_providers (id) {
+        id -> Int4,
+        kind -> Text,
+        #[max_length = 80]
+        display_name -> Varchar,
+        issuer_url -> Text,
+        client_id -> Text,
+        encrypted_client_secret -> Nullable<Bytea>,
+        encrypted_kek_id -> Nullable<Int2>,
+        allowed_domains -> Array<Nullable<Text>>,
+        enabled -> Bool,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     workspace_ldap_settings (workspace_id) {
         workspace_id -> Int4,
         enabled -> Bool,
@@ -2562,6 +2580,7 @@ diesel::joinable!(working_calendars -> users (created_by));
 diesel::joinable!(working_calendars -> workspaces (workspace_id));
 diesel::joinable!(workspace_email_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_export_jobs -> workspaces (workspace_id));
+diesel::joinable!(workspace_identity_providers -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_sync_state -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
@@ -2695,6 +2714,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     working_calendars,
     workspace_email_settings,
     workspace_export_jobs,
+    workspace_identity_providers,
     workspace_ldap_settings,
     workspace_ldap_sync_state,
     workspace_members,

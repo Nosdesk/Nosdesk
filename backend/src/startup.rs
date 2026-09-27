@@ -934,7 +934,8 @@ pub fn configure_app(
             .service(
                 web::scope("/api/portal/auth")
                     .wrap(RateLimiter::default())
-                    .configure(crate::handlers::portal::auth_config),
+                    .configure(crate::handlers::portal::auth_config)
+                    .configure(crate::handlers::portal_sso::auth_config),
             )
             // Authenticated customer portal API. Registered AFTER the public
             // `/api/portal/auth` scope so the sign-in routes match there first.
@@ -1168,6 +1169,8 @@ pub fn configure_app(
                     // ===== SSE / SEARCH / NOTIFICATIONS / BUG REPORTS =====
                     .configure(crate::handlers::sse::config)
                     .configure(crate::handlers::search::config)
+                    // Requester sign-in provider (workspace admins).
+                    .configure(crate::handlers::requester_sso::config)
                     // Known-issue notices (agents and up).
                     .configure(crate::handlers::notices::config)
                     .configure(crate::handlers::notifications::config)

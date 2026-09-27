@@ -91,6 +91,22 @@ export async function requestMagicLink(email: string): Promise<void> {
   await portalApi.post('/auth/magic-link', { email })
 }
 
+/** Whether the workspace offers sign-in with its own provider. */
+export interface PortalSso {
+  enabled: boolean
+  /** The button text: "Microsoft", "Google" or the admin's own. */
+  label?: string
+  kind?: 'entra' | 'google' | 'oidc'
+}
+
+export async function getSso(): Promise<PortalSso> {
+  const { data } = await portalApi.get<PortalSso>('/auth/sso')
+  return data
+}
+
+/** Full-page navigation target that starts sign-in with the provider. */
+export const SSO_START_URL = '/api/portal/auth/sso/start'
+
 /** Sign in with the 6-digit code from the sign-in email. */
 export async function signInWithCode(email: string, code: string): Promise<void> {
   await portalApi.post('/auth/code', { email, code })

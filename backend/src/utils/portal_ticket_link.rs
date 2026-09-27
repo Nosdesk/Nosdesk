@@ -88,32 +88,33 @@ pub fn verify(workspace_id: i32, token: &str) -> Option<(Uuid, i32)> {
     verify_with(key()?, workspace_id, token, chrono::Utc::now().timestamp())
 }
 
+/// The origin requesters reach this workspace's portal API on: its own host
+/// on hosted (`https://acme.nosdesk.app`), the one instance origin on
+/// self-hosted. `None` when no link base is known.
+pub fn portal_origin(conn: &mut crate::db::DbConnection, workspace_id: i32) -> Option<String> {
+    if crate::middleware::workspace_context::is_hosted() {
+        let workspace = crate::repository::workspaces::find_by_id(conn, workspace_id).ok()??;
+        let host = crate::utils::tenant_origin::canonical_host_for(
+            &workspace.slug,
+            workspace.custom_domain.as_deref(),
+            crate::utils::tenant_origin::tenant_domain().as_deref(),
+        )?;
+        return Some(format!("https://{host}"));
+    }
+    crate::utils::tenant_origin::email_link_base(None).map(|b| b.trim_end_matches('/').to_string())
+}
+
 /// Where a requester email's "View request" link points: a signed portal link
-/// that signs them in and opens the ticket. Hosted: on the workspace's own
-/// origin. Self-hosted: on the one origin, where the portal lives under
-/// `/portal`. `None` when no link base is known.
+/// that signs them in and opens the ticket. `None` when no link base is known.
 pub fn view_request_url(
     conn: &mut crate::db::DbConnection,
     workspace_id: i32,
     requester: Uuid,
     ticket_id: i32,
 ) -> Option<String> {
-    let workspace = crate::repository::workspaces::find_by_id(conn, workspace_id).ok()??;
-    if crate::middleware::workspace_context::is_hosted() {
-        let host = crate::utils::tenant_origin::canonical_host_for(
-            &workspace.slug,
-            workspace.custom_domain.as_deref(),
-            crate::utils::tenant_origin::tenant_domain().as_deref(),
-        )?;
-        let token = sign(workspace_id, requester, ticket_id)?;
-        return Some(format!("https://{host}/api/portal/auth/ticket?t={token}"));
-    }
-    let base = crate::utils::tenant_origin::email_link_base(None)?;
+    let origin = portal_origin(conn, workspace_id)?;
     let token = sign(workspace_id, requester, ticket_id)?;
-    Some(format!(
-        "{}/api/portal/auth/ticket?t={token}",
-        base.trim_end_matches('/')
-    ))
+    Some(format!("{origin}/api/portal/auth/ticket?t={token}"))
 }
 
 #[cfg(test)]

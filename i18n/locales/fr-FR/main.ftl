@@ -7310,11 +7310,18 @@ admin-workspaces-community-cap-link = Gérer la licence
 # Customer portal (machine, pending native review)
 portal-sign-in-title = Connexion à { $app }
 portal-sign-in-intro = Saisissez votre e-mail et nous vous enverrons un lien de connexion.
+# Traduction automatique, en attente de relecture par un locuteur natif.
+portal-sign-in-intro-sso = Utilisez votre compte { $provider } ou recevez un lien de connexion par e-mail.
 portal-sign-in-email-label = E-mail
 portal-sign-in-submit = Envoyer le lien de connexion
 portal-sign-in-sent = Si votre e-mail est enregistré, un lien de connexion est en route. Consultez votre boîte de réception.
 portal-sign-in-use-another = Utiliser une autre adresse e-mail
 portal-sign-in-error = Ce lien de connexion n'a pas fonctionné. Il a peut-être expiré ou déjà été utilisé. Saisissez votre e-mail pour en recevoir un nouveau.
+# Traduction automatique, en attente de relecture par un locuteur natif.
+portal-sso-button = Se connecter avec { $provider }
+portal-sso-or = ou
+portal-sso-error = La connexion n'a pas abouti. Réessayez ou saisissez votre e-mail ci-dessous.
+portal-sso-error-domain = Ce compte ne peut pas se connecter ici. Saisissez plutôt votre e-mail ci-dessous.
 portal-nav-requests = Mes demandes
 portal-nav-help = Aide
 portal-nav-new = Nouvelle demande
@@ -7441,3 +7448,34 @@ notices-edit = Modifier
 admin-nav-notices-title = Problèmes connus
 admin-nav-notices-description = Informer les demandeurs des pannes et maintenances
 route-title-admin-notices = Problèmes connus
+
+# Requester sign-in (SSO) (machine, pending native review)
+admin-nav-requester-sso-title = Connexion des demandeurs
+admin-nav-requester-sso-description = Permettre aux demandeurs de se connecter au portail avec leur compte professionnel
+route-title-admin-requester-sign-in = Connexion des demandeurs
+requester-sso-title = Connexion des demandeurs
+requester-sso-description = Permettez aux gens de se connecter au portail avec leur compte professionnel. Les liens de connexion par e-mail restent disponibles pour tous les autres.
+requester-sso-kind-label = Fournisseur
+requester-sso-kind-entra = Microsoft Entra ID
+requester-sso-kind-google = Google Workspace
+requester-sso-kind-oidc = Autre (OpenID Connect)
+requester-sso-tenant-label = ID du locataire
+requester-sso-tenant-hint = L'ID de votre annuaire (locataire) ou un domaine vérifié. Enregistrez une application monolocataire dans votre propre locataire.
+requester-sso-issuer-label = URL de l'émetteur
+requester-sso-client-id-label = ID client
+requester-sso-client-secret-label = Secret client
+requester-sso-client-secret-kept = Enregistré. Saisissez-en un nouveau pour le remplacer.
+requester-sso-domains-label = Domaines de messagerie
+requester-sso-domains-hint = Seules les personnes ayant une adresse sur ces domaines peuvent se connecter ainsi. Les messageries personnelles comme gmail.com ne sont pas acceptées.
+requester-sso-button-label = Libellé du bouton
+requester-sso-redirect-label = URI de redirection
+requester-sso-redirect-hint = Ajoutez-la comme URI de redirection chez le fournisseur.
+requester-sso-copy = Copier
+requester-sso-copied = Copié
+requester-sso-enabled-label = Afficher sur la connexion du portail
+requester-sso-enabled-hint = Ajoute un bouton de connexion au-dessus de l'option par e-mail.
+requester-sso-save = Enregistrer
+requester-sso-remove = Supprimer
+requester-sso-saved = Fournisseur de connexion enregistré
+requester-sso-removed = Fournisseur de connexion supprimé
+requester-sso-save-failed = L'enregistrement a échoué. Réessayez.

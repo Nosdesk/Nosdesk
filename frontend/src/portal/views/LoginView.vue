@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
 import FormInput from '@/components/common/FormInput.vue'
+import LinkButton from '@/components/common/LinkButton.vue'
 import LogoIcon from '@/components/icons/LogoIcon.vue'
 import { useBrandingStore } from '@/stores/branding'
 import { useThemeStore } from '@/stores/theme'
 
-import { requestMagicLink, signInWithCode } from '../service'
+import { getSso, requestMagicLink, signInWithCode, SSO_START_URL, type PortalSso } from '../service'
 
 const { $t: t } = useFluent()
 const route = useRoute()
@@ -20,6 +21,26 @@ const theme = useThemeStore()
 const logoUrl = computed(() => branding.getLogoUrl(theme.isDarkMode))
 // The callback redirects here with ?signin_error=1 for a used or expired link.
 const linkFailed = computed(() => route.query.signin_error === '1')
+
+// Sign-in with the workspace's own provider, when it offers one. The callback
+// redirects here with ?sso_error=<reason> when it can't sign someone in.
+const sso = ref<PortalSso>({ enabled: false })
+const ssoError = computed(() => {
+  const reason = route.query.sso_error
+  if (typeof reason !== 'string') return ''
+  return reason === 'domain'
+    ? t('portal-sso-error-domain')
+    : reason === 'cancelled'
+      ? ''
+      : t('portal-sso-error')
+})
+onMounted(async () => {
+  try {
+    sso.value = await getSso()
+  } catch {
+    // No provider button; email sign-in still works.
+  }
+})
 
 const email = ref('')
 const sent = ref(false)
@@ -71,12 +92,25 @@ async function submit(): Promise<void> {
         <LogoIcon v-else class="h-10 text-accent" />
         <div class="flex flex-col gap-1">
           <h1 class="text-xl font-semibold text-primary">{{ t('portal-sign-in-title', { app: branding.appName }) }}</h1>
-          <p class="text-sm text-secondary">{{ t('portal-sign-in-intro') }}</p>
+          <p class="text-sm text-secondary">
+            {{ sso.enabled ? t('portal-sign-in-intro-sso', { provider: sso.label ?? '' }) : t('portal-sign-in-intro') }}
+          </p>
         </div>
       </div>
 
       <div class="bg-surface border border-default rounded-xl shadow-sm p-5 flex flex-col gap-4">
         <p v-if="linkFailed && !sent" role="alert" class="text-sm text-status-error">{{ t('portal-sign-in-error') }}</p>
+        <p v-if="ssoError && !sent" role="alert" class="text-sm text-status-error">{{ ssoError }}</p>
+        <template v-if="sso.enabled && !sent">
+          <LinkButton :href="SSO_START_URL" variant="secondary" block>
+            {{ t('portal-sso-button', { provider: sso.label ?? '' }) }}
+          </LinkButton>
+          <div class="flex items-center gap-3 text-xs text-tertiary">
+            <span class="h-px flex-1 bg-default" />
+            {{ t('portal-sso-or') }}
+            <span class="h-px flex-1 bg-default" />
+          </div>
+        </template>
         <template v-if="sent">
           <p class="text-sm text-primary">{{ t('portal-sign-in-sent') }}</p>
           <form class="flex flex-col gap-3" @submit.prevent="submitCode">
