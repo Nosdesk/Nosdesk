@@ -46,6 +46,19 @@ async fn workspace_data_export_config_routes_registered() {
 }
 
 #[actix_web::test]
+async fn requester_sso_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::requester_sso::config,
+        &[
+            ("GET", "/admin/requester-sso"),
+            ("PUT", "/admin/requester-sso"),
+            ("DELETE", "/admin/requester-sso"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn notices_config_routes_registered() {
     assert_config_registers(
         crate::handlers::notices::config,
@@ -936,6 +949,19 @@ async fn portal_auth_config_routes_registered() {
             ("POST", "/magic-link"),
             ("GET", "/callback"),
             ("POST", "/refresh"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn portal_sso_auth_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::portal_sso::auth_config,
+        &[
+            ("GET", "/sso"),
+            ("GET", "/sso/start"),
+            ("GET", "/sso/callback"),
         ],
     )
     .await;

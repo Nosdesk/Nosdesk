@@ -194,7 +194,7 @@ pub fn delete_portal_cookies() -> [Cookie<'static>; 3] {
 /// empty, or unrecognised `ENVIRONMENT` still emits `Secure` cookies (never
 /// valid over plaintext HTTP). Set `ENVIRONMENT=development` (or `dev`) for
 /// intentional HTTP local setups (Docker Compose on localhost, etc.).
-fn auth_cookies_use_secure_flag() -> bool {
+pub fn auth_cookies_use_secure_flag() -> bool {
     crate::config_utils::assume_production()
 }
 

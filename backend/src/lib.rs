@@ -22,6 +22,9 @@
 // - manual_strip: a few hot paths do `&s[2..]` after a starts_with
 //   check; rewriting as strip_prefix gains nothing and makes the
 //   downstream `.find()` chain harder to read.
+// The schema's `allow_tables_to_appear_in_same_query!` outgrew the default
+// macro recursion limit.
+#![recursion_limit = "256"]
 #![allow(
     clippy::too_many_arguments,
     clippy::large_enum_variant,

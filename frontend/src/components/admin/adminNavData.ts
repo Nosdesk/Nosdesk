@@ -195,6 +195,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         selfHostedOnly: true
       },
       {
+        titleKey: 'admin-nav-requester-sso-title',
+        descriptionKey: 'admin-nav-requester-sso-description',
+        icon: 'lock',
+        route: '/admin/requester-sign-in',
+        keywords: ['sso', 'single sign-on', 'requester', 'portal', 'entra', 'microsoft', 'google', 'oidc', 'sign in']
+      },
+      {
         titleKey: 'admin-nav-notices-title',
         descriptionKey: 'admin-nav-notices-description',
         icon: 'info',

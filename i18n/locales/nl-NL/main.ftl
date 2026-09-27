@@ -7301,11 +7301,18 @@ admin-workspaces-community-cap-link = Licentie beheren
 # Customer portal (machine, pending native review)
 portal-sign-in-title = Inloggen bij { $app }
 portal-sign-in-intro = Vul je e-mailadres in en we sturen je een inloglink.
+# Machinevertaling, te controleren door moedertaalspreker.
+portal-sign-in-intro-sso = Gebruik je { $provider }-account of ontvang een aanmeldlink per e-mail.
 portal-sign-in-email-label = E-mail
 portal-sign-in-submit = Inloglink sturen
 portal-sign-in-sent = Als we je e-mailadres kennen, is er een inloglink onderweg. Kijk in je inbox.
 portal-sign-in-use-another = Een ander e-mailadres gebruiken
 portal-sign-in-error = Die inloglink werkte niet. Hij is misschien verlopen of al gebruikt. Vul je e-mailadres in voor een nieuwe.
+# Machinevertaling, te controleren door moedertaalspreker.
+portal-sso-button = Aanmelden met { $provider }
+portal-sso-or = of
+portal-sso-error = Aanmelden is niet gelukt. Probeer het opnieuw of vul hieronder je e-mailadres in.
+portal-sso-error-domain = Met dat account kun je hier niet aanmelden. Vul hieronder je e-mailadres in.
 portal-nav-requests = Mijn verzoeken
 portal-nav-help = Help
 portal-nav-new = Nieuw verzoek
@@ -7432,3 +7439,34 @@ notices-edit = Bewerken
 admin-nav-notices-title = Bekende problemen
 admin-nav-notices-description = Aanvragers informeren over storingen en gepland werk
 route-title-admin-notices = Bekende problemen
+
+# Requester sign-in (SSO) (machine, pending native review)
+admin-nav-requester-sso-title = Aanmelden voor aanvragers
+admin-nav-requester-sso-description = Aanvragers laten aanmelden bij de portal met hun werkaccount
+route-title-admin-requester-sign-in = Aanmelden voor aanvragers
+requester-sso-title = Aanmelden voor aanvragers
+requester-sso-description = Laat mensen aanmelden bij de portal met hun werkaccount. Aanmeldlinks per e-mail blijven werken voor iedereen.
+requester-sso-kind-label = Provider
+requester-sso-kind-entra = Microsoft Entra ID
+requester-sso-kind-google = Google Workspace
+requester-sso-kind-oidc = Anders (OpenID Connect)
+requester-sso-tenant-label = Tenant-ID
+requester-sso-tenant-hint = Je directory-ID (tenant) of een geverifieerd domein. Registreer een single-tenant-app in je eigen tenant.
+requester-sso-issuer-label = Issuer-URL
+requester-sso-client-id-label = Client-ID
+requester-sso-client-secret-label = Clientgeheim
+requester-sso-client-secret-kept = Opgeslagen. Vul een nieuwe in om het te vervangen.
+requester-sso-domains-label = E-maildomeinen
+requester-sso-domains-hint = Alleen mensen met een adres op deze domeinen kunnen zo aanmelden. Persoonlijke diensten zoals gmail.com zijn niet toegestaan.
+requester-sso-button-label = Knoptekst
+requester-sso-redirect-label = Redirect-URI
+requester-sso-redirect-hint = Voeg dit toe als redirect-URI bij de provider.
+requester-sso-copy = Kopiëren
+requester-sso-copied = Gekopieerd
+requester-sso-enabled-label = Tonen bij aanmelden op de portal
+requester-sso-enabled-hint = Voegt een aanmeldknop toe boven de e-mailoptie.
+requester-sso-save = Opslaan
+requester-sso-remove = Verwijderen
+requester-sso-saved = Aanmeldprovider opgeslagen
+requester-sso-removed = Aanmeldprovider verwijderd
+requester-sso-save-failed = Opslaan is niet gelukt. Probeer het opnieuw.
