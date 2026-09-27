@@ -21,6 +21,7 @@ export function toCardData(ticket: SyncTicket): CardData | null {
     workflow_state: ticket.workflow_state,
     priority: ticket.priority,
     spam_suspected: ticket.spam_suspected ?? false,
+    approval_state: ticket.approval_state ?? null,
     assignee_uuid: ticket.assignee_uuid,
     requester_uuid: ticket.requester_uuid,
     due_date: ticket.due_date,

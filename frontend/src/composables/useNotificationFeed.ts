@@ -59,6 +59,8 @@ const TYPE_ICON: Record<string, IconName> = {
   sla_breached: 'warning',
   loan_due_soon: 'clock',
   loan_overdue: 'warning',
+  approval_requested: 'checkCircle',
+  approval_decided: 'checkCircle',
 }
 
 /** Map a notification type code to its display icon. Falls back

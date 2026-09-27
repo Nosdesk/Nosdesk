@@ -77,6 +77,20 @@ pub enum Intent {
         mentions: Vec<Uuid>,
         preview: String,
     },
+    /// A request waits for these approvers.
+    ApprovalRequested {
+        ticket_id: i32,
+        ticket_title: String,
+        approvers: Vec<Uuid>,
+    },
+    /// A request's approval concluded (approved, declined or skipped).
+    ApprovalDecided {
+        ticket_id: i32,
+        ticket_title: String,
+        requester: Uuid,
+        state: String,
+        comment: Option<String>,
+    },
     /// A comment on `source_ticket_id` mentioned the ticket `assignee` owns.
     Referenced {
         ticket_id: i32,
@@ -158,6 +172,49 @@ pub fn derive(row: &SyncActionRow) -> Vec<Intent> {
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
                     assignee,
+                });
+            }
+        }
+        return intents;
+    }
+
+    if row.event_type == "ticket.approval_requested" {
+        if let Some(ticket_id) = i32_at(data, "id") {
+            let approvers: Vec<Uuid> = data
+                .get("approver_uuids")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .filter_map(|s| Uuid::parse_str(s).ok())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if str_at(data, "approval_state") == Some("pending") && !approvers.is_empty() {
+                intents.push(Intent::ApprovalRequested {
+                    ticket_id,
+                    ticket_title: str_at(data, "title").unwrap_or_default().to_string(),
+                    approvers,
+                });
+            }
+        }
+        return intents;
+    }
+
+    if row.event_type == "ticket.approval_decided" {
+        // Only the conclusion reaches the requester, not each approver's part.
+        if let (Some(ticket_id), Some(requester), Some(state)) = (
+            i32_at(data, "id"),
+            uuid_at(data, "requester_uuid"),
+            str_at(data, "approval_state"),
+        ) {
+            if state != "pending" {
+                intents.push(Intent::ApprovalDecided {
+                    ticket_id,
+                    ticket_title: str_at(data, "title").unwrap_or_default().to_string(),
+                    requester,
+                    state: state.to_string(),
+                    comment: str_at(data, "comment").map(str::to_string),
                 });
             }
         }
@@ -350,6 +407,79 @@ pub fn resolve(
                 );
             }
         }
+        Intent::ApprovalRequested {
+            ticket_id,
+            ticket_title,
+            approvers,
+        } => {
+            let actor = actor_for(conn, row);
+            for approver in approvers {
+                out.push(
+                    NotificationPayload::new(
+                        NotificationTypeCode::ApprovalRequested,
+                        approver,
+                        actor.clone(),
+                        NotificationEntity::Ticket {
+                            id: ticket_id,
+                            title: ticket_title.clone(),
+                        },
+                        workspace_id,
+                    )
+                    .with_title("Approval needed")
+                    .with_body(format!(
+                        "Request #{ticket_id}: {ticket_title} is waiting for your approval."
+                    ))
+                    .from_sync_action(row.sync_id),
+                );
+            }
+        }
+        Intent::ApprovalDecided {
+            ticket_id,
+            ticket_title,
+            requester,
+            state,
+            comment,
+        } => {
+            let actor = actor_for(conn, row);
+            let (title, body) = match state.as_str() {
+                "declined" => (
+                    "Request declined",
+                    match comment.as_deref() {
+                        Some(reason) => format!(
+                            "Your request #{ticket_id}: {ticket_title} was declined. {reason}"
+                        ),
+                        None => format!("Your request #{ticket_id}: {ticket_title} was declined."),
+                    },
+                ),
+                "skipped" => (
+                    "Request can go ahead",
+                    format!(
+                        "Your request #{ticket_id}: {ticket_title} can go ahead. The team will take it from here."
+                    ),
+                ),
+                _ => (
+                    "Request approved",
+                    format!(
+                        "Your request #{ticket_id}: {ticket_title} was approved. The team will take it from here."
+                    ),
+                ),
+            };
+            out.push(
+                NotificationPayload::new(
+                    NotificationTypeCode::ApprovalDecided,
+                    requester,
+                    actor,
+                    NotificationEntity::Ticket {
+                        id: ticket_id,
+                        title: ticket_title,
+                    },
+                    workspace_id,
+                )
+                .with_title(title)
+                .with_body(body)
+                .from_sync_action(row.sync_id),
+            );
+        }
         Intent::StatusChanged {
             ticket_id,
             ticket_title,
@@ -368,7 +498,13 @@ pub fn resolve(
             };
             let before = category_of(conn, previous_state_id);
             let after = category_of(conn, state_id);
-            if before != after {
+            // A declined request closes as cancelled; the decline notification
+            // (with its reason) already tells the requester.
+            let declined = after == "cancelled"
+                && crate::repository::tickets::get_ticket_by_id(conn, ticket_id)
+                    .map(|t| t.approval_state.as_deref() == Some("declined"))
+                    .unwrap_or(false);
+            if before != after && !declined {
                 // Say it the way the workspace names it, not the category behind it.
                 let state_name = crate::repository::workflow_states::find_by_id(conn, state_id)
                     .ok()

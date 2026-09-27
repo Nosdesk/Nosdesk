@@ -42,6 +42,8 @@ export interface CardData {
   priority: Priority
   /** True when the inbound mail filter flagged the source message as spam. */
   spam_suspected?: boolean
+  /** Where an approval stands; null when none is involved. */
+  approval_state?: 'pending' | 'approved' | 'declined' | 'skipped' | null
 
   // People (refs; resolve via useReference())
   assignee_uuid?: string | null

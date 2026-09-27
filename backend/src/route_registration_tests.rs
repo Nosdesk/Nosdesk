@@ -46,6 +46,33 @@ async fn workspace_data_export_config_routes_registered() {
 }
 
 #[actix_web::test]
+async fn approvals_routes_registered() {
+    assert_config_registers(
+        crate::handlers::approvals::config,
+        &[
+            ("GET", "/tickets/1/approval"),
+            ("POST", "/tickets/1/approval/decide"),
+            ("POST", "/tickets/1/approval/skip"),
+        ],
+    )
+    .await;
+    assert_config_registers(
+        crate::handlers::approvals::portal_config,
+        &[
+            ("GET", "/approvals"),
+            ("GET", "/approvals/1"),
+            ("POST", "/approvals/1"),
+        ],
+    )
+    .await;
+    assert_config_registers(
+        crate::handlers::approvals::portal_auth_config,
+        &[("GET", "/approval")],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn approval_settings_config_routes_registered() {
     assert_config_registers(
         crate::handlers::approval_settings::config,

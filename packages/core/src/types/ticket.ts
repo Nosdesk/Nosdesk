@@ -121,6 +121,8 @@ export interface Ticket {
    *  spam. Opens flagged + low-priority (never dropped); cleared via "not
    *  spam". Read on every queue row to render the badge. */
   spam_suspected?: boolean
+  /** Where an approval stands; null when none is involved. */
+  approval_state?: 'pending' | 'approved' | 'declined' | 'skipped' | null
 }
 
 /** One merge that consumed sources into a ticket, from the

@@ -27,6 +27,10 @@ pub enum NotificationTypeCode {
     SlaBreached,
     LoanDueSoon,
     LoanOverdue,
+    /// A request waits for the recipient's approval.
+    ApprovalRequested,
+    /// The recipient's request was approved, declined or skipped.
+    ApprovalDecided,
 }
 
 impl NotificationTypeCode {
@@ -43,6 +47,8 @@ impl NotificationTypeCode {
             Self::SlaBreached => "sla_breached",
             Self::LoanDueSoon => "loan_due_soon",
             Self::LoanOverdue => "loan_overdue",
+            Self::ApprovalRequested => "approval_requested",
+            Self::ApprovalDecided => "approval_decided",
         }
     }
 
@@ -59,6 +65,8 @@ impl NotificationTypeCode {
             "sla_breached" => Some(Self::SlaBreached),
             "loan_due_soon" => Some(Self::LoanDueSoon),
             "loan_overdue" => Some(Self::LoanOverdue),
+            "approval_requested" => Some(Self::ApprovalRequested),
+            "approval_decided" => Some(Self::ApprovalDecided),
             _ => None,
         }
     }
@@ -77,6 +85,8 @@ impl NotificationTypeCode {
             Self::SlaBreached => "SLA Breached",
             Self::LoanDueSoon => "Loan Due Soon",
             Self::LoanOverdue => "Loan Overdue",
+            Self::ApprovalRequested => "Approval Requested",
+            Self::ApprovalDecided => "Approval Decided",
         }
     }
 
@@ -119,6 +129,8 @@ impl NotificationTypeCode {
             Self::SlaBreached => "SLA target missed".to_string(),
             Self::LoanDueSoon => "Due back soon".to_string(),
             Self::LoanOverdue => "Overdue".to_string(),
+            Self::ApprovalRequested => "Waiting for your approval".to_string(),
+            Self::ApprovalDecided => "Approval decided".to_string(),
         }
     }
 }

@@ -1723,6 +1723,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    ticket_approvals (id) {
+        id -> Int4,
+        ticket_id -> Int4,
+        approver_uuid -> Uuid,
+        decision -> Nullable<Text>,
+        comment -> Nullable<Text>,
+        channel -> Nullable<Text>,
+        decided_by -> Nullable<Uuid>,
+        decided_at -> Nullable<Timestamptz>,
+        round -> Int4,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     ticket_assets (ticket_id, asset_id) {
         ticket_id -> Int4,
         asset_id -> Int4,
@@ -1852,6 +1868,7 @@ diesel::table! {
         sla_paused_at -> Nullable<Timestamptz>,
         #[max_length = 16]
         sla_override -> Varchar,
+        approval_state -> Nullable<Text>,
     }
 }
 
@@ -2551,6 +2568,8 @@ diesel::joinable!(sync_delta_tokens -> workspaces (workspace_id));
 diesel::joinable!(sync_history -> users (initiated_by));
 diesel::joinable!(sync_history -> workspaces (workspace_id));
 diesel::joinable!(tags -> workspaces (workspace_id));
+diesel::joinable!(ticket_approvals -> tickets (ticket_id));
+diesel::joinable!(ticket_approvals -> workspaces (workspace_id));
 diesel::joinable!(ticket_assets -> assets (asset_id));
 diesel::joinable!(ticket_assets -> tickets (ticket_id));
 diesel::joinable!(ticket_assets -> users (created_by));
@@ -2706,6 +2725,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     sync_history,
     system_meta,
     tags,
+    ticket_approvals,
     ticket_assets,
     ticket_categories,
     ticket_merges,

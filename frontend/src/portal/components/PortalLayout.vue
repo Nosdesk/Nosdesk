@@ -13,7 +13,7 @@ import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings'
 
 import NoticeBanner from '@/components/requester/NoticeBanner.vue'
 
-import { followNotice, getMe, getNotice, signOut } from '../service'
+import { followNotice, getMe, getNotice, listMyApprovals, signOut } from '../service'
 
 const { $t: t } = useFluent()
 const router = useRouter()
@@ -29,6 +29,9 @@ void publicSettings.load()
 const helpCentre = computed(() => publicSettings.settings?.guest_public_docs_enabled === true)
 
 const me = useQuery({ key: ['portal', 'me'], query: getMe })
+// Shown only to people with requests waiting for their approval.
+const approvals = useQuery({ key: ['portal', 'approvals'], query: listMyApprovals })
+const waitingApprovals = computed(() => approvals.data.value?.length ?? 0)
 
 // The team's known-issue notice; following it adds the requester to the
 // incident, which then shows in their requests.
@@ -80,6 +83,14 @@ async function onSignOut(): Promise<void> {
             active-class="text-primary font-medium"
           >
             {{ t('portal-nav-requests') }}
+          </RouterLink>
+          <RouterLink
+            v-if="waitingApprovals > 0"
+            to="/approvals"
+            class="px-2 py-1 rounded-md text-secondary hover:text-primary hover:bg-surface-hover"
+            active-class="text-primary font-medium"
+          >
+            {{ t('portal-nav-approvals', { count: waitingApprovals }) }}
           </RouterLink>
           <RouterLink
             v-if="helpCentre"

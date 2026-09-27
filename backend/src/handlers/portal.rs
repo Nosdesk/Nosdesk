@@ -859,6 +859,10 @@ pub struct CustomerTicket {
     /// were added to, or one shared across their organisation).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requested_by: Option<String>,
+    /// Where an approval stands (`pending`, `approved`, `declined`,
+    /// `skipped`); absent when none is involved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_state: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -884,6 +888,7 @@ impl CustomerTicket {
             closed_at: t.closed_at,
             state,
             requested_by: None,
+            approval_state: t.approval_state,
         }
     }
 

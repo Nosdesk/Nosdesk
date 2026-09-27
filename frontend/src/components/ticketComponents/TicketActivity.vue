@@ -286,6 +286,15 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
       return data.rating === 'good'
         ? t('ticket-activity-phrase-rated-fixed')
         : t('ticket-activity-phrase-rated-not-fixed')
+    case 'ticket.approval_requested':
+      if (data.approval_state === 'approved') return t('ticket-activity-phrase-approval-self')
+      return data.no_approver
+        ? t('ticket-activity-phrase-approval-requested-none')
+        : t('ticket-activity-phrase-approval-requested')
+    case 'ticket.approval_decided':
+      if (data.decision === 'declined') return t('ticket-activity-phrase-approval-declined')
+      if (data.decision === 'skipped') return t('ticket-activity-phrase-approval-skipped')
+      return t('ticket-activity-phrase-approval-approved')
     case 'ticket.watcher_added': {
       const target = data.user_uuid as string | undefined
       const isSelf = !!target && !!ev.actor_uuid && target === ev.actor_uuid
@@ -409,9 +418,10 @@ function sourceTicketFor(ev: TicketActivityEvent): { id: number; title: string |
   return { id, title: pool.get<SyncTicket>('ticket', id)?.title ?? null }
 }
 
-/** The note a requester left with "it's fixed", shown under the row. */
+/** The note a requester left with "it's fixed", or an approver's reason,
+ *  shown under the row. */
 function ratingNoteFor(ev: TicketActivityEvent): string | null {
-  if (ev.event_type !== 'ticket.rated') return null
+  if (ev.event_type !== 'ticket.rated' && ev.event_type !== 'ticket.approval_decided') return null
   const note = ev.data?.comment
   return typeof note === 'string' && note.trim() ? note : null
 }
