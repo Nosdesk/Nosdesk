@@ -64,6 +64,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route("/tickets", web::post().to(create_my_ticket))
         .route("/request-types", web::get().to(list_request_types))
         .route("/notice", web::get().to(get_notice))
+        .route(
+            "/events",
+            web::get().to(crate::handlers::portal_events::portal_events),
+        )
         .route("/notices/{id}/follow", web::post().to(follow_notice))
         .route("/tickets/{id}", web::get().to(get_my_ticket))
         .route("/tickets/{id}/comments", web::post().to(reply_to_my_ticket))
@@ -905,7 +909,10 @@ impl CustomerTicket {
 /// the ones they were added to, plus (when the workspace shares by domain) the
 /// requests of people at their verified, non-free-mail domain. Writes never
 /// use this; they stay on [`VisibilityContext::requester_only`].
-fn portal_visibility(conn: &mut DbConnection, viewer: Uuid) -> QueryResult<VisibilityContext> {
+pub(crate) fn portal_visibility(
+    conn: &mut DbConnection,
+    viewer: Uuid,
+) -> QueryResult<VisibilityContext> {
     use crate::schema::user_emails;
     let shares = crate::repository::site_settings::get_site_settings(conn)?.portal_share_by_domain;
     if !shares {

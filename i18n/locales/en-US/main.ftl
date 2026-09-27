@@ -7225,6 +7225,7 @@ portal-reply-placeholder = Add a reply for the team
 portal-reply-send = Send reply
 portal-reply-failed = Your reply didn't send. Try again.
 portal-reply-reopens = Replying reopens this request.
+portal-new-reply = New reply
 portal-resolve-hint-open = If it's fixed, let the team know and they'll close it.
 portal-resolve-question = Is it fixed?
 portal-resolve-yes = Yes, it's fixed

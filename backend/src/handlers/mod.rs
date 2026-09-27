@@ -63,6 +63,7 @@ pub mod plugin_events;
 pub mod plugin_sandbox;
 pub mod plugins;
 pub mod portal;
+pub mod portal_events;
 pub mod projects;
 pub mod rules;
 pub mod saved_views;
