@@ -100,6 +100,11 @@ pub async fn push(
         helpers::pin_workspace(&mut conn, ws);
     }
 
+    // Push applies edits directly, so it enforces what the REST routes do:
+    // staff edit tickets and projects; anyone else may only retitle a ticket
+    // they can see.
+    let staff = crate::repository::user_helpers::user_can_handle_tickets(&mut conn, &ctx.user);
+
     let mut applied: Vec<String> = Vec::with_capacity(body.len());
     let mut rejected: Vec<RejectedTx> = Vec::new();
     let mut last_sync_id: i64 = 0;
@@ -119,7 +124,7 @@ pub async fn push(
             workspace_id,
         };
 
-        match apply_transaction(&mut conn, &tx, &actor) {
+        match apply_transaction(&mut conn, &tx, &actor, staff) {
             Ok(sync_id) => {
                 last_sync_id = sync_id.max(last_sync_id);
                 applied.push(tx_id.clone());
@@ -174,13 +179,28 @@ pub(super) fn apply_transaction_for_test(
     tx: &PushTransaction,
     actor: &ActorContext,
 ) -> Result<i64, (&'static str, String)> {
-    apply_transaction(conn, tx, actor).map_err(|TxReject(r, d)| (r, d))
+    apply_transaction(conn, tx, actor, true).map_err(|TxReject(r, d)| (r, d))
+}
+
+/// [`apply_transaction_for_test`] for a caller who is not staff.
+#[cfg(test)]
+pub(super) fn apply_transaction_as_non_staff_for_test(
+    conn: &mut DbConnection,
+    tx: &PushTransaction,
+    actor: &ActorContext,
+) -> Result<i64, (&'static str, String)> {
+    apply_transaction(conn, tx, actor, false).map_err(|TxReject(r, d)| (r, d))
+}
+
+fn forbidden() -> TxReject {
+    TxReject("forbidden", "Only the helpdesk team can change this".into())
 }
 
 fn apply_transaction(
     conn: &mut DbConnection,
     tx: &PushTransaction,
     actor: &ActorContext,
+    staff: bool,
 ) -> Result<i64, TxReject> {
     // Idempotency short-circuit: if this `tx_id` already has a row
     // in sync_actions, we treat it as applied (this is the legitimate
@@ -193,8 +213,9 @@ fn apply_transaction(
     }
 
     match tx.aggregate {
+        SyncAggregate::Project if !staff => Err(forbidden()),
         SyncAggregate::Project => apply_project(conn, tx, actor),
-        SyncAggregate::Ticket => apply_ticket(conn, tx, actor),
+        SyncAggregate::Ticket => apply_ticket(conn, tx, actor, staff),
         SyncAggregate::ProjectTicket
         | SyncAggregate::WorkflowState
         | SyncAggregate::Comment
@@ -234,6 +255,7 @@ fn apply_ticket(
     conn: &mut DbConnection,
     tx: &PushTransaction,
     actor: &ActorContext,
+    staff: bool,
 ) -> Result<i64, TxReject> {
     let ticket_id: i32 = tx.model_id.parse().map_err(|_| {
         TxReject(
@@ -268,6 +290,19 @@ fn apply_ticket(
                     "unsupported_field",
                     "watcher_uuids changes go through the ticket watch endpoints".into(),
                 ));
+            }
+            if !staff {
+                let only_title = tag_ids.is_none() && obj.keys().all(|k| k == "title");
+                let user = actor.uuid.ok_or_else(forbidden)?;
+                let visible = crate::repository::ticket_visibility::can_view_ticket(
+                    conn,
+                    &crate::repository::ticket_visibility::VisibilityContext::requester_only(user),
+                    ticket_id,
+                )
+                .unwrap_or(false);
+                if !only_title || !visible {
+                    return Err(forbidden());
+                }
             }
             let has_scalar = !obj.is_empty();
             let patch = decode_ticket_patch(&Value::Object(obj))?;

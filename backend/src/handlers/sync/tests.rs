@@ -293,3 +293,72 @@ fn push_assignment_reaches_the_notification_outbox() {
         .unwrap();
     assert_eq!(enqueued_again, 0, "an unchanged assignee enqueues nothing");
 }
+
+/// Push enforces what the REST routes do: someone who is not staff may only
+/// retitle a ticket they can see, and may not touch projects.
+#[test]
+fn push_limits_non_staff_to_retitling_their_own_ticket() {
+    use super::push::PushTransaction;
+    let mut conn = setup_test_connection();
+    let member = TestFixtures::create_user(&mut conn, "sync_push_member", "user");
+    let other = TestFixtures::create_user(&mut conn, "sync_push_other", "user");
+    let mine = TestFixtures::create_ticket(&mut conn, "Mine", Some(member.uuid), None);
+    let theirs = TestFixtures::create_ticket(&mut conn, "Theirs", Some(other.uuid), None);
+    let actor = ActorContext::user(member.uuid, None);
+    let tx = |aggregate, id: i32, patch| PushTransaction {
+        tx_id: Uuid::now_v7().to_string(),
+        aggregate,
+        model_id: id.to_string(),
+        op: SyncOp::Update,
+        patch,
+        base_sync_id: None,
+    };
+    let push =
+        |conn: &mut _, t| super::push::apply_transaction_as_non_staff_for_test(conn, &t, &actor);
+
+    let reason =
+        |r: Result<i64, (&'static str, String)>| r.map(|_| "applied").unwrap_or_else(|(r, _)| r);
+    assert_eq!(
+        reason(push(
+            &mut conn,
+            tx(SyncAggregate::Ticket, mine.id, json!({"title": "Renamed"}))
+        )),
+        "applied"
+    );
+    assert_eq!(
+        reason(push(
+            &mut conn,
+            tx(
+                SyncAggregate::Ticket,
+                mine.id,
+                json!({"priority": "urgent"})
+            )
+        )),
+        "forbidden"
+    );
+    assert_eq!(
+        reason(push(
+            &mut conn,
+            tx(
+                SyncAggregate::Ticket,
+                theirs.id,
+                json!({"title": "Mine now"})
+            )
+        )),
+        "forbidden"
+    );
+    assert_eq!(
+        reason(push(
+            &mut conn,
+            tx(SyncAggregate::Ticket, mine.id, json!({"tag_ids": []}))
+        )),
+        "forbidden"
+    );
+    assert_eq!(
+        reason(push(
+            &mut conn,
+            tx(SyncAggregate::Project, 1, json!({"name": "x"}))
+        )),
+        "forbidden"
+    );
+}
