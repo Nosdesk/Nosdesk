@@ -1750,6 +1750,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    ticket_ratings (ticket_id, rater_uuid) {
+        ticket_id -> Int4,
+        rater_uuid -> Uuid,
+        rating -> Text,
+        comment -> Nullable<Text>,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     ticket_rule_runs (event_id, ticket_id, rule_id) {
         event_id -> Uuid,
         ticket_id -> Int4,
@@ -2489,6 +2501,9 @@ diesel::joinable!(ticket_assets -> workspaces (workspace_id));
 diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_categories -> workspaces (workspace_id));
 diesel::joinable!(ticket_merges -> workspaces (workspace_id));
+diesel::joinable!(ticket_ratings -> tickets (ticket_id));
+diesel::joinable!(ticket_ratings -> users (rater_uuid));
+diesel::joinable!(ticket_ratings -> workspaces (workspace_id));
 diesel::joinable!(ticket_tags -> tags (tag_id));
 diesel::joinable!(ticket_tags -> tickets (ticket_id));
 diesel::joinable!(ticket_tags -> users (created_by));
@@ -2632,6 +2647,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     ticket_assets,
     ticket_categories,
     ticket_merges,
+    ticket_ratings,
     ticket_rule_runs,
     ticket_tags,
     ticket_watchers,

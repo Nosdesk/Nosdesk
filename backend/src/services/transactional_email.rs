@@ -517,12 +517,13 @@ pub fn prepare_notification(
     actor_name: &str,
     cta_url: &str,
     cta_label: Option<&str>,
+    feedback: Option<&crate::utils::email::FeedbackLinks>,
     event_id: &str,
     recipient_uuid: &str,
     locale: &unic_langid::LanguageIdentifier,
 ) -> NewOutboundEmail {
     let (body_html, body_text) = svc.compose_notification(
-        title, body, actor_name, cta_url, cta_label, branding, locale,
+        title, body, actor_name, cta_url, cta_label, feedback, branding, locale,
     );
     let message_id = make_message_id("notify", &from_email_domain(svc));
     // Notification emails are system-generated but represent a
@@ -578,6 +579,7 @@ pub fn enqueue_notification(
     actor_name: &str,
     cta_url: &str,
     cta_label: Option<&str>,
+    feedback: Option<&crate::utils::email::FeedbackLinks>,
     event_id: &str,
     recipient_uuid: &str,
     locale: &unic_langid::LanguageIdentifier,
@@ -592,6 +594,7 @@ pub fn enqueue_notification(
         actor_name,
         cta_url,
         cta_label,
+        feedback,
         event_id,
         recipient_uuid,
         locale,
@@ -766,6 +769,7 @@ mod tests {
             "Dave",
             "https://desk.example.com/tickets/1",
             None,
+            None,
             "evt-1",
             "11111111-1111-1111-1111-111111111111",
             &en_us(),
@@ -830,6 +834,7 @@ mod tests {
             "It's still burning.",
             "Kyle",
             "https://desk.example.com/tickets/42",
+            None,
             None,
             "notif-uuid-1",
             "user-uuid-9",

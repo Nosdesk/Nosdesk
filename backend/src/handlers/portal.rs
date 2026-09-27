@@ -64,6 +64,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route("/tickets", web::post().to(create_my_ticket))
         .route("/tickets/{id}", web::get().to(get_my_ticket))
         .route("/tickets/{id}/comments", web::post().to(reply_to_my_ticket))
+        .route("/tickets/{id}/resolve", web::post().to(resolve_my_ticket))
         .route(
             "/tickets/{id}/attachments/{attachment_id}",
             web::get().to(download_attachment),
@@ -479,6 +480,11 @@ pub async fn magic_link_callback(
 #[derive(Deserialize)]
 pub struct TicketLinkQuery {
     t: String,
+    /// The requester's answer from a resolved email ("fixed" or
+    /// "not_fixed"). Carried to the page, which records it: a mail scanner
+    /// fetching the link must not change the ticket.
+    #[serde(default)]
+    answer: Option<String>,
 }
 
 /// `GET /api/portal/auth/ticket?t=…` (portal origin, unauthenticated): the
@@ -520,8 +526,19 @@ pub async fn ticket_link_callback(
         .cookie(session.access)
         .cookie(session.refresh)
         .cookie(session.csrf)
-        .append_header(("Location", format!("/tickets/{ticket_id}")))
+        .append_header((
+            "Location",
+            ticket_location(ticket_id, query.answer.as_deref()),
+        ))
         .finish())
+}
+
+/// Where a View request link lands, with a recognised answer carried along.
+fn ticket_location(ticket_id: i32, answer: Option<&str>) -> String {
+    match answer {
+        Some(a @ ("fixed" | "not_fixed")) => format!("/tickets/{ticket_id}?answer={a}"),
+        _ => format!("/tickets/{ticket_id}"),
+    }
 }
 
 /// Wrong codes allowed against one sign-in email before its code stops working.
@@ -940,12 +957,24 @@ pub async fn get_my_ticket(
         let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
         let states = state_map(conn)?;
         let comments = customer_thread(conn, ticket_id, viewer)?;
-        Ok(Some((CustomerTicket::new(ticket, &states), comments)))
+        // The requester's own answer to "is it fixed?", if they gave one.
+        let rating = crate::repository::ticket_ratings::for_ticket(conn, ticket_id)?
+            .filter(|r| r.rater_uuid == viewer)
+            .map(|r| json!({ "rating": r.rating, "comment": r.comment }));
+        let is_requester = ticket.requester_uuid == Some(viewer);
+        Ok(Some((
+            CustomerTicket::new(ticket, &states),
+            comments,
+            rating,
+            is_requester,
+        )))
     });
     match result {
-        Ok(Some((ticket, comments))) => HttpResponse::Ok().json(json!({
+        Ok(Some((ticket, comments, rating, is_requester))) => HttpResponse::Ok().json(json!({
             "ticket": ticket,
             "comments": comments,
+            "rating": rating,
+            "is_requester": is_requester,
         })),
         Ok(None) => errors::not_found("Ticket not found"),
         Err(e) => {
@@ -1121,6 +1150,10 @@ pub struct NewPortalReply {
     /// Ids from `POST /api/portal/files`.
     #[serde(default)]
     pub attachment_ids: Vec<i32>,
+    /// The requester is answering "is it fixed?" with no: recorded as a
+    /// rating alongside the reply (which reopens a closed request).
+    #[serde(default)]
+    pub still_needs_help: bool,
 }
 
 /// `POST /api/portal/tickets` — the customer opens a ticket. Requester is the
@@ -1234,6 +1267,7 @@ pub async fn reply_to_my_ticket(
     let body = body.into_inner();
     let content = body.content.trim().to_string();
     let attachment_ids = body.attachment_ids;
+    let still_needs_help = body.still_needs_help;
     if content.is_empty() && attachment_ids.is_empty() {
         return errors::bad_request("Reply cannot be empty");
     }
@@ -1263,6 +1297,15 @@ pub async fn reply_to_my_ticket(
             annotation,
             Some(&search),
         )?;
+        if still_needs_help && is_requester(conn, ticket_id, user_uuid)? {
+            crate::repository::ticket_ratings::record(
+                conn,
+                ticket_id,
+                user_uuid,
+                crate::repository::ticket_ratings::Rating::Bad,
+                None,
+            )?;
+        }
         Ok(Some(comment))
     });
 
@@ -1284,6 +1327,64 @@ pub async fn reply_to_my_ticket(
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to post reply");
             errors::internal("Failed to post reply")
+        }
+    }
+}
+
+/// Whether `user` is the ticket's requester (the one who can answer
+/// "is it fixed?"; watchers see the request but don't rate it).
+fn is_requester(conn: &mut DbConnection, ticket_id: i32, user: Uuid) -> QueryResult<bool> {
+    use crate::schema::tickets;
+    diesel::select(diesel::dsl::exists(
+        tickets::table
+            .find(ticket_id)
+            .filter(tickets::requester_uuid.eq(user)),
+    ))
+    .get_result(conn)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResolveRequest {
+    /// An optional note with the "fixed" answer.
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+/// `POST /api/portal/tickets/{id}/resolve`: the requester says it's fixed.
+/// An open request is resolved (moved to the first done state), and the
+/// answer is recorded as a good rating. 404 for anyone but the requester.
+pub async fn resolve_my_ticket(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    path: web::Path<i32>,
+    body: web::Json<ResolveRequest>,
+) -> impl Responder {
+    let ticket_id = path.into_inner();
+    let user_uuid = portal.user_uuid;
+    let comment = body
+        .into_inner()
+        .comment
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty());
+    let result = tc.run(move |conn| {
+        if !crate::repository::ticket_ratings::resolve_as_requester(
+            conn,
+            ticket_id,
+            user_uuid,
+            comment.as_deref(),
+        )? {
+            return Ok(None);
+        }
+        let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
+        let states = state_map(conn)?;
+        Ok(Some(CustomerTicket::new(ticket, &states)))
+    });
+    match result {
+        Ok(Some(ticket)) => HttpResponse::Ok().json(json!({ "ticket": ticket })),
+        Ok(None) => errors::not_found("Ticket not found"),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to resolve ticket");
+            errors::internal("Failed to resolve ticket")
         }
     }
 }

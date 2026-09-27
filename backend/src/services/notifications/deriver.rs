@@ -376,21 +376,25 @@ pub fn resolve(
                     .map(|s| s.name)
                     .unwrap_or_else(|| after.to_string());
                 let actor = actor_for(conn, row);
-                out.push(
-                    NotificationPayload::new(
-                        NotificationTypeCode::TicketStatusChanged,
-                        requester,
-                        actor,
-                        NotificationEntity::Ticket {
-                            id: ticket_id,
-                            title: ticket_title,
-                        },
-                        workspace_id,
-                    )
-                    .with_title("Your request was updated")
-                    .with_body(format!("Request #{ticket_id} is now {state_name}."))
-                    .from_sync_action(row.sync_id),
-                );
+                let update = NotificationPayload::new(
+                    NotificationTypeCode::TicketStatusChanged,
+                    requester,
+                    actor,
+                    NotificationEntity::Ticket {
+                        id: ticket_id,
+                        title: ticket_title,
+                    },
+                    workspace_id,
+                )
+                .with_title("Your request was updated")
+                .with_body(format!("Request #{ticket_id} is now {state_name}."))
+                .from_sync_action(row.sync_id);
+                // Resolved: the email asks whether it's fixed.
+                out.push(if after == "done" {
+                    update.resolving()
+                } else {
+                    update
+                });
             }
         }
         Intent::Commented {

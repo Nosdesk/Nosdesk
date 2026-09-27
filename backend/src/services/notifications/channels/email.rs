@@ -372,6 +372,15 @@ impl NotificationDeliveryChannel for EmailChannel {
         } else {
             notification.payload.actor.name.clone()
         };
+        // A resolved request asks "is it fixed?". The answers ride the signed
+        // portal link (never the agent app), and the page records them.
+        let feedback = (notification.payload.is_resolving()
+            && requester_link_used
+            && entity_url.contains("/api/portal/auth/ticket?"))
+        .then(|| crate::utils::email::FeedbackLinks {
+            fixed: format!("{entity_url}&answer=fixed"),
+            not_fixed: format!("{entity_url}&answer=not_fixed"),
+        });
         // A requester's link opens their request signed in; say so on the button.
         let cta_label = requester_link_used
             .then(|| crate::utils::i18n::tr(&recipient_locale, "reply-email-view-request"));
@@ -409,6 +418,7 @@ impl NotificationDeliveryChannel for EmailChannel {
                     &actor_name,
                     &entity_url,
                     cta_label.as_deref(),
+                    feedback.as_ref(),
                     &event_id,
                     &recipient_uuid_str,
                     &recipient_locale,
