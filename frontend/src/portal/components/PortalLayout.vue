@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { useQuery } from '@pinia/colada'
+import { useQuery, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
@@ -11,7 +11,9 @@ import { useThemeStore } from '@/stores/theme'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings'
 
-import { getMe, signOut } from '../service'
+import NoticeBanner from '@/components/requester/NoticeBanner.vue'
+
+import { followNotice, getMe, getNotice, signOut } from '../service'
 
 const { $t: t } = useFluent()
 const router = useRouter()
@@ -27,6 +29,24 @@ void publicSettings.load()
 const helpCentre = computed(() => publicSettings.settings?.guest_public_docs_enabled === true)
 
 const me = useQuery({ key: ['portal', 'me'], query: getMe })
+
+// The team's known-issue notice; following it adds the requester to the
+// incident, which then shows in their requests.
+const queryCache = useQueryCache()
+const notice = useQuery({ key: ['portal', 'notice'], query: getNotice })
+const following = ref(false)
+async function follow(): Promise<void> {
+  const current = notice.data.value?.notice
+  if (!current) return
+  following.value = true
+  try {
+    await followNotice(current.id)
+    await queryCache.invalidateQueries({ key: ['portal', 'notice'] })
+    void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
+  } finally {
+    following.value = false
+  }
+}
 // Speak the requester's language once we know it.
 watch(
   () => me.data.value?.effective_locale,
@@ -82,6 +102,14 @@ async function onSignOut(): Promise<void> {
       </div>
     </header>
     <main class="w-full max-w-3xl mx-auto px-4 py-6 flex flex-col gap-4">
+      <NoticeBanner
+        v-if="notice.data.value?.notice"
+        :notice="notice.data.value.notice"
+        :following="notice.data.value.following"
+        can-follow
+        :busy="following"
+        @follow="follow"
+      />
       <slot />
     </main>
   </div>

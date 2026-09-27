@@ -43,6 +43,8 @@ import { useQueryCache } from "@pinia/colada";
 import BackButton from "@/components/common/BackButton.vue";
 import ResponsiveMenu from "@/components/common/ResponsiveMenu.vue";
 import MenuList, { type MenuItem } from "@/components/common/MenuList.vue";
+import NoticeDialog from "@/components/notices/NoticeDialog.vue";
+import { isLive, noticeService, type Notice } from "@nosdesk/core/services/noticeService";
 import Icon from "@/components/common/Icon.vue";
 import Modal from "@/components/Modal.vue";
 import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
@@ -212,6 +214,14 @@ const overflowMenuItems = computed<MenuItem[]>(() => {
             icon: 'M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9',
         },
     ];
+    // Staff running an outage from this ticket tell requesters about it.
+    if (authStore.isTechnician) {
+        items.push({
+            id: 'known-issue',
+            label: t('tickets-menu-known-issue'),
+            icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+        });
+    }
 
     // Both action kinds share the plugin group; divider above the first one.
     [...pluginActionItems.value, ...pluginHeaderActionItems.value].forEach((action, idx) => {
@@ -275,10 +285,30 @@ const handleSaveAsDoc = async () => {
     router.push(docUrl({ slug: created.slug, id: created.id as number }));
 };
 
+// Known-issue notice linked to this ticket: post one, or update/end the live one.
+const noticeDialogOpen = ref(false);
+const liveNotice = ref<Notice | null>(null);
+const openNoticeDialog = async () => {
+    try {
+        const notices = await noticeService.list();
+        liveNotice.value =
+            notices.find((n) => n.incident_ticket_id === ticketId.value && isLive(n)) ?? null;
+    } catch {
+        liveNotice.value = null;
+    }
+    noticeDialogOpen.value = true;
+};
+const onNoticeSaved = (notice: Notice) => {
+    noticeDialogOpen.value = false;
+    toast.success(isLive(notice) ? t('notice-saved-live') : t('notice-saved-ended'));
+};
+
 const handleOverflowSelect = (itemId: string) => {
     overflowMenuOpen.value = false;
     if (itemId === 'flag-for-docs') {
         handleFlagForDocs();
+    } else if (itemId === 'known-issue') {
+        void openNoticeDialog();
     } else if (itemId === 'delete') {
         // Two-step destructive flow: opening the modal is the
         // first click, the modal's confirm button is the second.
@@ -842,6 +872,15 @@ const rootEl = ref<HTMLElement | null>(null);
                 "
                 @close="showProjectModal = false"
                 @select-project="addToProject"
+            />
+
+            <NoticeDialog
+                :show="noticeDialogOpen"
+                :notice="liveNotice"
+                :ticket-id="ticketId ?? null"
+                :default-title="ticket?.title ?? ''"
+                @close="noticeDialogOpen = false"
+                @saved="onNoticeSaved"
             />
 
             <!-- Delete confirmation. Triggered from the page-header

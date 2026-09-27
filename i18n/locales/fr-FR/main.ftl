@@ -7397,3 +7397,46 @@ workspace-name-error = Votre nom dans cet espace de travail n'a pas pu être enr
 portal-code-label = Ou saisissez le code à 6 chiffres de l'e-mail
 portal-code-submit = Se connecter
 portal-code-invalid = Ce code n'a pas fonctionné. Vérifiez-le ou demandez-en un nouveau.
+
+# Known-issue notices (machine, pending native review)
+tickets-menu-known-issue = Avis de problème connu…
+notice-dialog-title = Publier un avis de problème connu
+notice-dialog-edit-title = Avis de problème connu
+notice-dialog-description = Affiché en haut du portail et du formulaire de demande, pour que chacun sache que vous vous en occupez.
+notice-title-label = Titre
+notice-body-label = Détails (facultatif)
+notice-body-placeholder = Ce qui est touché et ce que les gens peuvent faire en attendant
+notice-severity-label = Gravité
+notice-severity-info = Info
+notice-severity-degraded = Dégradé
+notice-severity-outage = Panne
+notice-duration-label = Afficher pendant
+notice-duration = { $hours ->
+    [1] 1 heure
+   *[other] { $hours } heures
+}
+notice-follow-hint = Les demandeurs peuvent suivre ce ticket depuis l'avis au lieu d'en ouvrir un.
+notice-end-now = Terminer maintenant
+notice-cancel = Annuler
+notice-post = Publier l'avis
+notice-update = Mettre à jour l'avis
+notice-save-failed = L'enregistrement a échoué. Réessayez.
+notice-saved-live = L'avis est affiché
+notice-saved-ended = Avis terminé
+notice-follow = Suivre ce problème
+notice-following = Vous suivez ce problème. Les mises à jour apparaîtront dans vos demandes.
+notice-dismiss = Masquer
+notices-title = Problèmes connus
+notices-description = Avis affichés sur le portail et le formulaire pendant une panne ou une maintenance. Publiez-les depuis le ticket d'incident pour que les demandeurs puissent le suivre.
+notices-new = Nouvel avis
+notices-load-failed = Les avis n'ont pas pu être chargés.
+notices-empty = Aucun avis pour l'instant.
+notices-status-live = Affiché
+notices-status-scheduled = Planifié
+notices-status-ended = Terminé
+notices-ends = se termine { $when }
+notices-ended = terminé { $when }
+notices-edit = Modifier
+admin-nav-notices-title = Problèmes connus
+admin-nav-notices-description = Informer les demandeurs des pannes et maintenances
+route-title-admin-notices = Problèmes connus

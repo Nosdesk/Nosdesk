@@ -26,6 +26,7 @@
 
     <!-- Page content (pages control their own width via contentClass) -->
     <div class="w-full flex flex-col gap-6" :class="contentClass">
+      <NoticeBanner v-if="publicSettings.settings?.notice" :notice="publicSettings.settings.notice" />
       <slot />
     </div>
 
@@ -48,6 +49,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import RequesterLink from '@/components/public/RequesterLink.vue';
+import NoticeBanner from '@/components/requester/NoticeBanner.vue';
 import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import LogoIcon from '@/components/icons/LogoIcon.vue';

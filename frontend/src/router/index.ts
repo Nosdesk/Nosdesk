@@ -852,6 +852,12 @@ const router = createRouter({
           redirect: { name: 'admin-email-delivery', query: { tab: 'activity' } }
         },
         {
+          path: 'notices',
+          name: 'admin-notices',
+          component: () => import('../views/NoticesView.vue'),
+          meta: { titleKey: 'route-title-admin-notices' }
+        },
+        {
           path: 'guest-access',
           name: 'admin-guest-access',
           component: () => import('../views/GuestAccessSettingsView.vue'),

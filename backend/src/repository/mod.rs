@@ -64,6 +64,7 @@ pub mod user_profile;
 pub mod user_recovery_codes;
 pub mod users;
 pub mod workflow_states;
+pub mod workspace_notices;
 pub mod workspaces;
 pub mod yjs_snapshots;
 

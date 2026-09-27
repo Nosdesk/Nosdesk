@@ -16,6 +16,8 @@ export interface PublicSiteSettings {
   guest_ticket_attachments_enabled: boolean;
   /** Admin-configured plain-text blurb shown above the submit form. */
   guest_ticket_intro_message: string | null;
+  /** A known issue the team has posted, if one is live. */
+  notice?: import('./noticeService').PublicNotice | null;
   /** Request types the submit form offers (empty when none). */
   request_types?: {
     id: number;

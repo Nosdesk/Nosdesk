@@ -195,6 +195,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         selfHostedOnly: true
       },
       {
+        titleKey: 'admin-nav-notices-title',
+        descriptionKey: 'admin-nav-notices-description',
+        icon: 'info',
+        route: '/admin/notices',
+        keywords: ['notice', 'known issue', 'outage', 'incident', 'banner', 'announcement', 'maintenance']
+      },
+      {
         titleKey: 'admin-nav-guest-access-title',
         descriptionKey: 'admin-nav-guest-access-description',
         icon: 'user',

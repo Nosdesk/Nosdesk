@@ -7287,3 +7287,46 @@ workspace-name-error = Your name in this workspace couldn't be saved.
 portal-code-label = Or enter the 6-digit code from the email
 portal-code-submit = Sign in
 portal-code-invalid = That code didn't work. Check it, or send a new one.
+
+# Known-issue notices
+tickets-menu-known-issue = Known-issue notice…
+notice-dialog-title = Post a known-issue notice
+notice-dialog-edit-title = Known-issue notice
+notice-dialog-description = Shown at the top of the portal and the request form, so people know you're on it.
+notice-title-label = Headline
+notice-body-label = Details (optional)
+notice-body-placeholder = What's affected and what people can do meanwhile
+notice-severity-label = Severity
+notice-severity-info = Info
+notice-severity-degraded = Degraded
+notice-severity-outage = Outage
+notice-duration-label = Show for
+notice-duration = { $hours ->
+    [1] 1 hour
+   *[other] { $hours } hours
+}
+notice-follow-hint = Requesters can follow this ticket from the notice instead of opening their own.
+notice-end-now = End now
+notice-cancel = Cancel
+notice-post = Post notice
+notice-update = Update notice
+notice-save-failed = That didn't save. Try again.
+notice-saved-live = Notice is live
+notice-saved-ended = Notice ended
+notice-follow = Follow this issue
+notice-following = You're following this issue. Updates will appear in your requests.
+notice-dismiss = Dismiss
+notices-title = Known issues
+notices-description = Notices on the portal and request form during an outage or planned work. Post one from the incident ticket so requesters can follow it.
+notices-new = New notice
+notices-load-failed = Notices didn't load.
+notices-empty = No notices yet.
+notices-status-live = Live
+notices-status-scheduled = Scheduled
+notices-status-ended = Ended
+notices-ends = ends { $when }
+notices-ended = ended { $when }
+notices-edit = Edit
+admin-nav-notices-title = Known issues
+admin-nav-notices-description = Tell requesters about outages and planned work
+route-title-admin-notices = Known issues

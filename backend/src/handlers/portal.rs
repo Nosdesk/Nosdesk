@@ -63,6 +63,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route("/tickets", web::get().to(list_my_tickets))
         .route("/tickets", web::post().to(create_my_ticket))
         .route("/request-types", web::get().to(list_request_types))
+        .route("/notice", web::get().to(get_notice))
+        .route("/notices/{id}/follow", web::post().to(follow_notice))
         .route("/tickets/{id}", web::get().to(get_my_ticket))
         .route("/tickets/{id}/comments", web::post().to(reply_to_my_ticket))
         .route("/tickets/{id}/resolve", web::post().to(resolve_my_ticket))
@@ -1288,6 +1290,69 @@ pub struct NewPortalReply {
 /// portal user; the optional description lands as the first customer-visible
 /// comment. Created under the pinned actor, so the activity attributes it to
 /// the customer.
+/// `GET /api/portal/notice`: the live known-issue notice, and whether the
+/// requester already follows its incident.
+pub async fn get_notice(mut tc: TenantConn, portal: PortalContext) -> impl Responder {
+    let viewer = portal.user_uuid;
+    let result = tc.run(move |conn| {
+        let Some(live) = crate::repository::workspace_notices::active(conn, chrono::Utc::now())?
+        else {
+            return Ok(json!({ "notice": null, "following": false }));
+        };
+        let following = match live.incident_ticket_id {
+            Some(ticket) => {
+                crate::repository::ticket_watchers::watcher_uuids(conn, ticket)?.contains(&viewer)
+            }
+            None => false,
+        };
+        Ok::<_, diesel::result::Error>(json!({
+            "notice": crate::handlers::notices::PublicNotice::from(live),
+            "following": following,
+        }))
+    });
+    match result {
+        Ok(body) => HttpResponse::Ok().json(body),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to load the notice");
+            errors::internal("Failed to load the notice")
+        }
+    }
+}
+
+/// `POST /api/portal/notices/{id}/follow`: follow the incident behind a live
+/// notice instead of filing a duplicate. The requester joins the incident
+/// ticket as a participant, so it shows in their portal and its public updates
+/// reach them by email.
+pub async fn follow_notice(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let notice_id = path.into_inner();
+    let viewer = portal.user_uuid;
+    let result = tc.run(move |conn| {
+        let live = crate::repository::workspace_notices::active(conn, chrono::Utc::now())?;
+        let Some(ticket) = live
+            .filter(|n| n.id == notice_id)
+            .and_then(|n| n.incident_ticket_id)
+        else {
+            return Ok(None);
+        };
+        crate::repository::ticket_watchers::add_watcher(conn, ticket, viewer, false)?;
+        Ok::<_, diesel::result::Error>(Some(ticket))
+    });
+    match result {
+        Ok(Some(ticket)) => {
+            HttpResponse::Ok().json(json!({ "following": true, "ticket_id": ticket }))
+        }
+        Ok(None) => errors::not_found("That notice isn't live"),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to follow a notice");
+            errors::internal("Failed to follow the issue")
+        }
+    }
+}
+
 /// A request type as a requester sees it.
 #[derive(Serialize)]
 pub struct RequestType {

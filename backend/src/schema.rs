@@ -2255,6 +2255,23 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_notices (id) {
+        id -> Int4,
+        #[max_length = 120]
+        title -> Varchar,
+        body -> Nullable<Text>,
+        severity -> Text,
+        starts_at -> Timestamptz,
+        ends_at -> Timestamptz,
+        incident_ticket_id -> Nullable<Int4>,
+        created_by -> Nullable<Uuid>,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     workspace_notification_defaults (id) {
         id -> Int4,
         workspace_id -> Int4,
@@ -2548,6 +2565,9 @@ diesel::joinable!(workspace_ldap_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_sync_state -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
 diesel::joinable!(workspace_members -> workspaces (workspace_id));
+diesel::joinable!(workspace_notices -> tickets (incident_ticket_id));
+diesel::joinable!(workspace_notices -> users (created_by));
+diesel::joinable!(workspace_notices -> workspaces (workspace_id));
 diesel::joinable!(workspace_notification_defaults -> notification_types (notification_type_id));
 diesel::joinable!(workspace_notification_defaults -> workspaces (workspace_id));
 diesel::joinable!(yjs_snapshots -> workspaces (workspace_id));
@@ -2677,6 +2697,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     workspace_ldap_settings,
     workspace_ldap_sync_state,
     workspace_members,
+    workspace_notices,
     workspace_notification_defaults,
     workspaces,
     yjs_snapshots,
