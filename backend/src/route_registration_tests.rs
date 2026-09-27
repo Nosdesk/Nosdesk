@@ -46,6 +46,18 @@ async fn workspace_data_export_config_routes_registered() {
 }
 
 #[actix_web::test]
+async fn approval_settings_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::approval_settings::config,
+        &[
+            ("GET", "/admin/approval-settings"),
+            ("PUT", "/admin/approval-settings"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn requester_sso_config_routes_registered() {
     assert_config_registers(
         crate::handlers::requester_sso::config,

@@ -40,6 +40,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         keywords: ['categories', 'tags', 'ticket types', 'visibility']
       },
       {
+        titleKey: 'admin-nav-approvals-title',
+        descriptionKey: 'admin-nav-approvals-description',
+        icon: 'checkCircle',
+        route: '/admin/approvals',
+        keywords: ['approval', 'approve', 'approver', 'manager', 'sign off', 'request types']
+      },
+      {
         titleKey: 'admin-nav-user-fields-title',
         descriptionKey: 'admin-nav-user-fields-description',
         icon: 'account',

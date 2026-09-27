@@ -514,6 +514,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    category_approvers (category_id, user_uuid) {
+        category_id -> Int4,
+        user_uuid -> Uuid,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     category_group_visibility (category_id, group_id) {
         category_id -> Int4,
         group_id -> Int4,
@@ -1565,6 +1574,9 @@ diesel::table! {
         email_security_note_enabled -> Bool,
         email_security_note_template -> Nullable<Text>,
         portal_share_by_domain -> Bool,
+        approval_waiting_display -> Text,
+        approval_skip_by -> Text,
+        approval_auto_approve_days -> Nullable<Int4>,
     }
 }
 
@@ -1738,6 +1750,9 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         workspace_id -> Int4,
         requester_visible -> Bool,
+        approval_required -> Bool,
+        approval_rule -> Text,
+        approval_by_manager -> Bool,
     }
 }
 
@@ -1977,6 +1992,7 @@ diesel::table! {
         display_name -> Nullable<Varchar>,
         #[max_length = 2048]
         avatar_url -> Nullable<Varchar>,
+        manager_uuid -> Nullable<Uuid>,
     }
 }
 
@@ -2402,6 +2418,9 @@ diesel::joinable!(canned_response_insertions -> users (user_uuid));
 diesel::joinable!(canned_response_insertions -> workspaces (workspace_id));
 diesel::joinable!(canned_responses -> users (created_by));
 diesel::joinable!(canned_responses -> workspaces (workspace_id));
+diesel::joinable!(category_approvers -> ticket_categories (category_id));
+diesel::joinable!(category_approvers -> users (user_uuid));
+diesel::joinable!(category_approvers -> workspaces (workspace_id));
 diesel::joinable!(category_group_visibility -> groups (group_id));
 diesel::joinable!(category_group_visibility -> ticket_categories (category_id));
 diesel::joinable!(category_group_visibility -> users (created_by));
@@ -2619,6 +2638,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     bug_reports,
     canned_response_insertions,
     canned_responses,
+    category_approvers,
     category_group_visibility,
     channel_credentials,
     channel_messages,

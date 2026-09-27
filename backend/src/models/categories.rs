@@ -25,6 +25,12 @@ pub struct TicketCategory {
     pub workspace_id: i32,
     /// Offered to requesters as a request type.
     pub requester_visible: bool,
+    /// Requests of this type wait for approval before they're fulfilled.
+    pub approval_required: bool,
+    /// `any`: one approval is enough; `all`: every approver must approve.
+    pub approval_rule: String,
+    /// The requester's manager is an approver.
+    pub approval_by_manager: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -38,6 +44,9 @@ pub struct NewTicketCategory {
     pub is_active: bool,
     pub created_by: Option<Uuid>,
     pub requester_visible: bool,
+    pub approval_required: bool,
+    pub approval_rule: String,
+    pub approval_by_manager: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]
@@ -51,6 +60,9 @@ pub struct TicketCategoryUpdate {
     pub is_active: Option<bool>,
     pub updated_at: Option<NaiveDateTime>,
     pub requester_visible: Option<bool>,
+    pub approval_required: Option<bool>,
+    pub approval_rule: Option<String>,
+    pub approval_by_manager: Option<bool>,
 }
 
 // Category with visibility information for admin views
@@ -60,6 +72,15 @@ pub struct CategoryWithVisibility {
     pub category: TicketCategory,
     pub visible_to_groups: Vec<Group>,
     pub is_public: bool, // true if no group restrictions (visible to all)
+    /// Named approvers, when the type needs approval.
+    pub approvers: Vec<CategoryApprover>,
+}
+
+/// A named approver of a request type.
+#[derive(Debug, Clone, Serialize, Deserialize, Queryable)]
+pub struct CategoryApprover {
+    pub uuid: Uuid,
+    pub name: String,
 }
 
 // Category-Group visibility junction table

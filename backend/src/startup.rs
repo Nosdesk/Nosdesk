@@ -1171,6 +1171,7 @@ pub fn configure_app(
                     .configure(crate::handlers::search::config)
                     // Requester sign-in provider (workspace admins).
                     .configure(crate::handlers::requester_sso::config)
+                    .configure(crate::handlers::approval_settings::config)
                     // Known-issue notices (agents and up).
                     .configure(crate::handlers::notices::config)
                     .configure(crate::handlers::notifications::config)

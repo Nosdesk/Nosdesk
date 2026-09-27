@@ -852,6 +852,12 @@ const router = createRouter({
           redirect: { name: 'admin-email-delivery', query: { tab: 'activity' } }
         },
         {
+          path: 'approvals',
+          name: 'admin-approvals',
+          component: () => import('../views/ApprovalSettingsView.vue'),
+          meta: { titleKey: 'route-title-admin-approvals', adminRequired: true }
+        },
+        {
           path: 'requester-sign-in',
           name: 'admin-requester-sign-in',
           component: () => import('../views/RequesterSignInView.vue'),

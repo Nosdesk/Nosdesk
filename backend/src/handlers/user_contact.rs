@@ -206,7 +206,16 @@ fn empty_profile(user_uuid: Uuid) -> Value {
         "department": null,
         "custom_fields": {},
         "directory_synced": false,
+        "manager": null,
     })
+}
+
+/// `{ uuid, name }` for a manager, so the profile shows a name.
+fn manager_ref(conn: &mut crate::db::DbConnection, uuid: Uuid) -> Value {
+    let name = crate::repository::users::get_user_by_uuid(&uuid, conn)
+        .map(|u| u.name)
+        .unwrap_or_default();
+    json!({ "uuid": uuid, "name": name })
 }
 
 pub async fn get_user_profile_fields(
@@ -218,9 +227,20 @@ pub async fn get_user_profile_fields(
     if let Some(denied) = guard_contact_access(&auth, &mut tc, user_uuid) {
         return denied;
     }
-    match tc.run(|conn| repo::get_profile(conn, user_uuid)) {
-        Ok(Some(profile)) => HttpResponse::Ok().json(profile),
-        Ok(None) => HttpResponse::Ok().json(empty_profile(user_uuid)),
+    match tc.run(|conn| {
+        let profile = repo::get_profile(conn, user_uuid)?;
+        let manager = profile
+            .as_ref()
+            .and_then(|p| p.manager_uuid)
+            .map(|m| manager_ref(conn, m));
+        Ok::<_, diesel::result::Error>((profile, manager))
+    }) {
+        Ok((Some(profile), manager)) => {
+            let mut body = serde_json::to_value(profile).unwrap_or_else(|_| json!({}));
+            body["manager"] = json!(manager);
+            HttpResponse::Ok().json(body)
+        }
+        Ok((None, _)) => HttpResponse::Ok().json(empty_profile(user_uuid)),
         Err(e) => {
             error!(error = %e, "get user profile fields failed");
             errors::internal("Failed to load user profile")
@@ -302,6 +322,54 @@ pub async fn set_user_profile_fields(
         Err(e) => {
             error!(error = %e, "set user profile fields failed");
             errors::internal("Failed to save user profile")
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct SetManagerRequest {
+    pub manager_uuid: Option<Uuid>,
+}
+
+/// `PUT /users/{uuid}/manager`: set or clear someone's manager (the approver
+/// for request types that ask the requester's manager). Admins only: people
+/// don't choose their own approver.
+pub async fn set_user_manager(
+    mut tc: TenantConn,
+    params: web::Path<Uuid>,
+    body: web::Json<SetManagerRequest>,
+    auth: AuthContext,
+    ws: crate::extractors::WorkspaceContext,
+) -> impl Responder {
+    let user_uuid = params.into_inner();
+    if let Some(denied) = guard_contact_access(&auth, &mut tc, user_uuid) {
+        return denied;
+    }
+    // Stricter than the contact gate: not even the person themselves.
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Only admins can set someone's manager");
+    }
+    let manager = body.manager_uuid;
+    if manager == Some(user_uuid) {
+        return errors::bad_request("Someone can't be their own manager");
+    }
+    let result = tc.run(|conn| {
+        if let Some(m) = manager {
+            let member =
+                crate::middleware::cookie_auth::is_workspace_member(conn, ws.workspace_id, m);
+            if !member {
+                return Ok(Err("The manager must be a member of this workspace"));
+            }
+        }
+        repo::set_manager(conn, user_uuid, manager, Some(auth.user_uuid))?;
+        Ok(Ok(manager.map(|m| manager_ref(conn, m))))
+    });
+    match result {
+        Ok(Ok(manager)) => HttpResponse::Ok().json(json!({ "manager": manager })),
+        Ok(Err(msg)) => errors::bad_request(msg),
+        Err(e) => {
+            error!(error = %e, "set user manager failed");
+            errors::internal("Failed to save the manager")
         }
     }
 }

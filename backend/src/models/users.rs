@@ -379,6 +379,9 @@ pub struct UserProfile {
     /// plane's re-projection of the global avatar. Last field to match the
     /// appended column.
     pub avatar_url: Option<String>,
+    /// Their manager in this workspace (an approver for request types that
+    /// ask the requester's manager).
+    pub manager_uuid: Option<Uuid>,
 }
 
 /// Insert form for a profile row (workspace_id defaults from the GUC).

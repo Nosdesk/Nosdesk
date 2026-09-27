@@ -6,6 +6,7 @@ import { useFluent } from 'fluent-vue';
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
+import CategoryApprovalFields, { type ApprovalFields } from '@/components/admin/CategoryApprovalFields.vue';
 import type { CategoryWithVisibility } from '@nosdesk/core/types/category';
 import type { GroupWithMemberCount } from '@nosdesk/core/types/group';
 
@@ -25,6 +26,7 @@ const emit = defineEmits<{
     is_active: boolean;
     visible_to_group_ids: number[];
     requester_visible: boolean;
+    approval: ApprovalFields;
   }];
   close: [];
   delete: [category: CategoryWithVisibility];
@@ -40,8 +42,13 @@ const categoryForm = ref({
   icon: 'folder',
   is_active: true,
   visible_to_group_ids: [] as number[],
-  requester_visible: false
+  requester_visible: false,
+  approval: noApproval()
 });
+
+function noApproval(): ApprovalFields {
+  return { approval_required: false, approval_rule: 'any', approval_by_manager: false, approvers: [] };
+}
 
 // Available icons. SVG paths stay literal; labels resolve through
 // Fluent so the icon tooltip is localised.
@@ -76,7 +83,13 @@ const populateForm = () => {
       icon: props.category.icon || 'folder',
       is_active: props.category.is_active,
       visible_to_group_ids: props.category.visible_to_groups.map(g => g.id),
-      requester_visible: props.category.requester_visible
+      requester_visible: props.category.requester_visible,
+      approval: {
+        approval_required: props.category.approval_required,
+        approval_rule: props.category.approval_rule,
+        approval_by_manager: props.category.approval_by_manager,
+        approvers: [...props.category.approvers],
+      }
     };
   } else {
     categoryForm.value = {
@@ -86,7 +99,8 @@ const populateForm = () => {
       icon: 'folder',
       is_active: true,
       visible_to_group_ids: [],
-      requester_visible: false
+      requester_visible: false,
+      approval: noApproval()
     };
   }
 };
@@ -95,7 +109,7 @@ const populateForm = () => {
 watch(() => props.category, populateForm, { immediate: true });
 
 const handleSubmit = () => {
-  emit('save', { ...categoryForm.value });
+  emit('save', { ...categoryForm.value, approval: { ...categoryForm.value.approval } });
 };
 </script>
 
@@ -196,6 +210,8 @@ const handleSubmit = () => {
           :label="$t('admin-categories-requester-visible-label')"
           :description="$t('admin-categories-requester-visible-hint')"
         />
+
+        <CategoryApprovalFields v-model="categoryForm.approval" />
 
         <!-- Group visibility -->
         <div>

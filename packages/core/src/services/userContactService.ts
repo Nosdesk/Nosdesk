@@ -16,6 +16,13 @@ export interface UserProfileFields {
   directory_synced: boolean;
   /** The person's own name in this workspace; null shows their account name. */
   display_name?: string | null;
+  /** Their manager here (approves requests that ask for the manager). */
+  manager?: UserManagerRef | null;
+}
+
+export interface UserManagerRef {
+  uuid: string;
+  name: string;
 }
 
 export interface UserPhone {
@@ -156,3 +163,15 @@ export const updateUserAddress = async (
 export const deleteUserAddress = async (uuid: string, id: number): Promise<void> => {
   await apiClient.delete(`/users/${uuid}/addresses/${id}`);
 };
+
+/** Set or clear someone's manager (admins only). */
+export async function setUserManager(
+  uuid: string,
+  managerUuid: string | null,
+): Promise<UserManagerRef | null> {
+  const { data } = await apiClient.put<{ manager: UserManagerRef | null }>(
+    `/users/${uuid}/manager`,
+    { manager_uuid: managerUuid },
+  );
+  return data.manager;
+}

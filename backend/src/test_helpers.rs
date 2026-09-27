@@ -320,6 +320,9 @@ impl TestFixtures {
             is_active: true,
             created_by: None,
             requester_visible: false,
+            approval_required: false,
+            approval_rule: "any".to_string(),
+            approval_by_manager: false,
         };
 
         diesel::insert_into(ticket_categories::table)

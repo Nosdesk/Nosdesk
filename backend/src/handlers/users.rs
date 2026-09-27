@@ -106,6 +106,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             web::get().to(crate::handlers::user_contact::get_user_profile_fields),
         )
         .route(
+            "/users/{uuid}/manager",
+            web::put().to(crate::handlers::user_contact::set_user_manager),
+        )
+        .route(
             "/users/{uuid}/profile-fields",
             web::put().to(crate::handlers::user_contact::set_user_profile_fields),
         )

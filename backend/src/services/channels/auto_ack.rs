@@ -371,6 +371,9 @@ mod tests {
             email_security_note_enabled: false,
             email_security_note_template: None,
             portal_share_by_domain: false,
+            approval_waiting_display: "badge".into(),
+            approval_skip_by: "admins".into(),
+            approval_auto_approve_days: None,
         }
     }
 

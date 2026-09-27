@@ -15,11 +15,15 @@ import DynamicAttributeForm, {
   type Schema,
   type SchemaProperty,
 } from '@/components/assets/DynamicAttributeForm.vue';
+import UserPicker from '@/components/ticketComponents/UserPicker.vue';
 import {
   getUserFieldSchema,
   getUserProfileFields,
+  setUserManager,
   setUserProfileFields,
+  type UserManagerRef,
 } from '@nosdesk/core/services/userContactService';
+import { useAuthStore } from '@/stores/auth';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 
@@ -35,7 +39,11 @@ const organization = ref('');
 const department = ref('');
 const customFields = ref<Record<string, unknown>>({});
 const directorySynced = ref(false);
+const manager = ref<UserManagerRef | null>(null);
+const managerUuid = ref('');
 const loading = ref(true);
+// People don't pick their own approver: only admins set a manager.
+const canSetManager = computed(() => useAuthStore().isAdmin);
 const saving = ref(false);
 
 const properties = computed(() => (schema.value.properties ?? {}) as Record<string, SchemaProperty>);
@@ -79,6 +87,8 @@ async function load(): Promise<void> {
     department.value = profile.department ?? '';
     customFields.value = profile.custom_fields ?? {};
     directorySynced.value = profile.directory_synced;
+    manager.value = profile.manager ?? null;
+    managerUuid.value = profile.manager?.uuid ?? '';
   } catch (err) {
     toast.error(extractErrorMessage(err, t('user-contact-error-load')));
   } finally {
@@ -86,6 +96,18 @@ async function load(): Promise<void> {
   }
 }
 onMounted(load);
+
+async function saveManager(uuid: string): Promise<void> {
+  if (uuid === (manager.value?.uuid ?? '')) return;
+  try {
+    manager.value = await setUserManager(props.uuid, uuid || null);
+    managerUuid.value = manager.value?.uuid ?? '';
+    toast.success(t('user-contact-manager-saved'));
+  } catch (err) {
+    managerUuid.value = manager.value?.uuid ?? '';
+    toast.error(extractErrorMessage(err, t('user-contact-error-save')));
+  }
+}
 
 async function save(): Promise<void> {
   saving.value = true;
@@ -142,6 +164,20 @@ async function save(): Promise<void> {
           :disabled="!editable || directorySynced"
           size="sm"
         />
+      </div>
+
+      <!-- Manager (an approver for request types that ask for one) -->
+      <div v-if="canSetManager || manager" class="flex flex-col gap-1.5">
+        <span class="text-xs font-medium uppercase tracking-wide text-tertiary">{{ t('user-contact-field-manager') }}</span>
+        <UserPicker
+          v-if="canSetManager"
+          :model-value="managerUuid"
+          type="requester"
+          :current-user="manager"
+          :placeholder="t('user-contact-manager-placeholder')"
+          @update:model-value="saveManager"
+        />
+        <span v-else class="text-sm text-secondary">{{ manager?.name }}</span>
       </div>
 
       <!-- Synced custom fields (read-only) -->
