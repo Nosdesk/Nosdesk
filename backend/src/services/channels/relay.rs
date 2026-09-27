@@ -40,6 +40,9 @@ pub enum RelayDecision {
     Relay {
         channel: Channel,
         thread: ThreadContext,
+        /// False when only the other participants get it (the requester is
+        /// staff and sees the reply in the app).
+        requester_copy: bool,
     },
     /// Internal note — never leaked to the requester.
     SkipInternal,
@@ -47,10 +50,16 @@ pub enum RelayDecision {
     SkipDeleted,
     /// Ticket wasn't opened through a channel and the workspace has no email
     /// channel to reply through: send as plain mail from the default sender.
-    Direct { recipient: String, subject: String },
+    Direct {
+        recipient: String,
+        subject: String,
+        /// As on [`Self::Relay`].
+        requester_copy: bool,
+    },
     /// The requester wrote this comment; don't mail them their own words.
     SkipAuthorIsRecipient,
-    /// A ticket with no origin channel whose requester is staff.
+    /// A ticket with no origin channel whose requester is staff, and nobody
+    /// else on it to email.
     SkipStaffRequester,
     /// Channel is disabled (e.g. admin turned off the mailbox after
     /// the ticket was opened). Queueing for a disabled channel would
@@ -101,11 +110,17 @@ pub fn decide_relay(
     }
 
     let subject = format_outbound_subject(ticket.id, &ticket.title);
+    let mut requester_copy = true;
     let channel = match channel {
         Some(channel) => channel,
         None => {
+            // A staff requester reads the reply in the app; the people they
+            // added still get it by email.
             if user_helpers::workspace_role(conn, requester_uuid).is_some_and(|r| r.is_staff()) {
-                return Ok(RelayDecision::SkipStaffRequester);
+                if relay_participants(conn, ticket, comment)?.is_empty() {
+                    return Ok(RelayDecision::SkipStaffRequester);
+                }
+                requester_copy = false;
             }
             match workspace_reply_channel(conn)? {
                 Some(channel) => channel,
@@ -113,6 +128,7 @@ pub fn decide_relay(
                     return Ok(RelayDecision::Direct {
                         recipient: recipient_email,
                         subject,
+                        requester_copy,
                     })
                 }
             }
@@ -145,7 +161,11 @@ pub fn decide_relay(
         references,
     };
 
-    Ok(RelayDecision::Relay { channel, thread })
+    Ok(RelayDecision::Relay {
+        channel,
+        thread,
+        requester_copy,
+    })
 }
 
 /// The other people on a request who get its public replies by email: its
@@ -302,7 +322,9 @@ mod tests {
         let comment = make_comment(ticket.id, false);
         let decision = decide_relay(&mut conn, &ticket, &comment).unwrap();
         match decision {
-            RelayDecision::Direct { recipient, subject } => {
+            RelayDecision::Direct {
+                recipient, subject, ..
+            } => {
                 assert_eq!(recipient, "alice@example.com");
                 assert_eq!(subject, format!("[#{}] Printer", ticket.id));
             }
@@ -333,7 +355,9 @@ mod tests {
         let ticket = TestFixtures::create_ticket(&mut conn, "Printer", Some(user.uuid), None);
         let comment = make_comment(ticket.id, false);
         match decide_relay(&mut conn, &ticket, &comment).unwrap() {
-            RelayDecision::Relay { channel, thread } => {
+            RelayDecision::Relay {
+                channel, thread, ..
+            } => {
                 assert_eq!(channel.id, mailbox.id);
                 assert_eq!(
                     thread.recipient.known_email.as_deref(),
@@ -414,7 +438,9 @@ mod tests {
         let decision = decide_relay(&mut conn, &ticket, &comment).unwrap();
 
         let (got_channel, thread) = match decision {
-            RelayDecision::Relay { channel, thread } => (channel, thread),
+            RelayDecision::Relay {
+                channel, thread, ..
+            } => (channel, thread),
             other => panic!("expected Relay, got {other:?}"),
         };
         assert_eq!(got_channel.id, channel.id);
@@ -503,5 +529,32 @@ mod tests {
         assert!(relay_participants(&mut conn, &ticket, &note)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn staff_requested_ticket_still_reaches_the_people_on_it() {
+        let mut conn = setup_test_connection();
+        let staff = TestFixtures::create_user(&mut conn, "Staff requester", "technician");
+        TestFixtures::create_user_email(&mut conn, staff.uuid, "staff@example.com", true);
+        let colleague = TestFixtures::create_user(&mut conn, "Colleague", "user");
+        TestFixtures::create_user_email(&mut conn, colleague.uuid, "bob@example.com", true);
+        let agent = TestFixtures::create_user(&mut conn, "Agent", "technician");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Printer", Some(staff.uuid), None);
+        crate::repository::ticket_watchers::add_watcher(
+            &mut conn,
+            ticket.id,
+            colleague.uuid,
+            false,
+        )
+        .unwrap();
+        let mut reply = make_comment(ticket.id, false);
+        reply.user_uuid = agent.uuid;
+        match decide_relay(&mut conn, &ticket, &reply).unwrap() {
+            RelayDecision::Direct { requester_copy, .. }
+            | RelayDecision::Relay { requester_copy, .. } => {
+                assert!(!requester_copy, "the staff requester reads it in the app");
+            }
+            other => panic!("expected a relay to the participant, got {other:?}"),
+        }
     }
 }

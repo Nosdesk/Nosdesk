@@ -573,7 +573,9 @@ async fn full_cycle_inbound_internal_outbound() {
         match relay::decide_relay(&mut conn, &ticket, &public_comment)
             .expect("decide_relay on public comment")
         {
-            RelayDecision::Relay { channel, thread } => (channel, thread),
+            RelayDecision::Relay {
+                channel, thread, ..
+            } => (channel, thread),
             other => panic!("expected Relay, got {other:?}"),
         }
     };
