@@ -623,7 +623,10 @@ async fn a_view_request_link_signs_the_requester_in_and_opens_the_ticket() {
     let good = backend::utils::portal_ticket_link::sign(ws, customer.uuid, 42).expect("sign");
     let resp = open(good.clone()).await.expect("send");
     assert_eq!(resp.status(), 302);
-    assert_eq!(resp.headers().get("location").unwrap(), "/tickets/42");
+    assert_eq!(
+        resp.headers().get("location").unwrap(),
+        backend::handlers::portal::portal_path("/tickets/42").as_str()
+    );
     assert!(
         resp.cookies()
             .expect("cookies")
@@ -636,14 +639,14 @@ async fn a_view_request_link_signs_the_requester_in_and_opens_the_ticket() {
     let resp = open(forged).await.expect("send");
     assert_eq!(
         resp.headers().get("location").unwrap(),
-        "/login?signin_error=1"
+        backend::handlers::portal::portal_path("/login?signin_error=1").as_str()
     );
 
     let not_member = backend::utils::portal_ticket_link::sign(ws, stranger.uuid, 42).expect("sign");
     let resp = open(not_member).await.expect("send");
     assert_eq!(
         resp.headers().get("location").unwrap(),
-        "/login?signin_error=1"
+        backend::handlers::portal::portal_path("/login?signin_error=1").as_str()
     );
 }
 

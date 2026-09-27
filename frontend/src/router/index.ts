@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import { withWorkspaceRouting, installWorkspaceGuard, installSlugCarrier, workspaceSlugOf } from './workspaceRouting'
 import { installNavigationTracking } from './navigation'
-import { fetchInstanceConfig, getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig'
+import { fetchInstanceConfig, getWorkspaceRouting, isHostedDeployment } from '@nosdesk/core/services/instanceConfig'
 import { lastWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
@@ -1222,6 +1222,24 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   // carries the correct role. No-op in host mode and once already resolved.
   if (authStore.isAuthenticated && authStore.user) {
     await authStore.ensureWorkspaceIdentity();
+  }
+
+  // Self-hosted requesters live in the portal: a member landing on the app's
+  // home is handed over to it, already signed in. Staff stay; the native apps
+  // bundle only the agent app, so they stay too.
+  if (
+    to.name === 'home' &&
+    authStore.isAuthenticated &&
+    authStore.user &&
+    !authStore.isTechnician &&
+    !authStore.isPlatformAdmin &&
+    !isHostedDeployment()
+  ) {
+    const { isTauriRuntime } = await import('@/platform');
+    if (!isTauriRuntime()) {
+      window.location.replace('/api/me/portal');
+      return false;
+    }
   }
 
   // Load feature flags once per session for any authenticated route. Failures

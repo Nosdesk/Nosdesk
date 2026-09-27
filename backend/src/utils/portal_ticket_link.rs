@@ -88,9 +88,10 @@ pub fn verify(workspace_id: i32, token: &str) -> Option<(Uuid, i32)> {
     verify_with(key()?, workspace_id, token, chrono::Utc::now().timestamp())
 }
 
-/// Where a requester email's "View request" link points. Hosted: a signed
-/// portal link on the workspace's own origin that signs them in. Self-hosted
-/// (no portal yet): the ticket in the app. `None` when no link base is known.
+/// Where a requester email's "View request" link points: a signed portal link
+/// that signs them in and opens the ticket. Hosted: on the workspace's own
+/// origin. Self-hosted: on the one origin, where the portal lives under
+/// `/portal`. `None` when no link base is known.
 pub fn view_request_url(
     conn: &mut crate::db::DbConnection,
     workspace_id: i32,
@@ -108,8 +109,9 @@ pub fn view_request_url(
         return Some(format!("https://{host}/api/portal/auth/ticket?t={token}"));
     }
     let base = crate::utils::tenant_origin::email_link_base(None)?;
+    let token = sign(workspace_id, requester, ticket_id)?;
     Some(format!(
-        "{}/tickets/{ticket_id}",
+        "{}/api/portal/auth/ticket?t={token}",
         base.trim_end_matches('/')
     ))
 }

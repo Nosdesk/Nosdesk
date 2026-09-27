@@ -480,7 +480,7 @@ pub async fn magic_link_callback(
         .cookie(session.access)
         .cookie(session.refresh)
         .cookie(session.csrf)
-        .append_header(("Location", "/"))
+        .append_header(("Location", portal_path("/")))
         .finish())
 }
 
@@ -545,8 +545,10 @@ pub async fn ticket_link_callback(
 /// Where a View request link lands, with a recognised answer carried along.
 fn ticket_location(ticket_id: i32, answer: Option<&str>) -> String {
     match answer {
-        Some(a @ ("fixed" | "not_fixed")) => format!("/tickets/{ticket_id}?answer={a}"),
-        _ => format!("/tickets/{ticket_id}"),
+        Some(a @ ("fixed" | "not_fixed")) => {
+            portal_path(&format!("/tickets/{ticket_id}?answer={a}"))
+        }
+        _ => portal_path(&format!("/tickets/{ticket_id}")),
     }
 }
 
@@ -661,8 +663,62 @@ pub async fn sign_in_with_code(
 
 fn sign_in_error_redirect() -> HttpResponse {
     HttpResponse::Found()
-        .append_header(("Location", "/login?signin_error=1"))
+        .append_header(("Location", portal_path("/login?signin_error=1")))
         .finish()
+}
+
+/// Where a portal page lives. Hosted serves the portal at the root of each
+/// workspace's own origin; self-hosted shares one origin with the agent app, so
+/// the portal lives under `/portal`.
+pub fn portal_path(path: &str) -> String {
+    if crate::middleware::workspace_context::is_hosted() {
+        path.to_string()
+    } else {
+        format!("/portal{path}")
+    }
+}
+
+/// Routes behind the agent app's own authentication (mounted in the
+/// authenticated `/api` scope).
+pub fn app_config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/me/portal", web::get().to(open_portal_from_app));
+}
+
+#[derive(Deserialize)]
+pub struct OpenPortalQuery {
+    /// A portal path to land on (`/tickets/12`). Anything else lands on the
+    /// request list.
+    #[serde(default)]
+    next: Option<String>,
+}
+
+/// `GET /api/me/portal` (agent session): hand someone signed in to the app over
+/// to the portal already signed in, so a requester who reached the app (a
+/// password or SSO account on self-hosted) never signs in twice.
+pub async fn open_portal_from_app(
+    req: HttpRequest,
+    auth: crate::extractors::AuthContext,
+    ws: WorkspaceContext,
+    pool: web::Data<Pool>,
+    query: web::Query<OpenPortalQuery>,
+) -> Result<HttpResponse, ApiError> {
+    let next = query
+        .next
+        .as_deref()
+        .filter(|p| p.starts_with("/tickets") && !p.contains("//") && !p.contains('\\'))
+        .unwrap_or("/tickets");
+    let mut conn = pool
+        .get()
+        .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
+    let user = crate::repository::users::find_active_by_uuid(&auth.user_uuid, &mut conn)
+        .map_err(|_| ApiError::Unauthorized("Sign in again".into()))?;
+    let session = mint_portal_session(&user, ws.workspace_uuid, &req, &mut conn)?;
+    Ok(HttpResponse::Found()
+        .cookie(session.access)
+        .cookie(session.refresh)
+        .cookie(session.csrf)
+        .append_header(("Location", portal_path(next)))
+        .finish())
 }
 
 // --- Authenticated portal API ---
