@@ -13,7 +13,7 @@
 //!   4. **Thread resolve.** Adapter-supplied cascade (defaults to
 //!      [`super::threading::default_explicit_threading`]) returns
 //!      `Some(ticket_id)` for a reply and `None` for a new ticket.
-//!   5. **Identity resolve.** Re-uses [`find_or_create_guest_user`] so
+//!   5. **Identity resolve.** Re-uses [`crate::repository::user_helpers::find_or_provision_requester`] so
 //!      drive-by reporters land in the same auto-provisioned state as
 //!      public guest submissions.
 //!   6. **Persist.** Open ticket (if new) → insert comment → record the
@@ -43,7 +43,6 @@ use crate::models::{
     Channel, Comment, NewAttachment, NewChannelMessage, NewComment, NewTicket, Ticket,
     CHANNEL_DIRECTION_INBOUND,
 };
-use crate::repository::user_helpers::{find_or_create_guest_user, GuestUserResult};
 use crate::repository::{
     channels as channels_repo, comments as comments_repo, tickets as tickets_repo,
 };
@@ -471,6 +470,15 @@ pub async fn process_event(
                 }
             };
 
+            // People the sender copied who are already on this workspace join
+            // the request. Best effort, in a savepoint so a failure here can't
+            // abort the ingest.
+            if let Err(e) = conn.transaction(|c| {
+                add_copied_participants(c, &ticket, &msg.recipients, sender_uuid, &sender_email)
+            }) {
+                tracing::warn!(error = ?e, ticket_id = ticket.id, "inbound: could not add copied participants");
+            }
+
             let in_reply_to = msg.references.first().cloned();
             channels_repo::record_message(
                 conn,
@@ -624,6 +632,38 @@ fn resolve_identity(
     Ok((user, None))
 }
 
+/// Make the existing workspace members an inbound message was addressed or
+/// copied to watchers of its ticket (so they see it in their portal and get the
+/// team's replies). Unknown addresses are left alone: a stray Cc never creates
+/// an account.
+fn add_copied_participants(
+    conn: &mut DbConnection,
+    ticket: &Ticket,
+    recipients: &[String],
+    sender_uuid: uuid::Uuid,
+    sender_email: &str,
+) -> Result<(), diesel::result::Error> {
+    for address in recipients {
+        let address = address.trim();
+        if address.is_empty() || address.eq_ignore_ascii_case(sender_email) {
+            continue;
+        }
+        let Ok(user) = crate::repository::user_helpers::get_user_by_email(address, conn) else {
+            continue;
+        };
+        if user.uuid == sender_uuid || Some(user.uuid) == ticket.requester_uuid {
+            continue;
+        }
+        if crate::repository::workspaces::membership(conn, ticket.workspace_id, user.uuid)?
+            .is_none()
+        {
+            continue;
+        }
+        crate::repository::ticket_watchers::add_watcher(conn, ticket.id, user.uuid, true)?;
+    }
+    Ok(())
+}
+
 /// Resolve an email address to the user a ticket should be attributed to:
 /// their existing account if one exists, otherwise an auto-provisioned guest.
 fn resolve_requester(
@@ -632,18 +672,14 @@ fn resolve_requester(
     conn: &mut DbConnection,
     observer: Option<&dyn crate::repository::user_helpers::UserCreatedObserver>,
 ) -> Result<crate::models::User, PipelineError> {
-    use crate::repository::user_helpers::find_verified_user_by_email;
-    if let Some(u) = find_verified_user_by_email(email, conn)? {
-        return Ok(u);
-    }
-    match find_or_create_guest_user(email, display_name, conn, observer)? {
-        GuestUserResult::Created(u) | GuestUserResult::Existing(u) => Ok(u),
-        // Unreachable in a single transaction (the lookup above already caught
-        // any verified/privileged account), but if the email turned out to be
-        // claimed, attribute to that real account rather than dropping the mail.
-        GuestUserResult::EmailClaimed => find_verified_user_by_email(email, conn)?
-            .ok_or(PipelineError::Db(diesel::result::Error::NotFound)),
-    }
+    Ok(
+        crate::repository::user_helpers::find_or_provision_requester(
+            email,
+            display_name,
+            conn,
+            observer,
+        )?,
+    )
 }
 
 fn open_ticket_from_message(
@@ -1287,6 +1323,43 @@ mod tests {
         assert!(
             q.contains("Jane Doe") && q.contains("original question"),
             "collapsed region carries both the signature and the quote: {q}"
+        );
+    }
+
+    /// Members the sender copied join the new request as participants; an
+    /// address nobody on the workspace owns creates no account.
+    #[tokio::test]
+    async fn copied_members_join_the_request() {
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+        let colleague = TestFixtures::create_user(&mut conn, "Bob", "user");
+        TestFixtures::create_user_email(&mut conn, colleague.uuid, "bob@example.com", true);
+        let mut msg = sample_message("<cc@ex>", vec![], Some("Printer"));
+        msg.recipients = vec![
+            "support@yourco.com".into(),
+            "bob@example.com".into(),
+            "stranger@example.net".into(),
+        ];
+        let out = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .expect("process_event");
+        let ticket_id = match out {
+            PipelineOutcome::TicketOpened { ticket_id, .. } => ticket_id,
+            other => panic!("expected TicketOpened, got {other:?}"),
+        };
+        let watchers =
+            crate::repository::ticket_watchers::watcher_uuids(&mut conn, ticket_id).unwrap();
+        assert!(watchers.contains(&colleague.uuid), "copied member joins");
+        assert!(
+            crate::repository::user_helpers::get_user_by_email("stranger@example.net", &mut conn)
+                .is_err(),
+            "no account for an unknown address"
         );
     }
 

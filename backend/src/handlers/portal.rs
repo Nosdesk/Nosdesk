@@ -67,6 +67,14 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route("/tickets/{id}/comments", web::post().to(reply_to_my_ticket))
         .route("/tickets/{id}/resolve", web::post().to(resolve_my_ticket))
         .route(
+            "/tickets/{id}/participants",
+            web::post().to(add_participant),
+        )
+        .route(
+            "/tickets/{id}/participants/{user_uuid}",
+            web::delete().to(remove_participant),
+        )
+        .route(
             "/tickets/{id}/attachments/{attachment_id}",
             web::get().to(download_attachment),
         )
@@ -963,20 +971,24 @@ pub async fn get_my_ticket(
             .filter(|r| r.rater_uuid == viewer)
             .map(|r| json!({ "rating": r.rating, "comment": r.comment }));
         let is_requester = ticket.requester_uuid == Some(viewer);
+        let participants = participants_of(conn, &ticket, viewer)?;
         Ok(Some((
             CustomerTicket::new(ticket, &states),
             comments,
             rating,
             is_requester,
+            participants,
         )))
     });
     match result {
-        Ok(Some((ticket, comments, rating, is_requester))) => HttpResponse::Ok().json(json!({
-            "ticket": ticket,
-            "comments": comments,
-            "rating": rating,
-            "is_requester": is_requester,
-        })),
+        Ok(Some((ticket, comments, rating, is_requester, participants))) => HttpResponse::Ok()
+            .json(json!({
+                "ticket": ticket,
+                "comments": comments,
+                "rating": rating,
+                "is_requester": is_requester,
+                "participants": participants,
+            })),
         Ok(None) => errors::not_found("Ticket not found"),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to load ticket");
@@ -1371,6 +1383,174 @@ pub async fn reply_to_my_ticket(
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to post reply");
             errors::internal("Failed to post reply")
+        }
+    }
+}
+
+/// Most people a requester can add to one request.
+const MAX_PARTICIPANTS: usize = 10;
+
+/// Someone on a request, as the portal shows them. `email` only for the
+/// requester, who added them.
+#[derive(Serialize)]
+pub struct Participant {
+    pub uuid: Uuid,
+    pub name: String,
+    pub email: Option<String>,
+    pub is_requester: bool,
+}
+
+/// The requester and the other non-staff people on a request, for `viewer`.
+fn participants_of(
+    conn: &mut DbConnection,
+    ticket: &crate::models::Ticket,
+    viewer: Uuid,
+) -> QueryResult<Vec<Participant>> {
+    use crate::repository::user_helpers;
+    let show_emails = ticket.requester_uuid == Some(viewer);
+    let mut uuids: Vec<Uuid> = ticket.requester_uuid.into_iter().collect();
+    for w in crate::repository::ticket_watchers::watcher_uuids(conn, ticket.id)? {
+        let staff = user_helpers::workspace_role(conn, w).is_some_and(|r| r.is_staff());
+        if !staff && !uuids.contains(&w) {
+            uuids.push(w);
+        }
+    }
+    let mut out = Vec::new();
+    for uuid in uuids {
+        let Ok(user) = crate::repository::users::find_active_by_uuid(&uuid, conn) else {
+            continue;
+        };
+        out.push(Participant {
+            uuid,
+            name: user.name,
+            email: show_emails
+                .then(|| user_helpers::get_primary_email(&uuid, conn))
+                .flatten(),
+            is_requester: ticket.requester_uuid == Some(uuid),
+        });
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddParticipantRequest {
+    pub email: String,
+}
+
+/// `POST /api/portal/tickets/{id}/participants`: the requester adds someone
+/// by email. They join the workspace as a requester if they're new, can see
+/// the request in their portal, get the team's replies by email, and are told
+/// they were added. 404 for anyone but the requester.
+pub async fn add_participant(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    path: web::Path<i32>,
+    body: web::Json<AddParticipantRequest>,
+) -> impl Responder {
+    let ticket_id = path.into_inner();
+    let requester = portal.user_uuid;
+    let email = body.into_inner().email.trim().to_lowercase();
+    if email.len() > 254 || !email.contains('@') || email.contains(char::is_whitespace) {
+        return errors::bad_request("Enter a valid email address");
+    }
+    let email_service = crate::utils::email::EmailService::from_env().ok();
+    let result = tc.run(move |conn| {
+        let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
+        if ticket.requester_uuid != Some(requester) {
+            return Ok(Err(errors::not_found("Ticket not found")));
+        }
+        let current = participants_of(conn, &ticket, requester)?;
+        if current.len() > MAX_PARTICIPANTS {
+            return Ok(Err(errors::bad_request("This request already has the most people it can")));
+        }
+        let name = email.split('@').next().unwrap_or(&email).to_string();
+        let person = crate::repository::user_helpers::find_or_provision_requester(
+            &email, &name, conn, None,
+        )?;
+        if person.uuid == requester {
+            return Ok(Err(errors::bad_request("You're already on this request")));
+        }
+        // Already a member: a no-op (ON CONFLICT DO NOTHING).
+        crate::repository::workspaces::add_membership(
+            conn,
+            ticket.workspace_id,
+            person.uuid,
+            "member",
+            crate::repository::workspaces::SeatWriteAuthority::Product,
+        )?;
+        let added = crate::repository::ticket_watchers::add_watcher(conn, ticket_id, person.uuid, false)?;
+        if added {
+            if let (Some(svc), Some(url)) = (
+                email_service.as_ref(),
+                crate::utils::portal_ticket_link::view_request_url(
+                    conn,
+                    ticket.workspace_id,
+                    person.uuid,
+                    ticket_id,
+                ),
+            ) {
+                let adder = crate::repository::users::find_active_by_uuid(&requester, conn)
+                    .map(|u| u.name)
+                    .unwrap_or_default();
+                let base = url
+                    .find("/api/")
+                    .map(|i| url[..i].to_string())
+                    .unwrap_or_default();
+                let branding = crate::utils::email_branding::get_email_branding(conn, &base);
+                let locale =
+                    crate::repository::user_locale::resolve_effective_locale(conn, person.uuid);
+                if let Err(e) = crate::services::transactional_email::enqueue_participant_added(
+                    conn,
+                    svc,
+                    &branding,
+                    &email,
+                    person.uuid,
+                    &adder,
+                    ticket_id,
+                    &ticket.title,
+                    &url,
+                    &locale,
+                ) {
+                    tracing::warn!(error = ?e, ticket_id, "portal: could not queue the participant email");
+                }
+            }
+        }
+        Ok(Ok(participants_of(conn, &ticket, requester)?))
+    });
+    match result {
+        Ok(Ok(people)) => HttpResponse::Ok().json(json!({ "participants": people })),
+        Ok(Err(resp)) => resp,
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to add participant");
+            errors::internal("Failed to add that person")
+        }
+    }
+}
+
+/// `DELETE /api/portal/tickets/{id}/participants/{user_uuid}`: the requester
+/// removes someone, or a participant leaves. The requester stays.
+pub async fn remove_participant(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    path: web::Path<(i32, Uuid)>,
+) -> impl Responder {
+    let (ticket_id, target) = path.into_inner();
+    let viewer = portal.user_uuid;
+    let result = tc.run(move |conn| {
+        let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
+        let is_requester = ticket.requester_uuid == Some(viewer);
+        if Some(target) == ticket.requester_uuid || !(is_requester || target == viewer) {
+            return Ok(None);
+        }
+        crate::repository::ticket_watchers::remove_watcher(conn, ticket_id, &target)?;
+        Ok(Some(participants_of(conn, &ticket, viewer)?))
+    });
+    match result {
+        Ok(Some(people)) => HttpResponse::Ok().json(json!({ "participants": people })),
+        Ok(None) => errors::not_found("Ticket not found"),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to remove participant");
+            errors::internal("Failed to remove that person")
         }
     }
 }

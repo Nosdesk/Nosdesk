@@ -13,6 +13,7 @@ import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 
 import AttachmentPicker from '../components/AttachmentPicker.vue'
 import PortalLayout from '../components/PortalLayout.vue'
+import ParticipantsCard from '../components/ParticipantsCard.vue'
 import ResolutionCard from '../components/ResolutionCard.vue'
 import { stateTone } from '../stateTone'
 import { attachmentUrl, getMyTicket, isClosed, replyToMyTicket, type PortalAttachment } from '../service'
@@ -138,6 +139,13 @@ async function sendReply(): Promise<void> {
           </ul>
         </li>
       </ol>
+
+      <ParticipantsCard
+        :ticket-id="ticketId"
+        :participants="detail.data.value.participants"
+        :is-requester="detail.data.value.is_requester"
+        @changed="refresh"
+      />
 
       <ResolutionCard
         v-if="detail.data.value.is_requester && !stillNeedsHelp"

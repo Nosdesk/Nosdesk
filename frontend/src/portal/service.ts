@@ -50,6 +50,15 @@ export interface PortalRating {
   comment: string | null
 }
 
+/** Someone on a request: the requester and the people added to it. */
+export interface PortalParticipant {
+  uuid: string
+  name: string
+  /** Only shown to the requester. */
+  email: string | null
+  is_requester: boolean
+}
+
 export interface PortalTicketDetail {
   ticket: PortalTicket
   comments: PortalComment[]
@@ -57,6 +66,7 @@ export interface PortalTicketDetail {
   rating: PortalRating | null
   /** Whether the viewer requested it (only they answer "is it fixed?"). */
   is_requester: boolean
+  participants: PortalParticipant[]
 }
 
 export interface PortalMe {
@@ -166,4 +176,18 @@ export async function searchHelpArticles(q: string): Promise<ArticleHit[]> {
     withCredentials: false,
   })
   return data
+}
+
+/** The requester adds someone to their request by email. */
+export async function addParticipant(id: number, email: string): Promise<PortalParticipant[]> {
+  const { data } = await portalApi.post<{ participants: PortalParticipant[] }>(
+    `/tickets/${id}/participants`,
+    { email },
+  )
+  return data.participants
+}
+
+/** Remove someone from a request (or leave it yourself). */
+export async function removeParticipant(id: number, userUuid: string): Promise<void> {
+  await portalApi.delete(`/tickets/${id}/participants/${userUuid}`)
 }

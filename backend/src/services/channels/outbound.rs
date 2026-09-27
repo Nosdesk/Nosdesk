@@ -226,33 +226,48 @@ pub fn enqueue_for_comment(
                     super::relay::RelayDecision::Direct { recipient, subject } => {
                         // No mailbox to thread back through: plain mail from
                         // the default sender, no Reply-To, no quoted history.
-                        let body = super::reply_body::ReplyBody::from_comment(&comment);
-                        let body = super::signature::append_signature_for_user(
+                        let base = super::reply_body::ReplyBody::from_comment(&comment);
+                        let base = super::signature::append_signature_for_user(
                             conn,
                             comment.user_uuid,
-                            body,
+                            base,
                         );
-                        let body = with_request_link(conn, &ticket, body, true);
                         let domain = crate::utils::email_branding::outbound_email_domain()
                             .unwrap_or_else(|| "nosdesk.local".to_string());
-                        let new_row = reply_row(
-                            None,
-                            ticket.id,
-                            &comment,
-                            recipient,
-                            subject,
-                            body,
-                            format_outbound_message_id(ticket.id, comment.id, &domain),
-                            None,
-                            Vec::new(),
-                            serde_json::json!({}),
-                        );
-                        let row =
-                            crate::repository::outbound_emails::enqueue_or_suppress(conn, new_row)
-                                .map_err(|e| {
-                                    diesel::result::Error::QueryBuilderError(e.to_string().into())
-                                })?;
-                        return Ok(Some((row.id, ticket.id)));
+                        let participants =
+                            super::relay::relay_participants(conn, &ticket, &comment)?;
+                        let copies = std::iter::once((ticket.requester_uuid, recipient))
+                            .chain(participants.into_iter().map(|(u, e)| (Some(u), e)));
+                        let mut first = None;
+                        for (to_uuid, to_email) in copies {
+                            let body =
+                                with_request_link(conn, &ticket, to_uuid, base.clone(), true);
+                            let mut new_row = reply_row(
+                                None,
+                                ticket.id,
+                                &comment,
+                                to_email,
+                                subject.clone(),
+                                body,
+                                format_outbound_message_id(ticket.id, comment.id, &domain),
+                                None,
+                                Vec::new(),
+                                serde_json::json!({}),
+                            );
+                            // One queue row per comment carries its id (a unique
+                            // key); the other participants' copies don't.
+                            if first.is_some() {
+                                new_row.comment_id = None;
+                            }
+                            let row = crate::repository::outbound_emails::enqueue_or_suppress(
+                                conn, new_row,
+                            )
+                            .map_err(|e| {
+                                diesel::result::Error::QueryBuilderError(e.to_string().into())
+                            })?;
+                            first.get_or_insert(row.id);
+                        }
+                        return Ok(first.map(|id| (id, ticket.id)));
                     }
                     other => {
                         tracing::debug!(decision = ?other, "channel relay: skipped");
@@ -267,12 +282,9 @@ pub fn enqueue_for_comment(
                 //   <tech's new reply>
                 //   <signature>
                 //   <quoted prior message>
-                let body = super::reply_body::ReplyBody::from_comment(&comment);
-                let body =
-                    super::signature::append_signature_for_user(conn, comment.user_uuid, body);
-                let body = with_request_link(conn, &ticket, body, false);
-                let body =
-                    super::quote_previous::maybe_prepend_quote(conn, &channel, &ticket, body);
+                let base = super::reply_body::ReplyBody::from_comment(&comment);
+                let base =
+                    super::signature::append_signature_for_user(conn, comment.user_uuid, base);
 
                 let Some((reply_domain, reply_to)) = reply_routing(conn, &channel) else {
                     warn!(
@@ -282,8 +294,6 @@ pub fn enqueue_for_comment(
                     );
                     return Ok(None);
                 };
-                let message_id =
-                    format_outbound_message_id(thread.ticket_id, comment.id, &reply_domain);
                 let subject = super::threading::format_outbound_subject(
                     thread.ticket_id,
                     thread.subject.as_deref().unwrap_or(""),
@@ -303,22 +313,42 @@ pub fn enqueue_for_comment(
                     None => serde_json::json!({}),
                 };
 
-                let new_row = reply_row(
-                    Some(channel.id),
-                    thread.ticket_id,
-                    &comment,
-                    recipient,
-                    subject,
-                    body,
-                    message_id,
-                    thread.external_thread_id,
-                    thread.references,
-                    headers_json,
-                );
-
-                let row = crate::repository::outbound_emails::enqueue_or_suppress(conn, new_row)
-                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
-                Ok::<_, diesel::result::Error>(Some((row.id, thread.ticket_id)))
+                // The requester's copy, then one per other participant: same
+                // thread and Reply-To, each with its own Message-ID (which
+                // still threads a reply back) and its own View request link.
+                let participants = super::relay::relay_participants(conn, &ticket, &comment)?;
+                let copies = std::iter::once((ticket.requester_uuid, recipient))
+                    .chain(participants.into_iter().map(|(u, e)| (Some(u), e)));
+                let mut first = None;
+                for (to_uuid, to_email) in copies {
+                    let body = with_request_link(conn, &ticket, to_uuid, base.clone(), false);
+                    let body =
+                        super::quote_previous::maybe_prepend_quote(conn, &channel, &ticket, body);
+                    let mut new_row = reply_row(
+                        Some(channel.id),
+                        thread.ticket_id,
+                        &comment,
+                        to_email,
+                        subject.clone(),
+                        body,
+                        format_outbound_message_id(thread.ticket_id, comment.id, &reply_domain),
+                        thread.external_thread_id.clone(),
+                        thread.references.clone(),
+                        headers_json.clone(),
+                    );
+                    // One queue row per comment carries its id (a unique key);
+                    // the other participants' copies don't.
+                    if first.is_some() {
+                        new_row.comment_id = None;
+                    }
+                    let row =
+                        crate::repository::outbound_emails::enqueue_or_suppress(conn, new_row)
+                            .map_err(|e| {
+                                diesel::result::Error::QueryBuilderError(e.to_string().into())
+                            })?;
+                    first.get_or_insert(row.id);
+                }
+                Ok::<_, diesel::result::Error>(first.map(|id| (id, thread.ticket_id)))
             },
         );
 
@@ -352,10 +382,11 @@ pub fn enqueue_for_comment(
 fn with_request_link(
     conn: &mut DbConnection,
     ticket: &crate::models::Ticket,
+    recipient: Option<uuid::Uuid>,
     mut body: super::reply_body::ReplyBody,
     replies_are_lost: bool,
 ) -> super::reply_body::ReplyBody {
-    let Some(requester) = ticket.requester_uuid else {
+    let Some(requester) = recipient else {
         return body;
     };
     let Some(url) = crate::utils::portal_ticket_link::view_request_url(

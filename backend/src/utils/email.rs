@@ -1638,6 +1638,65 @@ impl EmailService {
     /// `(subject, html_body, body_text)`. Same HTML/plaintext split as the
     /// invitation; the CTA links to the portal callback on the workspace's own
     /// origin (carried in `branding.base_url`).
+    /// "You've been added to a request": sent when a requester adds a
+    /// colleague to their request. Links in signed in, like View request.
+    pub fn compose_participant_added(
+        &self,
+        adder_name: &str,
+        ticket_id: i32,
+        ticket_title: &str,
+        view_url: &str,
+        branding: &EmailBranding,
+        locale: &unic_langid::LanguageIdentifier,
+    ) -> (String, String, String) {
+        let template = EmailTemplate::new(branding);
+        let tr = |key: &str, args: &[(&str, fluent_bundle::FluentValue<'static>)]| {
+            crate::utils::i18n::tr_with(locale, key, args)
+        };
+        let args = |escape: bool| -> Vec<(&'static str, fluent_bundle::FluentValue<'static>)> {
+            let e = |v: &str| {
+                if escape {
+                    escape_html(v)
+                } else {
+                    v.to_string()
+                }
+            };
+            vec![
+                ("adder", e(adder_name).into()),
+                ("id", ticket_id.to_string().into()),
+                ("title", e(ticket_title).into()),
+            ]
+        };
+        let headline = tr("participant-added-title", &[]);
+        let html_body = template.render(
+            EmailLayout {
+                headline: &headline,
+                body: vec![
+                    text(tr("participant-added-body", &args(true))),
+                    text(tr("participant-added-replies", &[])),
+                ],
+                cta: Some(Cta {
+                    label: tr("participant-added-cta", &[]),
+                    url: view_url.to_string(),
+                }),
+                notice: None,
+                signoff: None,
+                preheader: &headline,
+            },
+            locale,
+        );
+        let mut subject_args = args(false);
+        subject_args.push(("app", branding.app_name.clone().into()));
+        let subject = tr("participant-added-subject", &subject_args);
+        let body_text = format!(
+            "{}\n\n{}\n\n{}: {view_url}\n",
+            tr("participant-added-body", &args(false)),
+            tr("participant-added-replies", &[]),
+            tr("participant-added-cta", &[]),
+        );
+        (subject, html_body, body_text)
+    }
+
     pub fn compose_portal_magic_link(
         &self,
         user_name: &str,
