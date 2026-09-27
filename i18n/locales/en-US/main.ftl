@@ -7206,6 +7206,7 @@ portal-sign-in-sent = If we have your email on file, a sign-in link is on its wa
 portal-sign-in-use-another = Use a different email
 portal-sign-in-error = That sign-in link didn't work. It may have expired or already been used. Enter your email for a new one.
 portal-nav-requests = My requests
+portal-nav-help = Help
 portal-nav-new = New request
 portal-sign-out = Sign out
 portal-filter-open = Open

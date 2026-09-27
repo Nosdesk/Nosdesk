@@ -7307,6 +7307,7 @@ portal-sign-in-sent = Als we je e-mailadres kennen, is er een inloglink onderweg
 portal-sign-in-use-another = Een ander e-mailadres gebruiken
 portal-sign-in-error = Die inloglink werkte niet. Hij is misschien verlopen of al gebruikt. Vul je e-mailadres in voor een nieuwe.
 portal-nav-requests = Mijn verzoeken
+portal-nav-help = Help
 portal-nav-new = Nieuw verzoek
 portal-sign-out = Uitloggen
 portal-filter-open = Open

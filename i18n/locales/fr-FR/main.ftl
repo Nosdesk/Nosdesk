@@ -7316,6 +7316,7 @@ portal-sign-in-sent = Si votre e-mail est enregistré, un lien de connexion est 
 portal-sign-in-use-another = Utiliser une autre adresse e-mail
 portal-sign-in-error = Ce lien de connexion n'a pas fonctionné. Il a peut-être expiré ou déjà été utilisé. Saisissez votre e-mail pour en recevoir un nouveau.
 portal-nav-requests = Mes demandes
+portal-nav-help = Aide
 portal-nav-new = Nouvelle demande
 portal-sign-out = Se déconnecter
 portal-filter-open = En cours

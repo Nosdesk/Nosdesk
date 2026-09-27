@@ -44,6 +44,7 @@
 import { h, ref, computed, onMounted } from 'vue';
 import RequesterLink from '@/components/public/RequesterLink.vue';
 import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig';
+import { useInPortal } from '@/components/public/inPortal';
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
@@ -55,6 +56,10 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const store = usePublicSettingsStore();
 const loading = ref(true);
 const enabled = computed(() => store.settings?.guest_help_page_enabled === true);
+// Requesters in the portal, and everyone on hosted, sign in with an emailed
+// link or code rather than a password.
+const inPortal = useInPortal();
+const passwordless = computed(() => inPortal || isHostedDeploymentRef.value);
 
 const TicketIcon = () =>
   h('svg', { fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
@@ -126,9 +131,9 @@ const cards = computed(() => {
       iconColor: 'text-status-info'
     });
   }
-  // Hosted requesters sign in with an emailed link; there is no password to
+  // Portal requesters sign in with an emailed link; there is no password to
   // reset.
-  if (!isHostedDeploymentRef.value) {
+  if (!passwordless.value) {
     list.push({
       to: '/reset-password',
       title: t('help-card-reset-title'),
@@ -141,7 +146,7 @@ const cards = computed(() => {
   list.push({
     to: '/login',
     title: t('help-card-signin-title'),
-    description: isHostedDeploymentRef.value
+    description: passwordless.value
       ? t('help-card-signin-desc-portal')
       : t('help-card-signin-desc'),
     icon: SignInIcon(),

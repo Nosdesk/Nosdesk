@@ -12,6 +12,8 @@ import { useBrandingStore } from '@/stores/branding'
 import { reloadForNewBuild } from '@/utils/staleBuild'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 
+import { IN_PORTAL } from '@/components/public/inPortal'
+
 import App from './App.vue'
 import router from './router'
 import { browserLocale } from './locale'
@@ -26,6 +28,7 @@ async function bootstrap(): Promise<void> {
   await configurePlatform()
 
   const app = createApp(App)
+  app.provide(IN_PORTAL, true)
   app.directive('safe-html', vSafeHtml)
 
   const pinia = createPinia()
