@@ -647,9 +647,18 @@ fn spa_shell_path(
 }
 
 /// Paths the portal SPA routes (`frontend/src/portal/router.ts`); keep in step.
+/// Includes the public help centre and guest form, which the portal serves on a
+/// workspace's own origin.
 fn is_portal_route(path: &str) -> bool {
     let path = path.trim_end_matches('/');
-    path.is_empty() || path == "/login" || path == "/tickets" || path.starts_with("/tickets/")
+    let under = |prefix: &str| path == prefix || path.starts_with(&format!("{prefix}/"));
+    path.is_empty()
+        || path == "/login"
+        || under("/tickets")
+        || path == "/help"
+        || path == "/submit-ticket"
+        || under("/ticket-status")
+        || under("/docs")
 }
 
 /// The shell for `req`, read from disk. `None` when the frontend isn't built.
@@ -1990,14 +1999,25 @@ mod tests {
                 "{path}"
             );
         }
-        // Guest pages on the tenant origin live in the agent app.
-        for path in ["/submit-ticket", "/docs/welcome", "/ticket-status/abc"] {
+        // The tenant origin's portal serves the guest pages too.
+        for path in [
+            "/submit-ticket",
+            "/docs",
+            "/docs/welcome",
+            "/ticket-status/abc",
+            "/help",
+        ] {
             assert_eq!(
                 spa_shell_path(hosted, true, path),
-                "./public/index.html",
+                "./public/portal.html",
                 "{path}"
             );
         }
+        // Agent routes on a tenant origin stay on the agent app.
+        assert_eq!(
+            spa_shell_path(hosted, true, "/documentation/welcome"),
+            "./public/index.html"
+        );
         // Hosted agent origin (no host-resolved workspace) => the agent app.
         assert_eq!(
             spa_shell_path(hosted, false, "/tickets"),

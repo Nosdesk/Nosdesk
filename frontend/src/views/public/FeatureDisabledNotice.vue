@@ -7,9 +7,12 @@
       <h2 class="text-lg font-semibold text-primary">{{ title }}</h2>
       <p class="text-sm text-secondary">{{ message }}</p>
     </div>
-    <!-- href, not to: on a hosted tenant origin sign-in is the portal, which
-         the server serves on a full page load (see RequesterLink). -->
-    <LinkButton href="/login">
+    <!-- Outside the portal, href rather than to: on a hosted tenant origin
+         sign-in is the portal, served on a full page load (see RequesterLink). -->
+    <LinkButton v-if="inPortal" to="/login">
+      {{ $t('feature-disabled-sign-in') }}
+    </LinkButton>
+    <LinkButton v-else href="/login">
       {{ $t('feature-disabled-sign-in') }}
     </LinkButton>
   </div>
@@ -18,6 +21,8 @@
 <script setup lang="ts">
 import LinkButton from '@/components/common/LinkButton.vue'
 import Icon from '@/components/common/Icon.vue';
+import { useInPortal } from '@/components/public/inPortal';
 
 defineProps<{ title: string; message: string }>();
+const inPortal = useInPortal();
 </script>

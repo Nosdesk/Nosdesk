@@ -9,6 +9,7 @@ import LogoIcon from '@/components/icons/LogoIcon.vue'
 import { useBrandingStore } from '@/stores/branding'
 import { useThemeStore } from '@/stores/theme'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
+import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings'
 
 import { getMe, signOut } from '../service'
 
@@ -19,6 +20,11 @@ const theme = useThemeStore()
 const dateStore = useDateStore()
 
 const logoUrl = computed(() => branding.getLogoUrl(theme.isDarkMode))
+
+// The help centre, when the workspace publishes one.
+const publicSettings = usePublicSettingsStore()
+void publicSettings.load()
+const helpCentre = computed(() => publicSettings.settings?.guest_public_docs_enabled === true)
 
 const me = useQuery({ key: ['portal', 'me'], query: getMe })
 // Speak the requester's language once we know it.
@@ -54,6 +60,14 @@ async function onSignOut(): Promise<void> {
             active-class="text-primary font-medium"
           >
             {{ t('portal-nav-requests') }}
+          </RouterLink>
+          <RouterLink
+            v-if="helpCentre"
+            to="/docs"
+            class="px-2 py-1 rounded-md text-secondary hover:text-primary hover:bg-surface-hover"
+            active-class="text-primary font-medium"
+          >
+            {{ t('portal-nav-help') }}
           </RouterLink>
         </nav>
         <div class="ml-auto flex items-center gap-2">
