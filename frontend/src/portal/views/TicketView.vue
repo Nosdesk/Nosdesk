@@ -16,7 +16,7 @@ import PortalLayout from '../components/PortalLayout.vue'
 import ParticipantsCard from '../components/ParticipantsCard.vue'
 import ResolutionCard from '../components/ResolutionCard.vue'
 import { stateTone } from '../stateTone'
-import { attachmentUrl, getMyTicket, isClosed, replyToMyTicket, type PortalAttachment } from '../service'
+import { attachmentUrl, getMyTicket, isClosed, markSeen, replyToMyTicket, type PortalAttachment } from '../service'
 
 const props = defineProps<{ id: string }>()
 const { $t: t } = useFluent()
@@ -49,6 +49,21 @@ const commentCount = computed(() => detail.data.value?.comments.length ?? 0)
 const unread = ref(0)
 const showNewReply = ref(false)
 const baseTitle = document.title
+// Tell the server what the requester has actually looked at (only while the
+// page is visible), so an email held for them while they watch is dropped.
+function reportSeen(): void {
+  if (document.visibilityState === 'visible' && detail.data.value) {
+    void markSeen(ticketId.value).catch(() => {})
+  }
+}
+watch(
+  () => detail.data.value?.comments.length,
+  (count) => {
+    if (count !== undefined) reportSeen()
+  },
+  { immediate: true },
+)
+
 watch(commentCount, (count, previous) => {
   if (!previous || count <= previous) return
   if (document.visibilityState === 'hidden') {
@@ -63,6 +78,7 @@ function onVisible(): void {
   if (document.visibilityState !== 'visible') return
   unread.value = 0
   document.title = baseTitle
+  reportSeen()
 }
 document.addEventListener('visibilitychange', onVisible)
 onBeforeUnmount(() => {

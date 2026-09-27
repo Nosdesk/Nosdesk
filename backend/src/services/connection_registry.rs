@@ -54,6 +54,12 @@ impl ConnectionRegistry {
         }
     }
 
+    /// Whether `key` has a live connection on this process. A miss on a
+    /// multi-instance deployment only means "treat as not watching".
+    pub fn is_connected(&self, key: ConnKey) -> bool {
+        self.per_key.get(&key).is_some_and(|n| *n > 0)
+    }
+
     /// Reserve a connection slot for `key`, or `None` when at the per-key or
     /// global cap. On success hold the returned guard for the connection's life;
     /// dropping it frees the slot.

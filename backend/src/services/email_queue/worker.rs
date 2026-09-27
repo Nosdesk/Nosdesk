@@ -192,8 +192,22 @@ pub async fn run_one_drain(
                 } else {
                     false
                 };
+            // Held for someone who had the portal open live: drop it if they've
+            // looked at the ticket since it was queued (they've seen it).
+            let seen = match (row.skip_if_seen_by, row.ticket_id) {
+                (Some(viewer), Some(ticket_id)) => crate::sync::session::run_in_workspace(
+                    &pool,
+                    "background:email_queue_seen_check",
+                    row.workspace_id,
+                    |conn| repo::seen_since(conn, viewer, ticket_id, row.created_at),
+                )
+                .unwrap_or(false),
+                _ => false,
+            };
             let outcome = if suppressed {
                 DispatchOutcome::Suppressed
+            } else if seen {
+                DispatchOutcome::SeenLive
             } else {
                 match service {
                     // A workspace's own server trips only its own breaker.
@@ -344,6 +358,8 @@ enum DispatchOutcome {
     CircuitSkip,
     /// Recipient is on the suppression list; no SMTP attempt was made.
     Suppressed,
+    /// Held for a live portal viewer who has since seen the ticket; not sent.
+    SeenLive,
     /// No sending identity is configured for this row yet (no workspace
     /// identity and no env fallback). No SMTP attempt was made.
     Unconfigured,
@@ -477,6 +493,18 @@ fn terminate_row(
                         }
                     }
                 }
+            }
+        }
+        DispatchOutcome::SeenLive => {
+            if let Err(e) =
+                repo::mark_suppressed(conn, row.id, "seen in the portal before it was sent")
+            {
+                warn!(error = %e, queue_id = row.id, "mark_suppressed (seen live) failed");
+            } else {
+                info!(
+                    queue_id = row.id,
+                    "email skipped: the recipient saw it in the portal"
+                );
             }
         }
         DispatchOutcome::Suppressed => {
