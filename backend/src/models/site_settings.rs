@@ -65,6 +65,9 @@ pub struct SiteSettings {
     /// localized default (FTL key `email-security-note-default`).
     /// Supports `{{app_name}}` and `{{domain}}` placeholders.
     pub email_security_note_template: Option<String>,
+    /// Requesters also see (read only) requests from people at their verified
+    /// email domain. Free-mail domains never share.
+    pub portal_share_by_domain: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -98,6 +101,7 @@ pub struct UpdateSiteSettings {
     /// Same `Option<Option<String>>` clear semantics as the auto-ack
     /// template: `Some(None)` reverts to the built-in default.
     pub email_security_note_template: Option<Option<String>>,
+    pub portal_share_by_domain: Option<bool>,
 }
 
 // API response for site settings (without internal fields)
@@ -136,6 +140,8 @@ pub struct SiteSettingsResponse {
     /// Admin-overridden security-note body. `None` = use the built-in
     /// localized default.
     pub email_security_note_template: Option<String>,
+    /// See [`SiteSettings::portal_share_by_domain`].
+    pub portal_share_by_domain: bool,
 }
 
 impl From<SiteSettings> for SiteSettingsResponse {
@@ -162,6 +168,7 @@ impl From<SiteSettings> for SiteSettingsResponse {
             channel_auto_ack_template: settings.channel_auto_ack_template,
             email_security_note_enabled: settings.email_security_note_enabled,
             email_security_note_template: settings.email_security_note_template,
+            portal_share_by_domain: settings.portal_share_by_domain,
         }
     }
 }

@@ -22,6 +22,8 @@ export interface PortalTicket {
   created: string
   modified: string
   closed: string | null
+  /** Who opened it, when that isn't the viewer. */
+  requested_by?: string
   state: PortalState | null
 }
 
@@ -67,6 +69,8 @@ export interface PortalTicketDetail {
   /** Whether the viewer requested it (only they answer "is it fixed?"). */
   is_requester: boolean
   participants: PortalParticipant[]
+  /** False when it's only shared with the viewer's organisation (read only). */
+  can_reply: boolean
 }
 
 export interface PortalMe {

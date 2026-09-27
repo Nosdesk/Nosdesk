@@ -104,6 +104,10 @@ pub struct VisibilityContext {
     /// workspace agent/admin/owner). False restricts them to tickets
     /// they requested or watch.
     sees_all: bool,
+    /// Portal only: also tickets requested by people at the viewer's verified
+    /// email domain (the workspace's organisation-visibility setting). Set by
+    /// [`Self::portal_sharing`] only after the domain is known to be shareable.
+    share_domain: bool,
 }
 
 impl VisibilityContext {
@@ -119,6 +123,7 @@ impl VisibilityContext {
         Self {
             user_uuid,
             sees_all,
+            share_domain: false,
         }
     }
 
@@ -147,6 +152,7 @@ impl VisibilityContext {
         Self {
             user_uuid,
             sees_all: false,
+            share_domain: false,
         }
     }
 
@@ -157,6 +163,18 @@ impl VisibilityContext {
         Self {
             user_uuid: auth.user_uuid,
             sees_all: auth.can_handle_tickets(),
+            share_domain: false,
+        }
+    }
+
+    /// [`Self::requester_only`] that also reads requests from colleagues at the
+    /// same verified domain. The caller decides the domain may share (setting
+    /// on, viewer's primary address verified, not a free-mail domain).
+    pub fn portal_sharing(user_uuid: Uuid) -> Self {
+        Self {
+            user_uuid,
+            sees_all: false,
+            share_domain: true,
         }
     }
 
@@ -166,6 +184,26 @@ impl VisibilityContext {
     pub fn sees_all(&self) -> bool {
         self.sees_all
     }
+}
+
+/// Tickets whose requester's verified primary address is at the viewer's
+/// verified primary domain. Both sides verified, so an unconfirmed guest
+/// address can't plant a ticket in a company's shared view.
+fn same_domain_requester(
+    viewer: Uuid,
+) -> Box<dyn diesel::BoxableExpression<tickets::table, Pg, SqlType = diesel::sql_types::Bool>> {
+    Box::new(
+        diesel::dsl::sql::<diesel::sql_types::Bool>(
+            "tickets.requester_uuid IN (\
+               SELECT peer.user_uuid FROM user_emails peer \
+               WHERE peer.is_primary AND peer.is_verified \
+                 AND lower(split_part(peer.email, '@', 2)) = (\
+                   SELECT lower(split_part(me.email, '@', 2)) FROM user_emails me \
+                   WHERE me.user_uuid = ",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(viewer)
+        .sql(" AND me.is_primary AND me.is_verified LIMIT 1))"),
+    )
 }
 
 /// Tickets not awaiting guest email confirmation (NULL or any other state).
@@ -197,11 +235,16 @@ pub fn visible_tickets_query<'a>(ctx: &VisibilityContext) -> tickets::BoxedQuery
     let watched_ticket_ids = ticket_watchers::table
         .filter(ticket_watchers::user_uuid.eq(ctx.user_uuid))
         .select(ticket_watchers::ticket_id);
-    base.filter(
+    let own = base.filter(
         tickets::requester_uuid
             .eq(ctx.user_uuid)
             .or(tickets::id.eq_any(watched_ticket_ids)),
-    )
+    );
+    if ctx.share_domain {
+        own.or_filter(not_pending().and(same_domain_requester(ctx.user_uuid)))
+    } else {
+        own
+    }
 }
 
 /// True when the user can read this specific ticket. Derived from
@@ -253,6 +296,13 @@ pub fn can_view_ticket(
         // exist (and isn't awaiting confirmation)?" Cheap single-keyed lookup.
         return select(exists(tickets::table.find(ticket_id).filter(not_pending())))
             .get_result(conn);
+    }
+    if ctx.share_domain {
+        // The list predicate, keyed: one definition for both.
+        return select(exists(
+            visible_tickets_query(ctx).filter(tickets::id.eq(ticket_id)),
+        ))
+        .get_result(conn);
     }
     // End-user: requester OR watcher.
     let watched_ticket_ids = ticket_watchers::table
@@ -447,5 +497,68 @@ mod tests {
         assert!(ids.contains(&mine.id));
         assert!(ids.contains(&watched.id));
         assert!(!ids.contains(&_hers.id));
+    }
+
+    #[test]
+    fn portal_sharing_reads_colleagues_at_a_verified_domain_only() {
+        use crate::models::TicketUpdate;
+        let mut conn = setup_test_connection();
+        let person = |conn: &mut DbConnection, name: &str, email: &str, verified: bool| {
+            let u = TestFixtures::create_user(conn, name, "user");
+            TestFixtures::create_user_email(conn, u.uuid, email, true);
+            if !verified {
+                diesel::update(
+                    crate::schema::user_emails::table
+                        .filter(crate::schema::user_emails::user_uuid.eq(u.uuid)),
+                )
+                .set(crate::schema::user_emails::is_verified.eq(false))
+                .execute(conn)
+                .unwrap();
+            }
+            u
+        };
+        let alice = person(&mut conn, "share_alice", "alice@acme.test", true);
+        let bob = person(&mut conn, "share_bob", "bob@ACME.test", true);
+        let carol = person(&mut conn, "share_carol", "carol@acme.test", false);
+        let dave = person(&mut conn, "share_dave", "dave@other.test", true);
+        let bobs = TestFixtures::create_ticket(&mut conn, "Bob's", Some(bob.uuid), None);
+        let carols = TestFixtures::create_ticket(&mut conn, "Carol's", Some(carol.uuid), None);
+        let daves = TestFixtures::create_ticket(&mut conn, "Dave's", Some(dave.uuid), None);
+        let pending = TestFixtures::create_ticket(&mut conn, "Held", Some(bob.uuid), None);
+        crate::repository::tickets::update_ticket_partial(
+            &mut conn,
+            pending.id,
+            TicketUpdate {
+                verification_state: Some(Some(crate::sync::groups::PENDING_VERIFICATION.into())),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+
+        let shared = VisibilityContext::portal_sharing(alice.uuid);
+        let own = VisibilityContext::requester_only(alice.uuid);
+        assert!(
+            can_view_ticket(&mut conn, &shared, bobs.id).unwrap(),
+            "verified colleague"
+        );
+        assert!(
+            !can_view_ticket(&mut conn, &own, bobs.id).unwrap(),
+            "off without sharing"
+        );
+        for (id, why) in [
+            (carols.id, "unverified address"),
+            (daves.id, "another domain"),
+            (pending.id, "awaiting confirmation"),
+        ] {
+            assert!(!can_view_ticket(&mut conn, &shared, id).unwrap(), "{why}");
+        }
+        let listed = visible_ticket_ids(
+            &mut conn,
+            &shared,
+            &[bobs.id, carols.id, daves.id, pending.id],
+        )
+        .unwrap();
+        assert_eq!(listed, [bobs.id].into_iter().collect());
     }
 }

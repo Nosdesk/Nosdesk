@@ -364,6 +364,7 @@ mod tests {
             signature_default: None,
             email_security_note_enabled: false,
             email_security_note_template: None,
+            portal_share_by_domain: false,
         }
     }
 

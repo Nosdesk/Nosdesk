@@ -792,6 +792,10 @@ pub struct CustomerTicket {
     pub closed_at: Option<NaiveDateTime>,
     /// The ticket's workflow state, as the requester sees it.
     pub state: Option<CustomerState>,
+    /// Who opened it, when that isn't the viewer (a colleague's request they
+    /// were added to, or one shared across their organisation).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_by: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -816,8 +820,52 @@ impl CustomerTicket {
             updated_at: t.updated_at,
             closed_at: t.closed_at,
             state,
+            requested_by: None,
         }
     }
+
+    /// Name the requester when it isn't `viewer`.
+    fn for_viewer(
+        t: Ticket,
+        states: &std::collections::HashMap<i32, CustomerState>,
+        viewer: Uuid,
+        conn: &mut DbConnection,
+    ) -> Self {
+        let requested_by = t
+            .requester_uuid
+            .filter(|r| *r != viewer)
+            .and_then(|r| crate::repository::users::find_active_by_uuid(&r, conn).ok())
+            .map(|u| u.name);
+        Self {
+            requested_by,
+            ..Self::new(t, states)
+        }
+    }
+}
+
+/// How much of the workspace a portal user can read: their own requests and
+/// the ones they were added to, plus (when the workspace shares by domain) the
+/// requests of people at their verified, non-free-mail domain. Writes never
+/// use this; they stay on [`VisibilityContext::requester_only`].
+fn portal_visibility(conn: &mut DbConnection, viewer: Uuid) -> QueryResult<VisibilityContext> {
+    use crate::schema::user_emails;
+    let shares = crate::repository::site_settings::get_site_settings(conn)?.portal_share_by_domain;
+    if !shares {
+        return Ok(VisibilityContext::requester_only(viewer));
+    }
+    let verified: Option<String> = user_emails::table
+        .filter(user_emails::user_uuid.eq(viewer))
+        .filter(user_emails::is_primary.eq(true))
+        .filter(user_emails::is_verified.eq(true))
+        .select(user_emails::email)
+        .first(conn)
+        .optional()?;
+    Ok(match verified {
+        Some(email) if !crate::utils::free_mail::is_free_mail(&email) => {
+            VisibilityContext::portal_sharing(viewer)
+        }
+        _ => VisibilityContext::requester_only(viewer),
+    })
 }
 
 /// The workspace's workflow states by id (a handful of rows).
@@ -927,15 +975,16 @@ fn customer_thread(
 /// context is forced requester-only, so the rows are exactly the tickets this
 /// customer requested or watches, never another customer's.
 pub async fn list_my_tickets(mut tc: TenantConn, portal: PortalContext) -> impl Responder {
-    let vis = VisibilityContext::requester_only(portal.user_uuid);
+    let viewer = portal.user_uuid;
     let result = tc.run(move |conn| {
+        let vis = portal_visibility(conn, viewer)?;
         let rows = visible_tickets_query(&vis)
             .order(tickets::updated_at.desc())
             .load::<Ticket>(conn)?;
         let states = state_map(conn)?;
         Ok::<_, diesel::result::Error>(
             rows.into_iter()
-                .map(|t| CustomerTicket::new(t, &states))
+                .map(|t| CustomerTicket::for_viewer(t, &states, viewer, conn))
                 .collect::<Vec<_>>(),
         )
     });
@@ -958,11 +1007,14 @@ pub async fn get_my_ticket(
 ) -> impl Responder {
     let ticket_id = path.into_inner();
     let viewer = portal.user_uuid;
-    let vis = VisibilityContext::requester_only(portal.user_uuid);
     let result = tc.run(move |conn| {
+        let vis = portal_visibility(conn, viewer)?;
         if !can_view_ticket(conn, &vis, ticket_id)? {
             return Ok(None);
         }
+        // Read-only when it's only shared with them (not theirs, not added).
+        let can_reply =
+            can_view_ticket(conn, &VisibilityContext::requester_only(viewer), ticket_id)?;
         let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
         let states = state_map(conn)?;
         let comments = customer_thread(conn, ticket_id, viewer)?;
@@ -973,22 +1025,25 @@ pub async fn get_my_ticket(
         let is_requester = ticket.requester_uuid == Some(viewer);
         let participants = participants_of(conn, &ticket, viewer)?;
         Ok(Some((
-            CustomerTicket::new(ticket, &states),
+            CustomerTicket::for_viewer(ticket, &states, viewer, conn),
             comments,
             rating,
             is_requester,
             participants,
+            can_reply,
         )))
     });
     match result {
-        Ok(Some((ticket, comments, rating, is_requester, participants))) => HttpResponse::Ok()
-            .json(json!({
+        Ok(Some((ticket, comments, rating, is_requester, participants, can_reply))) => {
+            HttpResponse::Ok().json(json!({
                 "ticket": ticket,
                 "comments": comments,
                 "rating": rating,
                 "is_requester": is_requester,
                 "participants": participants,
-            })),
+                "can_reply": can_reply,
+            }))
+        }
         Ok(None) => errors::not_found("Ticket not found"),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to load ticket");
@@ -1008,9 +1063,10 @@ pub async fn download_attachment(
     base_storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let (ticket_id, attachment_id) = path.into_inner();
-    let vis = VisibilityContext::requester_only(portal.user_uuid);
+    let viewer = portal.user_uuid;
     let url = tc
         .run(move |conn| {
+            let vis = portal_visibility(conn, viewer)?;
             if !can_view_ticket(conn, &vis, ticket_id)? {
                 return Ok(None);
             }

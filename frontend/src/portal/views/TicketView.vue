@@ -147,6 +147,10 @@ async function sendReply(): Promise<void> {
         @changed="refresh"
       />
 
+      <p v-if="!detail.data.value.can_reply" class="text-sm text-secondary bg-surface border border-default rounded-xl p-4">
+        {{ t('portal-shared-read-only', { name: detail.data.value.ticket.requested_by ?? '' }) }}
+      </p>
+
       <ResolutionCard
         v-if="detail.data.value.is_requester && !stillNeedsHelp"
         :ticket="detail.data.value.ticket"
@@ -156,7 +160,11 @@ async function sendReply(): Promise<void> {
         @still-needs-help="askWhatsWrong"
       />
 
-      <form class="flex flex-col gap-3 bg-surface border border-default rounded-xl p-4" @submit.prevent="sendReply">
+      <form
+        v-if="detail.data.value.can_reply"
+        class="flex flex-col gap-3 bg-surface border border-default rounded-xl p-4"
+        @submit.prevent="sendReply"
+      >
         <FormTextarea
           id="portal-reply"
           v-model="reply"
