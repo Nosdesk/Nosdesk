@@ -486,6 +486,8 @@ reply-email-view-request = Voir votre demande
 
 # Channel auto-acknowledgement.
 auto-ack-default-template = Votre demande (#{ $ticket_id }) a été reçue et est en cours d'examen par notre équipe d'assistance. Pour ajouter d'autres commentaires, répondez à cet e-mail.
+# Traduction automatique, en attente de relecture par un locuteur natif.
+ack-known-issue = Nous sommes au courant d'un problème qui pourrait être lié : { $title }
 
 # Inbox-time connecting copy.
 inbox-time-just-now = À l'instant
@@ -7424,6 +7426,11 @@ notice-duration = { $hours ->
    *[other] { $hours } heures
 }
 notice-follow-hint = Les demandeurs peuvent suivre ce ticket depuis l'avis au lieu d'en ouvrir un.
+# Traduction automatique, en attente de relecture par un locuteur natif.
+notice-link-existing = Un avis est déjà en ligne : { $title }. Liez ce ticket pour que les demandeurs puissent le suivre.
+notice-link-existing-action = Lier ce ticket
+notice-incident-label = Ticket d'incident
+notice-incident-hint = Facultatif. Les demandeurs peuvent suivre ce ticket depuis l'avis.
 notice-end-now = Terminer maintenant
 notice-cancel = Annuler
 notice-post = Publier l'avis

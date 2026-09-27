@@ -299,7 +299,9 @@ impl NotificationDeliveryChannel for EmailChannel {
             | crate::services::notifications::types::NotificationEntity::Asset { .. } => None,
             entity => Some(entity.ticket_id()),
         };
-        let (base_url, branding, recipient_locale, requester_link) =
+        let is_ack =
+            notification.payload.notification_type == NotificationTypeCode::TicketCreatedRequester;
+        let (base_url, branding, recipient_locale, requester_link, known_issue) =
             crate::sync::session::run_in_workspace(
                 &self.pool,
                 "background:notification_email_prep",
@@ -352,7 +354,11 @@ impl NotificationDeliveryChannel for EmailChannel {
                         conn,
                         recipient_uuid,
                     );
-                    Ok((base_url, branding, locale, requester_link))
+                    // An acknowledgement mentions a live known-issue notice.
+                    let known_issue = is_ack
+                        .then(|| crate::handlers::notices::ack_notice_paragraph(conn, &locale))
+                        .flatten();
+                    Ok((base_url, branding, locale, requester_link, known_issue))
                 },
             )
             .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
@@ -364,6 +370,10 @@ impl NotificationDeliveryChannel for EmailChannel {
         let body_text = match notification.payload.body.as_deref() {
             Some(text) if !text.is_empty() => text.to_string(),
             _ => crate::utils::i18n::tr_with(&recipient_locale, "notif-body-fallback", &[]),
+        };
+        let body_text = match known_issue {
+            Some(note) => format!("{body_text}\n\n{note}"),
+            None => body_text,
         };
         let title = notification.payload.title.clone();
         // An acknowledgement of the recipient's own request has no other actor.

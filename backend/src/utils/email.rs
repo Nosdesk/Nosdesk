@@ -2083,7 +2083,13 @@ impl EmailService {
         let html_body = template.render(
             EmailLayout {
                 headline: title,
-                body: std::iter::once(text(escape_html(body)))
+                // Blank lines separate paragraphs (an acknowledgement's
+                // known-issue note, for one).
+                body: body
+                    .split("\n\n")
+                    .map(str::trim)
+                    .filter(|p| !p.is_empty())
+                    .map(|p| text(escape_html(p)))
                     .chain(feedback_html.map(text))
                     .chain(from_row.map(muted))
                     .collect(),
@@ -2833,6 +2839,24 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         assert!(html.contains("answer=fixed") && html.contains("answer=not_fixed"));
         assert!(text.contains("answer=not_fixed"));
         write("notification-resolved", &html);
+
+        let (html, text) = svc.compose_notification(
+            "Request received",
+            "We got your request.\n\nWe're aware of an issue that may be related: Email is down\nFixing now.",
+            "",
+            "https://acme.example.com/api/portal/auth/ticket?t=EXAMPLE",
+            Some("View request"),
+            None,
+            &branding,
+            &locale,
+        );
+        assert_eq!(
+            html.matches(r#"class="nd-body""#).count(),
+            2,
+            "one paragraph each"
+        );
+        assert!(text.contains("Email is down"));
+        write("notification-ack-known-issue", &html);
 
         let (_subj, html, text) = svc.compose_portal_magic_link(
             "Alex",

@@ -191,14 +191,20 @@ async fn send_auto_ack(
                 );
                 let locale =
                     crate::repository::user_locale::resolve_effective_locale(conn, requester);
-                Ok::<_, diesel::result::Error>(url.map(|url| {
-                    let label = crate::utils::i18n::tr(&locale, "reply-email-view-request");
-                    format!("{body}\n\n{label}: {url}")
-                }))
+                // A live known-issue notice goes before the link.
+                let body = match crate::handlers::notices::ack_notice_paragraph(conn, &locale) {
+                    Some(note) => format!("{body}\n\n{note}"),
+                    None => body.clone(),
+                };
+                Ok::<_, diesel::result::Error>(match url {
+                    Some(url) => {
+                        let label = crate::utils::i18n::tr(&locale, "reply-email-view-request");
+                        format!("{body}\n\n{label}: {url}")
+                    }
+                    None => body,
+                })
             },
         )
-        .ok()
-        .flatten()
         .unwrap_or(body),
         None => body,
     };
