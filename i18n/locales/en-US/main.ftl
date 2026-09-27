@@ -7209,6 +7209,7 @@ portal-reply-label = Reply
 portal-reply-placeholder = Add a reply for the team
 portal-reply-send = Send reply
 portal-reply-failed = Your reply didn't send. Try again.
+portal-reply-reopens = Replying reopens this request.
 portal-request-load-failed = We couldn't load this request.
 portal-back-to-requests = All requests
 portal-new-subject-label = Subject

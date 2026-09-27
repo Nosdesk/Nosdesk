@@ -14,7 +14,7 @@ import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import AttachmentPicker from '../components/AttachmentPicker.vue'
 import PortalLayout from '../components/PortalLayout.vue'
 import { stateTone } from '../stateTone'
-import { attachmentUrl, getMyTicket, replyToMyTicket, type PortalAttachment } from '../service'
+import { attachmentUrl, getMyTicket, isClosed, replyToMyTicket, type PortalAttachment } from '../service'
 
 const props = defineProps<{ id: string }>()
 const { $t: t } = useFluent()
@@ -125,6 +125,9 @@ async function sendReply(): Promise<void> {
           resize="vertical"
           :disabled="sending"
         />
+        <p v-if="isClosed(detail.data.value.ticket)" class="text-sm text-secondary">
+          {{ t('portal-reply-reopens') }}
+        </p>
         <AttachmentPicker v-model="files" :disabled="sending" />
         <p v-if="replyFailed" role="alert" class="text-sm text-status-error">{{ t('portal-reply-failed') }}</p>
         <Button

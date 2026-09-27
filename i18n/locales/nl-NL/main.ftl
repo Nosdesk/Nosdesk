@@ -7309,6 +7309,7 @@ portal-reply-label = Antwoorden
 portal-reply-placeholder = Voeg een antwoord toe voor het team
 portal-reply-send = Antwoord sturen
 portal-reply-failed = Je antwoord is niet verstuurd. Probeer het opnieuw.
+portal-reply-reopens = Als je reageert, wordt deze aanvraag heropend.
 portal-request-load-failed = We konden dit verzoek niet laden.
 portal-back-to-requests = Alle verzoeken
 portal-new-subject-label = Onderwerp
