@@ -13,6 +13,7 @@ pub mod email_branding;
 pub mod encryption;
 pub mod error_response;
 pub mod file_validation;
+pub mod free_mail;
 pub mod geoip;
 pub mod guest_attachment_token;
 pub mod i18n;

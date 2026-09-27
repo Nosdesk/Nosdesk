@@ -1563,6 +1563,7 @@ diesel::table! {
         signature_default -> Nullable<Text>,
         email_security_note_enabled -> Bool,
         email_security_note_template -> Nullable<Text>,
+        portal_share_by_domain -> Bool,
     }
 }
 

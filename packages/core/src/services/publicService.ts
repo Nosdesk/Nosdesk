@@ -164,6 +164,8 @@ export interface AdminGuestSettings {
   guest_ticket_email_verification: boolean;
   guest_ticket_attachments_enabled: boolean;
   guest_ticket_intro_message: string | null;
+  /** Requesters also see requests from colleagues at their verified domain. */
+  portal_share_by_domain: boolean;
 }
 
 export interface AdminGuestSettingsUpdate {
@@ -177,6 +179,7 @@ export interface AdminGuestSettingsUpdate {
   guest_ticket_email_verification?: boolean;
   guest_ticket_attachments_enabled?: boolean;
   guest_ticket_intro_message?: string | null;
+  portal_share_by_domain?: boolean;
 }
 
 export const adminGuestSettingsService = {

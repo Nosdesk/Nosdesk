@@ -185,7 +185,8 @@ type ToggleKey =
   | 'guest_ticket_lookup_enabled'
   | 'guest_public_docs_enabled'
   | 'guest_kb_search_enabled'
-  | 'guest_help_page_enabled';
+  | 'guest_help_page_enabled'
+  | 'portal_share_by_domain';
 
 // Settings are fetched through Pinia Colada so a revisit renders the
 // form instantly from cache and revalidates silently. The form seeds
@@ -239,6 +240,11 @@ const toggles = computed<Array<{ key: ToggleKey; label: string; description: str
     key: 'guest_help_page_enabled',
     label: t('admin-guest-toggle-help-label'),
     description: t('admin-guest-toggle-help-description', { url: portalUrl('/help') })
+  },
+  {
+    key: 'portal_share_by_domain',
+    label: t('admin-guest-toggle-share-domain-label'),
+    description: t('admin-guest-toggle-share-domain-description')
   }
 ]);
 
@@ -313,7 +319,8 @@ async function save() {
       guest_ticket_email_verification: settings.value.guest_ticket_email_verification,
       guest_ticket_attachments_enabled: settings.value.guest_ticket_attachments_enabled,
       guest_ticket_intro_message:
-        (settings.value.guest_ticket_intro_message ?? '').trim() || null
+        (settings.value.guest_ticket_intro_message ?? '').trim() || null,
+      portal_share_by_domain: settings.value.portal_share_by_domain
     });
     settings.value = data;
     pristine.value = { ...data };

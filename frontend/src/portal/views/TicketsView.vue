@@ -58,6 +58,7 @@ const visible = computed(() =>
           </div>
           <span class="text-xs text-tertiary">
             #{{ ticket.id }} · {{ t('portal-updated', { when: formatRelativeTime(ticket.modified) }) }}
+            <template v-if="ticket.requested_by"> · {{ t('portal-requested-by', { name: ticket.requested_by }) }}</template>
           </span>
         </RouterLink>
       </li>
