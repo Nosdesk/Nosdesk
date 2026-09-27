@@ -277,6 +277,28 @@ pub enum GuestUserResult {
     EmailClaimed,
 }
 
+/// The user an email address stands for when mail or a requester brings them
+/// into a ticket: their existing verified account, otherwise an
+/// auto-provisioned guest (created, or an earlier unverified one reused).
+pub fn find_or_provision_requester(
+    email: &str,
+    display_name: &str,
+    conn: &mut DbConnection,
+    observer: Option<&dyn UserCreatedObserver>,
+) -> Result<User, diesel::result::Error> {
+    if let Some(u) = find_verified_user_by_email(email, conn)? {
+        return Ok(u);
+    }
+    match find_or_create_guest_user(email, display_name, conn, observer)? {
+        GuestUserResult::Created(u) | GuestUserResult::Existing(u) => Ok(u),
+        // The lookup above already caught verified and privileged accounts; if
+        // the address turned out to be claimed anyway, use that real account.
+        GuestUserResult::EmailClaimed => {
+            find_verified_user_by_email(email, conn)?.ok_or(diesel::result::Error::NotFound)
+        }
+    }
+}
+
 /// Atomically find-or-create a requester account for a public guest ticket
 /// submission.
 ///

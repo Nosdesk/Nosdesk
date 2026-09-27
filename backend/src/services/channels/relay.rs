@@ -148,6 +148,33 @@ pub fn decide_relay(
     Ok(RelayDecision::Relay { channel, thread })
 }
 
+/// The other people on a request who get its public replies by email: its
+/// watchers who aren't staff (the requester's colleagues), minus the requester
+/// (who gets the main copy) and the reply's author. Each with their primary
+/// address; anyone without one is skipped.
+pub fn relay_participants(
+    conn: &mut DbConnection,
+    ticket: &Ticket,
+    comment: &Comment,
+) -> Result<Vec<(uuid::Uuid, String)>, diesel::result::Error> {
+    if comment.is_internal || comment.deleted_at.is_some() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for watcher in crate::repository::ticket_watchers::watcher_uuids(conn, ticket.id)? {
+        if Some(watcher) == ticket.requester_uuid || watcher == comment.user_uuid {
+            continue;
+        }
+        if user_helpers::workspace_role(conn, watcher).is_some_and(|r| r.is_staff()) {
+            continue;
+        }
+        if let Some(email) = user_helpers::get_primary_email(&watcher, conn) {
+            out.push((watcher, email));
+        }
+    }
+    Ok(out)
+}
+
 /// The email channel a ticket with no origin channel replies through: the
 /// first enabled one that can route a reply back, preferring the managed
 /// address, then a forwarding address, then a polled mailbox.
@@ -441,5 +468,40 @@ mod tests {
         let comment = make_comment(ticket.id, false);
         let decision = decide_relay(&mut conn, &ticket, &comment).unwrap();
         assert!(matches!(decision, RelayDecision::SkipNoRecipient));
+    }
+
+    #[test]
+    fn replies_reach_the_requesters_colleagues_but_not_staff_or_the_author() {
+        let mut conn = setup_test_connection();
+        let alice = requester(&mut conn);
+        let colleague = TestFixtures::create_user(&mut conn, "Colleague", "user");
+        TestFixtures::create_user_email(&mut conn, colleague.uuid, "bob@example.com", true);
+        let quiet = TestFixtures::create_user(&mut conn, "No email", "user");
+        let agent = TestFixtures::create_user(&mut conn, "Agent", "technician");
+        TestFixtures::create_user_email(&mut conn, agent.uuid, "agent@example.com", true);
+        let ticket = TestFixtures::create_ticket(&mut conn, "Printer", Some(alice.uuid), None);
+        for u in [alice.uuid, colleague.uuid, quiet.uuid, agent.uuid] {
+            crate::repository::ticket_watchers::add_watcher(&mut conn, ticket.id, u, false)
+                .unwrap();
+        }
+
+        let mut reply = make_comment(ticket.id, false);
+        reply.user_uuid = agent.uuid;
+        assert_eq!(
+            relay_participants(&mut conn, &ticket, &reply).unwrap(),
+            vec![(colleague.uuid, "bob@example.com".to_string())]
+        );
+
+        let mut from_colleague = make_comment(ticket.id, false);
+        from_colleague.user_uuid = colleague.uuid;
+        assert!(relay_participants(&mut conn, &ticket, &from_colleague)
+            .unwrap()
+            .is_empty());
+
+        let mut note = make_comment(ticket.id, true);
+        note.user_uuid = agent.uuid;
+        assert!(relay_participants(&mut conn, &ticket, &note)
+            .unwrap()
+            .is_empty());
     }
 }

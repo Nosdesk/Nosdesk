@@ -424,6 +424,50 @@ pub fn enqueue_portal_magic_link(
     outbound_emails::enqueue_idempotent(conn, row)
 }
 
+/// Tell someone a requester added them to a request. Transactional (they
+/// didn't opt in to anything; it explains why replies will start arriving),
+/// from the workspace identity. One per (ticket, person).
+#[allow(clippy::too_many_arguments)]
+pub fn enqueue_participant_added(
+    conn: &mut DbConnection,
+    svc: &EmailService,
+    branding: &EmailBranding,
+    recipient: &str,
+    recipient_uuid: uuid::Uuid,
+    adder_name: &str,
+    ticket_id: i32,
+    ticket_title: &str,
+    view_url: &str,
+    locale: &unic_langid::LanguageIdentifier,
+) -> Result<OutboundEmail, DieselError> {
+    let (subject, body_html, body_text) = svc.compose_participant_added(
+        adder_name,
+        ticket_id,
+        ticket_title,
+        view_url,
+        branding,
+        locale,
+    );
+    let row = NewOutboundEmail {
+        channel_id: None,
+        ticket_id: Some(ticket_id),
+        comment_id: None,
+        recipient: recipient.to_string(),
+        subject,
+        body_text,
+        body_html: Some(body_html),
+        message_id: make_message_id("participant", &from_email_domain(svc)),
+        in_reply_to: None,
+        references_list: vec![],
+        headers_json: serde_json::json!({ "Auto-Submitted": "auto-generated" }),
+        correlation_id: None,
+        idempotency_key: Some(format!("participant_added:{ticket_id}:{recipient_uuid}")),
+        sender_identity: outbound_email_sender_identity::WORKSPACE.to_string(),
+        mail_class: outbound_email_mail_class::TRANSACTIONAL.to_string(),
+    };
+    outbound_emails::enqueue_idempotent(conn, row)
+}
+
 /// Build the `NewOutboundEmail` row for an address-confirmation send.
 /// See `prepare_password_reset` for the rationale.
 pub fn prepare_email_verification(
