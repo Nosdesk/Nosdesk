@@ -1,4 +1,8 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { usePortalEvents } from './usePortalEvents'
+
+usePortalEvents()
+</script>
 
 <template>
   <RouterView />

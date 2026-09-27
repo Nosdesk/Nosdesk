@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
@@ -40,6 +40,38 @@ async function askWhatsWrong(): Promise<void> {
   stillNeedsHelp.value = true
   await nextTick()
   document.getElementById('portal-reply')?.focus()
+}
+
+// A reply that arrives live: count it in the tab title while the tab is
+// hidden, and offer a jump instead of scrolling the reader away from where they
+// are.
+const commentCount = computed(() => detail.data.value?.comments.length ?? 0)
+const unread = ref(0)
+const showNewReply = ref(false)
+const baseTitle = document.title
+watch(commentCount, (count, previous) => {
+  if (!previous || count <= previous) return
+  if (document.visibilityState === 'hidden') {
+    unread.value += count - previous
+    document.title = `(${unread.value}) ${baseTitle}`
+  }
+  const nearBottom =
+    window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 240
+  if (!nearBottom) showNewReply.value = true
+})
+function onVisible(): void {
+  if (document.visibilityState !== 'visible') return
+  unread.value = 0
+  document.title = baseTitle
+}
+document.addEventListener('visibilitychange', onVisible)
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onVisible)
+  document.title = baseTitle
+})
+function jumpToLatest(): void {
+  showNewReply.value = false
+  document.getElementById('portal-thread-end')?.scrollIntoView({ behavior: 'smooth', block: 'end' })
 }
 
 async function refresh(): Promise<void> {
@@ -139,6 +171,15 @@ async function sendReply(): Promise<void> {
           </ul>
         </li>
       </ol>
+      <span id="portal-thread-end" />
+      <Button
+        v-if="showNewReply"
+        icon="chevronDown"
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 shadow-lg"
+        @click="jumpToLatest"
+      >
+        {{ t('portal-new-reply') }}
+      </Button>
 
       <ParticipantsCard
         :ticket-id="ticketId"

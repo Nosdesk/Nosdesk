@@ -7326,6 +7326,7 @@ portal-reply-placeholder = Voeg een antwoord toe voor het team
 portal-reply-send = Antwoord sturen
 portal-reply-failed = Je antwoord is niet verstuurd. Probeer het opnieuw.
 portal-reply-reopens = Als je reageert, wordt deze aanvraag heropend.
+portal-new-reply = Nieuwe reactie
 portal-resolve-hint-open = Als het is opgelost, laat het team het weten, dan sluiten zij de aanvraag.
 portal-resolve-question = Is het opgelost?
 portal-resolve-yes = Ja, het is opgelost

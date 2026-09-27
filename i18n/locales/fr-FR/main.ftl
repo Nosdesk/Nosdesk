@@ -7335,6 +7335,7 @@ portal-reply-placeholder = Ajoutez une réponse pour l'équipe
 portal-reply-send = Envoyer la réponse
 portal-reply-failed = Votre réponse n'a pas été envoyée. Réessayez.
 portal-reply-reopens = Répondre rouvre cette demande.
+portal-new-reply = Nouvelle réponse
 portal-resolve-hint-open = Si c'est réglé, prévenez l'équipe et elle clôturera la demande.
 portal-resolve-question = C'est réglé ?
 portal-resolve-yes = Oui, c'est réglé

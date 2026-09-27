@@ -306,6 +306,15 @@ impl SseState {
     /// to that one topic. Used by integration tests to observe
     /// cross-resource broadcasts (e.g. asserting a merge emits its SSE
     /// events) without standing up a full SSE client.
+    /// Subscribe to one workspace's topic (the live sync feed). For the
+    /// requester portal's hint stream, which filters and reshapes every event
+    /// itself before anything reaches the client.
+    pub(crate) fn subscribe_workspace(&self, workspace_id: i32) -> broadcast::Receiver<Envelope> {
+        self.topic(TopicKey::Workspace(workspace_id))
+            .sender
+            .subscribe()
+    }
+
     pub fn subscribe_global(&self) -> broadcast::Receiver<Envelope> {
         self.topic(TopicKey::Global).sender.subscribe()
     }
