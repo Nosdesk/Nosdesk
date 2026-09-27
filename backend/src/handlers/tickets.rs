@@ -1065,6 +1065,12 @@ pub async fn create_empty_ticket(
     }
 }
 
+/// Whether a PATCH body touches only what a non-staff caller may change.
+fn only_requester_fields(body: &Value) -> bool {
+    body.as_object()
+        .is_some_and(|fields| fields.keys().all(|k| k == "title"))
+}
+
 // Update ticket partially
 pub async fn update_ticket_partial(
     mut tc: TenantConn,
@@ -1074,6 +1080,15 @@ pub async fn update_ticket_partial(
     body: web::Json<Value>,
 ) -> Result<HttpResponse, ApiError> {
     let ticket_id = access.ticket_id;
+
+    // `TicketAccess` is a read gate: a requester or watcher who can see the
+    // ticket reaches this handler. Like `NewTicket::redact_for` on PUT, the
+    // only field they may change is the title of a ticket they can see.
+    if !auth.can_handle_tickets() && !only_requester_fields(&body) {
+        return Err(ApiError::Forbidden(
+            "Only the helpdesk team can change this".into(),
+        ));
+    }
 
     // Parse JSON and build TicketUpdate with user lookups
     let mut ticket_update = TicketUpdate {
