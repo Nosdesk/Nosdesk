@@ -221,9 +221,17 @@ pub fn enqueue_for_comment(
             |conn| {
                 let decision = super::relay::decide_relay(conn, &ticket, &comment)
                     .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
-                let (channel, thread) = match decision {
-                    super::relay::RelayDecision::Relay { channel, thread } => (channel, thread),
-                    super::relay::RelayDecision::Direct { recipient, subject } => {
+                let (channel, thread, requester_copy) = match decision {
+                    super::relay::RelayDecision::Relay {
+                        channel,
+                        thread,
+                        requester_copy,
+                    } => (channel, thread, requester_copy),
+                    super::relay::RelayDecision::Direct {
+                        recipient,
+                        subject,
+                        requester_copy,
+                    } => {
                         // No mailbox to thread back through: plain mail from
                         // the default sender, no Reply-To, no quoted history.
                         let base = super::reply_body::ReplyBody::from_comment(&comment);
@@ -236,7 +244,9 @@ pub fn enqueue_for_comment(
                             .unwrap_or_else(|| "nosdesk.local".to_string());
                         let participants =
                             super::relay::relay_participants(conn, &ticket, &comment)?;
-                        let copies = std::iter::once((ticket.requester_uuid, recipient))
+                        let copies = requester_copy
+                            .then_some((ticket.requester_uuid, recipient))
+                            .into_iter()
                             .chain(participants.into_iter().map(|(u, e)| (Some(u), e)));
                         let mut first = None;
                         for (to_uuid, to_email) in copies {
@@ -317,7 +327,9 @@ pub fn enqueue_for_comment(
                 // thread and Reply-To, each with its own Message-ID (which
                 // still threads a reply back) and its own View request link.
                 let participants = super::relay::relay_participants(conn, &ticket, &comment)?;
-                let copies = std::iter::once((ticket.requester_uuid, recipient))
+                let copies = requester_copy
+                    .then_some((ticket.requester_uuid, recipient))
+                    .into_iter()
                     .chain(participants.into_iter().map(|(u, e)| (Some(u), e)));
                 let mut first = None;
                 for (to_uuid, to_email) in copies {
