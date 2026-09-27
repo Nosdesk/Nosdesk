@@ -68,6 +68,13 @@ pub struct SiteSettings {
     /// Requesters also see (read only) requests from people at their verified
     /// email domain. Free-mail domains never share.
     pub portal_share_by_domain: bool,
+    /// How a ticket waiting for approval shows to staff: `badge` (in the
+    /// queues, marked) or `held` (kept out of the working queues).
+    pub approval_waiting_display: String,
+    /// Who may skip a pending approval: `nobody`, `admins` or `agents`.
+    pub approval_skip_by: String,
+    /// An unanswered approval approves itself after this many days; `None` = never.
+    pub approval_auto_approve_days: Option<i32>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -102,6 +109,9 @@ pub struct UpdateSiteSettings {
     /// template: `Some(None)` reverts to the built-in default.
     pub email_security_note_template: Option<Option<String>>,
     pub portal_share_by_domain: Option<bool>,
+    pub approval_waiting_display: Option<String>,
+    pub approval_skip_by: Option<String>,
+    pub approval_auto_approve_days: Option<Option<i32>>,
 }
 
 // API response for site settings (without internal fields)

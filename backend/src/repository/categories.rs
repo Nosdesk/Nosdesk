@@ -29,16 +29,19 @@ pub fn get_all_categories_with_visibility(
 
     let ids: Vec<i32> = all_categories.iter().map(|c| c.id).collect();
     let mut groups_map = get_visible_groups_for_categories(conn, &ids)?;
+    let mut approvers_map = approvers_for_categories(conn, &ids)?;
 
     Ok(all_categories
         .into_iter()
         .map(|category| {
             let visible_groups = groups_map.remove(&category.id).unwrap_or_default();
             let is_public = visible_groups.is_empty();
+            let approvers = approvers_map.remove(&category.id).unwrap_or_default();
             CategoryWithVisibility {
                 category,
                 visible_to_groups: visible_groups,
                 is_public,
+                approvers,
             }
         })
         .collect())
@@ -63,11 +66,15 @@ pub fn get_category_with_visibility(
 
     let visible_groups = get_visible_groups_for_category(conn, category_id)?;
     let is_public = visible_groups.is_empty();
+    let approvers = approvers_for_categories(conn, &[category_id])?
+        .remove(&category_id)
+        .unwrap_or_default();
 
     Ok(CategoryWithVisibility {
         category,
         visible_to_groups: visible_groups,
         is_public,
+        approvers,
     })
 }
 
@@ -170,6 +177,9 @@ pub fn seed_defaults_if_empty(
                 is_active: true,
                 created_by,
                 requester_visible: false,
+                approval_required: false,
+                approval_rule: "any".to_string(),
+                approval_by_manager: false,
             },
         )
         .collect();
@@ -273,6 +283,66 @@ pub fn set_category_visibility(
     diesel::insert_into(category_group_visibility::table)
         .values(&new_entries)
         .get_results(conn)
+}
+
+// ============================================================================
+// Approvers
+// ============================================================================
+
+/// Named approvers per request type.
+pub fn approvers_for_categories(
+    conn: &mut DbConnection,
+    category_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, Vec<CategoryApprover>>> {
+    let rows: Vec<(i32, Uuid, String)> = category_approvers::table
+        .inner_join(users::table.on(users::uuid.eq(category_approvers::user_uuid)))
+        .filter(category_approvers::category_id.eq_any(category_ids))
+        .order(users::name.asc())
+        .select((category_approvers::category_id, users::uuid, users::name))
+        .load(conn)?;
+    let mut map: std::collections::HashMap<i32, Vec<CategoryApprover>> = Default::default();
+    for (category_id, uuid, name) in rows {
+        map.entry(category_id)
+            .or_default()
+            .push(CategoryApprover { uuid, name });
+    }
+    Ok(map)
+}
+
+// sync-audit-only: request-type config, read by the admin page and at ticket creation; the audit trigger records writes
+/// Replace a request type's named approvers. Only members of the workspace
+/// can approve; anyone else in `user_uuids` is dropped.
+pub fn set_category_approvers(
+    conn: &mut DbConnection,
+    category_id: i32,
+    user_uuids: &[Uuid],
+) -> QueryResult<()> {
+    diesel::delete(
+        category_approvers::table.filter(category_approvers::category_id.eq(category_id)),
+    )
+    .execute(conn)?;
+    let members: Vec<Uuid> = workspace_members::table
+        .filter(workspace_members::user_uuid.eq_any(user_uuids))
+        .filter(workspace_members::removed_at.is_null())
+        .select(workspace_members::user_uuid)
+        .distinct()
+        .load(conn)?;
+    if members.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<_> = members
+        .iter()
+        .map(|u| {
+            (
+                category_approvers::category_id.eq(category_id),
+                category_approvers::user_uuid.eq(*u),
+            )
+        })
+        .collect();
+    diesel::insert_into(category_approvers::table)
+        .values(&rows)
+        .execute(conn)?;
+    Ok(())
 }
 
 // ============================================================================
@@ -547,6 +617,9 @@ mod tests {
                     is_active: Some(active),
                     updated_at: None,
                     requester_visible: Some(true),
+                    approval_required: None,
+                    approval_rule: None,
+                    approval_by_manager: None,
                 },
             )
             .unwrap();
@@ -571,5 +644,30 @@ mod tests {
             None
         );
         assert_eq!(offered_request_type(&mut conn, None).unwrap(), None);
+    }
+
+    #[test]
+    fn approvers_are_limited_to_members_and_replaced_wholesale() {
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let cat = crate::test_helpers::TestFixtures::create_category(&mut conn, "Laptop request");
+        let a = crate::test_helpers::TestFixtures::create_user(&mut conn, "approver_a", "user");
+        let b = crate::test_helpers::TestFixtures::create_user(&mut conn, "approver_b", "user");
+        let stranger = Uuid::new_v4();
+
+        set_category_approvers(&mut conn, cat.id, &[a.uuid, stranger]).unwrap();
+        let got: Vec<Uuid> = approvers_for_categories(&mut conn, &[cat.id])
+            .unwrap()
+            .remove(&cat.id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|x| x.uuid)
+            .collect();
+        assert_eq!(got, vec![a.uuid], "a non-member is dropped");
+
+        set_category_approvers(&mut conn, cat.id, &[b.uuid]).unwrap();
+        let got = get_category_with_visibility(&mut conn, cat.id)
+            .unwrap()
+            .approvers;
+        assert_eq!(got.iter().map(|x| x.uuid).collect::<Vec<_>>(), vec![b.uuid]);
     }
 }

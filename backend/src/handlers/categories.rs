@@ -107,6 +107,25 @@ pub struct CreateCategoryRequest {
     /// Offer it to requesters as a request type.
     #[serde(default)]
     pub requester_visible: bool,
+    #[serde(default)]
+    pub approval_required: bool,
+    #[serde(default)]
+    pub approval_rule: Option<String>,
+    #[serde(default)]
+    pub approval_by_manager: bool,
+    /// Named approvers (workspace members).
+    #[serde(default)]
+    pub approver_uuids: Option<Vec<uuid::Uuid>>,
+}
+
+/// `any` or `all`; anything else is refused.
+fn check_rule(rule: Option<&str>) -> Result<(), ApiError> {
+    match rule {
+        None | Some("any") | Some("all") => Ok(()),
+        Some(_) => Err(ApiError::BadRequest(
+            "Approval rule must be 'any' or 'all'".into(),
+        )),
+    }
 }
 
 /// Create a new category (admin only)
@@ -117,6 +136,7 @@ pub async fn create_category(
     body: web::Json<CreateCategoryRequest>,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
+    check_rule(body.approval_rule.as_deref())?;
 
     let created_by = Some(auth.user_uuid);
 
@@ -138,11 +158,21 @@ pub async fn create_category(
         is_active: true,
         created_by,
         requester_visible: body.requester_visible,
+        approval_required: body.approval_required,
+        approval_rule: body.approval_rule.clone().unwrap_or_else(|| "any".into()),
+        approval_by_manager: body.approval_by_manager,
     };
+    let approver_uuids = body.approver_uuids.clone();
 
     let group_ids = body.visible_to_group_ids.clone();
 
-    match tc.run(|conn| repository::categories::create_category(conn, new_category)) {
+    match tc.run(|conn| {
+        let category = repository::categories::create_category(conn, new_category)?;
+        if let Some(approvers) = &approver_uuids {
+            repository::categories::set_category_approvers(conn, category.id, approvers)?;
+        }
+        Ok::<_, diesel::result::Error>(category)
+    }) {
         Ok(category) => {
             // Set visibility if specified
             if let Some(ref group_ids) = group_ids {
@@ -201,6 +231,11 @@ pub struct UpdateCategoryRequest {
     pub is_active: Option<bool>,
     pub visible_to_group_ids: Option<Vec<i32>>, // If provided, replaces existing visibility
     pub requester_visible: Option<bool>,
+    pub approval_required: Option<bool>,
+    pub approval_rule: Option<String>,
+    pub approval_by_manager: Option<bool>,
+    /// If provided, replaces the named approvers.
+    pub approver_uuids: Option<Vec<uuid::Uuid>>,
 }
 
 /// Update an existing category (admin only)
@@ -213,6 +248,7 @@ pub async fn update_category(
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
+    check_rule(body.approval_rule.as_deref())?;
     let updated_by = Some(auth.user_uuid);
     let category_id = path.into_inner();
 
@@ -225,12 +261,21 @@ pub async fn update_category(
         is_active: body.is_active,
         updated_at: None,
         requester_visible: body.requester_visible,
+        approval_required: body.approval_required,
+        approval_rule: body.approval_rule.clone(),
+        approval_by_manager: body.approval_by_manager,
     };
+    let approver_uuids = body.approver_uuids.clone();
 
     let group_ids = body.visible_to_group_ids.clone();
 
-    match tc.run(|conn| repository::categories::update_category(conn, category_id, category_update))
-    {
+    match tc.run(|conn| {
+        let category = repository::categories::update_category(conn, category_id, category_update)?;
+        if let Some(approvers) = &approver_uuids {
+            repository::categories::set_category_approvers(conn, category_id, approvers)?;
+        }
+        Ok::<_, diesel::result::Error>(category)
+    }) {
         Ok(_) => {
             // Update visibility if specified
             if let Some(ref group_ids) = group_ids {

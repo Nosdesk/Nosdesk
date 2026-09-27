@@ -7486,3 +7486,44 @@ requester-sso-remove = Supprimer
 requester-sso-saved = Fournisseur de connexion enregistré
 requester-sso-removed = Fournisseur de connexion supprimé
 requester-sso-save-failed = L'enregistrement a échoué. Réessayez.
+
+## Approbations
+# Traduction automatique, en attente de relecture par un locuteur natif.
+
+admin-categories-approval-label = Nécessite une approbation
+admin-categories-approval-hint = Les demandes de ce type attendent une approbation avant d'être traitées par l'équipe. La conversation continue en attendant.
+admin-categories-approval-manager-label = Le responsable du demandeur approuve
+admin-categories-approval-manager-hint = Définissez les responsables sur les profils des personnes.
+admin-categories-approval-approvers-label = Approbateurs
+admin-categories-approval-remove = Retirer { $name }
+admin-categories-approval-add-placeholder = Ajouter un approbateur
+admin-categories-approval-rule-label = Approbations requises
+admin-categories-approval-rule-any = Un seul approbateur
+admin-categories-approval-rule-all = Tous les approbateurs
+admin-categories-approval-no-fallback = Ajoutez aussi un approbateur nommé, pour que les personnes sans responsable ne restent pas en attente.
+admin-categories-approval-none = Ajoutez un approbateur, ou demandez au responsable du demandeur.
+admin-nav-approvals-title = Approbations
+admin-nav-approvals-description = Comportement des demandes qui nécessitent une approbation
+route-title-admin-approvals = Approbations
+approval-settings-title = Approbations
+approval-settings-description = Comportement des demandes qui nécessitent une approbation dans cet espace de travail.
+approval-settings-types-link = Choisir les types de demande qui nécessitent une approbation.
+approval-settings-display-label = En attendant
+approval-settings-display-badge = Afficher avec un badge
+approval-settings-display-held = Mettre en attente
+approval-settings-display-badge-hint = Les demandes en attente restent dans les files, marquées « En attente d'approbation ». L'équipe peut échanger avec le demandeur mais ne peut pas résoudre la demande avant son approbation.
+approval-settings-display-held-hint = Les demandes en attente restent hors des files de travail et ne sont pas attribuées avant leur approbation. Une vue « En attente d'approbation » les liste.
+approval-settings-skip-label = Qui peut passer outre une approbation
+approval-settings-skip-nobody = Personne
+approval-settings-skip-admins = Les administrateurs
+approval-settings-skip-agents = Tout agent
+approval-settings-skip-hint = Chaque passage outre est consigné dans le journal d'audit. Les administrateurs peuvent toujours passer outre quand aucun approbateur n'a été trouvé.
+approval-settings-auto-label = Approuver automatiquement sans réponse
+approval-settings-auto-hint = Désactivé par défaut. L'approbation est enregistrée comme automatique.
+approval-settings-auto-days-label = Après (jours)
+approval-settings-save = Enregistrer
+approval-settings-saved = Paramètres d'approbation enregistrés
+approval-settings-save-failed = Impossible d'enregistrer les paramètres d'approbation
+user-contact-field-manager = Responsable
+user-contact-manager-placeholder = Choisir un responsable
+user-contact-manager-saved = Responsable enregistré

@@ -23,7 +23,8 @@ import { categoryService } from '@nosdesk/core/services/categoryService';
 import { groupService } from '@nosdesk/core/services/groupService';
 import { useListReorder } from '@/composables/useListReorder';
 import { useMobileDetection } from '@/composables/useMobileDetection';
-import type { CategoryWithVisibility, CreateCategoryRequest, UpdateCategoryRequest } from '@nosdesk/core/types/category';
+import type { CategoryApprovalRequest, CategoryWithVisibility, CreateCategoryRequest, UpdateCategoryRequest } from '@nosdesk/core/types/category';
+import CategoryApprovalFields, { type ApprovalFields } from '@/components/admin/CategoryApprovalFields.vue';
 import type { GroupWithMemberCount } from '@nosdesk/core/types/group';
 import { extractErrorMessage } from '@/utils/errors';
 
@@ -185,8 +186,13 @@ const categoryForm = ref({
   icon: 'folder',
   is_active: true,
   visible_to_group_ids: [] as number[],
-  requester_visible: false
+  requester_visible: false,
+  approval: noApproval()
 });
+
+function noApproval(): ApprovalFields {
+  return { approval_required: false, approval_rule: 'any', approval_by_manager: false, approvers: [] };
+}
 
 // Load groups for visibility selection
 const loadGroups = async () => {
@@ -208,7 +214,8 @@ const openCreateModal = () => {
       icon: 'folder',
       is_active: true,
       visible_to_group_ids: [],
-      requester_visible: false
+      requester_visible: false,
+      approval: noApproval()
     };
     showCategoryModal.value = true;
   } else {
@@ -227,7 +234,13 @@ const openEditModal = (category: CategoryWithVisibility) => {
       icon: category.icon || 'folder',
       is_active: category.is_active,
       visible_to_group_ids: category.visible_to_groups.map(g => g.id),
-      requester_visible: category.requester_visible
+      requester_visible: category.requester_visible,
+      approval: {
+        approval_required: category.approval_required,
+        approval_rule: category.approval_rule,
+        approval_by_manager: category.approval_by_manager,
+        approvers: [...category.approvers],
+      }
     };
     showCategoryModal.value = true;
   } else {
@@ -254,6 +267,7 @@ const saveCategoryFromForm = async (formData: {
   is_active: boolean;
   visible_to_group_ids: number[];
   requester_visible: boolean;
+  approval: ApprovalFields;
 }) => {
   if (!formData.name.trim()) {
     errorMessage.value = t('admin-categories-error-name-required');
@@ -275,6 +289,7 @@ const saveCategoryFromForm = async (formData: {
         icon: formData.icon,
         is_active: formData.is_active,
         requester_visible: formData.requester_visible,
+        ...approvalRequest(formData.approval),
         visible_to_group_ids: formData.visible_to_group_ids.length > 0
           ? formData.visible_to_group_ids
           : undefined
@@ -288,6 +303,7 @@ const saveCategoryFromForm = async (formData: {
         color: formData.color,
         icon: formData.icon,
         requester_visible: formData.requester_visible,
+        ...approvalRequest(formData.approval),
         visible_to_group_ids: formData.visible_to_group_ids.length > 0
           ? formData.visible_to_group_ids
           : undefined
@@ -318,6 +334,15 @@ const saveCategoryFromForm = async (formData: {
   }
 };
 
+function approvalRequest(a: ApprovalFields): CategoryApprovalRequest {
+  return {
+    approval_required: a.approval_required,
+    approval_rule: a.approval_rule,
+    approval_by_manager: a.approval_by_manager,
+    approver_uuids: a.approvers.map((x) => x.uuid),
+  };
+}
+
 // Save from mobile modal
 const saveCategory = async () => {
   await saveCategoryFromForm(categoryForm.value);
@@ -332,6 +357,7 @@ const onPanelSave = async (formData: {
   is_active: boolean;
   visible_to_group_ids: number[];
   requester_visible: boolean;
+  approval: ApprovalFields;
 }) => {
   await saveCategoryFromForm(formData);
 };
@@ -749,6 +775,7 @@ onMounted(() => {
         :label="$t('admin-categories-requester-visible-label')"
         :description="$t('admin-categories-requester-visible-hint')"
       />
+      <CategoryApprovalFields v-model="categoryForm.approval" />
 
       <!-- Group visibility -->
       <div>

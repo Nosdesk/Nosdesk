@@ -7477,3 +7477,44 @@ requester-sso-remove = Verwijderen
 requester-sso-saved = Aanmeldprovider opgeslagen
 requester-sso-removed = Aanmeldprovider verwijderd
 requester-sso-save-failed = Opslaan is niet gelukt. Probeer het opnieuw.
+
+## Goedkeuringen
+# Machinevertaling, te controleren door moedertaalspreker.
+
+admin-categories-approval-label = Goedkeuring nodig
+admin-categories-approval-hint = Aanvragen van dit type wachten op goedkeuring voordat het team ze uitvoert. Het gesprek gaat intussen door.
+admin-categories-approval-manager-label = De manager van de aanvrager keurt goed
+admin-categories-approval-manager-hint = Stel managers in op de profielen van mensen.
+admin-categories-approval-approvers-label = Goedkeurders
+admin-categories-approval-remove = { $name } verwijderen
+admin-categories-approval-add-placeholder = Goedkeurder toevoegen
+admin-categories-approval-rule-label = Benodigde goedkeuringen
+admin-categories-approval-rule-any = Eén goedkeurder
+admin-categories-approval-rule-all = Alle goedkeurders
+admin-categories-approval-no-fallback = Voeg ook een vaste goedkeurder toe, zodat mensen zonder manager niet blijven wachten.
+admin-categories-approval-none = Voeg een goedkeurder toe, of vraag het de manager van de aanvrager.
+admin-nav-approvals-title = Goedkeuringen
+admin-nav-approvals-description = Hoe aanvragen die goedkeuring nodig hebben zich gedragen
+route-title-admin-approvals = Goedkeuringen
+approval-settings-title = Goedkeuringen
+approval-settings-description = Hoe aanvragen die goedkeuring nodig hebben zich in deze werkruimte gedragen.
+approval-settings-types-link = Kies welke aanvraagtypes goedkeuring nodig hebben.
+approval-settings-display-label = Tijdens het wachten
+approval-settings-display-badge = Tonen met een label
+approval-settings-display-held = Achterhouden
+approval-settings-display-badge-hint = Wachtende aanvragen blijven in de wachtrijen, gemarkeerd als "Wacht op goedkeuring". Het team kan met de aanvrager praten, maar kan de aanvraag pas afronden na goedkeuring.
+approval-settings-display-held-hint = Wachtende aanvragen blijven buiten de werkwachtrijen en worden pas toegewezen na goedkeuring. Een weergave "Wacht op goedkeuring" toont ze.
+approval-settings-skip-label = Wie een goedkeuring mag overslaan
+approval-settings-skip-nobody = Niemand
+approval-settings-skip-admins = Beheerders
+approval-settings-skip-agents = Elke agent
+approval-settings-skip-hint = Elke overgeslagen goedkeuring wordt vastgelegd in het auditlogboek. Beheerders kunnen altijd overslaan als er geen goedkeurder gevonden is.
+approval-settings-auto-label = Automatisch goedkeuren als niemand antwoordt
+approval-settings-auto-hint = Standaard uit. De goedkeuring wordt als automatisch vastgelegd.
+approval-settings-auto-days-label = Na (dagen)
+approval-settings-save = Opslaan
+approval-settings-saved = Goedkeuringsinstellingen opgeslagen
+approval-settings-save-failed = Kan de goedkeuringsinstellingen niet opslaan
+user-contact-field-manager = Manager
+user-contact-manager-placeholder = Kies een manager
+user-contact-manager-saved = Manager opgeslagen

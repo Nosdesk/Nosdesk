@@ -159,6 +159,39 @@ pub fn upsert_profile(
         .get_result(conn)
 }
 
+// sync-audit-only: user profile is per-(user,workspace) contact data (audited); contact fields fold into the user sync payload in a later phase
+/// Set (or clear) someone's manager in this workspace, creating their profile
+/// row if they have none.
+pub fn set_manager(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    manager_uuid: Option<Uuid>,
+    actor: Option<Uuid>,
+) -> QueryResult<UserProfile> {
+    diesel::insert_into(user_profiles::table)
+        .values((
+            user_profiles::user_uuid.eq(user_uuid),
+            user_profiles::custom_fields.eq(serde_json::json!({})),
+            user_profiles::directory_synced.eq(false),
+            user_profiles::created_by.eq(actor),
+            user_profiles::manager_uuid.eq(manager_uuid),
+        ))
+        .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
+        .do_update()
+        .set(user_profiles::manager_uuid.eq(manager_uuid))
+        .get_result(conn)
+}
+
+/// Someone's manager in this workspace, if one is set.
+pub fn manager_of(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Option<Uuid>> {
+    Ok(user_profiles::table
+        .filter(user_profiles::user_uuid.eq(user_uuid))
+        .select(user_profiles::manager_uuid)
+        .first::<Option<Uuid>>(conn)
+        .optional()?
+        .flatten())
+}
+
 // ---- Phones (multi-valued, typed, workspace-scoped) ------------------------
 
 pub fn list_phones(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Vec<UserPhoneNumber>> {
@@ -433,6 +466,22 @@ pub fn apply_directory_contact(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_manager_is_set_and_cleared_without_touching_the_rest_of_the_profile() {
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let person =
+            crate::test_helpers::TestFixtures::create_user(&mut conn, "mgr_person", "user");
+        let boss = crate::test_helpers::TestFixtures::create_user(&mut conn, "mgr_boss", "user");
+        assert_eq!(manager_of(&mut conn, person.uuid).unwrap(), None);
+
+        set_manager(&mut conn, person.uuid, Some(boss.uuid), None).unwrap();
+        assert_eq!(manager_of(&mut conn, person.uuid).unwrap(), Some(boss.uuid));
+
+        let profile = set_manager(&mut conn, person.uuid, None, None).unwrap();
+        assert_eq!(profile.manager_uuid, None);
+        assert_eq!(manager_of(&mut conn, person.uuid).unwrap(), None);
+    }
     use super::*;
     use crate::models::{DirectoryAddress, UserPhoneInput};
     use crate::test_helpers::{setup_test_connection, TestFixtures};

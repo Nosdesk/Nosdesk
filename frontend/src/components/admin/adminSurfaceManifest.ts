@@ -17,6 +17,7 @@ export const ADMIN_SURFACE_TIER: Record<string, AdminSurfaceTier> = {
   // Tenant self-serve: running your own workspace.
   '/admin/groups': 'tenant',
   '/admin/categories': 'tenant',
+  '/admin/approvals': 'tenant',
   '/admin/user-fields': 'tenant',
   '/admin/assignment-rules': 'tenant',
   '/admin/workflow': 'tenant',

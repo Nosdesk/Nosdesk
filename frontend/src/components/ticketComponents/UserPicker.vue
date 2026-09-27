@@ -63,6 +63,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
+  /** The picked row, for consumers that keep a list (not a single value). */
+  (e: 'pick', user: PickerUser): void
 }>()
 
 defineExpose({
@@ -143,7 +145,10 @@ async function onOpenChange(open: boolean) {
 
 function commitSelection(uuid: string, user?: PickerUser) {
   emit('update:modelValue', uuid)
-  if (uuid && user) picker.remember(user)
+  if (uuid && user) {
+    picker.remember(user)
+    emit('pick', user)
+  }
   if (isOpen.value) onOpenChange(false)
 }
 
