@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, nextTick, ref } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 
@@ -13,6 +13,7 @@ import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 
 import AttachmentPicker from '../components/AttachmentPicker.vue'
 import PortalLayout from '../components/PortalLayout.vue'
+import ResolutionCard from '../components/ResolutionCard.vue'
 import { stateTone } from '../stateTone'
 import { attachmentUrl, getMyTicket, isClosed, replyToMyTicket, type PortalAttachment } from '../service'
 
@@ -23,6 +24,27 @@ const queryCache = useQueryCache()
 const ticketId = computed(() => Number(props.id))
 const key = computed(() => ['portal', 'ticket', ticketId.value])
 const detail = useQuery({ key, query: () => getMyTicket(ticketId.value) })
+
+// An answer from the resolved email, taken once and cleared from the URL so a
+// reload doesn't answer again.
+const route = useRoute()
+const router = useRouter()
+const answer = typeof route.query.answer === 'string' ? route.query.answer : null
+if (answer) void router.replace({ query: {} })
+
+// "No, I still need help": the reply box asks what's wrong and the reply
+// records that answer.
+const stillNeedsHelp = ref(false)
+async function askWhatsWrong(): Promise<void> {
+  stillNeedsHelp.value = true
+  await nextTick()
+  document.getElementById('portal-reply')?.focus()
+}
+
+async function refresh(): Promise<void> {
+  await queryCache.invalidateQueries({ key: key.value })
+  void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
+}
 
 const reply = ref('')
 const files = ref<PortalAttachment[]>([])
@@ -38,11 +60,12 @@ async function sendReply(): Promise<void> {
       ticketId.value,
       reply.value.trim(),
       files.value.map((f) => f.id),
+      stillNeedsHelp.value,
     )
     reply.value = ''
     files.value = []
-    await queryCache.invalidateQueries({ key: key.value })
-    void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
+    stillNeedsHelp.value = false
+    await refresh()
   } catch {
     replyFailed.value = true
   } finally {
@@ -116,11 +139,21 @@ async function sendReply(): Promise<void> {
         </li>
       </ol>
 
+      <ResolutionCard
+        v-if="detail.data.value.is_requester && !stillNeedsHelp"
+        :ticket="detail.data.value.ticket"
+        :rating="detail.data.value.rating"
+        :answer="answer"
+        @changed="refresh"
+        @still-needs-help="askWhatsWrong"
+      />
+
       <form class="flex flex-col gap-3 bg-surface border border-default rounded-xl p-4" @submit.prevent="sendReply">
         <FormTextarea
+          id="portal-reply"
           v-model="reply"
-          :label="t('portal-reply-label')"
-          :placeholder="t('portal-reply-placeholder')"
+          :label="stillNeedsHelp ? t('portal-still-label') : t('portal-reply-label')"
+          :placeholder="stillNeedsHelp ? t('portal-still-placeholder') : t('portal-reply-placeholder')"
           :rows="4"
           resize="vertical"
           :disabled="sending"

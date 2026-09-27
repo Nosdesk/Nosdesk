@@ -375,6 +375,21 @@ impl NotificationPayload {
 
     /// Replace the type's generic title, for a notification addressed to a
     /// requester rather than staff.
+    /// Mark a requester status update as resolving the request, so the email
+    /// asks whether it's fixed.
+    pub fn resolving(mut self) -> Self {
+        self.metadata["resolved"] = serde_json::Value::Bool(true);
+        self
+    }
+
+    /// Whether [`Self::resolving`] was applied.
+    pub fn is_resolving(&self) -> bool {
+        self.metadata
+            .get("resolved")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    }
+
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
         self

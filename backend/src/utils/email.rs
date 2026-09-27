@@ -252,6 +252,13 @@ pub struct Cta {
     pub url: String,
 }
 
+/// The two answers to "is it fixed?" in a resolved-request email. Each opens
+/// the request with that answer ready to confirm.
+pub struct FeedbackLinks {
+    pub fixed: String,
+    pub not_fixed: String,
+}
+
 /// The bulleted security-notes box.
 pub struct Notice {
     pub kind: NoticeType,
@@ -1962,6 +1969,7 @@ impl EmailService {
         actor_name: &str,
         cta_url: &str,
         cta_label: Option<&str>,
+        feedback: Option<&FeedbackLinks>,
         branding: &EmailBranding,
         locale: &unic_langid::LanguageIdentifier,
     ) -> (String, String) {
@@ -1986,10 +1994,38 @@ impl EmailService {
             )
         });
         let footer = tr("notif-footer-preferences", &[]);
+        // Two equal links, neither styled as the primary action.
+        let feedback_html = feedback.map(|f| {
+            let link = |url: &str, label: String| {
+                format!(
+                    r#"<a class="nd-link" href="{url}" style="color:{C_LINK};">{label}</a>"#,
+                    url = escape_html(url),
+                    label = escape_html(&label),
+                )
+            };
+            format!(
+                "{} {} &nbsp;&middot;&nbsp; {}",
+                escape_html(&tr("notif-feedback-question", &[])),
+                link(&f.fixed, tr("notif-feedback-fixed", &[])),
+                link(&f.not_fixed, tr("notif-feedback-not-fixed", &[])),
+            )
+        });
+        let text_body = match feedback {
+            Some(f) => format!(
+                "{body}\n\n{}\n{}: {}\n{}: {}",
+                tr("notif-feedback-question", &[]),
+                tr("notif-feedback-fixed", &[]),
+                f.fixed,
+                tr("notif-feedback-not-fixed", &[]),
+                f.not_fixed,
+            ),
+            None => body.to_string(),
+        };
         let html_body = template.render(
             EmailLayout {
                 headline: title,
                 body: std::iter::once(text(escape_html(body)))
+                    .chain(feedback_html.map(text))
                     .chain(from_row.map(muted))
                     .collect(),
                 cta: Some(Cta {
@@ -2009,7 +2045,7 @@ impl EmailService {
                 "notif-body-text-no-actor",
                 &[
                     ("title", title.to_string().into()),
-                    ("body", body.to_string().into()),
+                    ("body", text_body.clone().into()),
                     ("app", branding.app_name.clone().into()),
                     ("cta", cta_url.to_string().into()),
                     ("cta_label", button_label.clone().into()),
@@ -2020,7 +2056,7 @@ impl EmailService {
                 "notif-body-text",
                 &[
                     ("title", title.to_string().into()),
-                    ("body", body.to_string().into()),
+                    ("body", text_body.clone().into()),
                     ("actor", actor_name.to_string().into()),
                     ("app", branding.app_name.clone().into()),
                     ("cta", cta_url.to_string().into()),
@@ -2713,10 +2749,31 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             "Kyle",
             "https://desk.example.com/tickets/42",
             None,
+            None,
             &branding,
             &locale,
         );
         write("notification", &html);
+
+        let (html, text) = svc.compose_notification(
+            "Your request was updated",
+            "Request #42 is now Done.",
+            "Kyle",
+            "https://acme.example.com/api/portal/auth/ticket?t=EXAMPLE",
+            Some("View request"),
+            Some(&FeedbackLinks {
+                fixed: "https://acme.example.com/api/portal/auth/ticket?t=EXAMPLE&answer=fixed"
+                    .into(),
+                not_fixed:
+                    "https://acme.example.com/api/portal/auth/ticket?t=EXAMPLE&answer=not_fixed"
+                        .into(),
+            }),
+            &branding,
+            &locale,
+        );
+        assert!(html.contains("answer=fixed") && html.contains("answer=not_fixed"));
+        assert!(text.contains("answer=not_fixed"));
+        write("notification-resolved", &html);
 
         let (_subj, html, text) = svc.compose_portal_magic_link(
             "Alex",

@@ -50,6 +50,7 @@ pub mod sync_history;
 pub mod tags;
 pub mod ticket_merge;
 pub mod ticket_query;
+pub mod ticket_ratings;
 pub mod ticket_visibility;
 pub mod ticket_watchers;
 pub mod tickets;

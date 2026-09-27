@@ -282,6 +282,10 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
     }
     case 'ticket.resolution_notes_changed':
       return t('ticket-activity-phrase-resolution-changed')
+    case 'ticket.rated':
+      return data.rating === 'good'
+        ? t('ticket-activity-phrase-rated-fixed')
+        : t('ticket-activity-phrase-rated-not-fixed')
     case 'ticket.watcher_added': {
       const target = data.user_uuid as string | undefined
       const isSelf = !!target && !!ev.actor_uuid && target === ev.actor_uuid
@@ -403,6 +407,13 @@ function sourceTicketFor(ev: TicketActivityEvent): { id: number; title: string |
   const id = ev.data?.source_ticket_id
   if (typeof id !== 'number') return null
   return { id, title: pool.get<SyncTicket>('ticket', id)?.title ?? null }
+}
+
+/** The note a requester left with "it's fixed", shown under the row. */
+function ratingNoteFor(ev: TicketActivityEvent): string | null {
+  if (ev.event_type !== 'ticket.rated') return null
+  const note = ev.data?.comment
+  return typeof note === 'string' && note.trim() ? note : null
 }
 
 function isInternalNoteEvent(ev: TicketActivityEvent): boolean {
@@ -674,6 +685,7 @@ const hiddenRowCount = computed(() =>
               <span class="text-tertiary tabular-nums">
                 · {{ formatCompactRelativeTime(ev.occurred_at) }}
               </span>
+              <q v-if="ratingNoteFor(ev)" class="block mt-0.5 text-primary">{{ ratingNoteFor(ev) }}</q>
             </li>
           </ul>
         </li>
@@ -734,6 +746,7 @@ const hiddenRowCount = computed(() =>
             <span class="text-tertiary tabular-nums">
               · {{ formatCompactRelativeTime(item.events[0].occurred_at) }}
             </span>
+            <q v-if="ratingNoteFor(item.events[0])" class="block mt-0.5 text-primary">{{ ratingNoteFor(item.events[0]) }}</q>
           </div>
         </li>
       </template>

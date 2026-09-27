@@ -41,9 +41,19 @@ export interface PortalComment {
   attachments: PortalAttachment[]
 }
 
+/** The requester's answer to "is it fixed?". */
+export interface PortalRating {
+  rating: 'good' | 'bad'
+  comment: string | null
+}
+
 export interface PortalTicketDetail {
   ticket: PortalTicket
   comments: PortalComment[]
+  /** The viewer's own answer, if they gave one. */
+  rating: PortalRating | null
+  /** Whether the viewer requested it (only they answer "is it fixed?"). */
+  is_requester: boolean
 }
 
 export interface PortalMe {
@@ -108,8 +118,18 @@ export async function replyToMyTicket(
   id: number,
   content: string,
   attachmentIds: number[] = [],
+  stillNeedsHelp = false,
 ): Promise<void> {
-  await portalApi.post(`/tickets/${id}/comments`, { content, attachment_ids: attachmentIds })
+  await portalApi.post(`/tickets/${id}/comments`, {
+    content,
+    attachment_ids: attachmentIds,
+    still_needs_help: stillNeedsHelp,
+  })
+}
+
+/** The requester says it's fixed: closes an open request and records it. */
+export async function resolveMyTicket(id: number, comment?: string): Promise<void> {
+  await portalApi.post(`/tickets/${id}/resolve`, { comment: comment ?? null })
 }
 
 /** Stage a file for the next reply or request; returns its id. */
