@@ -623,17 +623,23 @@ fn handle_missing_asset(path: &str) -> HttpResponse {
 /// middleware host-resolved a `WorkspaceContext` from `<slug>.nosdesk.app` or a
 /// verified custom domain), the agent app (`index.html`) otherwise. The guest
 /// pages on a tenant origin (`/submit-ticket`, `/docs/...`) live in the agent
-/// app, so they stay on it. Self-host always serves the agent app, ignoring its
-/// ever-present bootstrap workspace.
+/// app, so they stay on it. Self-host shares one origin with the agent app, so
+/// its portal is everything under `/portal`.
 fn spa_shell_path(
     mode: crate::middleware::DeploymentMode,
     host_resolved_workspace: bool,
     path: &str,
 ) -> &'static str {
-    if mode == crate::middleware::DeploymentMode::Hosted
-        && host_resolved_workspace
-        && is_portal_route(path)
-    {
+    let portal = match mode {
+        crate::middleware::DeploymentMode::Hosted => {
+            host_resolved_workspace && is_portal_route(path)
+        }
+        // One origin with the agent app: the portal lives under `/portal`.
+        crate::middleware::DeploymentMode::SelfHosted => {
+            path == "/portal" || path.starts_with("/portal/")
+        }
+    };
+    if portal {
         "./public/portal.html"
     } else {
         "./public/index.html"
@@ -1023,6 +1029,8 @@ pub fn configure_app(
                     // GET / POST list + create; per-id rename /
                     // archive / restore / hard-delete. Hard-delete
                     // requires ?confirm=<slug> matching the row.
+                    // Hand an app session over to the requester portal.
+                    .configure(crate::handlers::portal::app_config)
                     .configure(crate::handlers::admin_workspaces::config)
                     .configure(crate::handlers::admin_license::config)
                     .configure(crate::handlers::workspace_export::config)
@@ -1966,7 +1974,7 @@ mod tests {
     use crate::middleware::DeploymentMode;
 
     #[test]
-    fn portal_shell_only_for_portal_routes_on_a_hosted_tenant_origin() {
+    fn portal_shell_serves_only_the_portal_routes() {
         let hosted = DeploymentMode::Hosted;
         for path in [
             "/",
@@ -1995,14 +2003,26 @@ mod tests {
             spa_shell_path(hosted, false, "/tickets"),
             "./public/index.html"
         );
-        // Self-host always serves the agent app, even though its bootstrap
-        // workspace makes a context ever-present.
+        // Self-host: agent routes stay on the agent app even though its
+        // bootstrap workspace makes a context ever-present; the portal is
+        // everything under `/portal`.
         assert_eq!(
             spa_shell_path(DeploymentMode::SelfHosted, true, "/tickets"),
             "./public/index.html"
         );
         assert_eq!(
             spa_shell_path(DeploymentMode::SelfHosted, false, "/"),
+            "./public/index.html"
+        );
+        for path in ["/portal", "/portal/", "/portal/tickets/12", "/portal/login"] {
+            assert_eq!(
+                spa_shell_path(DeploymentMode::SelfHosted, true, path),
+                "./public/portal.html",
+                "{path}"
+            );
+        }
+        assert_eq!(
+            spa_shell_path(DeploymentMode::SelfHosted, true, "/portalish"),
             "./public/index.html"
         );
     }
