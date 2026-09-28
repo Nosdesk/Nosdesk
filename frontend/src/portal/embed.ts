@@ -1,12 +1,26 @@
-// Embed mode: the portal inside the help widget's iframe on a customer's site
-// (served at `/widget`, see backend `handlers::widget`).
+// Embed mode: the portal inside a host's frame. Two hosts:
+// - the help widget on a customer's site (`/widget`, backend `handlers::widget`);
+// - the Microsoft Teams personal tab (`/teams`, see `./teams`).
 //
-// The loader on the host page posts `nosdesk:init` once the iframe loads,
-// saying whether the site signs visitors in. We accept messages only from our
-// direct parent, learn its origin from that first message, and send
-// everything back to exactly that origin.
+// The widget's loader posts `nosdesk:init` once the iframe loads, saying
+// whether the site signs visitors in. We accept messages only from our direct
+// parent, learn its origin from that first message, and send everything back
+// to exactly that origin.
 
-export const isEmbed = /\/widget\/?$/.test(window.location.pathname)
+import { signInTeams, teamsBearer } from './teams'
+
+export type EmbedHost = 'widget' | 'teams'
+
+export const embedHost: EmbedHost | null = /\/widget\/?$/.test(window.location.pathname)
+  ? 'widget'
+  : /\/teams\/?$/.test(window.location.pathname)
+    ? 'teams'
+    : null
+
+export const isEmbed = embedHost !== null
+
+/** The embedded portal's first screen. */
+export const embedHome = embedHost === 'teams' ? '/teams-status' : '/embed'
 
 export interface EmbedInit {
   /** The host page's origin (`https://help.acme.com`). */
@@ -24,7 +38,7 @@ const initPromise = new Promise<EmbedInit>((resolve) => {
   resolveInit = resolve
 })
 
-if (isEmbed) {
+if (embedHost === 'widget') {
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent) return
     const data = event.data as { type?: string; identity?: unknown } | null
@@ -55,9 +69,15 @@ export function postToParent(message: Record<string, unknown>): void {
   if (parentOrigin) window.parent.postMessage(message, parentOrigin)
 }
 
-/** The signed-in visitor's portal token, if any. */
+/** The signed-in person's portal token, if any. */
 export function embedBearer(): string | null {
-  return bearer
+  return embedHost === 'teams' ? teamsBearer() : bearer
+}
+
+/** Sign the person in again through the host (their token lapsed). */
+export async function signInEmbedded(): Promise<boolean> {
+  if (embedHost === 'teams') return (await signInTeams()) === null
+  return signInVisitor()
 }
 
 /** Ask the host page for a visitor token (its `getToken`); null if it has none

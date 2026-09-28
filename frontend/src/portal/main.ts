@@ -16,7 +16,7 @@ import { IN_PORTAL } from '@/components/public/inPortal'
 
 import App from './App.vue'
 import router from './router'
-import { isEmbed } from './embed'
+import { embedHost, isEmbed } from './embed'
 import { browserLocale } from './locale'
 
 window.addEventListener('vite:preloadError', (event) => {
@@ -42,16 +42,34 @@ async function bootstrap(): Promise<void> {
   app.use(PiniaColada, {})
   app.use(router)
 
-  useThemeStore(pinia)
+  const theme = useThemeStore(pinia)
   void useBrandingStore(pinia).loadBranding()
 
   if (isEmbed) {
-    // Plain links open in a new tab rather than navigating the iframe.
+    // Plain links open in a new tab rather than navigating the frame.
     const base = document.createElement('base')
     base.target = '_blank'
     document.head.appendChild(base)
-    await router.replace('/embed')
   }
+  if (embedHost === 'teams') {
+    // Teams keeps its own loading indicator up until we say we've drawn.
+    const teams = await import('./teams')
+    const context = await teams.initTeams()
+    if (context) {
+      theme.setTheme(teams.portalTheme(context.theme))
+      teams.onTeamsThemeChange((next) => theme.setTheme(teams.portalTheme(next)))
+      if (context.locale) useDateStore(pinia).setUserLocale(context.locale)
+    } else {
+      teams.teamsProblem.value = 'not-in-teams'
+    }
+    const signedIn = context !== null && (await teams.signInTeams()) === null
+    await router.replace(signedIn ? teams.routeForSubPage(context?.subPageId ?? null) : '/teams-status')
+    await router.isReady()
+    app.mount('#app')
+    teams.notifyTeamsReady()
+    return
+  }
+  if (embedHost === 'widget') await router.replace('/embed')
   await router.isReady()
   app.mount('#app')
 }

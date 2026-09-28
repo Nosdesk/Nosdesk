@@ -14,7 +14,7 @@ import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings'
 import NoticeBanner from '@/components/requester/NoticeBanner.vue'
 
 import { followNotice, getMe, getNotice, listMyApprovals, signOut } from '../service'
-import { isEmbed } from '../embed'
+import { embedHost } from '../embed'
 
 const { $t: t } = useFluent()
 const router = useRouter()
@@ -71,9 +71,16 @@ async function onSignOut(): Promise<void> {
 
 <template>
   <div class="min-h-dvh w-full flex flex-col bg-app">
-    <header v-if="!isEmbed" class="w-full border-b border-default bg-surface">
+    <!-- The widget has its own header; in Teams the app bar already names us
+         and signing out isn't ours to do. -->
+    <header v-if="embedHost !== 'widget'" class="w-full border-b border-default bg-surface">
       <div class="max-w-3xl mx-auto px-4 h-14 flex items-center gap-4">
-        <RouterLink to="/tickets" class="flex items-center gap-2 min-w-0" :aria-label="branding.appName">
+        <RouterLink
+          v-if="embedHost !== 'teams'"
+          to="/tickets"
+          class="flex items-center gap-2 min-w-0"
+          :aria-label="branding.appName"
+        >
           <img v-if="logoUrl" :src="logoUrl" :alt="branding.appName" class="h-7 max-w-[160px] object-contain" />
           <LogoIcon v-else class="h-7 text-accent" />
         </RouterLink>
@@ -106,10 +113,12 @@ async function onSignOut(): Promise<void> {
           <Button size="sm" icon="add" @click="router.push('/tickets/new')">
             {{ t('portal-nav-new') }}
           </Button>
-          <span v-if="me.data.value" class="hidden sm:inline text-sm text-secondary truncate max-w-[12rem]">
-            {{ me.data.value.name }}
-          </span>
-          <Button variant="ghost" size="sm" @click="onSignOut">{{ t('portal-sign-out') }}</Button>
+          <template v-if="embedHost !== 'teams'">
+            <span v-if="me.data.value" class="hidden sm:inline text-sm text-secondary truncate max-w-[12rem]">
+              {{ me.data.value.name }}
+            </span>
+            <Button variant="ghost" size="sm" @click="onSignOut">{{ t('portal-sign-out') }}</Button>
+          </template>
         </div>
       </div>
     </header>

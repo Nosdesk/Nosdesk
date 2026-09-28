@@ -216,6 +216,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         keywords: ['widget', 'embed', 'website', 'chat', 'help button', 'launcher', 'intranet']
       },
       {
+        titleKey: 'admin-nav-teams-title',
+        descriptionKey: 'admin-nav-teams-description',
+        icon: 'microsoft',
+        route: '/admin/teams',
+        keywords: ['teams', 'microsoft', 'microsoft 365', 'outlook', 'tab', 'app', 'entra']
+      },
+      {
         titleKey: 'admin-nav-notices-title',
         descriptionKey: 'admin-nav-notices-description',
         icon: 'info',
