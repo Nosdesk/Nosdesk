@@ -37,6 +37,7 @@ export const ADMIN_SURFACE_TIER: Record<string, AdminSurfaceTier> = {
   '/admin/notices': 'tenant',
   '/admin/requester-sign-in': 'tenant',
   '/admin/widget': 'tenant',
+  '/admin/teams': 'tenant',
   '/admin/guest-access': 'tenant',
   // The System-settings page is tenant-facing (workspace data export); its
   // instance-wide maintenance buttons are gated inside the view.

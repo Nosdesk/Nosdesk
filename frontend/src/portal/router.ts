@@ -15,11 +15,17 @@ const base =
     : '/'
 
 const router = createRouter({
-  // Embedded in a customer's page the iframe keeps one URL: navigation stays
-  // in memory, so it never reloads onto a page that refuses framing.
+  // Embedded (the widget, the Teams tab) the frame keeps one URL: navigation
+  // stays in memory, so it never reloads onto a page that refuses framing.
   history: isEmbed ? createMemoryHistory() : createWebHistory(base),
   routes: [
     { path: '/embed', name: 'embed', component: () => import('./views/EmbedHomeView.vue') },
+    // The Teams tab when it can't sign the person in on its own.
+    {
+      path: '/teams-status',
+      name: 'teams-status',
+      component: () => import('./views/TeamsStatusView.vue'),
+    },
     { path: '/', redirect: '/tickets' },
     { path: '/login', name: 'login', component: LoginView },
     { path: '/tickets', name: 'tickets', component: TicketsView },

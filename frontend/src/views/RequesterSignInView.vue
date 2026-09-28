@@ -151,6 +151,7 @@ async function copyRedirect(): Promise<void> {
           type="password"
           autocomplete="off"
           :label="t('requester-sso-client-secret-label')"
+          :description="t('requester-sso-client-secret-hint')"
           :placeholder="provider?.has_client_secret ? t('requester-sso-client-secret-kept') : ''"
         />
         <FormInput

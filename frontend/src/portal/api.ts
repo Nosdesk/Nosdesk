@@ -6,7 +6,7 @@
 // backend validates via `csrf_cookie_for_path` for `/api/portal/*`.
 import axios from 'axios'
 
-import { embedBearer, isEmbed, signInVisitor } from './embed'
+import { embedBearer, embedHome, isEmbed, signInEmbedded } from './embed'
 
 function portalCsrfToken(): string | null {
   const match = document.cookie.match(/(?:^|;\s*)(?:__Host-)?portal_csrf=([^;]+)/)
@@ -64,10 +64,10 @@ portalApi.interceptors.response.use(
     if ((status === 401 || staleCsrf) && original && !original._retried) {
       original._retried = true
       if (isEmbed) {
-        // The visitor's token lapsed: ask the host page for a fresh one.
-        if (await signInVisitor()) return portalApi(original)
+        // The token lapsed: ask the host for a fresh one.
+        if (await signInEmbedded()) return portalApi(original)
         const { default: router } = await import('./router')
-        if (router.currentRoute.value.name !== 'embed') router.push('/embed')
+        if (router.currentRoute.value.path !== embedHome) router.push(embedHome)
         return Promise.reject(error)
       }
       if (await refreshSession()) return portalApi(original)

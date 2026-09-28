@@ -21,8 +21,10 @@
     "lint:views": "node scripts/check-view-roots.mjs"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.23.0",
     "@fluent/bundle": "^0.19.1",
     "@internationalized/date": "^3.12.4",
+    "@microsoft/teams-js": "^2.57.0",
     "@nosdesk/core": "workspace:*",
     "@nosdesk/mobile": "workspace:*",
     "@nosdesk/plugin-sdk": "workspace:*",

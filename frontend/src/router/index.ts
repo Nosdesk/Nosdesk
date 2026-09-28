@@ -864,6 +864,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-widget', adminRequired: true }
         },
         {
+          path: 'teams',
+          name: 'admin-teams',
+          component: () => import('../views/TeamsSettingsView.vue'),
+          meta: { titleKey: 'route-title-admin-teams', adminRequired: true }
+        },
+        {
           path: 'requester-sign-in',
           name: 'admin-requester-sign-in',
           component: () => import('../views/RequesterSignInView.vue'),
