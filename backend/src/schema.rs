@@ -2338,6 +2338,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_widget_settings (id) {
+        id -> Int4,
+        enabled -> Bool,
+        allowed_origins -> Array<Nullable<Text>>,
+        allow_anonymous -> Bool,
+        encrypted_secret -> Nullable<Bytea>,
+        encrypted_kek_id -> Nullable<Int2>,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     workspaces (id) {
         id -> Int4,
         uuid -> Uuid,
@@ -2628,6 +2642,7 @@ diesel::joinable!(workspace_notices -> users (created_by));
 diesel::joinable!(workspace_notices -> workspaces (workspace_id));
 diesel::joinable!(workspace_notification_defaults -> notification_types (notification_type_id));
 diesel::joinable!(workspace_notification_defaults -> workspaces (workspace_id));
+diesel::joinable!(workspace_widget_settings -> workspaces (workspace_id));
 diesel::joinable!(yjs_snapshots -> workspaces (workspace_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -2760,6 +2775,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     workspace_members,
     workspace_notices,
     workspace_notification_defaults,
+    workspace_widget_settings,
     workspaces,
     yjs_snapshots,
 );

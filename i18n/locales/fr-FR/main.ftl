@@ -7591,3 +7591,40 @@ builtin-view-awaiting-approval-name = En attente d'approbation
 builtin-view-awaiting-approval-description = Demandes en attente d'un approbateur
 views-ticket-row-approval-badge = En attente d'approbation
 views-ticket-row-approval-tooltip = En attente d'approbation avant de pouvoir être résolue
+
+## Widget
+# Traduction automatique, en attente de relecture par un locuteur natif.
+
+widget-back = Retour
+widget-close = Fermer
+widget-title = Comment pouvons-nous vous aider ?
+widget-sign-in-needed = Connectez-vous au portail d'assistance pour demander de l'aide.
+widget-help-articles = Articles d'aide
+widget-help-articles-hint = Réponses aux questions fréquentes
+widget-new-request = Demander de l'aide
+widget-new-request-hint = Envoyer une demande à l'équipe
+widget-open-portal = Ouvrir le portail d'assistance complet
+admin-nav-widget-title = Widget d'aide
+admin-nav-widget-description = Un bouton d'aide pour votre site web ou intranet
+route-title-admin-widget = Widget d'aide
+widget-admin-title = Widget d'aide
+widget-admin-description = Ajoutez un bouton d'aide à votre site web ou intranet. Les visiteurs consultent les articles d'aide et envoient des demandes sans quitter la page.
+widget-admin-enabled-label = Afficher le widget
+widget-admin-origins-label = Sites qui l'affichent
+widget-admin-origins-hint = Une adresse par ligne, comme https://www.acme.com ou https://*.acme.com. Les autres sites ne peuvent pas l'intégrer.
+widget-admin-anonymous-label = Aider les visiteurs non connectés
+widget-admin-anonymous-hint = Ils ont accès aux articles d'aide et au formulaire de demande proposés dans Accès invité. Désactivez pour n'aider que les personnes connectées.
+widget-admin-save = Enregistrer
+widget-admin-saved = Paramètres du widget enregistrés
+widget-admin-save-failed = Impossible d'enregistrer les paramètres du widget
+widget-admin-install-title = L'ajouter à votre site
+widget-admin-install-hint = Collez ceci avant la balise body de fermeture sur chaque page qui doit afficher le bouton d'aide.
+widget-admin-copy = Copier
+widget-admin-copied = Copié
+widget-admin-secret-title = Secret de signature
+widget-admin-secret-hint = Le serveur de votre site l'utilise pour connecter les visiteurs, afin qu'ils voient leurs propres demandes. Quiconque le détient peut se connecter en tant que n'importe qui sur ce portail : gardez-le sur votre serveur et renouvelez-le s'il fuite.
+widget-admin-secret-once = Copiez-le maintenant. Il ne sera plus affiché.
+widget-admin-secret-set = Un secret est défini.
+widget-admin-secret-none = Aucun secret pour l'instant.
+widget-admin-secret-generate = Générer un secret
+widget-admin-secret-rotate = Renouveler le secret

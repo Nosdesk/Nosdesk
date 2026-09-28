@@ -937,7 +937,8 @@ pub fn configure_app(
                     .wrap(RateLimiter::default())
                     .configure(crate::handlers::portal::auth_config)
                     .configure(crate::handlers::portal_sso::auth_config)
-                    .configure(crate::handlers::approvals::portal_auth_config),
+                    .configure(crate::handlers::approvals::portal_auth_config)
+                    .configure(crate::handlers::widget::portal_auth_config),
             )
             // Authenticated customer portal API. Registered AFTER the public
             // `/api/portal/auth` scope so the sign-in routes match there first.
@@ -1176,6 +1177,7 @@ pub fn configure_app(
                     .configure(crate::handlers::requester_sso::config)
                     .configure(crate::handlers::approval_settings::config)
                     .configure(crate::handlers::approvals::config)
+                    .configure(crate::handlers::widget::config)
                     // Known-issue notices (agents and up).
                     .configure(crate::handlers::notices::config)
                     .configure(crate::handlers::notifications::config)
@@ -1240,6 +1242,12 @@ pub fn configure_app(
                     .use_last_modified(true)
                     .use_etag(true)
             )
+            // The embeddable widget: its framed page and loader (both paths, so
+            // the iframe URL is the script URL minus `.js`).
+            .route("/widget", web::get().to(crate::handlers::widget::serve_shell))
+            .route("/portal/widget", web::get().to(crate::handlers::widget::serve_shell))
+            .route("/widget.js", web::get().to(crate::handlers::widget::serve_loader))
+            .route("/portal/widget.js", web::get().to(crate::handlers::widget::serve_loader))
             // Root path handler - serves index.html or rebuilding message
             .route("/", web::get().to(serve_spa))
             .service(

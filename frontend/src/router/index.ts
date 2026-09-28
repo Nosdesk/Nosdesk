@@ -858,6 +858,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-approvals', adminRequired: true }
         },
         {
+          path: 'widget',
+          name: 'admin-widget',
+          component: () => import('../views/WidgetSettingsView.vue'),
+          meta: { titleKey: 'route-title-admin-widget', adminRequired: true }
+        },
+        {
           path: 'requester-sign-in',
           name: 'admin-requester-sign-in',
           component: () => import('../views/RequesterSignInView.vue'),

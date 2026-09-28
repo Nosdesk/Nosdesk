@@ -64,6 +64,7 @@ mod workspace_export_jobs;
 mod workspace_identity_providers;
 mod workspace_ldap_settings;
 mod workspace_notices;
+mod workspace_widget_settings;
 mod workspaces;
 
 pub use active_sessions::*;
@@ -121,6 +122,7 @@ pub use workspace_export_jobs::*;
 pub use workspace_identity_providers::*;
 pub use workspace_ldap_settings::*;
 pub use workspace_notices::*;
+pub use workspace_widget_settings::*;
 pub use workspaces::*;
 
 use uuid::Uuid;

@@ -86,6 +86,7 @@ pub mod user_contact;
 pub mod users;
 pub mod webhooks;
 pub mod well_known;
+pub mod widget;
 pub mod workflow_states;
 pub mod workspace_data_export;
 pub mod workspace_email;

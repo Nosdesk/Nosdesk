@@ -7582,3 +7582,40 @@ builtin-view-awaiting-approval-name = Wacht op goedkeuring
 builtin-view-awaiting-approval-description = Aanvragen die op een goedkeurder wachten
 views-ticket-row-approval-badge = Wacht op goedkeuring
 views-ticket-row-approval-tooltip = Wacht op goedkeuring voordat de aanvraag afgerond kan worden
+
+## Widget
+# Machinevertaling, te controleren door moedertaalspreker.
+
+widget-back = Terug
+widget-close = Sluiten
+widget-title = Waarmee kunnen we helpen?
+widget-sign-in-needed = Meld je aan bij het hulpportaal om hulp te vragen.
+widget-help-articles = Hulpartikelen
+widget-help-articles-hint = Antwoorden op veelgestelde vragen
+widget-new-request = Hulp vragen
+widget-new-request-hint = Stuur een aanvraag naar het team
+widget-open-portal = Het volledige hulpportaal openen
+admin-nav-widget-title = Hulpwidget
+admin-nav-widget-description = Een hulpknop voor je website of intranet
+route-title-admin-widget = Hulpwidget
+widget-admin-title = Hulpwidget
+widget-admin-description = Zet een hulpknop op je website of intranet. Bezoekers lezen hulpartikelen en sturen aanvragen zonder de pagina te verlaten.
+widget-admin-enabled-label = De widget tonen
+widget-admin-origins-label = Sites die hem tonen
+widget-admin-origins-hint = Eén adres per regel, zoals https://www.acme.com of https://*.acme.com. Andere sites kunnen hem niet insluiten.
+widget-admin-anonymous-label = Bezoekers helpen die niet zijn aangemeld
+widget-admin-anonymous-hint = Ze krijgen de hulpartikelen en het aanvraagformulier die je onder Gasttoegang aanbiedt. Zet uit om alleen aangemelde mensen te helpen.
+widget-admin-save = Opslaan
+widget-admin-saved = Widgetinstellingen opgeslagen
+widget-admin-save-failed = Kan de widgetinstellingen niet opslaan
+widget-admin-install-title = Toevoegen aan je site
+widget-admin-install-hint = Plak dit vóór de afsluitende body-tag op elke pagina die de hulpknop moet tonen.
+widget-admin-copy = Kopiëren
+widget-admin-copied = Gekopieerd
+widget-admin-secret-title = Ondertekeningsgeheim
+widget-admin-secret-hint = De server van je site gebruikt dit om bezoekers aan te melden, zodat ze hun eigen aanvragen zien. Wie het heeft, kan zich in dit hulpportaal als iedereen aanmelden: bewaar het op je server en vernieuw het als het uitlekt.
+widget-admin-secret-once = Kopieer het nu. Het wordt niet opnieuw getoond.
+widget-admin-secret-set = Er is een geheim ingesteld.
+widget-admin-secret-none = Nog geen geheim.
+widget-admin-secret-generate = Geheim genereren
+widget-admin-secret-rotate = Geheim vernieuwen

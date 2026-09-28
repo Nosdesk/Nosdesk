@@ -73,6 +73,24 @@ async fn approvals_routes_registered() {
 }
 
 #[actix_web::test]
+async fn widget_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::widget::config,
+        &[
+            ("GET", "/admin/widget"),
+            ("PUT", "/admin/widget"),
+            ("POST", "/admin/widget/secret"),
+        ],
+    )
+    .await;
+    assert_config_registers(
+        crate::handlers::widget::portal_auth_config,
+        &[("GET", "/widget")],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn approval_settings_config_routes_registered() {
     assert_config_registers(
         crate::handlers::approval_settings::config,
