@@ -68,6 +68,53 @@ pub fn create_session_capped(
     })
 }
 
+/// How long a help-widget session lasts: the portal token it backs (15
+/// minutes), renewed each time the widget signs the person in again.
+pub const WIDGET_SESSION_MINUTES: i64 = 15;
+/// Device name marking a help-widget session.
+pub const WIDGET_DEVICE: &str = "Help widget";
+
+// sync-audit-only: session bookkeeping; the widget sign-in reuses one short session per person
+/// The person's help-widget session: their current one, renewed, or a new
+/// one. One short session per person, outside the per-user cap, so a site that
+/// signs people in on every page view doesn't push their other sessions out.
+pub fn widget_session(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    ip_address: Option<ipnetwork::IpNetwork>,
+    user_agent: Option<String>,
+) -> Result<ActiveSession, diesel::result::Error> {
+    let now = chrono::Utc::now();
+    let expires = (now + chrono::Duration::minutes(WIDGET_SESSION_MINUTES)).naive_utc();
+    let current = active_sessions::table
+        .filter(active_sessions::user_uuid.eq(user_uuid))
+        .filter(active_sessions::device_name.eq(WIDGET_DEVICE))
+        .filter(active_sessions::expires_at.gt(now))
+        .order_by(active_sessions::last_active.desc())
+        .first::<ActiveSession>(conn)
+        .optional()?;
+    if let Some(session) = current {
+        return diesel::update(active_sessions::table.find(session.id))
+            .set((
+                active_sessions::expires_at.eq(expires),
+                active_sessions::last_active.eq(now),
+            ))
+            .get_result(conn);
+    }
+    create_session(
+        conn,
+        NewActiveSession {
+            user_uuid,
+            device_name: Some(WIDGET_DEVICE.to_string()),
+            ip_address,
+            user_agent,
+            location: None,
+            expires_at: expires,
+            oidc_id_token: None,
+        },
+    )
+}
+
 /// Get all active sessions for a user
 pub fn get_user_sessions(
     conn: &mut DbConnection,
@@ -257,5 +304,27 @@ mod tests {
 
         // Filling one user's quota must not touch anyone else's sessions.
         assert!(get_session_by_session_id(&mut conn, &theirs.session_id).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod widget_session_tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    #[test]
+    fn repeat_widget_sign_ins_reuse_one_short_session() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "widget_sessions", "user");
+        let first = widget_session(&mut conn, user.uuid, None, None).unwrap();
+        let again = widget_session(&mut conn, user.uuid, None, None).unwrap();
+        assert_eq!(first.session_id, again.session_id);
+        let rows = get_user_sessions(&mut conn, &user.uuid).unwrap();
+        assert_eq!(rows.len(), 1);
+        let left = again.expires_at - chrono::Utc::now().naive_utc();
+        assert!(
+            left <= chrono::Duration::minutes(WIDGET_SESSION_MINUTES),
+            "short-lived"
+        );
     }
 }

@@ -14,6 +14,7 @@ import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings'
 import NoticeBanner from '@/components/requester/NoticeBanner.vue'
 
 import { followNotice, getMe, getNotice, listMyApprovals, signOut } from '../service'
+import { isEmbed } from '../embed'
 
 const { $t: t } = useFluent()
 const router = useRouter()
@@ -70,7 +71,7 @@ async function onSignOut(): Promise<void> {
 
 <template>
   <div class="min-h-dvh w-full flex flex-col bg-app">
-    <header class="w-full border-b border-default bg-surface">
+    <header v-if="!isEmbed" class="w-full border-b border-default bg-surface">
       <div class="max-w-3xl mx-auto px-4 h-14 flex items-center gap-4">
         <RouterLink to="/tickets" class="flex items-center gap-2 min-w-0" :aria-label="branding.appName">
           <img v-if="logoUrl" :src="logoUrl" :alt="branding.appName" class="h-7 max-w-[160px] object-contain" />

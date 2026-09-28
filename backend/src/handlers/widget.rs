@@ -27,7 +27,8 @@ const MAX_ORIGINS: usize = 20;
 /// What the embedded page needs before anyone signs in (public, in
 /// `/api/portal/auth`).
 pub fn portal_auth_config(cfg: &mut web::ServiceConfig) {
-    cfg.route("/widget", web::get().to(embed_info));
+    cfg.route("/widget", web::get().to(embed_info))
+        .route("/widget/session", web::post().to(exchange_session));
 }
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -94,7 +95,6 @@ pub fn normalize_origin(raw: &str) -> Result<String, String> {
 pub struct SaveRequest {
     pub enabled: bool,
     pub allowed_origins: Vec<String>,
-    pub allow_anonymous: bool,
 }
 
 fn internal(e: impl std::fmt::Debug, what: &str) -> ApiError {
@@ -114,11 +114,14 @@ fn view(
     row: Option<&crate::models::WorkspaceWidgetSettings>,
     origin: Option<String>,
 ) -> serde_json::Value {
+    let secret = row.and_then(|r| settings::secret(r).ok().flatten());
     json!({
         "enabled": row.is_some_and(|r| r.enabled),
         "allowed_origins": row.map(|r| r.origins()).unwrap_or_default(),
-        "allow_anonymous": row.is_none_or(|r| r.allow_anonymous),
-        "has_secret": row.is_some_and(|r| r.encrypted_secret.is_some()),
+        "has_secret": secret.is_some(),
+        // What a site puts in its tokens' `kid` header and `aud` claim.
+        "secret_kid": secret.as_deref().map(settings::kid),
+        "token_audience": origin.clone(),
         "script_url": origin.map(|o| script_url(&o)),
     })
 }
@@ -168,7 +171,7 @@ pub async fn save_settings(
     let workspace_id = ws.workspace_id;
     let (row, origin) = tc
         .run(|conn| {
-            let row = settings::save(conn, body.enabled, &origins, body.allow_anonymous)?;
+            let row = settings::save(conn, body.enabled, &origins)?;
             let origin = crate::utils::portal_ticket_link::portal_origin(conn, workspace_id);
             Ok::<_, diesel::result::Error>((row, origin))
         })
@@ -204,8 +207,8 @@ fn frame_origins(pool: &Pool, workspace_id: i32) -> Vec<String> {
     .unwrap_or_default()
 }
 
-/// `GET /api/portal/auth/widget`: whether the widget is on and whether
-/// visitors without a signed identity get the help centre and request form.
+/// `GET /api/portal/auth/widget`: whether the widget is on. (What visitors
+/// who aren't signed in get is the guest access settings' call.)
 pub async fn embed_info(req: HttpRequest, pool: web::Data<Pool>) -> HttpResponse {
     let row = req
         .extensions()
@@ -220,7 +223,6 @@ pub async fn embed_info(req: HttpRequest, pool: web::Data<Pool>) -> HttpResponse
         });
     HttpResponse::Ok().json(json!({
         "enabled": row.as_ref().is_some_and(|r| r.enabled),
-        "allow_anonymous": row.as_ref().is_none_or(|r| r.allow_anonymous),
     }))
 }
 
@@ -236,7 +238,9 @@ pub async fn serve_shell(req: HttpRequest, pool: web::Data<Pool>) -> HttpRespons
     let origins = frame_origins(&pool, ws.workspace_id);
     let mut res = HttpResponse::Ok();
     res.content_type("text/html; charset=utf-8")
-        .insert_header(("Cache-Control", "no-cache"));
+        .insert_header(("Cache-Control", "no-cache"))
+        // Sites that set COEP can frame it (what may frame it is the CSP's call).
+        .insert_header(("Cross-Origin-Resource-Policy", "cross-origin"));
     if !origins.is_empty() {
         res.insert_header((
             "Content-Security-Policy",
@@ -261,9 +265,383 @@ pub async fn serve_loader() -> HttpResponse {
     }
 }
 
+/// Longest a visitor token may live (`exp - iat`). Short, because the host
+/// page asks for a fresh one whenever it's needed.
+const MAX_TOKEN_SECONDS: i64 = 600;
+
+/// What a site's server signs for a visitor.
+#[derive(Debug, Deserialize)]
+pub struct VisitorClaims {
+    /// The site's own id for the person. Required: identity is keyed on it, so
+    /// a changed email still reaches the same person and nobody else.
+    pub sub: String,
+    pub email: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    /// The site has confirmed the person owns this address. Required to join
+    /// an account that already exists here.
+    #[serde(default)]
+    pub email_verified: Option<bool>,
+    pub iat: i64,
+    pub exp: i64,
+}
+
+/// Verify a visitor token: HS256 under one of `secrets` (the one its `kid`
+/// names, if it names one), for `audience` (this help portal's origin),
+/// unexpired with a minute of leeway, at most [`MAX_TOKEN_SECONDS`] long, with
+/// a `sub` and an email.
+pub fn verify_visitor_token(
+    token: &str,
+    secrets: &[String],
+    audience: &str,
+) -> Result<VisitorClaims, &'static str> {
+    use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
+    let header = decode_header(token).map_err(|_| "malformed")?;
+    if header.alg != Algorithm::HS256 {
+        return Err("wrong algorithm");
+    }
+    let candidates: Vec<&String> = match header.kid.as_deref() {
+        Some(kid) => secrets.iter().filter(|s| settings::kid(s) == kid).collect(),
+        None => secrets.iter().collect(),
+    };
+    if candidates.is_empty() {
+        return Err("unknown key");
+    }
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.leeway = 60;
+    validation.set_required_spec_claims(&["exp", "iat", "aud", "sub"]);
+    validation.set_audience(&[audience]);
+    let claims = candidates
+        .iter()
+        .find_map(|secret| {
+            decode::<VisitorClaims>(
+                token,
+                &DecodingKey::from_secret(secret.as_bytes()),
+                &validation,
+            )
+            .ok()
+        })
+        .ok_or("invalid token")?
+        .claims;
+    if claims.exp - claims.iat > MAX_TOKEN_SECONDS {
+        return Err("token lives too long");
+    }
+    if claims.iat > chrono::Utc::now().timestamp() + 60 {
+        return Err("token issued in the future");
+    }
+    let sub = claims.sub.trim();
+    if sub.is_empty() || sub.len() > 255 {
+        return Err("no usable sub");
+    }
+    let email = claims.email.trim();
+    if email.len() > 254 || !email.contains('@') || email.contains(char::is_whitespace) {
+        return Err("no usable email");
+    }
+    Ok(claims)
+}
+
+/// Whether `origin` is one of `allowed` (exactly, or under a leftmost
+/// wildcard with the same scheme and port).
+pub fn origin_allowed(origin: &str, allowed: &[String]) -> bool {
+    let Ok(origin) = normalize_origin(origin) else {
+        return false;
+    };
+    allowed.iter().any(|a| {
+        if *a == origin {
+            return true;
+        }
+        let Some((scheme, suffix)) = a.split_once("://*.") else {
+            return false;
+        };
+        origin
+            .strip_prefix(&format!("{scheme}://"))
+            .is_some_and(|host| host.ends_with(&format!(".{suffix}")))
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SessionRequest {
+    pub token: String,
+    /// The host page's origin, as the iframe saw it on the loader's message.
+    pub parent_origin: String,
+}
+
+/// `POST /api/portal/auth/widget/session`: trade a visitor token the site's
+/// server signed for a portal access token (returned in the body; the iframe
+/// holds it in memory, since third-party cookies don't work). Each token works
+/// once. No refresh: when the access token expires the iframe asks the host
+/// page for a new visitor token.
+pub async fn exchange_session(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    body: web::Json<SessionRequest>,
+) -> HttpResponse {
+    let refused = |why: &str| {
+        tracing::info!("widget: visitor token refused ({why})");
+        crate::errors::unauthorized("That sign-in didn't work")
+    };
+    let Some(ws) = req.extensions().get::<WorkspaceContext>().cloned() else {
+        return crate::errors::not_found("No help portal here");
+    };
+    let workspace_id = ws.workspace_id;
+    let Some((row, audience)) = crate::sync::session::run_in_workspace(
+        &pool,
+        "background:widget_session_settings",
+        workspace_id,
+        |conn| {
+            let row = settings::get(conn)?;
+            let audience = crate::utils::portal_ticket_link::portal_origin(conn, workspace_id);
+            Ok((row, audience))
+        },
+    )
+    .ok()
+    .and_then(|(row, audience)| Some((row.filter(|r| r.enabled)?, audience?))) else {
+        return refused("widget off");
+    };
+    if !origin_allowed(&body.parent_origin, &row.origins()) {
+        return refused("site not listed");
+    }
+    let secrets = match settings::signing_secrets(&row) {
+        Ok(s) if !s.is_empty() => s,
+        _ => return refused("no secret"),
+    };
+    let claims = match verify_visitor_token(&body.token, &secrets, &audience) {
+        Ok(c) => c,
+        Err(why) => return refused(why),
+    };
+    // Each token works once, for as long as it could otherwise be replayed.
+    let replay_key = format!(
+        "widget_token_used:{}",
+        ring::digest::digest(&ring::digest::SHA256, body.token.as_bytes())
+            .as_ref()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    );
+    let ttl = (claims.exp - chrono::Utc::now().timestamp() + 60).max(1) as u64;
+    match crate::utils::rate_limit::RateLimiter::claim_once(
+        &crate::utils::rate_limit::get_redis_url(),
+        &replay_key,
+        ttl,
+    )
+    .await
+    {
+        Ok(true) => {}
+        Ok(false) => return refused("token already used"),
+        Err(e) => tracing::warn!(error = %e, "widget: replay store unavailable; allowing"),
+    }
+
+    let email = claims.email.trim().to_lowercase();
+    let name = claims
+        .name
+        .clone()
+        .map(|n| n.trim().chars().take(120).collect::<String>())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| email.split('@').next().unwrap_or(&email).to_string());
+    let visitor = crate::repository::widget_visitors::Visitor {
+        sub: claims.sub.trim(),
+        email: &email,
+        name: &name,
+        email_verified: claims.email_verified == Some(true),
+    };
+    let resolved = crate::sync::session::run_in_workspace(
+        &pool,
+        "background:widget_session_person",
+        workspace_id,
+        |conn| crate::repository::widget_visitors::resolve(conn, workspace_id, &visitor),
+    );
+    let user_uuid = match resolved {
+        Ok(Ok(u)) => u,
+        Ok(Err(refusal)) => return refused(refusal.as_str()),
+        Err(e) => {
+            tracing::error!(error = ?e, "widget: resolving the visitor failed");
+            return crate::errors::internal("Couldn't sign you in");
+        }
+    };
+    let Ok(mut conn) = pool.get() else {
+        return crate::errors::internal("Couldn't sign you in");
+    };
+    let Ok(user) = crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn) else {
+        return refused("inactive account");
+    };
+    let ip =
+        crate::utils::client_ip::from_http_request(&req).and_then(|ip| ip.to_string().parse().ok());
+    let user_agent = req
+        .headers()
+        .get("User-Agent")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.chars().take(500).collect());
+    let session = match crate::repository::active_sessions::widget_session(
+        &mut conn, user.uuid, ip, user_agent,
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(error = ?e, "widget: session failed");
+            return crate::errors::internal("Couldn't sign you in");
+        }
+    };
+    match crate::utils::jwt::JwtUtils::create_portal_token(
+        &user,
+        ws.workspace_uuid,
+        &session.session_id,
+    ) {
+        Ok(access_token) => HttpResponse::Ok().json(json!({
+            "access_token": access_token,
+            "expires_in": 15 * 60,
+        })),
+        Err(_) => crate::errors::internal("Couldn't sign you in"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::normalize_origin as n;
+    use super::{origin_allowed, verify_visitor_token};
+
+    const AUD: &str = "https://help.acme.test";
+
+    fn sign_kid(claims: serde_json::Value, secret: &str, kid: Option<String>) -> String {
+        let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+        header.kid = kid;
+        jsonwebtoken::encode(
+            &header,
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap()
+    }
+
+    fn sign(claims: serde_json::Value, secret: &str) -> String {
+        sign_kid(claims, secret, None)
+    }
+
+    fn claims(extra: serde_json::Value) -> serde_json::Value {
+        let now = chrono::Utc::now().timestamp();
+        let mut c = serde_json::json!({
+            "sub": "acme-42", "email": "sam@acme.test", "aud": AUD, "iat": now, "exp": now + 300
+        });
+        for (k, v) in extra.as_object().unwrap() {
+            c[k] = v.clone();
+        }
+        c
+    }
+
+    #[test]
+    fn visitor_tokens_are_short_lived_signed_and_carry_a_sub_and_email() {
+        let now = chrono::Utc::now().timestamp();
+        let s = vec!["s".to_string()];
+        assert_eq!(
+            verify_visitor_token(&sign(claims(serde_json::json!({})), "s"), &s, AUD)
+                .unwrap()
+                .sub,
+            "acme-42"
+        );
+        assert!(
+            verify_visitor_token(&sign(claims(serde_json::json!({})), "other"), &s, AUD).is_err(),
+            "wrong secret"
+        );
+        assert!(
+            verify_visitor_token(
+                &sign(claims(serde_json::json!({"exp": now + 3600})), "s"),
+                &s,
+                AUD
+            )
+            .is_err(),
+            "too long"
+        );
+        assert!(
+            verify_visitor_token(
+                &sign(
+                    claims(serde_json::json!({"iat": now - 900, "exp": now - 300})),
+                    "s"
+                ),
+                &s,
+                AUD
+            )
+            .is_err(),
+            "expired"
+        );
+        assert!(
+            verify_visitor_token(
+                &sign(claims(serde_json::json!({"aud": "https://evil.test"})), "s"),
+                &s,
+                AUD
+            )
+            .is_err(),
+            "another portal"
+        );
+        let mut no_sub = claims(serde_json::json!({}));
+        no_sub.as_object_mut().unwrap().remove("sub");
+        assert!(
+            verify_visitor_token(&sign(no_sub, "s"), &s, AUD).is_err(),
+            "sub required"
+        );
+        let mut no_aud = claims(serde_json::json!({}));
+        no_aud.as_object_mut().unwrap().remove("aud");
+        assert!(
+            verify_visitor_token(&sign(no_aud, "s"), &s, AUD).is_err(),
+            "aud required"
+        );
+        assert!(verify_visitor_token(
+            &sign(claims(serde_json::json!({"email": "nobody"})), "s"),
+            &s,
+            AUD
+        )
+        .is_err());
+        let hs512 = jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS512),
+            &claims(serde_json::json!({})),
+            &jsonwebtoken::EncodingKey::from_secret(b"s"),
+        )
+        .unwrap();
+        assert!(verify_visitor_token(&hs512, &s, AUD).is_err(), "HS256 only");
+    }
+
+    #[test]
+    fn the_kid_picks_the_secret_and_the_previous_one_still_works() {
+        let secrets = vec!["new".to_string(), "old".to_string()];
+        let kid = |s: &str| Some(crate::repository::workspace_widget_settings::kid(s));
+        let old = sign_kid(claims(serde_json::json!({})), "old", kid("old"));
+        assert!(
+            verify_visitor_token(&old, &secrets, AUD).is_ok(),
+            "previous secret, named"
+        );
+        let unnamed = sign(claims(serde_json::json!({})), "old");
+        assert!(
+            verify_visitor_token(&unnamed, &secrets, AUD).is_ok(),
+            "previous secret, no kid"
+        );
+        let mislabelled = sign_kid(claims(serde_json::json!({})), "old", kid("new"));
+        assert!(verify_visitor_token(&mislabelled, &secrets, AUD).is_err());
+        let unknown = sign_kid(
+            claims(serde_json::json!({})),
+            "old",
+            Some("feedface".into()),
+        );
+        assert!(verify_visitor_token(&unknown, &secrets, AUD).is_err());
+    }
+
+    #[test]
+    fn only_listed_sites_may_ask() {
+        let allowed = vec![
+            "https://www.acme.com".to_string(),
+            "https://*.acme.org".to_string(),
+        ];
+        assert!(origin_allowed("https://www.acme.com", &allowed));
+        assert!(origin_allowed("https://help.acme.org", &allowed));
+        assert!(origin_allowed("https://a.b.acme.org", &allowed));
+        assert!(
+            !origin_allowed("https://acme.org", &allowed),
+            "wildcard needs a subdomain"
+        );
+        assert!(!origin_allowed("https://evilacme.org", &allowed));
+        assert!(
+            !origin_allowed("http://help.acme.org", &allowed),
+            "scheme must match"
+        );
+        assert!(!origin_allowed("https://acme.com", &allowed));
+        assert!(!origin_allowed("null", &allowed));
+    }
 
     #[test]
     fn origins_are_strict_and_normalised() {

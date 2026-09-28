@@ -5,10 +5,12 @@ export interface WidgetSettings {
   enabled: boolean
   /** Sites allowed to show the widget (`https://help.acme.com`). */
   allowed_origins: string[]
-  /** Visitors without a signed identity get help articles and a request form. */
-  allow_anonymous: boolean
   /** A signing secret has been generated. */
   has_secret: boolean
+  /** The current secret's id, for the token header's `kid`. */
+  secret_kid: string | null
+  /** What visitor tokens carry as `aud`: this help portal's origin. */
+  token_audience: string | null
   /** What the site's script tag points at. */
   script_url: string | null
 }
@@ -18,11 +20,7 @@ export const widgetService = {
     const { data } = await apiClient.get<WidgetSettings>('/admin/widget')
     return data
   },
-  async save(input: {
-    enabled: boolean
-    allowed_origins: string[]
-    allow_anonymous: boolean
-  }): Promise<WidgetSettings> {
+  async save(input: { enabled: boolean; allowed_origins: string[] }): Promise<WidgetSettings> {
     const { data } = await apiClient.put<WidgetSettings>('/admin/widget', input)
     return data
   },

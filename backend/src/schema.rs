@@ -2342,12 +2342,14 @@ diesel::table! {
         id -> Int4,
         enabled -> Bool,
         allowed_origins -> Array<Nullable<Text>>,
-        allow_anonymous -> Bool,
         encrypted_secret -> Nullable<Bytea>,
         encrypted_kek_id -> Nullable<Int2>,
         workspace_id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        encrypted_previous_secret -> Nullable<Bytea>,
+        previous_kek_id -> Nullable<Int2>,
+        previous_valid_until -> Nullable<Timestamptz>,
     }
 }
 
