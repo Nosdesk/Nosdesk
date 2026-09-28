@@ -783,7 +783,7 @@ pub fn spawn_delete_cleanup(
 
 /// Extract storage path from attachment URL
 /// Converts /uploads/tickets/123/filename.ext to tickets/123/filename.ext
-fn extract_storage_path_from_url(url: &str) -> Option<String> {
+pub(crate) fn extract_storage_path_from_url(url: &str) -> Option<String> {
     url.strip_prefix("/uploads/")
         .filter(|r| r.starts_with("tickets/") || r.starts_with("temp/"))
         .map(String::from)

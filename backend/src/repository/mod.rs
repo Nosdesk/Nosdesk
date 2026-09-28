@@ -96,6 +96,7 @@ pub mod webhooks;
 
 // CSP violation reports
 pub mod csp_reports;
+pub mod guest_residue;
 
 // Plugins
 pub mod plugin_collections;
