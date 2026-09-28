@@ -388,11 +388,21 @@ const contentWidth = computed(() => {
 
 // The form's proof-of-work, solved in the background while the person types.
 let challengeSolution: Promise<FormChallengeSolution | null> | null = null;
+let challengeIssuedAt = 0;
 function prepareChallenge(): void {
+  challengeIssuedAt = Date.now();
   challengeSolution = publicService
     .getFormChallenge()
     .then(solveFormChallenge)
     .catch(() => null);
+}
+
+/** A solved challenge, no sooner than the server accepts one (it refuses a
+ * form sent within three seconds of its challenge). */
+async function readyChallenge(): Promise<FormChallengeSolution | null> {
+  const wait = challengeIssuedAt + 3_500 - Date.now();
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  return challengeSolution;
 }
 
 onMounted(async () => {
@@ -448,6 +458,8 @@ async function submit() {
     const response = await sendRequest();
     submittedEmail.value = form.email.trim();
     success.value = response;
+    // Each challenge works once: have a fresh one ready for "submit another".
+    prepareChallenge();
   } catch (e: unknown) {
     await reportSubmitError(e);
   } finally {
@@ -467,7 +479,7 @@ async function sendRequest() {
       category_id: requestType.value,
       website: form.website,
       attachment_tokens: attachments.value.map((a) => a.claim_token),
-      challenge: await challengeSolution,
+      challenge: await readyChallenge(),
     });
   try {
     return await send();
