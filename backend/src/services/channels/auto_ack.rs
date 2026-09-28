@@ -357,7 +357,7 @@ mod tests {
             guest_ticket_lookup_enabled: false,
             guest_help_page_enabled: false,
             guest_ticket_default_priority: None,
-            guest_ticket_rate_limit_per_hour: 5,
+            guest_ticket_rate_limit_per_hour: 20,
             guest_ticket_email_verification: false,
             guest_ticket_attachments_enabled: false,
             guest_ticket_intro_message: None,
