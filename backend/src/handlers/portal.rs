@@ -1185,6 +1185,31 @@ pub async fn download_attachment(
 /// `POST /api/portal/files`: stage one file for the requester's next reply or
 /// request. Same validation as the guest form (size cap, safe types); the row
 /// is marked as theirs and claimed by [`claim_uploads`].
+/// Longest request description or reply, in characters.
+const MAX_TEXT_CHARS: usize = 20_000;
+/// Per person, per hour: generous for anyone typing, a wall for a script.
+const REQUESTS_PER_HOUR: u32 = 20;
+const REPLIES_PER_HOUR: u32 = 120;
+const UPLOADS_PER_HOUR: u32 = 60;
+
+/// `Some(429)` when `user` has used up this hour's allowance of `kind`.
+/// Fails open if the limiter's store is unreachable.
+async fn over_write_limit(kind: &str, user: Uuid, per_hour: u32) -> Option<HttpResponse> {
+    use crate::utils::rate_limit::{get_redis_url, RateLimiter};
+    let key = format!("portal_{kind}:{user}");
+    match RateLimiter::check_rate_limit(&get_redis_url(), &key, per_hour, 3600).await {
+        Ok(true) => None,
+        Ok(false) => Some(errors::too_many_requests(
+            "You've sent a lot in the last hour. Please try again a little later.",
+            3600,
+        )),
+        Err(e) => {
+            tracing::warn!(error = %e, "portal write limiter unavailable; allowing");
+            None
+        }
+    }
+}
+
 pub async fn upload_file(
     mut tc: TenantConn,
     portal: PortalContext,
@@ -1192,6 +1217,9 @@ pub async fn upload_file(
     mut payload: actix_multipart::Multipart,
 ) -> Result<HttpResponse, ApiError> {
     use crate::handlers::guest::{read_validated_upload, UploadRejected};
+    if let Some(limited) = over_write_limit("upload", portal.user_uuid, UPLOADS_PER_HOUR).await {
+        return Ok(limited);
+    }
     let upload = match read_validated_upload(&mut payload).await {
         Ok(u) => u,
         Err(UploadRejected::Invalid(msg)) => return Err(ApiError::BadRequest(msg)),
@@ -1421,7 +1449,16 @@ pub async fn create_my_ticket(
     if title.is_empty() {
         return errors::bad_request("Title is required");
     }
+    if title.chars().count() > 255 {
+        return errors::bad_request("Keep the title to 255 characters");
+    }
     let description = body.description.trim().to_string();
+    if description.chars().count() > MAX_TEXT_CHARS {
+        return errors::bad_request("That's too long. Attach a file for anything longer");
+    }
+    if let Some(limited) = over_write_limit("request", portal.user_uuid, REQUESTS_PER_HOUR).await {
+        return limited;
+    }
     let has_files = !attachment_ids.is_empty();
     let user_uuid = portal.user_uuid;
     let search = Arc::clone(search_service.get_ref());
@@ -1522,6 +1559,12 @@ pub async fn reply_to_my_ticket(
     let still_needs_help = body.still_needs_help;
     if content.is_empty() && attachment_ids.is_empty() {
         return errors::bad_request("Reply cannot be empty");
+    }
+    if content.chars().count() > MAX_TEXT_CHARS {
+        return errors::bad_request("That's too long. Attach a file for anything longer");
+    }
+    if let Some(limited) = over_write_limit("reply", portal.user_uuid, REPLIES_PER_HOUR).await {
+        return limited;
     }
     let vis = VisibilityContext::requester_only(portal.user_uuid);
     let user_uuid = portal.user_uuid;

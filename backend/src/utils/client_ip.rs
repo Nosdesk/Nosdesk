@@ -95,6 +95,22 @@ pub fn resolve(peer_addr: Option<SocketAddr>, xff_header: Option<&str>) -> Optio
 }
 
 /// Resolve the client IP from an `actix_web::HttpRequest`.
+/// The address a rate limit counts: an IPv4 address as is (including one
+/// written IPv4-mapped), an IPv6 address by its /64, the block one subscriber
+/// usually gets, so rotating through it doesn't reset the count.
+pub fn limit_bucket(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => {
+                let s = v6.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+            }
+        },
+    }
+}
+
 pub fn from_http_request(req: &actix_web::HttpRequest) -> Option<IpAddr> {
     let xff = req.headers().get(XFF_HEADER).and_then(|h| h.to_str().ok());
     resolve(req.peer_addr(), xff)
@@ -126,6 +142,18 @@ fn ip_in_any(ip: &IpAddr, networks: &[IpNetwork]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ipv6_counts_by_its_64_and_mapped_ipv4_as_ipv4() {
+        use super::limit_bucket;
+        let a: std::net::IpAddr = "2001:db8:1:2:aaaa::1".parse().unwrap();
+        let b: std::net::IpAddr = "2001:db8:1:2:bbbb::9".parse().unwrap();
+        let c: std::net::IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        assert_eq!(limit_bucket(a), limit_bucket(b));
+        assert_ne!(limit_bucket(a), limit_bucket(c));
+        let mapped: std::net::IpAddr = "::ffff:203.0.113.7".parse().unwrap();
+        assert_eq!(limit_bucket(mapped), "203.0.113.7");
+    }
+
     use super::*;
 
     /// Tests run in the same process, and we mutate the
