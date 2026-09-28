@@ -42,6 +42,7 @@ mod email_quote_corpus;
 mod email_suppression_scoping;
 mod email_verification_round_trip;
 mod guest_pending_hold;
+mod guest_residue_sweep;
 mod handler_direct_write_lint;
 mod handler_error_builder_lint;
 mod handler_tenant_read_lint;

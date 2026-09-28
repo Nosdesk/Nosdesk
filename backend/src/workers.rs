@@ -298,6 +298,18 @@ pub fn spawn_scheduled_jobs(
             move || jobs::knowledge_gap_detection(p.clone()),
         );
 
+        // Daily: remove never-confirmed requests, abandoned uploads and
+        // never-used guest accounts left by the public request form.
+        let p = pool.clone();
+        let s = search_service.get_ref().clone();
+        spawn_periodic(
+            "guest_residue.cleanup",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::guest_residue_cleanup(p.clone(), s.clone()),
+        );
+
         // Hourly: approve requests nobody answered within their workspace's
         // automatic-approval period (a no-op unless one is set).
         let p = pool.clone();

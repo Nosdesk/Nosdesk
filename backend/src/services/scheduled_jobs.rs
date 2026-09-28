@@ -38,6 +38,7 @@ const NOTIFICATION_DIGEST_LOCK: i64 = 0x004e_6f73_4e44_4947;
 const LDAP_RECONCILE_LOCK: i64 = 0x004e_6f73_4c44_5243;
 const KNOWLEDGE_GAP_DETECT_LOCK: i64 = 0x004e_6f73_4b47_4450;
 const APPROVAL_TIMEOUT_LOCK: i64 = 0x004e_6f73_4150_544f;
+const GUEST_RESIDUE_LOCK: i64 = 0x004e_6f73_4752_4553;
 // Partition drops (DETACH CONCURRENTLY + DROP) can't run in a transaction,
 // so they can't use the provisioner's transaction-scoped lock; a session
 // try-lock skips the tick when a peer machine is already pruning. Per-parent
@@ -1414,6 +1415,119 @@ pub async fn approval_timeouts(pool: Pool) -> Result<()> {
             warn!(ticket_id, error = ?e, "scheduler:approval_timeouts: auto-approve failed");
         }
     }
+    Ok(())
+}
+
+/// Remove what the public request form leaves when nobody follows through:
+/// requests never confirmed within [`guest_residue::UNCONFIRMED_DAYS`], uploads
+/// never attached (after a day), and accounts made for an address that never
+/// confirmed anything and were never used. Each is found cross-workspace and
+/// removed pinned to its own workspace (accounts, which span workspaces, under
+/// the bypass context like the soft-delete purge).
+pub async fn guest_residue_cleanup(pool: Pool, search: Arc<SearchService>) -> Result<()> {
+    let _lock = match try_job_lock(&pool, GUEST_RESIDUE_LOCK, "guest_residue.cleanup")? {
+        Some(guard) => guard,
+        None => return Ok(()),
+    };
+    guest_residue_sweep(&pool, Some(&search)).await
+}
+
+/// One pass of [`guest_residue_cleanup`], without the job lock.
+pub async fn guest_residue_sweep(pool: &Pool, search: Option<&Arc<SearchService>>) -> Result<()> {
+    use crate::repository::guest_residue;
+    let pool = pool.clone();
+    let now = chrono::Utc::now();
+    let cutoff = now - chrono::Duration::days(guest_residue::UNCONFIRMED_DAYS);
+    let delete_files = |workspace_id: i32, paths: Vec<String>| async move {
+        if paths.is_empty() {
+            return;
+        }
+        let storage = crate::utils::storage::WorkspaceScopedStorage::arc(
+            crate::utils::storage::process_storage(),
+            workspace_id,
+        );
+        for path in paths {
+            if let Err(e) = storage.delete_file(&path).await {
+                warn!(error = ?e, "scheduler:guest_residue: file delete failed ({path})");
+            }
+        }
+    };
+
+    let stale =
+        // cross-tenant: cross-workspace scan builds the work-list; each request is deleted per-workspace below.
+        crate::sync::session::background_run(&pool, "scheduler:guest_residue_scan", |conn| {
+            guest_residue::stale_pending_tickets(conn, cutoff, 500)
+        })
+        .context("scan unconfirmed requests")?;
+    let mut requests = 0usize;
+    for (workspace_id, ticket_id) in stale {
+        match crate::sync::session::run_in_workspace(
+            &pool,
+            "background:guest_residue_request",
+            workspace_id,
+            |conn| crate::repository::tickets::delete_ticket_with_cleanup(conn, ticket_id),
+        ) {
+            Ok(deleted) => {
+                requests += 1;
+                delete_files(workspace_id, deleted.attachment_paths).await;
+            }
+            Err(e) => {
+                warn!(ticket_id, error = ?e, "scheduler:guest_residue: request delete failed")
+            }
+        }
+    }
+
+    let uploads =
+        // cross-tenant: cross-workspace scan builds the work-list; each upload is deleted per-workspace below.
+        crate::sync::session::background_run(&pool, "scheduler:guest_residue_uploads", |conn| {
+            guest_residue::orphan_guest_uploads(conn, now - chrono::Duration::days(1), 500)
+        })
+        .context("scan abandoned uploads")?;
+    let mut files = 0usize;
+    for (workspace_id, attachment_id, url) in uploads {
+        match crate::sync::session::run_in_workspace(
+            &pool,
+            "background:guest_residue_upload",
+            workspace_id,
+            |conn| crate::repository::comments::delete_attachment(conn, attachment_id),
+        ) {
+            Ok(_) => {
+                files += 1;
+                let paths = crate::repository::tickets::extract_storage_path_from_url(&url)
+                    .into_iter()
+                    .collect();
+                delete_files(workspace_id, paths).await;
+            }
+            Err(e) => warn!(error = ?e, "scheduler:guest_residue: upload delete failed"),
+        }
+    }
+
+    let accounts =
+        // cross-tenant: accounts span workspaces; found and purged under the bypass context like the soft-delete purge.
+        crate::sync::session::background_run(&pool, "scheduler:guest_residue_accounts", |conn| {
+            guest_residue::never_confirmed_guests(conn, cutoff, 200)
+        })
+        .context("scan unconfirmed guest accounts")?;
+    let mut purged = 0usize;
+    let mut conn = pool.get().context("db pool")?;
+    let actor = crate::sync::actor::ActorContext::system("scheduler:guest_residue_purge");
+    for uuid in accounts {
+        match crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |conn| {
+                crate::repository::users::purge_user(
+                    &uuid,
+                    conn,
+                    search.map(|s| s as &dyn crate::repository::users::UserDeletedObserver),
+                )
+            },
+        ) {
+            Ok(_) => purged += 1,
+            Err(e) => warn!(error = ?e, "scheduler:guest_residue: account purge failed"),
+        }
+    }
+    info!("scheduler:guest_residue: removed {requests} unconfirmed requests, {files} abandoned uploads, {purged} unused guest accounts");
     Ok(())
 }
 
