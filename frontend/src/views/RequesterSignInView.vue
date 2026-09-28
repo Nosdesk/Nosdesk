@@ -39,6 +39,16 @@ const saving = ref(false)
 const error = ref('')
 
 const provider = computed(() => state.data.value?.provider ?? null)
+// A saved secret belongs to the saved app: pointing at another app drops it.
+const secretKept = computed(() => {
+  const p = provider.value
+  if (!p?.has_client_secret) return false
+  const sameIssuer =
+    p.kind === 'entra'
+      ? entraTenant(p.issuer_url) === tenantId.value.trim()
+      : p.kind !== 'oidc' || p.issuer_url === issuerUrl.value.trim()
+  return p.kind === kind.value && p.client_id === clientId.value.trim() && sameIssuer
+})
 const kindOptions = computed(() => [
   { value: 'entra' as const, label: t('requester-sso-kind-entra') },
   { value: 'google' as const, label: t('requester-sso-kind-google') },
@@ -152,7 +162,7 @@ async function copyRedirect(): Promise<void> {
           autocomplete="off"
           :label="t('requester-sso-client-secret-label')"
           :description="t('requester-sso-client-secret-hint')"
-          :placeholder="provider?.has_client_secret ? t('requester-sso-client-secret-kept') : ''"
+          :placeholder="secretKept ? t('requester-sso-client-secret-kept') : ''"
         />
         <FormInput
           v-model="domains"
