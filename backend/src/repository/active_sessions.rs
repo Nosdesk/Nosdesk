@@ -68,27 +68,46 @@ pub fn create_session_capped(
     })
 }
 
-/// How long a help-widget session lasts: the portal token it backs (15
-/// minutes), renewed each time the widget signs the person in again.
-pub const WIDGET_SESSION_MINUTES: i64 = 15;
-/// Device name marking a help-widget session.
-pub const WIDGET_DEVICE: &str = "Help widget";
+/// How long an embedded portal session lasts: the portal token it backs (15
+/// minutes), renewed each time the host signs the person in again.
+pub const EMBEDDED_SESSION_MINUTES: i64 = 15;
 
-// sync-audit-only: session bookkeeping; the widget sign-in reuses one short session per person
-/// The person's help-widget session: their current one, renewed, or a new
-/// one. One short session per person, outside the per-user cap, so a site that
-/// signs people in on every page view doesn't push their other sessions out.
-pub fn widget_session(
+/// Where the portal is embedded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbedHost {
+    /// The help widget on a customer's site.
+    Widget,
+    /// The Microsoft Teams personal tab.
+    Teams,
+}
+
+impl EmbedHost {
+    /// The session's device name (shown in the person's session list).
+    pub fn device_name(self) -> &'static str {
+        match self {
+            EmbedHost::Widget => "Help widget",
+            EmbedHost::Teams => "Microsoft Teams",
+        }
+    }
+}
+
+// sync-audit-only: session bookkeeping; an embedded sign-in reuses one short session per person and host
+/// The person's session for an embedded portal: their current one, renewed,
+/// or a new one. One short session per person and host, outside the per-user
+/// cap, so a host that signs people in on every page view doesn't push their
+/// other sessions out.
+pub fn embedded_session(
     conn: &mut DbConnection,
+    host: EmbedHost,
     user_uuid: Uuid,
     ip_address: Option<ipnetwork::IpNetwork>,
     user_agent: Option<String>,
 ) -> Result<ActiveSession, diesel::result::Error> {
     let now = chrono::Utc::now();
-    let expires = (now + chrono::Duration::minutes(WIDGET_SESSION_MINUTES)).naive_utc();
+    let expires = (now + chrono::Duration::minutes(EMBEDDED_SESSION_MINUTES)).naive_utc();
     let current = active_sessions::table
         .filter(active_sessions::user_uuid.eq(user_uuid))
-        .filter(active_sessions::device_name.eq(WIDGET_DEVICE))
+        .filter(active_sessions::device_name.eq(host.device_name()))
         .filter(active_sessions::expires_at.gt(now))
         .order_by(active_sessions::last_active.desc())
         .first::<ActiveSession>(conn)
@@ -105,7 +124,7 @@ pub fn widget_session(
         conn,
         NewActiveSession {
             user_uuid,
-            device_name: Some(WIDGET_DEVICE.to_string()),
+            device_name: Some(host.device_name().to_string()),
             ip_address,
             user_agent,
             location: None,
@@ -313,18 +332,21 @@ mod widget_session_tests {
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
-    fn repeat_widget_sign_ins_reuse_one_short_session() {
+    fn repeat_embedded_sign_ins_reuse_one_short_session_per_host() {
         let mut conn = setup_test_connection();
         let user = TestFixtures::create_user(&mut conn, "widget_sessions", "user");
-        let first = widget_session(&mut conn, user.uuid, None, None).unwrap();
-        let again = widget_session(&mut conn, user.uuid, None, None).unwrap();
+        let first = embedded_session(&mut conn, EmbedHost::Widget, user.uuid, None, None).unwrap();
+        let again = embedded_session(&mut conn, EmbedHost::Widget, user.uuid, None, None).unwrap();
         assert_eq!(first.session_id, again.session_id);
         let rows = get_user_sessions(&mut conn, &user.uuid).unwrap();
         assert_eq!(rows.len(), 1);
         let left = again.expires_at - chrono::Utc::now().naive_utc();
         assert!(
-            left <= chrono::Duration::minutes(WIDGET_SESSION_MINUTES),
+            left <= chrono::Duration::minutes(EMBEDDED_SESSION_MINUTES),
             "short-lived"
         );
+        let teams = embedded_session(&mut conn, EmbedHost::Teams, user.uuid, None, None).unwrap();
+        assert_ne!(teams.session_id, first.session_id, "one per host");
+        assert_eq!(teams.device_name.as_deref(), Some("Microsoft Teams"));
     }
 }

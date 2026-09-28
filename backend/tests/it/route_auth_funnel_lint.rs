@@ -66,6 +66,10 @@ const PUBLIC_BY_DESIGN: &[(&str, &str)] = &[
         "customer-portal magic-link sign-in; the refresh route checks its own realm",
     ),
     (
+        "/api/portal/auth/teams",
+        "Teams tab sign-in: trades a Microsoft Entra token (verified against the workspace's own app) for a portal session",
+    ),
+    (
         "/api/csp-report",
         "browsers POST CSP violations without credentials",
     ),

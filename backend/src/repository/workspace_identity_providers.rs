@@ -100,6 +100,22 @@ pub fn save(
 }
 
 // sync-audit-only: workspace configuration, recorded by the audit trigger (secret redacted)
+/// Turn the Microsoft Teams tab on or off. `None` when no provider is set up.
+pub fn set_teams_enabled(
+    conn: &mut DbConnection,
+    enabled: bool,
+) -> QueryResult<Option<WorkspaceIdentityProvider>> {
+    diesel::update(p::table)
+        .set((
+            p::teams_enabled.eq(enabled),
+            p::updated_at.eq(diesel::dsl::now),
+        ))
+        .returning(WorkspaceIdentityProvider::as_returning())
+        .get_result(conn)
+        .optional()
+}
+
+// sync-audit-only: workspace configuration, recorded by the audit trigger (secret redacted)
 /// Remove the workspace's provider (requesters go back to email sign-in only).
 pub fn delete(conn: &mut DbConnection) -> QueryResult<usize> {
     diesel::delete(p::table).execute(conn)
@@ -160,6 +176,14 @@ mod tests {
         let resaved = save(&mut conn, 1, &input(None)).unwrap();
         assert_eq!(client_secret(&resaved).unwrap().as_deref(), Some("s3cret"));
         assert_eq!(get(&mut conn).unwrap().map(|p| p.id), Some(saved.id));
+
+        let teams = set_teams_enabled(&mut conn, true).unwrap().unwrap();
+        assert!(teams.teams_enabled);
+        assert_eq!(
+            teams.teams_app_id, saved.teams_app_id,
+            "the Teams app id is stable"
+        );
+        assert!(!saved.teams_enabled, "off until an admin turns it on");
 
         assert_eq!(delete(&mut conn).unwrap(), 1);
         assert!(get(&mut conn).unwrap().is_none());

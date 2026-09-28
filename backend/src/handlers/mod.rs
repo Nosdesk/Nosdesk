@@ -79,6 +79,7 @@ pub mod sse;
 pub mod sync;
 pub mod system;
 pub mod tags;
+pub mod teams;
 pub mod ticket_merge;
 pub mod ticket_watchers;
 pub mod tickets;

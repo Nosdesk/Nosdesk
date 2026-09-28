@@ -190,10 +190,14 @@ pub async fn save_provider(
     let workspace_id = ws.workspace_id;
     let saved = tc
         .run(|conn| {
-            if secret.is_none()
+            // Portal sign-in needs the secret; the Teams tab alone doesn't.
+            if body.enabled
+                && secret.is_none()
                 && providers::get(conn)?.is_none_or(|p| p.encrypted_client_secret.is_none())
             {
-                return Ok(Err(ApiError::BadRequest("Enter the client secret".into())));
+                return Ok(Err(ApiError::BadRequest(
+                    "Enter the client secret to turn sign-in on".into(),
+                )));
             }
             let row = providers::save(
                 conn,

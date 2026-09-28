@@ -768,6 +768,44 @@ pub async fn check_discovery(issuer_url: &str) -> Result<(), String> {
     discover(issuer_url).await.map(|_| ())
 }
 
+/// A workspace provider's issuer (as its discovery document states it) and
+/// signing keys (a JWK set), for checking a token the provider issued straight
+/// to one of our clients (the Teams tab's access token). `fresh` refetches when
+/// the cached keys are over five minutes old: a token signed with a key we
+/// haven't seen yet means the provider rotated.
+pub async fn provider_keys(
+    issuer_url: &str,
+    fresh: bool,
+) -> Result<(String, serde_json::Value), String> {
+    if fresh {
+        DISCOVERY_CACHE.remove_if(issuer_url, |_, hit| {
+            hit.0.elapsed() > std::time::Duration::from_secs(300)
+        });
+    }
+    let metadata = discover(issuer_url).await?;
+    let keys = serde_json::to_value(metadata.jwks()).map_err(|e| e.to_string())?;
+    Ok((metadata.issuer().to_string(), keys))
+}
+
+/// Tests: serve `issuer_url`'s discovery from memory, with `jwks` as its keys.
+#[cfg(test)]
+pub(crate) fn prime_discovery_for_test(issuer_url: &str, jwks: serde_json::Value) {
+    let metadata: CoreProviderMetadata = serde_json::from_value(serde_json::json!({
+        "issuer": issuer_url,
+        "authorization_endpoint": format!("{issuer_url}/authorize"),
+        "jwks_uri": format!("{issuer_url}/keys"),
+        "response_types_supported": ["code"],
+        "subject_types_supported": ["pairwise"],
+        "id_token_signing_alg_values_supported": ["RS256"],
+    }))
+    .expect("test discovery document");
+    let metadata = metadata.set_jwks(serde_json::from_value(jwks).expect("test JWK set"));
+    DISCOVERY_CACHE.insert(
+        issuer_url.to_string(),
+        (std::time::Instant::now(), metadata),
+    );
+}
+
 /// Start a sign-in with a workspace provider. `state` is the caller's own
 /// signed value, returned by the IdP on the callback.
 pub fn begin_provider_login(client: &OidcClientKind, state: String) -> (String, OidcAuthData) {
@@ -813,6 +851,23 @@ pub async fn finish_provider_login(
     // tenant must have verified.
     if info.email.is_none() {
         info.email = info.preferred_username.clone().filter(|u| u.contains('@'));
+    }
+    // Entra's stable ids for the person (tenant and object id), which the core
+    // claims type drops. The token was verified above.
+    let payload = id_token
+        .to_string()
+        .split('.')
+        .nth(1)
+        .and_then(|p| {
+            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, p).ok()
+        })
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+    if let (Some(payload), Some(raw)) = (payload, info.raw_claims.as_object_mut()) {
+        for claim in ["tid", "oid"] {
+            if let Some(v) = payload.get(claim).filter(|v| v.is_string()) {
+                raw.insert(claim.to_string(), v.clone());
+            }
+        }
     }
     Ok(info)
 }
