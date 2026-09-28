@@ -64,6 +64,7 @@ pub mod user_preferences;
 pub mod user_profile;
 pub mod user_recovery_codes;
 pub mod users;
+pub mod widget_visitors;
 pub mod workflow_states;
 pub mod workspace_identity_providers;
 pub mod workspace_notices;

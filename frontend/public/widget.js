@@ -5,7 +5,7 @@
  *
  * Optional, before the script:
  *   window.NosdeskWidget = {
- *     // Resolve to a visitor token your server signs (see Admin > Widget).
+ *     // Resolve to a visitor token your server signs (see Admin > Help widget).
  *     getToken: async () => (await fetch('/nosdesk-token')).text(),
  *     color: '#0f766e',   // launcher colour
  *     label: 'Help',      // launcher text for screen readers
@@ -34,6 +34,7 @@
   launcher.type = 'button'
   launcher.setAttribute('aria-label', label)
   launcher.setAttribute('aria-expanded', 'false')
+  launcher.setAttribute('aria-controls', 'nosdesk-widget-frame')
   launcher.style.cssText =
     'position:fixed;right:20px;bottom:20px;z-index:2147483000;width:56px;height:56px;' +
     'border-radius:28px;border:0;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.2);' +
@@ -72,15 +73,23 @@
   function open() {
     if (!frame) {
       frame = document.createElement('iframe')
+      frame.id = 'nosdesk-widget-frame'
       frame.src = widgetUrl
       frame.title = label
-      frame.setAttribute('allow', 'clipboard-write')
+      // It can't navigate this page or open prompts; links open in new tabs.
+      frame.setAttribute(
+        'sandbox',
+        'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads',
+      )
+      frame.setAttribute('allow', '')
+      frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin')
       frame.addEventListener('load', init)
       place()
       document.body.appendChild(frame)
     }
     frame.style.display = 'block'
     launcher.setAttribute('aria-expanded', 'true')
+    frame.focus()
   }
 
   function close() {

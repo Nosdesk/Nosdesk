@@ -14,6 +14,14 @@ import { usePortalEvents } from './usePortalEvents'
 // have.
 if (!isEmbed) usePortalEvents()
 
+// Esc closes the widget (the host page returns focus to its launcher),
+// unless something inside the widget (a menu, a dialog) used it first.
+if (isEmbed) {
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !event.defaultPrevented) postToParent({ type: 'nosdesk:close' })
+  })
+}
+
 const { $t: t } = useFluent()
 const route = useRoute()
 const router = useRouter()

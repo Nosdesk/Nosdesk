@@ -770,13 +770,23 @@ pub async fn portal_auth_middleware(
         .get()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
 
+    // The portal session cookie, or (the embedded help widget, which can't
+    // use cookies in a third-party frame) the same portal token as a bearer.
     let token = req
         .cookie(&crate::utils::cookies::cookie_name(
             crate::utils::cookies::PORTAL_ACCESS_TOKEN_COOKIE,
         ))
+        .map(|c| c.value().to_string())
+        .or_else(|| {
+            req.headers()
+                .get(actix_web::http::header::AUTHORIZATION)
+                .and_then(|h| h.to_str().ok())
+                .and_then(|h| h.strip_prefix("Bearer "))
+                .map(|t| t.trim().to_string())
+        })
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Authentication required"))?;
 
-    let (claims, _user) = JwtUtils::authenticate_with_token(token.value(), &mut conn)
+    let (claims, _user) = JwtUtils::authenticate_with_token(&token, &mut conn)
         .await
         .map_err(|_| actix_web::error::ErrorUnauthorized("Invalid or expired token"))?;
 

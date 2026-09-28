@@ -6,6 +6,8 @@
 // backend validates via `csrf_cookie_for_path` for `/api/portal/*`.
 import axios from 'axios'
 
+import { embedBearer, isEmbed, signInVisitor } from './embed'
+
 function portalCsrfToken(): string | null {
   const match = document.cookie.match(/(?:^|;\s*)(?:__Host-)?portal_csrf=([^;]+)/)
   return match ? match[1] : null
@@ -18,6 +20,13 @@ const portalApi = axios.create({
 })
 
 portalApi.interceptors.request.use((config) => {
+  // Embedded, the visitor's token rides a header (no cookies in a third-party
+  // frame; a bearer needs no CSRF token).
+  const bearer = isEmbed ? embedBearer() : null
+  if (bearer) {
+    config.headers['Authorization'] = `Bearer ${bearer}`
+    return config
+  }
   const token = portalCsrfToken()
   if (token) {
     config.headers['X-CSRF-Token'] = token
@@ -54,6 +63,13 @@ portalApi.interceptors.response.use(
     const staleCsrf = status === 403 && (code === 'csrf_missing' || code === 'csrf_invalid')
     if ((status === 401 || staleCsrf) && original && !original._retried) {
       original._retried = true
+      if (isEmbed) {
+        // The visitor's token lapsed: ask the host page for a fresh one.
+        if (await signInVisitor()) return portalApi(original)
+        const { default: router } = await import('./router')
+        if (router.currentRoute.value.name !== 'embed') router.push('/embed')
+        return Promise.reject(error)
+      }
       if (await refreshSession()) return portalApi(original)
       // Dynamic import avoids a router <-> api cycle.
       const { default: router } = await import('./router')
