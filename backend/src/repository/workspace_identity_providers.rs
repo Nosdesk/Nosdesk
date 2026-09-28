@@ -33,7 +33,9 @@ pub fn get(conn: &mut DbConnection) -> QueryResult<Option<WorkspaceIdentityProvi
         .optional()
 }
 
-/// The fields an admin sets. `client_secret: None` keeps the stored secret.
+/// The fields an admin sets. `client_secret: None` keeps the stored secret,
+/// as long as the app (issuer and client id) is the same: a secret belongs to
+/// one app, so pointing at another drops it.
 pub struct ProviderInput<'a> {
     pub kind: &'a str,
     pub display_name: &'a str,
@@ -63,6 +65,8 @@ pub fn save(
     };
     let domains: Vec<Option<String>> = input.allowed_domains.iter().cloned().map(Some).collect();
     let row = conn.transaction(|conn| {
+        let another_app = get(conn)?
+            .is_some_and(|p| p.issuer_url != input.issuer_url || p.client_id != input.client_id);
         diesel::insert_into(p::table)
             .values((
                 p::kind.eq(input.kind),
@@ -89,6 +93,13 @@ pub fn save(
                 .set((
                     p::encrypted_client_secret.eq(Some(blob)),
                     p::encrypted_kek_id.eq(Some(kek_id)),
+                ))
+                .execute(conn)?;
+        } else if another_app {
+            diesel::update(p::table)
+                .set((
+                    p::encrypted_client_secret.eq(None::<Vec<u8>>),
+                    p::encrypted_kek_id.eq(None::<i16>),
                 ))
                 .execute(conn)?;
         }
@@ -175,6 +186,19 @@ mod tests {
         // Saving again without a secret keeps the stored one.
         let resaved = save(&mut conn, 1, &input(None)).unwrap();
         assert_eq!(client_secret(&resaved).unwrap().as_deref(), Some("s3cret"));
+
+        // Another app: the old app's secret isn't carried over.
+        let other = save(
+            &mut conn,
+            1,
+            &ProviderInput {
+                client_id: "another-client",
+                ..input(None)
+            },
+        )
+        .unwrap();
+        assert_eq!(client_secret(&other).unwrap(), None);
+        let resaved = save(&mut conn, 1, &input(Some("s3cret"))).unwrap();
         assert_eq!(get(&mut conn).unwrap().map(|p| p.id), Some(saved.id));
 
         let teams = set_teams_enabled(&mut conn, true).unwrap().unwrap();
