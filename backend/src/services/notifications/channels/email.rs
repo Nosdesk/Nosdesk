@@ -38,6 +38,16 @@ fn throttled(notification_type: &str) -> bool {
     )
 }
 
+/// Whether an email may wait for a live portal viewer (and be dropped if they
+/// look): requester mail only, never an approval request or decision.
+fn held_for_live_viewer(to_requester: bool, kind: NotificationTypeCode) -> bool {
+    to_requester
+        && !matches!(
+            kind,
+            NotificationTypeCode::ApprovalRequested | NotificationTypeCode::ApprovalDecided
+        )
+}
+
 /// Email notification channel with rate limiting
 pub struct EmailChannel {
     email_service: Arc<EmailService>,
@@ -460,8 +470,13 @@ impl NotificationDeliveryChannel for EmailChannel {
             },
         );
         // A requester watching the portal live sees the update there: hold the
-        // email a few minutes and drop it if they look.
-        if let Ok(row) = &enqueue {
+        // email a few minutes and drop it if they look. Only requester mail
+        // (staff get the in-app notification anyway), and never an approval:
+        // the request itself doesn't show a decision, and an approver shouldn't
+        // wait on one.
+        let holdable =
+            held_for_live_viewer(requester_link_used, notification.payload.notification_type);
+        if let (true, Ok(row)) = (holdable, &enqueue) {
             let watcher = notification.payload.recipient_uuid;
             let ticket_id = notification.payload.entity.ticket_id();
             if ticket_id > 0
@@ -583,12 +598,24 @@ fn notification_link_base(
 
 #[cfg(test)]
 mod tests {
-    use super::{notification_link_base, throttled};
+    use super::{held_for_live_viewer, notification_link_base, throttled, NotificationTypeCode};
 
     #[test]
     fn requester_updates_are_never_throttled() {
         assert!(!throttled("ticket_status_changed"));
         assert!(!throttled("ticket_created_requester"));
+    }
+
+    #[test]
+    fn only_requester_mail_waits_for_a_live_viewer_and_never_an_approval() {
+        use NotificationTypeCode as T;
+        assert!(held_for_live_viewer(true, T::CommentAdded));
+        assert!(
+            !held_for_live_viewer(false, T::CommentAdded),
+            "staff mail isn't held"
+        );
+        assert!(!held_for_live_viewer(true, T::ApprovalDecided));
+        assert!(!held_for_live_viewer(true, T::ApprovalRequested));
         assert!(throttled("comment_added"));
         assert!(throttled("ticket_assigned"));
     }
