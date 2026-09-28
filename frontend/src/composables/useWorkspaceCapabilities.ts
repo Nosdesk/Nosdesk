@@ -22,10 +22,14 @@ import { computed, readonly, ref, type ComputedRef, type Ref } from 'vue'
 
 interface CapabilityState {
   slaEnabled: boolean
+  approvalsEnabled: boolean
+  approvalsHeld: boolean
 }
 
 const DEFAULT_STATE: CapabilityState = {
   slaEnabled: false,
+  approvalsEnabled: false,
+  approvalsHeld: false,
 }
 
 const state: Ref<CapabilityState> = ref({ ...DEFAULT_STATE })
@@ -35,13 +39,22 @@ const state: Ref<CapabilityState> = ref({ ...DEFAULT_STATE })
  * the safe default (feature off). */
 export function applyWorkspaceCapabilities(meta: {
   sla_enabled?: boolean
+  approvals_enabled?: boolean
+  approvals_held?: boolean
 }): void {
   const next: CapabilityState = {
     slaEnabled: meta.sla_enabled ?? false,
+    approvalsEnabled: meta.approvals_enabled ?? false,
+    approvalsHeld: meta.approvals_held ?? false,
   }
   // Flags now arrive on every delta poll; only swap the ref when a flag
   // actually changed so watchers don't fire every 10 seconds.
-  if (next.slaEnabled === state.value.slaEnabled) return
+  if (
+    next.slaEnabled === state.value.slaEnabled &&
+    next.approvalsEnabled === state.value.approvalsEnabled &&
+    next.approvalsHeld === state.value.approvalsHeld
+  )
+    return
   state.value = next
 }
 
@@ -55,6 +68,10 @@ export interface UseWorkspaceCapabilities {
   /** True when the workspace has at least one SLA policy
    * configured. False otherwise. */
   slaEnabled: ComputedRef<boolean>
+  /** Some request type needs approval. */
+  approvalsEnabled: ComputedRef<boolean>
+  /** Requests waiting for approval stay out of the working queues. */
+  approvalsHeld: ComputedRef<boolean>
   /** Read-only access to the underlying state for cases that
    * need to watch / react to multi-flag changes at once. */
   capabilities: Readonly<Ref<Readonly<CapabilityState>>>
@@ -63,6 +80,8 @@ export interface UseWorkspaceCapabilities {
 export function useWorkspaceCapabilities(): UseWorkspaceCapabilities {
   return {
     slaEnabled: computed(() => state.value.slaEnabled),
+    approvalsEnabled: computed(() => state.value.approvalsEnabled),
+    approvalsHeld: computed(() => state.value.approvalsHeld),
     capabilities: readonly(state),
   }
 }

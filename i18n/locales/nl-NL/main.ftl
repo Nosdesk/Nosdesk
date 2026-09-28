@@ -7577,3 +7577,8 @@ portal-approval-you-declined = Je hebt deze aanvraag afgewezen.
 portal-approval-already-approved = Deze aanvraag is al goedgekeurd.
 portal-approval-already-declined = Deze aanvraag is al afgewezen.
 portal-approval-no-longer-needed = Deze aanvraag heeft je goedkeuring niet meer nodig.
+# Machinevertaling, te controleren door moedertaalspreker.
+builtin-view-awaiting-approval-name = Wacht op goedkeuring
+builtin-view-awaiting-approval-description = Aanvragen die op een goedkeurder wachten
+views-ticket-row-approval-badge = Wacht op goedkeuring
+views-ticket-row-approval-tooltip = Wacht op goedkeuring voordat de aanvraag afgerond kan worden

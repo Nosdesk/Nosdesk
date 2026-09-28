@@ -186,7 +186,14 @@ fn reopen_on_requester_reply(
         },
         None,
     );
+    // A declined request the requester comes back to asks for approval again,
+    // under the requester's name like the reopen itself.
+    let restarted = match &reopened {
+        Ok(ticket) => crate::repository::ticket_approvals::restart_if_declined(conn, ticket),
+        Err(_) => Ok(()),
+    };
     restore(conn)?;
+    restarted?;
     reopened.map(|_| ())
 }
 

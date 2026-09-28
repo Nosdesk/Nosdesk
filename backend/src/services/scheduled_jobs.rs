@@ -37,6 +37,7 @@ const LOAN_REMINDER_LOCK: i64 = 0x004e_6f73_4c6f_616e;
 const NOTIFICATION_DIGEST_LOCK: i64 = 0x004e_6f73_4e44_4947;
 const LDAP_RECONCILE_LOCK: i64 = 0x004e_6f73_4c44_5243;
 const KNOWLEDGE_GAP_DETECT_LOCK: i64 = 0x004e_6f73_4b47_4450;
+const APPROVAL_TIMEOUT_LOCK: i64 = 0x004e_6f73_4150_544f;
 // Partition drops (DETACH CONCURRENTLY + DROP) can't run in a transaction,
 // so they can't use the provisioner's transaction-scoped lock; a session
 // try-lock skips the tick when a peer machine is already pruning. Per-parent
@@ -1382,6 +1383,40 @@ pub async fn loan_due_reminders(
 
 /// How often knowledge-gap detection runs. `NOSDESK_KNOWLEDGE_GAP_DETECT_SECS`
 /// overrides it (for a dev walk, say); default hourly.
+/// Approve requests nobody answered within their workspace's automatic-approval
+/// period (off unless a workspace sets one). Scans every workspace under
+/// BYPASSRLS, then decides each ticket pinned to its own workspace.
+pub async fn approval_timeouts(pool: Pool) -> Result<()> {
+    let _lock = match try_job_lock(&pool, APPROVAL_TIMEOUT_LOCK, "approvals.timeouts")? {
+        Some(guard) => guard,
+        None => return Ok(()),
+    };
+    // cross-tenant: cross-workspace scan builds the work-list; each ticket is decided per-workspace below.
+    let due = crate::sync::session::background_run(&pool, "scheduler:approval_timeouts", |conn| {
+        crate::repository::ticket_approvals::timed_out(conn, 500)
+    })
+    .context("scan timed-out approvals")?;
+    for (workspace_id, ticket_id) in due {
+        let result = crate::sync::session::run_in_workspace(
+            &pool,
+            "background:approval_timeout",
+            workspace_id,
+            |conn| {
+                if crate::repository::ticket_approvals::auto_approve(conn, ticket_id)? {
+                    crate::services::assignment::AssignmentEngine::assign_after_approval(
+                        conn, ticket_id,
+                    )?;
+                }
+                Ok(())
+            },
+        );
+        if let Err(e) = result {
+            warn!(ticket_id, error = ?e, "scheduler:approval_timeouts: auto-approve failed");
+        }
+    }
+    Ok(())
+}
+
 pub fn knowledge_gap_detect_interval() -> std::time::Duration {
     let secs = std::env::var("NOSDESK_KNOWLEDGE_GAP_DETECT_SECS")
         .ok()

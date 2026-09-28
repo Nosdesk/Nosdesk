@@ -980,6 +980,11 @@ function affectedDevicesTooltip(card: CardData): string {
                       :aria-label="t('kanban-recurring-aria')"
                     >↻</span>
                     <span class="flex-1">{{ card.title }}</span>
+                    <span
+                      v-if="card.approval_state === 'pending'"
+                      class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0 self-start"
+                      :title="t('views-ticket-row-approval-tooltip')"
+                    >{{ t('views-ticket-row-approval-badge') }}</span>
                   </h4>
                   <div class="flex items-center gap-1.5 shrink-0">
                     <span

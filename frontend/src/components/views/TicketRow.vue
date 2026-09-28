@@ -265,6 +265,11 @@ function recurrenceLabel(rule: string | null | undefined): string {
             class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0"
             :title="$t('views-ticket-row-spam-tooltip')"
           >{{ $t('views-ticket-row-spam-badge') }}</span>
+          <span
+            v-if="card.approval_state === 'pending'"
+            class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0"
+            :title="$t('views-ticket-row-approval-tooltip')"
+          >{{ $t('views-ticket-row-approval-badge') }}</span>
         </div>
       </template>
 

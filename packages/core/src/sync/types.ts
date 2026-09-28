@@ -86,6 +86,8 @@ export interface DeltaResponse {
    * flags you have". */
   capabilities?: {
     sla_enabled?: boolean
+    approvals_enabled?: boolean
+    approvals_held?: boolean
   }
 }
 
@@ -104,6 +106,10 @@ export interface BootstrapMeta {
    * frontend uses these to gate optional UI surfaces — feature
    * chrome is hidden entirely when the workspace hasn't opted in. */
   sla_enabled?: boolean
+  /** Some request type needs approval. */
+  approvals_enabled?: boolean
+  /** Requests waiting for approval are held out of the working queues. */
+  approvals_held?: boolean
 }
 
 /**

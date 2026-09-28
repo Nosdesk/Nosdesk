@@ -209,6 +209,8 @@ fn stream_bootstrap_inner(
                 "last_sync_id": last_sync_id,
                 "groups_granted": granted,
                 "sla_enabled": capabilities.sla_enabled,
+                "approvals_enabled": capabilities.approvals_enabled,
+                "approvals_held": capabilities.approvals_held,
             }
         }),
     )?;

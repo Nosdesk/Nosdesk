@@ -7470,3 +7470,7 @@ portal-approval-you-declined = You declined this request.
 portal-approval-already-approved = This request has already been approved.
 portal-approval-already-declined = This request has already been declined.
 portal-approval-no-longer-needed = This request no longer needs your approval.
+builtin-view-awaiting-approval-name = Awaiting approval
+builtin-view-awaiting-approval-description = Requests waiting for an approver
+views-ticket-row-approval-badge = Awaiting approval
+views-ticket-row-approval-tooltip = Waiting for approval before it can be resolved

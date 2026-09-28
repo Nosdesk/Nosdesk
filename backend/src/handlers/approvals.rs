@@ -77,6 +77,16 @@ fn decide_error(e: DecideError) -> HttpResponse {
     }
 }
 
+/// A held request that just went ahead gets routed now. Best effort: the
+/// decision stands either way.
+fn after_decision(conn: &mut crate::db::DbConnection, ticket_id: i32) {
+    if let Err(e) =
+        crate::services::assignment::AssignmentEngine::assign_after_approval(conn, ticket_id)
+    {
+        tracing::warn!(error = ?e, "approvals: assignment after approval failed");
+    }
+}
+
 fn approve_flag(decision: &str) -> Option<bool> {
     match decision {
         "approve" => Some(true),
@@ -190,14 +200,10 @@ pub async fn decide_my_approval(
     };
     let comment = body.comment.clone();
     match tc.run(|conn| {
-        Ok::<_, diesel::result::Error>(approvals::decide(
-            conn,
-            ticket_id,
-            me,
-            approve,
-            comment.as_deref(),
-            "portal",
-        ))
+        Ok::<_, diesel::result::Error>(
+            approvals::decide(conn, ticket_id, me, approve, comment.as_deref(), "portal")
+                .inspect(|_| after_decision(conn, ticket_id)),
+        )
     }) {
         Ok(Ok(state)) => HttpResponse::Ok().json(json!({ "approval_state": state })),
         Ok(Err(e)) => decide_error(e),
@@ -271,14 +277,10 @@ pub async fn decide_ticket_approval(
     let comment = body.comment.clone();
     let me = auth.user_uuid;
     match tc.run(|conn| {
-        Ok::<_, diesel::result::Error>(approvals::decide(
-            conn,
-            ticket_id,
-            me,
-            approve,
-            comment.as_deref(),
-            "app",
-        ))
+        Ok::<_, diesel::result::Error>(
+            approvals::decide(conn, ticket_id, me, approve, comment.as_deref(), "app")
+                .inspect(|_| after_decision(conn, ticket_id)),
+        )
     }) {
         Ok(Ok(state)) => HttpResponse::Ok().json(json!({ "approval_state": state })),
         Ok(Err(e)) => decide_error(e),

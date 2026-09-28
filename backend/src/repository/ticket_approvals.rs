@@ -47,6 +47,31 @@ impl From<diesel::result::Error> for DecideError {
     }
 }
 
+/// What staff are told when they try to resolve a request still waiting.
+pub const WAITING_MESSAGE: &str =
+    "This request is waiting for approval. Approve it or skip the approval first.";
+
+/// Whether moving `ticket_id` to `state_id` would resolve a request that is
+/// still waiting for approval (the fulfilment is gated, the conversation isn't:
+/// every other change is allowed).
+pub fn blocks_resolution(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    state_id: i32,
+) -> QueryResult<bool> {
+    let state: Option<String> = tickets::table
+        .find(ticket_id)
+        .select(tickets::approval_state)
+        .first(conn)?;
+    if state.as_deref() != Some(PENDING) {
+        return Ok(false);
+    }
+    Ok(
+        crate::repository::workflow_states::category_of(conn, state_id)?
+            == Some(WorkflowStateCategory::Done),
+    )
+}
+
 /// The overall state of a round, from its rows.
 pub fn outcome(rule: &str, rows: &[TicketApproval]) -> &'static str {
     let decided = |d: &str| {
@@ -212,6 +237,31 @@ fn start_round(
     Ok(state.to_string())
 }
 
+// sync-audit-only: approval rows are audited; the new round emits ticket.approval_requested
+/// A declined request that was reopened (the requester replied) starts a new
+/// approval round; the old rows stay as history.
+pub fn restart_if_declined(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<()> {
+    if ticket.approval_state.as_deref() != Some(DECLINED) {
+        return Ok(());
+    }
+    let Some(category) = ticket
+        .category_id
+        .map(|id| crate::repository::categories::get_category_by_id(conn, id).optional())
+        .transpose()?
+        .flatten()
+        .filter(|c| c.approval_required)
+    else {
+        return Ok(());
+    };
+    let round: i32 = ticket_approvals::table
+        .filter(ticket_approvals::ticket_id.eq(ticket.id))
+        .select(diesel::dsl::max(ticket_approvals::round))
+        .first::<Option<i32>>(conn)?
+        .unwrap_or(0)
+        + 1;
+    start_round(conn, ticket, &category, round).map(|_| ())
+}
+
 // sync-audit-only: approval rows are audited; the outcome emits ticket.approval_decided below
 /// Record `approver`'s decision on the ticket's current round. Returns the
 /// ticket's approval state afterwards. A decline moves the request to the
@@ -253,7 +303,15 @@ pub fn decide(
         let rule = rule_for(conn, &ticket)?;
         let rows = current_round(conn, ticket_id)?;
         let state = outcome(&rule, &rows);
-        conclude(conn, &ticket, state, decision, approver, comment, channel)?;
+        conclude(
+            conn,
+            &ticket,
+            state,
+            decision,
+            Some(approver),
+            comment,
+            channel,
+        )?;
         Ok(state.to_string())
     })
 }
@@ -300,7 +358,15 @@ pub fn skip(
                 ticket_approvals::decided_at.eq(Utc::now()),
             ))
             .execute(conn)?;
-        conclude(conn, &ticket, SKIPPED, SKIPPED, actor, comment, "skip")?;
+        conclude(
+            conn,
+            &ticket,
+            SKIPPED,
+            SKIPPED,
+            Some(actor),
+            comment,
+            "skip",
+        )?;
         Ok(())
     })
 }
@@ -322,7 +388,7 @@ fn conclude(
     ticket: &Ticket,
     state: &str,
     decision: &str,
-    actor: Uuid,
+    actor: Option<Uuid>,
     comment: Option<&str>,
     channel: &str,
 ) -> QueryResult<()> {
@@ -370,6 +436,68 @@ fn conclude(
     }
     let _ = ticket;
     Ok(())
+}
+
+#[derive(diesel::QueryableByName)]
+struct TimedOut {
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    workspace_id: i32,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    ticket_id: i32,
+}
+
+/// `(workspace_id, ticket_id)` of requests whose approval has waited longer
+/// than their workspace's automatic-approval period. Cross-workspace: run under
+/// the bypass context.
+// sync-audit-only: a read-only scan (raw SELECT), no write
+pub fn timed_out(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<(i32, i32)>> {
+    let rows: Vec<TimedOut> = diesel::sql_query(
+        "SELECT t.workspace_id, t.id AS ticket_id \
+         FROM tickets t \
+         JOIN site_settings s ON s.workspace_id = t.workspace_id \
+         WHERE t.approval_state = 'pending' \
+           AND s.approval_auto_approve_days IS NOT NULL \
+           AND EXISTS (SELECT 1 FROM ticket_approvals a \
+                       WHERE a.ticket_id = t.id AND a.decision IS NULL \
+                         AND a.created_at < now() - make_interval(days => s.approval_auto_approve_days)) \
+         ORDER BY t.id LIMIT $1",
+    )
+    .bind::<diesel::sql_types::BigInt, _>(limit)
+    .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.workspace_id, r.ticket_id))
+        .collect())
+}
+
+// sync-audit-only: approval rows are audited; the outcome emits ticket.approval_decided below
+/// Nobody answered in time: approve the waiting rows automatically, recorded
+/// as such. `false` when it was no longer waiting.
+pub fn auto_approve(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<bool> {
+    conn.transaction(|conn| {
+        let ticket: Ticket = tickets::table.find(ticket_id).first(conn)?;
+        if ticket.approval_state.as_deref() != Some(PENDING) {
+            return Ok(false);
+        }
+        let rows = current_round(conn, ticket_id)?;
+        let ids: Vec<i32> = rows
+            .iter()
+            .filter(|r| r.decision.is_none())
+            .map(|r| r.id)
+            .collect();
+        if ids.is_empty() {
+            return Ok(false);
+        }
+        diesel::update(ticket_approvals::table.filter(ticket_approvals::id.eq_any(&ids)))
+            .set((
+                ticket_approvals::decision.eq(APPROVED),
+                ticket_approvals::channel.eq("timeout"),
+                ticket_approvals::decided_at.eq(Utc::now()),
+            ))
+            .execute(conn)?;
+        conclude(conn, &ticket, APPROVED, APPROVED, None, None, "timeout")?;
+        Ok(true)
+    })
 }
 
 /// Approvals waiting for `approver`, newest first, with their tickets.
@@ -630,6 +758,96 @@ mod tests {
             skip(&mut conn, ticket.id, agent.uuid, None),
             Err(DecideError::NotWaiting)
         );
+    }
+
+    #[test]
+    fn a_waiting_request_cant_be_resolved_and_a_reopened_decline_asks_again() {
+        let mut conn = setup_test_connection();
+        let requester = TestFixtures::create_user(&mut conn, "guard_req", "user");
+        let boss = TestFixtures::create_user(&mut conn, "guard_boss", "user");
+        let cat = approval_type(&mut conn, "any", false, &[boss.uuid]);
+        let ticket = ticket_in(&mut conn, cat, requester.uuid);
+        start_if_required(&mut conn, &ticket).unwrap();
+        let done = crate::repository::workflow_states::first_in_category(
+            &mut conn,
+            WorkflowStateCategory::Done,
+        )
+        .unwrap();
+        assert!(blocks_resolution(&mut conn, ticket.id, done.id).unwrap());
+
+        decide(
+            &mut conn,
+            ticket.id,
+            boss.uuid,
+            false,
+            Some("Not now"),
+            "portal",
+        )
+        .unwrap();
+        assert!(
+            !blocks_resolution(&mut conn, ticket.id, done.id).unwrap(),
+            "no longer waiting"
+        );
+        let declined: Ticket = tickets::table.find(ticket.id).first(&mut conn).unwrap();
+        restart_if_declined(&mut conn, &declined).unwrap();
+        let t: Ticket = tickets::table.find(ticket.id).first(&mut conn).unwrap();
+        assert_eq!(t.approval_state.as_deref(), Some(PENDING));
+        let rows = current_round(&mut conn, ticket.id).unwrap();
+        assert_eq!(rows[0].round, 2);
+        assert_eq!(rows[0].decision, None);
+    }
+
+    #[test]
+    fn nobody_answering_in_time_approves_it_automatically() {
+        let mut conn = setup_test_connection();
+        let requester = TestFixtures::create_user(&mut conn, "late_req", "user");
+        let boss = TestFixtures::create_user(&mut conn, "late_boss", "user");
+        let cat = approval_type(&mut conn, "all", false, &[boss.uuid]);
+        let ticket = ticket_in(&mut conn, cat, requester.uuid);
+        start_if_required(&mut conn, &ticket).unwrap();
+        assert!(auto_approve(&mut conn, ticket.id).unwrap());
+        let t: Ticket = tickets::table.find(ticket.id).first(&mut conn).unwrap();
+        assert_eq!(t.approval_state.as_deref(), Some(APPROVED));
+        assert_eq!(
+            current_round(&mut conn, ticket.id).unwrap()[0]
+                .channel
+                .as_deref(),
+            Some("timeout")
+        );
+        assert!(!auto_approve(&mut conn, ticket.id).unwrap(), "only once");
+    }
+
+    #[test]
+    fn only_approvals_older_than_the_workspace_period_time_out() {
+        let mut conn = setup_test_connection();
+        let requester = TestFixtures::create_user(&mut conn, "scan_req", "user");
+        let boss = TestFixtures::create_user(&mut conn, "scan_boss", "user");
+        let cat = approval_type(&mut conn, "any", false, &[boss.uuid]);
+        let ticket = ticket_in(&mut conn, cat, requester.uuid);
+        start_if_required(&mut conn, &ticket).unwrap();
+        crate::repository::site_settings::get_site_settings(&mut conn).unwrap();
+
+        let set_days = |conn: &mut DbConnection, days: Option<i32>| {
+            diesel::update(crate::schema::site_settings::table)
+                .set(crate::schema::site_settings::approval_auto_approve_days.eq(days))
+                .execute(conn)
+                .unwrap();
+        };
+        let found = |conn: &mut DbConnection| {
+            timed_out(conn, 1000)
+                .unwrap()
+                .iter()
+                .any(|(_, id)| *id == ticket.id)
+        };
+        set_days(&mut conn, None);
+        assert!(!found(&mut conn), "off by default");
+        set_days(&mut conn, Some(2));
+        assert!(!found(&mut conn), "too recent");
+        diesel::update(ticket_approvals::table.filter(ticket_approvals::ticket_id.eq(ticket.id)))
+            .set(ticket_approvals::created_at.eq(Utc::now() - chrono::Duration::days(3)))
+            .execute(&mut conn)
+            .unwrap();
+        assert!(found(&mut conn));
     }
 
     #[test]

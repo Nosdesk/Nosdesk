@@ -17,6 +17,56 @@ use crate::schema::*;
 pub struct AssignmentEngine;
 
 impl AssignmentEngine {
+    /// Waiting for approval in a workspace that holds waiting requests back.
+    fn held_for_approval(conn: &mut DbConnection, ticket: &Ticket) -> bool {
+        ticket.approval_state.as_deref() == Some("pending")
+            && site_settings::table
+                .select(site_settings::approval_waiting_display)
+                .first::<String>(conn)
+                .map(|d| d == "held")
+                .unwrap_or(false)
+    }
+
+    /// Route a held request once its approval concludes (approved or
+    /// skipped): the assignment rules it skipped at creation run now. A no-op
+    /// when it already has an assignee or wasn't held.
+    pub fn assign_after_approval(
+        conn: &mut DbConnection,
+        ticket_id: i32,
+    ) -> QueryResult<Option<Ticket>> {
+        let ticket: Ticket = tickets::table.find(ticket_id).first(conn)?;
+        let held = site_settings::table
+            .select(site_settings::approval_waiting_display)
+            .first::<String>(conn)
+            .map(|d| d == "held")
+            .unwrap_or(false);
+        let concluded = matches!(
+            ticket.approval_state.as_deref(),
+            Some("approved" | "skipped")
+        );
+        if !held || !concluded || ticket.assignee_uuid.is_some() {
+            return Ok(None);
+        }
+        let Some(result) = Self::evaluate_rules(conn, &ticket, AssignmentTrigger::TicketCreated)
+        else {
+            return Ok(None);
+        };
+        let Some(assignee) = result.assigned_user_uuid else {
+            return Ok(None);
+        };
+        crate::repository::tickets::update_ticket_partial(
+            conn,
+            ticket_id,
+            TicketUpdate {
+                assignee_uuid: Some(Some(assignee)),
+                updated_at: Some(Utc::now().naive_utc()),
+                ..Default::default()
+            },
+            None,
+        )
+        .map(Some)
+    }
+
     /// Evaluate all active rules for a ticket and return the first matching assignment
     ///
     /// Rules are evaluated in priority order (lower priority number = higher priority).
@@ -26,6 +76,11 @@ impl AssignmentEngine {
         ticket: &Ticket,
         trigger: AssignmentTrigger,
     ) -> Option<AssignmentResult> {
+        // A request held back for approval isn't routed until it's approved
+        // (see `assign_after_approval`).
+        if Self::held_for_approval(conn, ticket) {
+            return None;
+        }
         // Get active rules ordered by priority
         let rules = match Self::get_active_rules_by_priority(conn) {
             Ok(r) => r,

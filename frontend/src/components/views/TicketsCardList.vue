@@ -113,6 +113,11 @@ function onContextMenu(id: number, event: MouseEvent): void {
               :title="card.title"
             >{{ card.title }}</span>
             <span
+              v-if="card.approval_state === 'pending'"
+              class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0"
+              :title="$t('views-ticket-row-approval-tooltip')"
+            >{{ $t('views-ticket-row-approval-badge') }}</span>
+            <span
               v-if="card.sla?.breached"
               class="ml-auto text-3xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
               :title="$t('ticket-list-sla-breached-title')"
