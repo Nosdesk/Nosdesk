@@ -49,4 +49,6 @@ pub mod email_suppression_reason {
     /// Recipient marked a message as spam (a feedback-loop complaint).
     /// Continuing to send to a complainer wrecks sender reputation.
     pub const COMPLAINT: &str = "complaint";
+    /// The recipient followed a "stop these emails" link.
+    pub const REQUESTED: &str = "requested";
 }

@@ -10,6 +10,7 @@ pub mod csrf;
 pub mod egress;
 pub mod email;
 pub mod email_branding;
+pub mod email_stop_link;
 pub mod encryption;
 pub mod error_response;
 pub mod file_validation;

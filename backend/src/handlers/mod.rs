@@ -36,6 +36,7 @@ pub mod documentation;
 pub mod documentation_collections;
 pub mod email;
 pub mod email_queue;
+pub mod email_stop;
 pub mod email_suppressions;
 pub mod email_verification;
 pub mod feature_flags;

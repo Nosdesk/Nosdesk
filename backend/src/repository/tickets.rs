@@ -377,6 +377,16 @@ pub fn verify_pending_tickets_for_user(
     })
 }
 
+/// How many of `requester`'s tickets are still waiting for their email to be
+/// confirmed.
+pub fn count_pending_for_requester(conn: &mut DbConnection, requester: Uuid) -> QueryResult<i64> {
+    tickets::table
+        .filter(tickets::requester_uuid.eq(Some(requester)))
+        .filter(tickets::verification_state.eq(groups::PENDING_VERIFICATION))
+        .count()
+        .get_result(conn)
+}
+
 /// The `created_via` of a ticket's held `ticket.created` (recorded while it
 /// was pending), if there is one.
 fn held_created_via(

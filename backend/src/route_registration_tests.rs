@@ -27,6 +27,15 @@ async fn collab_images_config_routes_registered() {
 }
 
 #[actix_web::test]
+async fn email_stop_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::email_stop::config,
+        &[("GET", "/email/stop"), ("POST", "/email/stop")],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn sse_config_routes_registered() {
     assert_config_registers(crate::handlers::sse::config, &[("POST", "/events/token")]).await;
 }

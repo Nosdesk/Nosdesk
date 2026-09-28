@@ -874,6 +874,7 @@ pub fn configure_app(
                     // Address confirmation is redeemed from a mail client, so
                     // it cannot require the session; the token is the proof.
                     .configure(crate::handlers::email_verification::config)
+                    .configure(crate::handlers::email_stop::config)
             )
 
             // Public WebSocket for collaboration (auth handled in WebSocket handler)

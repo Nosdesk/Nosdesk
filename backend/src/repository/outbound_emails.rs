@@ -645,6 +645,28 @@ pub fn seen_since(
     .get_result(conn)
 }
 
+/// Emails queued to `recipient` since `since` whose idempotency key starts
+/// with `key_prefix` (one kind of transactional mail). Case-insensitive on the
+/// address. Counts every status, so a suppressed or failed send still uses up
+/// the allowance.
+pub fn count_recent_to(
+    conn: &mut DbConnection,
+    recipient: &str,
+    key_prefix: &str,
+    since: chrono::DateTime<chrono::Utc>,
+) -> QueryResult<i64> {
+    use crate::schema::outbound_emails::dsl as o;
+    o::outbound_emails
+        .filter(
+            diesel::dsl::sql::<diesel::sql_types::Bool>("lower(recipient) = ")
+                .bind::<diesel::sql_types::Text, _>(recipient.trim().to_lowercase()),
+        )
+        .filter(o::idempotency_key.like(format!("{key_prefix}%")))
+        .filter(o::created_at.ge(since))
+        .count()
+        .get_result(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -674,6 +696,46 @@ mod tests {
             sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE.to_string(),
             mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
         }
+    }
+
+    #[test]
+    fn recent_mail_to_an_address_is_counted_per_kind() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let since = Utc::now() - chrono::Duration::hours(24);
+        let keyed = |n: &str| NewOutboundEmail {
+            recipient: "Victim@Example.com".into(),
+            idempotency_key: Some(format!("guest-confirmation:{n}")),
+            ..fresh_row(ch, n)
+        };
+        for n in ["a", "b"] {
+            enqueue_idempotent(&mut conn, keyed(n)).unwrap();
+        }
+        // Other mail to the same address doesn't count.
+        enqueue_idempotent(
+            &mut conn,
+            NewOutboundEmail {
+                recipient: "victim@example.com".into(),
+                idempotency_key: Some("invitation:x".into()),
+                ..fresh_row(ch, "c")
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            count_recent_to(
+                &mut conn,
+                "victim@example.COM",
+                "guest-confirmation:",
+                since
+            )
+            .unwrap(),
+            2,
+            "case-insensitive, this kind only"
+        );
+        assert_eq!(
+            count_recent_to(&mut conn, "other@example.com", "guest-confirmation:", since).unwrap(),
+            0
+        );
     }
 
     #[test]
