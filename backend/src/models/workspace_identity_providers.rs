@@ -22,6 +22,10 @@ pub struct WorkspaceIdentityProvider {
     pub workspace_id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The Microsoft Teams tab signs people in with this (Entra) app.
+    pub teams_enabled: bool,
+    /// The Teams app's id in the package we generate.
+    pub teams_app_id: uuid::Uuid,
 }
 
 impl WorkspaceIdentityProvider {

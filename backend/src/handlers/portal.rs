@@ -158,6 +158,53 @@ pub(crate) struct PortalSessionCookies {
     csrf_token: String,
 }
 
+/// Sign a person in to an embedded portal (the help widget, the Teams tab):
+/// a short session for that host and a portal access token in the body. No
+/// cookies, which a framed page can't rely on; the page keeps the token in
+/// memory and asks its host to sign the person in again when it lapses.
+pub(crate) fn embedded_sign_in(
+    req: &HttpRequest,
+    pool: &crate::db::Pool,
+    host: crate::repository::active_sessions::EmbedHost,
+    user_uuid: Uuid,
+    workspace_uuid: Uuid,
+) -> HttpResponse {
+    let Ok(mut conn) = pool.get() else {
+        return crate::errors::internal("Couldn't sign you in");
+    };
+    let Ok(user) = crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn) else {
+        tracing::info!("embedded sign-in refused (inactive account)");
+        return crate::errors::unauthorized("That sign-in didn't work");
+    };
+    let ip =
+        crate::utils::client_ip::from_http_request(req).and_then(|ip| ip.to_string().parse().ok());
+    let user_agent = req
+        .headers()
+        .get("User-Agent")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.chars().take(500).collect());
+    let session = match crate::repository::active_sessions::embedded_session(
+        &mut conn, host, user.uuid, ip, user_agent,
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(error = ?e, "embedded sign-in: session failed");
+            return crate::errors::internal("Couldn't sign you in");
+        }
+    };
+    match crate::utils::jwt::JwtUtils::create_portal_token(
+        &user,
+        workspace_uuid,
+        &session.session_id,
+    ) {
+        Ok(access_token) => HttpResponse::Ok().json(serde_json::json!({
+            "access_token": access_token,
+            "expires_in": crate::repository::active_sessions::EMBEDDED_SESSION_MINUTES * 60,
+        })),
+        Err(_) => crate::errors::internal("Couldn't sign you in"),
+    }
+}
+
 /// Mint a portal session for `user` within `workspace_uuid`: create the session
 /// record and the portal token bundle, returning the cookies to set. Reuses the
 /// agent session machinery wholesale (`create_session_record`, refresh-token

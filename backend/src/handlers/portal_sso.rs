@@ -7,16 +7,10 @@
 //! redirect back). `GET /api/portal/auth/sso/callback` verifies the ID token and
 //! signs the requester in.
 //!
-//! Who they are, in order:
-//! 1. an account already linked to this provider's issuer and subject;
-//! 2. otherwise the email the provider asserts, only at a domain the admin
-//!    listed and never when the provider marks it unverified: it links the
-//!    account with that address, or creates a requester, and remembers the
-//!    issuer and subject for next time;
-//! 3. otherwise a refusal that sends them back to the emailed sign-in link.
-//!
-//! Keying on issuer and subject (not email) is what stops a changed or
-//! unverified email claim from reaching someone else's account.
+//! Who they are is `repository::requester_identities` (shared with the Teams
+//! tab): an account linked to the provider's stable ids, else the email at a
+//! listed domain, else a refusal that sends them back to the emailed sign-in
+//! link.
 
 use actix_web::cookie::{Cookie, SameSite};
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
@@ -229,63 +223,49 @@ pub struct CallbackQuery {
     error: Option<String>,
 }
 
-/// Why a verified sign-in still can't become a portal session.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Refused {
-    /// No email at a listed domain (or the provider marked it unverified).
-    Domain,
+pub(crate) use crate::repository::requester_identities::Refused;
+
+/// The keys requester SSO knows a person by: for Entra, the tenant and object
+/// id first (shared with the Teams tab), then the provider's issuer + `sub`.
+fn identity_keys(
+    provider: &WorkspaceIdentityProvider,
+    info: &crate::oidc::OidcUserInfo,
+) -> Vec<crate::repository::requester_identities::IdentityKey> {
+    use crate::repository::requester_identities::{entra_key, IdentityKey};
+    let claim = |name: &str| info.raw_claims.get(name).and_then(|v| v.as_str());
+    let mut keys = Vec::with_capacity(2);
+    if provider.kind == "entra" {
+        if let (Some(tid), Some(oid)) = (claim("tid"), claim("oid")) {
+            keys.push(entra_key(tid, oid));
+        }
+    }
+    keys.push(IdentityKey {
+        provider_type: provider.issuer_url.clone(),
+        external_id: info.sub.clone(),
+    });
+    keys
 }
 
-/// Resolve the provider's verified identity to a user, linking or creating as
-/// the rules in the module doc allow. Runs pinned to the workspace.
+/// Resolve the provider's verified identity to a user (see
+/// `repository::requester_identities`). Runs pinned to the workspace.
 pub(crate) fn resolve_person(
     conn: &mut DbConnection,
     provider: &WorkspaceIdentityProvider,
     info: &crate::oidc::OidcUserInfo,
 ) -> Result<Result<Uuid, Refused>, diesel::result::Error> {
-    use crate::repository::user_auth_identities as identities;
-    let workspace_id = provider.workspace_id;
-    let issuer = provider.issuer_url.as_str();
-
-    if let Some(user) =
-        identities::find_user_by_scoped_identity(workspace_id, issuer, &info.sub, conn)?
-    {
-        return Ok(Ok(user));
-    }
-
-    let Some(email) = info
-        .email
-        .as_deref()
-        .map(|e| e.trim().to_lowercase())
-        .filter(|e| e.contains('@'))
-    else {
-        return Ok(Err(Refused::Domain));
-    };
-    let domain = email.rsplit('@').next().unwrap_or_default();
-    if info.email_verified == Some(false) || !provider.domains().iter().any(|d| d == domain) {
-        return Ok(Err(Refused::Domain));
-    }
-
-    let name = info
-        .name
-        .clone()
-        .filter(|n| !n.trim().is_empty())
-        .unwrap_or_else(|| email.split('@').next().unwrap_or(&email).to_string());
-    let user =
-        crate::repository::user_helpers::find_or_provision_requester(&email, &name, conn, None)?;
-    identities::create_identity(
-        crate::models::NewUserAuthIdentity {
-            user_uuid: user.uuid,
-            provider_type: issuer.to_string(),
-            external_id: info.sub.clone(),
-            email: Some(email),
-            metadata: Some(json!({ "via": "requester_sso", "kind": provider.kind })),
-            password_hash: None,
-            workspace_id: Some(workspace_id),
-        },
+    let keys = identity_keys(provider, info);
+    crate::repository::requester_identities::resolve(
         conn,
-    )?;
-    Ok(Ok(user.uuid))
+        provider.workspace_id,
+        &provider.domains(),
+        &crate::repository::requester_identities::Assertion {
+            keys: &keys,
+            email: info.email.as_deref(),
+            email_verified: info.email_verified,
+            name: info.name.as_deref(),
+            via: "requester_sso",
+        },
+    )
 }
 
 /// `GET /api/portal/auth/sso/callback`: back from the provider.
@@ -349,21 +329,7 @@ pub async fn sso_callback(
         &pool,
         "background:portal_sso_resolve",
         workspace_id,
-        |conn| {
-            let outcome = resolve_person(conn, &provider, &info)?;
-            if let Ok(user) = outcome {
-                // Already a member: a no-op (ON CONFLICT DO NOTHING).
-                crate::repository::workspaces::add_membership(
-                    conn,
-                    workspace_id,
-                    user,
-                    "member",
-                    crate::repository::workspaces::SeatWriteAuthority::Product,
-                )?;
-                crate::repository::user_emails::mark_primary_verified(conn, &user)?;
-            }
-            Ok::<_, diesel::result::Error>(outcome)
-        },
+        |conn| resolve_person(conn, &provider, &info),
     );
     let user_uuid = match resolved {
         Ok(Ok(u)) => u,

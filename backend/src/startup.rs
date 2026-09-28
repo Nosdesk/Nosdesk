@@ -933,6 +933,15 @@ pub fn configure_app(
             // the workspace is resolved from the portal origin by the app-wide
             // workspace-context middleware. Rate-limited like the auth scope to
             // bound magic-link sends.
+            // The Teams tab's sign-in, before `/api/portal/auth` so it matches
+            // here. A whole office opens Teams from one network address each
+            // morning, so it gets the app's limit, not the strict public one;
+            // a forged token costs one signature check.
+            .service(
+                web::scope("/api/portal/auth/teams")
+                    .wrap(RateLimiter::default())
+                    .configure(crate::handlers::teams::portal_auth_config),
+            )
             .service(
                 web::scope("/api/portal/auth")
                     // Sign-in, the approval and widget links: the strict public
@@ -1185,6 +1194,7 @@ pub fn configure_app(
                     .configure(crate::handlers::approval_settings::config)
                     .configure(crate::handlers::approvals::config)
                     .configure(crate::handlers::widget::config)
+                    .configure(crate::handlers::teams::config)
                     // Known-issue notices (agents and up).
                     .configure(crate::handlers::notices::config)
                     .configure(crate::handlers::notifications::config)
@@ -1255,6 +1265,9 @@ pub fn configure_app(
             .route("/portal/widget", web::get().to(crate::handlers::widget::serve_shell))
             .route("/widget.js", web::get().to(crate::handlers::widget::serve_loader))
             .route("/portal/widget.js", web::get().to(crate::handlers::widget::serve_loader))
+            // The Microsoft Teams personal tab's page.
+            .route("/teams", web::get().to(crate::handlers::teams::serve_shell))
+            .route("/portal/teams", web::get().to(crate::handlers::teams::serve_shell))
             // Root path handler - serves index.html or rebuilding message
             .route("/", web::get().to(serve_spa))
             .service(

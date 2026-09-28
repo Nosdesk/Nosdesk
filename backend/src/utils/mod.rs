@@ -12,6 +12,7 @@ pub mod email;
 pub mod email_branding;
 pub mod email_stop_link;
 pub mod encryption;
+pub mod entra_token;
 pub mod error_response;
 pub mod file_validation;
 pub mod form_challenge;

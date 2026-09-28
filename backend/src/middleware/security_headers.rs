@@ -340,10 +340,11 @@ fn development_policy(plugin_sandbox_origin: Option<&str>) -> Csp {
 /// header insert.
 pub struct SecurityHeaders;
 
-/// The app-wide policy with only `frame-ancestors` replaced by `origins`: the
-/// embeddable widget's page, which the listed sites may frame. Everything else
-/// (script, connect, style sources) stays exactly the app's.
-pub fn widget_csp(origins: &[String]) -> String {
+/// The app-wide policy with only `frame-ancestors` replaced by `origins`: an
+/// embedded portal page (the help widget, the Teams tab), which only those
+/// hosts may frame. Everything else (script, connect, style sources) stays
+/// exactly the app's.
+pub fn embed_csp(origins: &[String]) -> String {
     let base = if crate::config_utils::assume_production() {
         production_policy(SecurityHeaders::sandbox_origin().as_deref())
     } else {
@@ -357,9 +358,25 @@ pub fn widget_csp(origins: &[String]) -> String {
     base.set(Directive::FrameAncestors, sources).render()
 }
 
-/// Paths that serve the embeddable widget's page (see `handlers::widget`).
-pub fn is_widget_path(path: &str) -> bool {
-    matches!(path, "/widget" | "/portal/widget")
+/// Where Microsoft 365 shows a Teams personal tab: Teams (web, desktop,
+/// mobile), Outlook and the Microsoft 365 app.
+pub const TEAMS_FRAME_ANCESTORS: &[&str] = &[
+    "https://teams.microsoft.com",
+    "https://*.teams.microsoft.com",
+    "https://*.cloud.microsoft",
+    "https://*.microsoft365.com",
+    "https://*.office.com",
+    "https://outlook.office.com",
+    "https://outlook.office365.com",
+];
+
+/// Paths that serve an embedded portal page (see `handlers::widget` and
+/// `handlers::teams`).
+pub fn is_embed_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/widget" | "/portal/widget" | "/teams" | "/portal/teams"
+    )
 }
 
 impl SecurityHeaders {
@@ -501,12 +518,12 @@ where
                 );
             }
 
-            // The widget page sets its own CSP naming the sites that may frame
-            // it; DENY would contradict that. Without its own CSP (widget off,
-            // or no sites listed) it keeps DENY like everything else. Read
-            // before the default CSP below is filled in.
-            let framed_widget =
-                is_widget_path(&path) && headers.contains_key(header::CONTENT_SECURITY_POLICY);
+            // An embedded page (widget, Teams tab) sets its own CSP naming the
+            // hosts that may frame it; DENY would contradict that. Without its
+            // own CSP (turned off, or no sites listed) it keeps DENY like
+            // everything else. Read before the default CSP below is filled in.
+            let framed_embed =
+                is_embed_path(&path) && headers.contains_key(header::CONTENT_SECURITY_POLICY);
 
             // Content-Security-Policy. Skip if a handler set its
             // own (eg. a more-permissive policy for a specific
@@ -526,7 +543,7 @@ where
             // X-Frame-Options is legacy compared to
             // frame-ancestors in CSP, but it's still honoured by
             // older browsers and adds zero cost.
-            if !headers.contains_key(header::X_FRAME_OPTIONS) && !framed_widget {
+            if !headers.contains_key(header::X_FRAME_OPTIONS) && !framed_embed {
                 headers.insert(header::X_FRAME_OPTIONS, "DENY".parse().unwrap());
             }
 

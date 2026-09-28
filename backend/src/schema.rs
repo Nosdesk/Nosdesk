@@ -2247,6 +2247,8 @@ diesel::table! {
         workspace_id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        teams_enabled -> Bool,
+        teams_app_id -> Uuid,
     }
 }
 

@@ -244,7 +244,7 @@ pub async fn serve_shell(req: HttpRequest, pool: web::Data<Pool>) -> HttpRespons
     if !origins.is_empty() {
         res.insert_header((
             "Content-Security-Policy",
-            crate::middleware::security_headers::widget_csp(&origins),
+            crate::middleware::security_headers::embed_csp(&origins),
         ));
     }
     res.body(shell)
@@ -458,39 +458,13 @@ pub async fn exchange_session(
             return crate::errors::internal("Couldn't sign you in");
         }
     };
-    let Ok(mut conn) = pool.get() else {
-        return crate::errors::internal("Couldn't sign you in");
-    };
-    let Ok(user) = crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn) else {
-        return refused("inactive account");
-    };
-    let ip =
-        crate::utils::client_ip::from_http_request(&req).and_then(|ip| ip.to_string().parse().ok());
-    let user_agent = req
-        .headers()
-        .get("User-Agent")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.chars().take(500).collect());
-    let session = match crate::repository::active_sessions::widget_session(
-        &mut conn, user.uuid, ip, user_agent,
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!(error = ?e, "widget: session failed");
-            return crate::errors::internal("Couldn't sign you in");
-        }
-    };
-    match crate::utils::jwt::JwtUtils::create_portal_token(
-        &user,
+    crate::handlers::portal::embedded_sign_in(
+        &req,
+        &pool,
+        crate::repository::active_sessions::EmbedHost::Widget,
+        user_uuid,
         ws.workspace_uuid,
-        &session.session_id,
-    ) {
-        Ok(access_token) => HttpResponse::Ok().json(json!({
-            "access_token": access_token,
-            "expires_in": 15 * 60,
-        })),
-        Err(_) => crate::errors::internal("Couldn't sign you in"),
-    }
+    )
 }
 
 #[cfg(test)]

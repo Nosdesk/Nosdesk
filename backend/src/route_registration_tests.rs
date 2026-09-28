@@ -100,6 +100,24 @@ async fn widget_config_routes_registered() {
 }
 
 #[actix_web::test]
+async fn teams_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::teams::config,
+        &[
+            ("GET", "/admin/teams"),
+            ("PUT", "/admin/teams"),
+            ("GET", "/admin/teams/package"),
+        ],
+    )
+    .await;
+    assert_config_registers(
+        crate::handlers::teams::portal_auth_config,
+        &[("POST", "/session")],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn approval_settings_config_routes_registered() {
     assert_config_registers(
         crate::handlers::approval_settings::config,
