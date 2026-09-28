@@ -286,6 +286,7 @@
 import LinkButton from '@/components/common/LinkButton.vue'
 import RequesterLink from '@/components/public/RequesterLink.vue';
 import { ref, reactive, computed, onMounted, nextTick } from 'vue';
+import { solveFormChallenge, type FormChallengeSolution } from '@nosdesk/core/utils/formChallenge';
 
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
@@ -385,7 +386,17 @@ const contentWidth = computed(() => {
   return FORM_WIDTH;
 });
 
+// The form's proof-of-work, solved in the background while the person types.
+let challengeSolution: Promise<FormChallengeSolution | null> | null = null;
+function prepareChallenge(): void {
+  challengeSolution = publicService
+    .getFormChallenge()
+    .then(solveFormChallenge)
+    .catch(() => null);
+}
+
 onMounted(async () => {
+  prepareChallenge();
   await store.load();
   loading.value = false;
 });
@@ -434,36 +445,58 @@ async function submit() {
   }
   submitting.value = true;
   try {
-    const response = await publicService.submitTicket({
+    const response = await sendRequest();
+    submittedEmail.value = form.email.trim();
+    success.value = response;
+  } catch (e: unknown) {
+    await reportSubmitError(e);
+  } finally {
+    submitting.value = false;
+  }
+}
+
+/** Send the form with its solved challenge; a refused challenge (expired, or
+ * sent before it was issued long enough ago) is fetched again once. */
+async function sendRequest() {
+  const send = async () =>
+    publicService.submitTicket({
       name: form.name.trim(),
       email: form.email.trim(),
       title: form.title.trim(),
       description: form.description.trim(),
       category_id: requestType.value,
       website: form.website,
-      attachment_tokens: attachments.value.map((a) => a.claim_token)
+      attachment_tokens: attachments.value.map((a) => a.claim_token),
+      challenge: await challengeSolution,
     });
-    submittedEmail.value = form.email.trim();
-    success.value = response;
+  try {
+    return await send();
   } catch (e: unknown) {
-    if (axios.isAxiosError(e)) {
-      if (e.response?.status === 429) {
-        error.value = t('guest-submit-error-rate-limited');
-      } else if (e.response?.status === 403) {
-        error.value = t('guest-submit-error-disabled');
-        await store.load(true);
-      } else if (e.response?.status === 409) {
-        error.value = t('guest-submit-error-account-exists');
-      } else {
-        const data = e.response?.data as { error?: string } | undefined;
-        error.value = data?.error ?? t('guest-submit-error-generic');
-      }
-    } else {
-      error.value = t('guest-submit-error-network');
-    }
-  } finally {
-    submitting.value = false;
+    const code = axios.isAxiosError(e) ? (e.response?.data as { code?: string } | undefined)?.code : undefined;
+    if (code !== 'challenge_failed') throw e;
+    prepareChallenge();
+    return await send();
   }
+}
+
+async function reportSubmitError(e: unknown): Promise<void> {
+  if (axios.isAxiosError(e)) {
+    if (e.response?.status === 429) {
+      error.value = t('guest-submit-error-rate-limited');
+    } else if (e.response?.status === 403) {
+      error.value = t('guest-submit-error-disabled');
+      await store.load(true);
+    } else if (e.response?.status === 409) {
+      error.value = t('guest-submit-error-account-exists');
+    } else {
+      const data = e.response?.data as { error?: string } | undefined;
+      error.value = data?.error ?? t('guest-submit-error-generic');
+    }
+  } else {
+    error.value = t('guest-submit-error-network');
+  }
+  // A new challenge for the next attempt (each one works once).
+  prepareChallenge();
 }
 
 async function copyLink() {

@@ -78,6 +78,32 @@ impl RateLimiter {
         Ok(true)
     }
 
+    /// Record `key` for `ttl_seconds` if nobody has yet: `Ok(true)` the first
+    /// time, `Ok(false)` after (a one-time token already spent).
+    pub async fn claim_once(
+        redis_url: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> Result<bool, RateLimitError> {
+        let mut con = Self::connection(redis_url).await?;
+        let set: Option<String> = match redis::cmd("SET")
+            .arg(key)
+            .arg(1)
+            .arg("NX")
+            .arg("EX")
+            .arg(ttl_seconds)
+            .query_async(&mut con)
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                Self::forget_connection().await;
+                return Err(RateLimitError::RedisError(e.to_string()));
+            }
+        };
+        Ok(set.is_some())
+    }
+
     /// A shared multiplexed connection, opened once and reused (reopened after
     /// an error), rather than a new client per check.
     async fn connection(
@@ -385,5 +411,15 @@ mod burst_tests {
             }
         }
         assert_eq!(allowed, 5);
+    }
+
+    #[tokio::test]
+    async fn a_one_time_key_is_claimed_once() {
+        let Ok(url) = std::env::var("TEST_REDIS_URL") else {
+            return;
+        };
+        let key = format!("test_once:{}", uuid::Uuid::new_v4());
+        assert!(RateLimiter::claim_once(&url, &key, 60).await.unwrap());
+        assert!(!RateLimiter::claim_once(&url, &key, 60).await.unwrap());
     }
 }
