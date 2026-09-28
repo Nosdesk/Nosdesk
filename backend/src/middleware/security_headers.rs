@@ -530,6 +530,16 @@ where
                 headers.insert(header::X_FRAME_OPTIONS, "DENY".parse().unwrap());
             }
 
+            // A 429 always says when to come back (the middleware limiter
+            // sends none; our own limiters set their own).
+            if res.status() == actix_web::http::StatusCode::TOO_MANY_REQUESTS
+                && !res.headers().contains_key(header::RETRY_AFTER)
+            {
+                res.headers_mut()
+                    .insert(header::RETRY_AFTER, "60".parse().unwrap());
+            }
+            let headers = res.headers_mut();
+
             // X-Content-Type-Options: nosniff. Always.
             if !headers.contains_key(header::X_CONTENT_TYPE_OPTIONS) {
                 headers.insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());

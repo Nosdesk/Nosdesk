@@ -341,6 +341,9 @@ pub async fn get_public_settings(
 // ---------- Guest ticket submission ----------
 
 /// POST /api/public/tickets
+/// Anonymous requests one workspace accepts in a day.
+const GUEST_TICKETS_PER_WORKSPACE_PER_DAY: u32 = 1000;
+
 /// Unconfirmed requests one address may have waiting at once.
 const MAX_PENDING_PER_ADDRESS: i64 = 3;
 
@@ -452,8 +455,14 @@ pub async fn submit_guest_ticket(
     // this mirrors the existing helper's behavior and the app's other
     // fail-open limiters. The baseline actix-limitation middleware still
     // enforces the coarse per-minute cap underneath.
+    // Keyed per workspace (hosted tenants each set their own limit), and IPv6
+    // by its /64.
     if let Some(ip) = client_ip(&req).map(|n| n.ip()) {
-        let key = format!("guest_tickets:{ip}");
+        let key = format!(
+            "guest_tickets:{}:{}",
+            ws.workspace_id,
+            crate::utils::client_ip::limit_bucket(ip)
+        );
         let max =
             u32::try_from(settings.guest_ticket_rate_limit_per_hour.max(1)).unwrap_or(u32::MAX);
         let redis_url = rate_limit::get_redis_url();
@@ -468,6 +477,29 @@ pub async fn submit_guest_ticket(
             Err(e) => {
                 warn!(error = %e, "Guest-ticket rate limiter unavailable; allowing request");
             }
+        }
+    }
+
+    // A ceiling for the whole workspace, whatever the spread of addresses:
+    // far above any real day, low enough that a botnet can't bury the queue.
+    {
+        let key = format!("guest_tickets_day:{}", ws.workspace_id);
+        match RateLimiter::check_rate_limit(
+            &rate_limit::get_redis_url(),
+            &key,
+            GUEST_TICKETS_PER_WORKSPACE_PER_DAY,
+            86_400,
+        )
+        .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                return Ok(errors::too_many_requests(
+                    "We're receiving a lot of requests right now. Please try again later.",
+                    3600,
+                ));
+            }
+            Err(e) => warn!(error = %e, "Guest-ticket daily limiter unavailable; allowing request"),
         }
     }
 
@@ -1194,7 +1226,11 @@ pub async fn upload_guest_attachment(
     // the submit rate limiter matters: an attacker can upload-and-abandon
     // to fill disk without ever completing a submission.
     if let Some(ip) = client_ip(&req).map(|n| n.ip()) {
-        let key = format!("guest_upload:{ip}");
+        let key = format!(
+            "guest_upload:{}:{}",
+            ws.workspace_id,
+            crate::utils::client_ip::limit_bucket(ip)
+        );
         let redis_url = rate_limit::get_redis_url();
         match RateLimiter::check_rate_limit(&redis_url, &key, GUEST_UPLOADS_PER_HOUR, 3600).await {
             Ok(true) => { /* allowed */ }

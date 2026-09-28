@@ -935,6 +935,9 @@ pub fn configure_app(
             // bound magic-link sends.
             .service(
                 web::scope("/api/portal/auth")
+                    // Sign-in, the approval and widget links: the strict public
+                    // limiter, not the authenticated one.
+                    .app_data(state.public_limiter_data.clone())
                     .wrap(RateLimiter::default())
                     .configure(crate::handlers::portal::auth_config)
                     .configure(crate::handlers::portal_sso::auth_config)
@@ -947,9 +950,12 @@ pub fn configure_app(
             // own tickets only, RLS-pinned to the origin's workspace.
             .service(
                 web::scope("/api/portal")
+                    // Requests and replies are text; attachments go multipart.
+                    .app_data(web::JsonConfig::default().limit(256 * 1024))
                     .wrap(actix_web::middleware::from_fn(
                         crate::handlers::portal::portal_auth_middleware,
                     ))
+                    .wrap(RateLimiter::default())
                     .configure(crate::handlers::portal::config)
                     .configure(crate::handlers::approvals::portal_config),
             )
@@ -1430,7 +1436,8 @@ pub async fn build_server(
     // there's no in-memory fallback to silently degrade to.
     let public_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
-            crate::utils::client_ip::from_service_request(req).map(|ip| format!("public:{ip}"))
+            crate::utils::client_ip::from_service_request(req)
+                .map(|ip| format!("public:{}", crate::utils::client_ip::limit_bucket(ip)))
         })
         .limit(rate_limit_per_minute as usize)
         .period(Duration::from_secs(60))
@@ -1442,7 +1449,8 @@ pub async fn build_server(
 
     let auth_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
-            crate::utils::client_ip::from_service_request(req).map(|ip| format!("auth:{ip}"))
+            crate::utils::client_ip::from_service_request(req)
+                .map(|ip| format!("auth:{}", crate::utils::client_ip::limit_bucket(ip)))
         })
         .limit(auth_rate_limit_per_minute as usize)
         .period(Duration::from_secs(60))
@@ -1461,7 +1469,8 @@ pub async fn build_server(
     // /api/auth/mfa-setup-login.
     let frontend_logs_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
-            crate::utils::client_ip::from_service_request(req).map(|ip| format!("felogs:{ip}"))
+            crate::utils::client_ip::from_service_request(req)
+                .map(|ip| format!("felogs:{}", crate::utils::client_ip::limit_bucket(ip)))
         })
         .limit(rate_limit_per_minute as usize)
         .period(Duration::from_secs(60))

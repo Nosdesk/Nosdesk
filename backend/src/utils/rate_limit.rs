@@ -5,6 +5,9 @@ pub fn get_redis_url() -> String {
     std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string())
 }
 
+static SHARED: tokio::sync::Mutex<Option<(String, redis::aio::MultiplexedConnection)>> =
+    tokio::sync::Mutex::const_new(None);
+
 /// Generic rate limiting utility using Redis
 /// This provides a reusable rate limiting implementation following DRY principles
 pub struct RateLimiter;
@@ -45,24 +48,59 @@ impl RateLimiter {
         max_attempts: u32,
         window_seconds: u64,
     ) -> Result<bool, RateLimitError> {
-        // Get the current count
-        let current_count = Self::get_attempt_count(redis_url, key).await?;
-
-        // Check if under limit
-        if current_count < max_attempts {
-            // Increment the counter with TTL
-            Self::increment_attempt(redis_url, key, window_seconds).await?;
-            Ok(true)
-        } else {
-            // Rate limit exceeded
-            tracing::warn!(
-                "Rate limit exceeded for key: {} ({}/{})",
-                key,
-                current_count,
-                max_attempts
-            );
-            Ok(false)
+        // One atomic step: count this attempt and start the window on the
+        // first. A read-then-increment would let a burst of parallel requests
+        // all read the same count and all pass.
+        let script = r#"
+            local current = redis.call('INCR', KEYS[1])
+            if current == 1 then
+                redis.call('EXPIRE', KEYS[1], ARGV[1])
+            end
+            return current
+        "#;
+        let mut con = Self::connection(redis_url).await?;
+        let current: u64 = match redis::Script::new(script)
+            .key(key)
+            .arg(window_seconds)
+            .invoke_async(&mut con)
+            .await
+        {
+            Ok(n) => n,
+            Err(e) => {
+                Self::forget_connection().await;
+                return Err(RateLimitError::RedisError(e.to_string()));
+            }
+        };
+        if current > u64::from(max_attempts) {
+            tracing::warn!("Rate limit exceeded for key: {key} ({current}/{max_attempts})");
+            return Ok(false);
         }
+        Ok(true)
+    }
+
+    /// A shared multiplexed connection, opened once and reused (reopened after
+    /// an error), rather than a new client per check.
+    async fn connection(
+        redis_url: &str,
+    ) -> Result<redis::aio::MultiplexedConnection, RateLimitError> {
+        let mut slot = SHARED.lock().await;
+        if let Some((url, con)) = slot.as_ref() {
+            if url == redis_url {
+                return Ok(con.clone());
+            }
+        }
+        let client = redis::Client::open(redis_url)
+            .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
+        let con = client
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(|_| RateLimitError::ConnectionFailed)?;
+        *slot = Some((redis_url.to_string(), con.clone()));
+        Ok(con)
+    }
+
+    async fn forget_connection() {
+        *SHARED.lock().await = None;
     }
 
     /// Get the current attempt count for a key
@@ -317,4 +355,35 @@ mod tests {
     }
 
     // Note: Integration tests requiring Redis would go in tests/ directory
+}
+
+#[cfg(test)]
+mod burst_tests {
+    use super::RateLimiter;
+
+    /// Parallel requests can't slip past the limit together.
+    #[tokio::test]
+    async fn a_parallel_burst_is_held_to_the_limit() {
+        let Ok(url) = std::env::var("TEST_REDIS_URL") else {
+            return; // no Redis in this environment
+        };
+        let key = format!("test_burst:{}", uuid::Uuid::new_v4());
+        let tasks: Vec<_> = (0..25)
+            .map(|_| {
+                let (url, key) = (url.clone(), key.clone());
+                tokio::spawn(async move {
+                    RateLimiter::check_rate_limit(&url, &key, 5, 60)
+                        .await
+                        .unwrap()
+                })
+            })
+            .collect();
+        let mut allowed = 0;
+        for t in tasks {
+            if t.await.unwrap() {
+                allowed += 1;
+            }
+        }
+        assert_eq!(allowed, 5);
+    }
 }
