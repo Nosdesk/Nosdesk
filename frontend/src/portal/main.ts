@@ -16,6 +16,7 @@ import { IN_PORTAL } from '@/components/public/inPortal'
 
 import App from './App.vue'
 import router from './router'
+import { isEmbed } from './embed'
 import { browserLocale } from './locale'
 
 window.addEventListener('vite:preloadError', (event) => {
@@ -44,6 +45,13 @@ async function bootstrap(): Promise<void> {
   useThemeStore(pinia)
   void useBrandingStore(pinia).loadBranding()
 
+  if (isEmbed) {
+    // Plain links open in a new tab rather than navigating the iframe.
+    const base = document.createElement('base')
+    base.target = '_blank'
+    document.head.appendChild(base)
+    await router.replace('/embed')
+  }
   await router.isReady()
   app.mount('#app')
 }

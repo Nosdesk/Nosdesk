@@ -67,6 +67,7 @@ pub mod users;
 pub mod workflow_states;
 pub mod workspace_identity_providers;
 pub mod workspace_notices;
+pub mod workspace_widget_settings;
 pub mod workspaces;
 pub mod yjs_snapshots;
 

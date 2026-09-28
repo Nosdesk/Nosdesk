@@ -163,6 +163,19 @@ impl Csp {
         self
     }
 
+    /// Replace a directive's sources (or add it).
+    pub fn set(mut self, d: Directive, sources: Vec<Source>) -> Self {
+        match self
+            .directives
+            .iter_mut()
+            .find(|(existing, _)| *existing == d)
+        {
+            Some(slot) => slot.1 = sources,
+            None => self.directives.push((d, sources)),
+        }
+        self
+    }
+
     /// Add a flag-style directive that takes no sources. Used for
     /// `upgrade-insecure-requests` and `block-all-mixed-content`.
     pub fn flag(mut self, name: &'static str) -> Self {
@@ -327,7 +340,36 @@ fn development_policy(plugin_sandbox_origin: Option<&str>) -> Csp {
 /// header insert.
 pub struct SecurityHeaders;
 
+/// The app-wide policy with only `frame-ancestors` replaced by `origins`: the
+/// embeddable widget's page, which the listed sites may frame. Everything else
+/// (script, connect, style sources) stays exactly the app's.
+pub fn widget_csp(origins: &[String]) -> String {
+    let base = if crate::config_utils::assume_production() {
+        production_policy(SecurityHeaders::sandbox_origin().as_deref())
+    } else {
+        development_policy(SecurityHeaders::sandbox_origin().as_deref())
+    };
+    let sources = if origins.is_empty() {
+        vec![Source::None_]
+    } else {
+        origins.iter().cloned().map(Source::Host).collect()
+    };
+    base.set(Directive::FrameAncestors, sources).render()
+}
+
+/// Paths that serve the embeddable widget's page (see `handlers::widget`).
+pub fn is_widget_path(path: &str) -> bool {
+    matches!(path, "/widget" | "/portal/widget")
+}
+
 impl SecurityHeaders {
+    fn sandbox_origin() -> Option<String> {
+        std::env::var("NOSDESK_SANDBOX_ORIGIN")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
     fn build_csp_value() -> (String, bool) {
         // Same var the sandbox handler (handlers/plugin_sandbox.rs) and config.rs
         // read. The CSP's frame-src has to allow exactly the origin the runtime is
@@ -459,6 +501,13 @@ where
                 );
             }
 
+            // The widget page sets its own CSP naming the sites that may frame
+            // it; DENY would contradict that. Without its own CSP (widget off,
+            // or no sites listed) it keeps DENY like everything else. Read
+            // before the default CSP below is filled in.
+            let framed_widget =
+                is_widget_path(&path) && headers.contains_key(header::CONTENT_SECURITY_POLICY);
+
             // Content-Security-Policy. Skip if a handler set its
             // own (eg. a more-permissive policy for a specific
             // route); the default is restrictive enough that
@@ -477,7 +526,7 @@ where
             // X-Frame-Options is legacy compared to
             // frame-ancestors in CSP, but it's still honoured by
             // older browsers and adds zero cost.
-            if !headers.contains_key(header::X_FRAME_OPTIONS) {
+            if !headers.contains_key(header::X_FRAME_OPTIONS) && !framed_widget {
                 headers.insert(header::X_FRAME_OPTIONS, "DENY".parse().unwrap());
             }
 
@@ -702,6 +751,28 @@ mod tests {
     fn production_has_upgrade_insecure_requests_flag() {
         let csp = production_policy(None).render();
         assert!(flags(&csp).contains("upgrade-insecure-requests"));
+    }
+
+    #[test]
+    fn the_widget_policy_only_changes_frame_ancestors() {
+        let app = parse_directives(&production_policy(None).render());
+        let widget = parse_directives(
+            &production_policy(None)
+                .set(
+                    Directive::FrameAncestors,
+                    vec![Source::Host("https://help.acme.test".into())],
+                )
+                .render(),
+        );
+        assert_eq!(
+            widget.get("frame-ancestors"),
+            Some(&vec!["https://help.acme.test".to_string()])
+        );
+        for (name, sources) in &app {
+            if name != "frame-ancestors" {
+                assert_eq!(widget.get(name), Some(sources), "{name} unchanged");
+            }
+        }
     }
 
     #[test]

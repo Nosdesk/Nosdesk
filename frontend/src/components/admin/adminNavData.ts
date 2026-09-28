@@ -209,6 +209,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         keywords: ['sso', 'single sign-on', 'requester', 'portal', 'entra', 'microsoft', 'google', 'oidc', 'sign in']
       },
       {
+        titleKey: 'admin-nav-widget-title',
+        descriptionKey: 'admin-nav-widget-description',
+        icon: 'comment',
+        route: '/admin/widget',
+        keywords: ['widget', 'embed', 'website', 'chat', 'help button', 'launcher', 'intranet']
+      },
+      {
         titleKey: 'admin-nav-notices-title',
         descriptionKey: 'admin-nav-notices-description',
         icon: 'info',

@@ -1,4 +1,6 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createMemoryHistory, createRouter, createWebHistory } from 'vue-router'
+
+import { isEmbed } from './embed'
 
 import LoginView from './views/LoginView.vue'
 import NewTicketView from './views/NewTicketView.vue'
@@ -13,8 +15,11 @@ const base =
     : '/'
 
 const router = createRouter({
-  history: createWebHistory(base),
+  // Embedded in a customer's page the iframe keeps one URL: navigation stays
+  // in memory, so it never reloads onto a page that refuses framing.
+  history: isEmbed ? createMemoryHistory() : createWebHistory(base),
   routes: [
+    { path: '/embed', name: 'embed', component: () => import('./views/EmbedHomeView.vue') },
     { path: '/', redirect: '/tickets' },
     { path: '/login', name: 'login', component: LoginView },
     { path: '/tickets', name: 'tickets', component: TicketsView },
