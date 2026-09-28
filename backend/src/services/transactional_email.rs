@@ -194,6 +194,51 @@ pub fn enqueue_invitation(
     outbound_emails::enqueue_idempotent(conn, row)
 }
 
+/// The anonymous request form's confirmation email. Fixed text (nothing the
+/// submitter typed), a "stop these emails" link that is also the
+/// `List-Unsubscribe` one-click target, and a key prefix the per-recipient cap
+/// counts (see [`GUEST_CONFIRMATION_KEY_PREFIX`]).
+pub fn prepare_guest_confirmation(
+    svc: &EmailService,
+    branding: &EmailBranding,
+    recipient: &str,
+    invitation_token: &str,
+    stop_url: Option<&str>,
+) -> NewOutboundEmail {
+    let (subject, body_html, body_text) =
+        svc.compose_guest_ticket_confirmation(invitation_token, branding, stop_url);
+    let message_id = make_message_id("guest-confirmation", &from_email_domain(svc));
+    let mut headers = serde_json::json!({ "Auto-Submitted": "auto-generated" });
+    // The worker turns this into `List-Unsubscribe` + one-click POST.
+    if let Some(url) = stop_url {
+        headers["List-Unsubscribe"] = serde_json::json!(url);
+    }
+    NewOutboundEmail {
+        channel_id: None,
+        ticket_id: None,
+        comment_id: None,
+        recipient: recipient.to_string(),
+        subject,
+        body_text,
+        body_html: Some(body_html),
+        message_id,
+        in_reply_to: None,
+        references_list: vec![],
+        headers_json: headers,
+        correlation_id: None,
+        idempotency_key: Some(format!(
+            "{GUEST_CONFIRMATION_KEY_PREFIX}{}",
+            hash16(invitation_token)
+        )),
+        sender_identity: outbound_email_sender_identity::PLATFORM.to_string(),
+        mail_class: outbound_email_mail_class::TRANSACTIONAL.to_string(),
+    }
+}
+
+/// Idempotency-key prefix of guest confirmation emails, which the
+/// per-recipient cap counts.
+pub const GUEST_CONFIRMATION_KEY_PREFIX: &str = "guest-confirmation:";
+
 /// Condense a bug report's client breadcrumb trail (JSONB array of
 /// `{category, ts, summary}`) into a readable plain-text block for the
 /// ops alert. Anything malformed is skipped rather than dumped raw.

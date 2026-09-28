@@ -335,25 +335,33 @@ pub async fn request_magic_link(
         // No workspace resolved for this origin: nothing to sign in to.
         return magic_link_accepted();
     };
-    let email = body.email.trim().to_lowercase();
+    send_sign_in_link(&pool, &ctx, &body.email);
+    magic_link_accepted()
+}
+
+/// Email a sign-in link (and code) to the member of `ctx`'s workspace with
+/// `email`, at most five an hour. Does nothing, silently, for an address with
+/// no member here: callers answer the same way either way.
+pub(crate) fn send_sign_in_link(pool: &Pool, ctx: &WorkspaceContext, email: &str) {
+    let email = email.trim().to_lowercase();
     if email.is_empty() || !email.contains('@') {
-        return magic_link_accepted();
+        return;
     }
 
     let mut conn = match pool.get() {
         Ok(c) => c,
-        Err(_) => return magic_link_accepted(),
+        Err(_) => return,
     };
 
     // Resolve a member of THIS workspace with that email; bail (uniformly) if
     // there is none.
     let user = match crate::repository::users::get_user_by_email(&email, &mut conn) {
         Ok(u) => u,
-        Err(_) => return magic_link_accepted(),
+        Err(_) => return,
     };
     if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, user.uuid)
     {
-        return magic_link_accepted();
+        return;
     }
 
     // Rate-limit: cap sign-in links per user per hour.
@@ -366,7 +374,7 @@ pub async fn request_magic_link(
     )
     .unwrap_or(0);
     if recent >= 5 {
-        return magic_link_accepted();
+        return;
     }
 
     let token = ResetTokenUtils::create_reset_token(user.uuid, TokenType::PortalMagicLink);
@@ -385,12 +393,12 @@ pub async fn request_magic_link(
     )
     .is_err()
     {
-        return magic_link_accepted();
+        return;
     }
 
     let Some(recipient) = crate::repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
     else {
-        return magic_link_accepted();
+        return;
     };
 
     // Link base is the workspace's own canonical origin (the portal host), so
@@ -406,7 +414,7 @@ pub async fn request_magic_link(
 
     let email_service = match crate::utils::email::EmailService::from_env() {
         Ok(s) => s,
-        Err(_) => return magic_link_accepted(),
+        Err(_) => return,
     };
 
     // Branding read + enqueue touch workspace-isolated tables. Run pinned as the
@@ -415,7 +423,7 @@ pub async fn request_magic_link(
     let raw_token = token.raw_token.clone();
     let user_name = user.name.clone();
     let _ = crate::sync::session::run_in_workspace(
-        &pool,
+        pool,
         "background:portal_magic_link",
         ctx.workspace_id,
         move |conn| {
@@ -433,8 +441,6 @@ pub async fn request_magic_link(
             )
         },
     );
-
-    magic_link_accepted()
 }
 
 /// `GET /api/portal/auth/callback?token=…` (portal origin, unauthenticated).

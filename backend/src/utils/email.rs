@@ -1883,36 +1883,16 @@ impl EmailService {
         (subject, html_body, body_text)
     }
 
-    /// Send a confirmation email for a guest ticket submission. The link
-    /// uses the same accept-invitation flow as a normal invitation, but the
-    /// copy is tailored to the ticket-submission context — the email is
-    /// framed as "confirm your submission" rather than "welcome / set up
-    /// your account", which is what the submitter actually requested.
-    pub async fn send_guest_ticket_confirmation_email(
-        &self,
-        to: &str,
-        user_name: &str,
-        invitation_token: &str,
-        branding: &EmailBranding,
-    ) -> Result<(), String> {
-        if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
-        }
-        let (subject, html_body) =
-            self.compose_guest_ticket_confirmation(user_name, invitation_token, branding);
-        self.send_html_email(to, &subject, &html_body).await
-    }
-
     /// Render the guest ticket-confirmation email without sending. Returns
     /// `(subject, html_body)`; the plain-text alternative is derived from the
     /// HTML by `send_html_email`. Split out so the preview harness can render
     /// it without a transport.
     pub fn compose_guest_ticket_confirmation(
         &self,
-        user_name: &str,
         invitation_token: &str,
         branding: &EmailBranding,
-    ) -> (String, String) {
+        stop_url: Option<&str>,
+    ) -> (String, String, String) {
         // Guest confirmation predates the inbound-locale plumbing.
         // Fall back to DEFAULT_LOCALE; once guest channels carry an
         // Accept-Language hint we can thread it through.
@@ -1932,7 +1912,9 @@ impl EmailService {
         // i18n plumbing for this flow and stays hardcoded English;
         // a future commit could resolve the inbound `Accept-Language`
         // header or site_settings.default_locale here.
-        let greeting = format!("Hi <strong>{}</strong>,", escape_html(user_name));
+        // Nothing the submitter typed goes in this email: it reaches whatever
+        // address was entered, so it says only what the workspace says.
+        let greeting = "Hi,".to_string();
         let intro = format!(
             "Thanks for submitting a ticket to <strong>{}</strong>. Confirm your email to release it to our team:",
             escape_html(&branding.app_name)
@@ -1944,8 +1926,16 @@ impl EmailService {
                 body: vec![
                     text(greeting),
                     text(intro),
-                    note("If you didn't submit a ticket, you can safely ignore this email, no account will be created."),
-                ],
+                    note("If you didn't submit a ticket, you can safely ignore this email."),
+                ]
+                .into_iter()
+                .chain(stop_url.map(|url| {
+                    muted(format!(
+                        r#"Not you? <a href="{}" style="color:{C_LINK};">Stop these emails</a>."#,
+                        escape_html(url)
+                    ))
+                }))
+                .collect(),
                 cta: Some(Cta {
                     label: "Confirm email & send ticket".to_string(),
                     url: confirm_link.clone(),
@@ -1965,7 +1955,14 @@ impl EmailService {
         );
 
         let subject = format!("Confirm your ticket submission to {}", branding.app_name);
-        (subject, html_body)
+        let mut body_text = format!(
+            "Thanks for submitting a ticket to {app}. Confirm your email to release it to our team:\n\n{confirm_link}\n\nThe link expires in 7 days. If you didn't submit a ticket, you can safely ignore this email.",
+            app = branding.app_name,
+        );
+        if let Some(url) = stop_url {
+            body_text.push_str(&format!("\n\nNot you? Stop these emails: {url}"));
+        }
+        (subject, html_body, body_text)
     }
 
     /// Send a technician's reply to a ticket as an email. Sets the
@@ -2804,8 +2801,16 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             svc.compose_invitation("Alex", "EXAMPLE-INVITE-TOKEN", &branding, "Kyle", &locale);
         write("invitation", &html);
 
-        let (_subj, html) =
-            svc.compose_guest_ticket_confirmation("Alex", "EXAMPLE-GUEST-TOKEN", &branding);
+        let (_subj, html, text) = svc.compose_guest_ticket_confirmation(
+            "EXAMPLE-GUEST-TOKEN",
+            &branding,
+            Some("https://acme.example.com/api/public/email/stop?t=EXAMPLE"),
+        );
+        assert!(
+            html.contains("email/stop?t=EXAMPLE"),
+            "carries the stop link"
+        );
+        assert!(text.contains("Confirm"), "has a plain-text part");
         write("guest-ticket-confirmation", &html);
 
         let (html, _text) = svc.compose_notification(

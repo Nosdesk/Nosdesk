@@ -341,6 +341,18 @@ pub async fn get_public_settings(
 // ---------- Guest ticket submission ----------
 
 /// POST /api/public/tickets
+/// Unconfirmed requests one address may have waiting at once.
+const MAX_PENDING_PER_ADDRESS: i64 = 3;
+
+/// The answer to a request that needs its email confirmed. Identical however
+/// the submission went, so it says nothing about the address.
+fn check_your_email() -> HttpResponse {
+    HttpResponse::Accepted().json(json!({
+        "verification_required": true,
+        "email_sent": true,
+    }))
+}
+
 pub async fn submit_guest_ticket(
     pool: web::Data<Pool>,
     search_service: web::Data<Arc<SearchService>>,
@@ -473,6 +485,9 @@ pub async fn submit_guest_ticket(
     // for every INSERT and a partial failure rolls back cleanly.
     enum CreateError {
         EmailClaimed,
+        /// The address already has [`MAX_PENDING_PER_ADDRESS`] unconfirmed
+        /// requests; more wait until one is confirmed.
+        TooManyPending,
         Internal,
     }
     impl From<diesel::result::Error> for CreateError {
@@ -496,6 +511,15 @@ pub async fn submit_guest_ticket(
                 return Err(CreateError::Internal);
             }
         };
+
+        // Unconfirmed requests are capped per address, so confirming one
+        // email can only ever release a handful.
+        if verification_required
+            && repository::tickets::count_pending_for_requester(conn, user.uuid)?
+                >= MAX_PENDING_PER_ADDRESS
+        {
+            return Err(CreateError::TooManyPending);
+        }
 
         let default_state = repository::workflow_states::default_state(conn).map_err(|e| {
             error!(error = %e, "Failed to resolve default workflow state");
@@ -586,13 +610,16 @@ pub async fn submit_guest_ticket(
         Ok((user, is_new_guest, ticket, first_comment_id))
     });
 
+    // The same answer whatever the address: an address with an account gets a
+    // sign-in link instead (so the form doesn't reveal who has one), and one
+    // with too many unconfirmed requests gets nothing more until it confirms.
     let (user, is_new_guest, ticket, first_comment_id) = match create_result {
         Ok(t) => t,
         Err(CreateError::EmailClaimed) => {
-            return Err(ApiError::Conflict(
-                "Please sign in to submit a ticket with this email address.".into(),
-            ));
+            crate::handlers::portal::send_sign_in_link(pool.get_ref(), &ws, email);
+            return Ok(check_your_email());
         }
+        Err(CreateError::TooManyPending) => return Ok(check_your_email()),
         Err(CreateError::Internal) => {
             return Err(ApiError::Internal("Failed to create ticket".into()));
         }
@@ -657,12 +684,24 @@ pub async fn submit_guest_ticket(
     // EmailService::send_guest_ticket_confirmation_email.
     let send_email = verification_required || is_new_guest;
     let email_sent = if send_email {
-        match crate::handlers::users::send_guest_ticket_confirmation(
-            &mut conn, &req, user.uuid, email, name,
-        )
-        .await
-        {
-            crate::handlers::users::SendInvitationResult::Success => true,
+        let workspace_id = ws.workspace_id;
+        let sent =
+            session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
+                Ok(crate::handlers::users::send_guest_ticket_confirmation(
+                    conn,
+                    &req,
+                    user.uuid,
+                    email,
+                    workspace_id,
+                ))
+            })
+            .unwrap_or_else(|e| {
+                crate::handlers::users::SendInvitationResult::EmailSendError(e.to_string())
+            });
+        match sent {
+            // At its daily allowance: nothing sent, same answer.
+            crate::handlers::users::SendInvitationResult::Success
+            | crate::handlers::users::SendInvitationResult::Capped => true,
             other => {
                 warn!(
                     user_uuid = %user.uuid,
@@ -694,10 +733,8 @@ pub async fn submit_guest_ticket(
         // Don't disclose the ticket id or lookup token yet — the Zendesk-
         // style UX treats a pending ticket as "not yet submitted" from the
         // requester's perspective. They get both once they verify.
-        Ok(HttpResponse::Accepted().json(json!({
-            "verification_required": true,
-            "email_sent": email_sent,
-        })))
+        let _ = email_sent;
+        Ok(check_your_email())
     } else {
         Ok(HttpResponse::Created().json(json!({
             "verification_required": false,

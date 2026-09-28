@@ -232,6 +232,8 @@ pub enum SendInvitationResult {
     EmailServiceError(String),
     TokenStorageError(String),
     EmailSendError(String),
+    /// Nothing sent: the address already had its allowance of this email.
+    Capped,
 }
 
 /// Cap the persisted dashboard layout at a kilobyte — we expect a
@@ -337,6 +339,7 @@ impl std::fmt::Display for SendInvitationResult {
             Self::EmailServiceError(_) => write!(f, "email_service_error"),
             Self::TokenStorageError(_) => write!(f, "token_storage_error"),
             Self::EmailSendError(_) => write!(f, "email_send_error"),
+            Self::Capped => write!(f, "capped"),
         }
     }
 }
@@ -354,7 +357,7 @@ struct PreparedInvitation {
 /// send the email. Shared prelude for both [`send_user_invitation`] and
 /// [`send_guest_ticket_confirmation`] — the two only differ in the
 /// metadata stamped on the token and which email template they send.
-async fn prepare_invitation(
+fn prepare_invitation(
     conn: &mut DbConnection,
     req: &HttpRequest,
     user_uuid: Uuid,
@@ -446,9 +449,7 @@ pub async fn send_user_invitation(
         req,
         user_uuid,
         Some(serde_json::json!({ "invited_by": admin_name })),
-    )
-    .await
-    {
+    ) {
         Ok(p) => p,
         Err(result) => return result,
     };
@@ -472,38 +473,53 @@ pub async fn send_user_invitation(
     }
 }
 
-/// Create and send a guest-ticket-confirmation email — same invitation
-/// token/flow as [`send_user_invitation`] but with submission-themed copy
-/// and a metadata tag that the accept handler can inspect.
-pub async fn send_guest_ticket_confirmation(
+/// Confirmation emails one address gets from the request form in a day.
+/// Enough for someone who submits a few requests before confirming; a form
+/// can't be used to keep mailing an address beyond it.
+pub const GUEST_CONFIRMATIONS_PER_DAY: i64 = 3;
+
+/// Queue the request form's confirmation email: the same invitation token and
+/// accept flow as [`send_user_invitation`], fixed submission-themed copy, and a
+/// "stop these emails" link. At most [`GUEST_CONFIRMATIONS_PER_DAY`] per
+/// address; beyond that nothing is sent (the caller answers the same way).
+/// Queued, so the suppression list applies. `conn` must be pinned to the
+/// workspace.
+pub fn send_guest_ticket_confirmation(
     conn: &mut DbConnection,
     req: &HttpRequest,
     user_uuid: Uuid,
     user_email: &str,
-    user_name: &str,
+    workspace_id: i32,
 ) -> SendInvitationResult {
+    let since = chrono::Utc::now() - chrono::Duration::hours(24);
+    let sent_today = repository::outbound_emails::count_recent_to(
+        conn,
+        user_email,
+        crate::services::transactional_email::GUEST_CONFIRMATION_KEY_PREFIX,
+        since,
+    )
+    .unwrap_or(i64::MAX);
+    if sent_today >= GUEST_CONFIRMATIONS_PER_DAY {
+        return SendInvitationResult::Capped;
+    }
     let prep = match prepare_invitation(
         conn,
         req,
         user_uuid,
         Some(serde_json::json!({ "source": "guest_ticket_submission" })),
-    )
-    .await
-    {
+    ) {
         Ok(p) => p,
         Err(result) => return result,
     };
-
-    match prep
-        .email_service
-        .send_guest_ticket_confirmation_email(
-            user_email,
-            user_name,
-            &prep.raw_token,
-            &prep.branding,
-        )
-        .await
-    {
+    let stop_url = crate::utils::email_stop_link::url(conn, workspace_id, user_email);
+    let row = crate::services::transactional_email::prepare_guest_confirmation(
+        &prep.email_service,
+        &prep.branding,
+        user_email,
+        &prep.raw_token,
+        stop_url.as_deref(),
+    );
+    match repository::outbound_emails::enqueue_idempotent(conn, row) {
         Ok(_) => SendInvitationResult::Success,
         Err(e) => SendInvitationResult::EmailSendError(format!("{e:?}")),
     }
@@ -1085,9 +1101,9 @@ pub async fn create_user(
                 )
                 .await
                 {
-                    SendInvitationResult::Success => {
-                        // Invitation sent successfully
-                    }
+                    // Capped is the request form's allowance; admin invitations
+                    // aren't capped.
+                    SendInvitationResult::Success | SendInvitationResult::Capped => {}
                     SendInvitationResult::TokenStorageError(e) => {
                         error!(error = %e, "Error storing invitation token");
                         return Err(ApiError::Internal("Error creating invitation".into()));
@@ -3002,7 +3018,7 @@ pub async fn resend_invitation(
     )
     .await
     {
-        SendInvitationResult::Success => {
+        SendInvitationResult::Success | SendInvitationResult::Capped => {
             info!(email = %user_email, user_name = %user.name, "Invitation email resent");
             Ok(HttpResponse::Ok().json(json!({
                 "status": "success",
