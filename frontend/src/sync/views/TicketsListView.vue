@@ -200,11 +200,19 @@ const availableColumns = computed(() =>
 // ---------------------------------------------------------------
 const allTickets = ticketsStore.all()
 
+// A workspace that holds waiting requests back keeps them out of every view
+// but "Awaiting approval" until they're approved.
+const holdWaiting = computed(
+  () => capabilities.approvalsHeld.value && activeView.value.id !== 'awaiting-approval',
+)
+
 const allCards = computed<CardData[]>(() => {
   const out: CardData[] = []
   for (const t of allTickets.value) {
     const card = toCardData(t)
-    if (card) out.push(card)
+    if (!card) continue
+    if (holdWaiting.value && card.approval_state === 'pending') continue
+    out.push(card)
   }
   return out
 })

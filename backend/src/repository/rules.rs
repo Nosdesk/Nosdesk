@@ -924,6 +924,12 @@ fn execute_set_status(
             index: action_index,
             message: "set_status missing workflow_state_id".to_string(),
         })? as i32;
+    if crate::repository::ticket_approvals::blocks_resolution(conn, ticket_id, state_id)? {
+        return Err(ApplyError::ActionFailed {
+            index: action_index,
+            message: crate::repository::ticket_approvals::WAITING_MESSAGE.to_string(),
+        });
+    }
     diesel::update(dsl::tickets.find(ticket_id))
         .set(dsl::workflow_state_id.eq(state_id))
         .execute(conn)?;

@@ -7586,3 +7586,8 @@ portal-approval-you-declined = Vous avez refusé cette demande.
 portal-approval-already-approved = Cette demande a déjà été approuvée.
 portal-approval-already-declined = Cette demande a déjà été refusée.
 portal-approval-no-longer-needed = Cette demande n'a plus besoin de votre approbation.
+# Traduction automatique, en attente de relecture par un locuteur natif.
+builtin-view-awaiting-approval-name = En attente d'approbation
+builtin-view-awaiting-approval-description = Demandes en attente d'un approbateur
+views-ticket-row-approval-badge = En attente d'approbation
+views-ticket-row-approval-tooltip = En attente d'approbation avant de pouvoir être résolue

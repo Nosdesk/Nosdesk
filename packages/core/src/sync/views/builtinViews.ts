@@ -20,6 +20,7 @@ export interface BuiltInView {
     | 'unassigned'
     | 'overdue'
     | 'triage'
+    | 'awaiting-approval'
     | 'calendar'
     | 'dashboard-created'
     | 'dashboard-resolved'
@@ -250,6 +251,26 @@ export const TRIAGE_VIEW: BuiltInView = {
   },
 }
 
+/** Requests waiting for approval. Listed only when some request type needs
+ * approval; in a workspace that holds waiting requests back, this is the one
+ * place they show. */
+export const AWAITING_APPROVAL_VIEW: BuiltInView = {
+  id: 'awaiting-approval',
+  name: 'Awaiting approval',
+  description: 'Requests waiting for an approver',
+  nameKey: 'builtin-view-awaiting-approval-name',
+  descriptionKey: 'builtin-view-awaiting-approval-description',
+  shape: { ...baseListShape, columns: defaultColumns },
+  filter: {
+    ...baseFilter,
+    predicate: {
+      combinator: 'AND',
+      children: [{ field: 'approval_state', op: 'eq', value: 'pending' }],
+    },
+    quick_filters: [],
+  },
+}
+
 /** @deprecated use MY_OPEN_VIEW. Kept as a transitional alias so
  * any in-flight URL with `?view=my-queue` still resolves; remove
  * once telemetry shows zero hits over a 30-day window. */
@@ -297,6 +318,7 @@ export const BUILTIN_VIEWS: BuiltInView[] = [
   UNASSIGNED_VIEW,
   OVERDUE_VIEW,
   TRIAGE_VIEW,
+  AWAITING_APPROVAL_VIEW,
   CALENDAR_VIEW,
 ]
 

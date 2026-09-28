@@ -307,6 +307,16 @@ fn apply_ticket(
             let has_scalar = !obj.is_empty();
             let patch = decode_ticket_patch(&Value::Object(obj))?;
             let actor_uuid = actor.uuid;
+            if let Some(state_id) = patch.workflow_state_id {
+                if crate::repository::ticket_approvals::blocks_resolution(conn, ticket_id, state_id)
+                    .map_err(reject_diesel)?
+                {
+                    return Err(TxReject(
+                        "approval_pending",
+                        crate::repository::ticket_approvals::WAITING_MESSAGE.into(),
+                    ));
+                }
+            }
             run_with_actor(conn, actor, |conn| {
                 if has_scalar {
                     crate::repository::tickets::update_ticket_partial(

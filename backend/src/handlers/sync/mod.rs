@@ -29,6 +29,10 @@ pub mod schema;
 #[derive(Debug, serde::Serialize)]
 pub struct CapabilityFlags {
     pub sla_enabled: bool,
+    /// Some request type needs approval (show approval chrome).
+    pub approvals_enabled: bool,
+    /// Requests waiting for approval are held out of the working queues.
+    pub approvals_held: bool,
 }
 
 pub fn capability_flags(conn: &mut crate::db::DbConnection) -> CapabilityFlags {
@@ -40,7 +44,23 @@ pub fn capability_flags(conn: &mut crate::db::DbConnection) -> CapabilityFlags {
         .select(count_star())
         .first(conn)
         .unwrap_or(0);
-    CapabilityFlags { sla_enabled: n > 0 }
+    let approvals_enabled: bool = diesel::select(diesel::dsl::exists(
+        crate::schema::ticket_categories::table
+            .filter(crate::schema::ticket_categories::approval_required.eq(true)),
+    ))
+    .get_result(conn)
+    .unwrap_or(false);
+    let approvals_held = approvals_enabled
+        && crate::schema::site_settings::table
+            .select(crate::schema::site_settings::approval_waiting_display)
+            .first::<String>(conn)
+            .map(|d| d == "held")
+            .unwrap_or(false);
+    CapabilityFlags {
+        sla_enabled: n > 0,
+        approvals_enabled,
+        approvals_held,
+    }
 }
 
 /// Sync-engine routes, mounted inside the authenticated `/api` scope in main.rs.

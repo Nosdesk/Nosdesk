@@ -798,6 +798,22 @@ pub async fn update_ticket(
         }
     }
 
+    if new_ticket.workflow_state_id != existing.workflow_state_id
+        && tc
+            .run(|conn| {
+                crate::repository::ticket_approvals::blocks_resolution(
+                    conn,
+                    ticket_id,
+                    new_ticket.workflow_state_id,
+                )
+            })
+            .unwrap_or(false)
+    {
+        return Err(ApiError::Conflict(
+            crate::repository::ticket_approvals::WAITING_MESSAGE.into(),
+        ));
+    }
+
     // Validate assignee role if assignee is set
     if let Some(assignee_uuid) = new_ticket.assignee_uuid {
         let validation: Result<Result<(), ApiError>, diesel::result::Error> =
@@ -1263,6 +1279,19 @@ pub async fn update_ticket_partial(
     if let Some(Some(new_category_id)) = ticket_update.category_id {
         if let Some(resp) = refuse_unseeable_category(&mut tc, &auth, new_category_id) {
             return Ok(resp);
+        }
+    }
+
+    if let Some(state_id) = ticket_update.workflow_state_id {
+        if tc
+            .run(|conn| {
+                crate::repository::ticket_approvals::blocks_resolution(conn, ticket_id, state_id)
+            })
+            .unwrap_or(false)
+        {
+            return Err(ApiError::Conflict(
+                crate::repository::ticket_approvals::WAITING_MESSAGE.into(),
+            ));
         }
     }
 

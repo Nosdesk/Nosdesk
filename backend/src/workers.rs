@@ -298,6 +298,17 @@ pub fn spawn_scheduled_jobs(
             move || jobs::knowledge_gap_detection(p.clone()),
         );
 
+        // Hourly: approve requests nobody answered within their workspace's
+        // automatic-approval period (a no-op unless one is set).
+        let p = pool.clone();
+        spawn_periodic(
+            "approvals.timeouts",
+            Duration::from_secs(60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::approval_timeouts(p.clone()),
+        );
+
         info!("scheduler: periodic jobs spawned");
     }
     scheduler_status

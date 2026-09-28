@@ -23,6 +23,7 @@ import { computed, onMounted, type ComputedRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useSavedViewsStore } from '@/stores/savedViews'
+import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import {
   BUILTIN_VIEWS,
   findBuiltinView,
@@ -116,6 +117,7 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     }
   }
 
+  const capabilities = useWorkspaceCapabilities()
   const savedViewsStore = useSavedViewsStore()
   const savedViewsRef = savedViewsStore.viewsForProject(null)
 
@@ -167,6 +169,7 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     'unassigned': 'user',
     'overdue': 'warning',
     'triage': 'inbox',
+    'awaiting-approval': 'checkCircle',
     'calendar': 'calendar',
   }
 
@@ -192,7 +195,9 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
   function builtinSwitcherItems(
     include: (v: BuiltInView) => boolean,
   ): ViewSwitcherItem[] {
-    return BUILTIN_VIEWS.filter(include).map((v) => ({
+    return BUILTIN_VIEWS.filter(include)
+      .filter((v) => v.id !== 'awaiting-approval' || capabilities.approvalsEnabled.value)
+      .map((v) => ({
       id: v.id,
       name: t(v.nameKey, v.name),
       icon: TAB_ICON[v.id] ?? (v.shape.type === 'calendar' ? 'calendar' : 'list'),
