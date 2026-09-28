@@ -32,6 +32,8 @@ fn throttled(notification_type: &str) -> bool {
         Some(
             NotificationTypeCode::TicketStatusChanged
                 | NotificationTypeCode::TicketCreatedRequester
+                | NotificationTypeCode::ApprovalRequested
+                | NotificationTypeCode::ApprovalDecided
         )
     )
 }
@@ -98,6 +100,8 @@ impl EmailChannel {
             NotificationTypeCode::SlaBreached => "notif-sla-breached",
             NotificationTypeCode::LoanDueSoon => "notif-loan-due-soon",
             NotificationTypeCode::LoanOverdue => "notif-loan-overdue",
+            NotificationTypeCode::ApprovalRequested => "notif-approval-requested",
+            NotificationTypeCode::ApprovalDecided => "notif-approval-decided",
         };
 
         // Pass every possible arg; Fluent silently ignores unused
@@ -301,6 +305,8 @@ impl NotificationDeliveryChannel for EmailChannel {
         };
         let is_ack =
             notification.payload.notification_type == NotificationTypeCode::TicketCreatedRequester;
+        let is_approval_request =
+            notification.payload.notification_type == NotificationTypeCode::ApprovalRequested;
         let (base_url, branding, recipient_locale, requester_link, known_issue) =
             crate::sync::session::run_in_workspace(
                 &self.pool,
@@ -329,14 +335,25 @@ impl NotificationDeliveryChannel for EmailChannel {
                                     .unwrap_or(false);
                                 // A requester's link opens the ticket already signed in,
                                 // so an email-only requester never meets a sign-in wall.
+                                // An approver outside the team gets the approval page
+                                // (they may not be able to view the request itself).
                                 if !recipient_is_agent {
                                     requester_link = ticket_id.and_then(|id| {
-                                        crate::utils::portal_ticket_link::view_request_url(
-                                            conn,
-                                            workspace_id,
-                                            recipient_uuid,
-                                            id,
-                                        )
+                                        if is_approval_request {
+                                            crate::utils::portal_ticket_link::approval_url(
+                                                conn,
+                                                workspace_id,
+                                                recipient_uuid,
+                                                id,
+                                            )
+                                        } else {
+                                            crate::utils::portal_ticket_link::view_request_url(
+                                                conn,
+                                                workspace_id,
+                                                recipient_uuid,
+                                                id,
+                                            )
+                                        }
                                     });
                                 }
                                 notification_link_base(
@@ -392,8 +409,15 @@ impl NotificationDeliveryChannel for EmailChannel {
             not_fixed: format!("{entity_url}&answer=not_fixed"),
         });
         // A requester's link opens their request signed in; say so on the button.
-        let cta_label = requester_link_used
-            .then(|| crate::utils::i18n::tr(&recipient_locale, "reply-email-view-request"));
+        let cta_label = if is_approval_request {
+            Some(crate::utils::i18n::tr(
+                &recipient_locale,
+                "notif-approval-review",
+            ))
+        } else {
+            requester_link_used
+                .then(|| crate::utils::i18n::tr(&recipient_locale, "reply-email-view-request"))
+        };
 
         // Get notification type ID for rate limit tracking
         let type_id = self

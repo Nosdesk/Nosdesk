@@ -25,6 +25,8 @@ export interface PortalTicket {
   closed: string | null
   /** Who opened it, when that isn't the viewer. */
   requested_by?: string
+  /** Where an approval stands; absent when none is involved. */
+  approval_state?: 'pending' | 'approved' | 'declined' | 'skipped'
   state: PortalState | null
 }
 
@@ -227,4 +229,49 @@ export async function followNotice(id: number): Promise<void> {
 /** The requester is looking at this request now (the page is visible). */
 export async function markSeen(id: number): Promise<void> {
   await portalApi.post(`/tickets/${id}/seen`)
+}
+
+/** A request waiting for (or decided by) the signed-in approver. */
+export interface PortalApproval {
+  ticket_id: number
+  title: string
+  request_type: string | null
+  requester_name: string | null
+  description: string | null
+  created_at: string
+  approval_state: 'pending' | 'approved' | 'declined' | 'skipped' | null
+  approvers: {
+    uuid: string
+    name: string
+    decision: 'approved' | 'declined' | 'skipped' | null
+    comment: string | null
+  }[]
+}
+
+export interface PortalApprovalDetail {
+  approval: PortalApproval
+  /** The viewer's own answer, if they've given one. */
+  mine: { decision: 'approved' | 'declined' | 'skipped' | null; comment: string | null }
+  can_decide: boolean
+}
+
+export async function listMyApprovals(): Promise<PortalApproval[]> {
+  const { data } = await portalApi.get<{ approvals: PortalApproval[] }>('/approvals')
+  return data.approvals
+}
+
+export async function getMyApproval(ticketId: number): Promise<PortalApprovalDetail> {
+  const { data } = await portalApi.get<PortalApprovalDetail>(`/approvals/${ticketId}`)
+  return data
+}
+
+export async function decideApproval(
+  ticketId: number,
+  approve: boolean,
+  comment?: string,
+): Promise<void> {
+  await portalApi.post(`/approvals/${ticketId}`, {
+    decision: approve ? 'approve' : 'decline',
+    comment: comment || null,
+  })
 }

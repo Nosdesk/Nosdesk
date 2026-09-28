@@ -22,6 +22,14 @@ const router = createRouter({
     // captured as an id.
     { path: '/tickets/new', name: 'ticket-new', component: NewTicketView },
     { path: '/tickets/:id', name: 'ticket', component: TicketView, props: true },
+    // Requests waiting for the signed-in person's approval.
+    { path: '/approvals', name: 'approvals', component: () => import('./views/ApprovalsView.vue') },
+    {
+      path: '/approvals/:id',
+      name: 'approval',
+      component: () => import('./views/ApprovalView.vue'),
+      props: true,
+    },
     // The public help centre and guest request form, shared with the agent
     // app. No portal session needed.
     { path: '/help', name: 'help', component: () => import('@/views/public/HelpView.vue') },

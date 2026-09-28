@@ -653,6 +653,7 @@ fn stream_bootstrap_inner(
                 "category_id": t.category_id,
                 "triage_state": t.triage_state,
                 "spam_suspected": t.spam_suspected,
+                "approval_state": t.approval_state,
                 "due_date": t.due_date,
                 "start_date": t.start_date,
                 "resolution_notes": t.resolution_notes,

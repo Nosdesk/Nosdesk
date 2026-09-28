@@ -25,6 +25,9 @@ import type { CardWorkflowState, Priority } from '@nosdesk/core/sync/views/types
  * without a per-row workflow_states lookup. `workflow_state_id`
  * stays as the source of truth for writes.
  */
+/** A request's approval: waiting, approved, declined, or skipped by staff. */
+export type ApprovalState = 'pending' | 'approved' | 'declined' | 'skipped'
+
 export interface SyncTicket {
   id: number
   /** Immutable identity, used to key the collaborative note doc so a
@@ -37,6 +40,8 @@ export interface SyncTicket {
   /** True when the inbound mail filter flagged the source message as spam.
    *  Renders a badge in the queue; opens flagged + low-priority. */
   spam_suspected: boolean
+  /** Where an approval stands; absent/null when none is involved. */
+  approval_state?: ApprovalState | null
   requester_uuid: string | null
   assignee_uuid: string | null
   category_id: number | null

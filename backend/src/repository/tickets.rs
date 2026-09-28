@@ -181,6 +181,7 @@ fn ticket_created_data(
         "category_id": ticket.category_id,
         "triage_state": ticket.triage_state,
         "spam_suspected": ticket.spam_suspected,
+        "approval_state": ticket.approval_state,
         "due_date": ticket.due_date,
         "start_date": ticket.start_date,
         "created_at": ticket.created_at,
@@ -281,6 +282,13 @@ pub fn create_ticket_with_annotation(
                 causation_id: None,
             },
         )?;
+        // A request type that needs approval starts its round now. A guest
+        // ticket waiting for email confirmation starts when it's released.
+        let mut ticket = ticket;
+        if ticket.verification_state.as_deref() != Some(groups::PENDING_VERIFICATION) {
+            ticket.approval_state =
+                crate::repository::ticket_approvals::start_if_required(conn, &ticket)?;
+        }
         // Emit the association event so the project pool sees the
         // link land (mirrors add_ticket_to_project). The ticket.created
         // event above already reached project:<id> for the card itself.
@@ -363,6 +371,7 @@ pub fn verify_pending_tickets_for_user(
                     causation_id: None,
                 },
             )?;
+            crate::repository::ticket_approvals::start_if_required(conn, ticket)?;
         }
         Ok(released)
     })
@@ -557,6 +566,7 @@ pub fn update_ticket_partial(
             "submitted_via": result.submitted_via,
             "origin_channel_id": result.origin_channel_id,
             "sla_override": result.sla_override,
+            "approval_state": result.approval_state,
         });
         if let (Some(previous), Some(obj)) = (previous, data.as_object_mut()) {
             obj.insert(
@@ -588,6 +598,10 @@ pub fn update_ticket_partial(
                 causation_id: None,
             },
         )?;
+        // Moved into a request type that needs approval: start its round.
+        if matches!(ticket_update.category_id, Some(Some(_))) {
+            crate::repository::ticket_approvals::start_if_required(conn, &result)?;
+        }
         Ok(result)
     })?;
 

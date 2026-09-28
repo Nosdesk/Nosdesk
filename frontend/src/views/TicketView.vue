@@ -44,6 +44,7 @@ import BackButton from "@/components/common/BackButton.vue";
 import ResponsiveMenu from "@/components/common/ResponsiveMenu.vue";
 import MenuList, { type MenuItem } from "@/components/common/MenuList.vue";
 import NoticeDialog from "@/components/notices/NoticeDialog.vue";
+import ApprovalBanner from "@/components/ticketComponents/ApprovalBanner.vue";
 import { isLive, noticeService, type Notice } from "@nosdesk/core/services/noticeService";
 import Icon from "@/components/common/Icon.vue";
 import Modal from "@/components/Modal.vue";
@@ -683,6 +684,11 @@ const rootEl = ref<HTMLElement | null>(null);
                                 :target-id="ticket.merged_into_ticket_id"
                                 :actor="ticket.merged_by_user_uuid"
                                 :when="ticket.merged_at"
+                            />
+                            <ApprovalBanner
+                                v-if="ticket.approval_state"
+                                :ticket-id="ticket.id"
+                                :state="ticket.approval_state"
                             />
                             <SpamBanner
                                 v-if="ticket.spam_suspected"

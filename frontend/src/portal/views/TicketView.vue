@@ -149,6 +149,12 @@ async function sendReply(): Promise<void> {
           {{ t('portal-request-number', { id: detail.data.value.ticket.id }) }} ·
           {{ t('portal-opened', { when: formatRelativeTime(detail.data.value.ticket.created) }) }}
         </p>
+        <p
+          v-if="detail.data.value.ticket.approval_state === 'pending'"
+          class="text-sm text-secondary bg-surface border border-default rounded-xl px-4 py-3"
+        >
+          {{ t('portal-approval-waiting') }}
+        </p>
       </div>
 
       <ol class="flex flex-col gap-3">

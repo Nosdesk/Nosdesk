@@ -290,9 +290,12 @@ pub struct Ticket {
     pub sla_paused_at: Option<NaiveDateTime>,
     /// Per-ticket SLA override: `"auto"` (normal policy resolution) or `"none"`
     /// (this ticket has no SLA regardless of matching policies — the manual
-    /// escape hatch, short-circuited at the top of `compute_pill`). Must stay the
-    /// LAST field to match `schema.rs` column order (positional Queryable).
+    /// escape hatch, short-circuited at the top of `compute_pill`).
     pub sla_override: String,
+    /// Where an approval stands: `None` (no approval involved), `pending`,
+    /// `approved`, `declined` or `skipped`. Must stay the LAST field to match
+    /// `schema.rs` column order (positional Queryable).
+    pub approval_state: Option<String>,
 }
 
 /// Merge metadata for a ticket that was merged into another (the satellite of
@@ -682,6 +685,7 @@ mod new_ticket_redaction_tests {
             sla_clock_started_at: None,
             sla_paused_at: None,
             sla_override: "none".into(),
+            approval_state: None,
         }
     }
 

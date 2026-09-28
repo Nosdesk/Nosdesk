@@ -48,6 +48,7 @@ pub mod sla;
 pub mod sla_admin;
 pub mod sync_history;
 pub mod tags;
+pub mod ticket_approvals;
 pub mod ticket_merge;
 pub mod ticket_query;
 pub mod ticket_ratings;

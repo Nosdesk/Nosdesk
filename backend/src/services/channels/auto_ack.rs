@@ -412,6 +412,7 @@ mod tests {
             sla_clock_started_at: None,
             sla_paused_at: None,
             sla_override: "auto".to_string(),
+            approval_state: None,
         }
     }
 

@@ -5,6 +5,7 @@ pub mod analytics;
 pub mod api_tokens;
 pub mod app_config;
 pub mod approval_settings;
+pub mod approvals;
 pub mod asset_audits;
 pub mod asset_groups;
 pub mod asset_kinds;

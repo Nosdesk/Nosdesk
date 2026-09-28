@@ -655,6 +655,7 @@ fn is_portal_route(path: &str) -> bool {
     path.is_empty()
         || path == "/login"
         || under("/tickets")
+        || under("/approvals")
         || path == "/help"
         || path == "/submit-ticket"
         || under("/ticket-status")
@@ -935,7 +936,8 @@ pub fn configure_app(
                 web::scope("/api/portal/auth")
                     .wrap(RateLimiter::default())
                     .configure(crate::handlers::portal::auth_config)
-                    .configure(crate::handlers::portal_sso::auth_config),
+                    .configure(crate::handlers::portal_sso::auth_config)
+                    .configure(crate::handlers::approvals::portal_auth_config),
             )
             // Authenticated customer portal API. Registered AFTER the public
             // `/api/portal/auth` scope so the sign-in routes match there first.
@@ -946,7 +948,8 @@ pub fn configure_app(
                     .wrap(actix_web::middleware::from_fn(
                         crate::handlers::portal::portal_auth_middleware,
                     ))
-                    .configure(crate::handlers::portal::config),
+                    .configure(crate::handlers::portal::config)
+                    .configure(crate::handlers::approvals::portal_config),
             )
             // Authentication routes (public by design)
             .service(
@@ -1172,6 +1175,7 @@ pub fn configure_app(
                     // Requester sign-in provider (workspace admins).
                     .configure(crate::handlers::requester_sso::config)
                     .configure(crate::handlers::approval_settings::config)
+                    .configure(crate::handlers::approvals::config)
                     // Known-issue notices (agents and up).
                     .configure(crate::handlers::notices::config)
                     .configure(crate::handlers::notifications::config)

@@ -23,16 +23,54 @@ pub const LINK_TTL_DAYS: i64 = 7;
 /// outstanding link.
 const KEY_LABEL: &[u8] = b"nosdesk-portal-ticket-link-v1";
 
+/// Approval links ("Review request" to an approver) sign under their own key:
+/// a view link can never open an approval, or the reverse.
+const APPROVAL_KEY_LABEL: &[u8] = b"nosdesk-portal-approval-link-v1";
+
+/// How long an approval link stays good. Longer than a view link: an approver
+/// may be away for a week.
+pub const APPROVAL_TTL_DAYS: i64 = 14;
+
+fn derive(label: &[u8]) -> Option<Vec<u8>> {
+    let secret = std::env::var("JWT_SECRET").ok().filter(|s| !s.is_empty())?;
+    let k = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
+    Some(hmac::sign(&k, label).as_ref().to_vec())
+}
+
 /// A key derived from `JWT_SECRET` (see `guest_attachment_token::claim_key`),
 /// so no other token verifies as a link and the secret itself isn't exposed.
 fn key() -> Option<&'static Vec<u8>> {
     static KEY: OnceLock<Option<Vec<u8>>> = OnceLock::new();
-    KEY.get_or_init(|| {
-        let secret = std::env::var("JWT_SECRET").ok().filter(|s| !s.is_empty())?;
-        let k = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
-        Some(hmac::sign(&k, KEY_LABEL).as_ref().to_vec())
-    })
-    .as_ref()
+    KEY.get_or_init(|| derive(KEY_LABEL)).as_ref()
+}
+
+fn approval_key() -> Option<&'static Vec<u8>> {
+    static KEY: OnceLock<Option<Vec<u8>>> = OnceLock::new();
+    KEY.get_or_init(|| derive(APPROVAL_KEY_LABEL)).as_ref()
+}
+
+/// The approver and ticket an approval link names, if valid now.
+pub fn verify_approval(workspace_id: i32, token: &str) -> Option<(Uuid, i32)> {
+    verify_with(
+        approval_key()?,
+        workspace_id,
+        token,
+        chrono::Utc::now().timestamp(),
+    )
+}
+
+/// Where an approval email's "Review request" link points: a signed portal
+/// link that signs the approver in and opens the approval page.
+pub fn approval_url(
+    conn: &mut crate::db::DbConnection,
+    workspace_id: i32,
+    approver: Uuid,
+    ticket_id: i32,
+) -> Option<String> {
+    let origin = portal_origin(conn, workspace_id)?;
+    let expires = (chrono::Utc::now() + chrono::Duration::days(APPROVAL_TTL_DAYS)).timestamp();
+    let token = sign_with(approval_key()?, workspace_id, approver, ticket_id, expires);
+    Some(format!("{origin}/api/portal/auth/approval?t={token}"))
 }
 
 fn hmac_hex(secret: &[u8], body: &str) -> String {

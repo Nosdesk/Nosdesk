@@ -80,6 +80,7 @@ interface SyncTicketDetail {
   merged_at?: string | null
   merged_by_user_uuid?: string | null
   spam_suspected?: boolean
+  approval_state?: 'pending' | 'approved' | 'declined' | 'skipped' | null
   created_at: string
   updated_at: string
 }
@@ -244,6 +245,7 @@ export function useTicketDetail(
       merged_into_ticket_id: r.merged_into_ticket_id ?? null,
       merged_at: r.merged_at ?? null,
       spam_suspected: r.spam_suspected ?? false,
+      approval_state: r.approval_state ?? null,
       merged_by_user_uuid: r.merged_by_user_uuid ?? null,
     }
   })
