@@ -14,6 +14,7 @@ pub mod email_stop_link;
 pub mod encryption;
 pub mod error_response;
 pub mod file_validation;
+pub mod form_challenge;
 pub mod free_mail;
 pub mod geoip;
 pub mod guest_attachment_token;

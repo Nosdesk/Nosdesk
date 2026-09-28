@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { FormChallenge, FormChallengeSolution } from '../utils/formChallenge';
 import { apiBaseUrl } from '../transport';
 import type { WorkflowStateCategory } from '../types/workflow';
 
@@ -44,6 +45,8 @@ export interface SubmitGuestTicketRequest {
    * auto-fill every input they find.
    */
   website?: string;
+  /** The solved form challenge (see `utils/formChallenge`). */
+  challenge?: FormChallengeSolution | null;
 }
 
 /** Response from POST /api/public/files/temp. Id is echoed on submission. */
@@ -113,6 +116,12 @@ publicApi.interceptors.request.use((config) => {
 export const publicService = {
   async getSettings(): Promise<PublicSiteSettings> {
     const { data } = await publicApi.get<PublicSiteSettings>('/settings');
+    return data;
+  },
+
+  /** A fresh proof-of-work challenge for the request form. */
+  async getFormChallenge(): Promise<FormChallenge> {
+    const { data } = await publicApi.get<FormChallenge>('/form-challenge');
     return data;
   },
 

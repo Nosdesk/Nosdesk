@@ -42,6 +42,7 @@ use crate::utils::storage::{Storage, WorkspaceScopedStorage};
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/settings", web::get().to(get_public_settings))
         .route("/tickets", web::post().to(submit_guest_ticket))
+        .route("/form-challenge", web::get().to(form_challenge))
         .route("/tickets/{token}", web::get().to(get_guest_ticket_status))
         .route("/files/temp", web::post().to(upload_guest_attachment))
         .route("/docs", web::get().to(list_public_docs))
@@ -55,6 +56,51 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             "/unsubscribe",
             web::get().to(crate::handlers::unsubscribe::landing),
         );
+}
+
+/// Whether the request form requires its proof-of-work challenge. On unless
+/// an operator sets `NOSDESK_FORM_CHALLENGE=off` (for example to post to the
+/// form from their own server-side integration).
+fn challenge_required() -> bool {
+    !matches!(
+        std::env::var("NOSDESK_FORM_CHALLENGE")
+            .as_deref()
+            .map(str::trim),
+        Ok("off") | Ok("false") | Ok("0")
+    )
+}
+
+/// `GET /api/public/form-challenge`: a fresh challenge for the request form.
+pub async fn form_challenge(ws: WorkspaceContext) -> HttpResponse {
+    match crate::utils::form_challenge::issue(ws.workspace_id) {
+        Some(c) => HttpResponse::Ok()
+            .insert_header(("Cache-Control", "no-store"))
+            .json(c),
+        None => errors::internal("Challenge unavailable"),
+    }
+}
+
+/// Verify a submission's solved challenge and record it as used. Fails open
+/// only if the replay store is unreachable (the signature and timing checks
+/// still ran).
+async fn check_challenge(
+    workspace_id: i32,
+    solution: Option<&crate::utils::form_challenge::Solution>,
+) -> Result<(), &'static str> {
+    if !challenge_required() {
+        return Ok(());
+    }
+    let solution = solution.ok_or("missing")?;
+    let verified = crate::utils::form_challenge::verify(workspace_id, solution)?;
+    let ttl = (verified.expires - chrono::Utc::now().timestamp()).max(1) as u64;
+    match RateLimiter::claim_once(&rate_limit::get_redis_url(), &verified.replay_key, ttl).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("reused"),
+        Err(e) => {
+            warn!(error = %e, "form challenge replay store unavailable; allowing");
+            Ok(())
+        }
+    }
 }
 
 /// Build a workspace-pinned system actor for guest paths. The
@@ -117,6 +163,9 @@ pub struct SubmitGuestTicketRequest {
     /// `utils::guest_attachment_token`.
     #[serde(default)]
     pub attachment_tokens: Vec<String>,
+    /// The solved proof-of-work challenge from `/form-challenge`.
+    #[serde(default)]
+    pub challenge: Option<crate::utils::form_challenge::Solution>,
     /// Honeypot field — a decoy input that's hidden via CSS/`sr-only` on
     /// the real form. Humans never fill it; naive spam bots auto-fill any
     /// input they find. Non-empty value → silently reject.
@@ -399,6 +448,14 @@ pub async fn submit_guest_ticket(
     {
         debug!(ip = ?client_ip(&req), "Guest ticket submission tripped honeypot");
         return Err(ApiError::BadRequest("Invalid submission".into()));
+    }
+
+    if let Err(why) = check_challenge(ws.workspace_id, body.challenge.as_ref()).await {
+        debug!("Guest ticket submission failed the form challenge ({why})");
+        return Ok(errors::bad_request_with_code(
+            "Please try sending that again.",
+            "challenge_failed",
+        ));
     }
 
     // Basic input validation

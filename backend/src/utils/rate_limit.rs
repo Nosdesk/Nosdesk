@@ -5,8 +5,13 @@ pub fn get_redis_url() -> String {
     std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string())
 }
 
-static SHARED: tokio::sync::Mutex<Option<(String, redis::aio::MultiplexedConnection)>> =
-    tokio::sync::Mutex::const_new(None);
+thread_local! {
+    /// One connection per thread. Each actix worker runs its own runtime, and a
+    /// multiplexed connection's driver lives on the runtime that opened it, so
+    /// connections are cached where they were made rather than shared.
+    static CONNECTION: std::cell::RefCell<Option<(String, redis::aio::MultiplexedConnection)>> =
+        const { std::cell::RefCell::new(None) };
+}
 
 /// Generic rate limiting utility using Redis
 /// This provides a reusable rate limiting implementation following DRY principles
@@ -78,16 +83,45 @@ impl RateLimiter {
         Ok(true)
     }
 
-    /// A shared multiplexed connection, opened once and reused (reopened after
-    /// an error), rather than a new client per check.
+    /// Record `key` for `ttl_seconds` if nobody has yet: `Ok(true)` the first
+    /// time, `Ok(false)` after (a one-time token already spent).
+    pub async fn claim_once(
+        redis_url: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> Result<bool, RateLimitError> {
+        let mut con = Self::connection(redis_url).await?;
+        let set: Option<String> = match redis::cmd("SET")
+            .arg(key)
+            .arg(1)
+            .arg("NX")
+            .arg("EX")
+            .arg(ttl_seconds)
+            .query_async(&mut con)
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                Self::forget_connection().await;
+                return Err(RateLimitError::RedisError(e.to_string()));
+            }
+        };
+        Ok(set.is_some())
+    }
+
+    /// This thread's multiplexed connection, opened once and reused (reopened
+    /// after an error), rather than a new client per check.
     async fn connection(
         redis_url: &str,
     ) -> Result<redis::aio::MultiplexedConnection, RateLimitError> {
-        let mut slot = SHARED.lock().await;
-        if let Some((url, con)) = slot.as_ref() {
-            if url == redis_url {
-                return Ok(con.clone());
-            }
+        let cached = CONNECTION.with(|c| {
+            c.borrow()
+                .as_ref()
+                .filter(|(url, _)| url == redis_url)
+                .map(|(_, con)| con.clone())
+        });
+        if let Some(con) = cached {
+            return Ok(con);
         }
         let client = redis::Client::open(redis_url)
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
@@ -95,12 +129,12 @@ impl RateLimiter {
             .get_multiplexed_async_connection()
             .await
             .map_err(|_| RateLimitError::ConnectionFailed)?;
-        *slot = Some((redis_url.to_string(), con.clone()));
+        CONNECTION.with(|c| *c.borrow_mut() = Some((redis_url.to_string(), con.clone())));
         Ok(con)
     }
 
     async fn forget_connection() {
-        *SHARED.lock().await = None;
+        CONNECTION.with(|c| *c.borrow_mut() = None);
     }
 
     /// Get the current attempt count for a key
@@ -385,5 +419,15 @@ mod burst_tests {
             }
         }
         assert_eq!(allowed, 5);
+    }
+
+    #[tokio::test]
+    async fn a_one_time_key_is_claimed_once() {
+        let Ok(url) = std::env::var("TEST_REDIS_URL") else {
+            return;
+        };
+        let key = format!("test_once:{}", uuid::Uuid::new_v4());
+        assert!(RateLimiter::claim_once(&url, &key, 60).await.unwrap());
+        assert!(!RateLimiter::claim_once(&url, &key, 60).await.unwrap());
     }
 }
