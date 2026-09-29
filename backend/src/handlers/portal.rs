@@ -926,6 +926,12 @@ pub struct CustomerTicket {
     /// `skipped`); absent when none is involved.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_state: Option<String>,
+    /// In the list: when someone else last replied publicly.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_reply_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// In the list: that reply is newer than the viewer's last look.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unread_reply: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -952,6 +958,8 @@ impl CustomerTicket {
             state,
             requested_by: None,
             approval_state: t.approval_state,
+            last_reply_at: None,
+            unread_reply: false,
         }
     }
 
@@ -1116,9 +1124,18 @@ pub async fn list_my_tickets(mut tc: TenantConn, portal: PortalContext) -> impl 
             .order(tickets::updated_at.desc())
             .load::<Ticket>(conn)?;
         let states = state_map(conn)?;
+        let ids: Vec<i32> = rows.iter().map(|t| t.id).collect();
+        let replies = crate::repository::user_ticket_views::replies_for_viewer(conn, viewer, &ids)?;
         Ok::<_, diesel::result::Error>(
             rows.into_iter()
-                .map(|t| CustomerTicket::for_viewer(t, &states, viewer, conn))
+                .map(|t| {
+                    let reply = replies.get(&t.id).copied();
+                    CustomerTicket {
+                        last_reply_at: reply.map(|(at, _)| at),
+                        unread_reply: reply.is_some_and(|(_, unread)| unread),
+                        ..CustomerTicket::for_viewer(t, &states, viewer, conn)
+                    }
+                })
                 .collect::<Vec<_>>(),
         )
     });

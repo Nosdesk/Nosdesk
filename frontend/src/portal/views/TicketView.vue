@@ -5,18 +5,18 @@ import { useQuery, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
-import FormTextarea from '@/components/common/FormTextarea.vue'
 import Icon from '@/components/common/Icon.vue'
-import StatusPill from '@/components/common/StatusPill.vue'
 import CommentContent from '@/components/ticketComponents/CommentContent.vue'
-import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
+import TicketStatusIcon from '@/components/TicketStatusIcon.vue'
+import { formatDate, formatDateTime, formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 
 import AttachmentPicker from '../components/AttachmentPicker.vue'
 import PortalLayout from '../components/PortalLayout.vue'
 import ParticipantsCard from '../components/ParticipantsCard.vue'
+import PortalAvatar from '../components/PortalAvatar.vue'
+import ProgressTrack from '../components/ProgressTrack.vue'
 import ResolutionCard from '../components/ResolutionCard.vue'
-import { stateTone } from '../stateTone'
-import { attachmentUrl, getMyTicket, isClosed, markSeen, replyToMyTicket, type PortalAttachment } from '../service'
+import { attachmentUrl, getMe, getMyTicket, isClosed, markSeen, replyToMyTicket, type PortalAttachment } from '../service'
 
 const props = defineProps<{ id: string }>()
 const { $t: t } = useFluent()
@@ -25,6 +25,7 @@ const queryCache = useQueryCache()
 const ticketId = computed(() => Number(props.id))
 const key = computed(() => ['portal', 'ticket', ticketId.value])
 const detail = useQuery({ key, query: () => getMyTicket(ticketId.value) })
+const me = useQuery({ key: ['portal', 'me'], query: getMe })
 
 // An answer from the resolved email, taken once and cleared from the URL so a
 // reload doesn't answer again.
@@ -100,6 +101,14 @@ const files = ref<PortalAttachment[]>([])
 const sending = ref(false)
 const replyFailed = ref(false)
 
+// Cmd/Ctrl+Enter sends, as in the agent app.
+function onReplyKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault()
+    void sendReply()
+  }
+}
+
 async function sendReply(): Promise<void> {
   if (!reply.value.trim() && !files.value.length) return
   sending.value = true
@@ -124,8 +133,11 @@ async function sendReply(): Promise<void> {
 </script>
 
 <template>
-  <PortalLayout>
-    <RouterLink to="/tickets" class="self-start inline-flex items-center gap-1 text-sm text-secondary hover:text-primary">
+  <PortalLayout wide>
+    <RouterLink
+      to="/tickets"
+      class="self-start -mb-2 inline-flex items-center gap-1 text-sm text-secondary hover:text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
       <Icon name="chevronLeft" />
       {{ t('portal-back-to-requests') }}
     </RouterLink>
@@ -135,123 +147,180 @@ async function sendReply(): Promise<void> {
     </p>
 
     <template v-else-if="detail.data.value">
-      <div class="flex flex-col gap-2">
-        <div class="flex items-start gap-3">
-          <h1 class="text-xl font-semibold text-primary flex-1 min-w-0">{{ detail.data.value.ticket.title }}</h1>
-          <StatusPill
-            v-if="detail.data.value.ticket.state"
-            size="sm"
-            :label="detail.data.value.ticket.state.name"
-            :tone="stateTone(detail.data.value.ticket.state.category)"
-          />
+      <header class="flex flex-col gap-2">
+        <h1 class="text-2xl font-semibold text-primary text-balance">{{ detail.data.value.ticket.title }}</h1>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-secondary">
+          <span v-if="detail.data.value.ticket.state" class="inline-flex items-center gap-1.5 text-primary">
+            <TicketStatusIcon :category="detail.data.value.ticket.state.category" class="w-4 h-4" />
+            {{ detail.data.value.ticket.state.name }}
+          </span>
+          <span class="tabular-nums">{{ t('portal-request-number', { id: detail.data.value.ticket.id }) }}</span>
+          <time :datetime="detail.data.value.ticket.created" :title="formatDateTime(detail.data.value.ticket.created)">
+            {{ t('portal-opened', { when: formatRelativeTime(detail.data.value.ticket.created) }) }}
+          </time>
         </div>
-        <p class="text-xs text-tertiary">
-          {{ t('portal-request-number', { id: detail.data.value.ticket.id }) }} ·
-          {{ t('portal-opened', { when: formatRelativeTime(detail.data.value.ticket.created) }) }}
-        </p>
+      </header>
+
+      <section class="flex flex-col gap-3 bg-surface border border-default rounded-xl px-4 sm:px-6 py-5">
+        <ProgressTrack :ticket="detail.data.value.ticket" />
         <p
           v-if="detail.data.value.ticket.approval_state === 'pending'"
-          class="text-sm text-secondary bg-surface border border-default rounded-xl px-4 py-3"
+          class="text-sm text-secondary text-center"
         >
           {{ t('portal-approval-waiting') }}
         </p>
-      </div>
+      </section>
 
-      <ol class="flex flex-col gap-3">
-        <li
-          v-for="comment in detail.data.value.comments"
-          :key="comment.id"
-          class="bg-surface border rounded-xl p-4 flex flex-col gap-2"
-          :class="comment.author.is_staff ? 'border-accent/40' : 'border-default'"
-        >
-          <div class="flex items-center gap-2 text-sm">
-            <span class="font-medium text-primary">
-              {{ comment.author.is_you ? t('portal-thread-you') : comment.author.name }}
-            </span>
-            <span v-if="comment.author.is_staff" class="text-xs text-accent">{{ t('portal-thread-staff') }}</span>
-            <time class="ml-auto text-xs text-tertiary" :datetime="comment.created_at">
-              {{ formatRelativeTime(comment.created_at) }}
-            </time>
-          </div>
-          <CommentContent
-            :content="comment.content"
-            :content-format="comment.content_format"
-            :render-kind="comment.render_kind"
-            :new-content="comment.new_content"
-            :quoted-content="comment.quoted_content"
-          />
-          <ul v-if="comment.attachments.length" class="flex flex-wrap gap-2" :aria-label="t('portal-attachments')">
-            <li v-for="file in comment.attachments" :key="file.id">
-              <a
-                :href="attachmentUrl(ticketId, file.id)"
-                class="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-md bg-surface-alt border border-default text-secondary hover:text-primary"
-              >
-                <Icon name="paperclip" />
-                {{ file.name }}
-              </a>
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] items-start">
+        <div class="flex flex-col gap-4 min-w-0">
+          <h2 class="sr-only">{{ t('portal-thread-title') }}</h2>
+          <ol class="flex flex-col">
+            <li
+              v-for="(comment, index) in detail.data.value.comments"
+              :key="comment.id"
+              class="relative flex gap-3 pb-5"
+            >
+              <!-- The thread's spine, joining one message to the next. -->
+              <span
+                v-if="index < detail.data.value.comments.length - 1 || detail.data.value.can_reply"
+                class="absolute left-4 top-10 bottom-0 w-px bg-[var(--color-border-default)]"
+                aria-hidden="true"
+              />
+              <PortalAvatar :name="comment.author.name" :src="comment.author.avatar_url" />
+              <div class="flex flex-col gap-1.5 flex-1 min-w-0">
+                <div class="flex flex-wrap items-baseline gap-x-2 text-sm">
+                  <span class="font-medium text-primary">
+                    {{ comment.author.is_you ? t('portal-thread-you') : comment.author.name }}
+                  </span>
+                  <span
+                    v-if="comment.author.is_staff"
+                    class="text-xs font-medium text-accent"
+                  >
+                    {{ t('portal-thread-staff') }}
+                  </span>
+                  <time
+                    class="text-xs text-tertiary"
+                    :datetime="comment.created_at"
+                    :title="formatDateTime(comment.created_at)"
+                  >
+                    {{ formatRelativeTime(comment.created_at) }}
+                  </time>
+                </div>
+                <div
+                  class="rounded-xl px-4 py-3 flex flex-col gap-3 border"
+                  :class="comment.author.is_you ? 'bg-accent/5 border-accent/20' : 'bg-surface border-default'"
+                >
+                  <CommentContent
+                    :content="comment.content"
+                    :content-format="comment.content_format"
+                    :render-kind="comment.render_kind"
+                    :new-content="comment.new_content"
+                    :quoted-content="comment.quoted_content"
+                  />
+                  <ul v-if="comment.attachments.length" class="flex flex-wrap gap-2" :aria-label="t('portal-attachments')">
+                    <li v-for="file in comment.attachments" :key="file.id">
+                      <a
+                        :href="attachmentUrl(ticketId, file.id)"
+                        class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-app border border-default text-secondary hover:text-primary"
+                      >
+                        <Icon name="paperclip" />
+                        {{ file.name }}
+                      </a>
+                    </li>
+                  </ul>
+                </div>
+              </div>
             </li>
-          </ul>
-        </li>
-      </ol>
-      <span id="portal-thread-end" />
-      <Button
-        v-if="showNewReply"
-        icon="chevronDown"
-        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 shadow-lg"
-        @click="jumpToLatest"
-      >
-        {{ t('portal-new-reply') }}
-      </Button>
+          </ol>
+          <span id="portal-thread-end" />
+          <Button
+            v-if="showNewReply"
+            icon="chevronDown"
+            class="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-10 shadow-lg"
+            @click="jumpToLatest"
+          >
+            {{ t('portal-new-reply') }}
+          </Button>
 
-      <ParticipantsCard
-        :ticket-id="ticketId"
-        :participants="detail.data.value.participants"
-        :is-requester="detail.data.value.is_requester"
-        @changed="refresh"
-      />
+          <p
+            v-if="!detail.data.value.can_reply"
+            class="text-sm text-secondary bg-surface border border-default rounded-xl p-4"
+          >
+            {{ t('portal-shared-read-only', { name: detail.data.value.ticket.requested_by ?? '' }) }}
+          </p>
 
-      <p v-if="!detail.data.value.can_reply" class="text-sm text-secondary bg-surface border border-default rounded-xl p-4">
-        {{ t('portal-shared-read-only', { name: detail.data.value.ticket.requested_by ?? '' }) }}
-      </p>
+          <form
+            v-else
+            class="flex gap-3"
+            @submit.prevent="sendReply"
+          >
+            <PortalAvatar :name="me.data.value?.name ?? ''" />
+            <div class="flex flex-col gap-3 flex-1 min-w-0 bg-surface border border-default rounded-xl p-3 focus-within:border-accent/60 transition-colors">
+              <label for="portal-reply" class="sr-only">
+                {{ stillNeedsHelp ? t('portal-still-label') : t('portal-reply-label') }}
+              </label>
+              <textarea
+                id="portal-reply"
+                v-model="reply"
+                rows="3"
+                class="w-full resize-y bg-transparent text-sm text-primary placeholder:text-tertiary focus:outline-none px-1"
+                :placeholder="stillNeedsHelp ? t('portal-still-placeholder') : t('portal-reply-placeholder')"
+                :disabled="sending"
+                @keydown="onReplyKeydown"
+              />
+              <p v-if="isClosed(detail.data.value.ticket)" class="text-xs text-secondary px-1">
+                {{ t('portal-reply-reopens') }}
+              </p>
+              <p v-if="replyFailed" role="alert" class="text-sm text-status-error px-1">{{ t('portal-reply-failed') }}</p>
+              <div class="flex flex-wrap items-center gap-2">
+                <AttachmentPicker v-model="files" compact :disabled="sending" class="flex-1 min-w-0" />
+                <Button
+                  type="submit"
+                  size="sm"
+                  icon="send"
+                  class="ml-auto"
+                  :loading="sending"
+                  :disabled="!reply.trim() && !files.length"
+                >
+                  {{ t('portal-reply-send') }}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </div>
 
-      <ResolutionCard
-        v-if="detail.data.value.is_requester && !stillNeedsHelp"
-        :ticket="detail.data.value.ticket"
-        :rating="detail.data.value.rating"
-        :answer="answer"
-        @changed="refresh"
-        @still-needs-help="askWhatsWrong"
-      />
-
-      <form
-        v-if="detail.data.value.can_reply"
-        class="flex flex-col gap-3 bg-surface border border-default rounded-xl p-4"
-        @submit.prevent="sendReply"
-      >
-        <FormTextarea
-          id="portal-reply"
-          v-model="reply"
-          :label="stillNeedsHelp ? t('portal-still-label') : t('portal-reply-label')"
-          :placeholder="stillNeedsHelp ? t('portal-still-placeholder') : t('portal-reply-placeholder')"
-          :rows="4"
-          resize="vertical"
-          :disabled="sending"
-        />
-        <p v-if="isClosed(detail.data.value.ticket)" class="text-sm text-secondary">
-          {{ t('portal-reply-reopens') }}
-        </p>
-        <AttachmentPicker v-model="files" :disabled="sending" />
-        <p v-if="replyFailed" role="alert" class="text-sm text-status-error">{{ t('portal-reply-failed') }}</p>
-        <Button
-          type="submit"
-          class="self-end"
-          icon="send"
-          :loading="sending"
-          :disabled="!reply.trim() && !files.length"
-        >
-          {{ t('portal-reply-send') }}
-        </Button>
-      </form>
+        <aside class="flex flex-col gap-4 lg:sticky lg:top-20">
+          <ResolutionCard
+            v-if="detail.data.value.is_requester && !stillNeedsHelp"
+            :ticket="detail.data.value.ticket"
+            :rating="detail.data.value.rating"
+            :answer="answer"
+            @changed="refresh"
+            @still-needs-help="askWhatsWrong"
+          />
+          <ParticipantsCard
+            :ticket-id="ticketId"
+            :participants="detail.data.value.participants"
+            :is-requester="detail.data.value.is_requester"
+            @changed="refresh"
+          />
+          <section class="flex flex-col gap-3 bg-surface border border-default rounded-xl p-4">
+            <h2 class="text-sm font-semibold text-primary">{{ t('portal-details-title') }}</h2>
+            <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+              <dt class="text-secondary">{{ t('portal-details-number') }}</dt>
+              <dd class="text-primary tabular-nums text-right">#{{ detail.data.value.ticket.id }}</dd>
+              <dt class="text-secondary">{{ t('portal-details-opened') }}</dt>
+              <dd class="text-primary text-right">{{ formatDate(detail.data.value.ticket.created) }}</dd>
+              <dt class="text-secondary">{{ t('portal-details-updated') }}</dt>
+              <dd class="text-primary text-right">{{ formatRelativeTime(detail.data.value.ticket.modified) }}</dd>
+              <template v-if="detail.data.value.ticket.requested_by">
+                <dt class="text-secondary">{{ t('portal-details-requester') }}</dt>
+                <dd class="text-primary text-right truncate">{{ detail.data.value.ticket.requested_by }}</dd>
+              </template>
+            </dl>
+          </section>
+        </aside>
+      </div>
     </template>
   </PortalLayout>
 </template>

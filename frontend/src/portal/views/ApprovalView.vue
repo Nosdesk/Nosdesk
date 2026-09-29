@@ -11,9 +11,11 @@ import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
+import Icon from '@/components/common/Icon.vue'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { extractErrorMessage } from '@/utils/errors'
 
+import PortalAvatar from '../components/PortalAvatar.vue'
 import PortalLayout from '../components/PortalLayout.vue'
 import { decideApproval, getMyApproval } from '../service'
 
@@ -76,24 +78,30 @@ async function decide(approve: boolean): Promise<void> {
 
 <template>
   <PortalLayout>
-    <RouterLink to="/approvals" class="text-sm text-secondary hover:text-primary">
+    <RouterLink
+      to="/approvals"
+      class="self-start -mb-2 inline-flex items-center gap-1 text-sm text-secondary hover:text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
+      <Icon name="chevronLeft" />
       {{ t('portal-approval-back') }}
     </RouterLink>
     <p v-if="detail.error.value && !detail.data.value" class="text-sm text-status-error">
       {{ t('portal-approval-not-found') }}
     </p>
     <template v-else-if="approval && detail.data.value">
-      <div class="flex flex-col gap-1">
-        <span class="text-xs font-medium uppercase tracking-wide text-tertiary">{{ t('portal-approval-eyebrow') }}</span>
-        <h1 class="text-xl font-semibold text-primary">{{ approval.title }}</h1>
-        <p class="text-xs text-tertiary">
-          {{ t('portal-approvals-from', { name: approval.requester_name ?? '' }) }}
-          <template v-if="approval.request_type"> · {{ approval.request_type }}</template>
-          · {{ formatRelativeTime(approval.created_at) }}
-        </p>
-      </div>
+      <header class="flex flex-col gap-3">
+        <h1 class="text-2xl font-semibold text-primary text-balance">{{ approval.title }}</h1>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-secondary">
+          <span class="inline-flex items-center gap-2 text-primary">
+            <PortalAvatar :name="approval.requester_name ?? ''" size="sm" />
+            {{ t('portal-approvals-from', { name: approval.requester_name ?? '' }) }}
+          </span>
+          <span v-if="approval.request_type">{{ approval.request_type }}</span>
+          <time :datetime="approval.created_at">{{ formatRelativeTime(approval.created_at) }}</time>
+        </div>
+      </header>
 
-      <div v-if="approval.description" class="bg-surface border border-default rounded-xl p-4 text-sm text-primary whitespace-pre-wrap break-words">
+      <div v-if="approval.description" class="bg-surface border border-default rounded-xl px-5 py-4 text-sm leading-relaxed text-primary whitespace-pre-wrap break-words">
         {{ approval.description }}
       </div>
 
@@ -103,7 +111,8 @@ async function decide(approve: boolean): Promise<void> {
 
       <p v-if="error" role="alert" class="text-sm text-status-error">{{ error }}</p>
 
-      <div v-if="detail.data.value.can_decide" class="bg-surface border border-default rounded-xl p-4 flex flex-col gap-3">
+      <div v-if="detail.data.value.can_decide" class="bg-accent/5 border border-accent/30 rounded-xl p-4 sm:p-5 flex flex-col gap-3">
+        <p v-if="!declining" class="text-sm font-semibold text-primary">{{ t('portal-approval-ask') }}</p>
         <template v-if="declining">
           <FormTextarea
             v-model="reason"

@@ -126,3 +126,78 @@ pub fn get_recent_tickets(
         )
         .collect())
 }
+
+/// For each of `ticket_ids`: when someone other than `viewer` last replied
+/// publicly, and whether that's newer than the viewer's last look at the
+/// ticket (a reply they haven't seen). Tickets nobody else has replied on are
+/// absent.
+pub fn replies_for_viewer(
+    conn: &mut DbConnection,
+    viewer: Uuid,
+    ticket_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, (chrono::DateTime<Utc>, bool)>> {
+    use crate::schema::{comments, user_ticket_views as v};
+    use diesel::dsl::max;
+
+    if ticket_ids.is_empty() {
+        return Ok(Default::default());
+    }
+    let replies: Vec<(i32, Option<chrono::DateTime<Utc>>)> = comments::table
+        .filter(comments::ticket_id.eq_any(ticket_ids))
+        .filter(comments::is_internal.eq(false))
+        .filter(comments::deleted_at.is_null())
+        .filter(comments::user_uuid.ne(viewer))
+        .group_by(comments::ticket_id)
+        .select((comments::ticket_id, max(comments::created_at)))
+        .load(conn)?;
+    let seen: std::collections::HashMap<i32, chrono::DateTime<Utc>> = v::table
+        .filter(v::user_uuid.eq(viewer))
+        .filter(v::ticket_id.eq_any(ticket_ids))
+        .select((v::ticket_id, v::last_viewed_at))
+        .load::<(i32, chrono::DateTime<Utc>)>(conn)?
+        .into_iter()
+        .collect();
+    Ok(replies
+        .into_iter()
+        .filter_map(|(ticket, at)| {
+            let at = at?;
+            let unread = seen.get(&ticket).is_none_or(|looked| *looked < at);
+            Some((ticket, (at, unread)))
+        })
+        .collect())
+}
+
+#[cfg(test)]
+mod replies_tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    #[test]
+    fn a_reply_from_someone_else_is_unread_until_the_viewer_looks() {
+        let mut conn = setup_test_connection();
+        let me = TestFixtures::create_user(&mut conn, "replies_me", "user");
+        let agent = TestFixtures::create_user(&mut conn, "replies_agent", "technician");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Replies", Some(me.uuid), None);
+        let quiet = TestFixtures::create_ticket(&mut conn, "Quiet", Some(me.uuid), None);
+        TestFixtures::create_comment(&mut conn, ticket.id, me.uuid, "mine");
+        TestFixtures::create_comment(&mut conn, quiet.id, me.uuid, "only mine");
+
+        let reply = TestFixtures::create_comment(&mut conn, ticket.id, agent.uuid, "theirs");
+        let map = replies_for_viewer(&mut conn, me.uuid, &[ticket.id, quiet.id]).unwrap();
+        assert!(
+            !map.contains_key(&quiet.id),
+            "my own comments aren't replies"
+        );
+        assert!(map[&ticket.id].1, "not looked at yet");
+
+        record_view(&mut conn, me.uuid, ticket.id).unwrap();
+        assert!(!replies_for_viewer(&mut conn, me.uuid, &[ticket.id]).unwrap()[&ticket.id].1);
+
+        // A later reply is new again.
+        diesel::update(crate::schema::comments::table.find(reply.id))
+            .set(crate::schema::comments::created_at.eq(Utc::now() + chrono::Duration::minutes(5)))
+            .execute(&mut conn)
+            .unwrap();
+        assert!(replies_for_viewer(&mut conn, me.uuid, &[ticket.id]).unwrap()[&ticket.id].1);
+    }
+}

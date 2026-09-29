@@ -11,7 +11,11 @@ const MAX_FILES = 5
 
 // Staged uploads; the parent sends their ids with the reply or request.
 const files = defineModel<PortalAttachment[]>({ required: true })
-const props = defineProps<{ disabled?: boolean }>()
+const props = defineProps<{
+  disabled?: boolean
+  /** In a composer's toolbar: a quiet button, with the limits as its tooltip. */
+  compact?: boolean
+}>()
 
 const { $t: t } = useFluent()
 const input = ref<HTMLInputElement | null>(null)
@@ -48,16 +52,17 @@ function remove(id: number): void {
   <div class="flex flex-col gap-2">
     <div class="flex items-center gap-3 flex-wrap">
       <Button
-        variant="secondary"
+        :variant="compact ? 'ghost' : 'secondary'"
         size="sm"
         icon="paperclip"
+        :title="compact ? t('portal-attach-hint') : undefined"
         :loading="uploading > 0"
         :disabled="props.disabled || full"
         @click="input?.click()"
       >
         {{ t('portal-attach-files') }}
       </Button>
-      <span class="text-xs text-tertiary">{{ t('portal-attach-hint') }}</span>
+      <span v-if="!compact" class="text-xs text-tertiary">{{ t('portal-attach-hint') }}</span>
       <input ref="input" type="file" multiple class="hidden" @change="onPick" />
     </div>
     <ul v-if="files.length" class="flex flex-wrap gap-2">

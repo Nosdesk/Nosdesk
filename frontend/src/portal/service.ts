@@ -28,6 +28,10 @@ export interface PortalTicket {
   /** Where an approval stands; absent when none is involved. */
   approval_state?: 'pending' | 'approved' | 'declined' | 'skipped'
   state: PortalState | null
+  /** In the list: when someone else last replied. */
+  last_reply_at?: string
+  /** In the list: that reply is newer than the viewer's last look. */
+  unread_reply?: boolean
 }
 
 export interface PortalAttachment {
