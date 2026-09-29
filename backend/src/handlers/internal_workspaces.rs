@@ -1042,10 +1042,13 @@ pub async fn set_custom_domain(
         resolve_workspace_or_respond(&mut conn, &slug, "custom_domain")?
     };
 
-    let updated = match workspaces::update_custom_domain(
+    // `workspaces` is BYPASSRLS-only (`nosdesk_app` has SELECT only), so the
+    // UPDATE runs under `nosdesk_admin` like the seat-limit one.
+    let actor = crate::sync::actor::ActorContext::system("workspace:custom_domain");
+    let updated = match crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
         &mut conn,
-        &slug,
-        hostname_normalised.as_deref(),
+        &actor,
+        |c| workspaces::update_custom_domain(c, &slug, hostname_normalised.as_deref()),
     ) {
         Ok(Some(ws)) => ws,
         Ok(None) => {

@@ -198,7 +198,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(client_secret(&other).unwrap(), None);
-        let resaved = save(&mut conn, 1, &input(Some("s3cret"))).unwrap();
+        save(&mut conn, 1, &input(Some("s3cret"))).unwrap();
         assert_eq!(get(&mut conn).unwrap().map(|p| p.id), Some(saved.id));
 
         let teams = set_teams_enabled(&mut conn, true).unwrap().unwrap();
