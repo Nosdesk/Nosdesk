@@ -53,9 +53,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="flex flex-col gap-3 bg-surface border border-default rounded-xl p-4">
+  <section
+    class="flex flex-col gap-3 rounded-xl p-4 border"
+    :class="closed && !saidFixed && !justResolved ? 'bg-accent/5 border-accent/30' : 'bg-surface border-default'"
+  >
     <template v-if="justResolved">
-      <p class="text-sm text-primary">{{ t('portal-resolve-thanks') }}</p>
+      <h2 class="text-sm font-semibold text-primary">{{ t('portal-resolve-thanks') }}</h2>
       <p v-if="noteSent" class="text-sm text-secondary">{{ t('portal-resolve-noted') }}</p>
       <form v-else class="flex flex-col gap-2" @submit.prevent="resolve(note.trim())">
         <FormTextarea
@@ -65,29 +68,26 @@ onMounted(() => {
           resize="vertical"
           :disabled="busy"
         />
-        <Button type="submit" variant="secondary" class="self-end" :loading="busy" :disabled="!note.trim()">
+        <Button type="submit" variant="secondary" size="sm" class="self-end" :loading="busy" :disabled="!note.trim()">
           {{ t('portal-resolve-note-send') }}
         </Button>
       </form>
     </template>
-
     <p v-else-if="saidFixed" class="text-sm text-secondary">{{ t('portal-resolve-rated-good') }}</p>
-
     <template v-else-if="closed">
-      <p class="text-sm font-medium text-primary">{{ t('portal-resolve-question') }}</p>
-      <div class="flex flex-wrap gap-2">
-        <Button variant="secondary" :loading="busy" @click="resolve()">{{ t('portal-resolve-yes') }}</Button>
-        <Button variant="secondary" :disabled="busy" @click="emit('stillNeedsHelp')">{{ t('portal-resolve-no') }}</Button>
+      <h2 class="text-sm font-semibold text-primary">{{ t('portal-resolve-question') }}</h2>
+      <div class="flex flex-col gap-2">
+        <Button size="sm" :loading="busy" @click="resolve()">{{ t('portal-resolve-yes') }}</Button>
+        <Button size="sm" variant="secondary" :disabled="busy" @click="emit('stillNeedsHelp')">{{ t('portal-resolve-no') }}</Button>
       </div>
     </template>
-
     <template v-else>
+      <h2 class="text-sm font-semibold text-primary">{{ t('portal-resolve-open-title') }}</h2>
       <p class="text-sm text-secondary">{{ t('portal-resolve-hint-open') }}</p>
-      <Button variant="secondary" class="self-start" :loading="busy" @click="resolve()">
+      <Button variant="secondary" size="sm" class="self-start" icon="check" :loading="busy" @click="resolve()">
         {{ t('portal-resolve-yes') }}
       </Button>
     </template>
-
     <p v-if="failed" role="alert" class="text-sm text-status-error">{{ t('portal-resolve-failed') }}</p>
   </section>
 </template>
