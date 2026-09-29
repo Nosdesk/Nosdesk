@@ -69,23 +69,35 @@ fn selection_header_resolves_and_gates() {
 
     // Two workspaces; a user who is a member of `acme` only. The header carries
     // the slug, the way the agent app URL does.
-    let (acme_id, member_uuid, stranger_uuid) = {
+    let (acme_id, member_uuid, stranger_uuid, requester_uuid) = {
         let mut conn = pool.get().expect("conn");
         let acme = common::mint_workspace(&mut conn, "acme-sel", "Acme Sel");
         let _other = common::mint_workspace(&mut conn, "other-sel", "Other Sel");
         let member = common::insert_user(&mut conn, "Sel Member");
         let stranger = common::insert_user(&mut conn, "Sel Stranger");
-        (acme, member.uuid, stranger.uuid)
+        let requester = common::insert_user(&mut conn, "Sel Requester");
+        (acme, member.uuid, stranger.uuid, requester.uuid)
     };
     let acme_slug = "acme-sel";
     {
         let mut conn = pool.get().expect("conn");
         let actor = ActorContext::user(member_uuid, None).with_workspace(acme_id);
         with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+            // The member selecting here holds a staff seat: on hosted, the
+            // agent app is for seat-holders.
             add_membership(
                 c,
                 acme_id,
                 member_uuid,
+                "agent",
+                SeatWriteAuthority::ControlPlane,
+            )?;
+            // A requester (or a revoked seat demoted to one) belongs to the
+            // workspace but not to the agent app.
+            add_membership(
+                c,
+                acme_id,
+                requester_uuid,
                 "member",
                 SeatWriteAuthority::ControlPlane,
             )?;
@@ -116,6 +128,17 @@ fn selection_header_resolves_and_gates() {
             Some(acme_id),
             "selection-derived context must be published"
         );
+    }
+
+    // A requester selecting acme on hosted: 403, like a stranger.
+    {
+        let mut conn = pool.get().expect("conn");
+        let req = TestRequest::default()
+            .insert_header((WORKSPACE_SELECTION_HEADER, acme_slug))
+            .to_srv_request();
+        let err = enforce_workspace_membership(&req, &mut conn, &claims_for(requester_uuid))
+            .expect_err("a requester must not reach the hosted agent app");
+        assert_eq!(status_of(&err), 403, "requester selection must be 403");
     }
 
     // Non-member selecting acme: 403.

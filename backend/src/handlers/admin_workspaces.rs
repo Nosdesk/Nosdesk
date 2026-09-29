@@ -801,7 +801,11 @@ pub async fn list_my_workspaces(
     // list is what constrains the branding read to workspaces the caller
     // belongs to.
     let rows = match pc.run(|conn| workspaces::list_memberships_for_user(conn, user_uuid)) {
-        Ok(rows) => rows,
+        // Only the workspaces the agent app will let them into.
+        Ok(rows) => rows
+            .into_iter()
+            .filter(|(m, _)| workspaces::admits_agent_surface(&m.role))
+            .collect::<Vec<_>>(),
         Err(e) => {
             error!(error = ?e, %user_uuid, "me/workspaces list failed");
             return Err(ApiError::Internal("Failed to load memberships".into()));

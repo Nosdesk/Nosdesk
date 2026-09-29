@@ -1641,6 +1641,23 @@ fn resolve_existing_seat_user(
         &None,
         &None,
     ) {
+        // The agent app is for seat-holders: someone who is only a requester
+        // (or whose staff seat was revoked) has no seat here. Operators keep
+        // their way in.
+        Ok(Some(user))
+            if user.platform_role == "user"
+                && !crate::repository::workspaces::staff_seat_holders(conn, &[user.uuid])
+                    .map_err(|e| {
+                        error!(error = %e, "Seat lookup failed during central-origin login");
+                        actix_web::Error::from(ApiError::Internal(
+                            "Failed to authenticate user".into(),
+                        ))
+                    })?
+                    .contains(&user.uuid) =>
+        {
+            warn!(%email, "Central-origin login denied: no staff seat for this identity");
+            Err(auth_error_redirect(AUTH_ERROR_NO_SEAT))
+        }
         Ok(Some(user)) => Ok(user),
         // An unverified email gets its own code: the resolver refused the
         // email-fallback link, so a provisioned seat may well exist and "no
