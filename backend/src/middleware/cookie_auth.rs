@@ -362,7 +362,17 @@ pub fn require_workspace_membership(
         crate::repository::workspaces::membership(c, workspace_id, user_uuid)
     });
     match lookup {
-        Ok(Some(_)) => Ok(()),
+        Ok(Some(m)) if crate::repository::workspaces::admits_agent_surface(&m.role) => Ok(()),
+        Ok(Some(_)) => {
+            warn!(
+                user = %user_uuid,
+                workspace_id,
+                "Workspace membership 403 gate: a requester on the hosted agent app; denying"
+            );
+            Err(actix_web::error::ErrorForbidden(
+                "Not a member of this workspace",
+            ))
+        }
         Ok(None) => {
             warn!(
                 user = %user_uuid,

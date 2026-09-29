@@ -35,6 +35,15 @@ pub fn staff_identity_externally_managed(role: &str) -> bool {
     DeploymentMode::from_env() == DeploymentMode::Hosted && STAFF_ROLES.contains(&role)
 }
 
+/// Whether a membership in `role` reaches the agent app (every authenticated
+/// agent-surface request, the workspace switcher, central login). Hosted: staff
+/// seats only; a requester (`member`), including a revoked staff seat demoted
+/// to one, uses the workspace's portal instead. Self-hosted: every member (the
+/// app sends requesters on to the portal itself).
+pub fn admits_agent_surface(role: &str) -> bool {
+    !crate::middleware::workspace_context::is_hosted() || STAFF_ROLES.contains(&role)
+}
+
 /// Whether a role CHANGE touches a control-plane-owned staff seat in hosted:
 /// true when the current OR the new role is a staff seat. The single check
 /// shared by the tenant gated wrapper and the operator role-change gate, so the
@@ -1024,8 +1033,15 @@ mod tests {
             !staff_identity_externally_managed("member"),
             "requesters are tenant-local even in hosted"
         );
+        // The hosted agent app is for seat-holders; requesters use the portal.
+        assert!(STAFF_ROLES.iter().all(|role| admits_agent_surface(role)));
+        assert!(!admits_agent_surface("member"));
 
         std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
+        assert!(
+            admits_agent_surface("member"),
+            "self-hosted: the app hands requesters on"
+        );
         for role in ["owner", "admin", "agent", "member"] {
             assert!(
                 !staff_identity_externally_managed(role),
