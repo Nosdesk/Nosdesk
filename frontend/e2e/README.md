@@ -19,6 +19,12 @@ pnpm --filter nosdesk-frontend run test:e2e
 
 Point elsewhere with `E2E_BASE_URL=https://host pnpm ... run test:e2e`.
 
+The specs sign in as staff: boards, timelines and the dashboard are staff
+surfaces. CI bootstraps `ci-admin@example.test` and turns off MFA for admins
+(agents always need it). Locally, set `REQUIRE_ADMIN_MFA=false` in `.env`,
+`make restart`, and point `E2E_EMAIL` / `E2E_PASSWORD` at an admin with no MFA
+enrolled (`nosdesk-cli admin clear-mfa --email ...` removes it).
+
 Two projects run: `phone` (390x844, touch) and `desktop` (1680x1000). Specs opt
 in with `test.skip(({ hasTouch }) => ...)`, so touch and pointer behaviour are
 asserted on the surface each belongs to.

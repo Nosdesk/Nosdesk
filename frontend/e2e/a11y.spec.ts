@@ -29,10 +29,14 @@ const BASELINE: Record<string, string> = {
   'aria-hidden-focus': 'ToastViewport focus proxies',
 }
 
-async function expectNoSeriousViolations(page: Page, scope?: string): Promise<void> {
+async function expectNoSeriousViolations(
+  page: Page,
+  scope?: string,
+  known: string[] = [],
+): Promise<void> {
   let builder = new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-    .disableRules(Object.keys(BASELINE))
+    .disableRules([...Object.keys(BASELINE), ...known])
   if (scope) builder = builder.include(scope)
   const results = await builder.analyze()
   const serious = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
@@ -224,7 +228,14 @@ test.describe('accessibility floor', () => {
     await expect(listbox.locator('[role="option"][aria-selected="true"]')).toHaveCount(1)
     // The sort toggle is an aria-pressed pair inside the trap.
     await expect(dialog.getByRole('group', { name: 'Sort results' }).getByRole('button', { pressed: true })).toHaveCount(1)
-    await expectNoSeriousViolations(page, '[role="dialog"]')
+    // axe exempts a scroll region only when it is the combobox's popup (the
+    // listbox the input's aria-controls names). Here a wrapper around the
+    // listbox scrolls, so results that overflow read as a scroll region with
+    // nothing to tab to. Keyboard users still reach every result: the arrows
+    // move aria-activedescendant and the active option scrolls into view.
+    // Goes when the scroll moves onto the listbox, which also means arming
+    // the sheet's swipe-to-dismiss from the scrolled element.
+    await expectNoSeriousViolations(page, '[role="dialog"]', ['scrollable-region-focusable'])
 
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
