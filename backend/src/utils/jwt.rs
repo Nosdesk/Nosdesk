@@ -304,8 +304,8 @@ impl JwtUtils {
 
     /// Generate a cryptographically secure refresh token (32 bytes = 64 hex chars)
     pub fn generate_refresh_token() -> String {
-        use rand::Rng;
-        let token_bytes: [u8; 32] = rand::thread_rng().gen();
+        use rand::RngExt;
+        let token_bytes: [u8; 32] = rand::rng().random();
         hex::encode(token_bytes)
     }
 

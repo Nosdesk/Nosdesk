@@ -53,6 +53,7 @@ pub struct AppState {
     pub public_limiter_data: web::Data<Limiter>,
     pub auth_limiter_data: web::Data<Limiter>,
     pub frontend_logs_limiter_data: web::Data<Limiter>,
+    pub client_errors_limiter_data: web::Data<Limiter>,
     pub storage_data: web::Data<Arc<dyn crate::utils::storage::Storage>>,
     pub inbound_s3_data: web::Data<Option<crate::services::inbound_email::s3_fetch::InboundS3>>,
     pub channel_control_data: web::Data<crate::services::channels::supervisor::ChannelControl>,
@@ -69,6 +70,7 @@ pub fn build_state(
     public_limiter: Limiter,
     auth_limiter: Limiter,
     frontend_logs_limiter: Limiter,
+    client_errors_limiter: Limiter,
 ) -> Result<(AppState, Vec<tokio::task::JoinHandle<()>>), std::io::Error> {
     // Owned copies so the lifted body reads these by their original names.
     let redis_url = config.redis_url.clone();
@@ -481,6 +483,7 @@ pub fn build_state(
     let public_limiter_data = web::Data::new(public_limiter);
     let auth_limiter_data = web::Data::new(auth_limiter);
     let frontend_logs_limiter_data = web::Data::new(frontend_logs_limiter);
+    let client_errors_limiter_data = web::Data::new(client_errors_limiter);
 
     if host == "0.0.0.0" {
         warn!("Server bound to all interfaces (0.0.0.0)");
@@ -565,6 +568,7 @@ pub fn build_state(
             public_limiter_data,
             auth_limiter_data,
             frontend_logs_limiter_data,
+            client_errors_limiter_data,
             storage_data,
             inbound_s3_data,
             channel_control_data,
@@ -897,6 +901,20 @@ pub fn configure_app(
                     .app_data(state.public_limiter_data.clone())
                     .wrap(RateLimiter::default())
                     .route(web::post().to(crate::handlers::csp_reports::report_violation))
+            )
+
+            // Browser error reports from the web apps: uncaught errors,
+            // unhandled rejections and the API 5xx a browser saw. Public like
+            // the CSP intake, because sign-in pages report too and a beacon
+            // carries no CSRF header; the handler only logs. Its own per-IP
+            // bucket (`clienterr:{ip}`) keeps a looping page off the public
+            // and auth quotas. 32 KB covers the ten reports a request carries.
+            .service(
+                web::resource("/api/client-errors")
+                    .app_data(web::PayloadConfig::new(32 * 1024))
+                    .app_data(state.client_errors_limiter_data.clone())
+                    .wrap(RateLimiter::default())
+                    .route(web::post().to(crate::handlers::client_errors::report))
             )
 
             // Authenticated, workspace-scoped tenant file serving. Its own
@@ -1493,6 +1511,22 @@ pub async fn build_server(
             std::io::Error::other("Frontend-logs rate limiter initialization failed")
         })?;
 
+    // Browser error reports get their own per-IP bucket (`clienterr:{ip}`)
+    // for the same reason: a page stuck in an error loop can only exhaust
+    // this bucket, never the quotas that gate sign-in.
+    let client_errors_limiter = Limiter::builder(&redis_url)
+        .key_by(|req: &actix_web::dev::ServiceRequest| {
+            crate::utils::client_ip::from_service_request(req)
+                .map(|ip| format!("clienterr:{}", crate::utils::client_ip::limit_bucket(ip)))
+        })
+        .limit(rate_limit_per_minute as usize)
+        .period(Duration::from_secs(60))
+        .build()
+        .map_err(|e| {
+            error!(error = %e, "Failed to build the client-errors rate limiter (check REDIS_URL)");
+            std::io::Error::other("Client-errors rate limiter initialization failed")
+        })?;
+
     // Set up database connection pool
     let pool = match std::panic::catch_unwind(crate::db::establish_connection_pool) {
         Ok(pool) => pool,
@@ -1767,6 +1801,7 @@ pub async fn build_server(
         public_limiter,
         auth_limiter,
         frontend_logs_limiter,
+        client_errors_limiter,
     )?;
 
     // Pre-create the static-asset directories so `Files::new` can

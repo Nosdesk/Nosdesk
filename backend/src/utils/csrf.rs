@@ -4,12 +4,12 @@ use actix_web::{
     Error,
 };
 use futures::future::LocalBoxFuture;
-use rand::Rng;
+use rand::RngExt;
 use std::future::{ready, Ready};
 
 /// Generate a cryptographically secure CSRF token (32 bytes = 64 hex chars)
 pub fn generate_csrf_token() -> String {
-    let token_bytes: [u8; 32] = rand::thread_rng().gen();
+    let token_bytes: [u8; 32] = rand::rng().random();
     hex::encode(token_bytes)
 }
 
@@ -72,11 +72,12 @@ pub fn check_origin(
     }
 }
 
-/// Endpoints reached by non-browser POSTs that carry no session: CSP
-/// violation reports (sent credential-less, sometimes with `Origin: null`)
-/// and the SNS inbound-email webhook (signature-authenticated).
+/// Endpoints reached by POSTs that carry no session: CSP violation reports
+/// (sent credential-less, sometimes with `Origin: null`), the SNS
+/// inbound-email webhook (signature-authenticated) and browser error reports
+/// (the mobile app posts them from its own origin; the handler only logs).
 fn skips_origin_check(path: &str) -> bool {
-    path == "/api/csp-report" || path == "/api/inbound/email"
+    path == "/api/csp-report" || path == "/api/inbound/email" || path == "/api/client-errors"
 }
 
 /// Wrap one of our JSON error responses as an actix `Error` so a middleware
@@ -241,6 +242,10 @@ where
             // can't require an X-CSRF-Token here. Reports are
             // rate-limited and deduplicated server-side.
             || path == "/api/csp-report"
+            // Browser error reports: sent by `sendBeacon`, which can't add
+            // an X-CSRF-Token header. The handler only writes a log line,
+            // so there's nothing to forge; it has its own rate limit.
+            || path == "/api/client-errors"
             // Inbound-email webhook: AWS SNS posts here server-to-server with
             // no session cookie, so there's no CSRF surface. Authentication is
             // the SNS message signature, verified inside the handler.
@@ -416,6 +421,8 @@ mod tests {
     fn only_browserless_posts_skip_the_origin_check() {
         assert!(skips_origin_check("/api/csp-report"));
         assert!(skips_origin_check("/api/inbound/email"));
+        assert!(skips_origin_check("/api/client-errors"));
+        assert!(!skips_origin_check("/api/client-errors/extra"));
         assert!(!skips_origin_check("/api/auth/login"));
         assert!(!skips_origin_check("/api/portal/auth/magic-link"));
         assert!(!skips_origin_check("/api/tickets"));

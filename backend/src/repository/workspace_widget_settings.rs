@@ -7,7 +7,7 @@
 //! verify a visitor token.
 
 use diesel::prelude::*;
-use rand::RngCore;
+use rand::Rng;
 
 use crate::db::DbConnection;
 use crate::models::WorkspaceWidgetSettings;
@@ -65,7 +65,7 @@ pub fn rotate_secret(
     workspace_id: i32,
 ) -> Result<String, CredentialError> {
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let secret: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     let kr = encryption::keyring();
     let blob = kr

@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use rand::Rng;
+use rand::RngExt;
 use ring::digest::{Context, SHA256};
 use uuid::Uuid;
 
@@ -64,8 +64,8 @@ impl ResetTokenUtils {
     /// Generate a cryptographically secure random token
     /// Returns a 32-byte token encoded as hexadecimal (64 characters)
     pub fn generate_token() -> String {
-        let mut rng = rand::thread_rng();
-        let token_bytes: [u8; 32] = rng.gen();
+        let mut rng = rand::rng();
+        let token_bytes: [u8; 32] = rng.random();
         hex::encode(token_bytes)
     }
 

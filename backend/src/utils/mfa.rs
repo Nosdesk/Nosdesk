@@ -1,12 +1,11 @@
 use anyhow::{anyhow, Result};
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
-use argon2::Argon2;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use base32;
 use base64::{engine::general_purpose, Engine as _};
 use bcrypt::verify as bcrypt_verify;
 use qrcode::{render::svg, QrCode};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng, RngCore};
+use rand::distr::Alphanumeric;
+use rand::{Rng, RngExt};
 use totp_rs::{Algorithm as TotpAlgorithm, Secret, TOTP};
 use uuid::Uuid;
 use zeroize::ZeroizeOnDrop;
@@ -111,7 +110,7 @@ pub fn decrypt_mfa_secret(
 /// Uses 160 bits of entropy (recommended minimum for TOTP secrets)
 pub fn generate_totp_secret() -> SecretString {
     let mut secret_bytes = [0u8; 20]; // 20 bytes = 160 bits of entropy
-    rand::thread_rng().fill_bytes(&mut secret_bytes);
+    rand::rng().fill_bytes(&mut secret_bytes);
     let secret = base32::encode(base32::Alphabet::Rfc4648 { padding: true }, &secret_bytes);
     SecretString::new(secret)
 }
@@ -158,7 +157,7 @@ pub async fn generate_backup_codes_async() -> (zeroize::Zeroizing<Vec<String>>, 
     // implementation force-uppercased to 36-char alphabet (~41
     // bits) which we now drop for the full ~62-char alphabet.
     for _ in 0..10 {
-        let code: String = thread_rng()
+        let code: String = rand::rng()
             .sample_iter(&Alphanumeric)
             .take(10)
             .map(char::from)
@@ -173,9 +172,8 @@ pub async fn generate_backup_codes_async() -> (zeroize::Zeroizing<Vec<String>>, 
         // thread would block other tasks. Default `Argon2::default()`
         // uses Argon2id with OWASP-spec parameters.
         let hash_future = task::spawn_blocking(move || -> String {
-            let salt = SaltString::generate(&mut rand::rngs::OsRng);
             Argon2::default()
-                .hash_password(code_clone.as_bytes(), &salt)
+                .hash_password(code_clone.as_bytes())
                 .expect("Failed to hash recovery code with argon2id")
                 .to_string()
         });
@@ -942,9 +940,8 @@ mod tests {
     fn verify_dispatches_argon2id_hash() {
         // Generate an argon2id hash inline and verify against it.
         let plaintext = "TEST1234ab";
-        let salt = SaltString::generate(&mut rand::rngs::OsRng);
         let hash = Argon2::default()
-            .hash_password(plaintext.as_bytes(), &salt)
+            .hash_password(plaintext.as_bytes())
             .unwrap()
             .to_string();
         assert!(hash.starts_with("$argon2id$"));

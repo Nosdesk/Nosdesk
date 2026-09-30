@@ -92,11 +92,11 @@ pub fn issue_with(
 }
 
 pub fn issue(workspace_id: i32) -> Option<Challenge> {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let number = rng.gen_range(0..=MAX_NUMBER);
+    use rand::RngExt;
+    let mut rng = rand::rng();
+    let number = rng.random_range(0..=MAX_NUMBER);
     let nonce: String = (0..12)
-        .map(|_| format!("{:02x}", rng.gen::<u8>()))
+        .map(|_| format!("{:02x}", rng.random::<u8>()))
         .collect();
     Some(issue_with(
         &key()?,

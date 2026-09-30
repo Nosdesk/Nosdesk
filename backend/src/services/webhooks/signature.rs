@@ -20,9 +20,9 @@ pub fn verify_signature(payload: &str, secret: &str, signature: &str) -> bool {
 
 /// Generate a random secret for new webhooks
 pub fn generate_secret() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let bytes: [u8; 32] = rng.gen();
+    use rand::RngExt;
+    let mut rng = rand::rng();
+    let bytes: [u8; 32] = rng.random();
     format!("whsec_{}", hex::encode(bytes))
 }
 
