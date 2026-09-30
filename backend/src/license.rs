@@ -5,8 +5,9 @@
 //! Nosdesk holds. The matching public keys are compiled into the binary
 //! (`include_str!` below), NOT read from the environment: an operator can't
 //! point verification at their own key without recompiling, so a license is
-//! a genuine "Nosdesk signed this" artifact. As with any open-source gate it
-//! is bypassable by patching the binary; that is accepted and out of scope.
+//! a genuine "Nosdesk signed this" artifact. As with any license check in code
+//! anyone can read, it can be bypassed by patching the binary; that is accepted
+//! and out of scope.
 //!
 //! ## Where the licence comes from
 //!
