@@ -10,6 +10,7 @@ import { createI18n as createI18nPlugin } from '@/i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useBrandingStore } from '@/stores/branding'
 import { reloadForNewBuild } from '@/utils/staleBuild'
+import { initErrorTracking } from '@/utils/errorTracking'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 
 import { IN_PORTAL } from '@/components/public/inPortal'
@@ -41,6 +42,13 @@ async function bootstrap(): Promise<void> {
   app.use(createI18nPlugin(pinia))
   app.use(PiniaColada, {})
   app.use(router)
+
+  // Uncaught errors go to this server's log (utils/errorTracking.ts).
+  initErrorTracking(app, {
+    surface: embedHost ?? 'portal',
+    endpoint: () => '/api/client-errors',
+    route: () => router.currentRoute.value.matched.at(-1)?.path ?? '',
+  })
 
   const theme = useThemeStore(pinia)
   void useBrandingStore(pinia).loadBranding()

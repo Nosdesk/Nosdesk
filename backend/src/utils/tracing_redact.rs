@@ -253,6 +253,21 @@ const ALLOWED_FIELDS: &[&str] = &[
     "platform",
     "provider_reason",
     "recipient_uuid",
+    // Browser error reports (handlers/client_errors.rs). Each value is reduced
+    // in the handler before it is logged, so it is safe whichever tenant sent
+    // it. `client_error_surface` is one of agent/portal/teams/widget; anything
+    // else drops the report. `client_error_frames` is at most five
+    // `file:line:col` entries whose `file` is a bundle or source file name
+    // matched against a charset allowlist; the message line, function names,
+    // URLs and any line that does not parse as a frame are discarded first.
+    // `client_error_fingerprint` is 16 hex characters of a SHA-256, named apart
+    // from `fingerprint`, which stays a signing-key fingerprint. The raw stack
+    // and the user agent are never logged. The same events reuse `kind`,
+    // `route`, `build_sha`, `count`, `status_code` and `workspace_id` for an
+    // enum, a router pattern, a hex build id and integers, all validated there.
+    "client_error_fingerprint",
+    "client_error_frames",
+    "client_error_surface",
 ];
 
 // ALLOWED_FIELDS naming convention.
@@ -580,6 +595,9 @@ mod tests {
             "build_sha",
             "byte_count",
             "client_session_id",
+            "client_error_fingerprint",
+            "client_error_frames",
+            "client_error_surface",
         ] {
             assert!(is_allowed(name), "expected `{name}` in allowlist");
         }
