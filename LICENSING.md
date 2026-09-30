@@ -22,7 +22,7 @@ while the server runs stops granting at `exp`. An absent, malformed,
 expired, or wrong-issuer license falls back to Community without failing
 startup.
 
-Like any open-source gate, this is bypassable by patching the binary. The
+Like any license check in code anyone can read, this can be bypassed by patching the binary. The
 license is a genuine signed artifact, not an honor-system flag.
 
 ## Minting a license (Nosdesk operators)

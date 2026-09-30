@@ -3,18 +3,21 @@ Business Source License 1.1
 Parameters
 
 Licensor:             Nosdesk Pty Ltd
-Licensed Work:        Nosdesk 1.0.0
+Licensed Work:        Nosdesk 1.1.0
                       The Licensed Work is (c) 2026 Nosdesk Pty Ltd
 Additional Use Grant: You may make use of the Licensed Work, provided that
-                      you may not use the Licensed Work for a Helpdesk
+                      you do not use the Licensed Work for a Helpdesk
                       Service.
 
-                      A "Helpdesk Service" is a commercial offering that
-                      allows third parties (other than your employees and
-                      contractors) to access the functionality of the
-                      Licensed Work by creating organizations, submitting
-                      tickets, or managing IT assets controlled by such
-                      third parties.
+                      A "Helpdesk Service" is a commercial offering that lets
+                      third parties (other than your employees and
+                      contractors) run their own helpdesk or IT management
+                      with the Licensed Work, for example by creating their
+                      own organizations, handling tickets as agents, or
+                      managing IT assets they control. Using the Licensed
+                      Work to support your own customers, users or members,
+                      including letting them submit and follow tickets, is
+                      not a Helpdesk Service.
 
 Change Date:          2029-10-29
 

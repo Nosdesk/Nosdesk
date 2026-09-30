@@ -20,7 +20,7 @@
 
 ## What is Nosdesk?
 
-Nosdesk is an open source helpdesk built for frictionless collaboration. Every part of the system, from tickets and projects to users, devices, and documentation, is designed to let teams work together without getting in the way.
+Nosdesk is a helpdesk you can host yourself, built for frictionless collaboration. Every part of the system, from tickets and projects to users, devices, and documentation, is designed to let teams work together without getting in the way.
 
 ## Features
 
