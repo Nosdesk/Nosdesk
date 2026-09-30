@@ -1,11 +1,13 @@
 import type { BrowserContext, Page } from '@playwright/test'
 
-/** Demo account seeded by `make seed-demo`. A member, deliberately: it is the
- *  least-privileged account that can still reach the project views, so the
- *  specs exercise what an ordinary user sees. Agents are gated behind one-time
- *  MFA enrolment, which is not worth automating for layout assertions. */
-export const DEMO_EMAIL = 'noah@demo.nosdesk.test'
-export const DEMO_PASSWORD = 'Demo1234!'
+/** The account the suite signs in as: the admin `e2e.yml` bootstraps with
+ *  `nosdesk-cli admin create`. Boards, timelines and the dashboard are staff
+ *  surfaces; a member can only retitle a ticket, and landing on the app's home
+ *  sends one to the portal. An admin rather than an agent because agents
+ *  always need MFA, while `REQUIRE_ADMIN_MFA=false` lets an admin in without
+ *  enrolling. `E2E_EMAIL` and `E2E_PASSWORD` point it elsewhere. */
+export const E2E_EMAIL = process.env.E2E_EMAIL ?? 'ci-admin@example.test'
+export const E2E_PASSWORD = process.env.E2E_PASSWORD ?? 'CiAdmin1234!'
 
 /**
  * Demo projects, split by SURFACE, because that is what determines whether one
@@ -26,17 +28,14 @@ export const DEMO_PASSWORD = 'Demo1234!'
  * `seed-contract.spec.ts` — so a seed change fails there with a plain message
  * instead of surfacing as a timeout inside an unrelated spec.
  *
- * Shapes are stated as what `DEMO_EMAIL` can SEE, not what the database holds.
- * That account is a member, so it sees only its own tickets: project 2 holds 16
- * but shows this user 3, and only project 3's planned work belongs to them.
- * Reading the raw table instead is what made a first pass at this hand the
- * mutable project to one whose timeline is empty for the test user.
+ * Staff see every ticket, so these are the seed's own shapes
+ * (`backend/seeds/demo.json`), not one user's view of them.
  */
 /** Board specs, including the drags. They rearrange its columns freely; no
  *  assertion here depends on which column a card is in. */
 export const PROJECT_BOARD = 2
-/** Timeline specs. The only project whose planned blocks are visible to this
- *  user, so nothing may push its tickets into a terminal state. The reschedule
+/** Timeline specs. No drag touches its board, so its planned tickets never
+ *  reach the terminal states that drop them off the timeline. The reschedule
  *  spec restores the dates it moves. */
 export const PROJECT_TIMELINE = 3
 /** No scheduled work, so the timeline's empty state is reachable. */
@@ -51,8 +50,8 @@ export const AUTH_STATE = 'playwright/.auth/user.json'
 export async function login(page: Page): Promise<void> {
   await page.goto('/login', { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('input[type="email"]')
-  await page.fill('input[type="email"]', DEMO_EMAIL)
-  await page.fill('input[type="password"]', DEMO_PASSWORD)
+  await page.fill('input[type="email"]', E2E_EMAIL)
+  await page.fill('input[type="password"]', E2E_PASSWORD)
   await page.click('button[type="submit"]')
   // Not `networkidle`: the app holds an SSE connection open, so the network
   // never goes idle and waiting for it always times out.

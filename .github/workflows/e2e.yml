@@ -86,8 +86,9 @@ jobs:
             # The app enforces its own origin on collab websockets, so this has
             # to match the origin Playwright drives.
             echo "FRONTEND_URL=http://localhost:8080"
-            # The seeded demo agents would otherwise be gated behind one-time
-            # MFA enrolment, which the specs do not automate.
+            # The specs sign in as the admin bootstrapped below, which would
+            # otherwise be gated behind one-time MFA enrolment. This does not
+            # reach agents: they always need MFA.
             echo "REQUIRE_ADMIN_MFA=false"
           } >> .env
 
