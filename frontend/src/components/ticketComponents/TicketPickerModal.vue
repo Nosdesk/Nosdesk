@@ -126,6 +126,7 @@ function priorityClass(priority: TicketPriority) {
   switch (priority) {
     case 'low': return 'bg-status-success/20 text-status-success border-status-success/30'
     case 'medium': return 'bg-status-warning/20 text-status-warning border-status-warning/30'
+    case 'urgent':
     case 'high': return 'bg-status-error/20 text-status-error border-status-error/30'
     default: return 'bg-surface-alt text-secondary border-default'
   }

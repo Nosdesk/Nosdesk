@@ -18,7 +18,6 @@ import { useAuthStore } from '@/stores/auth';
 import { logger } from '@nosdesk/core/utils/logger';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
-import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions';
 import { PluginApiError } from '@nosdesk/plugin-sdk';
 import { effectivePermissions } from './permissions';
 import type {
@@ -228,9 +227,10 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           throw upstream('failed to list workflow states', error);
         }
       },
-      // The fixed priority scale (static; no gate).
+      // The fixed priority scale (static; no gate). The SDK's scale is three
+      // values; urgent and none are not in its contract.
       async priorities(): Promise<PluginPriority[]> {
-        return PRIORITY_OPTIONS.map((o) => o.value);
+        return ['low', 'medium', 'high'];
       },
     },
 

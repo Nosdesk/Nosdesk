@@ -30,6 +30,7 @@ import MergeTicketsDialog, {
 import type { PopoverAnchor } from '@/composables/popoverAnchor'
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions'
+import { priorityForBadge } from '@/utils/priorityHelpers'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
@@ -103,8 +104,13 @@ const sharedWorkflowState = computed(() => {
 })
 
 function isTicketPriority(value: string | null): value is TicketPriority {
-  return value === 'low' || value === 'medium' || value === 'high'
+  return PRIORITY_OPTIONS.some((o) => o.value === value)
 }
+
+// PriorityIndicator draws three levels: urgent reads as high, none draws nothing.
+const sharedBadge = computed(() =>
+  isTicketPriority(sharedPriority.value) ? priorityForBadge(sharedPriority.value) : null,
+)
 
 // Status options grouped by workflow category. Each row carries
 // the category so WorkflowStateGlyph can encode state as shape +
@@ -311,8 +317,8 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
           @click="priorityOpen = !priorityOpen"
         >
           <PriorityIndicator
-            v-if="isTicketPriority(sharedPriority)"
-            :priority="sharedPriority"
+            v-if="sharedBadge"
+            :priority="sharedBadge"
             size="sm"
           />
           <span
@@ -351,7 +357,12 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
                 class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-primary hover:bg-surface-hover data-[highlighted]:bg-surface-hover transition-colors outline-none"
                 :class="{ 'bg-accent/10': sharedPriority === opt.value }"
               >
-                <PriorityIndicator :priority="opt.value" size="sm" />
+                <PriorityIndicator
+                  v-if="priorityForBadge(opt.value)"
+                  :priority="priorityForBadge(opt.value)!"
+                  size="sm"
+                />
+                <span v-else class="inline-flex w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                 <span
                   class="flex-1"
                   :class="{ 'font-medium': sharedPriority === opt.value }"

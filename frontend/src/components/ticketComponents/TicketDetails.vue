@@ -1621,6 +1621,7 @@ watchEffect(async () => {
   }
 
   /* Priority badge colors for print */
+  .print-badge-urgent,
   .print-badge-high {
     color: #dc2626;
     border-color: #dc2626;
