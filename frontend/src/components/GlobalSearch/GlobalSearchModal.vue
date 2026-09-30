@@ -803,9 +803,14 @@ onScopeDispose(() => restoreScroll?.());
 
   /* Lists fill the space above the docked input; pad their bottom so the last
      row clears the input bar + keyboard. Padding changes don't move the scroll
-     offset, so toggling the keyboard never jumps the list. */
+     offset, so toggling the keyboard never jumps the list. The matching scroll
+     padding keeps a row the arrow keys scroll to (scrollIntoView) clear of the
+     bar too; padding alone doesn't move where that stops. */
   .search-list {
     padding-bottom: calc(
+      var(--input-bar-h) + var(--keyboard-height, 0px) + env(safe-area-inset-bottom)
+    );
+    scroll-padding-bottom: calc(
       var(--input-bar-h) + var(--keyboard-height, 0px) + env(safe-area-inset-bottom)
     );
   }
