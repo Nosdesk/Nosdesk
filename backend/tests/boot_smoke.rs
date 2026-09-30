@@ -77,6 +77,7 @@ async fn boot_wires_state_and_routes() {
         limiter(&redis, "public"),
         limiter(&redis, "auth"),
         limiter(&redis, "felogs"),
+        limiter(&redis, "clienterr"),
     )
     .expect("build_state succeeds");
 

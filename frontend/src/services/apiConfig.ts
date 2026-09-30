@@ -363,11 +363,9 @@ apiClient.interceptors.response.use(
         correlationId
       });
     } else if (error.response?.status >= 500) {
-      // Server error - track in production
-      ErrorTracker.captureException(appError, {
-        correlationId,
-        endpoint: error.config?.url
-      });
+      // Server error: reported, including the proxy's 502/503 during an
+      // outage, which the backend never sees.
+      ErrorTracker.captureHttp(error.response.status, error.config?.method, error.config?.url);
     } else if (!error.response) {
       // Network error
       logger.error('Network error', {

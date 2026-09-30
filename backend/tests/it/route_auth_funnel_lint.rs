@@ -74,6 +74,10 @@ const PUBLIC_BY_DESIGN: &[(&str, &str)] = &[
         "browsers POST CSP violations without credentials",
     ),
     (
+        "/api/client-errors",
+        "browsers POST uncaught errors, sign-in pages included; the handler only logs, in its own rate-limit bucket",
+    ),
+    (
         "/api/inbound/email",
         "SES/SNS server-to-server; the handler verifies the SNS signature and topic ARN",
     ),

@@ -26,6 +26,7 @@ pub mod bug_reports;
 pub mod canned_responses;
 pub mod categories;
 pub mod channels;
+pub mod client_errors;
 pub mod collab_images;
 pub mod collaboration;
 pub mod csp_reports;

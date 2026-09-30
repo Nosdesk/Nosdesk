@@ -11,6 +11,8 @@ import { PiniaColada } from '@pinia/colada'
 import App from './App.vue'
 import router from './router'
 import { reloadForNewBuild } from './utils/staleBuild'
+import { initErrorTracking } from './utils/errorTracking'
+import { apiBaseUrl } from '@nosdesk/core/transport'
 
 import { vSafeHtml } from './directives/vSafeHtml'
 import { vTwemoji } from './directives/vTwemoji'
@@ -65,6 +67,13 @@ async function bootstrap() {
   // query cache, route loader integration).
   app.use(PiniaColada, {})
   app.use(router)
+
+  // Uncaught errors go to this server's log (utils/errorTracking.ts).
+  initErrorTracking(app, {
+    surface: 'agent',
+    endpoint: () => `${apiBaseUrl()}/client-errors`,
+    route: () => router.currentRoute.value.matched.at(-1)?.path ?? '',
+  })
 
   // Initialize theme store to respect system preferences for guests
   // This ensures dark mode works even when not logged in
