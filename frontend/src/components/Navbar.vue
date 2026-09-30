@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from "vue-router";
+import { assetUrl } from "@nosdesk/core/transport";
 import DocumentationNav from "@/components/documentationComponents/DocumentationNav.vue";
 import RecentTickets from "@/components/RecentTickets.vue";
 import CollapsibleSection from "@/components/common/CollapsibleSection.vue";
@@ -355,7 +356,7 @@ const isOverflowRouteActive = computed(() =>
                     v-if="!isCollapsed && logoUrl"
                     :alt="brandingStore.appName + ' Logo'"
                     class="h-8 max-w-full object-contain"
-                    :src="logoUrl"
+                    :src="assetUrl(logoUrl)"
                 />
                 <LogoIcon
                     v-else-if="!isCollapsed"
