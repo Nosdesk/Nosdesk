@@ -142,7 +142,7 @@ test.describe('project views on a phone', () => {
     // edge, where the intentionally-enabled auto-scroll would be a different
     // behaviour under test.
     const delta = 72
-    const move = async (fromY: number, by: number): Promise<void> => {
+    const move = async (fromX: number, fromY: number, by: number): Promise<void> => {
       const pushed = page.waitForRequest((request) =>
         request.url().endsWith('/api/sync/push')
           && request.method() === 'POST'
@@ -151,22 +151,24 @@ test.describe('project views on a phone', () => {
           && request.postData()?.includes('due_date') === true,
       )
       const touch = await Touch.create(context, page)
-      await touch.start(card!.x, fromY)
+      await touch.start(fromX, fromY)
       await page.waitForTimeout(500)
       for (let i = 1; i <= 8; i++) {
-        await touch.move(card!.x, fromY + (by * i) / 8)
+        await touch.move(fromX, fromY + (by * i) / 8)
         await page.waitForTimeout(16)
       }
       await touch.end()
       await pushed
     }
 
-    await move(card!.y, delta)
+    await move(card!.x, card!.y, delta)
     await expect.poll(async () => (await page.locator(selector).boundingBox())?.y).toBeGreaterThan(before!.y + 40)
 
     const moved = await page.locator(selector).boundingBox()
     expect(moved).not.toBeNull()
-    await move(Math.round(moved!.y + moved!.height / 2), -delta)
+    // A move can repack the block into another lane, so press where it is now.
+    // Pressing at its old x grabbed whichever block took that lane instead.
+    await move(Math.round(moved!.x + moved!.width / 2), Math.round(moved!.y + moved!.height / 2), -delta)
     await expect.poll(async () => (await page.locator(selector).boundingBox())?.y).toBeLessThan(before!.y + 8)
   })
 })
