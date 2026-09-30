@@ -24,6 +24,11 @@ path = "src/bin/seed_demo.rs"
 
 [dependencies]
 actix-web = "4.9.0"
+# actix-http and actix-server use actix-rt's `net` and `signal` modules without
+# enabling them, and since actix-rt 2.14 those are default features. Listing
+# actix-rt here keeps its defaults on in builds without the test dependencies,
+# such as the release image.
+actix-rt = "2.15"
 diesel = { version = "2.2.0", features = ["postgres", "r2d2", "chrono", "serde_json", "uuid", "network-address", "numeric", "64-column-tables"] }
 diesel_migrations = "2.2.0"
 bigdecimal = { version = "0.4", features = ["serde"] }
@@ -243,7 +248,6 @@ unic-langid = "0.9"
 
 # For testing only
 [dev-dependencies]
-actix-rt = "2.10.0"
 # actix-test ships a real WS client (`srv.ws_at(path)`) so the
 # collaboration integration tests don't need a separate
 # tungstenite stack; the awc re-export from actix-test provides
