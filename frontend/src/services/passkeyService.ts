@@ -11,7 +11,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
   AuthenticationResponseJSON,
-} from '@simplewebauthn/types';
+} from '@simplewebauthn/browser';
 
 // Passkey info returned from API
 export interface PasskeyInfo {
