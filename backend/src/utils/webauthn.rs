@@ -580,8 +580,8 @@ fn hash_email(email: &str) -> String {
 
 /// Generate a unique session ID for discoverable authentication
 pub fn generate_auth_session_id() -> String {
-    use rand::Rng;
-    let bytes: [u8; 16] = rand::thread_rng().gen();
+    use rand::RngExt;
+    let bytes: [u8; 16] = rand::rng().random();
     hex::encode(bytes)
 }
 

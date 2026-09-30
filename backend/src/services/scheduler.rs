@@ -49,7 +49,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use rand::Rng;
+use rand::RngExt;
 use tokio::task::JoinHandle;
 use tokio::time::{interval_at, Instant, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
@@ -107,7 +107,7 @@ where
     // Startup jitter — 0..(every/10) — so jobs registered in the same
     // main.rs block don't stampede the DB at identical boundaries.
     let jitter_max_ms = (every.as_millis() / 10).clamp(1, u64::MAX as u128) as u64;
-    let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..=jitter_max_ms));
+    let jitter = Duration::from_millis(rand::rng().random_range(0..=jitter_max_ms));
     let mut ticker = interval_at(Instant::now() + jitter, every);
     // Default MissedTickBehavior::Burst fires missed ticks back-to-back
     // after a pause — usually a surprise. Skip is right for cleanup

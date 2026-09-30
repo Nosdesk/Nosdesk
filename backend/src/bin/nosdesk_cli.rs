@@ -1082,9 +1082,9 @@ fn build_zip(entries: &[signing::ArchiveEntry], envelope: &[u8]) -> Result<Vec<u
 /// visually-confusable characters (no 0/O, 1/l/I, etc). Long enough
 /// that bcrypt's 72-byte cap isn't a concern.
 fn generate_password(len: usize) -> String {
-    use rand::seq::SliceRandom;
+    use rand::seq::IndexedRandom;
     const ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_@#%!";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..len)
         .map(|_| *ALPHABET.choose(&mut rng).unwrap() as char)
         .collect()

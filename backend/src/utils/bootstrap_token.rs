@@ -41,7 +41,7 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use rand::RngCore;
+use rand::Rng;
 
 use crate::db::DbConnection;
 use crate::middleware::DeploymentMode;
@@ -335,7 +335,7 @@ fn write_token_file(path: &std::path::Path, token: &str) -> Result<()> {
 
 fn generate_token() -> String {
     let mut bytes = [0u8; TOKEN_BYTES];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 

@@ -5,7 +5,7 @@
 
 use chrono::Utc;
 use diesel::prelude::*;
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -280,7 +280,7 @@ impl AssignmentEngine {
         };
 
         // Select random member
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let selected_user = members.choose(&mut rng)?;
 
         // Update state for tracking
