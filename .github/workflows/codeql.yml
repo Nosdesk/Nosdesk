@@ -11,6 +11,11 @@ name: CodeQL
 # `actions` is a language here, not a mistake: CodeQL scans workflow files for
 # injection and permission problems. It overlaps zizmor.yml deliberately (the
 # two disagree often enough to be worth both).
+#
+# A pull request analyses only the languages it changes; the Rust analysis
+# alone takes well over an hour, and a docs-only change gets none. Pushes to
+# main and the weekly run analyse every language, so main always has a full
+# baseline. A change to this file analyses every language too.
 
 on:
   push:
@@ -29,8 +34,52 @@ permissions:
   contents: read
 
 jobs:
+  languages:
+    name: Pick languages
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      # The pull request checkout is its merge commit, so its first parent is
+      # the base it merges onto and the diff between them is the PR's change.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - id: pick
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            changed=$(git diff --name-only HEAD^1 HEAD)
+          else
+            changed=ALL
+          fi
+          touches() {
+            [ "$changed" = ALL ] \
+              || grep -qE '^\.github/workflows/codeql\.yml$' <<<"$changed" \
+              || grep -qE "$1" <<<"$changed"
+          }
+          langs=()
+          if touches '\.rs$|(^|/)Cargo\.(toml|lock)$'; then
+            langs+=('{"language":"rust","build-mode":"none"}')
+          fi
+          if touches '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|vue|html)$'; then
+            langs+=('{"language":"javascript-typescript","build-mode":"none"}')
+          fi
+          if touches '^\.github/(workflows|actions)/'; then
+            langs+=('{"language":"actions","build-mode":"none"}')
+          fi
+          matrix="[$(IFS=,; echo "${langs[*]}")]"
+          echo "Analysing: $matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   analyze:
     name: Analyze (${{ matrix.language }})
+    needs: languages
+    if: needs.languages.outputs.matrix != '[]'
     runs-on: ubuntu-latest
     permissions:
       # Upload results to code scanning.
@@ -40,13 +89,7 @@ jobs:
       # One language failing should still publish the others' results.
       fail-fast: false
       matrix:
-        include:
-          - language: rust
-            build-mode: none
-          - language: javascript-typescript
-            build-mode: none
-          - language: actions
-            build-mode: none
+        include: ${{ fromJSON(needs.languages.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
