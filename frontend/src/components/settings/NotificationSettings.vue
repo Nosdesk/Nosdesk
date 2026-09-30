@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import Icon from '@/components/common/Icon.vue';
@@ -245,6 +245,27 @@ const enablePush = async () => {
     enablingPush.value = false;
   }
 };
+
+/**
+ * Re-read permission when the app comes back to the foreground.
+ *
+ * "Open device settings" leaves the app, so the answer can change while this
+ * screen is hidden. When it has just become granted, register the device as
+ * well: sign-in's registration ran while it was off and won't run again until
+ * the next launch.
+ */
+const recheckPushPermission = async () => {
+  if (document.visibilityState !== 'visible') return;
+  if (isLoading.value || enablingPush.value || isManagingOtherUser.value) return;
+  const wasGranted = pushPermission.value === 'granted';
+  pushPermission.value = await checkPushPermission();
+  if (pushPermission.value === 'granted' && !wasGranted) await enablePush();
+};
+
+if (isNativeApp) {
+  onMounted(() => document.addEventListener('visibilitychange', recheckPushPermission));
+  onBeforeUnmount(() => document.removeEventListener('visibilitychange', recheckPushPermission));
+}
 
 const requestBrowserPermission = async () => {
   const granted = await requestNotificationPermission();
