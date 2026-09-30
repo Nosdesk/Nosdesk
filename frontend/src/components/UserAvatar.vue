@@ -140,22 +140,37 @@ const navigateToProfile = () => {
   }
 }
 
-// Track image download: `imageLoaded` gates the fade-in over the initials
-// base so there's never a transparent gap while the bytes arrive; `imageFailed`
-// falls back to the initials permanently. Both reset when the URL changes.
+// Track the photo. `imageLoaded` starts its fade in over the initials, so the
+// circle is never an empty gap while the bytes arrive; `photoShown` hides the
+// initials once the photo is fully in, so a transparent upload doesn't show
+// them through it; `imageFailed` keeps the initials for good. All three reset
+// when the URL changes.
 const imageLoaded = ref(false)
+const photoShown = ref(false)
 const imageFailed = ref(false)
 
 watch(avatarUrl, () => {
   imageLoaded.value = false
+  photoShown.value = false
   imageFailed.value = false
 })
 
+const hasPhoto = computed(() => !!avatarUrl.value && !imageFailed.value)
+
+const onImgLoad = () => {
+  imageLoaded.value = true
+  // Reduced motion has no fade, so no transitionend will say it's done.
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) photoShown.value = true
+}
+
 // A cached image can already be `complete` before `@load` binds, which would
-// otherwise strand it at opacity 0. Catch that on mount.
+// otherwise strand it at opacity 0. It needs no fade either.
 const onImgMount = (el: unknown) => {
   const img = el as HTMLImageElement | null
-  if (img?.complete && img.naturalWidth > 0) imageLoaded.value = true
+  if (img?.complete && img.naturalWidth > 0) {
+    imageLoaded.value = true
+    photoShown.value = true
+  }
 }
 </script>
 
@@ -172,13 +187,18 @@ const onImgMount = (el: unknown) => {
     ]"
     @click="navigateToProfile"
   >
-    <!-- Avatar wrapper for theme effects -->
-    <div class="avatar-themed rounded-full flex-shrink-0" :class="sizeClasses.base">
-      <!-- Three-state crossfade. mode="out-in" prevents stacked
-           overlap during the swap so the circle stays a single
-           silhouette. The skeleton pulses on a neutral surface
-           tone, never a UUID-derived hue, so the resolve doesn't
-           flash a different colour into place. -->
+    <!-- Avatar wrapper for theme effects. The themes style its first child div
+         as the initials circle and filter any img inside it, so the photo is
+         layered over the initials as a sibling rather than wrapped with them. -->
+    <div
+      class="avatar-themed relative rounded-full flex-shrink-0"
+      :class="sizeClasses.base"
+      :title="isLoading ? undefined : displayName || 'User'"
+    >
+      <!-- Skeleton or initials, crossfaded. mode="out-in" prevents stacked
+           overlap during the swap so the circle stays a single silhouette.
+           The skeleton pulses on a neutral surface tone, never a UUID-derived
+           hue, so the resolve doesn't flash a different colour into place. -->
       <Transition name="avatar-resolve" mode="out-in">
         <!-- Loading: skeleton pulse while the pool row resolves. Same
              pattern the rest of the app uses (TicketRowSkeleton, etc.). -->
@@ -188,35 +208,36 @@ const onImgMount = (el: unknown) => {
           class="w-full h-full rounded-full bg-surface-alt animate-pulse"
           aria-hidden="true"
         />
-        <!-- Resolved: coloured initials are the base layer; the photo (when
-             there is one) fades in over them once it decodes. So the circle is
-             never a transparent gap while the image downloads, and a failed
-             load simply leaves the initials in place. -->
-        <div v-else key="resolved" class="relative w-full h-full">
-          <div
-            class="absolute inset-0 rounded-full flex items-center justify-center font-medium text-white"
-            :class="sizeClasses.text"
-            :style="{ backgroundColor: getBackgroundColor(displayName) }"
-            :title="displayName || 'User'"
-          >
-            {{ getInitials(displayName) }}
-          </div>
-          <!-- :key on the URL forces element recreation when it changes,
-               bypassing the browser cache and re-running the fade. -->
-          <img
-            v-if="avatarUrl && !imageFailed"
-            :key="`img:${avatarUrl}`"
-            :ref="onImgMount"
-            :src="avatarUrl"
-            :alt="displayName || 'User'"
-            class="absolute inset-0 w-full h-full rounded-full object-cover transition-opacity duration-200"
-            :class="imageLoaded ? 'opacity-100' : 'opacity-0'"
-            loading="lazy"
-            @load="imageLoaded = true"
-            @error="imageFailed = true"
-          />
+        <!-- Initials: the base layer under a photo, and all there is without
+             one. With a photo, screen readers get its alt text instead, and
+             the initials go once it has faded in. -->
+        <div
+          v-else
+          key="initials"
+          :class="[sizeClasses.text, { invisible: photoShown }]"
+          class="w-full h-full rounded-full flex items-center justify-center font-medium text-white"
+          :style="{ backgroundColor: getBackgroundColor(displayName) }"
+          :aria-hidden="hasPhoto ? 'true' : undefined"
+        >
+          {{ getInitials(displayName) }}
         </div>
       </Transition>
+      <!-- The photo fades in over the initials once it decodes; a failed load
+           leaves the initials. :key on the URL forces element recreation when
+           it changes, bypassing the browser cache and re-running the fade. -->
+      <img
+        v-if="!isLoading && hasPhoto"
+        :key="`img:${avatarUrl}`"
+        :ref="onImgMount"
+        :src="avatarUrl ?? undefined"
+        :alt="displayName || 'User'"
+        class="absolute inset-0 w-full h-full rounded-full object-cover transition-opacity duration-200 motion-reduce:transition-none"
+        :class="imageLoaded ? 'opacity-100' : 'opacity-0'"
+        loading="lazy"
+        @load="onImgLoad"
+        @error="imageFailed = true"
+        @transitionend="photoShown = true"
+      />
     </div>
 
     <!-- Name text. While loading, render a width-matched

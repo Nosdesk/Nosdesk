@@ -42,7 +42,7 @@ describe('AssignmentPicker', () => {
     const options = Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]'))
     expect(options.map((o) => o.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
       'Helpdesk',
-      'NNoah Bennettnoah@example.test',
+      'NBNoah Bennettnoah@example.test',
     ])
     const groups = Array.from(document.body.querySelectorAll('[role="group"]'))
     expect(
