@@ -281,7 +281,7 @@ pub fn provision_dkim(
 ) -> Result<DkimDnsRecord, CredentialError> {
     use crate::schema::workspace_email_settings::dsl as w;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rsa::rand_core::OsRng;
     let private = RsaPrivateKey::new(&mut rng, DKIM_RSA_BITS)
         .map_err(|e| CredentialError::Crypto(format!("DKIM key generation: {e}")))?;
     let private_pem = private

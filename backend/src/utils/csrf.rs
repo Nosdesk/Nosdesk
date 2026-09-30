@@ -4,12 +4,12 @@ use actix_web::{
     Error,
 };
 use futures::future::LocalBoxFuture;
-use rand::Rng;
+use rand::RngExt;
 use std::future::{ready, Ready};
 
 /// Generate a cryptographically secure CSRF token (32 bytes = 64 hex chars)
 pub fn generate_csrf_token() -> String {
-    let token_bytes: [u8; 32] = rand::thread_rng().gen();
+    let token_bytes: [u8; 32] = rand::rng().random();
     hex::encode(token_bytes)
 }
 

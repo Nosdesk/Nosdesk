@@ -23,7 +23,7 @@ use std::sync::LazyLock;
 
 use bcrypt::{hash, verify, DEFAULT_COST};
 use diesel::prelude::*;
-use rand::RngCore;
+use rand::Rng;
 
 use crate::db::DbConnection;
 use crate::models::User;
@@ -37,7 +37,7 @@ use crate::schema::user_auth_identities;
 /// signup, so the verify cost matches.
 static DUMMY_HASH: LazyLock<String> = LazyLock::new(|| {
     let mut secret = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut secret);
+    rand::rng().fill_bytes(&mut secret);
     hash(&secret[..], DEFAULT_COST).expect("dummy bcrypt hash generation must succeed at startup")
 });
 

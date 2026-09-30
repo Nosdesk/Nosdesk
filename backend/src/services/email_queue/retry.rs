@@ -26,7 +26,7 @@
 //! feels broken, tell me about it" territory that 24h would.
 
 use chrono::{DateTime, Duration, Utc};
-use rand::Rng;
+use rand::RngExt;
 
 /// Maximum attempts before a row is marked `dead`.
 pub const MAX_ATTEMPTS: i32 = 10;
@@ -46,7 +46,7 @@ pub fn next_attempt_at(now: DateTime<Utc>, attempts: i32) -> DateTime<Utc> {
     let exp = attempts.clamp(1, 31) as u32; // saturate to avoid u32 overflow
     let raw_cap = BASE_BACKOFF_SECS.saturating_mul(1i64 << exp);
     let cap = raw_cap.clamp(1, MAX_BACKOFF_SECS);
-    let jittered = rand::thread_rng().gen_range(0..=cap);
+    let jittered = rand::rng().random_range(0..=cap);
     now + Duration::seconds(jittered)
 }
 

@@ -5,7 +5,7 @@
 use chrono::{Duration, Utc};
 use diesel::prelude::*;
 use ipnetwork::IpNetwork;
-use rand::Rng;
+use rand::RngExt;
 use ring::digest::{Context, SHA256};
 use uuid::Uuid;
 
@@ -19,8 +19,8 @@ const TOKEN_PREFIX: &str = "nsk_";
 /// Generate a cryptographically secure API token
 /// Returns the full token: nsk_ + 32 random hex chars (36 chars total)
 pub fn generate_api_token() -> String {
-    let mut rng = rand::thread_rng();
-    let token_bytes: [u8; 16] = rng.gen(); // 16 bytes = 32 hex chars
+    let mut rng = rand::rng();
+    let token_bytes: [u8; 16] = rng.random(); // 16 bytes = 32 hex chars
     format!("{}{}", TOKEN_PREFIX, hex::encode(token_bytes))
 }
 
