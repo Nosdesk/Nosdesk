@@ -8,6 +8,7 @@
  * file edit.
  */
 import { translate } from '@/i18n'
+import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions'
 import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 
 /** PriorityIndicator only knows about three levels; collapse
@@ -26,18 +27,12 @@ export function priorityLabel(p: Priority): string {
   return translate('priority-none', undefined, 'No priority')
 }
 
-/** Flat option rows for `CustomDropdown` / bulk pickers. Keeps the
- * five UI tiers in one place so every surface offers the same set. */
+/** Flat option rows for `CustomDropdown` / bulk pickers, from the one
+ * list in `PRIORITY_OPTIONS` so every surface offers the same set. */
 export function buildPriorityDropdownOptions(
   t: (key: string) => string,
 ): Array<{ value: Priority; label: string }> {
-  return [
-    { value: 'urgent', label: t('priority-urgent') },
-    { value: 'high', label: t('priority-high') },
-    { value: 'medium', label: t('priority-medium') },
-    { value: 'low', label: t('priority-low') },
-    { value: 'none', label: t('priority-none') },
-  ]
+  return PRIORITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))
 }
 
 /** Subtle inline tint used in the title cell to make urgent /

@@ -6,7 +6,7 @@
 // locale switch re-labels the dropdowns without re-evaluating this
 // module. The English literal stays in a sibling fallback map so
 // pre-bootstrap call sites (tests, SSR) still get readable text.
-export type TicketPriority = "low" | "medium" | "high";
+export type TicketPriority = "none" | "low" | "medium" | "high" | "urgent";
 
 export interface SelectOption<T extends string> {
   value: T;
@@ -14,8 +14,11 @@ export interface SelectOption<T extends string> {
   labelKey: string;
 }
 
+/** Every priority the backend stores, most severe first. */
 export const PRIORITY_OPTIONS: SelectOption<TicketPriority>[] = [
-  { value: "low", labelKey: "priority-low" },
-  { value: "medium", labelKey: "priority-medium" },
+  { value: "urgent", labelKey: "priority-urgent" },
   { value: "high", labelKey: "priority-high" },
+  { value: "medium", labelKey: "priority-medium" },
+  { value: "low", labelKey: "priority-low" },
+  { value: "none", labelKey: "priority-none" },
 ];
