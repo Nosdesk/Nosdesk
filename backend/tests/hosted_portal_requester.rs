@@ -11,7 +11,6 @@ mod common;
 
 use actix_web::test::TestRequest;
 use actix_web::HttpMessage as _;
-use actix_web::ResponseError as _;
 
 use backend::extractors::WorkspaceContext;
 use backend::handlers::portal::authorize_portal_request;
