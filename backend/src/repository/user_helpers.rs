@@ -117,7 +117,7 @@ pub fn get_user_by_email(
 
     users::table
         .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
-        .filter(user_emails::email.ilike(email)) // Case-insensitive match
+        .filter(user_emails::email.ilike(super::escape_like(email))) // Case-insensitive match
         .filter(user_emails::is_primary.eq(true)) // Only allow login with primary email
         .select(users::all_columns)
         .first::<User>(conn)
@@ -401,7 +401,7 @@ pub fn find_verified_user_by_email(
 
     let row: Option<(User, bool)> = users::table
         .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
-        .filter(user_emails::email.ilike(email))
+        .filter(user_emails::email.ilike(super::escape_like(email)))
         .select((users::all_columns, user_emails::is_verified))
         .first::<(User, bool)>(conn)
         .optional()?;
@@ -434,7 +434,7 @@ fn lookup_for_guest(
     // Fetch the user and their primary email row together so we can classify.
     let row: Option<(User, bool)> = users::table
         .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
-        .filter(user_emails::email.ilike(email))
+        .filter(user_emails::email.ilike(super::escape_like(email)))
         .filter(user_emails::is_primary.eq(true))
         .select((users::all_columns, user_emails::is_verified))
         .first::<(User, bool)>(conn)
@@ -677,6 +677,47 @@ mod tests {
 
         let found = get_user_by_email("ALICE@EXAMPLE.COM", &mut conn).unwrap();
         assert_eq!(found.uuid, user.uuid);
+    }
+
+    #[test]
+    fn email_lookups_read_wildcards_literally() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "wild", "user");
+        let email = format!("wild_{}@example.com", user.uuid.simple());
+        TestFixtures::create_user_email(&mut conn, user.uuid, &email, true);
+
+        // Patterns that ILIKE would match against the address above.
+        let patterns = [
+            "%".to_string(),
+            format!("%{}@example.com", user.uuid.simple()),
+            format!("wil__{}@example.com", user.uuid.simple()),
+        ];
+        for pattern in &patterns {
+            assert!(get_user_by_email(pattern, &mut conn).is_err(), "{pattern}");
+            assert!(
+                find_verified_user_by_email(pattern, &mut conn)
+                    .unwrap()
+                    .is_none(),
+                "{pattern}"
+            );
+            assert!(
+                crate::repository::user_emails::find_user_by_any_email(&mut conn, pattern).is_err(),
+                "{pattern}"
+            );
+        }
+
+        // The address itself still matches, in any case.
+        let upper = email.to_uppercase();
+        assert_eq!(
+            get_user_by_email(&upper, &mut conn).unwrap().uuid,
+            user.uuid
+        );
+        assert_eq!(
+            find_verified_user_by_email(&upper, &mut conn)
+                .unwrap()
+                .map(|u| u.uuid),
+            Some(user.uuid)
+        );
     }
 
     #[test]

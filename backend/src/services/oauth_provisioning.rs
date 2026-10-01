@@ -489,7 +489,7 @@ fn reconcile_projected_emails(
                 diesel::update(
                     ue::table
                         .filter(ue::user_uuid.eq(user_uuid))
-                        .filter(ue::email.ilike(addr)),
+                        .filter(ue::email.ilike(crate::repository::escape_like(addr))),
                 )
                 .set(ue::is_verified.eq(true))
                 .execute(conn)?;
