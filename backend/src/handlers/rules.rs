@@ -12,8 +12,9 @@
 //!
 //! Workspace isolation is via RLS + `require_workspace_role`. The
 //! repository layer doesn't add explicit `workspace_id = ?` filters
-//! to its queries; the session GUC the cookie-auth + workspace
-//! middleware sets up handles that uniformly.
+//! to its queries; each handler runs them through `TenantConn`, which
+//! pins the request's workspace (a pooled connection starts with none,
+//! and row security then shows and accepts nothing).
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use chrono::Utc;
@@ -23,6 +24,7 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::errors::{self, ApiError};
+use crate::extractors::TenantConn;
 use crate::middleware::request_context::RequestContext;
 use crate::models::{
     NewRule, Rule, RuleApplicationStatus, RuleState, RuleTriggerKind, RuleUpdate, RuleVersion,
@@ -369,13 +371,12 @@ fn legal_state_transition(from: RuleState, to: RuleState) -> bool {
 pub async fn create_rule(
     req: HttpRequest,
     body: web::Json<CreateRuleRequest>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let Some(workspace_id) = actor_workspace_id(&req) else {
         return Err(ApiError::Unauthorized("Authentication required".into()));
     };
-    let mut conn = errors::db_conn(&pool)?;
     let CreateRuleRequest {
         name,
         description,
@@ -434,7 +435,7 @@ pub async fn create_rule(
         created_by: actor_uuid(&req),
     };
 
-    match rules::create(&mut conn, new) {
+    match tc.run(|conn| rules::create(conn, new)) {
         Ok(rule) => Ok(HttpResponse::Created().json(RuleDto::from(rule))),
         Err(e) => {
             tracing::error!(error = ?e, "create_rule: repo error");
@@ -447,10 +448,9 @@ pub async fn create_rule(
 pub async fn list_rules(
     req: HttpRequest,
     query: web::Query<ListRulesQuery>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
-    let mut conn = errors::db_conn(&pool)?;
     let q = query.into_inner();
     let filter = rules::ListFilter {
         trigger_kind: q.trigger_kind,
@@ -458,7 +458,7 @@ pub async fn list_rules(
         include_archived: q.include_archived,
         name_query: q.q,
     };
-    match rules::list(&mut conn, filter) {
+    match tc.run(|conn| rules::list(conn, filter)) {
         Ok(rs) => {
             Ok(HttpResponse::Ok().json(rs.into_iter().map(RuleDto::from).collect::<Vec<_>>()))
         }
@@ -470,12 +470,11 @@ pub async fn list_rules(
 pub async fn get_rule(
     req: HttpRequest,
     path: web::Path<i32>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    let mut conn = errors::db_conn(&pool)?;
-    match rules::find(&mut conn, id) {
+    match tc.run(|conn| rules::find(conn, id)) {
         Ok(Some(rule)) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
         Ok(None) => Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
         Err(e) => Err(ApiError::Database(e)),
@@ -490,11 +489,10 @@ pub async fn update_rule(
     req: HttpRequest,
     path: web::Path<i32>,
     body: web::Json<UpdateRuleRequest>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    let mut conn = errors::db_conn(&pool)?;
     let UpdateRuleRequest {
         name,
         description,
@@ -523,7 +521,7 @@ pub async fn update_rule(
     // Self-ref check needs the post-update conditions / actions, which
     // means reading the existing row first if either is omitted. Same
     // pattern the merge handler uses for optimistic-lock fetches.
-    let existing = match rules::find(&mut conn, id) {
+    let existing = match tc.run(|conn| rules::find(conn, id)) {
         Ok(Some(r)) => r,
         Ok(None) => return Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
         Err(e) => return Err(ApiError::Database(e)),
@@ -567,7 +565,7 @@ pub async fn update_rule(
         archived_at: None,
     };
 
-    match rules::update(&mut conn, id, change) {
+    match tc.run_result(|conn| rules::update(conn, id, change)) {
         Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
         Err(rules::WriteError::NotFound(_)) => {
             Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
@@ -590,14 +588,13 @@ pub async fn transition_state(
     req: HttpRequest,
     path: web::Path<i32>,
     body: web::Json<StateTransitionRequest>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    let mut conn = errors::db_conn(&pool)?;
     let target = body.into_inner().state;
 
-    let existing = match rules::find(&mut conn, id) {
+    let existing = match tc.run(|conn| rules::find(conn, id)) {
         Ok(Some(r)) => r,
         Ok(None) => return Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
         Err(e) => return Err(ApiError::Database(e)),
@@ -628,7 +625,7 @@ pub async fn transition_state(
         archived_at,
         ..Default::default()
     };
-    match rules::update(&mut conn, id, change) {
+    match tc.run_result(|conn| rules::update(conn, id, change)) {
         Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
         Err(rules::WriteError::NotFound(_)) => {
             Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
@@ -648,13 +645,12 @@ pub async fn delete_rule(
     req: HttpRequest,
     path: web::Path<i32>,
     query: web::Query<DeleteRuleQuery>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    let mut conn = errors::db_conn(&pool)?;
     if query.hard {
-        match rules::hard_delete(&mut conn, id) {
+        match tc.run_result(|conn| rules::hard_delete(conn, id)) {
             Ok(()) => Ok(HttpResponse::NoContent().finish()),
             Err(rules::WriteError::NotFound(_)) => {
                 Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
@@ -666,7 +662,7 @@ pub async fn delete_rule(
             Err(rules::WriteError::Db(e)) => Err(ApiError::Database(e)),
         }
     } else {
-        match rules::archive(&mut conn, id, Utc::now()) {
+        match tc.run_result(|conn| rules::archive(conn, id, Utc::now())) {
             Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
             Err(rules::WriteError::NotFound(_)) => {
                 Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
@@ -685,12 +681,11 @@ pub async fn delete_rule(
 pub async fn list_rule_versions(
     req: HttpRequest,
     path: web::Path<i32>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let rule_id = path.into_inner();
-    let mut conn = errors::db_conn(&pool)?;
-    match rules::list_versions(&mut conn, rule_id) {
+    match tc.run(|conn| rules::list_versions(conn, rule_id)) {
         Ok(rs) => {
             Ok(HttpResponse::Ok()
                 .json(rs.into_iter().map(RuleVersionDto::from).collect::<Vec<_>>()))
@@ -704,12 +699,11 @@ pub async fn list_rule_versions(
 pub async fn get_rule_version(
     req: HttpRequest,
     path: web::Path<(i32, i32)>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let (rule_id, version) = path.into_inner();
-    let mut conn = errors::db_conn(&pool)?;
-    match rules::find_version(&mut conn, rule_id, version) {
+    match tc.run(|conn| rules::find_version(conn, rule_id, version)) {
         Ok(Some(v)) => Ok(HttpResponse::Ok().json(RuleVersionDto::from(v))),
         Ok(None) => Err(ApiError::NotFoundMsg(format!(
             "rule {rule_id} version {version} not found"
@@ -728,10 +722,9 @@ pub async fn get_rule_version(
 pub async fn list_rule_applications(
     req: HttpRequest,
     query: web::Query<ListApplicationsQuery>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
-    let mut conn = errors::db_conn(&pool)?;
     let q = query.into_inner();
     let filter = rules::ApplicationFilter {
         rule_id: q.rule_id,
@@ -742,7 +735,7 @@ pub async fn list_rule_applications(
         to: q.to,
         limit: q.limit,
     };
-    match rules::list_applications(&mut conn, filter) {
+    match tc.run(|conn| rules::list_applications(conn, filter)) {
         Ok(rows) => Ok(HttpResponse::Ok().json(rows)),
         Err(e) => Err(ApiError::Database(e)),
     }
@@ -754,12 +747,11 @@ pub async fn list_rule_applications(
 pub async fn get_rule_application(
     req: HttpRequest,
     path: web::Path<i64>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    let mut conn = errors::db_conn(&pool)?;
-    match rules::find_application(&mut conn, id) {
+    match tc.run(|conn| rules::find_application(conn, id)) {
         Ok(Some(row)) => Ok(HttpResponse::Ok().json(row)),
         Ok(None) => Err(ApiError::NotFoundMsg(format!(
             "rule_application {id} not found"
@@ -776,12 +768,11 @@ pub async fn get_rule_application(
 pub async fn list_ticket_rule_applications(
     req: HttpRequest,
     path: web::Path<i32>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
     let ticket_id = path.into_inner();
-    let mut conn = errors::db_conn(&pool)?;
-    match rules::list_applications_for_ticket(&mut conn, ticket_id) {
+    match tc.run(|conn| rules::list_applications_for_ticket(conn, ticket_id)) {
         Ok(rows) => Ok(HttpResponse::Ok().json(rows)),
         Err(e) => Err(ApiError::Database(e)),
     }
@@ -862,9 +853,10 @@ pub async fn apply_rule(
     // comment-create handler does. enqueue_for_comment spawns a
     // background task, so the response returns immediately. Internal
     // notes never relay.
-    if let Some(cid) = outcome.comment_id {
+    if let (Some(cid), Some(workspace_id)) = (outcome.comment_id, actor.workspace_id) {
         if let Err(e) =
-            dispatch_rule_reply_for_relay(&pool, ticket_id, cid, &outcome.application).await
+            dispatch_rule_reply_for_relay(&pool, workspace_id, ticket_id, cid, &outcome.application)
+                .await
         {
             tracing::warn!(error = %e, comment_id = cid, "rule reply channel relay enqueue failed");
         }
@@ -887,10 +879,12 @@ pub async fn apply_rule(
 
 /// Mirror the comment-handler's channel-relay enqueue for a rule-
 /// driven public reply. Loads the ticket + comment fresh from the
-/// pool so the spawn body owns them; the apply transaction has
-/// already committed by this point, so the rows are stable.
+/// pool, in the ticket's workspace, so the spawn body owns them; the
+/// apply transaction has already committed by this point, so the
+/// rows are stable.
 async fn dispatch_rule_reply_for_relay(
     pool: &web::Data<Pool>,
+    workspace_id: i32,
     ticket_id: i32,
     comment_id: i32,
     application: &crate::models::RuleApplication,
@@ -901,10 +895,13 @@ async fn dispatch_rule_reply_for_relay(
     use crate::schema::comments::dsl as c;
     use crate::schema::tickets::dsl as t;
     use diesel::prelude::*;
-    let mut conn = pool.get().map_err(|e| e.to_string())?;
-    let comment: crate::models::Comment = c::comments
-        .find(comment_id)
-        .first(&mut conn)
+    let (comment, ticket): (crate::models::Comment, crate::models::Ticket) =
+        crate::sync::session::run_in_workspace(pool, "rules:reply_relay", workspace_id, |conn| {
+            Ok((
+                c::comments.find(comment_id).first(conn)?,
+                t::tickets.find(ticket_id).first(conn)?,
+            ))
+        })
         .map_err(|e| e.to_string())?;
     if comment.is_internal {
         return Ok(());
@@ -922,10 +919,6 @@ async fn dispatch_rule_reply_for_relay(
     if !visibility_public {
         return Ok(());
     }
-    let ticket: crate::models::Ticket = t::tickets
-        .find(ticket_id)
-        .first(&mut conn)
-        .map_err(|e| e.to_string())?;
     // Spawn — same shape as the regular comment handler. The
     // outbound queue worker handles SMTP dispatch + retry.
     crate::services::channels::outbound::enqueue_for_comment(
@@ -1022,11 +1015,10 @@ pub async fn list_starter_catalog(req: HttpRequest) -> Result<HttpResponse, ApiE
 pub async fn list_applicable_actions(
     req: HttpRequest,
     _path: web::Path<i32>,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
-    let mut conn = errors::db_conn(&pool)?;
-    match rules::list_pickable_manual(&mut conn) {
+    match tc.run(rules::list_pickable_manual) {
         Ok(rs) => {
             Ok(HttpResponse::Ok().json(rs.into_iter().map(RuleDto::from).collect::<Vec<_>>()))
         }

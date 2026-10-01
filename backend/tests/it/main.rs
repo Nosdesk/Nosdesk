@@ -68,6 +68,7 @@ mod profile_write_authz;
 mod projection_membership_role_model;
 mod push_preference_defaults;
 mod route_auth_funnel_lint;
+mod rules_in_workspace;
 mod site_settings_per_workspace;
 mod sync_emit_lint;
 mod sync_model_registry;
