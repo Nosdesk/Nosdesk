@@ -96,6 +96,44 @@ pub fn get_ticket_by_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<
     tickets::table.find(ticket_id).first(conn)
 }
 
+/// Whether `user_uuid` is on the ticket: its requester, a watcher, or staff
+/// in its workspace.
+pub fn is_on_ticket(conn: &mut DbConnection, ticket_id: i32, user_uuid: Uuid) -> QueryResult<bool> {
+    let ticket = get_ticket_by_id(conn, ticket_id)?;
+    if ticket.requester_uuid == Some(user_uuid)
+        || crate::repository::ticket_watchers::is_watching(conn, ticket_id, &user_uuid)?
+    {
+        return Ok(true);
+    }
+    Ok(
+        crate::repository::workspaces::membership(conn, ticket.workspace_id, user_uuid)?
+            .is_some_and(|m| WorkspaceRole::from_db(&m.role).is_staff()),
+    )
+}
+
+/// The ticket's number, or `None` once it no longer exists.
+pub fn number_of(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Option<i32>> {
+    tickets::table
+        .find(ticket_id)
+        .select(tickets::number)
+        .first(conn)
+        .optional()
+}
+
+/// The id of the ticket numbered `number` in `workspace_id`.
+pub fn id_for_number(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    number: i32,
+) -> QueryResult<Option<i32>> {
+    tickets::table
+        .filter(tickets::workspace_id.eq(workspace_id))
+        .filter(tickets::number.eq(number))
+        .select(tickets::id)
+        .first(conn)
+        .optional()
+}
+
 /// Typed annotation describing where a ticket originated, attached
 /// to the `ticket.created` sync_actions row so the activity feed can
 /// render richer phrasing than "System created this ticket".
@@ -436,6 +474,7 @@ pub fn update_ticket(
                 event_type: "ticket.updated",
                 data: json!({
                     "id": updated.id,
+                    "number": updated.number,
                     "title": updated.title,
                     "workflow_state": workflow_state,
                     "workflow_state_id": updated.workflow_state_id,
@@ -559,6 +598,7 @@ pub fn update_ticket_partial(
             || ticket_update.sla_override.is_some();
         let mut data = json!({
             "id": result.id,
+            "number": result.number,
             "title": result.title,
             // Nested state so a move relocates the card on every
             // client: the pool shallow-merges, and the kanban groups
@@ -746,7 +786,7 @@ pub fn delete_ticket_with_cleanup(
         // Emit only when the row actually existed; pre_delete is None
         // for repeated DELETE calls, in which case the result is 0
         // and we'd be emitting a phantom event.
-        if pre_delete.is_some() {
+        if let Some(deleted) = &pre_delete {
             emit::record(
                 conn,
                 SyncEmit {
@@ -754,7 +794,7 @@ pub fn delete_ticket_with_cleanup(
                     aggregate_id: ticket_id.to_string(),
                     op: SyncOp::Delete,
                     event_type: "ticket.deleted",
-                    data: json!({ "id": ticket_id }),
+                    data: json!({ "id": ticket_id, "number": deleted.number }),
                     groups: pre_groups,
                     causation_id: None,
                 },

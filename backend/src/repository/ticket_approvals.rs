@@ -531,6 +531,7 @@ pub fn for_approver(
 #[derive(Debug, serde::Serialize)]
 pub struct ApprovalSummary {
     pub ticket_id: i32,
+    pub ticket_number: i32,
     pub title: String,
     pub request_type: Option<String>,
     pub requester_name: Option<String>,
@@ -588,6 +589,7 @@ pub fn summary(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<Approval
         .collect();
     Ok(ApprovalSummary {
         ticket_id: ticket.id,
+        ticket_number: ticket.number,
         title: ticket.title.clone(),
         request_type,
         requester_name,

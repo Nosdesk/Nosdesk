@@ -828,6 +828,7 @@ pub async fn submit_guest_ticket(
         Ok(HttpResponse::Created().json(json!({
             "verification_required": false,
             "ticket_id": ticket.id,
+            "ticket_number": ticket.number,
             "lookup_token": lookup_token.to_string(),
             "status_url": format!("/ticket-status/{}", lookup_token),
             "email_sent": email_sent,
@@ -881,6 +882,7 @@ pub async fn get_guest_ticket_status(
     match outcome {
         Ok(LookupOutcome::Found(t, cat)) => Ok(HttpResponse::Ok().json(json!({
             "ticket_id": t.id,
+            "ticket_number": t.number,
             "title": t.title,
             "category": cat,
             "priority": t.priority,

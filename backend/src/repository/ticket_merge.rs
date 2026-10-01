@@ -79,7 +79,7 @@ pub enum MergeError {
     EmptySources,
     /// A source id equals the destination id.
     SelfMerge(i32),
-    /// A source or the destination is already a merge source.
+    /// A source or the destination (by number) is already a merge source.
     AlreadyMerged(i32),
     /// The destination sits in the terminal `merged` category.
     DestinationIsMerged,
@@ -117,7 +117,7 @@ impl std::fmt::Display for MergeError {
             MergeError::SelfMerge(id) => {
                 write!(f, "ticket {id} is both a source and the destination")
             }
-            MergeError::AlreadyMerged(id) => write!(f, "ticket {id} is already merged"),
+            MergeError::AlreadyMerged(number) => write!(f, "ticket #{number} is already merged"),
             MergeError::DestinationIsMerged => write!(f, "destination ticket is itself merged"),
             MergeError::CrossWorkspace(id) => write!(f, "ticket {id} is in a different workspace"),
             MergeError::RecurrenceParentDestination => {
@@ -209,7 +209,7 @@ pub fn execute_merge(
             return Err(MergeError::CrossWorkspace(target_id));
         }
         if is_merge_source(conn, target_id)? {
-            return Err(MergeError::AlreadyMerged(target_id));
+            return Err(MergeError::AlreadyMerged(destination.number));
         }
         if state_category(conn, destination.workflow_state_id)? == WorkflowStateCategory::Merged {
             return Err(MergeError::DestinationIsMerged);
@@ -227,7 +227,7 @@ pub fn execute_merge(
                 return Err(MergeError::CrossWorkspace(sid));
             }
             if is_merge_source(conn, sid)? {
-                return Err(MergeError::AlreadyMerged(sid));
+                return Err(MergeError::AlreadyMerged(s.number));
             }
             sources.push(s);
         }
@@ -627,6 +627,7 @@ fn build_marker(
         .map(|s| {
             json!({
                 "id": s.id,
+                "number": s.number,
                 "title": s.title,
                 "requester_uuid": s.requester_uuid,
                 "opened_at": s.created_at,
@@ -636,7 +637,7 @@ fn build_marker(
 
     let mut lines = vec![format!("Merged {} ticket(s) into this one:", sources.len())];
     for s in sources {
-        lines.push(format!("- #{}: \"{}\"", s.id, s.title));
+        lines.push(format!("- #{}: \"{}\"", s.number, s.title));
     }
     if let Some(r) = reason {
         lines.push(format!("Reason: {r}"));
@@ -660,8 +661,10 @@ fn build_marker(
     let metadata = json!({
         "kind": "merge_marker",
         "source_ticket_ids": sources.iter().map(|s| s.id).collect::<Vec<_>>(),
+        "source_ticket_numbers": sources.iter().map(|s| s.number).collect::<Vec<_>>(),
         "sources": source_json,
         "merged_into_ticket_id": destination.id,
+        "merged_into_ticket_number": destination.number,
         "merged_by_user_uuid": actor.uuid,
         "reason": reason,
     });
@@ -851,7 +854,7 @@ pub fn enqueue_merge_notifications(
 
         let message_id =
             format_outbound_message_id(destination.id, source.id, &config.reply_domain);
-        let subject = format_outbound_subject(destination.id, &destination.title);
+        let subject = format_outbound_subject(destination.number, &destination.title);
         // B3: customer replies to the merge notice should thread back into the
         // ticket via the channel's polled mailbox (see outbound.rs). Only when
         // the IMAP username is an address.
@@ -947,6 +950,7 @@ mod tests {
         let user = TestFixtures::create_user(&mut conn, "agent", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        let src = TestFixtures::renumber_ticket(&mut conn, src);
         TestFixtures::create_comment(&mut conn, src.id, user.uuid, "from source");
 
         let outcome = execute_merge(
@@ -971,14 +975,24 @@ mod tests {
             WorkflowStateCategory::Merged
         );
 
-        // Marker comment exists on the destination, flagged structured.
+        // Marker comment exists on the destination, flagged structured,
+        // naming the source by its number.
         use crate::schema::comments::dsl as c;
-        let meta: Option<serde_json::Value> = c::comments
+        let (content, meta): (String, Option<serde_json::Value>) = c::comments
             .filter(c::id.eq(outcome.merge_marker_comment_id))
-            .select(c::channel_metadata)
+            .select((c::content, c::channel_metadata))
             .first(&mut conn)
             .unwrap();
-        assert_eq!(meta.unwrap()["kind"], "merge_marker");
+        let meta = meta.unwrap();
+        assert_eq!(meta["kind"], "merge_marker");
+        assert_eq!(
+            meta["source_ticket_numbers"],
+            serde_json::json!([src.number])
+        );
+        assert!(
+            content.contains(&format!("- #{}: \"Source\"", src.number)),
+            "{content}"
+        );
 
         // duplicate_of edge recorded source -> dest.
         use crate::schema::linked_tickets::dsl as l;
@@ -1056,7 +1070,7 @@ mod tests {
             &actor_for(user.uuid),
         )
         .unwrap_err();
-        assert!(matches!(err, MergeError::AlreadyMerged(id) if id == src.id));
+        assert!(matches!(err, MergeError::AlreadyMerged(number) if number == src.number));
     }
 
     #[test]

@@ -325,7 +325,7 @@ pub fn enqueue_for_comment(
                     return Ok(None);
                 };
                 let subject = super::threading::format_outbound_subject(
-                    thread.ticket_id,
+                    thread.ticket_number,
                     thread.subject.as_deref().unwrap_or(""),
                 );
                 let recipient = thread
@@ -533,6 +533,7 @@ mod tests {
 
         let thread = ThreadContext {
             ticket_id: 1,
+            ticket_number: 1,
             channel_id: channel.id,
             external_thread_id: None,
             recipient: ExternalIdentity {

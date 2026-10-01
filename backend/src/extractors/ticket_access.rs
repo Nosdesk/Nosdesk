@@ -41,10 +41,12 @@
 //!
 //! The extractor reads the ticket id from `match_info()`, trying
 //! `id` first (the bulk of ticket routes) then `ticket_id` (the
-//! sub-resource routes like `/tickets/{ticket_id}/comments`). If
-//! both are absent the extractor errors out with `400` rather
-//! than `404`, because that's a routing wiring bug and we want
-//! the operator to see it, not have it disappear into a 404.
+//! sub-resource routes like `/tickets/{ticket_id}/comments`), then
+//! `number`, the ticket's number in the request's workspace
+//! (`/tickets/by-number/{number}`). If all are absent the extractor
+//! errors out with `400` rather than `404`, because that's a routing
+//! wiring bug and we want the operator to see it, not have it
+//! disappear into a 404.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -61,6 +63,13 @@ use super::AuthContext;
 pub struct TicketAccess {
     pub ticket_id: i32,
     pub auth: AuthContext,
+}
+
+/// How the route names the ticket.
+#[derive(Debug, Clone, Copy)]
+enum TicketKey {
+    Id(i32),
+    Number(i32),
 }
 
 #[derive(Debug)]
@@ -128,15 +137,23 @@ impl FromRequest for TicketAccess {
         Box::pin(async move {
             let auth = auth_fut.await.map_err(TicketAccessError::Auth)?;
 
-            // Resolve the ticket id from the URL. Route registration
+            // Resolve the ticket from the URL. Route registration
             // uses both `{id}` and `{ticket_id}` depending on whether
-            // the ticket is the primary resource or a parent of one.
-            let raw = req
-                .match_info()
-                .get("id")
-                .or_else(|| req.match_info().get("ticket_id"))
-                .ok_or(TicketAccessError::NoTicketIdInRoute)?;
-            let ticket_id: i32 = raw.parse().map_err(|_| TicketAccessError::BadTicketId)?;
+            // the ticket is the primary resource or a parent of one,
+            // and `{number}` to name it by its number.
+            let info = req.match_info();
+            let key = match (
+                info.get("id").or_else(|| info.get("ticket_id")),
+                info.get("number"),
+            ) {
+                (Some(raw), _) => {
+                    TicketKey::Id(raw.parse().map_err(|_| TicketAccessError::BadTicketId)?)
+                }
+                (None, Some(raw)) => {
+                    TicketKey::Number(raw.parse().map_err(|_| TicketAccessError::BadTicketId)?)
+                }
+                (None, None) => return Err(TicketAccessError::NoTicketIdInRoute),
+            };
 
             // Visibility gate. Reuses the same primitive as
             // list / search filtering so single-record and list
@@ -155,24 +172,46 @@ impl FromRequest for TicketAccess {
             // sets it with SET LOCAL, so the read scopes to this request's
             // workspace and reverts at commit, leaving nothing on the pooled
             // connection to leak. A ticket route always resolves a workspace;
-            // if one somehow didn't, the unpinned read fails closed (404).
-            let allowed = match crate::handlers::helpers::request_workspace_id(&req) {
+            // if one somehow didn't, the unpinned read fails closed (404),
+            // and a number, which only means something within a workspace,
+            // finds nothing.
+            let visible = match crate::handlers::helpers::request_workspace_id(&req) {
                 Some(ws) => {
                     let actor =
                         crate::sync::actor::ActorContext::user_at_workspace(auth.user_uuid, ws);
                     crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
-                        ticket_visibility::can_view_ticket(c, &vis, ticket_id)
+                        let ticket_id = match key {
+                            TicketKey::Id(id) => Some(id),
+                            TicketKey::Number(number) => {
+                                crate::repository::tickets::id_for_number(c, ws, number)?
+                            }
+                        };
+                        match ticket_id {
+                            Some(id) if ticket_visibility::can_view_ticket(c, &vis, id)? => {
+                                Ok(Some(id))
+                            }
+                            _ => Ok(None),
+                        }
                     })
                 }
-                None => ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id),
+                None => match key {
+                    TicketKey::Id(id) => ticket_visibility::can_view_ticket(&mut conn, &vis, id)
+                        .map(|allowed| allowed.then_some(id)),
+                    TicketKey::Number(_) => Ok(None),
+                },
             }
             .map_err(|e| {
-                error!(error = ?e, ticket_id, "ticket visibility check failed");
+                match key {
+                    TicketKey::Id(ticket_id) => {
+                        error!(error = ?e, ticket_id, "ticket visibility check failed")
+                    }
+                    TicketKey::Number(ticket_number) => {
+                        error!(error = ?e, ticket_number, "ticket visibility check failed")
+                    }
+                }
                 TicketAccessError::Database(e.to_string())
             })?;
-            if !allowed {
-                return Err(TicketAccessError::NotVisible);
-            }
+            let ticket_id = visible.ok_or(TicketAccessError::NotVisible)?;
             Ok(TicketAccess { ticket_id, auth })
         })
     }

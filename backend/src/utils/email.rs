@@ -1643,7 +1643,7 @@ impl EmailService {
     pub fn compose_participant_added(
         &self,
         adder_name: &str,
-        ticket_id: i32,
+        ticket_number: i32,
         ticket_title: &str,
         view_url: &str,
         branding: &EmailBranding,
@@ -1663,7 +1663,7 @@ impl EmailService {
             };
             vec![
                 ("adder", e(adder_name).into()),
-                ("id", ticket_id.to_string().into()),
+                ("id", ticket_number.to_string().into()),
                 ("title", e(ticket_title).into()),
             ]
         };

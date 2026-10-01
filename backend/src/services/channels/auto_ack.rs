@@ -160,7 +160,8 @@ async fn send_auto_ack(
                 &locale,
                 "auto-ack-default-template",
                 &[
-                    ("ticket_id", ticket.id.to_string().into()),
+                    // `ticket_id` is the number people know the ticket by.
+                    ("ticket_id", ticket.number.to_string().into()),
                     ("ticket_title", ticket.title.clone().into()),
                     ("customer_name", customer_name.clone().into()),
                     ("app_name", settings.app_name.clone().into()),
@@ -213,7 +214,7 @@ async fn send_auto_ack(
     // helper so the recipient's reply matches back to this ticket via
     // the References cascade (step 1 — References chain).
     let message_id = format_outbound_message_id(ticket.id, 0, &reply_domain);
-    let subject = format_outbound_subject(ticket.id, &ticket.title);
+    let subject = format_outbound_subject(ticket.number, &ticket.title);
     let references = vec![in_reply_to.to_string()];
 
     let outbound = OutboundEmailMessage {
@@ -318,7 +319,8 @@ fn render_template(
     ticket: &Ticket,
     customer_name: &str,
 ) -> String {
-    let ticket_id = ticket.id.to_string();
+    // `{{ticket_id}}` is the number people know the ticket by.
+    let ticket_id = ticket.number.to_string();
     let customer_first_name = crate::utils::template_variables::first_name(customer_name);
     crate::utils::template_variables::substitute(
         template,
@@ -413,7 +415,7 @@ mod tests {
             sla_paused_at: None,
             sla_override: "auto".to_string(),
             approval_state: None,
-            number: 42,
+            number: 7,
         }
     }
 
@@ -424,7 +426,7 @@ mod tests {
         let out = render_template(DEFAULT_TEMPLATE, &settings, &ticket, "Alice");
         // Default is Zendesk-style terse: single sentence, ticket
         // reference up front, reply-by-email hint.
-        assert!(out.contains("#42"));
+        assert!(out.contains("#7"));
         assert!(out.to_lowercase().contains("reply to this email"));
         // No unsubstituted tokens left.
         assert!(!out.contains("{{"));
@@ -440,7 +442,7 @@ mod tests {
             &ticket,
             "Bob",
         );
-        assert_eq!(out, "#42 — Printer on fire from Bob");
+        assert_eq!(out, "#7 — Printer on fire from Bob");
     }
 
     #[test]
@@ -455,6 +457,6 @@ mod tests {
             &ticket,
             "Alice",
         );
-        assert_eq!(out, "ref=42 unknown={{does_not_exist}}");
+        assert_eq!(out, "ref=7 unknown={{does_not_exist}}");
     }
 }

@@ -518,7 +518,8 @@ pub enum ApplyError {
     NotManual(i32),
     #[error("ticket {0} not found")]
     TicketNotFound(i32),
-    #[error("ticket {0} is merged into another ticket and cannot be modified")]
+    /// Carries the ticket's number.
+    #[error("ticket #{0} is merged into another ticket and cannot be modified")]
     TicketMerged(i32),
     #[error("override index {0} is out of range (rule has {1} actions)")]
     InvalidOverrideIndex(usize, usize),
@@ -590,7 +591,7 @@ pub fn apply_manual(
         ))
         .get_result(conn)?;
         if is_merged {
-            return Err(ApplyError::TicketMerged(ticket.id));
+            return Err(ApplyError::TicketMerged(ticket.number));
         }
 
         let Some(actions) = rule.actions.as_array() else {

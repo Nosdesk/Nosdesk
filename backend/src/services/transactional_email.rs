@@ -480,15 +480,15 @@ pub fn enqueue_participant_added(
     recipient: &str,
     recipient_uuid: uuid::Uuid,
     adder_name: &str,
-    ticket_id: i32,
-    ticket_title: &str,
+    ticket: &crate::models::Ticket,
     view_url: &str,
     locale: &unic_langid::LanguageIdentifier,
 ) -> Result<OutboundEmail, DieselError> {
+    let ticket_id = ticket.id;
     let (subject, body_html, body_text) = svc.compose_participant_added(
         adder_name,
-        ticket_id,
-        ticket_title,
+        ticket.number,
+        &ticket.title,
         view_url,
         branding,
         locale,

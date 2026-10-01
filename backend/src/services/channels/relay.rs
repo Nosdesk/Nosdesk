@@ -109,7 +109,7 @@ pub fn decide_relay(
         return Ok(RelayDecision::SkipAuthorIsRecipient);
     }
 
-    let subject = format_outbound_subject(ticket.id, &ticket.title);
+    let subject = format_outbound_subject(ticket.number, &ticket.title);
     let mut requester_copy = true;
     let channel = match channel {
         Some(channel) => channel,
@@ -149,6 +149,7 @@ pub fn decide_relay(
 
     let thread = ThreadContext {
         ticket_id: ticket.id,
+        ticket_number: ticket.number,
         channel_id: channel.id,
         external_thread_id,
         recipient: ExternalIdentity {
@@ -267,7 +268,7 @@ mod tests {
             None,
         )
         .unwrap();
-        (channel, ticket)
+        (channel, TestFixtures::renumber_ticket(conn, ticket))
     }
 
     fn make_comment(ticket_id: i32, is_internal: bool) -> Comment {
@@ -326,7 +327,7 @@ mod tests {
                 recipient, subject, ..
             } => {
                 assert_eq!(recipient, "alice@example.com");
-                assert_eq!(subject, format!("[#{}] Printer", ticket.id));
+                assert_eq!(subject, format!("[#{}] Printer", ticket.number));
             }
             other => panic!("expected Direct, got {other:?}"),
         }
@@ -447,7 +448,7 @@ mod tests {
         assert_eq!(thread.ticket_id, ticket.id);
         assert_eq!(
             thread.subject.as_deref(),
-            Some(format!("[#{}] Printer fire", ticket.id).as_str())
+            Some(format!("[#{}] Printer fire", ticket.number).as_str())
         );
         assert_eq!(thread.references, vec!["<customer-msg@ex>".to_string()]);
         assert_eq!(

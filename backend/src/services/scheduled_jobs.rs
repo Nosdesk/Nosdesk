@@ -1025,6 +1025,7 @@ fn scan_breach_candidates(
 /// happens outside any DB transaction.
 struct BreachContext {
     ticket_id: i32,
+    ticket_number: i32,
     ticket_title: String,
     workspace_id: i32,
     kind: SlaBreachKind,
@@ -1122,6 +1123,7 @@ fn process_one_breach(
         };
         Ok(Some(BreachContext {
             ticket_id,
+            ticket_number: ticket.number,
             ticket_title: ticket.title.clone(),
             workspace_id,
             kind,
@@ -1181,15 +1183,15 @@ fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
                     body: format!(
                         "{} SLA on #{} \"{}\" breached at {}",
                         b.kind.label(),
-                        b.ticket_id,
+                        b.ticket_number,
                         b.ticket_title,
                         b.breached_at.format("%Y-%m-%d %H:%M UTC"),
                     ),
                 }
             } else {
                 // Summarise. Link to the most-overdue ticket as the
-                // representative entity; list the first few ids so the body is
-                // actionable.
+                // representative entity; list the first few numbers so the body
+                // is actionable.
                 let rep = tickets
                     .iter()
                     .min_by_key(|b| b.breached_at)
@@ -1197,7 +1199,7 @@ fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
                 let shown: Vec<String> = tickets
                     .iter()
                     .take(3)
-                    .map(|b| format!("#{}", b.ticket_id))
+                    .map(|b| format!("#{}", b.ticket_number))
                     .collect();
                 let more = tickets.len().saturating_sub(shown.len());
                 let listing = if more > 0 {
@@ -1649,6 +1651,8 @@ mod tests {
     ) -> BreachContext {
         BreachContext {
             ticket_id,
+            // Distinct from the id, so a body that quotes the id fails.
+            ticket_number: ticket_id + 1000,
             ticket_title: format!("Ticket {ticket_id}"),
             workspace_id,
             kind: SlaBreachKind::Response,
@@ -1665,7 +1669,7 @@ mod tests {
         assert_eq!(notices.len(), 1);
         assert_eq!(notices[0].ticket_id, 7);
         assert!(
-            notices[0].body.starts_with("Response SLA on #7"),
+            notices[0].body.starts_with("Response SLA on #1007"),
             "single breach uses the per-ticket body, got: {}",
             notices[0].body
         );
@@ -1687,7 +1691,8 @@ mod tests {
         );
         let n = &notices[0];
         assert!(
-            n.body.starts_with("3 tickets breached their SLA:"),
+            n.body
+                .starts_with("3 tickets breached their SLA: #1020, #1010, #1030"),
             "got: {}",
             n.body
         );

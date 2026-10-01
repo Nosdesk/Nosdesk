@@ -101,6 +101,21 @@ pub enum Intent {
     },
 }
 
+impl Intent {
+    /// The ticket the intent is about.
+    fn ticket_id(&self) -> i32 {
+        match self {
+            Intent::Assigned { ticket_id, .. }
+            | Intent::StatusChanged { ticket_id, .. }
+            | Intent::Created { ticket_id, .. }
+            | Intent::Commented { ticket_id, .. }
+            | Intent::ApprovalRequested { ticket_id, .. }
+            | Intent::ApprovalDecided { ticket_id, .. }
+            | Intent::Referenced { ticket_id, .. } => *ticket_id,
+        }
+    }
+}
+
 fn uuid_at(data: &Value, key: &str) -> Option<Uuid> {
     data.get(key)
         .and_then(Value::as_str)
@@ -349,6 +364,10 @@ pub fn resolve(
 ) -> QueryResult<Vec<NotificationPayload>> {
     let workspace_id = row.workspace_id;
     let mut out = Vec::new();
+    // The text names the ticket by its number; a ticket that's gone gets none.
+    let Some(number) = repository::tickets::number_of(conn, intent.ticket_id())? else {
+        return Ok(out);
+    };
     match intent {
         Intent::Assigned {
             ticket_id,
@@ -357,9 +376,9 @@ pub fn resolve(
         } => {
             let actor = actor_for(conn, row);
             let body = if actor.kind == ActorKind::User {
-                format!("You have been assigned to ticket #{ticket_id}")
+                format!("You have been assigned to ticket #{number}")
             } else {
-                format!("You have been auto-assigned to ticket #{ticket_id}")
+                format!("You have been auto-assigned to ticket #{number}")
             };
             out.push(
                 NotificationPayload::new(
@@ -401,7 +420,7 @@ pub fn resolve(
                     )
                     .with_title("Request received")
                     .with_body(format!(
-                        "We've received your request #{ticket_id}: {ticket_title}. The team will reply by email."
+                        "We've received your request #{number}: {ticket_title}. The team will reply by email."
                     ))
                     .from_sync_action(row.sync_id),
                 );
@@ -427,7 +446,7 @@ pub fn resolve(
                     )
                     .with_title("Approval needed")
                     .with_body(format!(
-                        "Request #{ticket_id}: {ticket_title} is waiting for your approval."
+                        "Request #{number}: {ticket_title} is waiting for your approval."
                     ))
                     .from_sync_action(row.sync_id),
                 );
@@ -446,21 +465,21 @@ pub fn resolve(
                     "Request declined",
                     match comment.as_deref() {
                         Some(reason) => format!(
-                            "Your request #{ticket_id}: {ticket_title} was declined. {reason}"
+                            "Your request #{number}: {ticket_title} was declined. {reason}"
                         ),
-                        None => format!("Your request #{ticket_id}: {ticket_title} was declined."),
+                        None => format!("Your request #{number}: {ticket_title} was declined."),
                     },
                 ),
                 "skipped" => (
                     "Request can go ahead",
                     format!(
-                        "Your request #{ticket_id}: {ticket_title} can go ahead. The team will take it from here."
+                        "Your request #{number}: {ticket_title} can go ahead. The team will take it from here."
                     ),
                 ),
                 _ => (
                     "Request approved",
                     format!(
-                        "Your request #{ticket_id}: {ticket_title} was approved. The team will take it from here."
+                        "Your request #{number}: {ticket_title} was approved. The team will take it from here."
                     ),
                 ),
             };
@@ -523,7 +542,7 @@ pub fn resolve(
                     workspace_id,
                 )
                 .with_title("Your request was updated")
-                .with_body(format!("Request #{ticket_id} is now {state_name}."))
+                .with_body(format!("Request #{number} is now {state_name}."))
                 .from_sync_action(row.sync_id);
                 // Resolved: the email asks whether it's fixed.
                 out.push(if after == "done" {
@@ -631,9 +650,9 @@ pub fn resolve(
             // its entity is the source ticket; the body names the one the
             // recipient owns. The title is read here, under the row's
             // workspace pin, rather than carried on the event.
-            let source_title = repository::tickets::get_ticket_by_id(conn, source_ticket_id)
-                .map(|t| t.title)
-                .unwrap_or_default();
+            let Ok(source) = repository::tickets::get_ticket_by_id(conn, source_ticket_id) else {
+                return Ok(out);
+            };
             let actor = actor_for(conn, row);
             out.push(
                 NotificationPayload::new(
@@ -643,12 +662,13 @@ pub fn resolve(
                     NotificationEntity::Comment {
                         id: comment_id,
                         ticket_id: source_ticket_id,
-                        ticket_title: source_title,
+                        ticket_title: source.title,
                     },
                     workspace_id,
                 )
                 .with_body(format!(
-                    "Ticket #{ticket_id} was mentioned in a comment on #{source_ticket_id}"
+                    "Ticket #{number} was mentioned in a comment on #{}",
+                    source.number
                 ))
                 .from_sync_action(row.sync_id),
             );
@@ -680,6 +700,33 @@ mod tests {
             actor_kind: "user".into(),
             occurred_at: Utc::now(),
         }
+    }
+
+    #[test]
+    fn notification_text_quotes_the_ticket_number() {
+        use crate::test_helpers::{setup_test_connection, TestFixtures};
+        let mut conn = setup_test_connection();
+        let assignee = TestFixtures::create_user(&mut conn, "Assignee", "technician");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Printer jammed", None, None);
+        let ticket = TestFixtures::renumber_ticket(&mut conn, ticket);
+        let mut r = row("ticket.assignee_changed", json!({}), None);
+        r.actor_kind = "system".into();
+
+        let payloads = resolve(
+            &mut conn,
+            &r,
+            Intent::Assigned {
+                ticket_id: ticket.id,
+                ticket_title: ticket.title.clone(),
+                assignee: assignee.uuid,
+            },
+        )
+        .unwrap();
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(
+            payloads[0].body.as_deref(),
+            Some(format!("You have been auto-assigned to ticket #{}", ticket.number).as_str())
+        );
     }
 
     #[test]
