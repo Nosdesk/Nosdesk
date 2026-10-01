@@ -342,8 +342,10 @@ pub fn is_workspace_member(
 /// `workspace_id`, else a 403 (500 on lookup error). This is the raw gate behind
 /// [`resolve_pin_and_gate`]; **agent surfaces (REST / SSE / collab) reach it only
 /// through that funnel**, so a new connection surface can't be wired without
-/// resolve + pin + gate. The customer portal (a distinct principal realm with
-/// its own origin + `PORTAL_SCOPE`) is the one intentional direct caller.
+/// resolve + pin + gate. On hosted it admits staff seats only
+/// ([`crate::repository::workspaces::admits_agent_surface`]); the customer
+/// portal, a distinct principal realm with its own origin + `PORTAL_SCOPE`,
+/// uses [`require_portal_membership`] instead.
 ///
 /// RLS-pinned read: `workspace_members`' policy is
 /// `workspace_id = current_setting('app.workspace_id')`, so on a raw pooled
@@ -357,12 +359,40 @@ pub fn require_workspace_membership(
     workspace_id: i32,
     user_uuid: uuid::Uuid,
 ) -> Result<(), Error> {
+    membership_gate(
+        conn,
+        workspace_id,
+        user_uuid,
+        crate::repository::workspaces::admits_agent_surface,
+    )
+}
+
+/// The portal's membership gate: `Ok(())` iff `user_uuid` is a member of
+/// `workspace_id` in any role, else a 403 (500 on lookup error). The portal is
+/// where requesters go, so it admits them on hosted too, unlike
+/// [`require_workspace_membership`]. RLS-pinned the same way.
+pub fn require_portal_membership(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: uuid::Uuid,
+) -> Result<(), Error> {
+    membership_gate(conn, workspace_id, user_uuid, |_| true)
+}
+
+/// A membership lookup pinned to `workspace_id`, admitting the roles `admits`
+/// accepts.
+fn membership_gate(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: uuid::Uuid,
+    admits: impl Fn(&str) -> bool,
+) -> Result<(), Error> {
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user_uuid, workspace_id);
     let lookup = crate::sync::session::with_actor_context(conn, &actor, |c| {
         crate::repository::workspaces::membership(c, workspace_id, user_uuid)
     });
     match lookup {
-        Ok(Some(m)) if crate::repository::workspaces::admits_agent_surface(&m.role) => Ok(()),
+        Ok(Some(m)) if admits(&m.role) => Ok(()),
         Ok(Some(_)) => {
             warn!(
                 user = %user_uuid,
