@@ -1,0 +1,4 @@
+# The mobile app's Rust (Tauri shell and plugins), analysed apart from the
+# backend so the backend's analysis doesn't load its dependency tree.
+paths:
+  - mobile

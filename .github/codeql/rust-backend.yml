@@ -1,0 +1,9 @@
+# The backend as it ships. Inline #[cfg(test)] modules are dropped by the cfg
+# override in codeql.yml; these are the test-only files, and mobile/ has its own
+# analysis.
+paths-ignore:
+  - mobile
+  - backend/tests
+  - 'backend/src/**/tests.rs'
+  - backend/src/test_helpers.rs
+  - backend/src/route_registration_tests.rs

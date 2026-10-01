@@ -15,7 +15,14 @@ name: CodeQL
 # A pull request analyses only the languages it changes; the Rust analysis
 # alone takes well over an hour, and a docs-only change gets none. Pushes to
 # main and the weekly run analyse every language, so main always has a full
-# baseline. A change to this file analyses every language too.
+# baseline. A change to this file or .github/codeql/ analyses every language
+# too.
+#
+# Rust is two analyses. The backend's leaves out test code: the extractor turns
+# cfg(test) on unless told otherwise, which analyses test-only fallbacks in
+# place of the code that ships, and test files make up about a quarter of the
+# backend. mobile/ has its own, so the backend's doesn't load the Tauri
+# dependency tree.
 
 on:
   push:
@@ -26,9 +33,11 @@ on:
     # to the relevant file.
     - cron: '0 3 * * 1'
 
+# A new push supersedes a pull request's running analysis. Runs on main finish,
+# with queued pushes collapsing to the latest, so main keeps a full baseline.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -57,27 +66,39 @@ jobs:
           else
             changed=ALL
           fi
+          # touches INCLUDE [EXCLUDE]: a changed path matches INCLUDE and not
+          # EXCLUDE. Pushes, the schedule and CodeQL config changes match all.
           touches() {
-            [ "$changed" = ALL ] \
-              || grep -qE '^\.github/workflows/codeql\.yml$' <<<"$changed" \
-              || grep -qE "$1" <<<"$changed"
+            [ "$changed" = ALL ] && return 0
+            grep -qE '^\.github/(workflows/codeql\.yml|codeql/)' <<<"$changed" && return 0
+            local hits
+            hits=$(grep -E "$1" <<<"$changed" || true)
+            if [ -n "${2:-}" ]; then
+              hits=$(grep -vE "$2" <<<"$hits" || true)
+            fi
+            [ -n "$hits" ]
           }
+          rust='\.rs$|(^|/)Cargo\.(toml|lock)$'
+          rust_tests='^backend/tests/|/tests\.rs$|^backend/src/(test_helpers|route_registration_tests)\.rs$'
           langs=()
-          if touches '\.rs$|(^|/)Cargo\.(toml|lock)$'; then
-            langs+=('{"language":"rust","build-mode":"none"}')
+          if touches "$rust" "^mobile/|$rust_tests"; then
+            langs+=('{"name":"rust","language":"rust","build-mode":"none","config-file":"./.github/codeql/rust-backend.yml","category":"/language:rust"}')
+          fi
+          if touches "^mobile/.*($rust)"; then
+            langs+=('{"name":"rust-mobile","language":"rust","build-mode":"none","config-file":"./.github/codeql/rust-mobile.yml","category":"/language:rust-mobile"}')
           fi
           if touches '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|vue|html)$'; then
-            langs+=('{"language":"javascript-typescript","build-mode":"none"}')
+            langs+=('{"name":"javascript-typescript","language":"javascript-typescript","build-mode":"none","category":"/language:javascript-typescript"}')
           fi
           if touches '^\.github/(workflows|actions)/'; then
-            langs+=('{"language":"actions","build-mode":"none"}')
+            langs+=('{"name":"actions","language":"actions","build-mode":"none","category":"/language:actions"}')
           fi
           matrix="[$(IFS=,; echo "${langs[*]}")]"
           echo "Analysing: $matrix"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   analyze:
-    name: Analyze (${{ matrix.language }})
+    name: Analyze (${{ matrix.name }})
     needs: languages
     if: needs.languages.outputs.matrix != '[]'
     runs-on: ubuntu-latest
@@ -85,6 +106,11 @@ jobs:
       # Upload results to code scanning.
       security-events: write
       contents: read
+    env:
+      # Analyse the build that ships: without this the Rust extractor turns
+      # cfg(test) on, pulling in #[cfg(test)] modules and dropping
+      # #[cfg(not(test))] code. Only the Rust extractor reads it.
+      CODEQL_EXTRACTOR_RUST_OPTION_CARGO_CFG_OVERRIDES: '-test'
     strategy:
       # One language failing should still publish the others' results.
       fail-fast: false
@@ -96,16 +122,18 @@ jobs:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+          # Set for the two Rust analyses; empty (unset) for the others.
+          config-file: ${{ matrix.config-file }}
           # security-extended over the default suite: this is a helpdesk holding
           # customer data, and the extra false positives are triaged once in the
           # Security tab rather than blocking a merge.
           queries: security-extended
 
       - name: Analyze
-        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
-          category: /language:${{ matrix.language }}
+          category: ${{ matrix.category }}
