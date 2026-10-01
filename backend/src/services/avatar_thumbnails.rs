@@ -22,7 +22,7 @@ use diesel::sql_types::{Integer, Nullable, Text};
 
 use crate::db::DbConnection;
 use crate::sync::actor::ActorContext;
-use crate::sync::session::with_actor_context;
+use crate::sync::session::{with_actor_bypass_context, with_actor_context};
 use crate::utils::image::generate_user_avatar_thumbnail;
 use crate::utils::storage::process_storage;
 
@@ -87,23 +87,7 @@ pub async fn backfill_thumbnails(
     mode: BackfillMode,
     reference: &'static str,
 ) -> BackfillStats {
-    // Resolve one workspace per user up front so the (rare) column write
-    // can pin `app.workspace_id`; the audited `users` write otherwise
-    // trips the audit context guard. The `ORDER BY workspace_id LIMIT 1`
-    // pick is deterministic but arbitrary for a user who belongs to more
-    // than one workspace (only possible under hosted multi-tenancy): the
-    // thumbnail backfill is per-user, not per-workspace, so the audit row
-    // is attributed to the user's lowest-id workspace. Acceptable until
-    // hosted attribution requirements firm up.
-    let rows: Vec<AvatarRow> = match diesel::sql_query(
-        "SELECT u.uuid::text AS uuid_str, u.avatar_url, u.avatar_thumb, \
-                (SELECT wm.workspace_id FROM workspace_members wm \
-                 WHERE wm.user_uuid = u.uuid AND wm.removed_at IS NULL \
-                 ORDER BY wm.workspace_id LIMIT 1) AS workspace_id \
-         FROM users u WHERE u.avatar_url IS NOT NULL",
-    )
-    .load(conn)
-    {
+    let rows = match avatar_rows(conn, reference) {
         Ok(rows) => rows,
         Err(e) => {
             tracing::error!(error = %e, "thumbnail backfill: failed to query users");
@@ -148,6 +132,31 @@ pub async fn backfill_thumbnails(
     }
 
     stats
+}
+
+/// Every user with an avatar, with one workspace each, so the (rare) column
+/// write can pin `app.workspace_id`; the audited `users` write otherwise trips
+/// the audit context guard. The `ORDER BY workspace_id LIMIT 1` pick is
+/// deterministic but arbitrary for a user who belongs to more than one
+/// workspace (only possible under hosted multi-tenancy): the thumbnail backfill
+/// is per-user, not per-workspace, so the audit row is attributed to the user's
+/// lowest-id workspace. Acceptable until hosted attribution requirements firm
+/// up.
+///
+/// Read elevated: it spans every workspace, and `workspace_members` is
+/// row-secured, so on the runtime role an unpinned read finds no memberships
+/// and every column write would be skipped.
+fn avatar_rows(conn: &mut DbConnection, reference: &'static str) -> QueryResult<Vec<AvatarRow>> {
+    with_actor_bypass_context(conn, &ActorContext::system(reference), |conn| {
+        diesel::sql_query(
+            "SELECT u.uuid::text AS uuid_str, u.avatar_url, u.avatar_thumb, \
+                    (SELECT wm.workspace_id FROM workspace_members wm \
+                     WHERE wm.user_uuid = u.uuid AND wm.removed_at IS NULL \
+                     ORDER BY wm.workspace_id LIMIT 1) AS workspace_id \
+             FROM users u WHERE u.avatar_url IS NOT NULL",
+        )
+        .load(conn)
+    })
 }
 
 /// A row needs regeneration when its column is unset or the object it
@@ -196,4 +205,37 @@ fn persist_thumb(
             .execute(conn)?;
         Ok::<(), diesel::result::Error>(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    /// On the runtime role with no workspace pinned, as the scheduler and the
+    /// admin button run it, each user's workspace is still found.
+    #[test]
+    fn avatar_rows_find_each_users_workspace_on_the_runtime_role() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "thumb_backfill_member", "user");
+        diesel::sql_query(
+            "UPDATE users SET avatar_url = '/uploads/users/avatars/a.png' WHERE uuid = $1",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(user.uuid)
+        .execute(&mut conn)
+        .expect("give the user an avatar");
+
+        let rows = conn
+            .transaction::<_, diesel::result::Error, _>(|c| {
+                diesel::sql_query("SET LOCAL ROLE nosdesk_app").execute(c)?;
+                diesel::sql_query("SELECT set_config('app.workspace_id', '', true)").execute(c)?;
+                avatar_rows(c, "test:avatar_rows")
+            })
+            .expect("read avatar rows");
+        let mine = rows
+            .iter()
+            .find(|r| r.uuid_str == user.uuid.to_string())
+            .expect("the user is listed");
+        assert_eq!(mine.workspace_id, Some(1));
+    }
 }
