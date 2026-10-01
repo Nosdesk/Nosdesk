@@ -835,6 +835,53 @@ pub async fn purge_archived_workspaces(pool: Pool) -> Result<()> {
     Ok(())
 }
 
+/// Remove the stored files of hard-deleted workspaces, everything under
+/// `ws/{id}/`, as queued by `hard_delete_workspace`. A purge that fails stays
+/// queued and is retried on the next run.
+pub async fn purge_deleted_workspace_files(pool: Pool) -> Result<()> {
+    let storage = crate::utils::storage::process_storage();
+    purge_deleted_workspace_files_in(&pool, storage.as_ref()).await
+}
+
+/// [`purge_deleted_workspace_files`] against the given storage.
+pub async fn purge_deleted_workspace_files_in(
+    pool: &Pool,
+    storage: &dyn crate::utils::storage::Storage,
+) -> Result<()> {
+    let pending =
+        // cross-tenant: the purge queue is platform-level, and the workspaces it names no longer exist.
+        crate::sync::session::background_run(pool, "scheduler:workspace_file_purge", |conn| {
+            crate::repository::workspace_file_purges::pending(conn)
+        })
+        .map_err(|e| anyhow::anyhow!("list workspace file purges: {e}"))?;
+
+    for workspace_id in pending {
+        let error = match storage.delete_prefix(&format!("ws/{workspace_id}/")).await {
+            Ok(removed) => {
+                info!(
+                    workspace_id,
+                    "scheduler:workspace_file_purge: removed {removed} stored files"
+                );
+                None
+            }
+            Err(e) => {
+                warn!(
+                    workspace_id,
+                    error = ?e,
+                    "scheduler:workspace_file_purge: delete failed (will retry next run)"
+                );
+                Some("storage delete failed")
+            }
+        };
+        // cross-tenant: the purge queue is platform-level, and the workspaces it names no longer exist.
+        crate::sync::session::background_run(pool, "scheduler:workspace_file_purge", |conn| {
+            crate::repository::workspace_file_purges::record_attempt(conn, workspace_id, error)
+        })
+        .map_err(|e| anyhow::anyhow!("record workspace file purge: {e}"))?;
+    }
+    Ok(())
+}
+
 const SLA_BREACH_ACTOR_REF: &str = "scheduler:sla_breach";
 /// Per-tick cap on each timer scan. With both response + resolution
 /// scans running, a workspace can process up to 2×LIMIT breaches per

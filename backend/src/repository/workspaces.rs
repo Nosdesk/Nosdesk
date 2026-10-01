@@ -737,13 +737,21 @@ pub fn hard_delete_workspace(
     // is scoped to the purge.
     diesel::sql_query("SET LOCAL nosdesk.in_audit_read = 'true'").execute(conn)?;
 
-    diesel::delete(
+    let deleted = diesel::delete(
         workspaces::table
             .filter(workspaces::id.eq(id))
             .filter(workspaces::archived_at.is_not_null())
             .filter(workspaces::archived_at.le(Some(cutoff))),
     )
-    .execute(conn)
+    .execute(conn)?;
+
+    // The cascade can't reach the workspace's stored files (under ws/{id}/), so
+    // queue them for the purge job in this same transaction: a committed delete
+    // always has its purge queued.
+    if deleted > 0 {
+        crate::repository::workspace_file_purges::queue(conn, id)?;
+    }
+    Ok(deleted)
 }
 
 // =====================================================================
@@ -1240,6 +1248,9 @@ mod tests {
             .expect("hard-delete query");
         assert_eq!(n, 0, "active workspace must not be hard-deleted");
         assert!(find_by_id(&mut conn, ws.id).expect("find").is_some());
+        let queued = as_admin(&mut conn, crate::repository::workspace_file_purges::pending)
+            .expect("pending purges");
+        assert!(!queued.contains(&ws.id), "nothing deleted, no purge queued");
     }
 
     #[test]
@@ -1272,6 +1283,12 @@ mod tests {
             .expect("hard-delete query");
         assert_eq!(n, 1);
         assert!(find_by_id(&mut conn, ws.id).expect("find").is_none());
+        let queued = as_admin(&mut conn, crate::repository::workspace_file_purges::pending)
+            .expect("pending purges");
+        assert!(
+            queued.contains(&ws.id),
+            "the hard delete queues the workspace's stored files for removal"
+        );
     }
 
     #[test]

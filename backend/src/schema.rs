@@ -2233,6 +2233,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_file_purges (deleted_workspace_id) {
+        deleted_workspace_id -> Int4,
+        queued_at -> Timestamptz,
+        attempts -> Int4,
+        last_error -> Nullable<Text>,
+        completed_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     workspace_identity_providers (id) {
         id -> Int4,
         kind -> Text,
@@ -2689,6 +2699,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     working_calendars,
     workspace_email_settings,
     workspace_export_jobs,
+    workspace_file_purges,
     workspace_identity_providers,
     workspace_ldap_settings,
     workspace_ldap_sync_state,

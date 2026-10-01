@@ -67,6 +67,7 @@ pub mod user_recovery_codes;
 pub mod users;
 pub mod widget_visitors;
 pub mod workflow_states;
+pub mod workspace_file_purges;
 pub mod workspace_identity_providers;
 pub mod workspace_notices;
 pub mod workspace_widget_settings;

@@ -243,6 +243,18 @@ pub fn spawn_scheduled_jobs(
             move || jobs::purge_archived_workspaces(p.clone()),
         );
 
+        // Hourly: remove the stored files of hard-deleted workspaces, which
+        // the database cascade can't reach. The hard delete queues them; a
+        // failed purge is retried on the next run.
+        let p = pool.clone();
+        spawn_periodic(
+            "workspaces.purge_files",
+            Duration::from_secs(60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::purge_deleted_workspace_files(p.clone()),
+        );
+
         // Daily: backfill avatar thumbnails missing on disk or unset in
         // the DB. Restores rebuild thumbnails eagerly (they're not in the
         // backup payload); this is the idempotent safety net that heals
