@@ -112,6 +112,18 @@ pub trait Storage: Send + Sync {
     /// workspace's files for export/import. Directory markers (keys ending in
     /// `/`) are omitted, and a missing prefix yields an empty list.
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, StorageError>;
+
+    /// Delete every object under the directory `prefix` (`ws/1` means `ws/1/`,
+    /// never `ws/10/`) and return how many there were. An empty prefix is
+    /// refused rather than emptying the whole store. The default lists, then
+    /// deletes one object at a time.
+    async fn delete_prefix(&self, prefix: &str) -> Result<usize, StorageError> {
+        let paths = self.list_prefix(&directory_prefix(prefix)?).await?;
+        for path in &paths {
+            self.delete_file(path).await?;
+        }
+        Ok(paths.len())
+    }
 }
 
 /// Local filesystem storage implementation
@@ -243,6 +255,16 @@ impl Storage for LocalStorage {
 
         std::fs::rename(&from_full, &to_full)?;
         Ok(())
+    }
+
+    async fn delete_prefix(&self, prefix: &str) -> Result<usize, StorageError> {
+        let directory = directory_prefix(prefix)?;
+        let removed = self.list_prefix(&directory).await?.len();
+        match std::fs::remove_dir_all(self.full_path(directory.trim_end_matches('/'))?) {
+            Ok(()) => Ok(removed),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(0),
+            Err(e) => Err(StorageError::Io(e)),
+        }
     }
 
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, StorageError> {
@@ -763,6 +785,16 @@ fn checked_path(path: &str) -> Result<&str, StorageError> {
     }
 }
 
+/// `prefix` as a non-empty, checked directory ending in `/`, for
+/// [`Storage::delete_prefix`].
+fn directory_prefix(prefix: &str) -> Result<String, StorageError> {
+    let path = prefix.trim_matches('/');
+    if path.is_empty() {
+        return Err(StorageError::InvalidPath(prefix.to_string()));
+    }
+    Ok(format!("{}/", checked_path(path)?))
+}
+
 /// [`checked_path`] for a listing prefix, which may also be empty (everything)
 /// or end in `/`.
 fn checked_prefix(prefix: &str) -> Result<&str, StorageError> {
@@ -1056,6 +1088,43 @@ mod tests {
         for prefix in ["../", "ws/1/../2/", "ws//1/"] {
             assert!(checked_prefix(prefix).is_err(), "{prefix:?}");
         }
+    }
+
+    /// `delete_prefix` empties one directory, never a sibling sharing its
+    /// prefix (`ws/1` versus `ws/10`), and refuses an empty or escaping prefix.
+    #[tokio::test]
+    async fn delete_prefix_empties_one_directory_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let local = LocalStorage::new(dir.path().to_string_lossy().into_owned(), "/uploads".into());
+        for path in [
+            "ws/1/tickets/5/a.txt",
+            "ws/1/temp/b.txt",
+            "ws/10/tickets/c.txt",
+        ] {
+            local.put_file(b"x", path, "text/plain").await.unwrap();
+        }
+
+        assert_eq!(local.delete_prefix("ws/1").await.unwrap(), 2);
+        assert!(!dir.path().join("ws/1").exists());
+        assert_eq!(
+            local.list_prefix("").await.unwrap(),
+            vec!["ws/10/tickets/c.txt".to_string()]
+        );
+        assert_eq!(
+            local.delete_prefix("ws/1/").await.unwrap(),
+            0,
+            "already gone"
+        );
+        for prefix in ["", "/", "../", "ws/../"] {
+            assert!(
+                matches!(
+                    local.delete_prefix(prefix).await,
+                    Err(StorageError::InvalidPath(_))
+                ),
+                "{prefix:?}"
+            );
+        }
+        assert!(dir.path().join("ws/10/tickets/c.txt").exists());
     }
 
     /// Every write, move, read and delete stays inside the root, whatever name

@@ -82,6 +82,7 @@ mod two_workspace_fixture;
 mod user_contact_gate;
 mod webhook_outbox_durability;
 mod workflow_states_per_workspace;
+mod workspace_file_purge;
 mod workspace_fk_cascade_lint;
 mod workspace_fk_scope_lint;
 mod workspace_member_soft_remove;
