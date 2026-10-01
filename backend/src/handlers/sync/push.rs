@@ -12,6 +12,8 @@
 //! through. Adding a new aggregate is one match arm + one
 //! `apply_<aggregate>` helper.
 
+use std::sync::Arc;
+
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use diesel::prelude::*;
 use diesel::Connection;
@@ -25,6 +27,9 @@ use crate::extractors::SyncContext;
 use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{Project, ProjectUpdate, SyncAggregate, SyncOp, TicketUpdate};
+use crate::repository::tickets::TicketUpdatedObserver;
+use crate::services::search::SearchService;
+use crate::services::ticket_updates::{after_update, ActorConn};
 use crate::sync::actor::{ActorContext, ActorKind};
 use crate::sync::session;
 
@@ -70,7 +75,9 @@ pub async fn push(
     pool: web::Data<Pool>,
     body: web::Json<Vec<PushTransaction>>,
     ctx: SyncContext,
+    search: Option<web::Data<Arc<SearchService>>>,
 ) -> Result<HttpResponse, ApiError> {
+    let search = search.as_ref().map(|s| s.get_ref());
     let body = body.into_inner();
     if body.len() > MAX_BATCH {
         return Err(ApiError::BadRequest(format!(
@@ -127,7 +134,7 @@ pub async fn push(
             workspace_id,
         };
 
-        match apply_transaction(&mut conn, &tx, &actor, editor) {
+        match apply_transaction(&mut conn, &tx, &actor, editor, search) {
             Ok(sync_id) => {
                 last_sync_id = sync_id.max(last_sync_id);
                 applied.push(tx_id.clone());
@@ -195,7 +202,7 @@ pub(super) fn apply_transaction_for_test(
         staff: true,
         admin: true,
     };
-    apply_transaction(conn, tx, actor, admin).map_err(|TxReject(r, d)| (r, d))
+    apply_transaction(conn, tx, actor, admin, None).map_err(|TxReject(r, d)| (r, d))
 }
 
 /// [`apply_transaction_for_test`] for a caller who is not staff.
@@ -209,7 +216,7 @@ pub(super) fn apply_transaction_as_non_staff_for_test(
         staff: false,
         admin: false,
     };
-    apply_transaction(conn, tx, actor, member).map_err(|TxReject(r, d)| (r, d))
+    apply_transaction(conn, tx, actor, member, None).map_err(|TxReject(r, d)| (r, d))
 }
 
 fn forbidden() -> TxReject {
@@ -221,6 +228,7 @@ fn apply_transaction(
     tx: &PushTransaction,
     actor: &ActorContext,
     editor: Editor,
+    search: Option<&Arc<SearchService>>,
 ) -> Result<i64, TxReject> {
     // Idempotency short-circuit: if this `tx_id` already has a row
     // in sync_actions, we treat it as applied (this is the legitimate
@@ -235,7 +243,7 @@ fn apply_transaction(
     match tx.aggregate {
         SyncAggregate::Project if !editor.staff => Err(forbidden()),
         SyncAggregate::Project => apply_project(conn, tx, actor),
-        SyncAggregate::Ticket => apply_ticket(conn, tx, actor, editor),
+        SyncAggregate::Ticket => apply_ticket(conn, tx, actor, editor, search),
         SyncAggregate::ProjectTicket
         | SyncAggregate::WorkflowState
         | SyncAggregate::Comment
@@ -276,6 +284,7 @@ fn apply_ticket(
     tx: &PushTransaction,
     actor: &ActorContext,
     editor: Editor,
+    search: Option<&Arc<SearchService>>,
 ) -> Result<i64, TxReject> {
     let ticket_id: i32 = tx.model_id.parse().map_err(|_| {
         TxReject(
@@ -369,20 +378,36 @@ fn apply_ticket(
                     return Err(forbidden());
                 }
             }
-            run_with_actor(conn, actor, |conn| {
-                if has_scalar {
-                    crate::repository::tickets::update_ticket_partial(
-                        conn, ticket_id, patch, None,
-                    )?;
-                }
+            let category_changed = patch.category_id.is_some();
+            let observer = search.map(|s| s as &dyn TicketUpdatedObserver);
+            let (updated, sync_id) = run_with_actor(conn, actor, |conn| {
+                let updated = if has_scalar {
+                    Some(crate::repository::tickets::update_ticket_partial(
+                        conn, ticket_id, patch, observer,
+                    )?)
+                } else {
+                    None
+                };
                 if let Some(tag_ids) = &tag_ids {
                     crate::repository::tags::set_tags_for_ticket(
                         conn, ticket_id, tag_ids, actor_uuid,
                     )?;
                 }
-                latest_sync_id(conn)
+                Ok((updated, latest_sync_id(conn)?))
             })
-            .map_err(reject_diesel)
+            .map_err(reject_diesel)?;
+            // What the REST PATCH does next: the next occurrence of a
+            // recurring ticket that closed, and assignment on a category
+            // change.
+            if let Some(updated) = &updated {
+                after_update(
+                    &mut ActorConn { conn, actor },
+                    search,
+                    updated,
+                    category_changed,
+                );
+            }
+            Ok(sync_id)
         }
         SyncOp::Insert => Err(TxReject(
             "use_rest_endpoint",

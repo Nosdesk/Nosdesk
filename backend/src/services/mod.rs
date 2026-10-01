@@ -32,6 +32,7 @@ pub mod sla;
 pub mod starter_catalog;
 pub mod sync_outbox;
 pub mod template_vars;
+pub mod ticket_updates;
 pub mod transactional_email;
 pub mod webhooks;
 pub mod workspace_export;
