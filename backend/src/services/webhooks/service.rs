@@ -214,6 +214,7 @@ impl WebhookService {
                         *workspace_id,
                         DeliveryTask {
                             webhook_id: webhook.id,
+                            workspace_id: webhook.workspace_id,
                             webhook_url: webhook.url.clone(),
                             webhook_secret: webhook.secret.clone(),
                             webhook_headers: webhook.headers.clone(),
@@ -304,6 +305,7 @@ impl WebhookService {
                         Ok(webhook) if webhook.enabled => {
                             out.push(DeliveryTask {
                                 webhook_id: webhook.id,
+                                workspace_id: webhook.workspace_id,
                                 webhook_url: webhook.url,
                                 webhook_secret: webhook.secret,
                                 webhook_headers: webhook.headers,
@@ -376,6 +378,7 @@ impl WebhookService {
 
         let task = DeliveryTask {
             webhook_id: webhook.id,
+            workspace_id: webhook.workspace_id,
             webhook_url: webhook.url.clone(),
             webhook_secret: webhook.secret.clone(),
             webhook_headers: webhook.headers.clone(),

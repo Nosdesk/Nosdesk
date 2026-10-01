@@ -35,6 +35,10 @@ const AUTO_DISABLE_THRESHOLD: i32 = 10;
 /// Delivery task sent to the worker
 pub struct DeliveryTask {
     pub webhook_id: i32,
+    /// The webhook's workspace. The worker reads and writes the webhook's rows
+    /// pinned to it, since a pooled connection starts with no workspace and
+    /// row security would show it nothing.
+    pub workspace_id: i32,
     pub webhook_url: String,
     pub webhook_secret: String,
     pub webhook_headers: Option<serde_json::Value>,
@@ -116,14 +120,11 @@ impl WebhookDeliveryWorker {
         // Create delivery record
         let mut conn = self.pool.get().map_err(|e| format!("DB error: {e}"))?;
 
-        // Resolve the webhook's workspace once so every audited
-        // delivery write (webhook_deliveries + webhooks) carries the
-        // workspace pin the audit trigger requires. The worker runs
-        // outside any request, so the actor is a workspace-scoped
-        // system actor.
-        let webhook = webhook_repo::get_webhook_by_id(&mut conn, task.webhook_id)
-            .map_err(|e| format!("DB error: {e}"))?;
-        let actor = ActorContext::system("webhook_delivery").with_workspace(webhook.workspace_id);
+        // Every read and audited write (webhook_deliveries + webhooks) runs
+        // pinned to the webhook's workspace, which row security and the audit
+        // trigger both need. The worker runs outside any request, so the
+        // actor is a workspace-scoped system actor.
+        let actor = ActorContext::system("webhook_delivery").with_workspace(task.workspace_id);
 
         // First attempt inserts a delivery row; a retry reuses the existing
         // one (bumping its attempt counter) so a failing endpoint doesn't

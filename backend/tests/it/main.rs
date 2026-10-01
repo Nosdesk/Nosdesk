@@ -80,6 +80,7 @@ mod ticket_merge;
 mod tracing_field_allowlist_lint;
 mod two_workspace_fixture;
 mod user_contact_gate;
+mod webhook_delivery_in_workspace;
 mod webhook_outbox_durability;
 mod workflow_states_per_workspace;
 mod workspace_fk_cascade_lint;
