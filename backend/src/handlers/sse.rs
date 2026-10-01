@@ -371,6 +371,10 @@ pub struct SseStream {
     /// once at connect, matching the structural-at-connect topic-auth
     /// model.
     viewer: crate::sync::visibility::SyncViewer,
+    /// The workspace this connection pinned and membership-gated at connect,
+    /// which the visibility filter reads in. `None` for a stream with no
+    /// workspace, which carries no sync feed.
+    workspace_id: Option<i32>,
     /// The groups this connection is granted (`groups::allowed_for_user`),
     /// resolved once at connect like `viewer`. The live feed rides the
     /// workspace topic, so every row of the workspace reaches this stream;
@@ -398,6 +402,7 @@ impl SseStream {
         state: web::Data<SseState>,
         pool: web::Data<crate::db::Pool>,
         viewer: crate::sync::visibility::SyncViewer,
+        workspace_id: Option<i32>,
         allowed_groups: Arc<HashSet<String>>,
         conn_guard: crate::services::connection_registry::ConnGuard,
     ) -> Self {
@@ -421,6 +426,7 @@ impl SseStream {
             state,
             pool,
             viewer,
+            workspace_id,
             allowed_groups,
             pending: None,
             _conn_guard: conn_guard,
@@ -510,6 +516,7 @@ fn json_row_to_view(row: &serde_json::Value) -> crate::sync::visibility::ActionV
 async fn filter_sync_actions_frame(
     pool: web::Data<crate::db::Pool>,
     viewer: crate::sync::visibility::SyncViewer,
+    workspace_id: Option<i32>,
     env: Envelope,
 ) -> String {
     let rows: Vec<serde_json::Value> = match &env.event {
@@ -521,25 +528,35 @@ async fn filter_sync_actions_frame(
         _ => return frame_envelope(&env),
     };
 
+    // The filter reads in the stream's workspace (see `filter_actions_pinned`).
+    // With no workspace there is nothing to read in, so gated rows are dropped.
+    let Some(workspace_id) = workspace_id else {
+        let mask = crate::sync::visibility::fail_closed_mask(&viewer, &rows, json_row_to_view);
+        return frame_filtered(env, rows, mask);
+    };
     let rows_for_block = rows.clone();
     let mask = match web::block(move || {
-        let mut conn = pool.get().map_err(|_| ())?;
-        Ok::<Vec<bool>, ()>(crate::sync::visibility::filter_actions(
-            &mut conn,
+        crate::sync::visibility::filter_actions_pinned(
+            &pool,
+            workspace_id,
             &viewer,
             &rows_for_block,
             json_row_to_view,
-        ))
+        )
     })
     .await
     {
-        Ok(Ok(m)) => m,
-        _ => {
+        Ok(m) => m,
+        Err(_) => {
             tracing::error!("SSE sync visibility filter failed; failing closed");
             crate::sync::visibility::fail_closed_mask(&viewer, &rows, json_row_to_view)
         }
     };
+    frame_filtered(env, rows, mask)
+}
 
+/// Frame a `SyncActions` envelope with only the rows `mask` keeps.
+fn frame_filtered(env: Envelope, rows: Vec<serde_json::Value>, mask: Vec<bool>) -> String {
     let Envelope {
         id,
         event,
@@ -661,6 +678,7 @@ impl Stream for SseStream {
                 this.pending = Some(Box::pin(filter_sync_actions_frame(
                     this.pool.clone(),
                     this.viewer,
+                    this.workspace_id,
                     env,
                 )));
             } else {
@@ -825,6 +843,7 @@ pub async fn sse_events_stream(
         state.clone(),
         pool.clone(),
         viewer,
+        workspace_id,
         allowed_groups,
         conn_guard,
     );

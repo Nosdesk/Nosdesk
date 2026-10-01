@@ -940,9 +940,14 @@ pub async fn create_documentation_page(
             // the same stream, so no discrete SSE here.
             HttpResponse::Created().json(response)
         }
+        Err(diesel::result::Error::RollbackTransaction) => errors::bad_request(INVALID_PARENT),
         Err(_) => errors::internal("Failed to create page"),
     }
 }
+
+/// A parent the repository refused: not a page in this workspace, or the page
+/// itself or one inside it.
+const INVALID_PARENT: &str = "Invalid parent page";
 
 // DTO for updating documentation pages (partial update)
 #[derive(Debug, Deserialize)]
@@ -966,6 +971,7 @@ pub struct UpdateDocumentationPageRequest {
 enum UpdatePageOutcome {
     Ok(DocumentationPage, DocumentationPageResponse),
     NotFound,
+    InvalidParent,
     UpdateFailed,
     ResponseBuildFailed(String),
 }
@@ -1045,6 +1051,9 @@ pub async fn update_documentation_page(
         let updated_page = match repository::update_documentation_page(conn, page_id, &page_update)
         {
             Ok(p) => p,
+            Err(diesel::result::Error::RollbackTransaction) => {
+                return Ok(UpdatePageOutcome::InvalidParent);
+            }
             Err(e) => {
                 error!(page_id = page_id, error = ?e, "Error updating documentation page");
                 return Ok(UpdatePageOutcome::UpdateFailed);
@@ -1064,6 +1073,7 @@ pub async fn update_documentation_page(
         Ok(UpdatePageOutcome::NotFound) => {
             return errors::not_found_msg("Documentation page not found");
         }
+        Ok(UpdatePageOutcome::InvalidParent) => return errors::bad_request(INVALID_PARENT),
         Ok(UpdatePageOutcome::UpdateFailed) => {
             return errors::internal("Failed to update documentation page");
         }
@@ -1426,6 +1436,7 @@ pub async fn reorder_pages(
 
     match tc.run(|conn| repository::reorder_pages(conn, Some(parent_id), &request.page_orders)) {
         Ok(updated_pages) => HttpResponse::Ok().json(updated_pages),
+        Err(diesel::result::Error::RollbackTransaction) => errors::bad_request(INVALID_PARENT),
         Err(e) => {
             error!(parent_id = parent_id, error = ?e, "Error reordering pages");
             errors::internal("Failed to reorder pages")
@@ -1467,9 +1478,7 @@ pub async fn move_page_to_parent(
         .run(|conn| repository::move_page_to_parent(conn, page_id, new_parent_id, display_order))
     {
         Ok(page) => HttpResponse::Ok().json(page),
-        Err(diesel::result::Error::RollbackTransaction) => errors::bad_request(
-            "Circular reference: Cannot move a page to be a child of its own descendant",
-        ),
+        Err(diesel::result::Error::RollbackTransaction) => errors::bad_request(INVALID_PARENT),
         Err(e) => {
             error!(page_id = page_id, new_parent_id = ?new_parent_id, error = ?e, "Error moving page");
             errors::internal("Internal server error: Failed to move page to new parent")
@@ -1698,6 +1707,7 @@ enum CreateFromTicketOutcome {
     Existing(DocumentationPage),
     /// Newly-created page.
     Created(DocumentationPage),
+    InvalidParent,
     CreateFailed,
 }
 
@@ -1765,6 +1775,9 @@ pub async fn create_documentation_page_from_ticket(
 
         let page = match repository::create_documentation_page(new_page, conn) {
             Ok(p) => p,
+            Err(diesel::result::Error::RollbackTransaction) => {
+                return Ok(CreateFromTicketOutcome::InvalidParent);
+            }
             Err(e) => {
                 error!(ticket_id = ticket_id, error = ?e, "Error creating documentation page from ticket");
                 return Ok(CreateFromTicketOutcome::CreateFailed);
@@ -1806,6 +1819,7 @@ pub async fn create_documentation_page_from_ticket(
             // Reaches clients via the documentation_page sync aggregate.
             HttpResponse::Created().json(page)
         }
+        Ok(CreateFromTicketOutcome::InvalidParent) => errors::bad_request(INVALID_PARENT),
         Ok(CreateFromTicketOutcome::CreateFailed) => {
             errors::internal("Failed to create documentation page")
         }

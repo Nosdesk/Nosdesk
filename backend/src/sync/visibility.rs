@@ -396,6 +396,30 @@ pub fn wire_aggregate_is_gated(wire: &str, viewer: &SyncViewer) -> bool {
     }
 }
 
+/// [`filter_actions`] on a connection from `pool`, pinned to the viewer's
+/// workspace, for a caller that holds no request connection (the live event
+/// stream). The pin matters: on an unpinned connection row security hides
+/// every row the filter reads, and a documentation page it cannot load is not
+/// counted as hidden, so the filter would let restricted pages through. A pool
+/// or pin failure gives [`fail_closed_mask`].
+pub fn filter_actions_pinned<T>(
+    pool: &crate::db::Pool,
+    workspace_id: i32,
+    viewer: &SyncViewer,
+    items: &[T],
+    extract: impl Fn(&T) -> ActionView,
+) -> Vec<bool> {
+    let actor =
+        crate::sync::actor::ActorContext::user_at_workspace(viewer.ctx.user_uuid, workspace_id);
+    let filtered = pool.get().ok().and_then(|mut conn| {
+        crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+            Ok::<_, diesel::result::Error>(filter_actions(c, viewer, items, &extract))
+        })
+        .ok()
+    });
+    filtered.unwrap_or_else(|| fail_closed_mask(viewer, items, extract))
+}
+
 /// Fail-closed keep-mask computed with no DB access: drops every gated
 /// family (documentation for all viewers; the ticket family for
 /// restricted viewers) and keeps reference data. Used by the SSE path
