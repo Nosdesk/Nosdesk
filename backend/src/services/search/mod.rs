@@ -45,6 +45,15 @@ pub struct SearchService {
     pool: Pool,
 }
 
+/// Clears a flag when dropped.
+struct ClearOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for ClearOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 impl SearchService {
     /// Create a new search service with a disk-based index.
     /// Automatically rebuilds the index from the database if empty.
@@ -569,7 +578,9 @@ impl SearchService {
         self.delete_by_key(EntityType::Project, &project_id.to_string())
     }
 
-    /// Rebuild the entire index from the database
+    /// Rebuild the entire index from the database. `conn` must see every
+    /// workspace (elevated), since the index holds them all. A rebuild that
+    /// fails part-way leaves the index as it was.
     pub fn rebuild_index(
         &self,
         conn: &mut DbConnection,
@@ -577,27 +588,31 @@ impl SearchService {
         if self.is_rebuilding.swap(true, Ordering::SeqCst) {
             return Err("Index rebuild already in progress".into());
         }
+        // Cleared on every way out, errors and panics included.
+        let _rebuilding = ClearOnDrop(&self.is_rebuilding);
 
-        let result = {
-            let mut writer = self
-                .writer
-                .write()
-                .map_err(|e| format!("Lock error: {}", e))?;
-
-            // Delete all existing documents
-            writer.delete_all_documents()?;
-
-            // Rebuild from database
-            let stats = indexer::rebuild_index(conn, &writer, &self.schema)?;
-
-            // Commit changes
-            writer.commit()?;
-
-            Ok(stats)
-        };
-
-        self.is_rebuilding.store(false, Ordering::SeqCst);
-        result
+        let mut writer = self
+            .writer
+            .write()
+            .map_err(|e| format!("Lock error: {}", e))?;
+        let rebuilt = writer
+            .delete_all_documents()
+            .map_err(Into::into)
+            .and_then(|_| indexer::rebuild_index(conn, &writer, &self.schema));
+        match rebuilt {
+            Ok(stats) => {
+                writer.commit()?;
+                Ok(stats)
+            }
+            Err(e) => {
+                // Discard the uncommitted delete, so a later commit can't
+                // publish an emptied index.
+                if let Err(rollback) = writer.rollback() {
+                    warn!(error = %rollback, "Failed to roll back a failed index rebuild");
+                }
+                Err(e)
+            }
+        }
     }
 
     /// Check if the index is currently being rebuilt

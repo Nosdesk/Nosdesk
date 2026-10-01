@@ -209,6 +209,21 @@ impl TestDb {
     pub fn conn(&self) -> TestPooledConn {
         self.pool().get().expect("pool.get")
     }
+
+    /// A pool shaped like production's: sessions start as the
+    /// NOBYPASSRLS `nosdesk_app` role (so the per-checkout `RESET ROLE`
+    /// lands there rather than on the test superuser), every checkout
+    /// scrubs `app.*`, and no workspace is seeded. A handler that forgets
+    /// to pin its workspace sees no rows here, as it would in production.
+    pub fn runtime_pool(&self, max_size: u32) -> TestPool {
+        let sep = if self.url.contains('?') { '&' } else { '?' };
+        let url = format!("{}{sep}options=-c%20role%3Dnosdesk_app", self.url);
+        r2d2::Pool::builder()
+            .max_size(max_size)
+            .test_on_check_out(true)
+            .build(backend::db::ResettingManager::new(url))
+            .expect("build runtime pool")
+    }
 }
 
 impl Drop for TestDb {

@@ -272,11 +272,15 @@ pub async fn rebuild_index(
 
     info!(user = %claims.sub, "Starting search index rebuild");
 
-    // Get database connection
-    let mut conn = helpers::db_conn(&pool)?;
-
-    // Rebuild index
-    match search_service.rebuild_index(&mut conn) {
+    // The index holds every workspace on this machine, and the content tables
+    // are row-secured, so the rebuild reads elevated, as the startup build does.
+    // cross-tenant: a full reindex spans every tenant (platform admin only).
+    let rebuilt = crate::sync::session::background_run(&pool, "platform:search_rebuild", |conn| {
+        search_service
+            .rebuild_index(conn)
+            .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+    });
+    match rebuilt {
         Ok(stats) => {
             info!(
                 tickets = stats.tickets,

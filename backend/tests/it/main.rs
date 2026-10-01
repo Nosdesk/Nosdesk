@@ -67,6 +67,7 @@ mod portal_session;
 mod profile_write_authz;
 mod projection_membership_role_model;
 mod push_preference_defaults;
+mod rebuild_search_index;
 mod route_auth_funnel_lint;
 mod site_settings_per_workspace;
 mod sync_emit_lint;
