@@ -258,9 +258,7 @@ src/handlers/sync/push.rs user
 src/handlers/tickets.rs assignee
 src/handlers/tickets.rs device_id
 src/handlers/tickets.rs name
-src/handlers/tickets.rs next_due
 src/handlers/tickets.rs rule
-src/handlers/tickets.rs template_id
 src/handlers/users.rs admin
 src/handlers/users.rs avatar_url
 src/handlers/users.rs banner_url
@@ -457,6 +455,10 @@ src/services/sync_outbox.rs initial_xid8
 src/services/sync_outbox.rs to_sync_id
 src/services/sync_outbox.rs to_xid8
 src/services/sync_outbox.rs workspaces
+src/services/ticket_updates.rs assignee
+src/services/ticket_updates.rs next_due
+src/services/ticket_updates.rs rule
+src/services/ticket_updates.rs template_id
 src/services/webhooks/delivery.rs duration_ms
 src/services/webhooks/delivery.rs failures
 src/services/webhooks/delivery.rs next_retry

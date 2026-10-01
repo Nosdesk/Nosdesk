@@ -380,6 +380,109 @@ fn push_takes_only_the_ticket_columns_a_client_owns() {
     assert!(closed_at(&mut conn).is_none(), "reopening clears it");
 }
 
+/// Closing a recurring ticket through push creates its next occurrence, as the
+/// REST PATCH does.
+#[test]
+fn push_closing_a_recurring_ticket_creates_the_next_one() {
+    use super::push::PushTransaction;
+    use crate::models::WorkflowStateCategory;
+    use crate::schema::{tickets, workflow_states};
+
+    let mut conn = setup_test_connection();
+    let admin = TestFixtures::create_user(&mut conn, "sync_push_recur_admin", "admin");
+    let ticket =
+        TestFixtures::create_ticket(&mut conn, "Check the backups", Some(admin.uuid), None);
+    let due = ticket.created_at + chrono::Duration::days(1);
+    diesel::update(tickets::table.find(ticket.id))
+        .set((
+            tickets::recurrence_rule.eq("FREQ=WEEKLY"),
+            tickets::due_date.eq(due),
+        ))
+        .execute(&mut conn)
+        .expect("make it recur");
+    let done: i32 = workflow_states::table
+        .filter(workflow_states::workspace_id.eq(1))
+        .filter(workflow_states::category.eq(WorkflowStateCategory::Done))
+        .select(workflow_states::id)
+        .first(&mut conn)
+        .expect("a done state");
+
+    let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
+    let tx = PushTransaction {
+        tx_id: Uuid::now_v7().to_string(),
+        aggregate: SyncAggregate::Ticket,
+        model_id: ticket.id.to_string(),
+        op: SyncOp::Update,
+        patch: json!({ "workflow_state_id": done }),
+        base_sync_id: None,
+    };
+    super::push::apply_transaction_for_test(&mut conn, &tx, &actor).expect("close it");
+
+    let next: Vec<Option<chrono::NaiveDateTime>> = tickets::table
+        .filter(tickets::recurrence_template_id.eq(ticket.id))
+        .select(tickets::due_date)
+        .load(&mut conn)
+        .expect("next occurrence");
+    assert_eq!(next.len(), 1, "one next occurrence");
+    assert!(next[0].is_some_and(|d| d > due));
+}
+
+/// A category change through push runs the assignment rules for an
+/// unassigned ticket, as the REST PATCH does.
+#[test]
+fn push_category_change_runs_the_assignment_rules() {
+    use super::push::PushTransaction;
+    use crate::models::{AssignmentMethod, NewAssignmentRule};
+    use crate::schema::{ticket_categories, tickets};
+
+    let mut conn = setup_test_connection();
+    let admin = TestFixtures::create_user(&mut conn, "sync_push_route_admin", "admin");
+    let agent = TestFixtures::create_user(&mut conn, "sync_push_route_agent", "technician");
+    let ticket =
+        TestFixtures::create_ticket(&mut conn, "Laptop won't boot", Some(admin.uuid), None);
+    let hardware: i32 = diesel::insert_into(ticket_categories::table)
+        .values(ticket_categories::name.eq("Hardware (push routing)"))
+        .returning(ticket_categories::id)
+        .get_result(&mut conn)
+        .expect("category");
+    crate::repository::assignment_rules::create_rule(
+        &mut conn,
+        NewAssignmentRule {
+            name: "Hardware to the desk".to_string(),
+            description: None,
+            priority: 1,
+            is_active: true,
+            method: AssignmentMethod::DirectUser,
+            target_user_uuid: Some(agent.uuid),
+            target_group_id: None,
+            trigger_on_create: false,
+            trigger_on_category_change: true,
+            category_id: Some(hardware),
+            conditions: None,
+            created_by: None,
+        },
+    )
+    .expect("rule");
+
+    let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
+    let tx = PushTransaction {
+        tx_id: Uuid::now_v7().to_string(),
+        aggregate: SyncAggregate::Ticket,
+        model_id: ticket.id.to_string(),
+        op: SyncOp::Update,
+        patch: json!({ "category_id": hardware }),
+        base_sync_id: None,
+    };
+    super::push::apply_transaction_for_test(&mut conn, &tx, &actor).expect("recategorise");
+
+    let assignee: Option<Uuid> = tickets::table
+        .find(ticket.id)
+        .select(tickets::assignee_uuid)
+        .first(&mut conn)
+        .expect("reload");
+    assert_eq!(assignee, Some(agent.uuid));
+}
+
 #[test]
 fn push_limits_non_staff_to_retitling_their_own_ticket() {
     use super::push::PushTransaction;
