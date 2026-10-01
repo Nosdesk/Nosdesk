@@ -27,6 +27,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 pub async fn upload_files(
     mut payload: Multipart,
     mut tc: TenantConn,
+    auth: AuthContext,
     storage: ScopedStorage,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("Received file upload request");
@@ -173,8 +174,9 @@ pub async fn upload_files(
             file_size: Some(total_size as i64),
             mime_type: Some(detected_mime.clone()),
             checksum: Some(checksum),
-            comment_id: None,  // Not linked to a comment yet
-            uploaded_by: None, // Will be set when attached to a comment
+            comment_id: None, // Not linked to a comment yet
+            // Only the uploader can preview the draft or attach it to a comment.
+            uploaded_by: Some(auth.user_uuid),
             transcription: transcription_text.clone(),
         };
 
@@ -399,10 +401,10 @@ fn authorize_unfoldered_ticket_file_access(
     Ok(workspace_id)
 }
 
-/// Authorize access to a staging (temp) file, whose owning workspace comes from
-/// its `attachments` row (it isn't tied to a ticket yet); the gate is workspace
-/// membership. A PDF's server-rendered thumbnail has no row of its own, so it is
-/// authorized as its PDF.
+/// Authorize access to a staging (temp) file: a draft that only its uploader may
+/// load until a comment attaches it and it moves under its ticket. The owning
+/// workspace comes from its `attachments` row. A PDF's server-rendered
+/// thumbnail has no row of its own, so it is authorized as its PDF.
 fn authorize_temp_file_access(
     pool: &Pool,
     auth: &AuthContext,
@@ -416,7 +418,12 @@ fn authorize_temp_file_access(
         pool,
         auth,
         |c| repository::comments::attachment_workspace_id_by_urls(c, &urls),
-        |c, _| Ok(user_helpers::workspace_role(c, auth.user_uuid).map(|_| ())),
+        |c, _| {
+            let member = user_helpers::workspace_role(c, auth.user_uuid).is_some();
+            let own =
+                member && repository::comments::is_own_draft_upload(c, &urls, auth.user_uuid)?;
+            Ok(own.then_some(()))
+        },
     )?;
     Ok(workspace_id)
 }

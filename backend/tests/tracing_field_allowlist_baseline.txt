@@ -172,11 +172,9 @@ src/handlers/mod.rs content
 src/handlers/mod.rs errors
 src/handlers/mod.rs file
 src/handlers/mod.rs filename
-src/handlers/mod.rs from
 src/handlers/mod.rs path
 src/handlers/mod.rs response
 src/handlers/mod.rs storage_path
-src/handlers/mod.rs to
 src/handlers/mod.rs user_name
 src/handlers/msgraph_integration.rs avatar_thumb
 src/handlers/msgraph_integration.rs avatar_url

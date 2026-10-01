@@ -441,6 +441,14 @@ async fn uploads_and_their_pdf_thumbnails_load_without_the_selection_header() {
             "staff of another workspace: {uri}"
         );
     }
+    // A draft is private to its uploader until a comment attaches it.
+    for uri in [format!("/api/files/temp/{draft}"), thumbnail_uri.clone()] {
+        assert_eq!(
+            status!(&app, &uri, &fx.requester_a),
+            StatusCode::NOT_FOUND,
+            "a member of the workspace who didn't upload it: {uri}"
+        );
+    }
     for name in [
         stored_name("missing.pdf"),
         stored_name("missing_thumb.webp"),
