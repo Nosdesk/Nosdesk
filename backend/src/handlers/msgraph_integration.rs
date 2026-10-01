@@ -74,6 +74,9 @@ fn get_default_microsoft_provider() -> Result<AuthProvider, diesel::result::Erro
 lazy_static::lazy_static! {
     static ref SYNC_PROGRESS: Arc<Mutex<HashMap<String, SyncProgressState>>> = Arc::new(Mutex::new(HashMap::new()));
     static ref SYNC_CANCELLATION: Arc<Mutex<HashMap<String, bool>>> = Arc::new(Mutex::new(HashMap::new()));
+    /// The workspace each session syncs into. A session is listed, read and
+    /// cancelled only from that workspace.
+    static ref SYNC_WORKSPACE: Arc<Mutex<HashMap<String, i32>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 // Configuration constants for optimization
@@ -691,10 +694,24 @@ fn cancel_sync(session_id: &str) {
     }
 }
 
-fn initialize_sync_session(session_id: &str) {
+fn initialize_sync_session(session_id: &str, workspace_id: i32) {
     if let Ok(mut cancellation_map) = SYNC_CANCELLATION.lock() {
         cancellation_map.insert(session_id.to_string(), false);
     }
+    if let Ok(mut owners) = SYNC_WORKSPACE.lock() {
+        owners.insert(session_id.to_string(), workspace_id);
+    }
+}
+
+/// Whether `session_id` syncs into the workspace the request resolved to.
+fn session_in_request_workspace(req: &actix_web::HttpRequest, session_id: &str) -> bool {
+    let Some(workspace_id) = helpers::request_workspace_id(req) else {
+        return false;
+    };
+    SYNC_WORKSPACE
+        .lock()
+        .map(|owners| owners.get(session_id) == Some(&workspace_id))
+        .unwrap_or(false)
 }
 
 /// Get sync progress for a specific session
@@ -715,7 +732,8 @@ pub async fn get_sync_progress_endpoint(
 
     let session_id = path.into_inner();
 
-    match get_sync_progress(&session_id) {
+    match get_sync_progress(&session_id).filter(|_| session_in_request_workspace(&req, &session_id))
+    {
         Some(progress) => Ok(HttpResponse::Ok().json(progress)),
         None => Err(ApiError::NotFoundMsg("Sync session not found".into())),
     }
@@ -745,6 +763,7 @@ pub async fn get_active_syncs(
                     || progress.status == "starting"
                     || progress.status == "cancelling"
             })
+            .filter(|progress| session_in_request_workspace(&req, &progress.session_id))
             .cloned()
             .collect();
 
@@ -771,6 +790,8 @@ pub async fn get_last_sync(
     // probe the live connection, and cancel an admin's directory sync.
     let _claims =
         crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
+    // sync_history is per-workspace, under row security.
+    helpers::pin_request_workspace(&req, &mut conn);
 
     // Try to get from database first (persistent storage)
     match sync_history_repo::get_last_completed_sync(&mut conn) {
@@ -806,6 +827,7 @@ pub async fn get_last_sync(
                             || progress.status == "error"
                             || progress.status == "cancelled"
                     })
+                    .filter(|progress| session_in_request_workspace(&req, &progress.session_id))
                     .max_by_key(|progress| progress.updated_at);
 
                 match last_sync {
@@ -837,8 +859,10 @@ pub async fn cancel_sync_session(
 
     let session_id = path.into_inner();
 
-    // Check if the session exists and is cancellable
-    if let Some(progress) = get_sync_progress(&session_id) {
+    // Check if the session exists in this workspace and is cancellable
+    if let Some(progress) =
+        get_sync_progress(&session_id).filter(|_| session_in_request_workspace(&req, &session_id))
+    {
         if progress.status == "running" || progress.status == "starting" {
             cancel_sync(&session_id);
             update_sync_progress_with_type(
@@ -1056,6 +1080,8 @@ pub async fn sync_data(
     // admin only. See security-audit-2026-06.
     let _claims =
         crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
+    // The run's sync_history row belongs to this workspace, under row security.
+    helpers::pin_request_workspace(&req, &mut conn);
 
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
@@ -1126,7 +1152,7 @@ pub async fn sync_data(
     info!("Created sync history record with ID: {}", session_id);
 
     // Initialize session and progress tracking
-    initialize_sync_session(&session_id);
+    initialize_sync_session(&session_id, ws.workspace_id);
 
     update_sync_progress_with_type(
         &session_id,
@@ -1410,11 +1436,11 @@ pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<
     // Synthetic session id — `update_sync_progress` writes to an
     // in-memory map keyed on the id. Scheduled runs don't surface
     // progress through the admin UI, so the id is used exclusively as
-    // a cleanup key. The Drop guard below removes both map entries
+    // a cleanup key. The Drop guard below removes its map entries
     // on any exit path (success, error, or panic) — without it, each
     // 30-min tick would leak a handful of bytes into the statics.
     let session_id = uuid::Uuid::new_v4().to_string();
-    initialize_sync_session(&session_id);
+    initialize_sync_session(&session_id, crate::sync::actor::BOOTSTRAP_WORKSPACE_ID);
     let _guard = SyncSessionGuard {
         session_id: session_id.clone(),
     };
@@ -1452,8 +1478,8 @@ pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<
     }
 }
 
-/// RAII guard that drops the per-run entries from both `SYNC_PROGRESS`
-/// and `SYNC_CANCELLATION` when the scheduled sync finishes. Scoped
+/// RAII guard that drops the per-run entries from `SYNC_PROGRESS`,
+/// `SYNC_CANCELLATION` and `SYNC_WORKSPACE` when the scheduled sync finishes. Scoped
 /// to this module because only the scheduled-sync path needs it —
 /// interactive syncs keep their entries so the admin UI can render
 /// the final state after the sync returns.
@@ -1467,6 +1493,9 @@ impl Drop for SyncSessionGuard {
             map.remove(&self.session_id);
         }
         if let Ok(mut map) = SYNC_CANCELLATION.lock() {
+            map.remove(&self.session_id);
+        }
+        if let Ok(mut map) = SYNC_WORKSPACE.lock() {
             map.remove(&self.session_id);
         }
     }

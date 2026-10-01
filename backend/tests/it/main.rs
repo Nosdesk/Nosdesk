@@ -37,6 +37,7 @@ mod collab_ownership;
 mod cross_tenant_workspace_lookup;
 mod csrf_origin_check;
 mod directory_scoping;
+mod directory_sync_workspace_scope;
 mod documentation_export_acl;
 mod dsn_corpus;
 mod email_quote_corpus;

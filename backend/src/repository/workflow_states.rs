@@ -14,13 +14,12 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 use chrono::Utc;
-use diesel::expression::SqlLiteral;
 use diesel::prelude::*;
-use diesel::sql_types::Integer;
 use once_cell::sync::Lazy;
 use serde_json::json;
 use uuid::Uuid;
 
+use super::pinned_workspace;
 use crate::db::DbConnection;
 use crate::models::{
     NewWorkflowState, SyncAggregate, SyncOp, WorkflowState, WorkflowStateCategory,
@@ -38,13 +37,6 @@ fn remember(categories: impl IntoIterator<Item = (i32, WorkflowStateCategory)>) 
     if let Ok(mut map) = CATEGORIES.write() {
         map.extend(categories);
     }
-}
-
-/// The connection's pinned workspace (`app.workspace_id`). Filtering on it in
-/// SQL keeps an elevated (BYPASSRLS) caller to its pinned workspace too, and
-/// gives an unpinned connection nothing.
-fn pinned_workspace() -> SqlLiteral<Integer> {
-    diesel::dsl::sql::<Integer>("NULLIF(current_setting('app.workspace_id', true), '')::int")
 }
 
 /// The pinned workspace's states, by category then position.

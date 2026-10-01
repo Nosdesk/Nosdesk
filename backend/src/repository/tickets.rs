@@ -1863,9 +1863,6 @@ mod tests {
             // row regardless of workspace (re-registration upserts on it), so
             // the UNIQUE is intentionally global, not per-workspace.
             "user_push_devices_token_key",
-            // Azure object IDs are GUIDs. Cross-tenant overlap doesn't
-            // happen in practice; not a leak.
-            "idx_groups_external_id",
             // P2 follow-up (per 3h.8 migration header): cross-workspace
             // notification prefs are a correctness question, not a
             // duplicate-key existence leak.

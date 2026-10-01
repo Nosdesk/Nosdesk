@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
+use crate::repository::pinned_workspace;
 use crate::schema::*;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups as sync_groups;
@@ -660,7 +661,8 @@ pub fn get_group_ids_for_users(
     Ok(out)
 }
 
-/// Upsert a group from external source - returns (group, was_created)
+/// Upsert a group from an external directory in the connection's pinned
+/// workspace. Returns (group, was_created).
 pub fn upsert_external_group(
     conn: &mut DbConnection,
     external_id: &str,
@@ -672,8 +674,9 @@ pub fn upsert_external_group(
     security_enabled: bool,
 ) -> QueryResult<(Group, bool)> {
     conn.transaction(|conn| {
-        // Try to find existing group by external_id
+        // Directory sync runs elevated, so the lookup names the workspace.
         let existing = groups::table
+            .filter(groups::workspace_id.eq(pinned_workspace()))
             .filter(groups::external_id.eq(external_id))
             .first::<Group>(conn);
 
@@ -751,7 +754,8 @@ pub fn get_member_uuids_for_group(
         .load(conn)
 }
 
-/// Mark groups as stale (not seen in this sync) - useful for detecting deleted external groups
+/// Mark the pinned workspace's groups from `external_source` that this sync
+/// didn't see as stale, for detecting groups deleted in the directory.
 pub fn mark_groups_not_synced(
     conn: &mut DbConnection,
     external_source: &str,
@@ -766,6 +770,7 @@ pub fn mark_groups_not_synced(
         // This doesn't delete them - it just marks them so they can be cleaned up later if desired
         let result = diesel::update(
             groups::table
+                .filter(groups::workspace_id.eq(pinned_workspace()))
                 .filter(groups::external_source.eq(external_source))
                 .filter(groups::external_id.is_not_null())
                 .filter(diesel::dsl::not(
