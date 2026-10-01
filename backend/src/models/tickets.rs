@@ -407,6 +407,63 @@ impl NewTicket {
             spam_suspected: existing.spam_suspected,
         }
     }
+
+    /// Drop the columns the server owns from a ticket a client is creating:
+    /// where it came from (`submitted_via`, `origin_channel_id`), guest access
+    /// and verification (`guest_lookup_token`, `verification_state`), the
+    /// inbound pipeline's `triage_state` and `spam_suspected`, and the
+    /// recurrence scheduler's `recurrence_template_id`. Destructured field by
+    /// field so that adding a column to `NewTicket` fails to compile here until
+    /// someone decides who may set it.
+    #[must_use]
+    pub fn without_server_columns(self) -> Self {
+        let Self {
+            title,
+            workflow_state_id,
+            priority,
+            requester_uuid,
+            assignee_uuid,
+            category_id,
+            submitted_via: _,
+            guest_lookup_token: _,
+            verification_state: _,
+            origin_channel_id: _,
+            triage_state: _,
+            due_date,
+            start_date,
+            recurrence_rule,
+            recurrence_template_id: _,
+            resolution_notes,
+            spam_suspected: _,
+        } = self;
+        Self {
+            title,
+            workflow_state_id,
+            priority,
+            requester_uuid,
+            assignee_uuid,
+            category_id,
+            due_date,
+            start_date,
+            recurrence_rule,
+            resolution_notes,
+            ..Self::default()
+        }
+    }
+
+    /// A ticket filed by someone who doesn't handle tickets, as the portal
+    /// files one: theirs, in the default state, with only the title and the
+    /// category they chose (the handler checks they can see it).
+    #[must_use]
+    pub fn as_filed_by(self, requester: Uuid, default_state_id: i32) -> Self {
+        Self {
+            title: self.title,
+            category_id: self.category_id,
+            workflow_state_id: default_state_id,
+            requester_uuid: Some(requester),
+            ..Self::default()
+        }
+    }
 }
 
 // Add a new struct for partial ticket updates
@@ -808,5 +865,36 @@ mod new_ticket_redaction_tests {
         assert_eq!(out.title, existing.title);
         assert_eq!(out.workflow_state_id, existing.workflow_state_id);
         assert_eq!(out.category_id, existing.category_id);
+    }
+
+    #[test]
+    fn a_new_ticket_takes_none_of_the_server_columns() {
+        let out = hostile_body().without_server_columns();
+        assert_eq!(out.submitted_via, None);
+        assert_eq!(out.guest_lookup_token, None);
+        assert_eq!(out.verification_state, None);
+        assert_eq!(out.origin_channel_id, None);
+        assert_eq!(out.triage_state, None);
+        assert_eq!(out.recurrence_template_id, None);
+        assert!(!out.spam_suspected);
+        // Staff set the rest.
+        assert_eq!(out.workflow_state_id, 99);
+        assert_eq!(out.priority, TicketPriority::High);
+        assert_eq!(out.assignee_uuid, Some(Uuid::from_u128(998)));
+        assert_eq!(out.requester_uuid, Some(Uuid::from_u128(999)));
+    }
+
+    #[test]
+    fn someone_who_doesnt_handle_tickets_files_their_own() {
+        let me = Uuid::from_u128(5);
+        let out = hostile_body().without_server_columns().as_filed_by(me, 7);
+        assert_eq!(out.title, "Retitled by the requester");
+        assert_eq!(out.category_id, Some(997));
+        assert_eq!(out.requester_uuid, Some(me));
+        assert_eq!(out.workflow_state_id, 7);
+        assert_eq!(out.assignee_uuid, None);
+        assert_eq!(out.priority, TicketPriority::default());
+        assert_eq!(out.recurrence_rule, None);
+        assert_eq!(out.resolution_notes, None);
     }
 }

@@ -65,6 +65,12 @@ impl WorkflowStateCategory {
     pub fn is_terminal(&self) -> bool {
         matches!(self, Self::Done | Self::Cancelled | Self::Merged)
     }
+
+    /// Moving a ticket into this category closes it: `closed_at` is set, and
+    /// cleared again when it moves back out.
+    pub fn closes_ticket(&self) -> bool {
+        matches!(self, Self::Done | Self::Cancelled)
+    }
 }
 
 impl ToSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowStateCategory {

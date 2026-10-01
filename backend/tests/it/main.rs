@@ -79,6 +79,7 @@ mod sync_visibility;
 mod tenant_table_grants_lint;
 mod tenant_table_rls_lint;
 mod ticket_activity_visibility;
+mod ticket_create_columns;
 mod ticket_merge;
 mod tracing_field_allowlist_lint;
 mod two_workspace_fixture;

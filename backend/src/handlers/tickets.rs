@@ -9,9 +9,7 @@ use uuid::Uuid;
 use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
 use crate::middleware::request_context::record_canonical;
-use crate::models::{
-    AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson, WorkflowStateCategory,
-};
+use crate::models::{AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson};
 use crate::repository;
 use crate::repository::ticket_query::TicketQuery;
 use crate::services::assignment::AssignmentEngine;
@@ -629,7 +627,15 @@ pub async fn create_ticket(
     ticket: web::Json<NewTicket>,
     req: HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
-    let new_ticket = ticket.into_inner();
+    // A client sets only the columns it owns, and someone who doesn't handle
+    // tickets files one the way the portal does.
+    let mut new_ticket = ticket.into_inner().without_server_columns();
+    if !auth.can_handle_tickets() {
+        let default_state = tc
+            .run(repository::workflow_states::default_state)
+            .map_err(|_| ApiError::Internal("Failed to load the default workflow state".into()))?;
+        new_ticket = new_ticket.as_filed_by(auth.user_uuid, default_state.id);
+    }
 
     // Validate category visibility if category_id is set
     if let Some(category_id) = new_ticket.category_id {
@@ -1075,12 +1081,7 @@ pub async fn update_ticket_partial(
             .map_err(|_| ApiError::Internal("Failed to validate workflow state".into()))?
             .ok_or_else(unknown)?;
         ticket_update.workflow_state_id = Some(id);
-        ticket_update.closed_at =
-            if cat == WorkflowStateCategory::Done || cat == WorkflowStateCategory::Cancelled {
-                Some(Some(chrono::Utc::now().naive_utc()))
-            } else {
-                Some(None)
-            };
+        ticket_update.closed_at = Some(cat.closes_ticket().then(|| chrono::Utc::now().naive_utc()));
     }
 
     if let Some(priority_str) = body.get("priority").and_then(|v| v.as_str()) {
@@ -1275,11 +1276,7 @@ pub async fn update_ticket_partial(
                     })
                     .ok()
                     .flatten();
-                let is_closed = matches!(
-                    category,
-                    Some(crate::models::WorkflowStateCategory::Done)
-                        | Some(crate::models::WorkflowStateCategory::Cancelled)
-                );
+                let is_closed = category.is_some_and(|c| c.closes_ticket());
                 if is_closed {
                     let after = updated_ticket
                         .due_date
@@ -1815,7 +1812,7 @@ pub async fn bulk_tickets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::TicketPriority;
+    use crate::models::{TicketPriority, WorkflowStateCategory};
     use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
     use actix_web::{http::StatusCode, test, App};
 
