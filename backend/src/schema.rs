@@ -1869,6 +1869,7 @@ diesel::table! {
         #[max_length = 16]
         sla_override -> Varchar,
         approval_state -> Nullable<Text>,
+        number -> Int4,
     }
 }
 
