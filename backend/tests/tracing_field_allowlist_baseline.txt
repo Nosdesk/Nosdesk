@@ -169,7 +169,6 @@ src/handlers/mod.rs attachment_name
 src/handlers/mod.rs attachments_count
 src/handlers/mod.rs comment_count
 src/handlers/mod.rs content
-src/handlers/mod.rs directory
 src/handlers/mod.rs errors
 src/handlers/mod.rs file
 src/handlers/mod.rs filename
