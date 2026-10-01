@@ -1,15 +1,22 @@
 //! Workflow state lookups.
 //!
-//! Workflow states are a small, slow-moving set (typically 6 to ~20 rows) and
-//! are read on every ticket fetch to derive the legacy status bucket and the
-//! category that downstream code reasons in. We cache the full set in memory
-//! behind an `RwLock` and bust the cache on writes.
+//! Every read goes to the database, so it follows the caller's workspace and
+//! sees edits made through any server process. A workspace has a small set
+//! (typically 6 to ~20 rows); a caller resolving many states at once uses
+//! [`categories`] for a single query.
+//!
+//! The one thing kept in memory is each state's category by id, for hot paths
+//! without a connection ([`category_of_cached`]). That is safe to share across
+//! workspaces and processes: a state's category is fixed when it is created,
+//! and ids are never reused.
 
 use std::collections::HashMap;
 use std::sync::RwLock;
 
 use chrono::Utc;
+use diesel::expression::SqlLiteral;
 use diesel::prelude::*;
+use diesel::sql_types::Integer;
 use once_cell::sync::Lazy;
 use serde_json::json;
 use uuid::Uuid;
@@ -23,95 +30,117 @@ use crate::schema::workflow_states;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
-static CACHE: Lazy<RwLock<Option<HashMap<i32, WorkflowState>>>> = Lazy::new(|| RwLock::new(None));
+/// The category of every state this process has read, by id.
+static CATEGORIES: Lazy<RwLock<HashMap<i32, WorkflowStateCategory>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
 
-/// Drop the in-memory cache. Call after any write to `workflow_states` so
-/// the next read repopulates from Postgres.
-pub fn invalidate_cache() {
-    let mut guard = CACHE.write().expect("workflow_states cache poisoned");
-    *guard = None;
+fn remember(categories: impl IntoIterator<Item = (i32, WorkflowStateCategory)>) {
+    if let Ok(mut map) = CATEGORIES.write() {
+        map.extend(categories);
+    }
 }
 
-fn load_into_cache(conn: &mut DbConnection) -> QueryResult<HashMap<i32, WorkflowState>> {
+/// The connection's pinned workspace (`app.workspace_id`). Filtering on it in
+/// SQL keeps an elevated (BYPASSRLS) caller to its pinned workspace too, and
+/// gives an unpinned connection nothing.
+fn pinned_workspace() -> SqlLiteral<Integer> {
+    diesel::dsl::sql::<Integer>("NULLIF(current_setting('app.workspace_id', true), '')::int")
+}
+
+/// The pinned workspace's states, by category then position.
+fn workspace_states(conn: &mut DbConnection) -> QueryResult<Vec<WorkflowState>> {
     let rows: Vec<WorkflowState> = workflow_states::table
+        .filter(workflow_states::workspace_id.eq(pinned_workspace()))
         .order((workflow_states::category, workflow_states::position))
         .load(conn)?;
-    let map = rows.into_iter().map(|s| (s.id, s)).collect();
-    Ok(map)
+    remember(rows.iter().map(|s| (s.id, s.category)));
+    Ok(rows)
 }
 
-fn with_cache<R>(
-    conn: &mut DbConnection,
-    f: impl FnOnce(&HashMap<i32, WorkflowState>) -> R,
-) -> QueryResult<R> {
-    {
-        let guard = CACHE.read().expect("workflow_states cache poisoned");
-        if let Some(map) = guard.as_ref() {
-            return Ok(f(map));
-        }
-    }
-    let map = load_into_cache(conn)?;
-    let out = f(&map);
-    let mut guard = CACHE.write().expect("workflow_states cache poisoned");
-    *guard = Some(map);
-    Ok(out)
-}
-
-/// Return every non-archived state, ordered by category then position.
-/// Archived states are still returned by `find_by_id` so historical tickets
-/// keep resolving, but the listing endpoint filters them out separately.
+/// Every state in the pinned workspace, archived ones included (the listing
+/// endpoint filters those out), ordered by category then position. Archived
+/// states stay resolvable by `find_by_id` so historical tickets keep their
+/// state.
 pub fn list_all(conn: &mut DbConnection) -> QueryResult<Vec<WorkflowState>> {
-    with_cache(conn, |map| {
-        let mut rows: Vec<WorkflowState> = map.values().cloned().collect();
-        rows.sort_by(|a, b| {
-            a.category
-                .as_str()
-                .cmp(b.category.as_str())
-                .then_with(|| a.position.cmp(&b.position))
-        });
-        rows
-    })
+    let mut rows = workspace_states(conn)?;
+    rows.sort_by(|a, b| {
+        a.category
+            .as_str()
+            .cmp(b.category.as_str())
+            .then_with(|| a.position.cmp(&b.position))
+    });
+    Ok(rows)
 }
 
+/// A state by id, as the caller's row security allows: on a tenant connection,
+/// a state in another workspace is `None`.
 pub fn find_by_id(conn: &mut DbConnection, id: i32) -> QueryResult<Option<WorkflowState>> {
-    with_cache(conn, |map| map.get(&id).cloned())
+    let row: Option<WorkflowState> = workflow_states::table.find(id).first(conn).optional()?;
+    remember(row.iter().map(|s| (s.id, s.category)));
+    Ok(row)
 }
 
+/// A state's category, as visible as in [`find_by_id`]. Always read from the
+/// database, never from memory, since the id may come from a request.
 pub fn category_of(conn: &mut DbConnection, id: i32) -> QueryResult<Option<WorkflowStateCategory>> {
-    with_cache(conn, |map| map.get(&id).map(|s| s.category))
+    let category: Option<WorkflowStateCategory> = workflow_states::table
+        .find(id)
+        .select(workflow_states::category)
+        .first(conn)
+        .optional()?;
+    remember(category.map(|c| (id, c)));
+    Ok(category)
 }
 
-/// Best-effort sync helper for hot paths that already hold a fresh cache.
-/// Returns `None` if the cache is cold; callers must fall back to the
-/// async `category_of` path in that case.
+/// The pinned workspace's categories by state id, in one query, for a caller
+/// resolving many states at once.
+pub fn categories(conn: &mut DbConnection) -> QueryResult<HashMap<i32, WorkflowStateCategory>> {
+    let rows: Vec<(i32, WorkflowStateCategory)> = workflow_states::table
+        .filter(workflow_states::workspace_id.eq(pinned_workspace()))
+        .select((workflow_states::id, workflow_states::category))
+        .load(conn)?;
+    remember(rows.iter().copied());
+    Ok(rows.into_iter().collect())
+}
+
+/// Read the category of every state the connection can see (on an elevated
+/// connection, every workspace's), so [`category_of_cached`] knows them.
+pub fn remember_visible_categories(conn: &mut DbConnection) -> QueryResult<()> {
+    let rows: Vec<(i32, WorkflowStateCategory)> = workflow_states::table
+        .select((workflow_states::id, workflow_states::category))
+        .load(conn)?;
+    remember(rows);
+    Ok(())
+}
+
+/// A state's category from memory, for hot paths without a connection. Known
+/// for any state this process has read; `None` otherwise, and the caller falls
+/// back. It answers for any workspace, so pass only an id read from a row the
+/// caller may see, never one taken from a request.
 pub fn category_of_cached(id: i32) -> Option<WorkflowStateCategory> {
-    let guard = CACHE.read().ok()?;
-    guard.as_ref()?.get(&id).map(|s| s.category)
+    CATEGORIES.read().ok()?.get(&id).copied()
 }
 
-/// Return the workspace-default state. There is exactly one row with
+/// The pinned workspace's default state. There is exactly one row with
 /// `is_default = TRUE` (enforced by a partial unique index); fall back to
 /// the first Backlog state if the invariant is broken in test data.
 pub fn default_state(conn: &mut DbConnection) -> QueryResult<WorkflowState> {
-    with_cache(conn, |map| {
-        map.values()
-            .find(|s| s.is_default && s.archived_at.is_none())
-            .cloned()
-            .or_else(|| {
-                map.values()
-                    .filter(|s| {
-                        s.category == WorkflowStateCategory::Backlog && s.archived_at.is_none()
-                    })
-                    .min_by_key(|s| s.position)
-                    .cloned()
-            })
-            .or_else(|| map.values().next().cloned())
-    })?
-    // Empty means the workspace-scoped read returned no rows: either an
-    // unseeded workspace or (the common case under selection mode) a request
-    // that reached here with no workspace pinned. Fail closed with NotFound so
-    // callers return a clean error instead of panicking the worker.
-    .ok_or(diesel::result::Error::NotFound)
+    let states = workspace_states(conn)?;
+    let live = || states.iter().filter(|s| s.archived_at.is_none());
+    live()
+        .find(|s| s.is_default)
+        .or_else(|| {
+            live()
+                .filter(|s| s.category == WorkflowStateCategory::Backlog)
+                .min_by_key(|s| s.position)
+        })
+        .or_else(|| states.first())
+        .cloned()
+        // Empty means the pinned workspace has no states: either it is
+        // unseeded or (the common case under selection mode) the request
+        // reached here with no workspace pinned. Fail closed with NotFound so
+        // callers return a clean error instead of panicking the worker.
+        .ok_or(diesel::result::Error::NotFound)
 }
 
 /// Lowest-position non-archived state in the given category. Used by the
@@ -121,13 +150,11 @@ pub fn first_in_category(
     conn: &mut DbConnection,
     category: WorkflowStateCategory,
 ) -> QueryResult<WorkflowState> {
-    with_cache(conn, move |map| {
-        map.values()
-            .filter(|s| s.category == category && s.archived_at.is_none())
-            .min_by_key(|s| s.position)
-            .cloned()
-    })?
-    .ok_or(diesel::result::Error::NotFound)
+    workspace_states(conn)?
+        .into_iter()
+        .filter(|s| s.category == category && s.archived_at.is_none())
+        .min_by_key(|s| s.position)
+        .ok_or(diesel::result::Error::NotFound)
 }
 
 /// First-run seeder: insert the default workflow-state catalogue for a
@@ -219,7 +246,6 @@ pub fn seed_defaults_if_empty(
     let inserted = diesel::insert_into(workflow_states::table)
         .values(&rows)
         .execute(conn)?;
-    invalidate_cache();
     Ok(inserted)
 }
 
@@ -247,7 +273,6 @@ pub fn create(conn: &mut DbConnection, new: NewWorkflowState) -> QueryResult<Wor
         )?;
         Ok::<_, diesel::result::Error>(row)
     })?;
-    invalidate_cache();
     Ok(row)
 }
 
@@ -280,7 +305,6 @@ pub fn update(
         )?;
         Ok::<_, diesel::result::Error>(row)
     })?;
-    invalidate_cache();
     Ok(row)
 }
 
@@ -359,7 +383,6 @@ pub fn promote_default(
         )?;
         Ok::<_, diesel::result::Error>(row)
     })?;
-    invalidate_cache();
     Ok(row)
 }
 
@@ -382,7 +405,6 @@ pub fn archive(conn: &mut DbConnection, id: i32) -> QueryResult<WorkflowState> {
         )?;
         Ok::<_, diesel::result::Error>(row)
     })?;
-    invalidate_cache();
     Ok(row)
 }
 
@@ -399,7 +421,6 @@ mod tests {
     #[test]
     fn seeded_states_are_present() {
         let mut conn = setup_test_connection();
-        invalidate_cache();
         let states = list_all(&mut conn).unwrap();
         // Six base states + the `Merged` state seeded by the
         // ticket-merge migration. Bump this alongside any new seeded
@@ -418,7 +439,6 @@ mod tests {
     #[test]
     fn first_in_category_resolves_seeded_states() {
         let mut conn = setup_test_connection();
-        invalidate_cache();
         let backlog = first_in_category(&mut conn, WorkflowStateCategory::Backlog).unwrap();
         assert_eq!(backlog.category, WorkflowStateCategory::Backlog);
         let active = first_in_category(&mut conn, WorkflowStateCategory::Active).unwrap();
@@ -430,7 +450,6 @@ mod tests {
     #[test]
     fn default_state_is_backlog() {
         let mut conn = setup_test_connection();
-        invalidate_cache();
         let s = default_state(&mut conn).unwrap();
         assert_eq!(s.category, WorkflowStateCategory::Backlog);
         assert!(s.is_default);
@@ -439,7 +458,6 @@ mod tests {
     #[test]
     fn create_emits_a_sync_action_with_actor_from_session() {
         let mut conn = setup_test_connection();
-        invalidate_cache();
         let user = TestFixtures::create_user(&mut conn, "wf_emit_admin", "admin");
         let actor = ActorContext::user(user.uuid, None);
 

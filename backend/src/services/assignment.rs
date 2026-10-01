@@ -90,6 +90,16 @@ impl AssignmentEngine {
             }
         };
 
+        // The ticket's workflow-state category, read once for every rule's
+        // categories condition.
+        let ticket_category = if rules.is_empty() {
+            None
+        } else {
+            crate::repository::workflow_states::category_of(conn, ticket.workflow_state_id)
+                .ok()
+                .flatten()
+        };
+
         for rule in rules {
             // Check if rule applies to this trigger
             if !Self::matches_trigger(&rule, &trigger) {
@@ -102,7 +112,7 @@ impl AssignmentEngine {
             }
 
             // Check extended conditions (JSON-based)
-            if !Self::evaluate_conditions(&rule, ticket) {
+            if !Self::evaluate_conditions(&rule, ticket, ticket_category) {
                 continue;
             }
 
@@ -156,7 +166,11 @@ impl AssignmentEngine {
     /// - title_contains: "string to match"
     ///
     /// All conditions must match (AND logic).
-    fn evaluate_conditions(rule: &AssignmentRule, ticket: &Ticket) -> bool {
+    fn evaluate_conditions(
+        rule: &AssignmentRule,
+        ticket: &Ticket,
+        ticket_category: Option<WorkflowStateCategory>,
+    ) -> bool {
         let conditions = match &rule.conditions {
             Some(c) if !c.is_null() && c.as_object().is_some_and(|o| !o.is_empty()) => c,
             _ => return true, // No conditions = always match
@@ -178,17 +192,11 @@ impl AssignmentEngine {
         }
 
         // Check categories condition: match when the ticket's workflow-state
-        // category is one of the listed categories. Uses the sync cached
-        // lookup (cold cache → "backlog" fallback) so rule evaluation stays
-        // cheap; rules are evaluated frequently in hot paths and a DB
-        // roundtrip per call would compound badly.
+        // category is one of the listed categories. An unresolved state counts
+        // as backlog.
         if let Some(cats_val) = obj.get("categories") {
             if let Some(arr) = cats_val.as_array() {
-                let ticket_cat = crate::repository::workflow_states::category_of_cached(
-                    ticket.workflow_state_id,
-                )
-                .map(|c| c.as_str())
-                .unwrap_or("backlog");
+                let ticket_cat = ticket_category.map(|c| c.as_str()).unwrap_or("backlog");
                 if !arr.iter().any(|v| v.as_str() == Some(ticket_cat)) {
                     return false;
                 }
@@ -523,61 +531,71 @@ mod tests {
     fn no_conditions_always_matches() {
         let rule = make_rule(|r| r.conditions = None);
         let ticket = make_ticket(|_| {});
-        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket, None));
     }
 
     #[test]
     fn empty_object_conditions_matches() {
         let rule = make_rule(|r| r.conditions = Some(json!({})));
         let ticket = make_ticket(|_| {});
-        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket, None));
     }
 
     #[test]
     fn priority_condition_matches() {
         let rule = make_rule(|r| r.conditions = Some(json!({"priority": "high"})));
         let ticket = make_ticket(|t| t.priority = TicketPriority::High);
-        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket, None));
     }
 
     #[test]
     fn priority_condition_mismatches() {
         let rule = make_rule(|r| r.conditions = Some(json!({"priority": "high"})));
         let ticket = make_ticket(|t| t.priority = TicketPriority::Low);
-        assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket));
+        assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket, None));
     }
 
-    // Note: category conditions are evaluated against the cached workflow
-    // state lookup; in unit tests with no DB the cache is cold so the
-    // helper returns the "backlog" fallback. The two tests below cover that
-    // contract: a "backlog" category condition should match the default
-    // fixture, and a "done" condition should not.
     #[test]
-    fn categories_condition_matches_backlog_fallback() {
-        let rule = make_rule(|r| r.conditions = Some(json!({"categories": ["backlog"]})));
+    fn categories_condition_matches_the_ticket_category() {
+        let rule = make_rule(|r| r.conditions = Some(json!({"categories": ["done"]})));
         let ticket = make_ticket(|_| {});
-        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+        assert!(AssignmentEngine::evaluate_conditions(
+            &rule,
+            &ticket,
+            Some(WorkflowStateCategory::Done)
+        ));
     }
 
     #[test]
     fn categories_condition_mismatches() {
         let rule = make_rule(|r| r.conditions = Some(json!({"categories": ["done"]})));
         let ticket = make_ticket(|_| {});
-        assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket));
+        assert!(!AssignmentEngine::evaluate_conditions(
+            &rule,
+            &ticket,
+            Some(WorkflowStateCategory::Backlog)
+        ));
+    }
+
+    #[test]
+    fn categories_condition_treats_an_unresolved_state_as_backlog() {
+        let rule = make_rule(|r| r.conditions = Some(json!({"categories": ["backlog"]})));
+        let ticket = make_ticket(|_| {});
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket, None));
     }
 
     #[test]
     fn title_contains_condition_matches() {
         let rule = make_rule(|r| r.conditions = Some(json!({"title_contains": "urgent"})));
         let ticket = make_ticket(|t| t.title = "URGENT: server down".into());
-        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket, None));
     }
 
     #[test]
     fn title_contains_condition_mismatches() {
         let rule = make_rule(|r| r.conditions = Some(json!({"title_contains": "urgent"})));
         let ticket = make_ticket(|t| t.title = "Routine maintenance".into());
-        assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket));
+        assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket, None));
     }
 
     #[test]
@@ -590,19 +608,23 @@ mod tests {
             }));
         });
 
-        // All match (categories condition relies on the cold-cache "backlog"
-        // fallback in unit tests, which matches the rule's "backlog").
+        // All match
         let ticket = make_ticket(|t| {
             t.priority = TicketPriority::High;
             t.title = "The server is on fire".into();
         });
-        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+        let backlog = Some(WorkflowStateCategory::Backlog);
+        assert!(AssignmentEngine::evaluate_conditions(
+            &rule, &ticket, backlog
+        ));
 
         // One doesn't match
         let ticket2 = make_ticket(|t| {
             t.priority = TicketPriority::Low; // mismatch
             t.title = "The server is on fire".into();
         });
-        assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket2));
+        assert!(!AssignmentEngine::evaluate_conditions(
+            &rule, &ticket2, backlog
+        ));
     }
 }

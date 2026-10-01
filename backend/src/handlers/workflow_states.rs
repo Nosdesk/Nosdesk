@@ -217,7 +217,6 @@ pub async fn patch(
 
     match result {
         Ok(state) => {
-            repo::invalidate_cache();
             info!(
                 actor = ?actor,
                 state_id = state.id,

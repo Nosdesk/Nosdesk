@@ -1117,19 +1117,22 @@ pub async fn update_ticket_partial(
         ticket_update.title = Some(title.to_string());
     }
 
-    // Workflow state is set by id; the category drives closed_at.
+    // Workflow state is set by id, and must be one of this workspace's; the
+    // category drives closed_at.
     if let Some(ws_id) = body.get("workflow_state_id").and_then(|v| v.as_i64()) {
-        let id = ws_id as i32;
+        let unknown = || ApiError::BadRequest("Unknown workflow state".into());
+        let id = i32::try_from(ws_id).map_err(|_| unknown())?;
+        let cat = tc
+            .run(|conn| repository::workflow_states::category_of(conn, id))
+            .map_err(|_| ApiError::Internal("Failed to validate workflow state".into()))?
+            .ok_or_else(unknown)?;
         ticket_update.workflow_state_id = Some(id);
-        // Recompute closed_at based on the resolved category.
-        if let Ok(Some(cat)) = tc.run(|conn| repository::workflow_states::category_of(conn, id)) {
-            ticket_update.closed_at =
-                if cat == WorkflowStateCategory::Done || cat == WorkflowStateCategory::Cancelled {
-                    Some(Some(chrono::Utc::now().naive_utc()))
-                } else {
-                    Some(None)
-                };
-        }
+        ticket_update.closed_at =
+            if cat == WorkflowStateCategory::Done || cat == WorkflowStateCategory::Cancelled {
+                Some(Some(chrono::Utc::now().naive_utc()))
+            } else {
+                Some(None)
+            };
     }
 
     if let Some(priority_str) = body.get("priority").and_then(|v| v.as_str()) {
