@@ -173,7 +173,41 @@ pub fn run_migrations() -> Result<(), Box<dyn std::error::Error + Send + Sync>> 
     info!(role, database = %redact_db_url(&url), "Running migrations");
     let mut conn = PgConnection::establish(&url)
         .map_err(|e| format!("migration connection ({role}) failed: {e}"))?;
+    require_supported_postgres(&mut conn)?;
     with_advisory_lock(&mut conn, apply_pending_migrations)
+}
+
+/// The oldest PostgreSQL Nosdesk runs on, as `server_version_num`: the schema
+/// uses PostgreSQL 18's native `uuidv7()`.
+const MIN_POSTGRES_VERSION_NUM: i32 = 180_000;
+
+/// Refuse an older server before any migration runs, so it is never left
+/// half-migrated.
+fn require_supported_postgres(
+    conn: &mut PgConnection,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[derive(diesel::QueryableByName)]
+    struct ServerVersion {
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        num: i32,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        text: String,
+    }
+    let version: ServerVersion = diesel::sql_query(
+        "SELECT current_setting('server_version_num')::int AS num, \
+                current_setting('server_version') AS text",
+    )
+    .get_result(conn)
+    .map_err(|e| format!("reading the PostgreSQL version failed: {e}"))?;
+    if version.num < MIN_POSTGRES_VERSION_NUM {
+        return Err(format!(
+            "Nosdesk needs PostgreSQL 18 or later; this server runs {}. Upgrade the \
+             database first (see Upgrading PostgreSQL in the installation guide).",
+            version.text
+        )
+        .into());
+    }
+    Ok(())
 }
 
 /// Whether to apply migrations at server boot. Default true (single-role dev /

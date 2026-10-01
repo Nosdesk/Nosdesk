@@ -256,6 +256,28 @@ issues.
 
 ---
 
+### 4.9 A dev database made under PostgreSQL 17
+
+The stack runs PostgreSQL 18, which won't start on a `postgres_data` volume
+made under 17 (the postgres container exits with "in 18+, these Docker images
+are configured to store database data..."). To keep the data, dump it with the
+old image and restore it into a fresh volume before the backend starts:
+
+```bash
+make down
+docker run -d --name pg17 -v nosdesk_postgres_data:/var/lib/postgresql/data postgres:17-bookworm
+until docker exec pg17 pg_isready -U nosdesk; do sleep 1; done
+docker exec pg17 pg_dumpall -U nosdesk > dev-pg17.sql
+docker rm -f pg17 && docker volume rm nosdesk_postgres_data
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
+until docker compose -f compose.yaml -f compose.dev.yaml exec postgres pg_isready -U nosdesk; do sleep 1; done
+docker compose -f compose.yaml -f compose.dev.yaml exec -T postgres psql -U nosdesk -d postgres < dev-pg17.sql
+make dev
+```
+
+A few "already exists" errors from the restore are expected (the roles and
+databases the init scripts create). Or `make clean` for an empty database.
+
 ## 5. Troubleshooting checklist
 
 When something is wrong, work through this list before posting in
