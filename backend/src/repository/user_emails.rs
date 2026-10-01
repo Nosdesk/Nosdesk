@@ -27,7 +27,7 @@ pub fn find_user_by_any_email(
 
     users::table
         .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
-        .filter(user_emails::email.ilike(email)) // Case-insensitive match
+        .filter(user_emails::email.ilike(super::escape_like(email))) // Case-insensitive match
         .select(users::all_columns)
         .first::<crate::models::User>(conn)
 }
