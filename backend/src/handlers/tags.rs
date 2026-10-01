@@ -112,6 +112,10 @@ pub async fn set_ticket_tags(
     let actor_uuid = auth.user_uuid;
     match tc.run(|conn| repo::set_tags_for_ticket(conn, ticket_id, &tag_ids, Some(actor_uuid))) {
         Ok(tag_ids) => HttpResponse::Ok().json(serde_json::json!({ "tag_ids": tag_ids })),
+        Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+            _,
+        )) => errors::bad_request("Unknown tag"),
         Err(e) => {
             error!(error = %e, ticket_id, "set_ticket_tags failed");
             errors::internal("Failed to update ticket tags")

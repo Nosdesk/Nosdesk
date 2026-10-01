@@ -434,9 +434,41 @@ fn latest_sync_id(conn: &mut DbConnection) -> diesel::QueryResult<i64> {
 }
 
 fn reject_diesel(err: diesel::result::Error) -> TxReject {
-    use diesel::result::Error;
+    use diesel::result::{DatabaseErrorKind, Error};
     match err {
         Error::NotFound => TxReject("not_found", "model_id does not exist".into()),
-        other => TxReject("internal", other.to_string()),
+        Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _) => TxReject(
+            "invalid_reference",
+            "a record the change refers to does not exist".into(),
+        ),
+        other => {
+            tracing::error!(error = ?other, "sync push: transaction failed");
+            TxReject("internal", "the change could not be saved".into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use diesel::result::{DatabaseErrorKind, Error};
+
+    #[test]
+    fn a_reference_to_a_missing_record_is_a_client_rejection() {
+        let fk = Error::DatabaseError(
+            DatabaseErrorKind::ForeignKeyViolation,
+            Box::new("violates foreign key constraint".to_string()),
+        );
+        assert_eq!(reject_diesel(fk).0, "invalid_reference");
+        let other = Error::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new("relation \"secret_table\" does not exist".to_string()),
+        );
+        let rejected = reject_diesel(other);
+        assert_eq!(rejected.0, "internal");
+        assert!(
+            !rejected.1.contains("secret_table"),
+            "the database's message isn't sent to the client"
+        );
     }
 }

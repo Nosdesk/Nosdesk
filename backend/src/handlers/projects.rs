@@ -261,9 +261,7 @@ pub async fn create_ticket_in_project(
     match tc.run(|conn| repository::create_ticket_in_project(conn, new_ticket, project_id)) {
         Ok(ticket) => Ok(HttpResponse::Created().json(ticket)),
         Err(Error::NotFound) => Err(ApiError::NotFoundMsg("Project not found".into())),
-        Err(_) => Err(ApiError::Internal(
-            "Failed to create ticket in project".into(),
-        )),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
