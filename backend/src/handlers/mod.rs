@@ -119,9 +119,9 @@ pub use projects::*;
 pub use tickets::{
     add_device_to_ticket, bulk_tickets, create_empty_ticket, create_ticket, delete_ticket,
     get_paginated_tickets, get_recent_tickets, get_ticket, get_ticket_activity, get_tickets,
-    import_tickets_from_json, import_tickets_from_json_string, link_tickets, preview_ticket_field,
-    record_ticket_view, remove_device_from_ticket, remove_recent_ticket, unlink_tickets,
-    update_ticket, update_ticket_partial,
+    import_tickets_from_json_string, link_tickets, preview_ticket_field, record_ticket_view,
+    remove_device_from_ticket, remove_recent_ticket, unlink_tickets, update_ticket,
+    update_ticket_partial,
 };
 // Export specific items from devices to avoid conflicts
 pub use assets::{

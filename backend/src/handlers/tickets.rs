@@ -2,8 +2,6 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::fs;
-use std::path::Path;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -123,10 +121,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route(
             "/tags/{id}",
             web::delete().to(crate::handlers::tags::archive_tag),
-        )
-        .route(
-            "/import/file",
-            web::post().to(crate::handlers::import_tickets_from_json),
         )
         .route(
             "/import/json",
@@ -879,52 +873,6 @@ pub async fn delete_ticket(
         }
         Err(_) => errors::internal("Failed to delete ticket"),
     }
-}
-
-// Import tickets from JSON file
-pub async fn import_tickets_from_json(
-    auth: AuthContext,
-    mut tc: TenantConn,
-    json_path: web::Path<String>,
-) -> impl Responder {
-    if !auth.is_workspace_admin() {
-        return errors::forbidden("Forbidden: Only administrators can import tickets");
-    }
-
-    let json_path_str = json_path.into_inner();
-    let path = Path::new(&json_path_str);
-
-    let json_content = match fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(e) => {
-            return errors::internal(format!("Failed to read file: {}", e));
-        }
-    };
-
-    // Parse the JSON
-    let tickets_json: TicketsJson = match serde_json::from_str(&json_content) {
-        Ok(tickets) => tickets,
-        Err(_) => return errors::bad_request("Failed to parse JSON"),
-    };
-
-    // Import each ticket — one txn per row so a malformed row in
-    // the middle of the import doesn't roll back the others. Matches
-    // the existing semantics (the prior code didn't open a txn at
-    // all).
-    let mut imported_count = 0;
-    let mut failed_count = 0;
-
-    for ticket_json in tickets_json.tickets {
-        match tc.run(|conn| repository::import_ticket_from_json(conn, &ticket_json)) {
-            Ok(_) => imported_count += 1,
-            Err(_) => failed_count += 1,
-        }
-    }
-
-    HttpResponse::Ok().json(json!({
-        "imported": imported_count,
-        "failed": failed_count
-    }))
 }
 
 // Import tickets from JSON string
