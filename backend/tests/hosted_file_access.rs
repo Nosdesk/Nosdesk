@@ -513,11 +513,15 @@ async fn asset_media_raw_mail_and_plugin_icons_load_without_the_selection_header
     );
     assert_eq!(body(resp).await, b"<svg/>");
 
-    for uri in [&photo_uri, &eml_uri, &icon_uri] {
+    for (route, uri) in [
+        ("asset media", &photo_uri),
+        ("raw mail", &eml_uri),
+        ("plugin icon", &icon_uri),
+    ] {
         assert_eq!(
             status!(&app, uri, &fx.staff_b),
             StatusCode::NOT_FOUND,
-            "staff of another workspace: {uri}"
+            "staff of another workspace: {route}"
         );
     }
     assert_eq!(
