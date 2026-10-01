@@ -114,5 +114,15 @@ pub use projects::*;
 pub use tickets::*;
 pub use users::*;
 
+/// The workspace the connection is pinned to (`app.workspace_id`), or NULL
+/// when nothing is pinned. Tenant tables default `workspace_id` from the same
+/// setting, so filtering on it keeps an elevated (BYPASSRLS) caller's reads in
+/// the workspace its inserts land in, and gives an unpinned connection nothing.
+pub(crate) fn pinned_workspace() -> diesel::expression::SqlLiteral<diesel::sql_types::Integer> {
+    diesel::dsl::sql::<diesel::sql_types::Integer>(
+        "NULLIF(current_setting('app.workspace_id', true), '')::int",
+    )
+}
+
 // Note: We've completed the transition to a fully modular structure
 // by removing the base.rs file and keeping only domain-specific modules.

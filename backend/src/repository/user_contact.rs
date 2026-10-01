@@ -18,6 +18,7 @@ use crate::models::{
     DirectoryContact, NewUserAddress, NewUserPhoneNumber, NewUserProfile, UserAddress,
     UserAddressInput, UserPhoneInput, UserPhoneNumber, UserProfile, UserProfileInput,
 };
+use crate::repository::pinned_workspace;
 use crate::schema::{user_addresses, user_field_schema, user_phone_numbers, user_profiles};
 
 /// The built-in user custom-field schema applied when a workspace hasn't
@@ -70,6 +71,7 @@ pub fn set_field_schema(
 /// The active workspace's profile row for a user, if any.
 pub fn get_profile(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Option<UserProfile>> {
     user_profiles::table
+        .filter(user_profiles::workspace_id.eq(pinned_workspace()))
         .filter(user_profiles::user_uuid.eq(user_uuid))
         .first(conn)
         .optional()
@@ -363,7 +365,9 @@ pub fn delete_address(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
 /// keys) with `directory_synced=true`, and the phone/address rows tagged with
 /// this transport's `source` (e.g. "microsoft", "ldap", "scim"), replaced
 /// wholesale. Manual rows and rows owned by OTHER transports are left untouched,
-/// so a workspace can run more than one directory source. One transaction.
+/// so a workspace can run more than one directory source. Everything is in the
+/// connection's pinned workspace, which the syncs that run elevated rely on.
+/// One transaction.
 pub fn apply_directory_contact(
     conn: &mut DbConnection,
     user_uuid: Uuid,
@@ -418,6 +422,7 @@ pub fn apply_directory_contact(
         // Phones: replace this source's rows, leave manual + other sources.
         diesel::delete(
             user_phone_numbers::table
+                .filter(user_phone_numbers::workspace_id.eq(pinned_workspace()))
                 .filter(user_phone_numbers::user_uuid.eq(user_uuid))
                 .filter(user_phone_numbers::source.eq(source)),
         )
@@ -439,6 +444,7 @@ pub fn apply_directory_contact(
         // Address: replace this source's row, leave manual + other sources.
         diesel::delete(
             user_addresses::table
+                .filter(user_addresses::workspace_id.eq(pinned_workspace()))
                 .filter(user_addresses::user_uuid.eq(user_uuid))
                 .filter(user_addresses::source.eq(source)),
         )

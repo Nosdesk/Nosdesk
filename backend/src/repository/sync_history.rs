@@ -2,6 +2,7 @@ use crate::db::DbConnection;
 use crate::models::{
     NewSyncDeltaToken, NewSyncHistory, SyncDeltaToken, SyncHistory, SyncHistoryUpdate,
 };
+use crate::repository::pinned_workspace;
 use crate::schema::{sync_delta_tokens, sync_history};
 use diesel::prelude::*;
 
@@ -62,6 +63,9 @@ pub fn get_last_completed_sync(conn: &mut DbConnection) -> QueryResult<SyncHisto
 // Delta Token Operations (for incremental sync)
 // ============================================================================
 
+// Delta tokens belong to the pinned workspace's sync. The Graph sync runs
+// elevated, so each lookup names the workspace.
+
 /// Get a delta token for a specific provider and entity type
 pub fn get_delta_token(
     conn: &mut DbConnection,
@@ -69,6 +73,7 @@ pub fn get_delta_token(
     entity_type: &str,
 ) -> QueryResult<SyncDeltaToken> {
     sync_delta_tokens::table
+        .filter(sync_delta_tokens::workspace_id.eq(pinned_workspace()))
         .filter(sync_delta_tokens::provider_type.eq(provider_type))
         .filter(sync_delta_tokens::entity_type.eq(entity_type))
         .first(conn)
@@ -86,6 +91,7 @@ pub fn upsert_delta_token(
 
     // Try to find existing token
     let existing = sync_delta_tokens::table
+        .filter(sync_delta_tokens::workspace_id.eq(pinned_workspace()))
         .filter(sync_delta_tokens::provider_type.eq(provider_type))
         .filter(sync_delta_tokens::entity_type.eq(entity_type))
         .first::<SyncDeltaToken>(conn);
@@ -125,6 +131,7 @@ pub fn delete_delta_token(
 ) -> QueryResult<usize> {
     diesel::delete(
         sync_delta_tokens::table
+            .filter(sync_delta_tokens::workspace_id.eq(pinned_workspace()))
             .filter(sync_delta_tokens::provider_type.eq(provider_type))
             .filter(sync_delta_tokens::entity_type.eq(entity_type)),
     )

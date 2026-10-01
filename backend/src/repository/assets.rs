@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
+use crate::repository::pinned_workspace;
 use crate::schema::*;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
@@ -363,14 +364,16 @@ pub fn asset_workspace_id(conn: &mut DbConnection, asset_id: i32) -> QueryResult
         .optional()
 }
 
-/// Look up an asset by the `entra_device_id` attribute key.
-/// The ID moved out of its own column in Pass B; this helper
-/// hides the JSONB path so Intune sync handlers stay readable.
+/// Look up an asset in the connection's pinned workspace by the
+/// `entra_device_id` attribute key. The ID moved out of its own column in
+/// Pass B; this helper hides the JSONB path so Intune sync handlers stay
+/// readable. Directory sync runs elevated, so the lookup names the workspace.
 pub fn get_device_by_entra_id(
     conn: &mut DbConnection,
     entra_device_id: &str,
 ) -> QueryResult<Asset> {
     assets::table
+        .filter(assets::workspace_id.eq(pinned_workspace()))
         .filter(
             diesel::dsl::sql::<diesel::sql_types::Bool>("attributes->>'entra_device_id' = ")
                 .bind::<diesel::sql_types::Text, _>(entra_device_id.to_string()),
@@ -378,11 +381,13 @@ pub fn get_device_by_entra_id(
         .first(conn)
 }
 
+/// [`get_device_by_entra_id`] by Azure AD device ID.
 pub fn get_device_by_microsoft_id(
     conn: &mut DbConnection,
     microsoft_device_id: &str,
 ) -> QueryResult<Asset> {
     assets::table
+        .filter(assets::workspace_id.eq(pinned_workspace()))
         .filter(
             diesel::dsl::sql::<diesel::sql_types::Bool>("attributes->>'microsoft_device_id' = ")
                 .bind::<diesel::sql_types::Text, _>(microsoft_device_id.to_string()),
@@ -523,9 +528,9 @@ pub fn get_paginated_devices_excluding_ids(
 
 /// Map a batch of Entra device IDs (now attribute keys, not
 /// columns) to local asset ids. Returns `(entra_id, asset_id)`
-/// pairs for the rows whose `attributes->>'entra_device_id'` is
-/// in the set. The Intune sync uses this to resolve group
-/// memberships against the local roster.
+/// pairs for the pinned workspace's rows whose
+/// `attributes->>'entra_device_id'` is in the set. The Intune sync
+/// uses this to resolve group memberships against the local roster.
 // sync-audit-only: read-only lookup used by Intune sync to map external IDs to local asset IDs
 pub fn get_devices_by_entra_ids(
     conn: &mut DbConnection,
@@ -536,7 +541,8 @@ pub fn get_devices_by_entra_ids(
     diesel::sql_query(
         "SELECT attributes->>'entra_device_id' AS entra_id, id \
          FROM assets \
-         WHERE attributes->>'entra_device_id' = ANY($1)",
+         WHERE attributes->>'entra_device_id' = ANY($1) \
+           AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int",
     )
     .bind::<Array<Text>, _>(owned)
     .load::<EntraIdRow>(conn)
@@ -551,9 +557,9 @@ struct EntraIdRow {
     id: i32,
 }
 
-/// Batch-load full device rows whose `attributes->>{attr}` is in `values`,
-/// keyed by that attribute value. `attr` is a fixed internal key
-/// (`entra_device_id` / `microsoft_device_id`), never caller input.
+/// Batch-load the pinned workspace's device rows whose `attributes->>{attr}`
+/// is in `values`, keyed by that attribute value. `attr` is a fixed internal
+/// key (`entra_device_id` / `microsoft_device_id`), never caller input.
 fn devices_by_attr(
     conn: &mut DbConnection,
     attr: &str,
@@ -563,6 +569,7 @@ fn devices_by_attr(
     let owned: Vec<String> = values.iter().map(|s| s.to_string()).collect();
     let predicate = format!("attributes->>'{attr}' = ANY(");
     let rows: Vec<Asset> = assets::table
+        .filter(assets::workspace_id.eq(pinned_workspace()))
         .filter(
             diesel::dsl::sql::<Bool>(&predicate)
                 .bind::<Array<Text>, _>(owned)
