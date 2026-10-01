@@ -267,3 +267,82 @@ fn reference_data_always_allowed() {
         "reference data allowed for members"
     );
 }
+
+/// The live event stream filters on a pool rather than a request connection,
+/// through `filter_actions_pinned`. Pinned to the viewer's workspace, the
+/// filter sees a restricted page there and hides it from a member outside its
+/// group. The pool it gets has the production shape (runtime role, nothing
+/// pinned), where a filter that didn't pin the workspace couldn't load the page
+/// and would let it through.
+#[test]
+fn pinned_filter_hides_restricted_pages_in_the_viewers_workspace() {
+    use backend::schema::{documentation_page_visibility, documentation_pages, groups};
+    use backend::sync::session::run_in_workspace;
+    use backend::sync::visibility::filter_actions_pinned;
+
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let seeded = crate::common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let b = seeded.b.workspace_id;
+
+    let (restricted, open) = run_in_workspace(&pool, "test:sync_visibility", b, |c| {
+        let page = |c: &mut backend::db::DbConnection, title: &str| {
+            diesel::insert_into(documentation_pages::table)
+                .values((
+                    documentation_pages::title.eq(title),
+                    documentation_pages::slug.eq(title.to_lowercase()),
+                    documentation_pages::created_by.eq(seeded.b.admin_uuid),
+                    documentation_pages::last_edited_by.eq(seeded.b.admin_uuid),
+                ))
+                .returning(documentation_pages::id)
+                .get_result::<i32>(c)
+        };
+        let restricted = page(c, "Salaries")?;
+        let open = page(c, "Handbook")?;
+        let group: i32 = diesel::insert_into(groups::table)
+            .values(groups::name.eq("Payroll"))
+            .returning(groups::id)
+            .get_result(c)?;
+        diesel::insert_into(documentation_page_visibility::table)
+            .values((
+                documentation_page_visibility::page_id.eq(restricted),
+                documentation_page_visibility::group_id.eq(group),
+            ))
+            .execute(c)?;
+        Ok((restricted, open))
+    })
+    .expect("seed pages");
+
+    let rows: Vec<ActionView> = [restricted, open]
+        .into_iter()
+        .map(|id| ActionView {
+            aggregate_id: Some(id),
+            ..av(SyncAggregate::DocumentationPage)
+        })
+        .collect();
+    // One connection, left as the production pool hands it out.
+    let runtime_pool = db.pool_with_size(1);
+    {
+        let mut conn = runtime_pool.get().expect("conn");
+        diesel::sql_query("SET ROLE nosdesk_app")
+            .execute(&mut conn)
+            .expect("set role");
+        diesel::sql_query("SELECT set_config('app.workspace_id', '', false)")
+            .execute(&mut conn)
+            .expect("clear pin");
+    }
+    let filter = |viewer: &SyncViewer| {
+        filter_actions_pinned(&runtime_pool, b, viewer, &rows, |v: &ActionView| v.clone())
+    };
+
+    assert_eq!(
+        filter(&member_viewer(seeded.b.member_uuid)),
+        vec![false, true],
+        "a member outside the page's group sees only the open page"
+    );
+    let doc_admin = SyncViewer {
+        is_doc_admin: true,
+        ..staff_viewer(seeded.b.admin_uuid)
+    };
+    assert_eq!(filter(&doc_admin), vec![true, true]);
+}

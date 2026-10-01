@@ -179,6 +179,9 @@ pub fn create_documentation_page(
     conn: &mut DbConnection,
 ) -> Result<DocumentationPage, Error> {
     conn.transaction(|conn| {
+        if let Some(parent_id) = page.parent_id {
+            check_parent(conn, None, parent_id)?;
+        }
         let page: DocumentationPage = diesel::insert_into(documentation_pages::table)
             .values(page)
             .get_result(conn)?;
@@ -211,6 +214,9 @@ pub fn update_documentation_page(
     // metadata_changed.
     let is_verify = matches!(page_update.verified_at, Some(Some(_)));
     conn.transaction(|conn| {
+        if let Some(Some(parent_id)) = page_update.parent_id {
+            check_parent(conn, Some(page_id), parent_id)?;
+        }
         let page: DocumentationPage = diesel::update(documentation_pages::table.find(page_id))
             .set(page_update)
             .get_result(conn)?;
@@ -357,6 +363,9 @@ pub fn reorder_pages(
         let mut updated_pages = Vec::new();
 
         for order in page_orders {
+            if let Some(parent_id) = parent_id {
+                check_parent(conn, Some(order.page_id), parent_id)?;
+            }
             // Update the page's display_order and ensure it has the correct parent_id
             let updated_page = diesel::update(documentation_pages::table.find(order.page_id))
                 .set((
@@ -386,34 +395,48 @@ pub fn reorder_pages(
     })
 }
 
-// Check if a page is a descendant of another page (to prevent circular references)
-fn is_descendant_of(
+/// Refuse `parent_id` as the parent of `page_id` (`None` for a page being
+/// created) unless it is a page the connection can see, so one in the same
+/// workspace, and neither the page itself nor one of its descendants, which
+/// would make a cycle. Refusal is `RollbackTransaction`, which the handlers
+/// answer with 400.
+fn check_parent(
     conn: &mut DbConnection,
-    page_id: i32,
-    potential_ancestor_id: i32,
-) -> Result<bool, Error> {
-    // Get all descendants of the potential ancestor recursively
-    let descendants = get_all_descendant_ids(conn, potential_ancestor_id)?;
-    Ok(descendants.contains(&page_id))
+    page_id: Option<i32>,
+    parent_id: i32,
+) -> Result<(), Error> {
+    let parent_exists = documentation_pages::table
+        .find(parent_id)
+        .select(documentation_pages::id)
+        .first::<i32>(conn)
+        .optional()?
+        .is_some();
+    let makes_cycle = match page_id {
+        Some(page_id) => {
+            parent_id == page_id || get_all_descendant_ids(conn, page_id)?.contains(&parent_id)
+        }
+        None => false,
+    };
+    if !parent_exists || makes_cycle {
+        return Err(Error::RollbackTransaction);
+    }
+    Ok(())
 }
 
-// Get all descendant IDs of a page recursively
+/// Every page below `page_id`. Each page is visited once, so a parent cycle
+/// already in the data can't loop it.
 fn get_all_descendant_ids(conn: &mut DbConnection, page_id: i32) -> Result<Vec<i32>, Error> {
+    let mut seen = std::collections::HashSet::from([page_id]);
     let mut all_descendants = Vec::new();
     let mut pages_to_check = vec![page_id];
 
     while !pages_to_check.is_empty() {
-        // Get direct children of all pages in the current batch
-        let children: Vec<DocumentationPage> = documentation_pages::table
+        let children: Vec<i32> = documentation_pages::table
             .filter(documentation_pages::parent_id.eq_any(&pages_to_check))
+            .select(documentation_pages::id)
             .load(conn)?;
-
-        // Clear the pages to check and add the children's IDs
-        pages_to_check.clear();
-        for child in children {
-            all_descendants.push(child.id);
-            pages_to_check.push(child.id);
-        }
+        pages_to_check = children.into_iter().filter(|id| seen.insert(*id)).collect();
+        all_descendants.extend(&pages_to_check);
     }
 
     Ok(all_descendants)
@@ -428,17 +451,8 @@ pub fn move_page_to_parent(
 ) -> Result<DocumentationPage, Error> {
     // Begin transaction
     conn.transaction(|conn| {
-        // Validation 1: Cannot move a page to be its own parent
-        if new_parent_id == Some(page_id) {
-            return Err(Error::RollbackTransaction);
-        }
-
-        // Validation 2: Cannot move a page to be a child of its own descendant
-        // (this would create a circular reference)
         if let Some(parent_id) = new_parent_id {
-            if is_descendant_of(conn, parent_id, page_id)? {
-                return Err(Error::RollbackTransaction);
-            }
+            check_parent(conn, Some(page_id), parent_id)?;
         }
 
         // Update the page's parent_id and display_order
@@ -1505,5 +1519,121 @@ mod tests {
             hidden.is_empty(),
             "a delete of an unseen page must not be filtered"
         );
+    }
+
+    fn page_titled(created_by: Uuid, title: &str, parent_id: Option<i32>) -> NewDocumentationPage {
+        NewDocumentationPage {
+            title: title.to_string(),
+            slug: title.to_lowercase().replace(' ', "-"),
+            parent_id,
+            ..make_page(created_by)
+        }
+    }
+
+    fn reparent(parent_id: i32) -> DocumentationPageUpdate {
+        DocumentationPageUpdate {
+            title: None,
+            slug: None,
+            icon: None,
+            cover_image: None,
+            status: None,
+            last_edited_by: None,
+            parent_id: Some(Some(parent_id)),
+            display_order: None,
+            is_public: None,
+            is_template: None,
+            archived_at: None,
+            yjs_state_vector: None,
+            yjs_document: None,
+            yjs_client_id: None,
+            has_unsaved_changes: None,
+            updated_at: None,
+            deleted_at: None,
+            verified_by: None,
+            verified_at: None,
+            verify_interval_days: None,
+        }
+    }
+
+    fn refused<T: std::fmt::Debug>(result: Result<T, Error>) -> bool {
+        matches!(result, Err(Error::RollbackTransaction))
+    }
+
+    /// Every path that sets a parent refuses the page itself, one of its
+    /// descendants, and a page that doesn't exist; a real move still works.
+    #[test]
+    fn a_page_cannot_become_its_own_ancestor() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "cycleuser", "admin");
+        let top =
+            create_documentation_page(page_titled(user.uuid, "Top", None), &mut conn).unwrap();
+        let child =
+            create_documentation_page(page_titled(user.uuid, "Child", Some(top.id)), &mut conn)
+                .unwrap();
+        let grandchild = create_documentation_page(
+            page_titled(user.uuid, "Grandchild", Some(child.id)),
+            &mut conn,
+        )
+        .unwrap();
+        let other =
+            create_documentation_page(page_titled(user.uuid, "Other", None), &mut conn).unwrap();
+
+        for parent in [top.id, child.id, grandchild.id] {
+            assert!(
+                refused(update_documentation_page(
+                    &mut conn,
+                    top.id,
+                    &reparent(parent)
+                )),
+                "update under {parent}"
+            );
+            assert!(
+                refused(move_page_to_parent(&mut conn, top.id, Some(parent), 0)),
+                "move under {parent}"
+            );
+            let order = [PageOrder {
+                page_id: top.id,
+                display_order: 0,
+            }];
+            assert!(
+                refused(reorder_pages(&mut conn, Some(parent), &order)),
+                "reorder under {parent}"
+            );
+        }
+        let missing = i32::MAX;
+        assert!(refused(create_documentation_page(
+            page_titled(user.uuid, "Orphan", Some(missing)),
+            &mut conn
+        )));
+        assert!(refused(update_documentation_page(
+            &mut conn,
+            child.id,
+            &reparent(missing)
+        )));
+
+        let moved = move_page_to_parent(&mut conn, top.id, Some(other.id), 0).unwrap();
+        assert_eq!(moved.parent_id, Some(other.id));
+        let moved =
+            update_documentation_page(&mut conn, grandchild.id, &reparent(other.id)).unwrap();
+        assert_eq!(moved.parent_id, Some(other.id));
+    }
+
+    /// A parent cycle already in the data (written before the check existed)
+    /// can't hang the descendant walk, and a move into it is still refused.
+    #[test]
+    fn the_descendant_walk_survives_an_existing_cycle() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "loopuser", "admin");
+        let a =
+            create_documentation_page(page_titled(user.uuid, "Loop A", None), &mut conn).unwrap();
+        let b = create_documentation_page(page_titled(user.uuid, "Loop B", Some(a.id)), &mut conn)
+            .unwrap();
+        diesel::update(documentation_pages::table.find(a.id))
+            .set(documentation_pages::parent_id.eq(b.id))
+            .execute(&mut conn)
+            .unwrap();
+
+        assert_eq!(get_all_descendant_ids(&mut conn, a.id).unwrap(), vec![b.id]);
+        assert!(refused(move_page_to_parent(&mut conn, a.id, Some(b.id), 0)));
     }
 }
