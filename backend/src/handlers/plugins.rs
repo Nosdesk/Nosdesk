@@ -12,7 +12,8 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::errors::{self, ApiError};
-use crate::extractors::TenantConn;
+use crate::extractors::{AuthContext, TenantConn};
+use crate::handlers::files::authorize_at_owning_workspace;
 use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{
@@ -21,6 +22,7 @@ use crate::models::{
 };
 use crate::repository::plugin_publishers;
 use crate::repository::plugins as plugin_repo;
+use crate::repository::user_helpers;
 use crate::services::plugins::{install, registry, signing, trust};
 use crate::sync::actor::ActorContext;
 use crate::sync::session as actor_session;
@@ -1341,33 +1343,47 @@ pub async fn get_plugin_runtime_settings(
 // Plugin Bundle Handlers
 // =============================================================================
 
-/// Serve a plugin's `icon.svg` bytes. No auth required: icons are
-/// shown in plugin lists that any logged-in user might see, and
-/// they carry no secrets. Cache freely; the URL doesn't change
-/// when the icon does, but the contents do, so we send a weak
-/// `ETag` derived from the plugin's `updated_at` via the route's
-/// `Last-Modified` semantics. For simplicity we just cache for 5
-/// minutes and let the next install bust it via row update.
-pub async fn serve_plugin_icon(mut tc: TenantConn, path: web::Path<Uuid>) -> impl Responder {
+/// Serve a plugin's `icon.svg` bytes to any member of the workspace it
+/// is installed in; icons carry no secrets. An `<img>` loads it without
+/// the workspace selection header, so the workspace comes from the
+/// installation (see `authorize_at_owning_workspace`). The URL doesn't
+/// change when the icon does, so it is cached for only 5 minutes and
+/// the next install replaces it.
+pub async fn serve_plugin_icon(
+    pool: web::Data<Pool>,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+) -> impl Responder {
     let plugin_uuid = path.into_inner();
-    match tc.run(|conn| plugin_repo::get_plugin_icon(conn, plugin_uuid)) {
-        Ok((state, _)) if !matches!(state, crate::models::PluginState::Installed) => {
+    let icon = authorize_at_owning_workspace(
+        &pool,
+        &auth,
+        |c| plugin_repo::workspace_id_by_uuid(c, plugin_uuid),
+        |c, _| {
+            if user_helpers::workspace_role(c, auth.user_uuid).is_none() {
+                return Ok(None);
+            }
+            match plugin_repo::get_plugin_icon(c, plugin_uuid) {
+                Ok(icon) => Ok(Some(icon)),
+                Err(DieselError::NotFound) => Ok(None),
+                Err(e) => Err(e),
+            }
+        },
+    );
+    match icon {
+        Ok((_, (state, _))) if !matches!(state, crate::models::PluginState::Installed) => {
             // Quarantined / disabled / uninstalled plugins do not
             // serve their icon. Mirrors the bundle handler's
             // is_active() gate so an inactive plugin's bytes never
             // leak through any serving endpoint.
             errors::not_found_msg("Not found")
         }
-        Ok((_, Some(bytes))) => HttpResponse::Ok()
+        Ok((_, (_, Some(bytes)))) => HttpResponse::Ok()
             .content_type("image/svg+xml")
-            .insert_header(("Cache-Control", "public, max-age=300"))
+            .insert_header(("Cache-Control", "private, max-age=300"))
             .body(bytes),
-        Ok((_, None)) => errors::not_found_msg("Not found"),
-        Err(DieselError::NotFound) => errors::not_found_msg("Not found"),
-        Err(e) => {
-            error!("Failed to load plugin icon: {}", e);
-            errors::internal("Failed to load plugin icon")
-        }
+        Ok((_, (_, None))) => errors::not_found_msg("Not found"),
+        Err(e) => HttpResponse::from_error(e),
     }
 }
 

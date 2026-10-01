@@ -231,6 +231,21 @@ pub fn get_plugin_icon(
         .first::<(crate::models::PluginState, Option<Vec<u8>>)>(conn)
 }
 
+/// The workspace a plugin is installed in (`plugins.uuid` is unique across
+/// workspaces), for the icon route, which derives the workspace from the
+/// resource because a direct browser load carries no selection header. Call it
+/// elevated (BYPASSRLS): it reveals only a workspace id.
+pub fn workspace_id_by_uuid(
+    conn: &mut DbConnection,
+    plugin_uuid: Uuid,
+) -> Result<Option<i32>, diesel::result::Error> {
+    plugins::table
+        .filter(plugins::uuid.eq(plugin_uuid))
+        .select(plugins::workspace_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
 // =============================================================================
 // Signing inventory telemetry
 // =============================================================================

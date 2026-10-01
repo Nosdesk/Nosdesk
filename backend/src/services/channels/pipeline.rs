@@ -49,6 +49,7 @@ use crate::repository::{
 use crate::services::channels::{ChannelAdapter, InboundAttachment, InboundEvent, InboundMessage};
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
+use crate::utils::file_validation::FileValidator;
 use crate::utils::storage::{Storage, WorkspaceScopedStorage};
 
 /// Outcome of processing a single inbound event. Returned for logging /
@@ -507,6 +508,7 @@ pub async fn process_event(
         conn,
         ctx,
         channel.workspace_id,
+        ticket.id,
         comment.id,
         sender_uuid,
         &msg.attachments,
@@ -948,6 +950,7 @@ async fn persist_attachments(
     conn: &mut DbConnection,
     ctx: &PipelineContext,
     workspace_id: i32,
+    ticket_id: i32,
     comment_id: i32,
     uploader: uuid::Uuid,
     attachments: &[InboundAttachment],
@@ -961,9 +964,11 @@ async fn persist_attachments(
         }
         return;
     };
-    // Scope to the channel's workspace so inbound attachments land under
-    // ws/{id}/tickets/... like every other tenant object.
+    // Scope to the channel's workspace, and file under the ticket the way an
+    // attached upload is: the serve route authorizes a ticket file by the
+    // ticket id that leads its path.
     let storage = WorkspaceScopedStorage::arc(base_storage.clone(), workspace_id);
+    let folder = format!("tickets/{ticket_id}");
 
     for att in attachments {
         let materialized = match materialize_attachment(att, ctx.http.as_ref()).await {
@@ -974,12 +979,16 @@ async fn persist_attachments(
             }
         };
 
+        // The sender picks the name. Store it in the form an upload gets, one
+        // plain path segment; the row keeps the original for display.
+        let stored_name = FileValidator::sanitize_filename(&materialized.filename)
+            .unwrap_or_else(|_| "attachment".to_string());
         let stored = match storage
             .store_file(
                 &materialized.bytes,
-                &materialized.filename,
+                &stored_name,
                 &materialized.mime_type,
-                "tickets",
+                &folder,
             )
             .await
         {
@@ -1489,6 +1498,71 @@ mod tests {
         assert_eq!(recorded.ticket_id, Some(ticket_id));
         assert_eq!(recorded.comment_id, Some(comment_id));
         assert_eq!(recorded.direction, CHANNEL_DIRECTION_INBOUND);
+    }
+
+    /// Inbound attachments are filed under their ticket, as an attached upload
+    /// is, which is what the ticket file route authorizes by. The stored name is
+    /// one plain path segment whatever the sender called the file.
+    #[tokio::test]
+    async fn inbound_attachments_are_filed_under_their_ticket() {
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+        let root = tempfile::tempdir().expect("tempdir");
+        let storage =
+            crate::utils::storage::create_storage(crate::utils::storage::StorageConfig::Local {
+                base_path: root.path().to_string_lossy().into_owned(),
+            });
+        let ctx = PipelineContext {
+            storage: Some(storage.clone()),
+            ..PipelineContext::bare()
+        };
+        let mut msg = sample_message("<att@ex>", vec![], Some("Scan attached"));
+        msg.attachments = vec![InboundAttachment::Inline {
+            filename: "../Quarterly report.pdf".into(),
+            mime_type: "application/pdf".into(),
+            bytes: b"%PDF-1.4".to_vec(),
+        }];
+
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &ctx,
+        )
+        .await
+        .expect("process_event");
+        let (ticket_id, comment_id) = match outcome {
+            PipelineOutcome::TicketOpened {
+                ticket_id,
+                comment_id,
+            } => (ticket_id, comment_id),
+            other => panic!("expected TicketOpened, got {other:?}"),
+        };
+
+        let rows = comments_repo::get_attachments_by_comment_id(&mut conn, comment_id).unwrap();
+        let [attachment] = rows.as_slice() else {
+            panic!("one attachment row, got {rows:?}");
+        };
+        let stored_name = attachment
+            .url
+            .strip_prefix(&format!("/uploads/tickets/{ticket_id}/"))
+            .unwrap_or_else(|| panic!("filed under its ticket: {}", attachment.url));
+        assert!(
+            !stored_name.contains('/') && stored_name.ends_with("_Quarterlyreport.pdf"),
+            "stored under a sanitized name: {stored_name}"
+        );
+        assert_eq!(
+            attachment.name, "../Quarterly report.pdf",
+            "the row keeps the sender's name for display"
+        );
+
+        let scoped = WorkspaceScopedStorage::arc(storage, ch.workspace_id);
+        let bytes = scoped
+            .get_file(&format!("tickets/{ticket_id}/{stored_name}"))
+            .await
+            .expect("stored in the workspace's ticket folder");
+        assert_eq!(bytes, b"%PDF-1.4");
     }
 
     #[tokio::test]

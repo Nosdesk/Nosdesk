@@ -17,7 +17,7 @@ use crate::models::{SiteSettingsResponse, UpdateSiteSettings, WorkspaceRole};
 use crate::repository::site_settings;
 use crate::utils;
 use crate::utils::rbac::require_workspace_role;
-use crate::utils::storage::{Storage, WorkspaceScopedStorage};
+use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
 
 /// Logical storage folder for branding objects. Physically this sits under the
 /// workspace prefix `WorkspaceScopedStorage` adds, so one workspace's branding
@@ -643,7 +643,7 @@ pub async fn serve_workspace_branding_file(
     let storage =
         WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace.workspace_id);
     let logical_path = format!("{BRANDING_DIR}/{filename}");
-    match serve_or_not_found(storage, &logical_path, &req).await {
+    match serve_or_not_found(storage, &logical_path, &req, Caching::Public).await {
         Ok(response) => Ok(response),
         Err(_) => Err(ApiError::NotFoundMsg("Not found".into())),
     }
@@ -674,7 +674,14 @@ pub async fn serve_branding_file(
     }
 
     let logical_path = format!("{BRANDING_DIR}/{filename}");
-    match serve_or_not_found(base_storage.get_ref().clone(), &logical_path, &req).await {
+    match serve_or_not_found(
+        base_storage.get_ref().clone(),
+        &logical_path,
+        &req,
+        Caching::Public,
+    )
+    .await
+    {
         Ok(response) => response,
         Err(_) => errors::not_found_msg("Not found"),
     }

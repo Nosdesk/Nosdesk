@@ -1253,7 +1253,13 @@ pub async fn download_attachment(
         base_storage.get_ref().clone(),
         portal.workspace_id,
     );
-    crate::handlers::files::serve_or_not_found(storage, file_path, &req).await
+    crate::handlers::files::serve_or_not_found(
+        storage,
+        file_path,
+        &req,
+        crate::utils::storage::Caching::Private,
+    )
+    .await
 }
 
 /// `POST /api/portal/files`: stage one file for the requester's next reply or

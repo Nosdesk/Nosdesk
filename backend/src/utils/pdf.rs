@@ -1,8 +1,9 @@
 use image::ImageFormat;
 use pdfium_render::prelude::{PdfPageRenderRotation, PdfRenderConfig, Pdfium};
 use std::sync::OnceLock;
-use tokio::fs;
 use tracing::{debug, error, info, warn};
+
+use crate::utils::storage::Storage;
 
 /// Track whether pdfium is available (checked once at startup)
 static PDFIUM_AVAILABLE: OnceLock<bool> = OnceLock::new();
@@ -65,31 +66,20 @@ fn create_pdfium() -> Option<Pdfium> {
     None
 }
 
-/// Generate a WebP thumbnail from a PDF's first page
+/// Render a PDF's first page as WebP, within `max_width` x `max_height`.
 ///
-/// # Arguments
-/// * `pdf_bytes` - The raw PDF file bytes
-/// * `output_path` - Where to save the thumbnail (without extension, .webp will be added)
-/// * `max_width` - Maximum width of the thumbnail
-/// * `max_height` - Maximum height of the thumbnail
-///
-/// # Returns
-/// * `Ok(Some(path))` - Thumbnail generated successfully, returns the file path
-/// * `Ok(None)` - PDF rendering not available or PDF couldn't be processed
-/// * `Err(e)` - An error occurred
-pub async fn generate_pdf_thumbnail(
+/// `Ok(None)` when pdfium isn't available or the PDF can't be rendered.
+async fn render_pdf_thumbnail(
     pdf_bytes: &[u8],
-    output_path: &str,
     max_width: u32,
     max_height: u32,
-) -> Result<Option<String>, String> {
+) -> Result<Option<Vec<u8>>, String> {
     if !check_pdfium_available() {
         debug!("Pdfium not available, skipping thumbnail generation");
         return Ok(None);
     }
 
     let pdf_bytes = pdf_bytes.to_vec();
-    let output_path = output_path.to_string();
 
     // Process PDF in a blocking task to avoid blocking the async runtime
     let thumbnail_result = tokio::task::spawn_blocking(move || {
@@ -98,33 +88,11 @@ pub async fn generate_pdf_thumbnail(
     .await
     .map_err(|e| format!("PDF thumbnail task panicked: {e}"))?;
 
-    let webp_bytes = match thumbnail_result {
-        Ok(Some(bytes)) => bytes,
-        Ok(None) => return Ok(None),
+    match thumbnail_result {
+        Ok(bytes) => Ok(bytes),
         Err(e) => {
             error!(error = %e, "Failed to generate PDF thumbnail");
-            return Ok(None);
-        }
-    };
-
-    // Save the thumbnail
-    let thumb_path = format!("{output_path}.webp");
-
-    // Ensure parent directory exists
-    if let Some(parent) = std::path::Path::new(&thumb_path).parent() {
-        if let Err(e) = fs::create_dir_all(parent).await {
-            return Err(format!("Failed to create thumbnail directory: {e}"));
-        }
-    }
-
-    match fs::write(&thumb_path, &webp_bytes).await {
-        Ok(_) => {
-            debug!(path = %thumb_path, "Successfully saved PDF thumbnail");
-            Ok(Some(thumb_path))
-        }
-        Err(e) => {
-            error!(error = %e, path = %thumb_path, "Failed to save PDF thumbnail");
-            Err(format!("Failed to save thumbnail: {e}"))
+            Ok(None)
         }
     }
 }
@@ -188,33 +156,75 @@ fn generate_thumbnail_sync(
     Ok(Some(webp_bytes))
 }
 
-/// Generate a thumbnail for a PDF and store it alongside the original file
-/// Returns the URL path to the thumbnail if successful
-pub async fn generate_and_store_pdf_thumbnail(
-    pdf_bytes: &[u8],
-    original_file_path: &str,
-    storage_base: &str,
-) -> Result<Option<String>, String> {
-    // Generate thumbnail path by replacing extension with _thumb.webp
-    let thumb_path = original_file_path
+/// What replaces a PDF's `.pdf` extension in its thumbnail's name. The frontend
+/// derives a thumbnail URL from the attachment URL the same way.
+const THUMB_SUFFIX: &str = "_thumb.webp";
+
+/// Path of a PDF's thumbnail: `.pdf` (or `.PDF`) becomes `_thumb.webp`. `None`
+/// for any other extension.
+pub fn thumbnail_path(pdf_path: &str) -> Option<String> {
+    pdf_path
         .strip_suffix(".pdf")
-        .or_else(|| original_file_path.strip_suffix(".PDF"))
-        .map(|base| format!("{base}_thumb"))
-        .unwrap_or_else(|| format!("{original_file_path}_thumb"));
+        .or_else(|| pdf_path.strip_suffix(".PDF"))
+        .map(|base| format!("{base}{THUMB_SUFFIX}"))
+}
 
-    let full_thumb_path = format!("{storage_base}/{thumb_path}");
+/// The PDF paths a thumbnail path can belong to, the inverse of
+/// [`thumbnail_path`]. Empty when the path isn't a thumbnail's.
+pub fn pdf_paths_for_thumbnail(thumb_path: &str) -> Vec<String> {
+    thumb_path
+        .strip_suffix(THUMB_SUFFIX)
+        .map(|base| vec![format!("{base}.pdf"), format!("{base}.PDF")])
+        .unwrap_or_default()
+}
 
-    // Generate thumbnail (300px max width/height for grid view)
-    match generate_pdf_thumbnail(pdf_bytes, &full_thumb_path, 300, 400).await? {
-        Some(saved_path) => {
-            // Convert filesystem path to URL path
-            let url_path = saved_path
-                .strip_prefix(storage_base)
-                .map(|p| format!("/uploads{p}"))
-                .unwrap_or_else(|| format!("/uploads/{thumb_path}.webp"));
+/// Render a thumbnail of the PDF stored at `pdf_path` and store it beside the
+/// PDF, at [`thumbnail_path`], through the same storage. Pass the request's
+/// workspace-scoped storage so the thumbnail lands in the workspace's prefix and
+/// moves with the PDF when it is attached. Returns the thumbnail's URL, or
+/// `None` when no thumbnail could be rendered.
+pub async fn store_pdf_thumbnail(
+    storage: &dyn Storage,
+    pdf_bytes: &[u8],
+    pdf_path: &str,
+) -> Result<Option<String>, String> {
+    let Some(thumb_path) = thumbnail_path(pdf_path) else {
+        return Ok(None);
+    };
+    // 300x400 max for the attachment grid.
+    let Some(webp) = render_pdf_thumbnail(pdf_bytes, 300, 400).await? else {
+        return Ok(None);
+    };
+    storage
+        .put_file(&webp, &thumb_path, "image/webp")
+        .await
+        .map(|stored| Some(stored.url))
+        .map_err(|e| format!("Failed to store thumbnail: {e:?}"))
+}
 
-            Ok(Some(url_path))
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn thumbnail_path_replaces_the_pdf_extension() {
+        assert_eq!(
+            thumbnail_path("temp/0190_report.pdf").as_deref(),
+            Some("temp/0190_report_thumb.webp")
+        );
+        assert_eq!(
+            thumbnail_path("temp/0190_SCAN.PDF").as_deref(),
+            Some("temp/0190_SCAN_thumb.webp")
+        );
+        assert_eq!(thumbnail_path("temp/0190_photo.png"), None);
+    }
+
+    #[test]
+    fn pdf_paths_for_thumbnail_inverts_thumbnail_path() {
+        for pdf in ["temp/0190_report.pdf", "temp/0190_SCAN.PDF"] {
+            let thumb = thumbnail_path(pdf).expect("a pdf has a thumbnail path");
+            assert!(pdf_paths_for_thumbnail(&thumb).contains(&pdf.to_string()));
         }
-        None => Ok(None),
+        assert!(pdf_paths_for_thumbnail("temp/0190_photo.png").is_empty());
     }
 }

@@ -38,6 +38,16 @@ pub fn workspace_id_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<
         .optional()
 }
 
+/// [`workspace_id_by_uuid`] by integer id, for the ticket file routes. Same
+/// contract: call it elevated.
+pub fn workspace_id_by_id(conn: &mut DbConnection, id: i32) -> QueryResult<Option<i32>> {
+    tickets::table
+        .filter(tickets::id.eq(id))
+        .select(tickets::workspace_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
 /// Inverse of [`id_by_uuid`]: the immutable UUID for an integer id, or
 /// `None` if no live ticket has it. Used when building a UUID-keyed
 /// collab doc_id from an integer id (e.g. revision restore).

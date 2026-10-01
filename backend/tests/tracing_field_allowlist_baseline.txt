@@ -67,7 +67,6 @@ src/handlers/collab_images.rs doc_id
 src/handlers/collab_images.rs field_name
 src/handlers/collab_images.rs filename
 src/handlers/collab_images.rs original_filename
-src/handlers/collab_images.rs resource_uuid
 src/handlers/collab_images.rs url
 src/handlers/collaboration.rs bytes
 src/handlers/collaboration.rs child_count

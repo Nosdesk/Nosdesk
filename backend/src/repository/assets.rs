@@ -351,6 +351,18 @@ pub fn get_device_by_id(conn: &mut DbConnection, device_id: i32) -> QueryResult<
     assets::table.find(device_id).first(conn)
 }
 
+/// The workspace that owns an asset, for the asset media route, which derives
+/// the workspace from the resource because a direct browser load carries no
+/// selection header. Call it elevated (BYPASSRLS): it reveals only a workspace
+/// id, and the caller gates on membership under that workspace's pin.
+pub fn asset_workspace_id(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Option<i32>> {
+    assets::table
+        .filter(assets::id.eq(asset_id))
+        .select(assets::workspace_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
 /// Look up an asset by the `entra_device_id` attribute key.
 /// The ID moved out of its own column in Pass B; this helper
 /// hides the JSONB path so Intune sync handlers stay readable.

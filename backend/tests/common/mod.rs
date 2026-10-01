@@ -545,7 +545,7 @@ pub struct TwoWorkspaces {
 /// "admin" distinction is the workspace_members.role, not a
 /// platform super-admin bit (unlike [`insert_user`], which mints a
 /// bootstrap platform admin).
-fn insert_plain_user(conn: &mut PgConnection, name: &str) -> Uuid {
+pub fn insert_plain_user(conn: &mut PgConnection, name: &str) -> Uuid {
     use backend::models::NewUser;
     use backend::schema::users;
     let u: backend::models::User = diesel::insert_into(users::table)

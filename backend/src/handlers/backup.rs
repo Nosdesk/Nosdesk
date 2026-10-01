@@ -1,5 +1,5 @@
 use crate::errors::{self, ApiError};
-use crate::extractors::TenantConn;
+use crate::extractors::{PlatformConn, TenantConn};
 use crate::handlers::helpers;
 use actix_multipart::Multipart;
 use actix_web::{web, HttpMessage, HttpResponse, Responder};
@@ -220,8 +220,12 @@ pub async fn get_job(
 
 /// Download a completed backup
 /// GET /api/admin/backup/download/{id}
+///
+/// A backup covers the whole instance, not one workspace, and the browser
+/// downloads it without the workspace selection header, so the job is read
+/// across workspaces once the caller is known to be a platform admin.
 pub async fn download_backup(
-    mut tc: TenantConn,
+    mut pc: PlatformConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
@@ -241,7 +245,7 @@ pub async fn download_backup(
         Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
-    let job = match tc.run(|conn| backup_repo::get_backup_job(conn, job_id)) {
+    let job = match pc.run(|conn| backup_repo::get_backup_job(conn, job_id)) {
         Ok(job) => job,
         Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
         Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
@@ -264,13 +268,20 @@ pub async fn download_backup(
                 .and_then(|n| n.to_str())
                 .unwrap_or("backup.zip");
 
-            file.set_content_disposition(actix_web::http::header::ContentDisposition {
-                disposition: actix_web::http::header::DispositionType::Attachment,
-                parameters: vec![actix_web::http::header::DispositionParam::Filename(
-                    filename.to_string(),
-                )],
-            })
-            .into_response(&req)
+            let mut response = file
+                .set_content_disposition(actix_web::http::header::ContentDisposition {
+                    disposition: actix_web::http::header::DispositionType::Attachment,
+                    parameters: vec![actix_web::http::header::DispositionParam::Filename(
+                        filename.to_string(),
+                    )],
+                })
+                .into_response(&req);
+            // The whole instance's data: never kept by any cache.
+            response.headers_mut().insert(
+                actix_web::http::header::CACHE_CONTROL,
+                actix_web::http::header::HeaderValue::from_static("no-store"),
+            );
+            response
         }
         Err(e) => errors::internal(format!("Failed to read backup file: {}", e)),
     }
