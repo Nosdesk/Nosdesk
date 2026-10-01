@@ -33,7 +33,7 @@ use uuid::Uuid;
 use crate::db::{DbConnection, Pool};
 use crate::errors::{self, ApiError};
 use crate::extractors::{TenantConn, WorkspaceContext};
-use crate::middleware::cookie_auth::{require_workspace_membership, PORTAL_SCOPE};
+use crate::middleware::cookie_auth::{require_portal_membership, PORTAL_SCOPE};
 use crate::models::{Claims, ContentFormat, NewComment, NewTicket, Ticket, TicketPriority, User};
 use crate::repository::ticket_visibility::{
     can_view_ticket, visible_tickets_query, VisibilityContext,
@@ -109,8 +109,8 @@ pub struct PortalContext {
 /// 2. The token is workspace-bound and that binding equals the workspace the
 ///    request's ORIGIN resolved to. This is what stops a portal token minted
 ///    for tenant A from being replayed onto tenant B's portal origin.
-/// 3. The subject is a member of that workspace (the baseline `Member` row a
-///    customer holds; reuses the agent membership check, RLS-pinned).
+/// 3. The subject is a member of that workspace in any role (the baseline
+///    `Member` row a customer holds), RLS-pinned.
 pub fn authorize_portal_request(
     req: &ServiceRequest,
     conn: &mut DbConnection,
@@ -139,7 +139,7 @@ pub fn authorize_portal_request(
 
     let user_uuid = Uuid::parse_str(&claims.sub)
         .map_err(|_| actix_web::error::ErrorForbidden("Not a member of this workspace"))?;
-    require_workspace_membership(conn, origin_ctx.workspace_id, user_uuid)?;
+    require_portal_membership(conn, origin_ctx.workspace_id, user_uuid)?;
 
     Ok(PortalContext {
         user_uuid,
@@ -317,7 +317,7 @@ pub async fn refresh_portal_session(
             // cannot be told apart from the ordinary case of a customer whose
             // membership was removed, and burning their family adds nothing
             // once the refresh is already refused.
-            require_workspace_membership(conn, workspace_id, user.uuid)
+            require_portal_membership(conn, workspace_id, user.uuid)
                 .map_err(|_| ApiError::Unauthorized("Invalid or expired refresh token".into()))?;
             crate::utils::jwt::JwtUtils::create_portal_token(user, workspace_uuid, session_id)
                 .map_err(|_| ApiError::Internal("Failed to create access token".into()))
@@ -800,7 +800,7 @@ impl FromRequest for PortalContext {
     }
 }
 
-// tenant-read-exempt: authorize_portal_request's only tenant read is require_workspace_membership, which pins via with_actor_context (invisible to the scanner).
+// tenant-read-exempt: authorize_portal_request's only tenant read is require_portal_membership, which pins via with_actor_context (invisible to the scanner).
 /// Authenticate a portal request from its `portal_access` cookie and gate it.
 /// Mirrors the agent `cookie_auth_middleware`: validate the token (and its
 /// session), run the portal authorization gate, then pin the request actor to
