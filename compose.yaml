@@ -33,11 +33,15 @@ services:
       retries: 3
 
   postgres:
-    image: postgres:17-bookworm
+    # Nosdesk needs PostgreSQL 18 or later. From 18 the image keeps its data
+    # under 18/docker in this volume. Coming from PostgreSQL 17 (Nosdesk 1.0),
+    # the container refuses to start on the old data until it is upgraded: see
+    # "Upgrading PostgreSQL" in the installation guide.
+    image: postgres:18-bookworm
     restart: unless-stopped
     env_file: .env
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
       - ./init-db.sh:/docker-entrypoint-initdb.d/01-init-db.sh:ro
     networks:
       - nosdesk-network
