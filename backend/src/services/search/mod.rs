@@ -345,6 +345,12 @@ impl SearchService {
                     else {
                         return Ok(None);
                     };
+                    // Read the ticket's state so its index document gets the
+                    // category.
+                    crate::repository::workflow_states::category_of(
+                        conn,
+                        ticket.workflow_state_id,
+                    )?;
                     let article =
                         crate::repository::article_content::get_article_content_by_ticket_id(
                             conn, ticket_id,

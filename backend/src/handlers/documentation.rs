@@ -500,12 +500,13 @@ fn linked_ticket_meta(
             .filter(tickets::id.eq_any(ticket_ids))
             .select((tickets::id, tickets::title, tickets::workflow_state_id))
             .load(conn)?;
+    let categories = crate::repository::workflow_states::categories(conn)?;
     Ok(rows
         .into_iter()
         .map(|(id, title, ws_id)| {
-            let cat = crate::repository::workflow_states::category_of(conn, ws_id)
-                .ok()
-                .flatten()
+            let cat = categories
+                .get(&ws_id)
+                .copied()
                 .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
             (id, (title, cat))
         })

@@ -29,9 +29,10 @@ pub fn index_document_from_ticket(
     };
 
     // Build metadata from ticket fields. The workflow-state category is
-    // the searchable status token; the cached lookup avoids a DB roundtrip
-    // on the indexing hot path. Falls back to "backlog" if the cache is
-    // cold (the next reindex picks up the correct value).
+    // the searchable status token, read from memory to keep the indexing hot
+    // path off the database. It is known once this process has read the state
+    // (`rebuild_index` and `reindex_ticket` read it first); otherwise it
+    // falls back to "backlog" until the next reindex.
     let category_str =
         crate::repository::workflow_states::category_of_cached(ticket.workflow_state_id)
             .map(|c| c.as_str())
@@ -353,7 +354,9 @@ pub fn rebuild_index(
         projects: 0,
     };
 
-    // Index all tickets with their article contents
+    // Index all tickets with their article contents. Their states'
+    // categories are read first, for `index_document_from_ticket`.
+    crate::repository::workflow_states::remember_visible_categories(conn)?;
     let all_tickets: Vec<models::Ticket> = tickets::table.load(conn)?;
     let all_article_contents: Vec<models::ArticleContent> = article_contents::table.load(conn)?;
 

@@ -200,10 +200,13 @@ fn queue_stats(conn: &mut DbConnection) -> QueryResult<QueueStats> {
         .select((tickets::workflow_state_id, tickets::priority, count_star()))
         .load(conn)?;
 
+    let categories = crate::repository::workflow_states::categories(conn)?;
     let mut s = QueueStats::default();
     for (ws_id, priority, count) in &rows {
         s.total += count;
-        let cat = crate::repository::workflow_states::category_of(conn, *ws_id)?
+        let cat = categories
+            .get(ws_id)
+            .copied()
             .unwrap_or(WorkflowStateCategory::Backlog);
         match cat {
             WorkflowStateCategory::Triage | WorkflowStateCategory::Backlog => s.open += count,
@@ -295,9 +298,12 @@ fn aggregate_rows(
     conn: &mut DbConnection,
     rows: &[(i32, TicketPriority, i64)],
 ) -> QueryResult<ScopedStats> {
+    let categories = crate::repository::workflow_states::categories(conn)?;
     let mut s = ScopedStats::default();
     for (ws_id, priority, count) in rows {
-        let cat = crate::repository::workflow_states::category_of(conn, *ws_id)?
+        let cat = categories
+            .get(ws_id)
+            .copied()
             .unwrap_or(WorkflowStateCategory::Backlog);
         match cat {
             WorkflowStateCategory::Triage | WorkflowStateCategory::Backlog => s.open += count,
