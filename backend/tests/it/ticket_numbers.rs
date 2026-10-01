@@ -121,11 +121,8 @@ fn a_restore_counts_on_from_the_restored_numbers() {
     open(&pool, a, "Printer jammed");
     open(&pool, a, "Monitor flickers");
 
-    // Encrypted: a plaintext backup leaves out webhook secrets, which the
-    // seeded workspaces have.
-    let password = Some("ticket-numbers");
     let job = common::seed_backup_job(&mut conn);
-    let archive = backup::create_backup(&mut conn, job, password).expect("create_backup");
+    let archive = backup::create_backup(&mut conn, job, None).expect("create_backup");
     // As on a fresh instance, which has no sequence for the workspace yet.
     diesel::sql_query(format!("DROP SEQUENCE ticket_numbers.workspace_{a}"))
         .execute(&mut conn)
@@ -133,7 +130,7 @@ fn a_restore_counts_on_from_the_restored_numbers() {
     backup::restore_database(
         &mut conn,
         &archive,
-        password,
+        None,
         backup::RestoreOptions {
             force_non_empty: true,
             ignore_schema_mismatch: false,

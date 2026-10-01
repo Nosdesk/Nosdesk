@@ -1889,7 +1889,8 @@ admin-backup-description = Exporteer en herstel systeemgegevens en bijlagen
 admin-backup-create-heading = Back-up maken
 admin-backup-create-description = Exporteer alle systeemgegevens en bijlagen naar een ZIP-archief
 admin-backup-include-sensitive-label = Gevoelige gegevens opnemen
-admin-backup-include-sensitive-description = Bevat wachtwoorden, MFA-secrets en authenticatie-tokens (versleuteld met wachtwoord)
+# MACHINE TRANSLATION, pending native review
+admin-backup-include-sensitive-description = Wachtwoorden, MFA-secrets, tokens en webhook-secrets, versleuteld met een wachtwoord. Zonder deze vraagt een teruggezette installatie om nieuwe wachtwoorden en opnieuw MFA instellen, en staan de webhooks uit.
 admin-backup-encryption-warning = Gevoelige gegevens worden versleuteld. Als u het wachtwoord verliest, zijn de gegevens niet herstelbaar.
 admin-backup-encryption-password-label = Versleutelwachtwoord
 admin-backup-encryption-password-placeholder = Voer versleutelwachtwoord in

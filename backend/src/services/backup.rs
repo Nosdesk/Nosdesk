@@ -56,7 +56,8 @@ const SERVER_SCHEMA_HASH: &str = env!("NOSDESK_SCHEMA_HASH");
 /// plaintext (no-password) backups so a leaked zip can't be used
 /// to recover credentials. Encrypted backups include them
 /// normally — the whole archive is sealed by AES-GCM, so a
-/// sidecar would just add complexity for no gain.
+/// sidecar would just add complexity for no gain. Restore loads
+/// a plaintext backup without them (`MISSING_COLUMNS`).
 pub(crate) const SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("users", &["mfa_secret"]),
     ("user_recovery_codes", &["code_hash"]),
@@ -1111,7 +1112,7 @@ fn reset_sequences(conn: &mut DbConnection) -> Result<(), BackupError> {
 /// `jsonb_populate_recordset(NULL::table, ...)` then runs the
 /// per-column conversion against the target record type. Extra
 /// JSON keys are ignored; missing keys default to NULL, except a
-/// column in `PREDATED_COLUMNS`.
+/// column in `MISSING_COLUMNS`.
 fn restore_table_data(
     conn: &mut DbConnection,
     table_name: &str,
@@ -1155,26 +1156,80 @@ fn restore_table_data(
     Ok(count)
 }
 
-/// Columns an older backup can predate, filled from another column
-/// of the same row: (table, column, source). Tickets from before
-/// per-workspace numbering take their id as their number, as the
-/// migration numbered them.
-const PREDATED_COLUMNS: &[(&str, &str, &str)] = &[("tickets", "number", "id")];
+/// A column a backup can leave out that the table can't load without.
+struct MissingColumn {
+    table: &'static str,
+    column: &'static str,
+    /// The row to load instead, as SQL over the backup row `r`; `None`
+    /// skips the row.
+    load: Option<&'static str>,
+}
 
-/// The `$1` payload as the rows to load, with any predated column
-/// filled in.
-fn payload_rows(table_name: &str) -> String {
-    match PREDATED_COLUMNS
-        .iter()
-        .find(|(table, ..)| *table == table_name)
-    {
-        Some((_, column, source)) => format!(
-            "(SELECT jsonb_agg(CASE WHEN r ? '{column}' THEN r \
-             ELSE r || jsonb_build_object('{column}', r -> '{source}') END) \
-             FROM jsonb_array_elements($1::jsonb) r)"
+const MISSING_COLUMNS: &[MissingColumn] = &[
+    // A backup from before per-workspace numbering: tickets take their id,
+    // as the migration numbered them.
+    MissingColumn {
+        table: "tickets",
+        column: "number",
+        load: Some("r || jsonb_build_object('number', r -> 'id')"),
+    },
+    // A password-less backup leaves `SENSITIVE_FIELDS` out. Tokens and
+    // recovery codes are nothing without their hashes.
+    MissingColumn {
+        table: "refresh_tokens",
+        column: "token_hash",
+        load: None,
+    },
+    MissingColumn {
+        table: "reset_tokens",
+        column: "token_hash",
+        load: None,
+    },
+    MissingColumn {
+        table: "api_tokens",
+        column: "token_hash",
+        load: None,
+    },
+    MissingColumn {
+        table: "user_recovery_codes",
+        column: "code_hash",
+        load: None,
+    },
+    // A webhook gets a new secret, and stays off until an admin gives the
+    // receiver the new one.
+    MissingColumn {
+        table: "webhooks",
+        column: "secret",
+        load: Some(
+            "r || jsonb_build_object('secret', 'whsec_' || encode(public.gen_random_bytes(32), 'hex'), 'enabled', false)",
         ),
-        None => "$1::jsonb".to_owned(),
-    }
+    },
+    // No MFA secret means no MFA (and no key id for it): staff are asked to
+    // set it up again.
+    MissingColumn {
+        table: "users",
+        column: "mfa_secret",
+        load: Some("r || jsonb_build_object('mfa_enabled', false, 'mfa_secret_kek_id', NULL)"),
+    },
+];
+
+/// The `$1` payload as the rows to load, with `MISSING_COLUMNS` applied.
+fn payload_rows(table_name: &str) -> String {
+    let Some(missing) = MISSING_COLUMNS.iter().find(|m| m.table == table_name) else {
+        return "$1::jsonb".to_owned();
+    };
+    let column = missing.column;
+    let (row, keep) = match missing.load {
+        Some(load) => (
+            format!("CASE WHEN r ? '{column}' THEN r ELSE {load} END"),
+            "true".to_owned(),
+        ),
+        None => ("r".to_owned(), format!("r ? '{column}'")),
+    };
+    format!(
+        "(SELECT coalesce(jsonb_agg({row}), '[]'::jsonb) \
+         FROM jsonb_array_elements($1::jsonb) r WHERE {keep})"
+    )
 }
 
 #[cfg(test)]
