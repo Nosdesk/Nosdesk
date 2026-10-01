@@ -28,11 +28,9 @@ use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::handlers::collaboration::{
     can_access_document, DocAccessor, DocKind, DocumentType, ParsedDocId,
 };
-use crate::handlers::files::serve_or_not_found;
-use crate::sync::actor::ActorContext;
-use crate::sync::session;
+use crate::handlers::files::{authorize_at_owning_workspace, serve_or_not_found};
 use crate::utils::file_validation::FileValidator;
-use crate::utils::storage::{Storage, WorkspaceScopedStorage};
+use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
 
 /// Editor images are capped well below the generic attachment limit: they are
 /// inline document content, not file attachments.
@@ -188,8 +186,8 @@ pub async fn upload_collab_document_image(
 /// The browser loads this straight from an `<img>` tag, which bypasses the
 /// axios interceptor carrying `X-Nosdesk-Workspace`, so this route cannot take
 /// a `TenantConn` (it would 400 with "No workspace selected" under hosted
-/// selection). The workspace is derived from the resource instead, exactly
-/// like `authorize_ticket_file_access`.
+/// selection). The workspace is derived from the resource instead, through
+/// `authorize_at_owning_workspace`.
 ///
 /// The path segments are taken as plain strings so a malformed uuid or an
 /// unknown kind answers 404 like everything else in this scope, rather than
@@ -214,38 +212,22 @@ pub async fn serve_collab_document_image(
     let file_path = format!("{}/{filename}", image_folder(kind, resource_uuid));
     // `serve_file_from_storage` runs `is_safe_storage_path` first, so the
     // greedy `{filename:.*}` tail cannot traverse out of the folder.
-    serve_or_not_found(storage, &file_path, &req).await
+    serve_or_not_found(storage, &file_path, &req, Caching::Private).await
 }
 
-/// Authorize access to a collaborative document's images, deriving the
-/// workspace from the resource rather than from the request's selection.
-///
-/// The direct `<img>` load carries no `X-Nosdesk-Workspace`, so we look the
-/// owning workspace up unscoped (the only cross-tenant step, and it reveals
-/// only a workspace id), then gate on the caller's membership plus the
-/// per-document ACL IN THAT WORKSPACE under RLS. Same shape as
-/// `authorize_ticket_file_access`, generalised over the three collab kinds.
-///
-/// Security is unchanged from the selection path: "having selected the
-/// workspace" was never a control, membership and the document gate are, and
-/// both still apply. Every denial is a 404, never a 403, so a probe cannot
-/// tell a missing image from one it may not see.
+/// Authorize access to a collaborative document's images: the caller must be
+/// able to open the document in the document's own workspace (see
+/// `authorize_at_owning_workspace`), generalised over the three collab kinds.
 fn authorize_collab_file_access(
     pool: &Pool,
     auth: &AuthContext,
     kind: DocKind,
     resource_uuid: Uuid,
 ) -> Result<i32, actix_web::Error> {
-    let mut conn = pool.get().map_err(|e| {
-        error!(error = ?e, "collab file access: pool acquire failed");
-        actix_web::error::ErrorInternalServerError("Database error")
-    })?;
-
-    // Which workspace owns this resource? Unscoped read (BYPASSRLS); reveals
-    // only the workspace id, access is gated below.
-    let lookup_actor = ActorContext::system("collab_file_access");
-    let workspace_id =
-        session::with_actor_bypass_context(&mut conn, &lookup_actor, |c| match kind {
+    let (workspace_id, ()) = authorize_at_owning_workspace(
+        pool,
+        auth,
+        |c| match kind {
             DocKind::Ticket => crate::repository::tickets::workspace_id_by_uuid(c, resource_uuid),
             DocKind::Documentation => {
                 crate::repository::documentation::page_workspace_id_by_uuid(c, resource_uuid)
@@ -256,57 +238,42 @@ fn authorize_collab_file_access(
                     resource_uuid,
                 )
             }
-        })
-        .map_err(|e| {
-            error!(error = ?e, %resource_uuid, "collab file access: workspace lookup failed");
-            actix_web::error::ErrorInternalServerError("Authorization check failed")
-        })?
-        .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
+        },
+        |c, _| {
+            // Membership (None = non-member) plus the caller's role there drives
+            // the document gate.
+            let Some(accessor) =
+                DocAccessor::at_pinned_workspace(c, auth.user_uuid, auth.platform_role)
+            else {
+                return Ok(None);
+            };
 
-    // Pinned to the resource's workspace: membership (None = non-member) plus
-    // the caller's role *there* drives the document gate.
-    let actor = ActorContext::user_at_workspace(auth.user_uuid, workspace_id);
-    let allowed = session::with_actor_context(&mut conn, &actor, |c| {
-        let Some(accessor) =
-            DocAccessor::at_pinned_workspace(c, auth.user_uuid, auth.platform_role)
-        else {
-            return Ok(false);
-        };
+            // Re-resolve the UUID under the pin. Not redundant with the lookup
+            // above: it re-proves under RLS that the resource really is in the
+            // workspace we pinned to, so a bug in the unscoped read cannot widen
+            // access, and it fails closed if the row vanished between the two.
+            let doc_type = match kind {
+                DocKind::Ticket => crate::repository::tickets::id_by_uuid(c, resource_uuid)?
+                    .map(DocumentType::Ticket),
+                DocKind::Documentation => {
+                    crate::repository::documentation::page_id_by_uuid(c, resource_uuid)?
+                        .map(DocumentType::Documentation)
+                }
+                DocKind::Collection => {
+                    crate::repository::documentation_collections::collection_id_by_uuid(
+                        c,
+                        resource_uuid,
+                    )?
+                    .map(DocumentType::Collection)
+                }
+            };
+            let Some(doc_type) = doc_type else {
+                return Ok(None);
+            };
 
-        // Re-resolve the UUID under the pin. Not redundant with the lookup
-        // above: it re-proves under RLS that the resource really is in the
-        // workspace we pinned to, so a bug in the unscoped read cannot widen
-        // access, and it fails closed if the row vanished between the two.
-        let doc_type = match kind {
-            DocKind::Ticket => {
-                crate::repository::tickets::id_by_uuid(c, resource_uuid)?.map(DocumentType::Ticket)
-            }
-            DocKind::Documentation => {
-                crate::repository::documentation::page_id_by_uuid(c, resource_uuid)?
-                    .map(DocumentType::Documentation)
-            }
-            DocKind::Collection => {
-                crate::repository::documentation_collections::collection_id_by_uuid(
-                    c,
-                    resource_uuid,
-                )?
-                .map(DocumentType::Collection)
-            }
-        };
-        let Some(doc_type) = doc_type else {
-            return Ok(false);
-        };
-
-        can_access_document(c, &accessor, &doc_type)
-    })
-    .map_err(|e| {
-        error!(error = ?e, %resource_uuid, "collab file access: authorization lookup failed");
-        actix_web::error::ErrorInternalServerError("Authorization check failed")
-    })?;
-
-    if !allowed {
-        return Err(actix_web::error::ErrorNotFound("File not found"));
-    }
+            Ok(can_access_document(c, &accessor, &doc_type)?.then_some(()))
+        },
+    )?;
     Ok(workspace_id)
 }
 

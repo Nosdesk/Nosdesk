@@ -330,6 +330,7 @@ mod tests {
             user_uuid: uuid::Uuid::new_v4(),
             platform_role: crate::models::PlatformRole::User,
             workspace_role: Some(role),
+            workspace_binding: None,
             name: "Test".into(),
             group_ids: vec![],
         }

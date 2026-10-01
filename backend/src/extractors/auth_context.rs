@@ -35,6 +35,9 @@ pub struct AuthContext {
     /// requests with no WorkspaceContext, or when the user has no
     /// membership in the resolved workspace.
     pub workspace_role: Option<WorkspaceRole>,
+    /// The one workspace a workspace-bound credential (a personal API token)
+    /// may act in, from its claims. `None` for a session.
+    pub workspace_binding: Option<Uuid>,
     /// User's display name
     pub name: String,
     /// Group IDs the user belongs to (for future group-based permissions)
@@ -93,6 +96,7 @@ impl AuthContext {
             user_uuid,
             platform_role,
             workspace_role,
+            workspace_binding: None,
             name: "test-user".into(),
             group_ids,
         }
@@ -215,6 +219,7 @@ impl FromRequest for AuthContext {
                 user_uuid,
                 platform_role: PlatformRole::from_db(&user.platform_role),
                 workspace_role,
+                workspace_binding: claims.workspace_uuid,
                 name: user.name,
                 group_ids,
             })

@@ -4,20 +4,26 @@
 //! authorization, storage paths, and sync visibility can follow asset
 //! ownership directly instead of borrowing ticket/comment semantics.
 
+use std::sync::Arc;
+
 use actix_multipart::Multipart;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use diesel::OptionalExtension;
 use futures::{StreamExt, TryStreamExt};
 use ring::digest;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, warn};
 
+use crate::db::Pool;
 use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
+use crate::handlers::files::{authorize_at_owning_workspace, serve_or_not_found};
 use crate::models::{AssetMediaUpdate, NewAssetMedia};
-use crate::repository::{asset_media as repo, assets as assets_repo};
+use crate::repository::{asset_media as repo, assets as assets_repo, user_helpers};
 use crate::utils::file_validation::FileValidator;
 use crate::utils::image::generate_asset_media_thumbnail;
+use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
 
 const ASSET_MEDIA_THUMB_SIZE: u32 = 320;
 
@@ -272,23 +278,34 @@ pub async fn delete_media(
     HttpResponse::Ok().json(json!({ "deleted": true }))
 }
 
+/// `GET /api/files/assets/{asset_id}/media/{filename}`. An `<img>` loads it
+/// without the workspace selection header, so the workspace comes from the
+/// asset (see `authorize_at_owning_workspace`). Any member of that workspace may
+/// see an asset's media, as with the media list.
 pub async fn serve_asset_media_file(
     path: web::Path<(i32, String)>,
     req: HttpRequest,
-    mut tc: TenantConn,
-    _auth: AuthContext,
-    storage: ScopedStorage,
+    pool: web::Data<Pool>,
+    auth: AuthContext,
+    base_storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let (asset_id, filename) = path.into_inner();
-    tc.run(|conn| assets_repo::get_device_by_id(conn, asset_id))
-        .map_err(|e| match e {
-            diesel::result::Error::NotFound => actix_web::error::ErrorNotFound("File not found"),
-            other => {
-                error!(asset_id, error = ?other, "asset media authorization lookup failed");
-                actix_web::error::ErrorInternalServerError("Authorization check failed")
+    let (workspace_id, ()) = authorize_at_owning_workspace(
+        &pool,
+        &auth,
+        |c| assets_repo::asset_workspace_id(c, asset_id),
+        |c, _| {
+            if user_helpers::workspace_role(c, auth.user_uuid).is_none() {
+                return Ok(None);
             }
-        })?;
+            // Read again under the pin: the asset must be in this workspace.
+            Ok(assets_repo::get_device_by_id(c, asset_id)
+                .optional()?
+                .map(|_| ()))
+        },
+    )?;
+    let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     let file_path = format!("assets/{asset_id}/media/{filename}");
-    crate::handlers::files::serve_or_not_found(storage.get(), &file_path, &req).await
+    serve_or_not_found(storage, &file_path, &req, Caching::Private).await
 }

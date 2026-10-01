@@ -5,7 +5,8 @@
 //!
 //! Reuses the platform-admin export service (`services::workspace_export`), but:
 //! - gated to the workspace Owner (not a cross-tenant platform admin), and the
-//!   workspace comes from `WorkspaceContext`, NEVER a path param;
+//!   workspace comes from `WorkspaceContext` (for the download, from the job
+//!   row), NEVER a path param;
 //! - runs as a background job that writes a storage-backed artifact with a
 //!   bounded download window (`expires_at`), instead of a synchronous stream;
 //! - strips sensitive auth fields (`include_sensitive = false`) since a data
@@ -20,11 +21,12 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::errors::{self, ApiError};
-use crate::extractors::{TenantConn, WorkspaceContext};
+use crate::extractors::{AuthContext, TenantConn, WorkspaceContext};
+use crate::handlers::files::authorize_at_owning_workspace;
 use crate::models::{
     Claims, NewWorkspaceExportJob, WorkspaceExportJob, WorkspaceExportJobUpdate, WorkspaceRole,
 };
-use crate::repository::workspace_export_jobs as export_repo;
+use crate::repository::{user_helpers, workspace_export_jobs as export_repo};
 use crate::services::workspace_export::{assemble_workspace_archive, collect_workspace_rows};
 use crate::sync::actor::ActorContext;
 use crate::sync::session::with_actor_bypass_context;
@@ -166,48 +168,54 @@ pub async fn get_export_status(
     }
 }
 
-/// GET /api/workspace/export/{id}/download — stream the artifact. Owner-only,
-/// workspace-scoped. 410 once the download window has passed.
+/// GET /api/workspace/export/{id}/download: the artifact. Owner-only. The
+/// browser downloads it without the workspace selection header, so the
+/// workspace comes from the job (see `authorize_at_owning_workspace`). 410 once
+/// the download window has passed.
 pub async fn download_export(
-    mut tc: TenantConn,
-    ws: WorkspaceContext,
-    req: HttpRequest,
+    pool: web::Data<Pool>,
+    auth: AuthContext,
     path: web::Path<Uuid>,
-) -> Result<HttpResponse, ApiError> {
-    require_workspace_role(&req, WorkspaceRole::Owner)?;
+) -> Result<HttpResponse, actix_web::Error> {
     let id = path.into_inner();
-    let job = match tc.run(|conn| export_repo::get_owned(conn, id, ws.workspace_id)) {
-        Ok(Some(j)) => j,
-        Ok(None) => return Err(ApiError::NotFound("export".into())),
-        Err(e) => return Err(ApiError::Internal(format!("export lookup: {e}"))),
-    };
+    let (workspace_id, job) = authorize_at_owning_workspace(
+        &pool,
+        &auth,
+        |c| export_repo::workspace_id_by_id(c, id),
+        |c, workspace_id| {
+            let is_owner = user_helpers::workspace_role(c, auth.user_uuid)
+                .is_some_and(|role| role.meets(WorkspaceRole::Owner));
+            if !is_owner {
+                return Ok(None);
+            }
+            export_repo::get_owned(c, id, workspace_id)
+        },
+    )?;
     if job.status != "completed" {
-        return Err(ApiError::NotFound("export".into()));
+        return Err(ApiError::NotFound("export".into()).into());
     }
     let now = Utc::now().naive_utc();
     if job.expires_at.map(|e| e < now).unwrap_or(true) {
         return Ok(errors::gone("This export has expired. Request a new one."));
     }
     let Some(key) = job.file_path else {
-        return Err(ApiError::NotFound("export".into()));
+        return Err(ApiError::NotFound("export".into()).into());
     };
 
-    let scoped = WorkspaceScopedStorage::arc(process_storage(), ws.workspace_id);
+    let scoped = WorkspaceScopedStorage::arc(process_storage(), workspace_id);
     let bytes = match scoped.get_file(&key).await {
         Ok(b) => b,
-        Err(e) => return Err(ApiError::Internal(format!("read export artifact: {e:?}"))),
+        Err(e) => {
+            return Err(ApiError::Internal(format!("read export artifact: {e:?}")).into());
+        }
     };
-    // The artifact is the whole tenant's data: no-store, no CORS wildcard, and an
-    // attachment disposition (NOT the generic file proxy, which sets public
-    // caching + ACAO:*).
+    // The artifact is the whole tenant's data: no-store and an attachment
+    // disposition, not the file proxy's hour of private caching.
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
         .insert_header((
             header::CONTENT_DISPOSITION,
-            format!(
-                "attachment; filename=\"workspace-{}.nosdesk\"",
-                ws.workspace_id
-            ),
+            format!("attachment; filename=\"workspace-{workspace_id}.nosdesk\""),
         ))
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .body(bytes))

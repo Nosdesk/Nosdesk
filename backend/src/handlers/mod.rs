@@ -420,19 +420,10 @@ pub async fn add_comment_to_ticket(
 
                                     // Also move PDF thumbnail if it exists
                                     if attachment.mime_type.as_deref() == Some("application/pdf") {
-                                        let thumb_suffix = "_thumb.webp";
-                                        let old_thumb_path = old_storage_path
-                                            .strip_suffix(".pdf")
-                                            .or_else(|| old_storage_path.strip_suffix(".PDF"))
-                                            .map(|base| format!("{base}{thumb_suffix}"));
-                                        let new_thumb_path = new_storage_path
-                                            .strip_suffix(".pdf")
-                                            .or_else(|| new_storage_path.strip_suffix(".PDF"))
-                                            .map(|base| format!("{base}{thumb_suffix}"));
-
-                                        if let (Some(old_thumb), Some(new_thumb)) =
-                                            (old_thumb_path, new_thumb_path)
-                                        {
+                                        if let (Some(old_thumb), Some(new_thumb)) = (
+                                            crate::utils::pdf::thumbnail_path(&old_storage_path),
+                                            crate::utils::pdf::thumbnail_path(&new_storage_path),
+                                        ) {
                                             if let Err(e) =
                                                 storage.0.move_file(&old_thumb, &new_thumb).await
                                             {
@@ -737,11 +728,13 @@ pub async fn delete_comment(
 /// authored, chat-relayed, or pre-archive history).
 ///
 /// Visibility is gated by the parent ticket's `can_view_ticket`
-/// predicate — same primitive as `TicketAccess` but applied
-/// indirectly here because the route is keyed by comment id, not
-/// ticket id. Deny maps to 404 (not 403) per the AUD-001 IDOR
-/// pattern so the response shape can't be used to enumerate
-/// comment ids that the caller doesn't own.
+/// predicate, applied indirectly because the route is keyed by
+/// comment id, not ticket id. The link opens in a new tab without
+/// the workspace selection header, so the workspace comes from the
+/// comment (see `authorize_at_owning_workspace`). Deny maps to 404
+/// (not 403) per the AUD-001 IDOR pattern so the response shape
+/// can't be used to enumerate comment ids that the caller doesn't
+/// own.
 ///
 /// The body is streamed as `text/plain; charset=utf-8` rather
 /// than `message/rfc822` because the intent is human inspection
@@ -751,28 +744,32 @@ pub async fn delete_comment(
 pub async fn get_comment_raw_eml(
     auth: crate::extractors::AuthContext,
     path: web::Path<i32>,
-    mut tc: crate::extractors::TenantConn,
-    storage: crate::extractors::ScopedStorage,
+    pool: web::Data<crate::db::Pool>,
+    base_storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
 ) -> impl Responder {
     let comment_id = path.into_inner();
 
-    let comment =
-        match tc.run(|conn| crate::repository::comments::get_comment_by_id(conn, comment_id)) {
-            Ok(c) => c,
-            Err(_) => return errors::not_found_msg("Not found"),
-        };
+    let authorized = crate::handlers::files::authorize_at_owning_workspace(
+        &pool,
+        &auth,
+        |c| crate::repository::comments::comment_workspace_id(c, comment_id),
+        |c, _| {
+            let comment = match crate::repository::comments::get_comment_by_id(c, comment_id) {
+                Ok(comment) => comment,
+                Err(diesel::result::Error::NotFound) => return Ok(None),
+                Err(e) => return Err(e),
+            };
+            let visible =
+                crate::handlers::files::member_can_view_ticket(c, &auth, comment.ticket_id)?;
+            Ok(visible.then_some(comment.raw_source_uri))
+        },
+    );
+    let (workspace_id, raw_source_uri) = match authorized {
+        Ok(found) => found,
+        Err(e) => return HttpResponse::from_error(e),
+    };
 
-    let vis = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
-    match tc.run(|conn| {
-        crate::repository::ticket_visibility::can_view_ticket(conn, &vis, comment.ticket_id)
-    }) {
-        Ok(true) => {}
-        // 404 on deny (not 403): an attacker iterating comment ids
-        // mustn't learn which exist on other users' tickets.
-        Ok(false) | Err(_) => return errors::not_found_msg("Not found"),
-    }
-
-    let Some(storage_path) = comment.raw_source_uri else {
+    let Some(storage_path) = raw_source_uri else {
         // Comment exists and is visible, but has no archived
         // source. UI-authored comments and pre-archive history
         // land here. 404 is correct — there's no resource to
@@ -780,7 +777,11 @@ pub async fn get_comment_raw_eml(
         return errors::not_found_msg("Not found");
     };
 
-    match storage.0.get_file(&storage_path).await {
+    let storage = crate::utils::storage::WorkspaceScopedStorage::arc(
+        base_storage.get_ref().clone(),
+        workspace_id,
+    );
+    match storage.get_file(&storage_path).await {
         Ok(bytes) => HttpResponse::Ok()
             .insert_header(("Content-Type", "text/plain; charset=utf-8"))
             .insert_header((
@@ -953,6 +954,7 @@ pub async fn serve_public_file(
         storage.as_ref().clone(),
         &storage_path,
         &req,
+        crate::utils::storage::Caching::Public,
     )
     .await
     {

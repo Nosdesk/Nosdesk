@@ -922,9 +922,11 @@ pub fn configure_app(
             // gate). API-token scopes are enforced inside the auth funnel
             // itself, so they cover this tree without a second wrap; these
             // routes map to `Full`, and a narrowed token 403s here.
-            // The handlers add a per-ticket/asset visibility check via
-            // TenantConn so a caller only reads files it can see in its own
-            // workspace. Registered before the main /api scope so /api/files/*
+            // The browser loads these URLs directly, without the workspace
+            // selection header, so each handler takes the workspace from the
+            // file's ticket, upload, document or asset and checks membership
+            // and visibility there (`authorize_at_owning_workspace`).
+            // Registered before the main /api scope so /api/files/*
             // resolves here; the notes route precedes the generic ticket route
             // so the `{filename:.*}` tail can't swallow it.
             .service(

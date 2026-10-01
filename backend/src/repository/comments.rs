@@ -675,6 +675,42 @@ pub fn delete_comment(
     Ok(count)
 }
 
+/// The workspace that owns the attachment stored at any of `urls`. The file
+/// routes derive the workspace from the resource, since a direct browser load
+/// carries no selection header. Call it elevated (BYPASSRLS): it reveals only a
+/// workspace id, and the caller gates on membership under that workspace's pin.
+pub fn attachment_workspace_id_by_urls(
+    conn: &mut DbConnection,
+    urls: &[String],
+) -> QueryResult<Option<i32>> {
+    attachments::table
+        .filter(attachments::url.eq_any(urls))
+        .select(attachments::workspace_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
+/// The ticket an attachment belongs to, through its comment. `None` for an
+/// unknown URL or a file not attached to a comment yet.
+pub fn attachment_ticket_id_by_url(conn: &mut DbConnection, url: &str) -> QueryResult<Option<i32>> {
+    attachments::table
+        .inner_join(comments::table)
+        .filter(attachments::url.eq(url))
+        .select(comments::ticket_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
+/// The workspace that owns a comment. Same contract as
+/// [`attachment_workspace_id_by_urls`].
+pub fn comment_workspace_id(conn: &mut DbConnection, comment_id: i32) -> QueryResult<Option<i32>> {
+    comments::table
+        .filter(comments::id.eq(comment_id))
+        .select(comments::workspace_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
 pub fn get_attachment_by_id(
     conn: &mut DbConnection,
     attachment_id: i32,

@@ -7,15 +7,17 @@ use serde_json::json;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
-use crate::db::Pool;
+use crate::db::{DbConnection, Pool};
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::models::NewAttachment;
+use crate::repository;
 use crate::repository::ticket_visibility::{self, VisibilityContext};
 use crate::repository::user_helpers;
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
 use crate::utils::file_validation::FileValidator;
-use crate::utils::storage::{Storage, WorkspaceScopedStorage};
+use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
+use diesel::QueryResult;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/upload", web::post().to(crate::handlers::upload_files));
@@ -137,14 +139,13 @@ pub async fn upload_files(
                 actix_web::error::ErrorInternalServerError("Failed to store file")
             })?;
 
-        // Generate PDF thumbnail if applicable
+        // Generate PDF thumbnail if applicable, beside the PDF in the
+        // workspace's storage so it moves with the PDF when attached.
         let thumbnail_url = if detected_mime == "application/pdf" {
-            let storage_path =
-                std::env::var("STORAGE_PATH").unwrap_or_else(|_| "uploads".to_string());
-            match crate::utils::pdf::generate_and_store_pdf_thumbnail(
+            match crate::utils::pdf::store_pdf_thumbnail(
+                storage.0.as_ref(),
                 &file_data,
                 &stored_file.path,
-                &storage_path,
             )
             .await
             {
@@ -207,12 +208,10 @@ pub async fn upload_files(
 
 // Serve ticket attachment files.
 //
-// Auth + tenancy: the route is wrapped with `dual_auth_middleware`, which
-// authenticates the caller (cookie or Bearer) and enforces that they're a
-// member of the resolved workspace. The path is `tickets/{ticket_id}/...`,
-// so we additionally require that the caller can view that ticket via
-// `authorize_ticket_access` (which runs under `TenantConn`, so RLS scopes
-// the check to the caller's workspace and end-user visibility applies).
+// Auth: the route is wrapped with `dual_auth_middleware`. The browser loads
+// these URLs directly, so the workspace comes from the ticket, not the request
+// (see `authorize_at_owning_workspace`), and it both gates access and scopes
+// storage.
 pub async fn serve_ticket_file(
     path: web::Path<String>,
     req: actix_web::HttpRequest,
@@ -222,30 +221,31 @@ pub async fn serve_ticket_file(
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
-    // The first path segment is the owning ticket id (moved attachments
-    // live under tickets/{ticket_id}/...). A path without a numeric leading
-    // segment can't be tied to a ticket for authorization, so deny it.
-    let ticket_id = filename
+    // Attached files live under tickets/{ticket_id}/. Inbound email used to
+    // store its attachments directly in tickets/, so a path without a leading
+    // ticket id is resolved through its attachments row instead.
+    let leading_ticket_id = filename
         .split('/')
         .next()
-        .and_then(|s| s.parse::<i32>().ok())
-        .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
-
-    // Resource-derived: the ticket's workspace both gates access and scopes
-    // storage (the direct file load carries no workspace context).
-    let workspace_id = authorize_ticket_file_access(&pool, &auth, ticket_id)?;
+        .and_then(|s| s.parse::<i32>().ok());
+    let workspace_id = match leading_ticket_id {
+        Some(ticket_id) => authorize_ticket_file_access(&pool, &auth, ticket_id)?,
+        None => {
+            let url = format!("/uploads/tickets/{filename}");
+            authorize_unfoldered_ticket_file_access(&pool, &auth, &url)?
+        }
+    };
     let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     let file_path = format!("tickets/{filename}");
-    serve_or_not_found(storage, &file_path, &req).await
+    serve_or_not_found(storage, &file_path, &req, Caching::Private).await
 }
 
 // Serve temp (pre-attachment staging) files.
 //
 // Temp objects aren't tied to a ticket yet, but the upload created an
-// `attachments` row carrying the workspace_id. We authorize by looking that
-// row up under `TenantConn`, so RLS only matches it for the workspace that
-// uploaded it (a member of another workspace gets a 404).
+// `attachments` row carrying the workspace_id, so the workspace comes from that
+// row and a member of another workspace gets a 404.
 pub async fn serve_temp_file(
     path: web::Path<String>,
     req: actix_web::HttpRequest,
@@ -255,12 +255,11 @@ pub async fn serve_temp_file(
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
-    let public_url = format!("/uploads/temp/{filename}");
-    let workspace_id = authorize_temp_file_access(&pool, &auth, &public_url)?;
+    let workspace_id = authorize_temp_file_access(&pool, &auth, &filename)?;
     let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     let file_path = format!("temp/{filename}");
-    serve_or_not_found(storage, &file_path, &req).await
+    serve_or_not_found(storage, &file_path, &req, Caching::Private).await
 }
 
 /// Authorize access to a ticket's files: the caller must be able to view the
@@ -287,112 +286,138 @@ fn authorize_ticket_access(
     Ok(())
 }
 
-/// Authorize file access for a ticket whose workspace is derived from the
-/// resource, not the request's selection.
+/// Authorize a file the browser loads directly, from the resource that owns it.
 ///
-/// File URLs (audio/img/download) are loaded directly by the browser/webview,
-/// which bypasses the axios interceptor that carries `X-Nosdesk-Workspace`. So a
-/// `TenantConn` here would 400 ("No workspace selected") under Model-C selection
-/// mode. Instead we look up the ticket's workspace unscoped (the only
-/// cross-tenant step, and it reveals only the workspace id), then gate on the
-/// caller's membership + ticket visibility *in that workspace* under RLS.
+/// Direct loads (img, audio, PDF.js, download links) carry the session but never
+/// the `X-Nosdesk-Workspace` header, so these routes can't take a `TenantConn`:
+/// it would 400 ("No workspace selected") under hosted selection. `owner` finds
+/// the owning workspace on an elevated (BYPASSRLS) read, the one cross-tenant
+/// step, which reveals only a workspace id. `check` then runs as the caller
+/// pinned to that workspace (passed in too), under RLS, and returns what the
+/// handler needs, or `None` to deny. Membership and the resource's own
+/// visibility are decided there, so the rules are the ones the selection path
+/// applies. A workspace-bound credential (an API token) is held to its own
+/// workspace here too.
 ///
-/// Security is unchanged from the selection path: "having selected the
-/// workspace" was never a control, membership + visibility are, and both still
-/// apply here. `workspace_role` returns `None` for a non-member (RLS-scoped to
-/// the pin), and every denial is a 404 (not 403) so a probe can't tell a missing
-/// file from one in a workspace it can't see.
-fn authorize_ticket_file_access(
+/// Every denial is a 404, never a 403, so a probe can't tell a missing file
+/// from one in a workspace it can't see.
+pub(crate) fn authorize_at_owning_workspace<T>(
     pool: &Pool,
     auth: &AuthContext,
-    ticket_id: i32,
-) -> Result<i32, actix_web::Error> {
+    owner: impl FnOnce(&mut DbConnection) -> QueryResult<Option<i32>>,
+    check: impl FnOnce(&mut DbConnection, i32) -> QueryResult<Option<T>>,
+) -> Result<(i32, T), actix_web::Error> {
     let mut conn = pool.get().map_err(|e| {
         error!(error = ?e, "file access: pool acquire failed");
         actix_web::error::ErrorInternalServerError("Database error")
     })?;
 
-    // Which workspace owns this ticket? Unscoped read (BYPASSRLS); reveals only
-    // the workspace id, access is gated below.
-    let lookup_actor = ActorContext::system("ticket_file_access");
-    let workspace_id = session::with_actor_bypass_context(&mut conn, &lookup_actor, |c| {
-        use crate::schema::tickets;
-        use diesel::prelude::*;
-        tickets::table
-            .find(ticket_id)
-            .select(tickets::workspace_id)
-            .first::<i32>(c)
-            .optional()
-    })
+    let lookup_actor = ActorContext::system("file_access");
+    let workspace_id = session::with_actor_bypass_context(
+        &mut conn,
+        &lookup_actor,
+        |c| -> QueryResult<Option<i32>> {
+            let Some(workspace_id) = owner(c)? else {
+                return Ok(None);
+            };
+            if let Some(bound) = auth.workspace_binding {
+                if repository::workspaces::uuid_for_id(c, workspace_id)? != Some(bound) {
+                    return Ok(None);
+                }
+            }
+            Ok(Some(workspace_id))
+        },
+    )
     .map_err(|e| {
-        error!(error = ?e, ticket_id, "file access: workspace lookup failed");
+        error!(error = ?e, "file access: workspace lookup failed");
         actix_web::error::ErrorInternalServerError("Authorization check failed")
     })?
     .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
 
-    // Pinned to the ticket's workspace: membership (None = non-member) + the
-    // caller's role *there* drives visibility.
     let actor = ActorContext::user_at_workspace(auth.user_uuid, workspace_id);
-    let allowed = session::with_actor_context(&mut conn, &actor, |c| {
-        let Some(role) = user_helpers::workspace_role(c, auth.user_uuid) else {
-            return Ok(false);
-        };
-        let vis = VisibilityContext::new(auth.user_uuid, auth.platform_role, Some(role));
-        ticket_visibility::can_view_ticket(c, &vis, ticket_id)
-    })
-    .map_err(|e| {
-        error!(error = ?e, ticket_id, "file access: authorization lookup failed");
-        actix_web::error::ErrorInternalServerError("Authorization check failed")
-    })?;
+    let granted = session::with_actor_context(&mut conn, &actor, |c| check(c, workspace_id))
+        .map_err(|e| {
+            error!(error = ?e, workspace_id, "file access: authorization lookup failed");
+            actix_web::error::ErrorInternalServerError("Authorization check failed")
+        })?
+        .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
 
-    if !allowed {
-        return Err(actix_web::error::ErrorNotFound("File not found"));
-    }
+    Ok((workspace_id, granted))
+}
+
+/// Whether the caller can view a ticket in the workspace the connection is
+/// pinned to: a member there (`workspace_role` is `None` otherwise, since it
+/// reads under the pin), with their role there deciding visibility.
+pub(crate) fn member_can_view_ticket(
+    conn: &mut DbConnection,
+    auth: &AuthContext,
+    ticket_id: i32,
+) -> QueryResult<bool> {
+    let Some(role) = user_helpers::workspace_role(conn, auth.user_uuid) else {
+        return Ok(false);
+    };
+    let vis = VisibilityContext::new(auth.user_uuid, auth.platform_role, Some(role));
+    ticket_visibility::can_view_ticket(conn, &vis, ticket_id)
+}
+
+/// Authorize access to a ticket's files: the caller must be able to view the
+/// ticket in the ticket's own workspace.
+fn authorize_ticket_file_access(
+    pool: &Pool,
+    auth: &AuthContext,
+    ticket_id: i32,
+) -> Result<i32, actix_web::Error> {
+    let (workspace_id, ()) = authorize_at_owning_workspace(
+        pool,
+        auth,
+        |c| repository::tickets::workspace_id_by_id(c, ticket_id),
+        |c, _| Ok(member_can_view_ticket(c, auth, ticket_id)?.then_some(())),
+    )?;
+    Ok(workspace_id)
+}
+
+/// Authorize a ticket file stored without its ticket folder, by the ticket its
+/// `attachments` row belongs to. The ticket is read again under the pin, so the
+/// elevated lookup decides nothing but the workspace.
+fn authorize_unfoldered_ticket_file_access(
+    pool: &Pool,
+    auth: &AuthContext,
+    url: &str,
+) -> Result<i32, actix_web::Error> {
+    let urls = [url.to_string()];
+    let (workspace_id, ()) = authorize_at_owning_workspace(
+        pool,
+        auth,
+        |c| repository::comments::attachment_workspace_id_by_urls(c, &urls),
+        |c, _| {
+            let Some(ticket_id) = repository::comments::attachment_ticket_id_by_url(c, url)? else {
+                return Ok(None);
+            };
+            Ok(member_can_view_ticket(c, auth, ticket_id)?.then_some(()))
+        },
+    )?;
     Ok(workspace_id)
 }
 
 /// Authorize access to a staging (temp) file, whose owning workspace comes from
-/// its `attachments` row (it isn't tied to a ticket yet). Same resource-derived
-/// rationale as [`authorize_ticket_file_access`]; the gate is workspace
-/// membership.
+/// its `attachments` row (it isn't tied to a ticket yet); the gate is workspace
+/// membership. A PDF's server-rendered thumbnail has no row of its own, so it is
+/// authorized as its PDF.
 fn authorize_temp_file_access(
     pool: &Pool,
     auth: &AuthContext,
-    public_url: &str,
+    filename: &str,
 ) -> Result<i32, actix_web::Error> {
-    let mut conn = pool.get().map_err(|e| {
-        error!(error = ?e, "temp file access: pool acquire failed");
-        actix_web::error::ErrorInternalServerError("Database error")
-    })?;
-
-    let lookup_actor = ActorContext::system("temp_file_access");
-    let workspace_id = session::with_actor_bypass_context(&mut conn, &lookup_actor, |c| {
-        use crate::schema::attachments;
-        use diesel::prelude::*;
-        attachments::table
-            .filter(attachments::url.eq(public_url))
-            .select(attachments::workspace_id)
-            .first::<i32>(c)
-            .optional()
-    })
-    .map_err(|e| {
-        error!(error = ?e, "temp file access: workspace lookup failed");
-        actix_web::error::ErrorInternalServerError("Authorization check failed")
-    })?
-    .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
-
-    let actor = ActorContext::user_at_workspace(auth.user_uuid, workspace_id);
-    let is_member = session::with_actor_context(&mut conn, &actor, |c| {
-        Ok::<bool, diesel::result::Error>(user_helpers::workspace_role(c, auth.user_uuid).is_some())
-    })
-    .map_err(|e| {
-        error!(error = ?e, "temp file access: membership lookup failed");
-        actix_web::error::ErrorInternalServerError("Authorization check failed")
-    })?;
-
-    if !is_member {
-        return Err(actix_web::error::ErrorNotFound("File not found"));
-    }
+    let urls: Vec<String> = std::iter::once(filename.to_string())
+        .chain(crate::utils::pdf::pdf_paths_for_thumbnail(filename))
+        .map(|name| format!("/uploads/temp/{name}"))
+        .collect();
+    let (workspace_id, ()) = authorize_at_owning_workspace(
+        pool,
+        auth,
+        |c| repository::comments::attachment_workspace_id_by_urls(c, &urls),
+        |c, _| Ok(user_helpers::workspace_role(c, auth.user_uuid).map(|_| ())),
+    )?;
     Ok(workspace_id)
 }
 
@@ -401,8 +426,9 @@ pub(crate) async fn serve_or_not_found(
     storage: Arc<dyn Storage>,
     file_path: &str,
     req: &actix_web::HttpRequest,
+    caching: Caching,
 ) -> Result<HttpResponse, actix_web::Error> {
-    match crate::utils::storage::serve_file_from_storage(storage, file_path, req).await {
+    match crate::utils::storage::serve_file_from_storage(storage, file_path, req, caching).await {
         Ok(response) => Ok(response),
         Err(e) => {
             warn!(error = ?e, file_path = %file_path, "Error serving file");
@@ -547,7 +573,7 @@ pub async fn serve_ticket_note_image(
 
     // Serve from tickets/{ticket_id}/notes/ folder
     let file_path = format!("tickets/{ticket_id}/notes/{filename}");
-    serve_or_not_found(storage, &file_path, &req).await
+    serve_or_not_found(storage, &file_path, &req, Caching::Private).await
 }
 
 /// Clean up temp files older than 24 hours (admin endpoint)

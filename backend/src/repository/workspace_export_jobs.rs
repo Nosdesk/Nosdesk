@@ -35,6 +35,18 @@ pub fn get_owned(
         .optional()
 }
 
+/// The workspace an export belongs to, for the download route, which derives
+/// the workspace from the job because a direct browser download carries no
+/// selection header. Call it elevated (BYPASSRLS): it reveals only a workspace
+/// id, and the caller gates on the Owner role under that workspace's pin.
+pub fn workspace_id_by_id(conn: &mut DbConnection, id: Uuid) -> QueryResult<Option<i32>> {
+    workspace_export_jobs::table
+        .filter(workspace_export_jobs::id.eq(id))
+        .select(workspace_export_jobs::workspace_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
 /// Whether the workspace has an in-flight (pending/processing) export.
 pub fn has_active(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<bool> {
     diesel::select(diesel::dsl::exists(

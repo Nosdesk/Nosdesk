@@ -13,6 +13,7 @@
 import pluginService from '@nosdesk/core/services/pluginService';
 import { getTicketById, getTickets, addCommentToTicket, updateTicket, deleteTicket } from '@nosdesk/core/services/ticketService';
 import { getAssetById, getAssets, updateAsset } from '@/services/assetService';
+import { convertToAuthenticatedPath } from '@/services/fileService';
 import userService from '@/services/userService';
 import { useAuthStore } from '@/stores/auth';
 import { logger } from '@nosdesk/core/utils/logger';
@@ -306,13 +307,15 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           const result: PluginAttachment[] = [];
           for (const comment of ticket.comments || []) {
             for (const att of comment.attachments || []) {
+              // Attachments store their `/uploads/...` path, which isn't served;
+              // hand plugins the URL that is.
               result.push({
                 id: att.id,
                 name: att.name,
-                url: att.url,
+                url: convertToAuthenticatedPath(att.url),
                 mimeType: att.mime_type ?? null,
                 size: att.file_size ?? null,
-                thumbnailUrl: att.thumbnail_url ?? null,
+                thumbnailUrl: att.thumbnail_url ? convertToAuthenticatedPath(att.thumbnail_url) : null,
                 ticketId,
                 commentId: comment.id,
               });

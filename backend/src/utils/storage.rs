@@ -1,4 +1,7 @@
-use actix_web::http::header::{ACCEPT_RANGES, CACHE_CONTROL, CONTENT_TYPE};
+use actix_web::http::header::{
+    Charset, ContentDisposition, DispositionParam, DispositionType, ExtendedValue, ACCEPT_RANGES,
+    CACHE_CONTROL, CONTENT_TYPE,
+};
 use actix_web::{HttpRequest, HttpResponse};
 use async_trait::async_trait;
 use std::io;
@@ -730,7 +733,6 @@ pub fn get_storage_config() -> StorageConfig {
     }
 }
 
-/// Centralized file serving function that works with any storage backend
 /// Reject logical storage paths that could escape the storage root:
 /// any `.` or `..` path component, Windows separators, NUL bytes, or
 /// empty components (from `//`). Legitimate keys are
@@ -745,10 +747,63 @@ pub(crate) fn is_safe_storage_path(path: &str) -> bool {
         .all(|seg| !seg.is_empty() && seg != "." && seg != "..")
 }
 
+/// Who may cache a file [`serve_file_from_storage`] serves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Caching {
+    /// Served without sign-in (profile photos, branding), so shared caches may
+    /// keep it.
+    Public,
+    /// Served behind auth, so only the requesting browser may keep it.
+    Private,
+}
+
+impl Caching {
+    fn cache_control(self) -> &'static str {
+        match self {
+            Self::Public => "public, max-age=3600",
+            Self::Private => "private, max-age=3600",
+        }
+    }
+}
+
+/// `inline`, named as uploaded: the stored name without the `{uuid}_` prefix
+/// that `store_file` adds. Non-ASCII names go in `filename*` (RFC 6266), with an
+/// ASCII `filename` for older clients.
+fn inline_disposition(stored_name: &str) -> ContentDisposition {
+    let name = stored_name
+        .split_once('_')
+        .filter(|(prefix, rest)| !rest.is_empty() && Uuid::parse_str(prefix).is_ok())
+        .map_or(stored_name, |(_, rest)| rest);
+    let ascii: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii() && !c.is_ascii_control() {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let mut parameters = vec![DispositionParam::Filename(ascii)];
+    if !name.is_ascii() {
+        parameters.push(DispositionParam::FilenameExt(ExtendedValue {
+            charset: Charset::Ext("UTF-8".to_string()),
+            language_tag: None,
+            value: name.as_bytes().to_vec(),
+        }));
+    }
+    ContentDisposition {
+        disposition: DispositionType::Inline,
+        parameters,
+    }
+}
+
+/// Serve a stored file from any backend, with byte ranges for PDF.js and media.
 pub async fn serve_file_from_storage(
     storage: Arc<dyn Storage>,
     path: &str,
     req: &HttpRequest,
+    caching: Caching,
 ) -> Result<HttpResponse, actix_web::Error> {
     // Serve routes use `{filename:.*}`, so the tail segment is fully
     // caller-controlled and can carry `../` to escape the storage root
@@ -775,20 +830,14 @@ pub async fn serve_file_from_storage(
     // Build response with proper headers
     let mut response_builder = HttpResponse::Ok();
 
+    // No CORS headers here: the app is same-origin, the app-wide CORS layer
+    // answers for its allowed origins, and the mobile app reads files through
+    // its own proxy.
     response_builder
         .insert_header((CONTENT_TYPE, content_type))
         .insert_header((ACCEPT_RANGES, "bytes"))
-        .insert_header((CACHE_CONTROL, "public, max-age=3600"))
-        .insert_header(("Access-Control-Allow-Origin", "*"))
-        .insert_header(("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS"))
-        .insert_header((
-            "Access-Control-Allow-Headers",
-            "Range, Content-Type, Authorization",
-        ))
-        .insert_header((
-            "Access-Control-Expose-Headers",
-            "Content-Range, Content-Length, Accept-Ranges",
-        ));
+        .insert_header((CACHE_CONTROL, caching.cache_control()))
+        .insert_header(inline_disposition(filename));
 
     // Handle range requests for PDF.js and other file types
     let range_header = req.headers().get("Range");
@@ -879,6 +928,29 @@ mod tests {
         assert_eq!(get_content_type("doc.pdf"), "application/pdf");
         assert_eq!(get_content_type("data.json"), "application/json");
         assert_eq!(get_content_type("archive.zip"), "application/zip");
+    }
+
+    // ── inline_disposition ───────────────────────────────────────
+
+    #[test]
+    fn disposition_names_the_file_as_uploaded() {
+        assert_eq!(
+            inline_disposition("019eb4e2-dbaa-75e5-9eb2-aa3dc7d8a7cb_report.pdf").to_string(),
+            "inline; filename=\"report.pdf\""
+        );
+        // Not an upload prefix: the stored name is the name.
+        assert_eq!(
+            inline_disposition("logo_1699999999.png").to_string(),
+            "inline; filename=\"logo_1699999999.png\""
+        );
+    }
+
+    #[test]
+    fn disposition_encodes_non_ascii_names() {
+        assert_eq!(
+            inline_disposition("019eb4e2-dbaa-75e5-9eb2-aa3dc7d8a7cb_résumé.pdf").to_string(),
+            "inline; filename=\"r_sum_.pdf\"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf"
+        );
     }
 
     #[test]
