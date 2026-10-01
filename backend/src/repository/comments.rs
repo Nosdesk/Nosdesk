@@ -524,6 +524,22 @@ pub fn create_attachment(
     })
 }
 
+/// Whether `user` uploaded the draft (not yet attached to a comment) stored at
+/// any of `urls`. Drafts are private to their uploader.
+pub fn is_own_draft_upload(
+    conn: &mut DbConnection,
+    urls: &[String],
+    user: uuid::Uuid,
+) -> QueryResult<bool> {
+    diesel::select(diesel::dsl::exists(
+        attachments::table
+            .filter(attachments::url.eq_any(urls))
+            .filter(attachments::uploaded_by.eq(user))
+            .filter(attachments::comment_id.is_null()),
+    ))
+    .get_result(conn)
+}
+
 /// Temp uploads `owner` made that are still unattached and newer than
 /// `since`: the ones a signed-in requester may attach to their comment.
 pub fn claimable_uploads(
