@@ -733,7 +733,7 @@ pub async fn create_ticket(
             record_canonical(&req, "outcome", "created");
             Ok(HttpResponse::Created().json(ticket))
         }
-        Err(_) => Err(ApiError::Internal("Failed to create ticket".into())),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -831,7 +831,7 @@ pub async fn update_ticket(
             record_canonical(&req, "outcome", "updated");
             Ok(HttpResponse::Ok().json(ticket))
         }
-        Err(e) => Err(ApiError::Internal(format!("Failed to update ticket: {e}"))),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -1483,10 +1483,7 @@ pub async fn update_ticket_partial(
             // Return the updated complete ticket
             Ok(HttpResponse::Ok().json(updated_ticket))
         }
-        Err(e) => {
-            error!(error = ?e, "Failed to update ticket");
-            Err(ApiError::Internal("Failed to update ticket".into()))
-        }
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 

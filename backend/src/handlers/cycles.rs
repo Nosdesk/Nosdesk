@@ -209,6 +209,10 @@ pub async fn create(
             info!(uuid = %cycle.uuid, project_id, "cycle created");
             HttpResponse::Created().json(cycle)
         }
+        Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+            _,
+        )) => errors::not_found_msg("Project not found"),
         Err(e) => {
             error!(error = %e, project_id, "failed to create cycle");
             errors::internal("Failed to create cycle")
@@ -428,6 +432,10 @@ pub async fn add_ticket(
     match result {
         Ok(AddTicketOutcome::Added(membership)) => HttpResponse::Created().json(membership),
         Ok(AddTicketOutcome::NotFound) => errors::not_found_msg("Cycle not found"),
+        Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+            _,
+        )) => errors::not_found_msg("Ticket not found"),
         Err(e) => {
             error!(error = %e, %cycle_uuid, ticket_id, "add_ticket failed");
             errors::internal("Failed to add ticket to cycle")

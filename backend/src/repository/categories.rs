@@ -396,6 +396,17 @@ pub fn can_user_see_category(
     category_id: i32,
     is_admin: bool,
 ) -> QueryResult<bool> {
+    // A category the connection can't see (deleted, or another workspace's) is
+    // visible to no one, admins included.
+    let exists = ticket_categories::table
+        .find(category_id)
+        .select(ticket_categories::id)
+        .first::<i32>(conn)
+        .optional()?
+        .is_some();
+    if !exists {
+        return Ok(false);
+    }
     if is_admin {
         return Ok(true);
     }
@@ -669,5 +680,14 @@ mod tests {
             .unwrap()
             .approvers;
         assert_eq!(got.iter().map(|x| x.uuid).collect::<Vec<_>>(), vec![b.uuid]);
+    }
+
+    #[test]
+    fn a_category_that_does_not_exist_is_visible_to_no_one() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "catghost", "admin");
+        for is_admin in [true, false] {
+            assert!(!can_user_see_category(&mut conn, &user.uuid, i32::MAX, is_admin).unwrap());
+        }
     }
 }
