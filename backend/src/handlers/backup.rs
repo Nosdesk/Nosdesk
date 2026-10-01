@@ -9,6 +9,7 @@ use std::io::Write;
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::middleware::workspace_context::is_hosted;
 use crate::models::{
     BackupJobResponse, BackupJobUpdate, Claims, ExecuteRestoreRequest, NewBackupJob,
     StartBackupExportRequest,
@@ -17,6 +18,11 @@ use crate::repository::backup as backup_repo;
 use crate::services::avatar_thumbnails::{backfill_thumbnails, BackfillMode};
 use crate::services::backup as backup_service;
 use crate::utils::rbac::is_platform_admin;
+
+/// Why a restore is refused on hosted: it replaces every workspace on the
+/// server. A hosted workspace moves through workspace export and import.
+const RESTORE_NOT_ON_HOSTED: &str = "Restoring a backup replaces every workspace on the server, \
+     so it isn't available on hosted. Export and import a workspace instead.";
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route(
@@ -304,6 +310,9 @@ pub async fn upload_restore(
     if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
+    if is_hosted() {
+        return errors::forbidden(RESTORE_NOT_ON_HOSTED);
+    }
 
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
@@ -416,6 +425,9 @@ pub async fn preview_restore(
     if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
+    if is_hosted() {
+        return errors::forbidden(RESTORE_NOT_ON_HOSTED);
+    }
 
     let job_id = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
@@ -447,14 +459,9 @@ pub async fn preview_restore(
 /// POST /api/admin/backup/restore/{id}/execute
 ///
 /// Restore is structurally a cross-workspace operation: the service
-/// layer truncates and reloads every tenant table. The job-status
-/// update calls go through `tc.run` so RLS sees the workspace pin,
-/// but the actual `restore_database` and post-restore thumbnail
-/// regen still need a raw pool connection — the service signature
-/// hand-rolls its own transactions and tools, and Phase 3g will
-/// either bridge that through `unscoped_run` or carve it out as a
-/// dedicated cross-tenant entrypoint. Until then the raw pool path
-/// stays here.
+/// layer truncates and reloads every tenant table, so it runs as the
+/// migration role and isn't offered on hosted. The job-status updates
+/// go through `tc.run` so RLS sees the workspace pin.
 pub async fn execute_restore(
     pool: web::Data<Pool>,
     mut tc: TenantConn,
@@ -471,6 +478,9 @@ pub async fn execute_restore(
     // Check if user is admin
     if !is_platform_admin(&claims) {
         return Err(ApiError::Forbidden("Admin access required".into()));
+    }
+    if is_hosted() {
+        return Err(ApiError::Forbidden(RESTORE_NOT_ON_HOSTED.into()));
     }
 
     let job_id = match Uuid::parse_str(&path.into_inner()) {
@@ -519,17 +529,17 @@ pub async fn execute_restore(
         )
     });
 
-    // Raw pool acquire for the destructive restore: the service
-    // rewrites every tenant table and hand-rolls its own savepoints,
-    // so it can't run inside a single tenant-scoped tx. Phase 3g
-    // owns bridging this through `unscoped_run` or a dedicated
-    // cross-tenant entrypoint.
-    let mut conn = helpers::db_conn(&pool)?;
+    // The restore truncates and reloads every table and turns off
+    // triggers for the load, which the app role can't do. Run it as the
+    // migration role when one is configured (MIGRATION_DATABASE_URL); a
+    // single-role install's DATABASE_URL owns the schema already.
+    let privileged = crate::db::privileged_ddl_pool();
+    let mut conn = match &privileged {
+        Some(owner) => owner.get()?,
+        None => helpers::db_conn(&pool)?,
+    };
 
-    // Restore database first, then files. Mirrors the onboarding-only
-    // `setup_restore_execute` flow below — the two paths now share the
-    // same restore semantics, differing only in their auth gate
-    // (admin claims here vs zero-users-on-system there).
+    // Restore database first, then files.
     let stats = match backup_service::restore_database(
         &mut conn,
         &file_path,

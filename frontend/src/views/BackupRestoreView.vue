@@ -188,8 +188,9 @@
         </div>
       </div>
 
-      <!-- Restore Section -->
-      <div class="bg-surface border border-default rounded-xl">
+      <!-- Restore Section. Hosted doesn't offer instance restore: it would
+           replace every workspace on the server. -->
+      <div v-if="!isHostedDeploymentRef" class="bg-surface border border-default rounded-xl">
         <div class="p-3 sm:p-4 flex flex-col gap-3 sm:gap-4">
           <!-- Header row with icon -->
           <div class="flex flex-row items-start gap-3">
@@ -338,6 +339,7 @@ import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import { downloadDocumentationExport, type ExportProgress } from '@/services/markdownExportService';
 import type { BackupJob, RestorePreview } from '@nosdesk/core/types/backup';
 import { formatFileSize } from '@nosdesk/core/utils/formatFileSize';
+import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
