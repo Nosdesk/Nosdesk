@@ -199,7 +199,8 @@ fn migrate_on_boot_value(raw: Option<String>) -> bool {
 /// partition `CREATE` / `ATTACH` / `DETACH` / `DROP`, which need ownership of
 /// the parent table and `CREATE` on the schema (PG15+ revokes `CREATE ON
 /// SCHEMA public` from `PUBLIC`, so `nosdesk_app` can't create the monthly
-/// child tables).
+/// child tables), and the instance restore, which truncates and reloads every
+/// table.
 ///
 /// Mirrors [`run_migrations`]: uses `MIGRATION_DATABASE_URL` when set and
 /// returns `None` otherwise, so single-role dev / self-hosted setups (where
