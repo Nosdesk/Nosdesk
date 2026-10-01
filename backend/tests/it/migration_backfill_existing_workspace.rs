@@ -139,3 +139,119 @@ fn backfill_migration_succeeds_when_a_workspace_already_exists() {
         "the pre-existing workspace must get exactly one settings row from the backfill"
     );
 }
+
+#[derive(QueryableByName)]
+struct Id {
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    id: i32,
+}
+
+/// Insert one row the way it would already exist, with the table's user
+/// triggers (audit, seeding) off, and return its id.
+fn insert_existing(conn: &mut PgConnection, table: &str, sql: &str) -> i32 {
+    diesel::sql_query(format!("ALTER TABLE {table} DISABLE TRIGGER USER"))
+        .execute(conn)
+        .expect("disable triggers");
+    let id = diesel::sql_query(sql)
+        .get_result::<Id>(conn)
+        .unwrap_or_else(|e| panic!("seed {table}: {e}"))
+        .id;
+    diesel::sql_query(format!("ALTER TABLE {table} ENABLE TRIGGER USER"))
+        .execute(conn)
+        .expect("enable triggers");
+    id
+}
+
+fn workspace(conn: &mut PgConnection, slug: &str) -> i32 {
+    insert_existing(
+        conn,
+        "workspaces",
+        &format!("INSERT INTO workspaces (slug, name) VALUES ('{slug}', '{slug}') RETURNING id"),
+    )
+}
+
+fn state(conn: &mut PgConnection, ws: i32, category: &str, position: i32, default: bool) -> i32 {
+    insert_existing(
+        conn,
+        "workflow_states",
+        &format!(
+            "INSERT INTO workflow_states (workspace_id, name, category, color, position, is_default) \
+             VALUES ({ws}, '{category} {position}', '{category}', 'gray', {position}, {default}) \
+             RETURNING id"
+        ),
+    )
+}
+
+fn ticket(conn: &mut PgConnection, ws: i32, state: i32) -> i32 {
+    insert_existing(
+        conn,
+        "tickets",
+        &format!(
+            "INSERT INTO tickets (workspace_id, title, workflow_state_id) \
+             VALUES ({ws}, 'Printer jammed', {state}) RETURNING id"
+        ),
+    )
+}
+
+fn state_of(conn: &mut PgConnection, ticket: i32) -> i32 {
+    diesel::sql_query("SELECT workflow_state_id AS id FROM tickets WHERE id = $1")
+        .bind::<diesel::sql_types::Integer, _>(ticket)
+        .get_result::<Id>(conn)
+        .expect("read ticket state")
+        .id
+}
+
+/// A ticket holding another workspace's workflow state moves to the matching
+/// state in its own workspace (same category, the default first), and the
+/// migration runs with existing tickets, where the audit trigger would raise
+/// NDX01 if left on.
+#[test]
+fn tickets_holding_another_workspaces_state_move_into_their_own() {
+    let db = FreshDb::new();
+    let mut conn = PgConnection::establish(&db.url).expect("connect fresh db");
+    diesel::sql_query(
+        "CREATE TABLE IF NOT EXISTS __diesel_schema_migrations (\
+         version VARCHAR(50) PRIMARY KEY NOT NULL, \
+         run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+    )
+    .execute(&mut conn)
+    .expect("create migrations table");
+
+    let mut pending = conn
+        .pending_migrations(MIGRATIONS)
+        .expect("list pending migrations");
+    pending.sort_by_key(|m| m.name().to_string());
+
+    // (ticket, the state it should hold after the repair)
+    let mut expected: Vec<(i32, i32)> = Vec::new();
+    for m in &pending {
+        let name = m.name().to_string();
+        if name.contains("ticket_states_in_own_workspace") {
+            let a = workspace(&mut conn, "repair-a");
+            let b = workspace(&mut conn, "repair-b");
+            // A non-default Backlog state that sorts first must not win over
+            // the default one.
+            state(&mut conn, a, "backlog", 0, false);
+            let a_backlog = state(&mut conn, a, "backlog", 1, true);
+            let a_done = state(&mut conn, a, "done", 2, false);
+            let b_backlog = state(&mut conn, b, "backlog", 0, true);
+            let b_done = state(&mut conn, b, "done", 1, false);
+
+            expected.push((ticket(&mut conn, a, b_backlog), a_backlog));
+            expected.push((ticket(&mut conn, a, b_done), a_done));
+            // Already in their own workspace: untouched.
+            expected.push((ticket(&mut conn, a, a_done), a_done));
+            expected.push((ticket(&mut conn, b, b_backlog), b_backlog));
+        }
+        conn.run_migration(&**m)
+            .unwrap_or_else(|e| panic!("migration {name} failed: {e}"));
+    }
+    assert!(
+        !expected.is_empty(),
+        "the repair migration must be in the set"
+    );
+
+    for (ticket, state) in expected {
+        assert_eq!(state_of(&mut conn, ticket), state, "ticket {ticket}");
+    }
+}
