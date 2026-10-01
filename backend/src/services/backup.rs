@@ -1023,6 +1023,12 @@ pub fn restore_database(
 
         // setval is transactional in PG 18; rollback unwinds it.
         reset_sequences(c)?;
+        // Ticket numbers come from per-workspace sequences that the reset above
+        // doesn't see; the rows arrived with their numbers while triggers were
+        // off, so move each workspace's sequence past its highest.
+        sql_query("SELECT public.sync_ticket_number_sequences()")
+            .execute(c)
+            .map_err(BackupError::DatabaseError)?;
         Ok(stats)
     })
 }
@@ -1104,7 +1110,8 @@ fn reset_sequences(conn: &mut DbConnection) -> Result<(), BackupError> {
 ///
 /// `jsonb_populate_recordset(NULL::table, ...)` then runs the
 /// per-column conversion against the target record type. Extra
-/// JSON keys are ignored; missing keys default to NULL.
+/// JSON keys are ignored; missing keys default to NULL, except a
+/// column in `PREDATED_COLUMNS`.
 fn restore_table_data(
     conn: &mut DbConnection,
     table_name: &str,
@@ -1134,7 +1141,8 @@ fn restore_table_data(
 
     let stmt = format!(
         "INSERT INTO public.{table_name} \
-         SELECT * FROM jsonb_populate_recordset(NULL::public.{table_name}, $1::jsonb)"
+         SELECT * FROM jsonb_populate_recordset(NULL::public.{table_name}, {rows})",
+        rows = payload_rows(table_name),
     );
     let count = sql_query(&stmt)
         .bind::<Text, _>(payload)
@@ -1145,6 +1153,28 @@ fn restore_table_data(
             ))
         })?;
     Ok(count)
+}
+
+/// Columns an older backup can predate, filled from another column
+/// of the same row: (table, column, source). Tickets from before
+/// per-workspace numbering take their id as their number, as the
+/// migration numbered them.
+const PREDATED_COLUMNS: &[(&str, &str, &str)] = &[("tickets", "number", "id")];
+
+/// The `$1` payload as the rows to load, with any predated column
+/// filled in.
+fn payload_rows(table_name: &str) -> String {
+    match PREDATED_COLUMNS
+        .iter()
+        .find(|(table, ..)| *table == table_name)
+    {
+        Some((_, column, source)) => format!(
+            "(SELECT jsonb_agg(CASE WHEN r ? '{column}' THEN r \
+             ELSE r || jsonb_build_object('{column}', r -> '{source}') END) \
+             FROM jsonb_array_elements($1::jsonb) r)"
+        ),
+        None => "$1::jsonb".to_owned(),
+    }
 }
 
 #[cfg(test)]
@@ -1329,5 +1359,47 @@ mod tests {
             .get_result(&mut conn)
             .expect("users table should still be queryable");
         assert!(count >= 1, "users table intact after hostile insert");
+    }
+
+    #[test]
+    fn restore_table_data_numbers_tickets_from_an_older_backup() {
+        use crate::schema::tickets;
+        use crate::test_helpers::{setup_test_connection, TestFixtures};
+        use diesel::prelude::*;
+        use diesel::sql_query;
+        use diesel::sql_types::{Integer, Text};
+
+        #[derive(QueryableByName)]
+        struct Old {
+            #[diesel(sql_type = Integer)]
+            id: i32,
+            #[diesel(sql_type = Text)]
+            row: String,
+        }
+
+        let mut conn = setup_test_connection();
+        let ticket = TestFixtures::create_ticket(&mut conn, "Before numbering", None, None);
+        // The row as a backup from before numbering holds it, under a
+        // fresh id.
+        let old: Old = sql_query(
+            "WITH fresh AS (SELECT nextval(pg_get_serial_sequence('tickets', 'id'))::int AS id) \
+             SELECT fresh.id, \
+                    ((to_jsonb(t) - 'number') || jsonb_build_object( \
+                        'id', fresh.id, 'uuid', gen_random_uuid(), 'guest_lookup_token', NULL))::text AS row \
+             FROM tickets t, fresh WHERE t.id = $1",
+        )
+        .bind::<Integer, _>(ticket.id)
+        .get_result(&mut conn)
+        .expect("ticket row as json");
+
+        let inserted = restore_table_data(&mut conn, "tickets", &format!("[{}]", old.row))
+            .expect("restore_table_data");
+        assert_eq!(inserted, 1);
+        let number: i32 = tickets::table
+            .find(old.id)
+            .select(tickets::number)
+            .first(&mut conn)
+            .expect("restored ticket");
+        assert_eq!(number, old.id, "takes its id as its number");
     }
 }

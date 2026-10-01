@@ -1024,6 +1024,7 @@ mod tests {
             sla_paused_at: None,
             sla_override: "auto".to_string(),
             approval_state: None,
+            number: 1,
         }
     }
 

@@ -174,6 +174,7 @@ fn ticket_created_data(
     let workflow_state = workflow_state_payload(conn, ticket.workflow_state_id)?;
     Ok(json!({
         "id": ticket.id,
+        "number": ticket.number,
         "uuid": ticket.uuid,
         "title": ticket.title,
         // Nested state so the kanban can place the card; the

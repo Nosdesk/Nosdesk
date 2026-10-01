@@ -293,9 +293,13 @@ pub struct Ticket {
     /// escape hatch, short-circuited at the top of `compute_pill`).
     pub sla_override: String,
     /// Where an approval stands: `None` (no approval involved), `pending`,
-    /// `approved`, `declined` or `skipped`. Must stay the LAST field to match
-    /// `schema.rs` column order (positional Queryable).
+    /// `approved`, `declined` or `skipped`.
     pub approval_state: Option<String>,
+    /// The ticket's number within its workspace: what people quote, and what
+    /// links and email subjects carry. Assigned by the database on insert; `id`
+    /// stays the internal key. Must stay the LAST field to match `schema.rs`
+    /// column order (positional Queryable).
+    pub number: i32,
 }
 
 /// Merge metadata for a ticket that was merged into another (the satellite of
@@ -743,6 +747,7 @@ mod new_ticket_redaction_tests {
             sla_paused_at: None,
             sla_override: "none".into(),
             approval_state: None,
+            number: 1,
         }
     }
 

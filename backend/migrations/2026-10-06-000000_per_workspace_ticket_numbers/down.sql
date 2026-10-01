@@ -1,0 +1,10 @@
+DROP TRIGGER IF EXISTS workspaces_ticket_numbers ON public.workspaces;
+DROP FUNCTION IF EXISTS public.workspace_ticket_numbers();
+DROP TRIGGER IF EXISTS tickets_assign_number ON public.tickets;
+DROP FUNCTION IF EXISTS public.assign_ticket_number();
+DROP FUNCTION IF EXISTS public.sync_ticket_number_sequences();
+DROP FUNCTION IF EXISTS public.advance_ticket_number(integer, integer);
+DROP FUNCTION IF EXISTS public.ticket_number_sequence(integer);
+DROP INDEX IF EXISTS public.tickets_workspace_number_key;
+ALTER TABLE public.tickets DROP COLUMN IF EXISTS number;
+DROP SCHEMA IF EXISTS ticket_numbers CASCADE;
