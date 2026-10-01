@@ -147,11 +147,13 @@ pub fn read_archive(
     })
 }
 
-/// Discover single-column integer foreign-key edges (child column → `parent.id`)
-/// among `tables`, from `pg_constraint`. Only FKs whose referenced column is `id`
-/// are returned — those are the integer keys a remap must rewrite. User FKs
-/// (referencing `users.uuid`) and composite FKs are intentionally excluded; users
-/// are resolved by uuid, not remapped.
+/// Discover integer foreign-key edges (child column → `parent.id`) among
+/// `tables`, from `pg_constraint`: single-column keys, and the two-column keys
+/// between workspace tables, `(workspace_id, x_id)` → `(workspace_id, id)`,
+/// whose edge is `x_id`. Only FKs whose referenced column is `id` are returned —
+/// those are the integer keys a remap must rewrite. User FKs (referencing
+/// `users.uuid`) are intentionally excluded; users are resolved by uuid, not
+/// remapped.
 pub fn discover_fk_edges(
     conn: &mut crate::db::DbConnection,
     tables: &HashSet<String>,
@@ -174,13 +176,23 @@ pub fn discover_fk_edges(
                 con.confrelid::regclass::text AS parent_table, \
                 parent_col.attname AS parent_column \
          FROM pg_constraint con \
+         CROSS JOIN LATERAL unnest(con.conkey, con.confkey) AS k(child_attnum, parent_attnum) \
          JOIN pg_attribute child_col \
-           ON child_col.attrelid = con.conrelid AND child_col.attnum = con.conkey[1] \
+           ON child_col.attrelid = con.conrelid AND child_col.attnum = k.child_attnum \
          JOIN pg_attribute parent_col \
-           ON parent_col.attrelid = con.confrelid AND parent_col.attnum = con.confkey[1] \
+           ON parent_col.attrelid = con.confrelid AND parent_col.attnum = k.parent_attnum \
          WHERE con.contype = 'f' \
            AND con.connamespace = 'public'::regnamespace \
-           AND array_length(con.conkey, 1) = 1",
+           AND (array_length(con.conkey, 1) = 1 \
+                OR (array_length(con.conkey, 1) = 2 \
+                    AND child_col.attname <> 'workspace_id' \
+                    AND EXISTS ( \
+                        SELECT 1 FROM unnest(con.conkey, con.confkey) AS w(child_attnum, parent_attnum) \
+                        JOIN pg_attribute wc \
+                          ON wc.attrelid = con.conrelid AND wc.attnum = w.child_attnum \
+                        JOIN pg_attribute wp \
+                          ON wp.attrelid = con.confrelid AND wp.attnum = w.parent_attnum \
+                        WHERE wc.attname = 'workspace_id' AND wp.attname = 'workspace_id')))",
     )
     .load(conn)
     .map_err(BackupError::DatabaseError)?;

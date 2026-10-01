@@ -48,6 +48,7 @@ pub mod models;
 pub mod oidc;
 pub mod repository;
 pub mod schema;
+mod schema_joins;
 pub mod services;
 pub mod startup;
 pub mod sync;

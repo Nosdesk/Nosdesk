@@ -118,7 +118,9 @@ fn setup(conn: &mut DbConnection, slug: &str) -> Fixture {
         &format!("{slug}-secret"),
         page_body(&secret_text),
     );
-    restrict_page_to(conn, secret.id, workspace_id, other.uuid);
+    // The page's own workspace: `pin_workspace` above is transaction-local, so
+    // outside a transaction the page takes the pool's default workspace.
+    restrict_page_to(conn, secret.id, secret.workspace_id, other.uuid);
 
     let parent_body = page_embedding(secret.uuid, "Secret Page");
     Fixture {
