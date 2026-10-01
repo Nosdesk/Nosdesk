@@ -103,7 +103,10 @@ pub async fn push(
     // Push applies edits directly, so it enforces what the REST routes do:
     // staff edit tickets and projects; anyone else may only retitle a ticket
     // they can see.
-    let staff = crate::repository::user_helpers::user_can_handle_tickets(&mut conn, &ctx.user);
+    let editor = Editor {
+        staff: crate::repository::user_helpers::user_can_handle_tickets(&mut conn, &ctx.user),
+        admin: crate::repository::user_helpers::user_is_admin(&mut conn, &ctx.user),
+    };
 
     let mut applied: Vec<String> = Vec::with_capacity(body.len());
     let mut rejected: Vec<RejectedTx> = Vec::new();
@@ -124,7 +127,7 @@ pub async fn push(
             workspace_id,
         };
 
-        match apply_transaction(&mut conn, &tx, &actor, staff) {
+        match apply_transaction(&mut conn, &tx, &actor, editor) {
             Ok(sync_id) => {
                 last_sync_id = sync_id.max(last_sync_id);
                 applied.push(tx_id.clone());
@@ -170,6 +173,15 @@ pub async fn push(
 
 struct TxReject(&'static str, String);
 
+/// What the pushing user may change.
+#[derive(Clone, Copy)]
+struct Editor {
+    /// Handles tickets (agent or above).
+    staff: bool,
+    /// Sees every category.
+    admin: bool,
+}
+
 /// Test-only entrypoint mirroring `apply_transaction` but returning
 /// a public tuple so callers in `#[cfg(test)]` modules can assert
 /// against it without `TxReject` needing to leak out of this file.
@@ -179,7 +191,11 @@ pub(super) fn apply_transaction_for_test(
     tx: &PushTransaction,
     actor: &ActorContext,
 ) -> Result<i64, (&'static str, String)> {
-    apply_transaction(conn, tx, actor, true).map_err(|TxReject(r, d)| (r, d))
+    let admin = Editor {
+        staff: true,
+        admin: true,
+    };
+    apply_transaction(conn, tx, actor, admin).map_err(|TxReject(r, d)| (r, d))
 }
 
 /// [`apply_transaction_for_test`] for a caller who is not staff.
@@ -189,7 +205,11 @@ pub(super) fn apply_transaction_as_non_staff_for_test(
     tx: &PushTransaction,
     actor: &ActorContext,
 ) -> Result<i64, (&'static str, String)> {
-    apply_transaction(conn, tx, actor, false).map_err(|TxReject(r, d)| (r, d))
+    let member = Editor {
+        staff: false,
+        admin: false,
+    };
+    apply_transaction(conn, tx, actor, member).map_err(|TxReject(r, d)| (r, d))
 }
 
 fn forbidden() -> TxReject {
@@ -200,7 +220,7 @@ fn apply_transaction(
     conn: &mut DbConnection,
     tx: &PushTransaction,
     actor: &ActorContext,
-    staff: bool,
+    editor: Editor,
 ) -> Result<i64, TxReject> {
     // Idempotency short-circuit: if this `tx_id` already has a row
     // in sync_actions, we treat it as applied (this is the legitimate
@@ -213,9 +233,9 @@ fn apply_transaction(
     }
 
     match tx.aggregate {
-        SyncAggregate::Project if !staff => Err(forbidden()),
+        SyncAggregate::Project if !editor.staff => Err(forbidden()),
         SyncAggregate::Project => apply_project(conn, tx, actor),
-        SyncAggregate::Ticket => apply_ticket(conn, tx, actor, staff),
+        SyncAggregate::Ticket => apply_ticket(conn, tx, actor, editor),
         SyncAggregate::ProjectTicket
         | SyncAggregate::WorkflowState
         | SyncAggregate::Comment
@@ -255,7 +275,7 @@ fn apply_ticket(
     conn: &mut DbConnection,
     tx: &PushTransaction,
     actor: &ActorContext,
-    staff: bool,
+    editor: Editor,
 ) -> Result<i64, TxReject> {
     let ticket_id: i32 = tx.model_id.parse().map_err(|_| {
         TxReject(
@@ -291,7 +311,7 @@ fn apply_ticket(
                     "watcher_uuids changes go through the ticket watch endpoints".into(),
                 ));
             }
-            if !staff {
+            if !editor.staff {
                 let only_title = tag_ids.is_none() && obj.keys().all(|k| k == "title");
                 let user = actor.uuid.ok_or_else(forbidden)?;
                 let visible = crate::repository::ticket_visibility::can_view_ticket(
@@ -305,7 +325,7 @@ fn apply_ticket(
                 }
             }
             let has_scalar = !obj.is_empty();
-            let patch = decode_ticket_patch(&Value::Object(obj))?;
+            let mut patch = client_columns(decode_ticket_patch(&Value::Object(obj))?)?;
             let actor_uuid = actor.uuid;
             if let Some(state_id) = patch.workflow_state_id {
                 if crate::repository::ticket_approvals::blocks_resolution(conn, ticket_id, state_id)
@@ -315,6 +335,38 @@ fn apply_ticket(
                         "approval_pending",
                         crate::repository::ticket_approvals::WAITING_MESSAGE.into(),
                     ));
+                }
+                // closed_at follows the state, as on the REST PATCH.
+                let category = crate::repository::workflow_states::category_of(conn, state_id)
+                    .map_err(reject_diesel)?
+                    .ok_or_else(|| {
+                        TxReject("invalid_reference", "unknown workflow state".into())
+                    })?;
+                patch.closed_at = Some(
+                    category
+                        .closes_ticket()
+                        .then(|| chrono::Utc::now().naive_utc()),
+                );
+            }
+            if let Some(Some(assignee)) = patch.assignee_uuid {
+                if !assignable(conn, assignee) {
+                    return Err(TxReject(
+                        "invalid_assignee",
+                        "only technicians and administrators can be assigned tickets".into(),
+                    ));
+                }
+            }
+            if let Some(Some(category_id)) = patch.category_id {
+                let user = actor.uuid.ok_or_else(forbidden)?;
+                let visible = crate::repository::categories::can_user_see_category(
+                    conn,
+                    &user,
+                    category_id,
+                    editor.admin,
+                )
+                .map_err(reject_diesel)?;
+                if !visible {
+                    return Err(forbidden());
                 }
             }
             run_with_actor(conn, actor, |conn| {
@@ -345,6 +397,70 @@ fn apply_ticket(
             "tickets don't support soft-archive yet".into(),
         )),
     }
+}
+
+/// The columns a client may set on a ticket, as on the REST PATCH. The server
+/// sets `closed_at` (from the workflow state) and `updated_at`, and the inbound
+/// pipeline and recurrence scheduler own provenance, triage and the spam flag,
+/// so a patch naming them is refused; clearing the spam flag is the one
+/// exception, as on the REST PATCH. Destructured field by field so that adding
+/// a column to `TicketUpdate` fails to compile here until someone decides
+/// whether clients may set it.
+fn client_columns(patch: TicketUpdate) -> Result<TicketUpdate, TxReject> {
+    let TicketUpdate {
+        title,
+        workflow_state_id,
+        priority,
+        requester_uuid,
+        assignee_uuid,
+        updated_at: _,
+        closed_at,
+        verification_state,
+        origin_channel_id,
+        category_id,
+        triage_state,
+        due_date,
+        start_date,
+        recurrence_rule,
+        recurrence_template_id,
+        resolution_notes,
+        spam_suspected,
+        sla_override,
+    } = patch;
+    if closed_at.is_some()
+        || verification_state.is_some()
+        || origin_channel_id.is_some()
+        || triage_state.is_some()
+        || recurrence_template_id.is_some()
+        || spam_suspected == Some(true)
+    {
+        return Err(TxReject(
+            "unsupported_field",
+            "the patch sets a field only the server sets".into(),
+        ));
+    }
+    Ok(TicketUpdate {
+        title,
+        workflow_state_id,
+        priority,
+        requester_uuid,
+        assignee_uuid,
+        category_id,
+        due_date,
+        start_date,
+        recurrence_rule,
+        resolution_notes,
+        spam_suspected,
+        sla_override,
+        ..TicketUpdate::default()
+    })
+}
+
+/// Whether `user` can be assigned tickets in the pinned workspace, as the REST
+/// routes check.
+fn assignable(conn: &mut DbConnection, user: uuid::Uuid) -> bool {
+    crate::repository::users::get_user_by_uuid(&user, conn)
+        .is_ok_and(|u| crate::repository::user_helpers::user_can_handle_tickets(conn, &u))
 }
 
 fn decode_ticket_patch(value: &Value) -> Result<TicketUpdate, TxReject> {

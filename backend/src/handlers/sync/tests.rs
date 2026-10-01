@@ -205,7 +205,7 @@ fn push_assignment_reaches_the_notification_outbox() {
 
     let mut conn = setup_test_connection();
     let admin = TestFixtures::create_user(&mut conn, "sync_push_assign_actor", "admin");
-    let agent = TestFixtures::create_user(&mut conn, "sync_push_assign_agent", "agent");
+    let agent = TestFixtures::create_user(&mut conn, "sync_push_assign_agent", "technician");
     let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
     let ticket_id = conn
         .transaction::<_, diesel::result::Error, _>(|conn| {
@@ -296,6 +296,90 @@ fn push_assignment_reaches_the_notification_outbox() {
 
 /// Push enforces what the REST routes do: someone who is not staff may only
 /// retitle a ticket they can see, and may not touch projects.
+/// A staff push carries only the ticket columns a client owns: the server sets
+/// `closed_at` from the state, and provenance, triage and the spam flag aren't
+/// the client's. Assignees and categories are checked as on the REST PATCH.
+#[test]
+fn push_takes_only_the_ticket_columns_a_client_owns() {
+    use super::push::PushTransaction;
+    use crate::models::WorkflowStateCategory;
+    use crate::schema::{tickets, workflow_states};
+
+    let mut conn = setup_test_connection();
+    let admin = TestFixtures::create_user(&mut conn, "sync_push_columns_admin", "admin");
+    let member = TestFixtures::create_user(&mut conn, "sync_push_columns_member", "user");
+    let ticket = TestFixtures::create_ticket(&mut conn, "Printer jammed", Some(member.uuid), None);
+    let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
+    let push = |conn: &mut crate::db::DbConnection, patch| {
+        let tx = PushTransaction {
+            tx_id: Uuid::now_v7().to_string(),
+            aggregate: SyncAggregate::Ticket,
+            model_id: ticket.id.to_string(),
+            op: SyncOp::Update,
+            patch,
+            base_sync_id: None,
+        };
+        super::push::apply_transaction_for_test(conn, &tx, &actor)
+            .map(|_| "applied")
+            .unwrap_or_else(|(reason, _)| reason)
+    };
+
+    for patch in [
+        json!({ "closed_at": "2020-01-01T00:00:00" }),
+        json!({ "verification_state": "verified" }),
+        json!({ "origin_channel_id": 1 }),
+        json!({ "triage_state": "triaged" }),
+        json!({ "recurrence_template_id": 1 }),
+        json!({ "spam_suspected": true }),
+    ] {
+        assert_eq!(
+            push(&mut conn, patch.clone()),
+            "unsupported_field",
+            "{patch}"
+        );
+    }
+    assert_eq!(
+        push(&mut conn, json!({ "spam_suspected": false })),
+        "applied"
+    );
+    assert_eq!(
+        push(
+            &mut conn,
+            json!({ "assignee_uuid": member.uuid.to_string() })
+        ),
+        "invalid_assignee",
+        "a member can't be assigned"
+    );
+
+    let state_in = |conn: &mut crate::db::DbConnection, category: WorkflowStateCategory| -> i32 {
+        workflow_states::table
+            .filter(workflow_states::workspace_id.eq(1))
+            .filter(workflow_states::category.eq(category))
+            .select(workflow_states::id)
+            .first(conn)
+            .expect("a seeded state in the category")
+    };
+    let closed_at = |conn: &mut crate::db::DbConnection| -> Option<chrono::DateTime<chrono::Utc>> {
+        tickets::table
+            .find(ticket.id)
+            .select(tickets::closed_at)
+            .first(conn)
+            .expect("reload ticket")
+    };
+    let done = state_in(&mut conn, WorkflowStateCategory::Done);
+    let backlog = state_in(&mut conn, WorkflowStateCategory::Backlog);
+    assert_eq!(
+        push(&mut conn, json!({ "workflow_state_id": done })),
+        "applied"
+    );
+    assert!(closed_at(&mut conn).is_some(), "closing records when");
+    assert_eq!(
+        push(&mut conn, json!({ "workflow_state_id": backlog })),
+        "applied"
+    );
+    assert!(closed_at(&mut conn).is_none(), "reopening clears it");
+}
+
 #[test]
 fn push_limits_non_staff_to_retitling_their_own_ticket() {
     use super::push::PushTransaction;
