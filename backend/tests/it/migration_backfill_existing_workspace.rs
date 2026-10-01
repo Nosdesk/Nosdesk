@@ -40,13 +40,13 @@ fn admin_url() -> String {
 }
 
 /// A throwaway empty database, dropped on scope exit (even on panic).
-struct FreshDb {
+pub(crate) struct FreshDb {
     name: String,
-    url: String,
+    pub(crate) url: String,
 }
 
 impl FreshDb {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let suffix = Uuid::new_v4().simple().to_string()[..16].to_string();
         let name = format!("nosdesk_migtest_{suffix}");
         let url = with_database(&base_url(), &name);

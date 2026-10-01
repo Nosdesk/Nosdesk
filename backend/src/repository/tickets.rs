@@ -1481,18 +1481,24 @@ mod tests {
 
         // Workspace 2 ticket needs an explicit workspace_id; raw SQL
         // because NewTicket doesn't carry workspace_id yet (the
-        // column-default-from-GUC swap lands in 3c).
+        // column-default-from-GUC swap lands in 3c). Its workflow state
+        // must be workspace 2's own, so it gets one first.
         let t2_id: i32 = with_actor_bypass_context(conn, &admin, |c| {
             #[derive(diesel::QueryableByName)]
             struct IdRow {
                 #[diesel(sql_type = diesel::sql_types::Integer)]
                 id: i32,
             }
+            let ws2_state: IdRow = diesel::sql_query(
+                "INSERT INTO workflow_states (workspace_id, name, category, color, position, is_default) \
+                 VALUES (2, 'Backlog', 'backlog', 'gray', 0, true) RETURNING id",
+            )
+            .get_result(c)?;
             let row: IdRow = diesel::sql_query(
                 "INSERT INTO tickets (title, workflow_state_id, priority, workspace_id) \
                  VALUES ('ws2 ticket', $1, 'medium', 2) RETURNING id",
             )
-            .bind::<diesel::sql_types::Integer, _>(state.id)
+            .bind::<diesel::sql_types::Integer, _>(ws2_state.id)
             .get_result(c)?;
             Ok::<i32, diesel::result::Error>(row.id)
         })
