@@ -115,6 +115,9 @@ pub fn client(timeout: Duration) -> reqwest::Result<reqwest::Client> {
         .https_only(false) // see below — some webhook receivers are still http://
         .redirect(ssrf_safe_redirect_policy())
         .dns_resolver(Arc::new(SafeResolver))
+        // Connect directly, ignoring HTTP_PROXY and friends: a proxy resolves
+        // the destination itself, so SafeResolver would never see it.
+        .no_proxy()
         .build()
 }
 
@@ -135,6 +138,7 @@ pub fn no_redirect_client(timeout: Duration) -> reqwest::Result<reqwest::Client>
         .timeout(timeout)
         .redirect(reqwest::redirect::Policy::none())
         .dns_resolver(Arc::new(SafeResolver))
+        .no_proxy()
         .build()
 }
 
@@ -149,6 +153,7 @@ pub fn https_only_client(timeout: Duration) -> reqwest::Result<reqwest::Client> 
         .https_only(true)
         .redirect(ssrf_safe_redirect_policy())
         .dns_resolver(Arc::new(SafeResolver))
+        .no_proxy()
         .build()
 }
 

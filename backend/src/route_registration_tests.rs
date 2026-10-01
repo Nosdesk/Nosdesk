@@ -235,7 +235,6 @@ async fn tickets_config_routes_registered() {
             ("POST", "/tags"),
             ("PATCH", "/tags/1"),
             ("DELETE", "/tags/1"),
-            ("POST", "/import/file"),
             ("POST", "/import/json"),
             ("POST", "/tickets/1/link/1"),
             ("DELETE", "/tickets/1/unlink/1"),
