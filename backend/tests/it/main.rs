@@ -69,6 +69,7 @@ mod plugin_collection_row_scoping;
 mod plugin_permission_gate;
 mod portal_session;
 mod profile_write_authz;
+mod project_ticket_visibility;
 mod projection_membership_role_model;
 mod push_preference_defaults;
 mod rebuild_search_index;
