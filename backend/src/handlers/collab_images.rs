@@ -11,7 +11,8 @@
 //!
 //! The gate here is `can_access_document`, the same primitive the collab
 //! WebSocket upgrade and the REST article read use, so "who may see this
-//! image" cannot drift from "who may open this document".
+//! image" cannot drift from "who may open this document". An upload also
+//! needs `DocAccessor::can_edit`, as an edit over the socket does.
 
 use actix_web::{web, HttpResponse};
 
@@ -83,12 +84,16 @@ pub async fn upload_collab_document_image(
     // workspace's resource simply does not resolve: that is the cross-workspace
     // guard, and it lands on 404 rather than the 403 an explicit uuid
     // comparison would give.
+    // Adding an image is an edit, so it needs a caller who can change the
+    // document as well as open it.
     let accessor = DocAccessor::from_auth(&auth);
     let gate = tc.run(|conn| {
         let Some(doc_type) = parsed.resolve(conn)? else {
             return Ok(None);
         };
-        Ok(Some(can_access_document(conn, &accessor, &doc_type)?))
+        Ok(Some(
+            accessor.can_edit() && can_access_document(conn, &accessor, &doc_type)?,
+        ))
     });
     match gate {
         Ok(Some(true)) => {}
