@@ -18,6 +18,7 @@ pub async fn upload_files(
     mut payload: Multipart,
     mut tc: TenantConn,
     storage: ScopedStorage,
+    auth: AuthContext,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("Received file upload request");
 
@@ -164,8 +165,9 @@ pub async fn upload_files(
             file_size: Some(total_size as i64),
             mime_type: Some(detected_mime.clone()),
             checksum: Some(checksum),
-            comment_id: None,  // Not linked to a comment yet
-            uploaded_by: None, // Will be set when attached to a comment
+            comment_id: None, // Not linked to a comment yet
+            // Only the uploader can preview the draft or attach it to a comment.
+            uploaded_by: Some(auth.user_uuid),
             transcription: transcription_text.clone(),
         };
 
@@ -229,17 +231,16 @@ pub async fn serve_ticket_file(
     serve_or_not_found(storage.get(), &file_path, &req).await
 }
 
-// Serve temp (pre-attachment staging) files.
-//
-// Temp objects aren't tied to a ticket yet, but the upload created an
-// `attachments` row carrying the workspace_id. We authorize by looking that
-// row up under `TenantConn`, so RLS only matches it for the workspace that
-// uploaded it (a member of another workspace gets a 404).
+// Serve temp (pre-attachment staging) files: a draft only its uploader may
+// load until a comment attaches it and it moves under its ticket. The upload's
+// `attachments` row is looked up under `TenantConn`, so RLS also keeps it to
+// the workspace that uploaded it.
 pub async fn serve_temp_file(
     path: web::Path<String>,
     req: actix_web::HttpRequest,
     mut tc: TenantConn,
     storage: ScopedStorage,
+    auth: AuthContext,
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
@@ -250,7 +251,10 @@ pub async fn serve_temp_file(
             use diesel::dsl::{exists, select};
             use diesel::prelude::*;
             select(exists(
-                attachments::table.filter(attachments::url.eq(&public_url)),
+                attachments::table
+                    .filter(attachments::url.eq(&public_url))
+                    .filter(attachments::uploaded_by.eq(auth.user_uuid))
+                    .filter(attachments::comment_id.is_null()),
             ))
             .get_result::<bool>(conn)
         })

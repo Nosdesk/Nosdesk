@@ -435,6 +435,41 @@ pub fn get_attachment_by_id(
     attachments::table.find(attachment_id).first(conn)
 }
 
+/// The uploads among `ids` that `owner` made since `since` and that no
+/// comment has attached yet: the only ones a comment of theirs may claim.
+pub fn claimable_uploads(
+    conn: &mut DbConnection,
+    ids: &[i32],
+    owner: uuid::Uuid,
+    since: chrono::DateTime<chrono::Utc>,
+) -> QueryResult<Vec<Attachment>> {
+    attachments::table
+        .filter(attachments::id.eq_any(ids))
+        .filter(attachments::uploaded_by.eq(owner))
+        .filter(attachments::comment_id.is_null())
+        .filter(attachments::created_at.ge(since))
+        .load(conn)
+}
+
+// sync-pending-wire: the temp->comment reparent isn't broadcast; the parent comment event covers the attached set
+/// Reparent a temp upload onto a comment: its permanent URL, `comment_id`
+/// and `uploaded_by`.
+pub fn reparent_attachment(
+    conn: &mut DbConnection,
+    attachment_id: i32,
+    url: &str,
+    comment_id: i32,
+    uploaded_by: uuid::Uuid,
+) -> QueryResult<usize> {
+    diesel::update(attachments::table.find(attachment_id))
+        .set((
+            attachments::url.eq(url),
+            attachments::comment_id.eq(Some(comment_id)),
+            attachments::uploaded_by.eq(Some(uploaded_by)),
+        ))
+        .execute(conn)
+}
+
 pub fn delete_attachment(conn: &mut DbConnection, attachment_id: i32) -> QueryResult<usize> {
     conn.transaction(|conn| {
         // Capture parent comment before delete so groups resolve.
@@ -498,6 +533,53 @@ mod tests {
         .unwrap();
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].id, comment.id);
+    }
+
+    /// A comment may claim only its author's own upload that no comment has
+    /// attached yet and that is still within the claim window.
+    #[test]
+    fn only_your_own_waiting_uploads_are_claimable() {
+        let mut conn = setup_test_connection();
+        let me = TestFixtures::create_user(&mut conn, "claim_me", "technician");
+        let other = TestFixtures::create_user(&mut conn, "claim_other", "technician");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Claims", Some(me.uuid), None);
+        let comment = TestFixtures::create_comment(&mut conn, ticket.id, me.uuid, "posted");
+        let mut upload = |owner: Option<uuid::Uuid>, comment_id: Option<i32>| -> Attachment {
+            diesel::insert_into(attachments::table)
+                .values(NewAttachment {
+                    url: format!("/uploads/temp/{}_a.txt", uuid::Uuid::new_v4()),
+                    name: "a.txt".into(),
+                    file_size: Some(1),
+                    mime_type: Some("text/plain".into()),
+                    checksum: None,
+                    comment_id,
+                    uploaded_by: owner,
+                    transcription: None,
+                })
+                .get_result(&mut conn)
+                .expect("insert upload")
+        };
+        let mine = upload(Some(me.uuid), None);
+        let theirs = upload(Some(other.uuid), None);
+        let attached = upload(Some(me.uuid), Some(comment.id));
+        let unowned = upload(None, None);
+
+        let ids = [mine.id, theirs.id, attached.id, unowned.id];
+        let since = chrono::Utc::now() - chrono::Duration::hours(24);
+        let claimable: Vec<i32> = claimable_uploads(&mut conn, &ids, me.uuid, since)
+            .unwrap()
+            .iter()
+            .map(|a| a.id)
+            .collect();
+        assert_eq!(claimable, vec![mine.id]);
+
+        let after = chrono::Utc::now() + chrono::Duration::hours(1);
+        assert!(
+            claimable_uploads(&mut conn, &[mine.id], me.uuid, after)
+                .unwrap()
+                .is_empty(),
+            "an expired upload isn't claimable"
+        );
     }
 
     /// Internal notes must not reach a requester through the REST readers.
