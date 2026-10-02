@@ -68,6 +68,24 @@ pub fn get_all_tickets(conn: &mut DbConnection) -> QueryResult<Vec<Ticket>> {
     tickets::table.load(conn)
 }
 
+/// Whether `user_uuid` is on `ticket`: its requester, a watcher, or staff
+/// in its workspace.
+pub fn is_on_ticket(
+    conn: &mut DbConnection,
+    ticket: &Ticket,
+    user_uuid: Uuid,
+) -> QueryResult<bool> {
+    if ticket.requester_uuid == Some(user_uuid)
+        || crate::repository::ticket_watchers::is_watching(conn, ticket.id, &user_uuid)?
+    {
+        return Ok(true);
+    }
+    Ok(
+        crate::repository::workspaces::membership(conn, ticket.workspace_id, user_uuid)?
+            .is_some_and(|m| WorkspaceRole::from_db(&m.role).is_staff()),
+    )
+}
+
 pub fn get_ticket_by_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Ticket> {
     tickets::table.find(ticket_id).first(conn)
 }
