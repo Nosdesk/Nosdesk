@@ -103,12 +103,21 @@ pub async fn run_one_drain(
             // (prior hard bounce or complaint). The list is global (no
             // workspace_id), so a bypass read is fine; a failed lookup falls
             // through to attempting the send rather than silently blocking it.
-            let suppressed = crate::sync::session::background_run(
-                &pool,
-                "background:email_queue_suppress_check",
-                |conn| crate::repository::email_suppressions::is_suppressed(conn, &row.recipient),
-            )
-            .unwrap_or(false);
+            // Password resets and invitations always go: they are how someone
+            // gets back into an account, a wrong suppression included.
+            let recovery = row
+                .idempotency_key
+                .as_deref()
+                .is_some_and(|k| k.starts_with("password_reset:") || k.starts_with("invitation:"));
+            let suppressed = !recovery
+                && crate::sync::session::background_run(
+                    &pool,
+                    "background:email_queue_suppress_check",
+                    |conn| {
+                        crate::repository::email_suppressions::is_suppressed(conn, &row.recipient)
+                    },
+                )
+                .unwrap_or(false);
             let outcome = if suppressed {
                 DispatchOutcome::Suppressed
             } else {

@@ -301,6 +301,9 @@ pub fn mark_bounced(
     recipient: Option<&str>,
     diagnostic: Option<&str>,
 ) -> Result<usize, DieselError> {
+    // A report names the message and the address that bounced; only a row
+    // that sent that message to that address matches. Anyone we've mailed
+    // can cite our Message-ID beside someone else's address.
     diesel::sql_query(
         r#"
         UPDATE outbound_emails
@@ -308,6 +311,7 @@ pub fn mark_bounced(
             bounce_recipient = $2,
             bounce_diagnostic = $3
         WHERE message_id = $1
+          AND ($2 IS NULL OR lower(recipient) = lower($2))
         "#,
     )
     .bind::<Text, _>(message_id)
