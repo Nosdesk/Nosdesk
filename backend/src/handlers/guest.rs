@@ -278,15 +278,6 @@ async fn email_domain_has_mx(email: &str) -> bool {
     }
 }
 
-/// Escape `%`, `_`, and `\` for safe use in an `ILIKE` pattern.
-/// Diesel parameterizes the value, but LIKE wildcards still apply on the
-/// Postgres side, so un-escaped metacharacters would change match semantics.
-fn escape_like(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-}
-
 fn valid_email(e: &str) -> bool {
     // Cheap shape check; full validation is deferred to downstream
     // systems (SMTP, auth). We just want to reject obvious garbage.
@@ -1115,7 +1106,7 @@ pub async fn search_public_docs(
                 ordered
             }
             None => public
-                .filter(title.ilike(format!("%{}%", escape_like(&q))))
+                .filter(title.ilike(format!("%{}%", crate::repository::escape_like(&q))))
                 .limit(GUEST_DOC_SEARCH_RESULT_LIMIT)
                 .load(conn)?,
         };
@@ -1523,20 +1514,5 @@ mod tests {
         assert!(!valid_email("user@"));
         assert!(!valid_email("user@host")); // no dot in domain
         assert!(!valid_email(&format!("user@{}.com", "x".repeat(300)))); // > 254
-    }
-
-    #[test]
-    fn escape_like_escapes_all_three_metacharacters() {
-        assert_eq!(escape_like("50%"), r"50\%");
-        assert_eq!(escape_like("some_name"), r"some\_name");
-        // Backslash must be escaped first; otherwise we'd double-escape % / _.
-        assert_eq!(escape_like(r"C:\path"), r"C:\\path");
-        assert_eq!(escape_like(r"a\%b_c"), r"a\\\%b\_c");
-    }
-
-    #[test]
-    fn escape_like_passes_through_safe_input() {
-        assert_eq!(escape_like("hello world"), "hello world");
-        assert_eq!(escape_like(""), "");
     }
 }

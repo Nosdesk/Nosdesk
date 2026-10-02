@@ -125,5 +125,33 @@ pub(crate) fn pinned_workspace() -> diesel::expression::SqlLiteral<diesel::sql_t
     )
 }
 
+/// `s` as an `ILIKE` pattern that matches only itself: `%`, `_` and `\`
+/// escaped.
+pub(crate) fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 // Note: We've completed the transition to a fully modular structure
 // by removing the base.rs file and keeping only domain-specific modules.
+
+#[cfg(test)]
+mod tests {
+    use super::escape_like;
+
+    #[test]
+    fn escape_like_escapes_all_three_metacharacters() {
+        assert_eq!(escape_like("50%"), r"50\%");
+        assert_eq!(escape_like("some_name"), r"some\_name");
+        // Backslash must be escaped first; otherwise we'd double-escape % / _.
+        assert_eq!(escape_like(r"C:\path"), r"C:\\path");
+        assert_eq!(escape_like(r"a\%b_c"), r"a\\\%b\_c");
+    }
+
+    #[test]
+    fn escape_like_passes_through_safe_input() {
+        assert_eq!(escape_like("hello world"), "hello world");
+        assert_eq!(escape_like(""), "");
+    }
+}
