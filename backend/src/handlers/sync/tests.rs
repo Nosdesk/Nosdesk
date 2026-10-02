@@ -125,3 +125,71 @@ fn push_rejects_unsupported_aggregate() {
     let (reason, _detail) = result.unwrap_err();
     assert_eq!(reason, "unsupported_aggregate");
 }
+
+/// Push enforces what the REST routes do: someone who is not staff may only
+/// change their own request's title, priority, category and due date, and
+/// may not touch projects.
+#[test]
+fn push_limits_non_staff_to_their_own_requests_details() {
+    use super::push::PushTransaction;
+    let mut conn = setup_test_connection();
+    let member = TestFixtures::create_user(&mut conn, "sync_push_member", "user");
+    let other = TestFixtures::create_user(&mut conn, "sync_push_other", "user");
+    let mine = TestFixtures::create_ticket(&mut conn, "Mine", Some(member.uuid), None);
+    let theirs = TestFixtures::create_ticket(&mut conn, "Theirs", Some(other.uuid), None);
+    let actor = ActorContext::user(member.uuid, None);
+    let tx = |aggregate, id: i32, patch| PushTransaction {
+        tx_id: Uuid::now_v7().to_string(),
+        aggregate,
+        model_id: id.to_string(),
+        op: SyncOp::Update,
+        patch,
+        base_sync_id: None,
+    };
+    let push =
+        |conn: &mut _, t| super::push::apply_transaction_as_requester_for_test(conn, &t, &actor);
+    let reason =
+        |r: Result<i64, (&'static str, String)>| r.map(|_| "applied").unwrap_or_else(|(r, _)| r);
+
+    let ticket = |id, patch| tx(SyncAggregate::Ticket, id, patch);
+    assert_eq!(
+        reason(push(
+            &mut conn,
+            ticket(mine.id, json!({"title": "Renamed"}))
+        )),
+        "applied"
+    );
+    assert_eq!(
+        reason(push(
+            &mut conn,
+            ticket(mine.id, json!({"priority": "high"}))
+        )),
+        "applied"
+    );
+    for patch in [
+        json!({"workflow_state_id": 1}),
+        json!({"requester_uuid": other.uuid}),
+        json!({"assignee_uuid": member.uuid}),
+        json!({"title": "Sneaky", "verification_state": "verified"}),
+    ] {
+        assert_eq!(
+            reason(push(&mut conn, ticket(mine.id, patch.clone()))),
+            "forbidden",
+            "{patch}"
+        );
+    }
+    assert_eq!(
+        reason(push(
+            &mut conn,
+            ticket(theirs.id, json!({"title": "Mine now"}))
+        )),
+        "forbidden"
+    );
+    assert_eq!(
+        reason(push(
+            &mut conn,
+            tx(SyncAggregate::Project, 1, json!({"name": "x"}))
+        )),
+        "forbidden"
+    );
+}

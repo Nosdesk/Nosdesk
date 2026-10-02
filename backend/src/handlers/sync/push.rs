@@ -101,6 +101,20 @@ pub async fn push(
         helpers::pin_workspace(&mut conn, ws);
     }
 
+    // Push applies edits directly, so it enforces what the REST routes do:
+    // staff edit tickets and projects, admins delete projects, and anyone
+    // else may only change their own request's details (see
+    // `requester_may_apply`).
+    let access = PushAccess {
+        staff: crate::repository::user_helpers::user_can_handle_tickets(&mut conn, &ctx.user),
+        admin: crate::repository::user_helpers::user_is_admin(&mut conn, &ctx.user),
+        visibility: crate::repository::ticket_visibility::VisibilityContext::new(
+            ctx.user.uuid,
+            crate::models::PlatformRole::from_db(&ctx.user.platform_role),
+            crate::repository::user_helpers::workspace_role(&mut conn, ctx.user.uuid),
+        ),
+    };
+
     let mut applied: Vec<String> = Vec::with_capacity(body.len());
     let mut rejected: Vec<RejectedTx> = Vec::new();
     let mut last_sync_id: i64 = 0;
@@ -120,7 +134,7 @@ pub async fn push(
             workspace_id,
         };
 
-        match apply_transaction(&mut conn, &tx, &actor) {
+        match apply_transaction(&mut conn, &tx, &actor, &access) {
             Ok(sync_id) => {
                 last_sync_id = sync_id.max(last_sync_id);
                 applied.push(tx_id.clone());
@@ -166,6 +180,33 @@ pub async fn push(
 
 struct TxReject(&'static str, String);
 
+/// What the pushing user may do.
+pub(super) struct PushAccess {
+    pub(super) staff: bool,
+    pub(super) admin: bool,
+    pub(super) visibility: crate::repository::ticket_visibility::VisibilityContext,
+}
+
+fn forbidden() -> TxReject {
+    TxReject("forbidden", "Only the helpdesk team can change this".into())
+}
+
+/// Whether a patch from someone who isn't staff stays within their own
+/// request's details: its title, priority, category and due date. Who it's
+/// for, who handles it, its state and its routing stay with the team.
+fn requester_may_apply(patch: &TicketUpdate) -> bool {
+    patch.workflow_state_id.is_none()
+        && patch.requester_uuid.is_none()
+        && patch.assignee_uuid.is_none()
+        && patch.closed_at.is_none()
+        && patch.verification_state.is_none()
+        && patch.origin_channel_id.is_none()
+        && patch.triage_state.is_none()
+        && patch.recurrence_rule.is_none()
+        && patch.recurrence_template_id.is_none()
+        && patch.resolution_notes.is_none()
+}
+
 /// Test-only entrypoint mirroring `apply_transaction` but returning
 /// a public tuple so callers in `#[cfg(test)]` modules can assert
 /// against it without `TxReject` needing to leak out of this file.
@@ -175,13 +216,44 @@ pub(super) fn apply_transaction_for_test(
     tx: &PushTransaction,
     actor: &ActorContext,
 ) -> Result<i64, (&'static str, String)> {
-    apply_transaction(conn, tx, actor).map_err(|TxReject(r, d)| (r, d))
+    let user = actor.uuid.expect("test actor has a user");
+    let access = PushAccess {
+        staff: true,
+        admin: true,
+        visibility: crate::repository::ticket_visibility::VisibilityContext::new(
+            user,
+            crate::models::PlatformRole::PlatformAdmin,
+            None,
+        ),
+    };
+    apply_transaction(conn, tx, actor, &access).map_err(|TxReject(r, d)| (r, d))
+}
+
+/// [`apply_transaction_for_test`] for a caller who is not staff.
+#[cfg(test)]
+pub(super) fn apply_transaction_as_requester_for_test(
+    conn: &mut DbConnection,
+    tx: &PushTransaction,
+    actor: &ActorContext,
+) -> Result<i64, (&'static str, String)> {
+    let user = actor.uuid.expect("test actor has a user");
+    let access = PushAccess {
+        staff: false,
+        admin: false,
+        visibility: crate::repository::ticket_visibility::VisibilityContext::new(
+            user,
+            crate::models::PlatformRole::User,
+            Some(crate::models::WorkspaceRole::Member),
+        ),
+    };
+    apply_transaction(conn, tx, actor, &access).map_err(|TxReject(r, d)| (r, d))
 }
 
 fn apply_transaction(
     conn: &mut DbConnection,
     tx: &PushTransaction,
     actor: &ActorContext,
+    access: &PushAccess,
 ) -> Result<i64, TxReject> {
     // Idempotency short-circuit: if this `tx_id` already has a row
     // in sync_actions, we treat it as applied (this is the legitimate
@@ -194,8 +266,12 @@ fn apply_transaction(
     }
 
     match tx.aggregate {
+        SyncAggregate::Project if !access.staff => Err(forbidden()),
+        SyncAggregate::Project if matches!(tx.op, SyncOp::Delete) && !access.admin => {
+            Err(forbidden())
+        }
         SyncAggregate::Project => apply_project(conn, tx, actor),
-        SyncAggregate::Ticket => apply_ticket(conn, tx, actor),
+        SyncAggregate::Ticket => apply_ticket(conn, tx, actor, access),
         SyncAggregate::ProjectTicket
         | SyncAggregate::WorkflowState
         | SyncAggregate::Comment
@@ -233,6 +309,7 @@ fn apply_ticket(
     conn: &mut DbConnection,
     tx: &PushTransaction,
     actor: &ActorContext,
+    access: &PushAccess,
 ) -> Result<i64, TxReject> {
     let ticket_id: i32 = tx.model_id.parse().map_err(|_| {
         TxReject(
@@ -247,6 +324,28 @@ fn apply_ticket(
             // fields fail at the boundary instead of getting
             // silently dropped by Diesel.
             let patch = decode_ticket_patch(&tx.patch)?;
+            if !access.staff {
+                if !requester_may_apply(&patch) {
+                    return Err(forbidden());
+                }
+                let user = access.visibility.user_uuid;
+                let visible = crate::repository::ticket_visibility::can_view_ticket(
+                    conn,
+                    &access.visibility,
+                    ticket_id,
+                )
+                .unwrap_or(false);
+                let category_visible = match patch.category_id {
+                    Some(Some(category)) => crate::repository::categories::can_user_see_category(
+                        conn, &user, category, false,
+                    )
+                    .unwrap_or(false),
+                    _ => true,
+                };
+                if !visible || !category_visible {
+                    return Err(forbidden());
+                }
+            }
             run_with_actor(conn, actor, |conn| {
                 crate::repository::tickets::update_ticket_partial(conn, ticket_id, patch, None)?;
                 latest_sync_id(conn)

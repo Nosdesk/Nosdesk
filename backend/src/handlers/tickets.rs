@@ -938,6 +938,19 @@ pub async fn create_empty_ticket(
 }
 
 // Update ticket partially
+/// Whether a PATCH body sets only what someone who isn't staff may change on
+/// their own request: its title, priority, category and due date.
+fn only_requester_fields(body: &Value) -> bool {
+    body.as_object().is_some_and(|fields| {
+        fields.keys().all(|k| {
+            matches!(
+                k.as_str(),
+                "title" | "priority" | "category_id" | "due_date"
+            )
+        })
+    })
+}
+
 pub async fn update_ticket_partial(
     mut tc: TenantConn,
     notification_service: web::Data<NotificationService>,
@@ -948,6 +961,29 @@ pub async fn update_ticket_partial(
     body: web::Json<Value>,
 ) -> impl Responder {
     let ticket_id = access.ticket_id;
+
+    // `TicketAccess` is a read gate: a requester or watcher reaches this
+    // handler. They may change only their request's details, and only to a
+    // category they can see.
+    if !auth.can_handle_tickets() {
+        if !only_requester_fields(&body) {
+            return errors::forbidden("Only the helpdesk team can change this");
+        }
+        if let Some(category) = body.get("category_id").and_then(|v| v.as_i64()) {
+            let user = auth.user_uuid;
+            let visible = i32::try_from(category).is_ok_and(|category| {
+                tc.run(|conn| {
+                    crate::repository::categories::can_user_see_category(
+                        conn, &user, category, false,
+                    )
+                })
+                .unwrap_or(false)
+            });
+            if !visible {
+                return errors::forbidden("Only the helpdesk team can change this");
+            }
+        }
+    }
 
     // Notification dispatch downstream wants the raw `Claims`
     // for actor logging; pull from extensions, which the JWT
