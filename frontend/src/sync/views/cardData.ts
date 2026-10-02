@@ -17,6 +17,8 @@ export function toCardData(ticket: SyncTicket): CardData | null {
   if (!ticket.workflow_state) return null
   return {
     id: ticket.id,
+    // An older server's rows carry no number; its tickets go by id.
+    number: ticket.number ?? ticket.id,
     title: ticket.title,
     workflow_state: ticket.workflow_state,
     priority: ticket.priority,

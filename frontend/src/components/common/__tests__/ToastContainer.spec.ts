@@ -15,7 +15,8 @@ const router = createRouter({
   history: createMemoryHistory(),
   routes: [
     { path: '/', component: { template: '<div />' } },
-    { path: '/tickets/:id', component: { template: '<div />' } },
+    { path: '/tickets/:number', component: { template: '<div />' } },
+    { path: '/tickets/id/:id', component: { template: '<div />' } },
   ],
 })
 
@@ -113,17 +114,19 @@ describe('ToastContainer', () => {
   it('opens the ticket from a notification toast on click and from its link', async () => {
     const store = useToastStore()
     const push = vi.spyOn(router, 'push')
-    store.notification('New comment', undefined, 'ticket', 1, 42, 'Ana')
+    // Ticket id 42 is number 5 in its workspace.
+    store.notification('New comment', undefined, 'ticket', 1, 42, 'Ana', undefined, 5)
     await settle()
     const toast = document.querySelector('#overlays li') as HTMLElement
     const link = toast.querySelector('a')
     expect(link?.textContent?.trim()).toBe('toast-notification-view')
-    expect(link?.getAttribute('href')).toBe('/tickets/42')
+    expect(link?.getAttribute('href')).toBe('/tickets/5')
     toast.click()
-    expect(push).toHaveBeenCalledWith('/tickets/42')
+    expect(push).toHaveBeenCalledWith('/tickets/5')
     await settle()
     expect(store.toasts).toHaveLength(0)
 
+    // No number (an older payload): the by-id route looks it up.
     store.notification('Another', undefined, 'ticket', 1, 7)
     await settle()
     const next = document.querySelector('#overlays li a') as HTMLAnchorElement
@@ -132,7 +135,7 @@ describe('ToastContainer', () => {
     // The link navigates once (the toast's own click handler stands down)
     // and Reka closes the toast.
     expect(push).toHaveBeenCalledTimes(2)
-    expect(push).toHaveBeenLastCalledWith('/tickets/7')
+    expect(push).toHaveBeenLastCalledWith('/tickets/id/7')
     vi.advanceTimersByTime(300)
     await settle()
     expect(store.toasts).toHaveLength(0)

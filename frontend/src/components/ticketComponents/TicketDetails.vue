@@ -2,7 +2,7 @@
 import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref, watchEffect, onMounted, useId } from 'vue';
 import { useRouter } from 'vue-router';
-import { shareableRouteUrl } from '@/utils/shareUrl';
+import { shareableTicketUrl } from '@/utils/shareUrl';
 import { useFluent } from 'fluent-vue';
 import { stripHtml } from '@/composables/useSanitise';
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions';
@@ -96,6 +96,7 @@ interface CategoryInfo {
 const props = defineProps<{
   ticket: {
     id: number;
+    number?: number;
     title: string;
     priority: string;
     created?: string;
@@ -676,7 +677,7 @@ const hasReferences = computed<boolean>(
 // Generate QR code for ticket URL (for print). Workspace-scoped in path mode.
 const ticketUrl = computed(() => {
   if (typeof window === 'undefined') return '';
-  return shareableRouteUrl('ticket-view', { id: String(props.ticket.id) });
+  return shareableTicketUrl(props.ticket);
 });
 
 watchEffect(async () => {
@@ -720,7 +721,7 @@ watchEffect(async () => {
       <!-- Header: ID + title. margin-right keeps the title clear of
            the QR corner. -->
       <div class="print-ticket-header">
-        <span class="print-ticket-id">#{{ ticket.id }}</span>
+        <span class="print-ticket-id">#{{ ticket.number ?? ticket.id }}</span>
         <h1 class="print-ticket-title">{{ ticket.title }}</h1>
       </div>
 

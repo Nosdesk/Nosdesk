@@ -12,6 +12,8 @@
   TicketPickerModal (the app-wide ticket picker).
 -->
 <script setup lang="ts">
+import { numberForTicketId } from '@/composables/useTicketNumberLookup'
+import { ticketPath } from '@/utils/ticketNumbers'
 import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -134,11 +136,11 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
         <ul class="flex flex-col gap-0.5">
           <li v-for="link in grouped.resolves" :key="link.ticket_id" class="group flex items-center gap-2">
             <RouterLink
-              :to="`/tickets/${link.ticket_id}`"
+              :to="ticketPath({ id: link.ticket_id, number: numberForTicketId(link.ticket_id) })"
               class="flex-1 min-w-0 flex items-center gap-2 py-1 px-2 -mx-2 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
             >
-              <span class="text-tertiary flex-shrink-0">#{{ link.ticket_id }}</span>
-              <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: link.ticket_id }) }}</span>
+              <span v-if="numberForTicketId(link.ticket_id) !== undefined" class="text-tertiary flex-shrink-0">#{{ numberForTicketId(link.ticket_id) }}</span>
+              <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: numberForTicketId(link.ticket_id) ?? '' }) }}</span>
               <span
                 v-if="link.ticket_category"
                 class="text-3xs px-1.5 py-0.5 rounded-full"
@@ -148,7 +150,7 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
               </span>
             </RouterLink>
             <IconButton
-              :label="$t('docs-page-tickets-unlink', { id: link.ticket_id })"
+              :label="$t('docs-page-tickets-unlink', { id: numberForTicketId(link.ticket_id) ?? '' })"
               icon="close"
               size="xs"
               variant="ghost-danger"
@@ -168,11 +170,11 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
         <ul class="flex flex-col gap-0.5">
           <li v-for="link in grouped.references" :key="link.ticket_id" class="group flex items-center gap-2">
             <RouterLink
-              :to="`/tickets/${link.ticket_id}`"
+              :to="ticketPath({ id: link.ticket_id, number: numberForTicketId(link.ticket_id) })"
               class="flex-1 min-w-0 flex items-center gap-2 py-1 px-2 -mx-2 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
             >
-              <span class="text-tertiary flex-shrink-0">#{{ link.ticket_id }}</span>
-              <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: link.ticket_id }) }}</span>
+              <span v-if="numberForTicketId(link.ticket_id) !== undefined" class="text-tertiary flex-shrink-0">#{{ numberForTicketId(link.ticket_id) }}</span>
+              <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: numberForTicketId(link.ticket_id) ?? '' }) }}</span>
               <span
                 v-if="link.ticket_category"
                 class="text-3xs px-1.5 py-0.5 rounded-full"
@@ -182,7 +184,7 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
               </span>
             </RouterLink>
             <IconButton
-              :label="$t('docs-page-tickets-unlink', { id: link.ticket_id })"
+              :label="$t('docs-page-tickets-unlink', { id: numberForTicketId(link.ticket_id) ?? '' })"
               icon="close"
               size="xs"
               variant="ghost-danger"

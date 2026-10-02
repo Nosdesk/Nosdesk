@@ -10,6 +10,7 @@
 import router from '@/router';
 import { activeWorkspaceSlug } from '@/services/activeWorkspace';
 import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
+import { knownTicketNumber } from '@/utils/ticketNumbers';
 
 export function shareableRouteUrl(
   name: string,
@@ -22,4 +23,15 @@ export function shareableRouteUrl(
     params: workspace ? { ...params, workspace } : params,
   });
   return `${window.location.origin}${href}`;
+}
+
+/**
+ * A full, shareable URL for a ticket: by its number, or through the by-id
+ * route (which looks the number up) when the number isn't known here.
+ */
+export function shareableTicketUrl(ticket: { id: number; number?: number | null }): string {
+  const number = knownTicketNumber(ticket);
+  return number !== undefined
+    ? shareableRouteUrl('ticket-view', { number: String(number) })
+    : shareableRouteUrl('ticket-by-id', { id: String(ticket.id) });
 }

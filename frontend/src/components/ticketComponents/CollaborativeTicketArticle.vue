@@ -22,6 +22,8 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 interface Props {
   initialContent?: string;
   ticketId: number;
+  /** The ticket's number, for the promoted page's title. */
+  ticketNumber: number;
   initializing?: boolean;
 }
 
@@ -144,7 +146,7 @@ const confirmPromote = async () => {
     // draft, cloning the note's content and filing it under the
     // system "Tickets" collection.
     const doc = await createPageFromTicket(props.ticketId, {
-      title: t('tickets-collaborative-article-doc-title', { id: props.ticketId }),
+      title: t('tickets-collaborative-article-doc-title', { id: props.ticketNumber }),
       icon: '📋',
       parent_id: null,
     });

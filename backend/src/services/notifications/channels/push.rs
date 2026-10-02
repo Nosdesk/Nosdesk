@@ -40,6 +40,8 @@ pub struct PushPayload {
     pub entity_id: i32,
     /// Deep-link target ticket, or 0 for "no ticket link".
     pub ticket_id: i32,
+    /// That ticket's number, which app routes carry; 0 with no ticket.
+    pub ticket_number: i32,
 }
 
 /// One device to send to.
@@ -215,6 +217,7 @@ impl NotificationDeliveryChannel for PushChannel {
             entity_type: notification.payload.entity.entity_type().to_string(),
             entity_id: notification.payload.entity.entity_id(),
             ticket_id: notification.payload.entity.ticket_id(),
+            ticket_number: notification.payload.entity.ticket_number(),
         };
 
         let outcome = self.sender.send(&targets, &payload).await;

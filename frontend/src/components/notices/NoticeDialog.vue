@@ -14,6 +14,7 @@ import FormTextarea from '@/components/common/FormTextarea.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import Modal from '@/components/Modal.vue'
 import { extractErrorMessage } from '@/utils/errors'
+import { ticketIdForNumber, ticketNumberForId } from '@/utils/ticketNumbers'
 import {
   noticeService,
   type Notice,
@@ -66,7 +67,16 @@ watch(
     body.value = props.notice?.body ?? ''
     severity.value = props.notice?.severity ?? 'degraded'
     hours.value = '4'
-    incident.value = props.notice?.incident_ticket_id?.toString() ?? ''
+    // The field shows the incident ticket's number, looked up from its id.
+    incident.value = ''
+    const incidentTicketId = props.notice?.incident_ticket_id
+    if (incidentTicketId != null) {
+      void ticketNumberForId(incidentTicketId).then((number) => {
+        if (number !== undefined && props.notice?.incident_ticket_id === incidentTicketId && !incident.value) {
+          incident.value = String(number)
+        }
+      })
+    }
   },
   { immediate: true },
 )
@@ -76,6 +86,14 @@ async function save(): Promise<void> {
   busy.value = true
   error.value = ''
   const now = new Date()
+  const incidentTicketId = fromTicket.value
+    ? (props.notice?.incident_ticket_id ?? props.ticketId ?? null)
+    : await incidentId()
+  if (incidentTicketId === undefined) {
+    error.value = t('notice-incident-not-found')
+    busy.value = false
+    return
+  }
   // Editing keeps the start; the chosen duration runs from now either way.
   const fields = {
     title: title.value.trim(),
@@ -83,9 +101,7 @@ async function save(): Promise<void> {
     severity: severity.value,
     starts_at: props.notice?.starts_at ?? now.toISOString(),
     ends_at: new Date(now.getTime() + Number(hours.value) * 3600_000).toISOString(),
-    incident_ticket_id: fromTicket.value
-      ? (props.notice?.incident_ticket_id ?? props.ticketId ?? null)
-      : incidentId(),
+    incident_ticket_id: incidentTicketId,
   }
   try {
     const saved = props.notice
@@ -99,9 +115,12 @@ async function save(): Promise<void> {
   }
 }
 
-function incidentId(): number | null {
+/** The id of the ticket whose number the field holds; `null` when it's empty,
+ *  `undefined` when no ticket here has that number. */
+async function incidentId(): Promise<number | null | undefined> {
   const n = Number.parseInt(incident.value.replace('#', ''), 10)
-  return Number.isFinite(n) && n > 0 ? n : null
+  if (!Number.isFinite(n) || n <= 0) return null
+  return ticketIdForNumber(n)
 }
 
 /** Make this ticket the incident of the notice that's already live. */

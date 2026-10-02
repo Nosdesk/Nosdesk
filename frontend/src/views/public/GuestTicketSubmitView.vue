@@ -54,7 +54,7 @@
               {{ t('guest-submit-success-no-email') }}
             </template>
             {{ t('guest-submit-success-reference-prefix') }}
-            <span class="text-primary font-mono font-medium">#{{ success.ticket_id }}</span>.
+            <span class="text-primary font-mono font-medium">#{{ success.ticket_number ?? success.ticket_id }}</span>.
           </p>
         </div>
       </div>

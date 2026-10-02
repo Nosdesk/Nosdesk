@@ -461,6 +461,10 @@ impl NotificationService {
                         "ticket_id".to_string(),
                         serde_json::json!(payload.entity.ticket_id()),
                     );
+                    map.insert(
+                        "ticket_number".to_string(),
+                        serde_json::json!(payload.entity.ticket_number()),
+                    );
                 }
             }
         } else {
@@ -479,7 +483,8 @@ impl NotificationService {
                 }
                 _ => {
                     serde_json::json!({
-                        "ticket_id": payload.entity.ticket_id()
+                        "ticket_id": payload.entity.ticket_id(),
+                        "ticket_number": payload.entity.ticket_number(),
                     })
                 }
             };
@@ -570,6 +575,7 @@ impl NotificationService {
                         entity_type: payload.entity.entity_type().to_string(),
                         entity_id: payload.entity.entity_id(),
                         ticket_id: payload.entity.ticket_id(),
+                        ticket_number: payload.entity.ticket_number(),
                         actor: payload.actor.clone(),
                         metadata: payload.metadata.clone(),
                         timestamp: payload.created_at,

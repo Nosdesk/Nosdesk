@@ -15,6 +15,7 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import ticketService from '@nosdesk/core/services/ticketService'
+import { ticketNumber } from '@/utils/ticketNumbers'
 import type { Ticket } from '@nosdesk/core/types/ticket'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
@@ -32,7 +33,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'select', ticket: { id: number; title: string }): void
+  (e: 'select', ticket: { id: number; number: number; title: string }): void
 }>()
 
 const searchQuery = ref('')
@@ -91,7 +92,7 @@ watchEffect(() => {
 }, { flush: 'post' })
 
 function choose(ticket: Ticket) {
-  emit('select', { id: ticket.id, title: ticket.title })
+  emit('select', { id: ticket.id, number: ticketNumber(ticket), title: ticket.title })
   emit('close')
 }
 
@@ -100,7 +101,7 @@ async function createAndSelect() {
   error.value = null
   try {
     const ticket = await ticketService.createEmptyTicket()
-    emit('select', { id: ticket.id, title: ticket.title })
+    emit('select', { id: ticket.id, number: ticketNumber(ticket), title: ticket.title })
     emit('close')
   } catch {
     error.value = $t('ticket-picker-create-failed')
@@ -174,7 +175,7 @@ function priorityClass(priority: TicketPriority) {
             @click="choose(ticket)"
           >
             <div class="flex items-center justify-between gap-2 mb-1.5">
-              <span class="text-xs font-mono text-tertiary">#{{ ticket.id }}</span>
+              <span class="text-xs font-mono text-tertiary">#{{ ticketNumber(ticket) }}</span>
               <div class="flex items-center gap-1 flex-nowrap">
                 <StatusBadge
                   type="status"
@@ -213,7 +214,7 @@ function priorityClass(priority: TicketPriority) {
               class="hover:bg-surface-hover cursor-pointer"
               @click="choose(ticket)"
             >
-              <td class="px-3 py-2.5"><span class="text-xs font-mono text-tertiary">#{{ ticket.id }}</span></td>
+              <td class="px-3 py-2.5"><span class="text-xs font-mono text-tertiary">#{{ ticketNumber(ticket) }}</span></td>
               <td class="px-3 py-2.5"><span class="text-sm text-primary line-clamp-1">{{ ticket.title || $t('ticket-picker-untitled') }}</span></td>
               <td class="px-3 py-2.5">
                 <StatusBadge

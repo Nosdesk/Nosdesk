@@ -34,6 +34,8 @@ export interface CardWorkflowState {
 export interface CardData {
   // Identity
   id: number
+  /** The ticket's number within its workspace, as people quote it. */
+  number: number
   uuid?: string
 
   // Core

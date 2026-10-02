@@ -96,7 +96,7 @@ function onContextMenu(id: number, event: MouseEvent): void {
           <!-- Top line: id + title. Title takes whatever width
                remains; truncates on overflow. -->
           <div class="flex items-center gap-2 min-w-0">
-            <span class="text-2xs font-mono tabular-nums text-tertiary shrink-0">#{{ card.id }}</span>
+            <span class="text-2xs font-mono tabular-nums text-tertiary shrink-0">#{{ card.number }}</span>
             <span
               v-if="inlinePriorityClass(card.priority)"
               class="text-2xs leading-none font-bold shrink-0"

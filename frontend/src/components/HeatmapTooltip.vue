@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useFluent } from 'fluent-vue';
 import type { FluentVariable } from '@fluent/bundle';
+import { numberForTicketId } from '@/composables/useTicketNumberLookup';
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args);
@@ -100,7 +101,7 @@ onUnmounted(() => {
           :key="ticket.id"
           class="text-sm text-secondary truncate"
         >
-          #{{ ticket.id }}: {{ ticket.title }}
+          <template v-if="numberForTicketId(ticket.id) !== undefined">#{{ numberForTicketId(ticket.id) }}: </template>{{ ticket.title }}
         </div>
 
         <div

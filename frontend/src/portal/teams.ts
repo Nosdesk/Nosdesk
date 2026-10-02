@@ -168,7 +168,7 @@ export function signInTeams(interactive = false): Promise<TeamsProblem | null> {
   return signingIn
 }
 
-/** Where a deep link points inside the portal. */
+/** Where a deep link points inside the portal: `ticket-<number>` or `approval-<id>`. */
 export function routeForSubPage(subPageId: string | null): string {
   const match = subPageId?.match(/^(ticket|approval)-(\d+)$/)
   if (!match) return '/tickets'

@@ -48,7 +48,8 @@ export function useNotificationSSE() {
         notification.entity_id,
         notification.ticket_id,
         notification.actor.name,
-        notification.actor.avatar_thumb
+        notification.actor.avatar_thumb,
+        notification.ticket_number
       );
 
       // Play notification sound if enabled (could be a user preference)

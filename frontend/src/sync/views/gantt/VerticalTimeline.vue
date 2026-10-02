@@ -566,14 +566,14 @@ function onResize(el: HTMLElement | null): void {
             draggingCardId === p.item.card.id ? 'shadow-md ring-1 ring-accent/40' : '',
           ]"
           :style="blockStyle(p)"
-          :title="`#${p.item.card.id} ${p.item.card.title}`"
+          :title="`#${p.item.card.number} ${p.item.card.title}`"
           @pointerdown="beginMove(p, $event)"
           @click="onBlockClick(p.item.card.id)"
         >
           <template v-if="fidelity(blockHeight(p)) === 'full'">
             <div class="px-1.5 py-1 flex flex-col gap-1 h-full">
               <div class="flex items-center gap-1">
-                <span class="text-3xs tabular-nums text-tertiary">#{{ p.item.card.id }}</span>
+                <span class="text-3xs tabular-nums text-tertiary">#{{ p.item.card.number }}</span>
                 <PriorityIndicator
                   v-if="p.item.card.priority !== 'none'"
                   :priority="(p.item.card.priority === 'urgent' ? 'high' : p.item.card.priority) as 'low' | 'medium' | 'high'"
@@ -595,7 +595,7 @@ function onResize(el: HTMLElement | null): void {
 
           <template v-else-if="fidelity(blockHeight(p)) === 'compact'">
             <div class="px-1.5 py-1 h-full flex flex-col gap-0.5">
-              <span class="text-3xs tabular-nums text-tertiary">#{{ p.item.card.id }}</span>
+              <span class="text-3xs tabular-nums text-tertiary">#{{ p.item.card.number }}</span>
               <span class="block text-2xs leading-tight text-primary line-clamp-4">{{ p.item.card.title }}</span>
               <span class="mt-auto text-3xs text-tertiary tabular-nums whitespace-nowrap">{{ dateLabel(p.item) }}</span>
             </div>
@@ -605,7 +605,7 @@ function onResize(el: HTMLElement | null): void {
                id only and stays tappable rather than clipping text mid-word. -->
           <template v-else>
             <span class="flex items-center justify-center w-full h-full bg-accent/15 text-3xs tabular-nums text-secondary">
-              #{{ p.item.card.id }}
+              #{{ p.item.card.number }}
             </span>
           </template>
         </button>
@@ -625,7 +625,7 @@ function onResize(el: HTMLElement | null): void {
         class="w-full flex items-center gap-2 px-3 min-h-[44px] text-left border-t border-subtle active:bg-surface-hover"
         @click="onCardClick?.(card.id)"
       >
-        <span class="text-2xs tabular-nums text-tertiary shrink-0">#{{ card.id }}</span>
+        <span class="text-2xs tabular-nums text-tertiary shrink-0">#{{ card.number }}</span>
         <span class="flex-1 min-w-0 truncate text-xs-plus text-primary">{{ card.title }}</span>
       </button>
     </div>

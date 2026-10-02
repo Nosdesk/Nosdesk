@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { shareableRouteUrl } from '@/utils/shareUrl'
+import { shareableTicketUrl } from '@/utils/shareUrl'
+import { knownTicketNumber, ticketPath } from '@/utils/ticketNumbers'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { ref, onMounted, computed } from 'vue'
@@ -78,7 +79,7 @@ const handleTicketContextMenuSelect = async (actionId: string) => {
   if (!ticket) return
 
   // Workspace-scoped in path mode so the link/new-tab opens the right tenant.
-  const ticketUrl = shareableRouteUrl('ticket-view', { id: String(ticket.id) })
+  const ticketUrl = shareableTicketUrl(ticket)
 
   switch (actionId) {
     case 'open-new-tab':
@@ -114,6 +115,7 @@ const toDraggableTicket = (ticket: RecentTicket): DraggableTicket => {
   const priority = pooled?.priority
   return {
     id: ticket.id,
+    number: knownTicketNumber(ticket),
     title: ticket.title,
     category,
     assigneeUuid: ticket.assignee ?? pooled?.assignee_uuid ?? null,
@@ -125,13 +127,13 @@ const isDragging = computed(() =>
   dragState.value.isDragging && dragState.value.source === 'recent-tickets',
 )
 
-function openTicket(ticketId: number, event: MouseEvent): void {
+function openTicket(ticket: RecentTicket, event: MouseEvent): void {
   if (suppressNextClick.value) {
     event.preventDefault()
     suppressNextClick.value = false
     return
   }
-  router.push(`/tickets/${ticketId}`)
+  router.push(ticketPath(ticket))
 }
 
 // Custom drag start - track the dragged index
@@ -265,8 +267,8 @@ onMounted(() => {
             'drop-below': draggedIndex !== null && dropTargetIndex === index + 1 && !isOutsideList
           }"
           draggable="true"
-          @click="openTicket(ticket.id, $event)"
-          @keydown.enter="openTicket(ticket.id, $event as unknown as MouseEvent)"
+          @click="openTicket(ticket, $event)"
+          @keydown.enter="openTicket(ticket, $event as unknown as MouseEvent)"
           @dragstart="handleDragStart(ticket, index, $event)"
           @drag="handleDrag"
           @dragend="handleLocalDragEnd"
@@ -284,8 +286,11 @@ onMounted(() => {
             <StatusIndicator :category="wf.findById(ticket.workflow_state_id ?? -1)?.category ?? 'backlog'" size="xs" />
           </span>
 
-          <!-- ID -->
-          <span class="text-xs text-tertiary tabular-nums flex-shrink-0">#{{ ticket.id }}</span>
+          <!-- Number -->
+          <span
+            v-if="knownTicketNumber(ticket) !== undefined"
+            class="text-xs text-tertiary tabular-nums flex-shrink-0"
+          >#{{ knownTicketNumber(ticket) }}</span>
 
           <!-- Title -->
           <span class="text-xs text-primary truncate flex-1">

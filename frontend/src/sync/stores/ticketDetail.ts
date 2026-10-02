@@ -53,6 +53,8 @@ import type { TicketCategory } from '@nosdesk/core/types/category'
  * bootstrap + `ticket.updated` emit. */
 interface SyncTicketDetail {
   id: number
+  /** Absent only on a server older than ticket numbers. */
+  number?: number
   title: string
   workflow_state: CardWorkflowState | null
   workflow_state_id: number
@@ -214,6 +216,7 @@ export function useTicketDetail(
     if (!r) return null
     return {
       id: r.id,
+      number: r.number ?? r.id,
       title: r.title,
       priority: r.priority,
       created: r.created_at,

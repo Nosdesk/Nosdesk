@@ -29,10 +29,9 @@ const router = createRouter({
     { path: '/', redirect: '/tickets' },
     { path: '/login', name: 'login', component: LoginView },
     { path: '/tickets', name: 'tickets', component: TicketsView },
-    // Static `/tickets/new` before the dynamic `/tickets/:id` so it isn't
-    // captured as an id.
     { path: '/tickets/new', name: 'ticket-new', component: NewTicketView },
-    { path: '/tickets/:id', name: 'ticket', component: TicketView, props: true },
+    // The request's number, as the requester quotes it.
+    { path: '/tickets/:number(\\d+)', name: 'ticket', component: TicketView, props: true },
     // Requests waiting for the signed-in person's approval.
     { path: '/approvals', name: 'approvals', component: () => import('./views/ApprovalsView.vue') },
     {

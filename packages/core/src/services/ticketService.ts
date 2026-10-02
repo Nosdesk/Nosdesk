@@ -116,6 +116,17 @@ export const getTicketById = async (id: number): Promise<Ticket> => {
   }
 };
 
+/** The ticket with this number in the request's workspace. */
+export const getTicketByNumber = async (number: number): Promise<Ticket> => {
+  try {
+    const response = await apiClient.get(`/tickets/by-number/${number}`);
+    return response.data;
+  } catch (error) {
+    logger.error('Failed to fetch ticket by number', { error, ticketNumber: number });
+    throw error;
+  }
+};
+
 // Remove this function as we are using the createEmptyTicket function instead
 export const createTicket = async (ticket: Omit<Ticket, 'id' | 'created' | 'modified'>): Promise<Ticket> => {
   try {
@@ -398,6 +409,7 @@ export default {
   getTickets,
   getPaginatedTickets,
   getTicketById,
+  getTicketByNumber,
   createTicket,
   updateTicket,
   previewTicketField,

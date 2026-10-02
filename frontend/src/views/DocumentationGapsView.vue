@@ -11,6 +11,8 @@
   any signal_type so 2b/2c/2d can plug in without view changes.
 -->
 <script setup lang="ts">
+import { numberForTicketId } from '@/composables/useTicketNumberLookup'
+import { ticketPath, ticketPathForId } from '@/utils/ticketNumbers'
 import { computed, watch, ref } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
@@ -459,10 +461,10 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                       >
                         <RouterLink
                           v-if="clusterPayload(signal).ticket_ids?.[idx]"
-                          :to="`/tickets/${clusterPayload(signal).ticket_ids![idx]}`"
+                          :to="ticketPathForId(clusterPayload(signal).ticket_ids![idx])"
                           class="hover:text-accent transition-colors"
                         >
-                          <span class="text-tertiary">#{{ clusterPayload(signal).ticket_ids![idx] }}</span>
+                          <span v-if="numberForTicketId(clusterPayload(signal).ticket_ids![idx]) !== undefined" class="text-tertiary">#{{ numberForTicketId(clusterPayload(signal).ticket_ids![idx]) }}</span>
                           {{ title }}
                         </RouterLink>
                       </li>
@@ -512,9 +514,9 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                       <span class="text-tertiary">
                         <template v-for="(tid, i) in staleDocPayload(signal).recent_ticket_ids!.slice(0, 5)" :key="tid">
                           <RouterLink
-                            :to="`/tickets/${tid}`"
+                            :to="ticketPath({ id: tid, number: numberForTicketId(tid) })"
                             class="hover:text-accent transition-colors"
-                          >#{{ tid }}</RouterLink><span v-if="i < Math.min(4, staleDocPayload(signal).recent_ticket_ids!.length - 1)">, </span>
+                          >#{{ numberForTicketId(tid) ?? '' }}</RouterLink><span v-if="i < Math.min(4, staleDocPayload(signal).recent_ticket_ids!.length - 1)">, </span>
                         </template>
                         <template v-if="(staleDocPayload(signal).recent_ticket_ids?.length ?? 0) > 5">
                           {{ $t('docs-gaps-stale-plus-more', { count: staleDocPayload(signal).recent_ticket_ids!.length - 5 }) }}
@@ -545,10 +547,10 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                        single ticket as the source. -->
                   <template v-else-if="signal.source_kind === 'ticket'">
                     <RouterLink
-                      :to="`/tickets/${signal.source_ref}`"
+                      :to="ticketPath({ id: Number(signal.source_ref), number: numberForTicketId(Number(signal.source_ref)) })"
                       class="text-sm text-primary hover:text-accent transition-colors"
                     >
-                      #{{ signal.source_ref }}
+                      <template v-if="numberForTicketId(Number(signal.source_ref)) !== undefined">#{{ numberForTicketId(Number(signal.source_ref)) }}</template>
                       <span v-if="signal.ticket_title" class="text-secondary">
                         &middot; {{ signal.ticket_title }}
                       </span>

@@ -780,7 +780,8 @@ admin-email-queue-stat-sent = Verzonden
 admin-email-queue-stat-failed = Mislukt (opnieuw proberen)
 admin-email-queue-stat-dead = Dood (geen herhaling)
 admin-email-queue-filter-status = Status
-admin-email-queue-filter-ticket = Ticket-ID
+# MACHINE TRANSLATION, pending native review
+admin-email-queue-filter-ticket = Ticketnummer
 admin-email-queue-filter-ticket-placeholder = 42
 admin-email-queue-filter-domain = Domein van ontvanger
 admin-email-queue-filter-domain-placeholder = voorbeeld.com
@@ -6791,6 +6792,8 @@ sse-connection-failed = Verbinding mislukt.
 sse-no-auth-token = Niet aangemeld.
 auth-microsoft-logout-failed = Microsoft afmelden is mislukt.
 editor-ticket-link-not-found = Ticket #{ $id } niet gevonden
+# MACHINE TRANSLATION, pending native review
+editor-ticket-link-unavailable = Ticket niet gevonden
 
 # W batch: pluralization fixes
 notifications-inbox-unread-count =
@@ -6862,6 +6865,8 @@ ticket-merge-error-toast = Kan de tickets niet samenvoegen. Probeer het opnieuw.
 ticket-merge-success-toast = { $count } tickets samengevoegd in #{ $target_id }
 ticket-merge-marker-comment-header = { $count } tickets samengevoegd in dit ticket
 ticket-merge-banner-merged-into = Dit ticket is samengevoegd in #{ $target_id } door { $actor } op { $when }.
+# MACHINE TRANSLATION, pending native review
+ticket-merge-banner-merged-into-another = Dit ticket is door { $actor } op { $when } samengevoegd met een ander ticket.
 ticket-merge-banner-open-destination = Doelticket openen
 ticket-merge-sidebar-merged-in = Samengevoegd in
 ticket-merge-toast-just-merged = Dit ticket is zojuist samengevoegd in #{ $target_id }.
@@ -7423,6 +7428,8 @@ notice-link-existing = Er staat al een melding online: { $title }. Koppel dit ti
 notice-link-existing-action = Dit ticket koppelen
 notice-incident-label = Incidentticket
 notice-incident-hint = Optioneel. Aanvragers kunnen dit ticket vanuit de melding volgen.
+# MACHINE TRANSLATION, pending native review
+notice-incident-not-found = Geen ticket heeft dat nummer.
 notice-end-now = Nu beëindigen
 notice-cancel = Annuleren
 notice-post = Melding plaatsen

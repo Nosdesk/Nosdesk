@@ -31,6 +31,8 @@ import { assetAuditService, type AssetAudit } from '@nosdesk/core/services/asset
 import { useSyncActions } from '@/composables/useSyncActions';
 import { RouterLink } from 'vue-router';
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
+import { numberForTicketId } from '@/composables/useTicketNumberLookup';
+import { ticketPath } from '@/utils/ticketNumbers';
 
 const props = defineProps<{
   assetId: number;
@@ -366,10 +368,10 @@ function formatDelta(delta: string): string {
           <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
             <RouterLink
               v-if="entry.row.ticket_id"
-              :to="`/tickets/${entry.row.ticket_id}`"
+              :to="ticketPath({ id: entry.row.ticket_id, number: numberForTicketId(entry.row.ticket_id) })"
               class="text-accent hover:underline"
             >
-              {{ $t('asset-usage-history-ticket-link', { id: entry.row.ticket_id }) }}
+              {{ $t('asset-usage-history-ticket-link', { id: numberForTicketId(entry.row.ticket_id) ?? '' }) }}
             </RouterLink>
             <span v-else class="text-tertiary italic">
               {{ $t('asset-usage-history-ad-hoc') }}

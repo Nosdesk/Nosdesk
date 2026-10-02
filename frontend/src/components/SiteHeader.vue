@@ -46,7 +46,7 @@ interface Props {
   createButtonText?: string;
   createButtonIcon?: CreateIconType;
   useRouteTitle?: boolean;
-  ticket: { id: number; title: string } | null;
+  ticket: { id: number; number?: number; title: string } | null;
   document: { id: string; title: string; icon: string } | null;
   device: { id: number; name: string; attributes?: Record<string, unknown> } | null;
   isTransitioning?: boolean;
@@ -213,7 +213,7 @@ const handleCreateClick = () => {
       <div class="flex items-center flex-1 min-w-0">
         <template v-if="isTicketView && props.ticket">
           <div class="flex items-center gap-2 min-w-0 flex-1">
-            <ItemIdentifier :id="props.ticket.id" size="md" class="flex-shrink-0" />
+            <ItemIdentifier :id="props.ticket.number ?? props.ticket.id" size="md" class="flex-shrink-0" />
             <!-- Editable ticket title in header: wraps to a second
                  line when long instead of getting lost to ellipsis.
                  maxLines=2 caps the wrap so the header tops out

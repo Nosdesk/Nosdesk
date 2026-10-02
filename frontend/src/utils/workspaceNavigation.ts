@@ -35,12 +35,16 @@ export function resolveActiveWorkspaceId(
  * path. A verified custom domain is a distinct origin; otherwise the switch
  * stays on the current origin (the central agent app switches workspace
  * in-app via the path, not by navigating to another origin).
+ *
+ * A ticket page lands on the ticket list instead: its number names a
+ * different ticket in the other workspace.
  */
 export function workspaceSwitchUrl(
   entry: MyWorkspaceEntry,
-  path = window.location.pathname + window.location.search,
+  currentPath = window.location.pathname + window.location.search,
 ): string {
   const { protocol, port } = window.location;
+  const path = /^\/tickets\/(?:id\/)?\d+(?:[/?#]|$)/.test(currentPath) ? '/tickets' : currentPath;
 
   if (entry.custom_domain) {
     const origin = port

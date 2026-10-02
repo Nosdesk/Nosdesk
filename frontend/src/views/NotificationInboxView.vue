@@ -20,6 +20,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ticketPath } from '@/utils/ticketNumbers'
 import type { Notification } from '@nosdesk/core/services/notificationService'
 import {
   useArchiveMutation,
@@ -246,7 +247,9 @@ async function navigateToNotification(notification: Notification) {
     router.push(`/assets/${assetId}`)
   } else if (notification.entity_type === 'ticket' || notification.entity_type === 'comment') {
     const ticketId = (notification.metadata?.ticket_id as number | undefined) ?? notification.entity_id
-    router.push(`/tickets/${ticketId}`)
+    // Notifications stored before tickets had numbers carry only the id.
+    const number = notification.metadata?.ticket_number as number | undefined
+    router.push(ticketPath({ id: ticketId, number }))
   }
 }
 

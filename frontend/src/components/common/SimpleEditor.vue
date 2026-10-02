@@ -50,7 +50,8 @@ import { DOMSerializer, DOMParser } from 'prosemirror-model';
 import { useUserMentionSearch } from '@/composables/useUserMentionSearch';
 import { useTicketReferenceSearch } from '@/composables/useTicketReferenceSearch';
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
-import { shareableRouteUrl } from '@/utils/shareUrl';
+import { shareableTicketUrl } from '@/utils/shareUrl';
+import { ticketNumber } from '@/utils/ticketNumbers';
 import type { SyncTicket } from '@/sync/stores/tickets';
 import UserAvatar from '@/components/UserAvatar.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -195,7 +196,7 @@ const selectTicket = (ticket: SyncTicket) => {
   if (!view) return;
   insertTicketReference(
     view,
-    { id: ticket.id, href: shareableRouteUrl('ticket-view', { id: String(ticket.id) }) },
+    { id: ticket.id, href: shareableTicketUrl(ticket) },
     schema.nodes.ticket_link,
   );
 };
@@ -465,7 +466,7 @@ defineExpose({ focus, clear });
                 class="w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-surface-alt transition-colors"
                 :class="{ 'bg-surface-alt selected': index === selectedIndex }"
               >
-                <span class="text-xs text-tertiary tabular-nums shrink-0">#{{ ticket.id }}</span>
+                <span class="text-xs text-tertiary tabular-nums shrink-0">#{{ ticketNumber(ticket) }}</span>
                 <span class="flex-1 min-w-0 text-sm font-medium text-primary truncate">{{ ticket.title }}</span>
                 <StatusBadge
                   type="status"

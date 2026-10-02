@@ -195,7 +195,7 @@ if (isTauriRuntime()) {
         } catch {
           return
         }
-        const isTicket = /\/tickets\/\d+/.test(url.pathname)
+        const isTicket = /\/tickets\/(?:id\/)?\d+/.test(url.pathname)
         let sameServer = false
         const server = getStoredServer()
         if (server) {

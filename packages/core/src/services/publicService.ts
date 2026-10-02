@@ -71,12 +71,14 @@ export interface SubmitGuestTicketResponse {
   verification_required: boolean;
   email_sent: boolean;
   ticket_id?: number;
+  ticket_number?: number;
   lookup_token?: string;
   status_url?: string;
 }
 
 export interface GuestTicketStatus {
   ticket_id: number;
+  ticket_number: number;
   title: string;
   category: WorkflowStateCategory;
   priority: string;

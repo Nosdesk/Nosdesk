@@ -30,6 +30,8 @@ export type ApprovalState = 'pending' | 'approved' | 'declined' | 'skipped'
 
 export interface SyncTicket {
   id: number
+  /** The ticket's number within its workspace, as people quote it. */
+  number: number
   /** Immutable identity, used to key the collaborative note doc so a
    *  recycled integer id can't inherit a prior ticket's cached note. */
   uuid: string
@@ -91,6 +93,7 @@ export function apiTicketToSync(ticket: Ticket): SyncTicket {
     : null
   return {
     id: ticket.id,
+    number: ticket.number,
     uuid: ticket.uuid ?? '',
     title: ticket.title,
     workflow_state: cardWs,

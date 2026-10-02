@@ -429,13 +429,15 @@ pub fn flag_ticket(
     conn.transaction::<_, Error, _>(|tx| {
         let source_ref = ticket_id.to_string();
         let existing = find_open_gap_for_source(tx, SOURCE_TICKET, &source_ref)?;
+        let number =
+            crate::repository::tickets::number_of(tx, ticket_id)?.ok_or(Error::NotFound)?;
 
         let gap = match existing {
             Some(g) => g,
             None => create_gap(
                 tx,
                 NewKnowledgeGap {
-                    title: format!("Ticket #{}: {}", ticket_id, ticket_title),
+                    title: format!("Ticket #{number}: {ticket_title}"),
                     description: reason.clone(),
                     status: STATUS_OPEN.to_string(),
                     created_by: Some(flagged_by),

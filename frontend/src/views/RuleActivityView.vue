@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberForTicketId } from '@/composables/useTicketNumberLookup'
 /**
  * Admin activity-log view for the rules engine. Lists recent
  * rule_applications across the workspace with filters by rule,
@@ -196,7 +197,7 @@ function back(): void {
           </span>
           <span class="text-sm flex-1 min-w-0 truncate">
             {{ t('admin-rules-activity-row-summary', {
-              ticket_id: app.ticket_id,
+              ticket_id: numberForTicketId(app.ticket_id) ?? '',
               actor: app.actor_kind === 'system'
                 ? t('admin-rules-activity-actor-system')
                 : t('admin-rules-activity-actor-user'),

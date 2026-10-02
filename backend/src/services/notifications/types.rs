@@ -242,11 +242,17 @@ impl NotificationFrequency {
 pub enum NotificationEntity {
     Ticket {
         id: i32,
+        /// The number people know the ticket by. Absent on payloads queued
+        /// before tickets had numbers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        number: Option<i32>,
         title: String,
     },
     Comment {
         id: i32,
         ticket_id: i32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ticket_number: Option<i32>,
         ticket_title: String,
     },
     DocumentationPage {
@@ -258,10 +264,7 @@ pub enum NotificationEntity {
     /// the on-hand quantity at fire time, the configured
     /// threshold, and the unit so the in-app drop and the email
     /// can render a complete sentence without re-fetching.
-    Asset {
-        id: i32,
-        name: String,
-    },
+    Asset { id: i32, name: String },
 }
 
 impl NotificationEntity {
@@ -291,6 +294,21 @@ impl NotificationEntity {
         match self {
             Self::Ticket { id, .. } => *id,
             Self::Comment { ticket_id, .. } => *ticket_id,
+            Self::DocumentationPage { .. } => 0,
+            Self::Asset { .. } => 0,
+        }
+    }
+
+    /// The ticket's number, for links people follow: its id on a payload
+    /// queued before tickets had numbers, 0 when there's no ticket.
+    pub fn ticket_number(&self) -> i32 {
+        match self {
+            Self::Ticket { id, number, .. } => number.unwrap_or(*id),
+            Self::Comment {
+                ticket_id,
+                ticket_number,
+                ..
+            } => ticket_number.unwrap_or(*ticket_id),
             Self::DocumentationPage { .. } => 0,
             Self::Asset { .. } => 0,
         }
@@ -427,6 +445,7 @@ pub struct NotificationEvent {
     pub entity_type: String,
     pub entity_id: i32,
     pub ticket_id: i32,
+    pub ticket_number: i32,
     pub actor: NotificationActor,
     #[serde(default)]
     pub metadata: serde_json::Value,
@@ -453,6 +472,7 @@ impl From<&DeliverableNotification> for NotificationEvent {
             entity_type: notification.payload.entity.entity_type().to_string(),
             entity_id: notification.payload.entity.entity_id(),
             ticket_id: notification.payload.entity.ticket_id(),
+            ticket_number: notification.payload.entity.ticket_number(),
             actor: notification.payload.actor.clone(),
             metadata: notification.payload.metadata.clone(),
             timestamp: notification.payload.created_at,
@@ -571,11 +591,26 @@ mod tests {
     fn notification_entity_ticket_methods() {
         let entity = NotificationEntity::Ticket {
             id: 42,
+            number: Some(7),
             title: "Test".to_string(),
         };
         assert_eq!(entity.entity_type(), "ticket");
         assert_eq!(entity.entity_id(), 42);
         assert_eq!(entity.ticket_id(), 42);
+        assert_eq!(entity.ticket_number(), 7);
+    }
+
+    #[test]
+    fn a_payload_queued_before_numbers_links_by_id() {
+        let entity: NotificationEntity =
+            serde_json::from_value(serde_json::json!({ "type": "ticket", "id": 42, "title": "T" }))
+                .expect("deserialize");
+        assert_eq!(entity.ticket_number(), 42);
+        let entity: NotificationEntity = serde_json::from_value(serde_json::json!({
+            "type": "comment", "id": 10, "ticket_id": 42, "ticket_title": "T"
+        }))
+        .expect("deserialize");
+        assert_eq!(entity.ticket_number(), 42);
     }
 
     #[test]
@@ -583,6 +618,7 @@ mod tests {
         let entity = NotificationEntity::Comment {
             id: 10,
             ticket_id: 42,
+            ticket_number: Some(7),
             ticket_title: "Test".to_string(),
         };
         assert_eq!(entity.entity_type(), "comment");
@@ -600,6 +636,7 @@ mod tests {
         };
         let entity = NotificationEntity::Ticket {
             id: 1,
+            number: None,
             title: "T".to_string(),
         };
         let payload = NotificationPayload::new(
@@ -630,6 +667,7 @@ mod tests {
         let entity = NotificationEntity::Comment {
             id: 5,
             ticket_id: 10,
+            ticket_number: Some(3),
             ticket_title: "Ticket".to_string(),
         };
         let notif_uuid = Uuid::new_v4();

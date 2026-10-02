@@ -9,6 +9,7 @@ import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 const props = defineProps<{
   ticket: {
     id: number
+    number?: number
     title: string
     category?: WorkflowStateCategory
     assigneeUuid?: string | null
@@ -110,7 +111,7 @@ const priorityLevel = computed((): 'low' | 'medium' | 'high' | undefined => {
             />
           </div>
           <div class="flex items-center justify-between mt-1.5 text-2xs text-tertiary">
-            <span class="font-mono">#{{ ticket.id }}</span>
+            <span class="font-mono">{{ ticket.number !== undefined ? `#${ticket.number}` : '' }}</span>
             <UserAvatar
               v-if="ticket.assigneeUuid"
               :uuid="ticket.assigneeUuid"

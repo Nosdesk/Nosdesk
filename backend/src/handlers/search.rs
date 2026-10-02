@@ -17,6 +17,16 @@ use crate::utils::i18n;
 use crate::utils::locale::request_locale;
 use crate::utils::rbac::is_platform_admin;
 
+/// The ticket a ticket, comment or attachment hit belongs to. The index
+/// links each to `/tickets/{id}`.
+fn hit_ticket_id(r: &crate::services::search::types::SearchResult) -> Option<i32> {
+    match r.entity_type.as_str() {
+        "ticket" => i32::try_from(r.entity_id).ok(),
+        "comment" | "attachment" => r.url.strip_prefix("/tickets/").and_then(|s| s.parse().ok()),
+        _ => None,
+    }
+}
+
 /// Search routes, mounted inside the authenticated `/api` scope in main.rs.
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/search", web::get().to(search))
@@ -27,7 +37,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 /// Search across all indexed entities
 ///
 /// GET /api/search?q=<query>&limit=20&types=ticket,documentation
-
 pub async fn search(
     query: web::Query<SearchQuery>,
     search_service: web::Data<Arc<SearchService>>,
@@ -99,18 +108,8 @@ pub async fn search(
                 });
 
                 let vis_opt = Some(VisibilityContext::from_auth(&auth));
-                let candidate_ids: Vec<i32> = response
-                    .results
-                    .iter()
-                    .filter_map(|r| match r.entity_type.as_str() {
-                        "ticket" => i32::try_from(r.entity_id).ok(),
-                        "comment" | "attachment" => r
-                            .url
-                            .strip_prefix("/tickets/")
-                            .and_then(|s| s.parse::<i32>().ok()),
-                        _ => None,
-                    })
-                    .collect();
+                let candidate_ids: Vec<i32> =
+                    response.results.iter().filter_map(hit_ticket_id).collect();
 
                 if let (Some(vis), false) = (vis_opt, candidate_ids.is_empty()) {
                     let mut conn = helpers::db_conn(&pool)?;
@@ -123,15 +122,9 @@ pub async fn search(
                     match ticket_visibility::visible_ticket_ids(&mut conn, &vis, &candidate_ids) {
                         Ok(visible) => {
                             response.results.retain(|r| match r.entity_type.as_str() {
-                                "ticket" => i32::try_from(r.entity_id)
-                                    .map(|id| visible.contains(&id))
-                                    .unwrap_or(false),
-                                "comment" | "attachment" => r
-                                    .url
-                                    .strip_prefix("/tickets/")
-                                    .and_then(|s| s.parse::<i32>().ok())
-                                    .map(|id| visible.contains(&id))
-                                    .unwrap_or(false),
+                                "ticket" | "comment" | "attachment" => {
+                                    hit_ticket_id(r).is_some_and(|id| visible.contains(&id))
+                                }
                                 // Documentation is filtered below for everyone.
                                 "documentation" => true,
                                 // Assets, people and projects are staff views.
@@ -182,6 +175,28 @@ pub async fn search(
                 response.total = response
                     .total
                     .saturating_sub(before - response.results.len());
+            }
+
+            // The index links a hit to its ticket by id; people know the
+            // ticket by its number, so the link carries that.
+            let hit_tickets: Vec<i32> = response.results.iter().filter_map(hit_ticket_id).collect();
+            if !hit_tickets.is_empty() {
+                let mut conn = helpers::db_conn(&pool)?;
+                helpers::pin_workspace(&mut conn, ws.workspace_id);
+                let numbers = crate::repository::tickets::numbers_of(
+                    &mut conn,
+                    ws.workspace_id,
+                    &hit_tickets,
+                )
+                .map_err(|e| {
+                    error!(error = ?e, "search ticket numbers failed");
+                    ApiError::Internal("Search failed".into())
+                })?;
+                for r in &mut response.results {
+                    if let Some(number) = hit_ticket_id(r).and_then(|id| numbers.get(&id)) {
+                        r.url = format!("/tickets/{number}");
+                    }
+                }
             }
 
             debug!(
