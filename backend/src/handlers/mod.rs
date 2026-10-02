@@ -245,6 +245,10 @@ pub async fn get_comments_by_ticket_id(
     }
 }
 
+/// How long an agent upload stays claimable by a comment: as long as the temp
+/// cleanup keeps it.
+const UPLOAD_CLAIM_HOURS: i64 = 24;
+
 pub async fn add_comment_to_ticket(
     access: crate::extractors::TicketAccess,
     comment_data: web::Json<crate::models::NewCommentWithAttachments>,
@@ -388,118 +392,98 @@ pub async fn add_comment_to_ticket(
                 debug!(error = %e, "auto-watch on comment failed (non-fatal)");
             }
 
-            // Now associate any attachments with this comment
+            // Attach the caller's own uploads still waiting in temp storage: an
+            // id that isn't theirs, is already attached or has expired is
+            // skipped and reported, and a failed move attaches nothing.
             let mut attachments = Vec::new();
             let mut attachment_errors = Vec::new();
-
-            for attachment_data in &comment_data.attachments {
-                debug!(attachment = ?attachment_data, "Processing attachment");
-                // Find the existing attachment (uploaded to temp) by ID if available
-                if let Some(id) = attachment_data.id {
-                    debug!(attachment_id = id, "Looking up attachment");
-                    match tc.run(|conn| crate::repository::comments::get_attachment_by_id(conn, id))
-                    {
-                        Ok(mut attachment) => {
-                            debug!(attachment = ?attachment, "Found attachment");
-                            // Update the attachment with the comment_id
-                            attachment.comment_id = Some(comment.id);
-
-                            // Get the file path from the URL and use storage abstraction
-                            let file_path = attachment.url.trim_start_matches("/uploads/temp/");
-                            let old_storage_path = format!("temp/{file_path}");
-                            let new_storage_path = format!("tickets/{ticket_id}/{file_path}");
-
-                            debug!(from = %old_storage_path, to = %new_storage_path, "Moving file using storage abstraction");
-
-                            // Use storage abstraction to move the file
-                            match storage
-                                .0
-                                .move_file(&old_storage_path, &new_storage_path)
-                                .await
-                            {
-                                Ok(_) => {
-                                    debug!(from = %old_storage_path, to = %new_storage_path, "Moved file using storage");
-                                    // Update the URL to point to the new location (keep /uploads prefix for frontend compatibility)
-                                    attachment.url =
-                                        format!("/uploads/tickets/{ticket_id}/{file_path}");
-
-                                    // Also move PDF thumbnail if it exists
-                                    if attachment.mime_type.as_deref() == Some("application/pdf") {
-                                        let thumb_suffix = "_thumb.webp";
-                                        let old_thumb_path = old_storage_path
-                                            .strip_suffix(".pdf")
-                                            .or_else(|| old_storage_path.strip_suffix(".PDF"))
-                                            .map(|base| format!("{base}{thumb_suffix}"));
-                                        let new_thumb_path = new_storage_path
-                                            .strip_suffix(".pdf")
-                                            .or_else(|| new_storage_path.strip_suffix(".PDF"))
-                                            .map(|base| format!("{base}{thumb_suffix}"));
-
-                                        if let (Some(old_thumb), Some(new_thumb)) =
-                                            (old_thumb_path, new_thumb_path)
-                                        {
-                                            if let Err(e) =
-                                                storage.0.move_file(&old_thumb, &new_thumb).await
-                                            {
-                                                debug!(error = ?e, "PDF thumbnail not found or couldn't be moved (this is OK if no thumbnail was generated)");
-                                            } else {
-                                                debug!(from = %old_thumb, to = %new_thumb, "Moved PDF thumbnail");
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error!(error = ?e, file = %attachment.name, "Error moving attachment out of temp storage");
-                                    attachment_errors
-                                        .push(format!("Failed to move file {}", attachment.name));
-                                }
-                            }
-
-                            // Create updated attachment for database update
-                            let updated_attachment = crate::models::NewAttachment {
-                                url: attachment.url.clone(),
-                                name: attachment.name.clone(),
-                                file_size: attachment.file_size,
-                                mime_type: attachment.mime_type.clone(),
-                                checksum: attachment.checksum.clone(),
-                                comment_id: Some(comment.id),
-                                uploaded_by: Some(user_uuid_parsed),
-                                transcription: attachment.transcription.clone(),
-                            };
-
-                            debug!(
-                                attachment_id = attachment.id,
-                                "Updating attachment in database"
-                            );
-
-                            // Fix the diesel update query
-                            let update_result = tc.run(|conn| {
-                                use diesel::prelude::*;
-                                diesel::update(
-                                    crate::schema::attachments::table.find(attachment.id),
-                                )
-                                .set(&updated_attachment)
-                                .execute(conn)
-                            });
-                            match update_result {
-                                Ok(_) => {
-                                    debug!(attachment_id = attachment.id, "Updated attachment");
-                                    attachments.push(attachment);
-                                }
-                                Err(e) => {
-                                    error!(error = %e, attachment_name = %attachment.name, "Error updating attachment");
-                                    attachment_errors.push(format!(
-                                        "Failed to update attachment {} in database: {}",
-                                        attachment.name, e
-                                    ));
-                                }
-                            }
-                        }
+            let requested: Vec<i32> = comment_data
+                .attachments
+                .iter()
+                .filter_map(|a| a.id)
+                .collect();
+            let since = chrono::Utc::now() - chrono::Duration::hours(UPLOAD_CLAIM_HOURS);
+            let mut claimable: std::collections::HashMap<i32, crate::models::Attachment> =
+                if requested.is_empty() {
+                    std::collections::HashMap::new()
+                } else {
+                    match tc.run(|conn| {
+                        crate::repository::comments::claimable_uploads(
+                            conn,
+                            &requested,
+                            user_uuid_parsed,
+                            since,
+                        )
+                    }) {
+                        Ok(rows) => rows.into_iter().map(|a| (a.id, a)).collect(),
                         Err(e) => {
-                            error!(attachment_id = id, error = %e, "Error finding attachment");
-                            attachment_errors
-                                .push(format!("Failed to find attachment ID {id}: {e}"));
+                            error!(error = %e, "Error loading uploads to attach");
+                            attachment_errors.push("Failed to load uploads to attach".to_string());
+                            std::collections::HashMap::new()
                         }
+                    }
+                };
+
+            for id in requested {
+                let Some(mut attachment) = claimable.remove(&id) else {
+                    attachment_errors.push(format!(
+                        "Attachment {id} is not an upload of yours waiting to be attached"
+                    ));
+                    continue;
+                };
+
+                let file_path = attachment
+                    .url
+                    .trim_start_matches("/uploads/temp/")
+                    .to_string();
+                let old_storage_path = format!("temp/{file_path}");
+                let new_storage_path = format!("tickets/{ticket_id}/{file_path}");
+                if let Err(e) = storage
+                    .0
+                    .move_file(&old_storage_path, &new_storage_path)
+                    .await
+                {
+                    error!(error = ?e, file = %attachment.name, "Error moving attachment out of temp storage");
+                    attachment_errors.push(format!("Failed to move file {}", attachment.name));
+                    continue;
+                }
+
+                // Also move PDF thumbnail if it exists
+                if attachment.mime_type.as_deref() == Some("application/pdf") {
+                    let thumb_suffix = "_thumb.webp";
+                    let old_thumb_path = old_storage_path
+                        .strip_suffix(".pdf")
+                        .or_else(|| old_storage_path.strip_suffix(".PDF"))
+                        .map(|base| format!("{base}{thumb_suffix}"));
+                    let new_thumb_path = new_storage_path
+                        .strip_suffix(".pdf")
+                        .or_else(|| new_storage_path.strip_suffix(".PDF"))
+                        .map(|base| format!("{base}{thumb_suffix}"));
+                    if let (Some(old_thumb), Some(new_thumb)) = (old_thumb_path, new_thumb_path) {
+                        if let Err(e) = storage.0.move_file(&old_thumb, &new_thumb).await {
+                            debug!(error = ?e, "PDF thumbnail not found or couldn't be moved (this is OK if no thumbnail was generated)");
+                        }
+                    }
+                }
+
+                let url = format!("/uploads/tickets/{ticket_id}/{file_path}");
+                match tc.run(|conn| {
+                    crate::repository::comments::reparent_attachment(
+                        conn,
+                        attachment.id,
+                        &url,
+                        comment.id,
+                        user_uuid_parsed,
+                    )
+                }) {
+                    Ok(_) => {
+                        attachment.url = url;
+                        attachment.comment_id = Some(comment.id);
+                        attachments.push(attachment);
+                    }
+                    Err(e) => {
+                        error!(error = %e, attachment_name = %attachment.name, "Error attaching upload");
+                        attachment_errors.push(format!("Failed to attach {}", attachment.name));
                     }
                 }
             }
