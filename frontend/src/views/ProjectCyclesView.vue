@@ -21,6 +21,7 @@ import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { type SyncTicket } from '@/sync/stores/tickets'
+import { ticketNumber, ticketPath } from '@/utils/ticketNumbers'
 import { useProjectCycles, type PoolCycle } from '@/composables/useProjectCycles'
 import { useCycleMutations } from '@/composables/useCycleMutations'
 import { useCycleStats } from '@/composables/useCycleStats'
@@ -384,7 +385,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
                       <button
                         type="button"
                         class="flex-1 min-w-0 flex items-center gap-2 pl-3 pr-1 py-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-                        @click="router.push(`/tickets/${ticket.id}`)"
+                        @click="router.push(ticketPath(ticket))"
                       >
                         <PriorityIndicator
                           v-if="rowPriority(ticket.priority)"
@@ -392,7 +393,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
                           size="xs"
                           class="shrink-0"
                         />
-                        <span class="font-mono text-tertiary text-xs shrink-0">#{{ ticket.id }}</span>
+                        <span class="font-mono text-tertiary text-xs shrink-0">#{{ ticketNumber(ticket) }}</span>
                         <span class="text-sm text-primary truncate flex-1">{{ ticket.title }}</span>
                         <span
                           v-if="ticket.due_date"

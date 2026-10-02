@@ -83,6 +83,7 @@ pub fn get_recent_tickets(
 
     let rows: Vec<(
         i32,
+        i32,
         String,
         i32,
         Option<Uuid>,
@@ -98,6 +99,7 @@ pub fn get_recent_tickets(
         .limit(limit)
         .select((
             tickets::id,
+            tickets::number,
             tickets::title,
             tickets::workflow_state_id,
             tickets::requester_uuid,
@@ -112,16 +114,19 @@ pub fn get_recent_tickets(
     Ok(rows
         .into_iter()
         .map(
-            |(tid, ttitle, ws_id, req, ass, created, updated, last_viewed, views)| RecentTicket {
-                id: tid,
-                title: ttitle,
-                workflow_state_id: ws_id,
-                requester: req,
-                assignee: ass,
-                created_at: created,
-                updated_at: updated,
-                last_viewed_at: last_viewed,
-                view_count: views,
+            |(tid, number, ttitle, ws_id, req, ass, created, updated, last_viewed, views)| {
+                RecentTicket {
+                    id: tid,
+                    number,
+                    title: ttitle,
+                    workflow_state_id: ws_id,
+                    requester: req,
+                    assignee: ass,
+                    created_at: created,
+                    updated_at: updated,
+                    last_viewed_at: last_viewed,
+                    view_count: views,
+                }
             },
         )
         .collect())

@@ -13,6 +13,7 @@ import Modal from '@/components/Modal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
+import { ticketNumber } from '@/utils/ticketNumbers'
 import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 
@@ -43,14 +44,15 @@ const added = computed(() => new Set(props.existingTicketIds ?? []))
 
 /** Most-recent-first, excluding tickets already in the project, capped
  * so a large workspace doesn't render thousands of rows. Search by
- * title or #id narrows across the whole pool. */
+ * title or number (with or without its `#`) narrows across the whole pool. */
 const RESULT_CAP = 50
 const results = computed<SyncTicket[]>(() => {
   const q = searchQuery.value.trim().toLowerCase()
+  const number = q.replace(/^#/, '')
   const out: SyncTicket[] = []
   for (const t of ticketsStore.byLastActivity) {
     if (added.value.has(t.id)) continue
-    if (q && !(String(t.id) === q || t.title.toLowerCase().includes(q))) continue
+    if (q && !(String(ticketNumber(t)) === number || t.title.toLowerCase().includes(q))) continue
     out.push(t)
     if (out.length >= RESULT_CAP) break
   }
@@ -88,7 +90,7 @@ const results = computed<SyncTicket[]>(() => {
             :class="paletteForColor(ticket.workflow_state.color).solid"
             aria-hidden="true"
           />
-          <span class="text-xs font-mono text-tertiary tabular-nums shrink-0">#{{ ticket.id }}</span>
+          <span class="text-xs font-mono text-tertiary tabular-nums shrink-0">#{{ ticketNumber(ticket) }}</span>
           <span class="text-sm text-primary truncate flex-1 min-w-0">{{ ticket.title }}</span>
           <span class="text-xs text-tertiary whitespace-nowrap shrink-0">
             {{ formatRelativeTime(ticket.last_activity_at) }}

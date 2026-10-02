@@ -11,6 +11,8 @@ import SimpleEditor from "@/components/common/SimpleEditor.vue";
 import { referencedTicketIds } from "@/components/editor/ticketLinkPlugin";
 import * as pool from "@nosdesk/core/sync/pool";
 import type { SyncTicket } from "@/sync/stores/tickets";
+import { ticketNumber } from "@/utils/ticketNumbers";
+import { numberForTicketId } from "@/composables/useTicketNumberLookup";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
 import CommentContent from "@/components/ticketComponents/CommentContent.vue";
 import { sanitiseHtml } from "@/composables/useSanitise";
@@ -209,8 +211,11 @@ const canSubmit = computed<boolean>(
 const linkSuggestions = ref<number[]>([]);
 const dismissedSuggestions = new Set<number>();
 const suggestionLabel = (id: number): string => {
-    const title = pool.get<SyncTicket>("ticket", id)?.title;
-    return title ? t("ticket-chip-linked-ticket-title", { id, title }) : t("ticket-chip-linked-ticket-fallback", { id });
+    const row = pool.get<SyncTicket>("ticket", id);
+    const number = row ? ticketNumber(row) : (numberForTicketId(id) ?? "");
+    return row?.title
+        ? t("ticket-chip-linked-ticket-title", { id: number, title: row.title })
+        : t("ticket-chip-linked-ticket-fallback", { id: number });
 };
 const acceptSuggestion = (id: number) => {
     dismissSuggestion(id);

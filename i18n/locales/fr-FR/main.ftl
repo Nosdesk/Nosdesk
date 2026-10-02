@@ -784,7 +784,8 @@ admin-email-queue-stat-sent = Envoyé
 admin-email-queue-stat-failed = Échoué (réessai en cours)
 admin-email-queue-stat-dead = Mort (sans réessai)
 admin-email-queue-filter-status = Statut
-admin-email-queue-filter-ticket = ID de ticket
+# MACHINE TRANSLATION, pending native review
+admin-email-queue-filter-ticket = Numéro de ticket
 admin-email-queue-filter-ticket-placeholder = 42
 admin-email-queue-filter-domain = Domaine du destinataire
 admin-email-queue-filter-domain-placeholder = exemple.com
@@ -6799,6 +6800,8 @@ sse-connection-failed = Échec de la connexion.
 sse-no-auth-token = Non authentifié.
 auth-microsoft-logout-failed = Impossible de se déconnecter de Microsoft.
 editor-ticket-link-not-found = Ticket #{ $id } introuvable
+# MACHINE TRANSLATION, pending native review
+editor-ticket-link-unavailable = Ticket introuvable
 
 # W batch: pluralization fixes
 notifications-inbox-unread-count =
@@ -6870,6 +6873,8 @@ ticket-merge-error-toast = Impossible de fusionner les tickets. Veuillez réessa
 ticket-merge-success-toast = { $count } tickets fusionnés dans le #{ $target_id }
 ticket-merge-marker-comment-header = { $count } tickets fusionnés dans celui-ci
 ticket-merge-banner-merged-into = Ce ticket a été fusionné dans le #{ $target_id } par { $actor } le { $when }.
+# MACHINE TRANSLATION, pending native review
+ticket-merge-banner-merged-into-another = Ce ticket a été fusionné dans un autre ticket par { $actor } le { $when }.
 ticket-merge-banner-open-destination = Ouvrir la destination
 ticket-merge-sidebar-merged-in = Fusionnés ici
 ticket-merge-toast-just-merged = Ce ticket vient d'être fusionné dans le #{ $target_id }.
@@ -7431,6 +7436,8 @@ notice-link-existing = Un avis est déjà en ligne : { $title }. Liez ce ticket 
 notice-link-existing-action = Lier ce ticket
 notice-incident-label = Ticket d'incident
 notice-incident-hint = Facultatif. Les demandeurs peuvent suivre ce ticket depuis l'avis.
+# MACHINE TRANSLATION, pending native review
+notice-incident-not-found = Aucun ticket ne porte ce numéro.
 notice-end-now = Terminer maintenant
 notice-cancel = Annuler
 notice-post = Publier l'avis

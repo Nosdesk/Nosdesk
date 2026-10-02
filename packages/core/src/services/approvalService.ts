@@ -13,6 +13,7 @@ export interface ApproverStatus {
 
 export interface ApprovalSummary {
   ticket_id: number
+  ticket_number: number
   title: string
   request_type: string | null
   requester_name: string | null

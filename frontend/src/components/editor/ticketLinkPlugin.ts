@@ -5,8 +5,15 @@ import { Node as ProseMirrorNode } from 'prosemirror-model'
 import { InputRule } from 'prosemirror-inputrules'
 import { getTicketById } from '@nosdesk/core/services/ticketService'
 import { translate } from '@/i18n'
-import { shareableRouteUrl } from '@/utils/shareUrl'
-import { poolHasTicket } from '@/composables/useTicketReferenceSearch'
+import { shareableTicketUrl } from '@/utils/shareUrl'
+import {
+  knownTicketNumber,
+  pooledTicketIdForNumber,
+  pooledTicketNumber,
+  ticketIdFromUrl,
+  ticketNumber,
+  ticketPathForId,
+} from '@/utils/ticketNumbers'
 import {
   type TicketCardData,
   renderTicketCardHtml
@@ -19,6 +26,16 @@ const ticketCache = new Map<number, TicketCardData>()
 
 // Navigation callback - set by the component that creates the plugin
 let navigateToTicket: ((ticketId: number) => void) | null = null
+
+// A link's node stores the ticket's id; its href may predate ticket numbers
+// (and carry the id), so navigation always goes by the id.
+function openTicket(ticketId: number) {
+  if (navigateToTicket) {
+    navigateToTicket(ticketId)
+  } else {
+    import('@/router').then(({ default: router }) => router.push(ticketPathForId(ticketId)))
+  }
+}
 
 export function setTicketNavigationHandler(handler: (ticketId: number) => void) {
   navigateToTicket = handler
@@ -34,6 +51,7 @@ async function fetchTicketData(ticketId: number): Promise<TicketCardData> {
   // Set loading state
   const loadingData: TicketCardData = {
     id: ticketId,
+    number: knownTicketNumber({ id: ticketId }),
     title: translate('editor-loading', undefined, 'Loading...'),
     priority: '',
     loading: true
@@ -44,6 +62,7 @@ async function fetchTicketData(ticketId: number): Promise<TicketCardData> {
     const ticket = await getTicketById(ticketId)
     const data: TicketCardData = {
       id: ticket.id,
+      number: ticketNumber(ticket),
       title: ticket.title,
       category: ticket.workflow_state?.category,
       priority: ticket.priority,
@@ -55,9 +74,14 @@ async function fetchTicketData(ticketId: number): Promise<TicketCardData> {
     return data
   } catch (err) {
     console.error(`Failed to fetch ticket ${ticketId}:`, err)
+    const number = pooledTicketNumber(ticketId)
     const errorData: TicketCardData = {
       id: ticketId,
-      title: translate('editor-ticket-link-not-found', { id: ticketId }, `Ticket #${ticketId} not found`),
+      number,
+      title:
+        number !== undefined
+          ? translate('editor-ticket-link-not-found', { id: number }, `Ticket #${number} not found`)
+          : translate('editor-ticket-link-unavailable', undefined, 'Ticket not found'),
       priority: '',
       error: true
     }
@@ -70,11 +94,9 @@ async function fetchTicketData(ticketId: number): Promise<TicketCardData> {
 class TicketLinkView implements NodeView {
   dom: HTMLElement
   private ticketId: number
-  private href: string
 
   constructor(node: ProseMirrorNode, _view: EditorView, _getPos: () => number | undefined) {
     this.ticketId = parseInt(node.attrs.ticketId, 10)
-    this.href = node.attrs.href
 
     // Create the card element
     this.dom = document.createElement('span')
@@ -84,21 +106,21 @@ class TicketLinkView implements NodeView {
     this.dom.setAttribute('data-ticket-id', String(this.ticketId))
 
     // Initial loading state
-    this.render({ id: this.ticketId, title: translate('editor-loading', undefined, 'Loading...'), priority: '', loading: true })
+    this.render({
+      id: this.ticketId,
+      number: knownTicketNumber({ id: this.ticketId }),
+      title: translate('editor-loading', undefined, 'Loading...'),
+      priority: '',
+      loading: true
+    })
 
     // Fetch ticket data and update
     this.loadTicketData()
 
-    // Add click handler - use navigation callback if set, otherwise fall back to URL
     this.dom.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
-      if (navigateToTicket) {
-        navigateToTicket(this.ticketId)
-      } else {
-        // Fallback to router navigation if no handler is set
-        import('@/router').then(({ default: router }) => router.push(this.href))
-      }
+      openTicket(this.ticketId)
     })
   }
 
@@ -117,7 +139,6 @@ class TicketLinkView implements NodeView {
     const newTicketId = parseInt(node.attrs.ticketId, 10)
     if (newTicketId !== this.ticketId) {
       this.ticketId = newTicketId
-      this.href = node.attrs.href
       this.loadTicketData()
     }
     return true
@@ -136,47 +157,45 @@ class TicketLinkView implements NodeView {
   }
 }
 
-// Regex to match ticket URLs
-const TICKET_URL_REGEX = /https?:\/\/[^\/]+\/tickets\/(\d+)(?:\?[^\s]*)?/
-
-// Parse ticket URL and extract ticket ID
+/** The id of the ticket a pasted or dropped URL names, if it's this workspace's. */
 export function parseTicketUrl(url: string): number | null {
-  const match = url.match(TICKET_URL_REGEX)
-  return match ? parseInt(match[1], 10) : null
+  return ticketIdFromUrl(url)
 }
 
 // Create input rule to convert pasted/typed ticket URLs
 export function createTicketLinkInputRule(schema: any): InputRule {
   // Match ticket URL at end of input (when user types or pastes)
-  const urlPattern = /https?:\/\/[^\s\/]+\/tickets\/(\d+)(?:\?[^\s]*)?\s$/
+  const urlPattern = /https?:\/\/[^\s\/]+\/[^\s]*tickets\/[^\s]+\s$/
 
   return new InputRule(urlPattern, (state, match, start, end) => {
-    const ticketId = match[1]
     const href = match[0].trim()
+    const ticketId = ticketIdFromUrl(href)
+    if (ticketId === null) return null
 
     const ticketLinkType = schema.nodes.ticket_link
     if (!ticketLinkType) return null
 
-    const node = ticketLinkType.create({ ticketId, href })
+    const node = ticketLinkType.create({ ticketId: String(ticketId), href })
     return state.tr.replaceWith(start, end, node)
   })
 }
 
 /**
  * `#123` followed by a space becomes a ticket link when the workspace pool
- * knows ticket 123. Unknown numbers ("PO #4521") stay text. Only fires
+ * knows ticket number 123. Unknown numbers ("PO #4521") stay text. Only fires
  * after whitespace or at the start of the block, like the `#` picker.
  */
 export function createTicketNumberInputRule(schema: any): InputRule {
   return new InputRule(/(^|\s)#(\d{1,9})\s$/, (state, match, start, end) => {
     const ticketLinkType = schema.nodes.ticket_link
     if (!ticketLinkType) return null
-    const ticketId = parseInt(match[2], 10)
-    if (!poolHasTicket(ticketId)) return null
+    const number = parseInt(match[2], 10)
+    const ticketId = pooledTicketIdForNumber(number)
+    if (ticketId === undefined) return null
     const from = start + match[1].length
     const node = ticketLinkType.create({
       ticketId: String(ticketId),
-      href: shareableRouteUrl('ticket-view', { id: String(ticketId) })
+      href: shareableTicketUrl({ id: ticketId, number })
     })
     return state.tr.replaceWith(from, end, node).insertText(' ', from + 1)
   })
@@ -257,7 +276,7 @@ export function createTicketLinkPlugin(): Plugin {
               const data = JSON.parse(jsonData)
               if (data.ticketId) {
                 ticketId = data.ticketId
-                href = shareableRouteUrl('ticket-view', { id: String(ticketId) })
+                href = shareableTicketUrl({ id: data.ticketId, number: pooledTicketNumber(data.ticketId) })
               }
             } catch {
               // Invalid JSON, ignore
@@ -308,7 +327,6 @@ export function enhanceTicketLinks(container: HTMLElement): void {
   ticketLinks.forEach(async (el) => {
     const element = el as HTMLElement
     const ticketIdStr = element.getAttribute('data-ticket-id')
-    const href = element.getAttribute('data-href')
 
     if (!ticketIdStr) return
 
@@ -322,6 +340,7 @@ export function enhanceTicketLinks(container: HTMLElement): void {
     // Show loading state
     element.innerHTML = renderTicketCardHtml({
       id: ticketId,
+      number: knownTicketNumber({ id: ticketId }),
       title: translate('editor-loading', undefined, 'Loading...'),
       loading: true
     })
@@ -337,11 +356,7 @@ export function enhanceTicketLinks(container: HTMLElement): void {
     element.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
-      if (navigateToTicket) {
-        navigateToTicket(ticketId)
-      } else if (href) {
-        import('@/router').then(({ default: router }) => router.push(href))
-      }
+      openTicket(ticketId)
     })
   })
 }

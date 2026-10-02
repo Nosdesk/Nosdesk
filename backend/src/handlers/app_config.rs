@@ -19,6 +19,10 @@ use serde_json::json;
 /// deployment-aware admin UI, e.g. hiding the platform SMTP relay panel on
 /// hosted (it's Nosdesk-managed infra, not a tenant concern). Not sensitive:
 /// hosted vs self-host is observable from the surface anyway.
+///
+/// `ticket_numbers` says tickets carry a per-workspace `number` that URLs
+/// use. The mobile app can reach servers older than that, where a URL's
+/// ticket number is its id.
 pub async fn get_public_config() -> impl Responder {
     let workspace_routing = if crate::middleware::workspace_context::selection_resolution_enabled()
     {
@@ -49,5 +53,6 @@ pub async fn get_public_config() -> impl Responder {
         "inbound_forwarding_enabled": inbound_forwarding_enabled,
         "control_plane_url": control_plane_url,
         "account_url": account_url,
+        "ticket_numbers": true,
     }))
 }

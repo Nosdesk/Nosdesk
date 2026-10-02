@@ -22,6 +22,8 @@ import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { metaForAssetStatus } from '@/utils/assetStatusMeta';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
+import { numberForTicketId } from '@/composables/useTicketNumberLookup';
+import { ticketPath } from '@/utils/ticketNumbers';
 import { ASSET_STATUSES, type AssetLifecycleEvent, type AssetStatus } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
@@ -350,10 +352,10 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
         >
           <RouterLink
             v-if="event.ticket_id"
-            :to="`/tickets/${event.ticket_id}`"
+            :to="ticketPath({ id: event.ticket_id, number: numberForTicketId(event.ticket_id) })"
             class="inline-flex items-center px-1.5 py-0.5 rounded border border-default bg-surface-alt text-accent hover:underline"
           >
-            {{ $t('asset-lifecycle-timeline-ticket', { id: event.ticket_id }) }}
+            {{ $t('asset-lifecycle-timeline-ticket', { id: numberForTicketId(event.ticket_id) ?? '' }) }}
           </RouterLink>
           <span v-if="event.reason">{{ event.reason }}</span>
           <span v-for="(line, idx) in metadataLines(event)" :key="idx">{{ line }}</span>

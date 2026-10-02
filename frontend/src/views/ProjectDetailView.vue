@@ -24,6 +24,7 @@ import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import { projectService } from '@nosdesk/core/services/projectService'
 import { logger } from '@nosdesk/core/utils/logger'
+import { ticketPathForId } from '@/utils/ticketNumbers'
 
 const props = defineProps<{ id: string }>()
 
@@ -45,7 +46,7 @@ const { cards } = useProjectTickets(projectId)
 const isLoading = computed(() => project.value == null && cards.value.length === 0)
 
 function openCard(cardId: number): void {
-  router.push(`/tickets/${cardId}`)
+  router.push(ticketPathForId(cardId))
 }
 
 async function quickAdd(workflowStateId: number, title: string): Promise<void> {

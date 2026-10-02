@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::panic;
 use unic_langid::LanguageIdentifier;
 use uuid::Uuid;
@@ -42,9 +42,11 @@ pub fn yjs_to_markdown(yjs_document: &[u8]) -> Option<String> {
     let txn = doc.transact();
     let fragment = txn.get_xml_fragment("prosemirror")?;
 
+    // No connection to read numbers with: ticket links go by id.
+    let numbers = &TicketNumbers::new();
     let mut output = String::new();
     for child in fragment.children(&txn) {
-        let block = node_to_markdown(&child, &txn, 0);
+        let block = node_to_markdown(&child, &txn, 0, numbers);
         if !block.is_empty() {
             output.push_str(&block);
             output.push('\n');
@@ -135,9 +137,12 @@ pub fn yjs_to_markdown_with_embeds(
     let txn = doc.transact();
     let fragment = txn.get_xml_fragment("prosemirror")?;
 
+    let numbers = &linked_ticket_numbers(&fragment, &txn, &mut *resolver.conn);
     let mut output = String::new();
     for child in fragment.children(&txn) {
-        let block = node_to_markdown_with_embeds(&child, &txn, 0, resolver, visited, depth, locale);
+        let block = node_to_markdown_with_embeds(
+            &child, &txn, 0, resolver, visited, depth, locale, numbers,
+        );
         if !block.is_empty() {
             output.push_str(&block);
             output.push('\n');
@@ -152,8 +157,77 @@ pub fn yjs_to_markdown_with_embeds(
     }
 }
 
+/// Ticket number by id, for the tickets a document links. A ticket missing
+/// from it (deleted, or not in this workspace) is linked by id.
+type TicketNumbers = HashMap<i32, i32>;
+
+/// The numbers of the tickets the document links, read in the connection's
+/// pinned workspace. Empty when it links none or the read fails.
+fn linked_ticket_numbers(
+    fragment: &yrs::XmlFragmentRef,
+    txn: &yrs::Transaction,
+    conn: &mut DbConnection,
+) -> TicketNumbers {
+    fn collect(node: &XmlOut, txn: &yrs::Transaction, ids: &mut Vec<i32>) {
+        match node {
+            XmlOut::Element(elem) => {
+                if elem.tag().as_ref() == "ticket_link" {
+                    let id = elem
+                        .get_attribute(txn, "ticketId")
+                        .and_then(|v| v.to_string(txn).parse::<i32>().ok());
+                    ids.extend(id);
+                }
+                for child in elem.children(txn) {
+                    collect(&child, txn, ids);
+                }
+            }
+            XmlOut::Fragment(frag) => {
+                for child in frag.children(txn) {
+                    collect(&child, txn, ids);
+                }
+            }
+            XmlOut::Text(_) => {}
+        }
+    }
+    let mut ids = Vec::new();
+    for child in fragment.children(txn) {
+        collect(&child, txn, &mut ids);
+    }
+    if ids.is_empty() {
+        return TicketNumbers::new();
+    }
+    repository::tickets::numbers_in_pinned_workspace(conn, &ids).unwrap_or_default()
+}
+
+/// A `ticket_link` node as people quote it, `[Ticket #N](/tickets/N)`. A
+/// ticket without a number here links through `/tickets/id/<id>`, which the
+/// app redirects to the ticket's number.
+fn ticket_link_markdown(
+    elem: &yrs::XmlElementRef,
+    txn: &yrs::Transaction,
+    numbers: &TicketNumbers,
+) -> String {
+    let ticket_id = elem
+        .get_attribute(txn, "ticketId")
+        .map(|v| v.to_string(txn))
+        .unwrap_or_default();
+    match ticket_id
+        .parse::<i32>()
+        .ok()
+        .and_then(|id| numbers.get(&id))
+    {
+        Some(number) => format!("[Ticket #{number}](/tickets/{number})"),
+        None => format!("[Ticket](/tickets/id/{ticket_id})"),
+    }
+}
+
 /// Convert a single XML node to Markdown (block-level)
-fn node_to_markdown(node: &XmlOut, txn: &yrs::Transaction, list_depth: usize) -> String {
+fn node_to_markdown(
+    node: &XmlOut,
+    txn: &yrs::Transaction,
+    list_depth: usize,
+    numbers: &TicketNumbers,
+) -> String {
     match node {
         XmlOut::Text(text_ref) => get_text_safe(text_ref, txn),
         XmlOut::Element(elem) => {
@@ -167,12 +241,13 @@ fn node_to_markdown(node: &XmlOut, txn: &yrs::Transaction, list_depth: usize) ->
                 &mut HashSet::new(),
                 0,
                 None,
+                numbers,
             )
         }
         XmlOut::Fragment(frag) => {
             let mut out = String::new();
             for child in frag.children(txn) {
-                out.push_str(&node_to_markdown(&child, txn, list_depth));
+                out.push_str(&node_to_markdown(&child, txn, list_depth, numbers));
             }
             out
         }
@@ -188,6 +263,7 @@ fn node_to_markdown_with_embeds(
     visited: &mut HashSet<Uuid>,
     embed_depth: usize,
     locale: &LanguageIdentifier,
+    numbers: &TicketNumbers,
 ) -> String {
     match node {
         XmlOut::Text(text_ref) => get_text_safe(text_ref, txn),
@@ -202,6 +278,7 @@ fn node_to_markdown_with_embeds(
                 visited,
                 embed_depth,
                 Some(locale),
+                numbers,
             )
         }
         XmlOut::Fragment(frag) => {
@@ -215,6 +292,7 @@ fn node_to_markdown_with_embeds(
                     visited,
                     embed_depth,
                     locale,
+                    numbers,
                 ));
             }
             out
@@ -236,10 +314,11 @@ fn element_to_markdown(
     visited: &mut HashSet<Uuid>,
     embed_depth: usize,
     locale: Option<&LanguageIdentifier>,
+    numbers: &TicketNumbers,
 ) -> String {
     match tag {
         "paragraph" => {
-            let text = collect_inline_children(elem, txn);
+            let text = collect_inline_children(elem, txn, numbers);
             format!("{}\n", text)
         }
         "heading" => {
@@ -249,7 +328,7 @@ fn element_to_markdown(
                 .unwrap_or(1)
                 .min(6);
             let prefix = "#".repeat(level);
-            let text = collect_inline_children(elem, txn);
+            let text = collect_inline_children(elem, txn, numbers);
             format!("{} {}\n", prefix, text)
         }
         "code_block" => {
@@ -269,6 +348,7 @@ fn element_to_markdown(
                 visited,
                 embed_depth,
                 locale,
+                numbers,
             );
             let quoted: String = inner
                 .lines()
@@ -291,6 +371,7 @@ fn element_to_markdown(
                             visited,
                             embed_depth,
                             locale,
+                            numbers,
                         );
                         out.push_str(&format!("{}- {}\n", indent, content.trim_end()));
                     }
@@ -313,6 +394,7 @@ fn element_to_markdown(
                             visited,
                             embed_depth,
                             locale,
+                            numbers,
                         );
                         out.push_str(&format!("{}{}. {}\n", indent, index, content.trim_end()));
                         index += 1;
@@ -334,17 +416,7 @@ fn element_to_markdown(
                 .unwrap_or_default();
             format!("![{}]({})\n", alt, src)
         }
-        "ticket_link" => {
-            let ticket_id = elem
-                .get_attribute(txn, "ticketId")
-                .map(|v| v.to_string(txn))
-                .unwrap_or_default();
-            let href = elem
-                .get_attribute(txn, "href")
-                .map(|v| v.to_string(txn))
-                .unwrap_or_else(|| format!("/tickets/{}", ticket_id));
-            format!("[Ticket #{}]({})", ticket_id, href)
-        }
+        "ticket_link" => ticket_link_markdown(elem, txn, numbers),
         "mention" => {
             let name = elem
                 .get_attribute(txn, "name")
@@ -429,13 +501,17 @@ fn element_to_markdown(
         }
         _ => {
             // Unknown tag - collect inline children as text
-            collect_inline_children(elem, txn)
+            collect_inline_children(elem, txn, numbers)
         }
     }
 }
 
 /// Collect inline children of an element with markdown marks
-fn collect_inline_children(elem: &yrs::XmlElementRef, txn: &yrs::Transaction) -> String {
+fn collect_inline_children(
+    elem: &yrs::XmlElementRef,
+    txn: &yrs::Transaction,
+    numbers: &TicketNumbers,
+) -> String {
     let mut out = String::new();
     for child in elem.children(txn) {
         match &child {
@@ -458,15 +534,7 @@ fn collect_inline_children(elem: &yrs::XmlElementRef, txn: &yrs::Transaction) ->
                         out.push_str(&format!("![{}]({})", alt, src));
                     }
                     "ticket_link" => {
-                        let ticket_id = child_elem
-                            .get_attribute(txn, "ticketId")
-                            .map(|v| v.to_string(txn))
-                            .unwrap_or_default();
-                        let href = child_elem
-                            .get_attribute(txn, "href")
-                            .map(|v| v.to_string(txn))
-                            .unwrap_or_else(|| format!("/tickets/{}", ticket_id));
-                        out.push_str(&format!("[Ticket #{}]({})", ticket_id, href));
+                        out.push_str(&ticket_link_markdown(child_elem, txn, numbers));
                     }
                     "mention" => {
                         let name = child_elem
@@ -477,7 +545,7 @@ fn collect_inline_children(elem: &yrs::XmlElementRef, txn: &yrs::Transaction) ->
                     }
                     _ => {
                         // For marks like strong, em, code, link
-                        let inner = collect_inline_children(child_elem, txn);
+                        let inner = collect_inline_children(child_elem, txn, numbers);
                         out.push_str(&wrap_with_mark(&tag, child_elem, txn, &inner));
                     }
                 }
@@ -553,6 +621,7 @@ fn collect_block_children(
     visited: &mut HashSet<Uuid>,
     embed_depth: usize,
     locale: Option<&LanguageIdentifier>,
+    numbers: &TicketNumbers,
 ) -> String {
     let mut out = String::new();
     for child in elem.children(txn) {
@@ -568,6 +637,7 @@ fn collect_block_children(
                     visited,
                     embed_depth,
                     locale,
+                    numbers,
                 ));
             }
             XmlOut::Text(text_ref) => {
@@ -594,6 +664,7 @@ fn collect_list_item_content(
     visited: &mut HashSet<Uuid>,
     embed_depth: usize,
     locale: Option<&LanguageIdentifier>,
+    numbers: &TicketNumbers,
 ) -> String {
     let mut out = String::new();
     let mut first = true;
@@ -601,7 +672,7 @@ fn collect_list_item_content(
         if let XmlOut::Element(child_elem) = &child {
             let tag = child_elem.tag().to_string();
             if first && tag == "paragraph" {
-                out.push_str(&collect_inline_children(child_elem, txn));
+                out.push_str(&collect_inline_children(child_elem, txn, numbers));
                 first = false;
             } else if tag == "bullet_list" || tag == "ordered_list" {
                 out.push('\n');
@@ -614,6 +685,7 @@ fn collect_list_item_content(
                     visited,
                     embed_depth,
                     locale,
+                    numbers,
                 ));
             } else {
                 out.push_str(&element_to_markdown(
@@ -625,9 +697,60 @@ fn collect_list_item_content(
                     visited,
                     embed_depth,
                     locale,
+                    numbers,
                 ));
             }
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yrs::types::xml::XmlIn;
+    use yrs::{StateVector, XmlElementPrelim};
+
+    /// A document whose one paragraph links ticket 42.
+    fn linking_ticket_42() -> Doc {
+        let doc = Doc::new();
+        {
+            let mut txn = doc.transact_mut();
+            let fragment = txn.get_or_insert_xml_fragment("prosemirror");
+            let mut link = XmlElementPrelim::new("ticket_link", Vec::<XmlIn>::new());
+            link.attributes.insert("ticketId".into(), "42".to_string());
+            fragment.push_back(
+                &mut txn,
+                XmlElementPrelim::new("paragraph", vec![link.into()]),
+            );
+        }
+        doc
+    }
+
+    #[test]
+    fn a_ticket_link_quotes_the_tickets_number() {
+        let doc = linking_ticket_42();
+        let txn = doc.transact();
+        let paragraph = txn
+            .get_xml_fragment("prosemirror")
+            .and_then(|f| f.get(&txn, 0))
+            .expect("paragraph");
+        let numbers = TicketNumbers::from([(42, 7)]);
+        assert_eq!(
+            node_to_markdown(&paragraph, &txn, 0, &numbers),
+            "[Ticket #7](/tickets/7)\n"
+        );
+    }
+
+    #[test]
+    fn a_ticket_link_without_a_number_goes_by_id() {
+        let doc = linking_ticket_42();
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        assert_eq!(
+            yjs_to_markdown(&update).as_deref(),
+            Some("[Ticket](/tickets/id/42)")
+        );
+    }
 }

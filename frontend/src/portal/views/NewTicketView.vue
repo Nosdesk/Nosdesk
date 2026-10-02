@@ -38,7 +38,7 @@ async function submit(): Promise<void> {
       requestType.value,
     )
     void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
-    void router.push(`/tickets/${ticket.id}`)
+    void router.push(`/tickets/${ticket.number}`)
   } catch {
     failed.value = true
     submitting.value = false

@@ -20,6 +20,8 @@ import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { formatCompactDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import type { AssetLoan } from '@nosdesk/core/types/asset';
+import { numberForTicketId } from '@/composables/useTicketNumberLookup';
+import { ticketPath } from '@/utils/ticketNumbers';
 
 const props = defineProps<{
   assetId: number;
@@ -130,7 +132,7 @@ const showBorrowerPicker = ref(false);
 const borrower = ref<{ uuid: string; name: string } | null>(null);
 const loanedOn = ref(today);
 const dueBack = ref('');
-const linkedTicket = ref<{ id: number; title: string } | null>(null);
+const linkedTicket = ref<{ id: number; number: number; title: string } | null>(null);
 const showTicketPicker = ref(false);
 const notes = ref('');
 const issueError = ref('');
@@ -151,7 +153,7 @@ function onSelectBorrower(user: { uuid: string; name: string }) {
   if (user.uuid) borrower.value = { uuid: user.uuid, name: user.name };
 }
 
-function onSelectTicket(ticket: { id: number; title: string }) {
+function onSelectTicket(ticket: { id: number; number: number; title: string }) {
   linkedTicket.value = ticket;
 }
 
@@ -243,12 +245,12 @@ async function submitReturn() {
             <span class="truncate">{{ $t('asset-loan-fact-loaned') }} {{ formatCompactDate(activeLoan.loaned_at) }}</span>
             <span aria-hidden="true" class="shrink-0">·</span>
             <span class="shrink-0">{{ relative(activeLoan.loaned_at) }}</span>
-            <template v-if="activeLoan.ticket_id">
+            <template v-if="activeLoan.ticket_id && numberForTicketId(activeLoan.ticket_id) !== undefined">
               <span aria-hidden="true" class="shrink-0">·</span>
               <RouterLink
-                :to="`/tickets/${activeLoan.ticket_id}`"
+                :to="ticketPath({ id: activeLoan.ticket_id, number: numberForTicketId(activeLoan.ticket_id) })"
                 class="shrink-0 text-accent hover:underline"
-              >{{ $t('asset-loan-ticket', { id: activeLoan.ticket_id }) }}</RouterLink>
+              >{{ $t('asset-loan-ticket', { id: numberForTicketId(activeLoan.ticket_id) ?? '' }) }}</RouterLink>
             </template>
           </div>
         </div>
@@ -375,7 +377,7 @@ async function submitReturn() {
               @click="showTicketPicker = true"
             >
               <template v-if="linkedTicket">
-                <span class="text-xs font-mono text-tertiary shrink-0">#{{ linkedTicket.id }}</span>
+                <span class="text-xs font-mono text-tertiary shrink-0">#{{ linkedTicket.number }}</span>
                 <span class="text-sm text-primary truncate">{{ linkedTicket.title || $t('ticket-picker-untitled') }}</span>
               </template>
               <template v-else>

@@ -48,7 +48,7 @@ const blockedBy = computed(() => props.card.relation_counts?.blocked_by ?? 0)
 <template>
   <div class="w-64 p-3 flex flex-col gap-2 text-left">
     <div class="flex items-center justify-between gap-2">
-      <span class="font-mono text-2xs text-tertiary">#{{ card.id }}</span>
+      <span class="font-mono text-2xs text-tertiary">#{{ card.number }}</span>
       <StatusPill :label="card.workflow_state.name" :tone="statusTone" size="xs" />
     </div>
 

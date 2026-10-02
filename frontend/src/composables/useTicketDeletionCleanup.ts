@@ -54,7 +54,9 @@ export function useTicketDeletionCleanup(): void {
   const workspaces = useMyWorkspacesStore()
   const ticketsStore = useSyncTicketsStore()
 
-  const cleanupTicket = (id: number) => {
+  // `number` comes from the delete event; an older server's carries none,
+  // and its routes carry the id.
+  const cleanupTicket = (id: number, number: number = id) => {
     // Fire-and-forget; purgeData awaits IDB but we don't gate anything
     // on it. The docId is keyed by the ticket's immutable UUID (see
     // utils/collabDocId.ts), so we resolve it from the pool. Best-effort:
@@ -78,7 +80,7 @@ export function useTicketDeletionCleanup(): void {
     // If we're currently viewing the ticket that just got deleted,
     // navigate away before the next render tries to read from
     // half-purged state.
-    if (route.name === 'ticket-view' && Number(route.params.id) === id) {
+    if (route.name === 'ticket-view' && Number(route.params.number) === number) {
       void router.push('/tickets')
     }
   }
@@ -91,7 +93,8 @@ export function useTicketDeletionCleanup(): void {
       for (const action of actions) {
         if (action.op !== 'D') continue
         const id = Number(action.aggregate_id)
-        if (Number.isFinite(id)) cleanupTicket(id)
+        const number = (action.data as { number?: unknown } | null)?.number
+        if (Number.isFinite(id)) cleanupTicket(id, typeof number === 'number' ? number : id)
       }
     },
     { aggregates: ['ticket'] },

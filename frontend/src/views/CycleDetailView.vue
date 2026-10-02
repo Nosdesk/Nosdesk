@@ -38,6 +38,7 @@ import DatePicker from '@/components/common/DatePicker.vue'
 import Icon from '@/components/common/Icon.vue'
 import { toCardData } from '@/sync/views/cardData'
 import type { CardData } from '@nosdesk/core/sync/views/types'
+import { ticketPathForId } from '@/utils/ticketNumbers'
 
 const props = defineProps<{ uuid: string }>()
 
@@ -171,7 +172,7 @@ const loadOp = computed(() => ({
 const hasCycle = computed(() => cycle.value != null)
 
 function openCard(cardId: number): void {
-  router.push(`/tickets/${cardId}`)
+  router.push(ticketPathForId(cardId))
 }
 
 // Cycles live under their project, so a deep link with no in-app history should

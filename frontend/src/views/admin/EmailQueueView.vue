@@ -8,6 +8,8 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
+import { ticketIdForNumber } from '@/utils/ticketNumbers';
+import { numberForTicketId } from '@/composables/useTicketNumberLookup';
 import {
   emailQueueService,
   type OutboundEmailQuery,
@@ -44,13 +46,20 @@ const errorMessage = ref('');
 const showCancelConfirm = ref(false);
 const pendingCancelId = ref<number | null>(null);
 
-function buildQuery(cursor?: string): OutboundEmailQuery {
+// The ticket filter takes the ticket's number, with or without its `#`; the
+// API filters by id. `null`: a number this workspace has no ticket for, which
+// matches nothing.
+async function buildQuery(cursor?: string): Promise<OutboundEmailQuery | null> {
   const q: OutboundEmailQuery = { limit: 50 };
   if (statusFilter.value.size > 0) {
     q.status = [...statusFilter.value].join(',');
   }
-  const ticketId = parseInt(ticketFilter.value.trim(), 10);
-  if (!Number.isNaN(ticketId)) q.ticket_id = ticketId;
+  const ticketNumber = ticketFilter.value.trim().replace(/^#/, '');
+  if (/^\d+$/.test(ticketNumber)) {
+    const ticketId = await ticketIdForNumber(Number(ticketNumber));
+    if (ticketId === undefined) return null;
+    q.ticket_id = ticketId;
+  }
   if (domainFilter.value.trim()) q.recipient_domain = domainFilter.value.trim();
   if (cursor) q.cursor = cursor;
   return q;
@@ -75,7 +84,10 @@ const queueList = useInfiniteQuery({
     domainFilter.value.trim(),
   ],
   initialPageParam: null as string | null,
-  query: ({ pageParam }) => emailQueueService.list(buildQuery(pageParam ?? undefined)),
+  query: async ({ pageParam }) => {
+    const query = await buildQuery(pageParam ?? undefined);
+    return query ? emailQueueService.list(query) : { rows: [], next_cursor: null };
+  },
   getNextPageParam: (lastPage) => lastPage.next_cursor,
 });
 const rows = computed<OutboundEmailRow[]>(
@@ -389,7 +401,7 @@ const deadTotal = computed(
             <dt class="text-secondary">{{ $t('admin-email-queue-field-channel') }}</dt>
             <dd class="font-mono">{{ row.channel_id }}</dd>
             <dt v-if="row.ticket_id" class="text-secondary">{{ $t('admin-email-queue-field-ticket') }}</dt>
-            <dd v-if="row.ticket_id" class="font-mono">#{{ row.ticket_id }}</dd>
+            <dd v-if="row.ticket_id" class="font-mono">{{ numberForTicketId(row.ticket_id) !== undefined ? `#${numberForTicketId(row.ticket_id)}` : '' }}</dd>
             <dt v-if="row.comment_id" class="text-secondary">{{ $t('admin-email-queue-field-comment') }}</dt>
             <dd v-if="row.comment_id" class="font-mono">#{{ row.comment_id }}</dd>
             <dt class="text-secondary">{{ $t('admin-email-queue-field-next-attempt') }}</dt>

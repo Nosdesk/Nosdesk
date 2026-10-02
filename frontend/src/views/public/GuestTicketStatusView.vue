@@ -34,7 +34,7 @@
         <div class="p-5 sm:p-6 border-b border-default flex items-start justify-between gap-3 flex-wrap">
           <div class="min-w-0 flex flex-col gap-1">
             <div class="text-xs font-medium text-tertiary uppercase tracking-wide">
-              {{ t('guest-status-ticket-number', { id: ticket.ticket_id }) }}
+              {{ t('guest-status-ticket-number', { id: ticket.ticket_number ?? ticket.ticket_id }) }}
             </div>
             <h1 class="text-xl font-semibold text-primary break-words">{{ ticket.title }}</h1>
           </div>

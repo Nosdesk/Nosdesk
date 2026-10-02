@@ -77,6 +77,8 @@ export interface NotificationReceivedEventData {
     entity_type: string
     entity_id: number
     ticket_id: number
+    /** The ticket's number; absent from a server older than ticket numbers. */
+    ticket_number?: number
     actor: NotificationActor
     metadata?: Record<string, unknown>
     timestamp: string

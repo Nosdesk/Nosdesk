@@ -46,6 +46,7 @@ import Icon from '@/components/common/Icon.vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import type { DraggableTicket } from '@/composables/useTicketDrag'
+import { ticketNumber } from '@/utils/ticketNumbers'
 import {
   isTicketDragEvent,
   parseTicketDragTransfer,
@@ -330,6 +331,7 @@ function cardToDragPreview(card: CardData): DraggableTicket {
   const priority = card.priority
   return {
     id: card.id,
+    number: card.number,
     title: card.title,
     category: card.workflow_state.category,
     assigneeUuid: card.assignee_uuid ?? null,
@@ -622,10 +624,12 @@ const quickAddMatches = computed<SyncTicket[]>(() => {
       .sort((a, b) => b.last_activity_at.localeCompare(a.last_activity_at))
       .slice(0, 6)
   }
+  // A number, with or without its `#`, matches that ticket.
+  const number = q.replace(/^#/, '')
   const out: SyncTicket[] = []
   for (const tkt of allTickets.value) {
     if (seen.has(tkt.id)) continue
-    if (String(tkt.id) === q || tkt.title.toLowerCase().includes(q)) {
+    if (String(ticketNumber(tkt)) === number || tkt.title.toLowerCase().includes(q)) {
       out.push(tkt)
       if (out.length >= 6) break
     }
@@ -1035,7 +1039,7 @@ function affectedDevicesTooltip(card: CardData): string {
 
                 <!-- Meta row -->
                 <div class="flex items-center justify-between text-2xs text-tertiary">
-                  <span class="font-mono">#{{ card.id }}</span>
+                  <span class="font-mono">#{{ card.number }}</span>
                   <UserAvatar
                     v-if="card.assignee_uuid"
                     :uuid="card.assignee_uuid"
@@ -1133,7 +1137,7 @@ function affectedDevicesTooltip(card: CardData): string {
                   :class="isMatchHighlighted(i) ? 'bg-accent-muted' : 'hover:bg-surface-hover'"
                   @mousedown.prevent="addExisting(lane, match.id)"
                 >
-                  <span class="text-tertiary tabular-nums shrink-0">#{{ match.id }}</span>
+                  <span class="text-tertiary tabular-nums shrink-0">#{{ ticketNumber(match) }}</span>
                   <span class="truncate text-primary">{{ match.title }}</span>
                 </button>
               </div>
@@ -1203,7 +1207,7 @@ function affectedDevicesTooltip(card: CardData): string {
             class="w-full flex items-center gap-2.5 px-3 min-h-[52px] py-2 text-left border-b border-subtle active:bg-surface-hover"
             @click="sheetAddExisting(match.id)"
           >
-            <span class="text-tertiary tabular-nums shrink-0 text-xs-plus">#{{ match.id }}</span>
+            <span class="text-tertiary tabular-nums shrink-0 text-xs-plus">#{{ ticketNumber(match) }}</span>
             <span class="flex-1 min-w-0 truncate text-[15px] text-primary">{{ match.title }}</span>
             <PriorityIndicator
               v-if="match.priority && match.priority !== 'none'"

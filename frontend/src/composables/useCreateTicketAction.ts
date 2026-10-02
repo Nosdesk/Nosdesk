@@ -11,6 +11,9 @@
  */
 import { useRouter } from 'vue-router'
 import ticketService from '@nosdesk/core/services/ticketService'
+import * as pool from '@nosdesk/core/sync/pool'
+import { apiTicketToSync } from '@/sync/stores/tickets'
+import { ticketPath } from '@/utils/ticketNumbers'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 
 export function useCreateTicketAction(): void {
@@ -19,7 +22,9 @@ export function useCreateTicketAction(): void {
   usePageCreateAction(async () => {
     try {
       const ticket = await ticketService.createEmptyTicket()
-      await router.push(`/tickets/${ticket.id}`)
+      // In the pool first, so the ticket view resolves its number at once.
+      pool.upsert('ticket', ticket.id, apiTicketToSync(ticket))
+      await router.push(ticketPath(ticket))
     } catch (err) {
       console.error('Failed to create empty ticket:', err)
     }

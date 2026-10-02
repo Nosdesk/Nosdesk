@@ -16,15 +16,57 @@ import ParticipantsCard from '../components/ParticipantsCard.vue'
 import PortalAvatar from '../components/PortalAvatar.vue'
 import ProgressTrack from '../components/ProgressTrack.vue'
 import ResolutionCard from '../components/ResolutionCard.vue'
-import { attachmentUrl, getMe, getMyTicket, isClosed, markSeen, replyToMyTicket, type PortalAttachment } from '../service'
+import {
+  attachmentUrl,
+  getMe,
+  getMyTicket,
+  getMyTicketByNumber,
+  isClosed,
+  markSeen,
+  replyToMyTicket,
+  type PortalAttachment,
+  type PortalTicket,
+} from '../service'
 
-const props = defineProps<{ id: string }>()
+const props = defineProps<{ number: string }>()
 const { $t: t } = useFluent()
 const queryCache = useQueryCache()
 
-const ticketId = computed(() => Number(props.id))
+// The URL carries the request's number; reads, writes and live updates go by
+// its id. The request list usually knows it; otherwise the server resolves
+// the number, and its answer seeds the detail cache under the id.
+const ticketNumber = computed(() => Number(props.number))
+const resolvedIds = ref(new Map<number, number>())
+const notFound = ref(false)
+watch(
+  ticketNumber,
+  async (number) => {
+    notFound.value = false
+    if (resolvedIds.value.has(number)) return
+    const listed = queryCache
+      .getQueryData<PortalTicket[]>(['portal', 'tickets'])
+      ?.find((t) => t.number === number)
+    if (listed) {
+      resolvedIds.value.set(number, listed.id)
+      return
+    }
+    try {
+      const found = await getMyTicketByNumber(number)
+      queryCache.setQueryData(['portal', 'ticket', found.ticket.id], found)
+      resolvedIds.value.set(number, found.ticket.id)
+    } catch {
+      if (ticketNumber.value === number) notFound.value = true
+    }
+  },
+  { immediate: true },
+)
+const ticketId = computed(() => resolvedIds.value.get(ticketNumber.value) ?? 0)
 const key = computed(() => ['portal', 'ticket', ticketId.value])
-const detail = useQuery({ key, query: () => getMyTicket(ticketId.value) })
+const detail = useQuery({
+  key,
+  query: () => getMyTicket(ticketId.value),
+  enabled: () => ticketId.value > 0,
+})
 const me = useQuery({ key: ['portal', 'me'], query: getMe })
 
 // An answer from the resolved email, taken once and cleared from the URL so a
@@ -142,7 +184,7 @@ async function sendReply(): Promise<void> {
       {{ t('portal-back-to-requests') }}
     </RouterLink>
 
-    <p v-if="detail.error.value && !detail.data.value" class="text-sm text-status-error">
+    <p v-if="notFound || (detail.error.value && !detail.data.value)" class="text-sm text-status-error">
       {{ t('portal-request-load-failed') }}
     </p>
 
@@ -154,7 +196,7 @@ async function sendReply(): Promise<void> {
             <TicketStatusIcon :category="detail.data.value.ticket.state.category" class="w-4 h-4" />
             {{ detail.data.value.ticket.state.name }}
           </span>
-          <span class="tabular-nums">{{ t('portal-request-number', { id: detail.data.value.ticket.id }) }}</span>
+          <span class="tabular-nums">{{ t('portal-request-number', { id: detail.data.value.ticket.number }) }}</span>
           <time :datetime="detail.data.value.ticket.created" :title="formatDateTime(detail.data.value.ticket.created)">
             {{ t('portal-opened', { when: formatRelativeTime(detail.data.value.ticket.created) }) }}
           </time>
@@ -308,7 +350,7 @@ async function sendReply(): Promise<void> {
             <h2 class="text-sm font-semibold text-primary">{{ t('portal-details-title') }}</h2>
             <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
               <dt class="text-secondary">{{ t('portal-details-number') }}</dt>
-              <dd class="text-primary tabular-nums text-right">#{{ detail.data.value.ticket.id }}</dd>
+              <dd class="text-primary tabular-nums text-right">#{{ detail.data.value.ticket.number }}</dd>
               <dt class="text-secondary">{{ t('portal-details-opened') }}</dt>
               <dd class="text-primary text-right">{{ formatDate(detail.data.value.ticket.created) }}</dd>
               <dt class="text-secondary">{{ t('portal-details-updated') }}</dt>

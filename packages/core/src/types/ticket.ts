@@ -16,6 +16,9 @@ export type { Asset, Comment, Attachment, Project }
 
 export interface Ticket {
   id: number
+  /** The ticket's number within its workspace: what people read and quote,
+   *  and what URLs carry. The API and stored references use `id`. */
+  number: number
   /** Immutable per-ticket identity (never recycled like the integer
    *  id). Used to key the collaborative note doc. Optional on the type
    *  until every create/input flow carries it; always present on
@@ -162,6 +165,8 @@ export interface MergeResponse {
 
 export interface RecentTicket {
   id: number
+  /** Absent from a list cached before tickets had numbers. */
+  number?: number
   title: string
   workflow_state_id?: number
   requester: string | null

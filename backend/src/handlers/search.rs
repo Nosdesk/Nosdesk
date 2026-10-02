@@ -13,6 +13,9 @@ use crate::handlers::helpers;
 use crate::models::Claims;
 use crate::repository::search_query_log;
 use crate::services::search::{EntityType, SearchQuery, SearchService};
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
+use crate::utils::rbac::is_platform_admin;
 
 /// The ticket a ticket, comment or attachment hit belongs to. The index
 /// links each to `/tickets/{id}`.
@@ -23,9 +26,6 @@ fn hit_ticket_id(r: &crate::services::search::types::SearchResult) -> Option<i32
         _ => None,
     }
 }
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
-use crate::utils::rbac::is_platform_admin;
 
 /// Search routes, mounted inside the authenticated `/api` scope in main.rs.
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -37,7 +37,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 /// Search across all indexed entities
 ///
 /// GET /api/search?q=<query>&limit=20&types=ticket,documentation
-
 pub async fn search(
     query: web::Query<SearchQuery>,
     search_service: web::Data<Arc<SearchService>>,

@@ -18,6 +18,7 @@ import FormInput from '@/components/common/FormInput.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import { mergeTickets } from '@nosdesk/core/services/ticketService'
+import { ticketNumber, ticketPath, ticketPathForId } from '@/utils/ticketNumbers'
 
 /** Minimal ticket shape the dialog needs. Both the API `Ticket` and the
  *  sync store's `SyncTicket` satisfy it, so the bulk bar can pass either.
@@ -25,6 +26,8 @@ import { mergeTickets } from '@nosdesk/core/services/ticketService'
  *  the lowest id (ids are monotonic, so the smallest is the oldest). */
 export interface MergeDialogTicket {
   id: number
+  /** Absent only on a server older than ticket numbers. */
+  number?: number
   title: string
   workflow_state_id?: number
   created?: string
@@ -72,7 +75,7 @@ const destinationModel = computed<string>({
   },
 })
 const destinationOptions = computed(() =>
-  props.selectedTickets.map((t) => ({ value: String(t.id), label: `#${t.id} ${t.title}` })),
+  props.selectedTickets.map((t) => ({ value: String(t.id), label: `#${ticketNumber(t)} ${t.title}` })),
 )
 
 /** Oldest selected ticket: by created timestamp when present (ISO
@@ -93,7 +96,7 @@ function seedDescription() {
   lines.push('')
   lines.push('Incoming from:')
   for (const s of sources.value) {
-    lines.push(`- #${s.id}: ${s.title}`)
+    lines.push(`- #${ticketNumber(s)}: ${s.title}`)
   }
   description.value = lines.join('\n')
   lastSeed.value = description.value
@@ -145,12 +148,16 @@ async function submit() {
         workflow_state_id,
       })),
     })
+    const destination = props.selectedTickets.find((t) => t.id === target)
     toast.success(
-      fluent.$t('ticket-merge-success-toast', { count: count.value, target_id: target }),
+      fluent.$t('ticket-merge-success-toast', {
+        count: count.value,
+        target_id: destination ? ticketNumber(destination) : target,
+      }),
     )
     emit('merged', target)
     emit('close')
-    router.push(`/tickets/${target}`)
+    router.push(destination ? ticketPath(destination) : ticketPathForId(target))
   } catch (err: unknown) {
     const status = (err as { response?: { status?: number } })?.response?.status
     if (status === 409) {
@@ -193,7 +200,7 @@ async function submit() {
           :key="s.id"
           class="flex items-center gap-2 rounded border border-subtle bg-surface-alt px-3 py-2 text-sm"
         >
-          <span class="text-tertiary">#{{ s.id }}</span>
+          <span class="text-tertiary">#{{ ticketNumber(s) }}</span>
           <span class="truncate">{{ s.title }}</span>
         </li>
       </ul>

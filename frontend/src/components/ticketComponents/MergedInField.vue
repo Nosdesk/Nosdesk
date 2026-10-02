@@ -10,6 +10,8 @@ no merges target this ticket.
 import { computed } from 'vue'
 import { useQuery } from '@pinia/colada'
 import { fetchMergeHistory } from '@nosdesk/core/services/ticketService'
+import { numberForTicketId } from '@/composables/useTicketNumberLookup'
+import { ticketPath } from '@/utils/ticketNumbers'
 
 const props = defineProps<{ ticketId: number }>()
 
@@ -18,24 +20,28 @@ const { data } = useQuery({
   query: () => fetchMergeHistory(props.ticketId),
 })
 
-// Unique source ids across every merge that targeted this ticket.
-const sourceIds = computed<number[]>(() => {
+// Unique source ids across every merge that targeted this ticket, each
+// listed once its number is known.
+const sources = computed(() => {
   const events = data.value?.merge_events ?? []
-  return [...new Set(events.flatMap((ev) => ev.source_ticket_ids))]
+  return [...new Set(events.flatMap((ev) => ev.source_ticket_ids))].flatMap((id) => {
+    const number = numberForTicketId(id)
+    return number !== undefined ? [{ id, number }] : []
+  })
 })
 </script>
 
 <template>
-  <div v-if="sourceIds.length > 0" class="flex flex-col gap-1.5">
+  <div v-if="sources.length > 0" class="flex flex-col gap-1.5">
     <span class="text-xs font-semibold text-secondary">{{ $t('ticket-merge-sidebar-merged-in') }}</span>
     <div class="flex flex-wrap gap-1.5">
       <RouterLink
-        v-for="id in sourceIds"
-        :key="id"
-        :to="`/tickets/${id}`"
+        v-for="source in sources"
+        :key="source.id"
+        :to="ticketPath(source)"
         class="inline-flex items-center px-2 py-0.5 rounded text-2xs font-medium border border-subtle bg-surface-alt text-secondary hover:text-primary hover:border-default transition-colors"
       >
-        #{{ id }}
+        #{{ source.number }}
       </RouterLink>
     </div>
   </div>

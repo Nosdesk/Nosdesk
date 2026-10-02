@@ -35,6 +35,8 @@ import { useTicketActivitySSE } from '@/composables/useTicketActivitySSE'
 import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import * as pool from '@nosdesk/core/sync/pool'
 import type { SyncTicket } from '@/sync/stores/tickets'
+import { ticketNumber } from '@/utils/ticketNumbers'
+import { numberForTicketId } from '@/composables/useTicketNumberLookup'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Icon from '@/components/common/Icon.vue'
@@ -327,8 +329,9 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
     }
     case 'ticket.merged_into': {
       const dest = data.merged_into_ticket_id as number | undefined
-      return dest != null
-        ? t('ticket-activity-phrase-merged-into', { target_id: dest })
+      const number = dest != null ? numberForTicketId(dest) : undefined
+      return number !== undefined
+        ? t('ticket-activity-phrase-merged-into', { target_id: number })
         : t('ticket-activity-phrase-generic')
     }
     case 'ticket.rule_applied': {
@@ -407,15 +410,19 @@ function assigneeNameFor(ev: TicketActivityEvent): string | null {
 
 /**
  * The ticket whose comment mentioned this one, for the trailing link on a
- * `ticket_reference.added` row. The event carries ids only; the title comes
- * from the reader's own pool, so a ticket they cannot see shows as a bare
- * number.
+ * `ticket_reference.added` row. The event carries ids only; the number and
+ * title come from the reader's own pool, so a ticket they cannot see shows
+ * no link.
  */
-function sourceTicketFor(ev: TicketActivityEvent): { id: number; title: string | null } | null {
+function sourceTicketFor(
+  ev: TicketActivityEvent,
+): { id: number; number: number; title: string | null } | null {
   if (ev.event_type !== 'ticket_reference.added') return null
   const id = ev.data?.source_ticket_id
   if (typeof id !== 'number') return null
-  return { id, title: pool.get<SyncTicket>('ticket', id)?.title ?? null }
+  const row = pool.get<SyncTicket>('ticket', id)
+  if (!row) return null
+  return { id, number: ticketNumber(row), title: row.title ?? null }
 }
 
 /** The note a requester left with "it's fixed", or an approver's reason,
@@ -516,8 +523,8 @@ function isGroupable(ev: TicketActivityEvent): boolean {
 }
 
 /** The trailing source-ticket link on a `ticket_reference.added` row. */
-function sourceTicketLabel(src: { id: number; title: string | null }): string {
-  return src.title ? `#${src.id} ${src.title}` : `#${src.id}`
+function sourceTicketLabel(src: { number: number; title: string | null }): string {
+  return src.title ? `#${src.number} ${src.title}` : `#${src.number}`
 }
 
 // Stable "same actor" key for run detection. Groupable events are
@@ -689,7 +696,7 @@ const hiddenRowCount = computed(() =>
               </span>
               <RouterLink
                 v-if="sourceTicketFor(ev)"
-                :to="`/tickets/${sourceTicketFor(ev)!.id}`"
+                :to="`/tickets/${sourceTicketFor(ev)!.number}`"
                 class="font-medium text-accent hover:underline"
               >{{ sourceTicketLabel(sourceTicketFor(ev)!) }}</RouterLink>
               <span class="text-tertiary tabular-nums">
@@ -750,7 +757,7 @@ const hiddenRowCount = computed(() =>
             </span>
             <RouterLink
               v-if="sourceTicketFor(item.events[0])"
-              :to="`/tickets/${sourceTicketFor(item.events[0])!.id}`"
+              :to="`/tickets/${sourceTicketFor(item.events[0])!.number}`"
               class="font-medium text-accent hover:underline"
             >{{ sourceTicketLabel(sourceTicketFor(item.events[0])!) }}</RouterLink>
             <span class="text-tertiary tabular-nums">

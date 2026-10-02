@@ -16,6 +16,8 @@ export interface PortalState {
 
 export interface PortalTicket {
   id: number
+  /** The request's number, as the requester quotes it and its URL carries. */
+  number: number
   uuid: string
   title: string
   priority: string
@@ -139,6 +141,12 @@ export async function getMyTicket(id: number): Promise<PortalTicketDetail> {
   return data
 }
 
+/** One of the customer's tickets by its number, as its URL carries it. */
+export async function getMyTicketByNumber(number: number): Promise<PortalTicketDetail> {
+  const { data } = await portalApi.get<PortalTicketDetail>(`/tickets/by-number/${number}`)
+  return data
+}
+
 /** Open a new ticket; the description (and any files) become the first comment. */
 export async function createMyTicket(
   title: string,
@@ -238,6 +246,7 @@ export async function markSeen(id: number): Promise<void> {
 /** A request waiting for (or decided by) the signed-in approver. */
 export interface PortalApproval {
   ticket_id: number
+  ticket_number: number
   title: string
   request_type: string | null
   requester_name: string | null

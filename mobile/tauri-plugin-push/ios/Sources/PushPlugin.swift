@@ -26,6 +26,8 @@ struct NotificationOpened: Encodable {
   let entityType: String?
   let entityId: Int?
   let ticketId: Int?
+  /// Absent from servers older than ticket numbers.
+  let ticketNumber: Int?
 
   /// Build from an APNs `userInfo` dict (custom keys are delivered top-level).
   static func from(userInfo: [AnyHashable: Any]) -> NotificationOpened {
@@ -33,7 +35,8 @@ struct NotificationOpened: Encodable {
       ndType: userInfo["nd_type"] as? String,
       entityType: userInfo["entity_type"] as? String,
       entityId: (userInfo["entity_id"] as? NSNumber)?.intValue,
-      ticketId: (userInfo["ticket_id"] as? NSNumber)?.intValue
+      ticketId: (userInfo["ticket_id"] as? NSNumber)?.intValue,
+      ticketNumber: (userInfo["ticket_number"] as? NSNumber)?.intValue
     )
   }
 }
@@ -78,7 +81,7 @@ class PushPlugin: Plugin, UNUserNotificationCenterDelegate {
   /// tap). All-`nil` when nothing is pending.
   @objc public func getPendingNotification(_ invoke: Invoke) {
     let pending = PushPlugin.pendingOpened ?? NotificationOpened(
-      ndType: nil, entityType: nil, entityId: nil, ticketId: nil)
+      ndType: nil, entityType: nil, entityId: nil, ticketId: nil, ticketNumber: nil)
     PushPlugin.pendingOpened = nil
     invoke.resolve(pending)
   }

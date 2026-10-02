@@ -4,6 +4,7 @@ import { useFluent } from 'fluent-vue';
 import { useRecentTicketsStore } from '@/stores/recentTickets';
 import { useBrandingStore } from '@/stores/branding';
 import { previewTicketField } from '@nosdesk/core/services/ticketService';
+import { ticketNumber } from '@/utils/ticketNumbers';
 
 export interface TitleableDocument {
   id: string;
@@ -14,6 +15,7 @@ export interface TitleableDocument {
 
 export interface TitleableTicket {
   id: number;
+  number?: number;
   title: string;
   [key: string]: any; // Allow other properties from the reactive ticket object
 }
@@ -94,7 +96,7 @@ export function useTitleManager() {
         return documentationTitle.value;
       }
       if (isTicketView.value && currentTicket.value) {
-        return `#${currentTicket.value.id} ${currentTicket.value.title}`;
+        return `#${ticketNumber(currentTicket.value)} ${currentTicket.value.title}`;
       }
       if (isDeviceView.value && currentDevice.value) {
         const dev = currentDevice.value;
@@ -120,7 +122,7 @@ export function useTitleManager() {
     }, { immediate: true });
 
     // Watch for route changes to clear stale state
-    const titleManagedRoutes = ['ticket', 'asset-view', 'documentation-article'];
+    const titleManagedRoutes = ['ticket-view', 'asset-view', 'documentation-article'];
     watch(
       () => route.name,
       (newRouteName) => {
