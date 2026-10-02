@@ -469,7 +469,7 @@ const onPanelClose = () => {
     @close="showDeleteConfirm = false"
   >
     <div class="flex flex-col gap-4">
-      <p class="text-secondary" v-html="$t('groups-mgmt-delete-confirm-body', { name: groupToDelete?.name ?? '' })"></p>
+      <p class="text-secondary" v-safe-html="$t('groups-mgmt-delete-confirm-body', { name: groupToDelete?.name ?? '' })"></p>
 
       <div class="flex justify-end gap-2 pt-2">
         <button

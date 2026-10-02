@@ -16,7 +16,7 @@
       <div class="bg-accent/10 border border-accent/20 rounded-lg p-4 text-sm text-secondary">
         <p class="mb-2"><strong class="text-accent">{{ $t('forgot-password-success-important') }}</strong></p>
         <ul class="flex flex-col gap-1 text-xs">
-          <li>• <span v-html="$t('forgot-password-success-tip-expiry')"></span></li>
+          <li>• <span v-safe-html="$t('forgot-password-success-tip-expiry')"></span></li>
           <li>• {{ $t('forgot-password-success-tip-spam') }}</li>
           <li>• {{ $t('forgot-password-success-tip-close') }}</li>
         </ul>
