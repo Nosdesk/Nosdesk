@@ -18,6 +18,9 @@
 # crates that are stable-enough-not-to-need-releases.
 version = 2
 yanked = "deny"
+# Only direct dependencies count as unmaintained; a transitive one (smallstr
+# via yrs) waits for its parent to move.
+unmaintained = "workspace"
 ignore = [
     # RUSTSEC-2023-0071 — rsa 0.9.10 "Marvin Attack" timing sidechannel
     # on RSA decryption. 5.9 medium. No upstream fix.
@@ -35,6 +38,12 @@ ignore = [
     # called. Crate-level lockfile match only. Revisit if the sqlite
     # feature is ever enabled.
     { id = "RUSTSEC-2026-0172", reason = "diesel sqlite backend not enabled; vulnerable fn not compiled" },
+    # RUSTSEC-2026-0258 - h2 accepts and queues empty DATA frames without
+    # limit, so an undrained stream can grow memory unboundedly. Low
+    # severity. Patched in 0.4.16, which this lockfile now uses. The
+    # remaining hit is the 0.3 line actix-web 4 depends on, for which no
+    # patched release exists.
+    { id = "RUSTSEC-2026-0258", reason = "0.4 line patched to 0.4.16; no patched 0.3.x exists" },
 ]
 
 [bans]
