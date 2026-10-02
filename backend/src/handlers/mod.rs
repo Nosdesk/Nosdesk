@@ -443,77 +443,9 @@ pub async fn add_comment_to_ticket(
                                     }
                                 }
                                 Err(e) => {
-                                    warn!(error = ?e, "Error moving file with storage, falling back to filesystem");
-                                    // Fallback to filesystem operations if storage fails
-                                    let old_fs_path = format!("uploads/{old_storage_path}");
-                                    let new_fs_path = format!("uploads/{new_storage_path}");
-                                    let new_fs_dir = format!("uploads/tickets/{ticket_id}");
-
-                                    // Create directory if it doesn't exist
-                                    if !std::path::Path::new(&new_fs_dir).exists() {
-                                        if let Err(e) = std::fs::create_dir_all(&new_fs_dir) {
-                                            error!(error = %e, directory = %new_fs_dir, "Error creating ticket directory");
-                                        }
-                                    }
-
-                                    // Try to move the file using filesystem operations
-                                    if let Err(e) = std::fs::rename(&old_fs_path, &new_fs_path) {
-                                        warn!(error = %e, "Error moving file with filesystem");
-                                        // If move fails, try to copy and then delete
-                                        if let Err(e) = std::fs::copy(&old_fs_path, &new_fs_path) {
-                                            error!(error = %e, file = %attachment.name, "Error copying file");
-                                            attachment_errors.push(format!(
-                                                "Failed to copy file {}: {}",
-                                                attachment.name, e
-                                            ));
-                                        } else {
-                                            // Try to delete the original file
-                                            if let Err(e) = std::fs::remove_file(&old_fs_path) {
-                                                warn!(error = %e, path = %old_fs_path, "Error removing original file");
-                                            }
-                                            // Update the URL to point to the new location
-                                            attachment.url =
-                                                format!("/uploads/tickets/{ticket_id}/{file_path}");
-
-                                            // Also move PDF thumbnail if it exists (filesystem fallback)
-                                            if attachment.mime_type.as_deref()
-                                                == Some("application/pdf")
-                                            {
-                                                let old_thumb = old_fs_path
-                                                    .replace(".pdf", "_thumb.webp")
-                                                    .replace(".PDF", "_thumb.webp");
-                                                let new_thumb = new_fs_path
-                                                    .replace(".pdf", "_thumb.webp")
-                                                    .replace(".PDF", "_thumb.webp");
-                                                let _ = std::fs::rename(&old_thumb, &new_thumb)
-                                                    .or_else(|_| {
-                                                        std::fs::copy(&old_thumb, &new_thumb)
-                                                            .map(|_| ())
-                                                    });
-                                            }
-                                        }
-                                    } else {
-                                        // Update the URL to point to the new location
-                                        attachment.url =
-                                            format!("/uploads/tickets/{ticket_id}/{file_path}");
-
-                                        // Also move PDF thumbnail if it exists (filesystem fallback)
-                                        if attachment.mime_type.as_deref()
-                                            == Some("application/pdf")
-                                        {
-                                            let old_thumb = old_fs_path
-                                                .replace(".pdf", "_thumb.webp")
-                                                .replace(".PDF", "_thumb.webp");
-                                            let new_thumb = new_fs_path
-                                                .replace(".pdf", "_thumb.webp")
-                                                .replace(".PDF", "_thumb.webp");
-                                            let _ = std::fs::rename(&old_thumb, &new_thumb)
-                                                .or_else(|_| {
-                                                    std::fs::copy(&old_thumb, &new_thumb)
-                                                        .map(|_| ())
-                                                });
-                                        }
-                                    }
+                                    error!(error = ?e, file = %attachment.name, "Error moving attachment out of temp storage");
+                                    attachment_errors
+                                        .push(format!("Failed to move file {}", attachment.name));
                                 }
                             }
 
