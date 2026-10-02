@@ -145,7 +145,7 @@ pub fn privileged_ddl_pool() -> Option<Pool> {
     }
     match r2d2::Pool::builder()
         .max_size(1)
-        .build(ResettingManager::new(url))
+        .build(ConnectionManager::<PgConnection>::new(url))
     {
         Ok(pool) => Some(pool),
         Err(e) => {
