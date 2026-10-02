@@ -372,7 +372,7 @@ watch(grid, (cells) => {
               />
               <span class="text-primary line-clamp-2 flex-1">{{ card.title }}</span>
             </div>
-            <span class="text-3xs text-tertiary">#{{ card.id }}</span>
+            <span class="text-3xs text-tertiary">#{{ card.number }}</span>
           </article>
           <p
             v-if="undatedCards.length === 0"
@@ -404,7 +404,7 @@ watch(grid, (cells) => {
               size="xs"
             />
             <span class="text-primary truncate flex-1">{{ card.title }}</span>
-            <span class="text-3xs text-tertiary tabular-nums shrink-0">#{{ card.id }}</span>
+            <span class="text-3xs text-tertiary tabular-nums shrink-0">#{{ card.number }}</span>
           </article>
         </div>
       </section>
@@ -427,7 +427,7 @@ watch(grid, (cells) => {
               size="xs"
             />
             <span class="text-primary truncate flex-1">{{ card.title }}</span>
-            <span class="text-3xs text-tertiary tabular-nums shrink-0">#{{ card.id }}</span>
+            <span class="text-3xs text-tertiary tabular-nums shrink-0">#{{ card.number }}</span>
           </article>
         </div>
       </section>

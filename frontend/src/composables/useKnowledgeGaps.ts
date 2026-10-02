@@ -10,6 +10,7 @@
  * cache so a ticket sidebar that surfaces "this is flagged"
  * reads refreshes from the same write that re-renders the queue.
  */
+import { ticketNumberForId } from '@/utils/ticketNumbers'
 import { computed, type MaybeRefOrGetter, toValue } from 'vue'
 import { useMutation, useQuery, useQueryCache } from '@pinia/colada'
 import knowledgeGapsService, {
@@ -94,10 +95,12 @@ export function useTicketFlagState(
       })
       // Need to fetch detail to inspect signals; do it for the
       // first matching candidate. For 2a, walk the list and pick
-      // the gap whose title carries "Ticket #{id}:" (the seed
+      // the gap whose title carries "Ticket #{number}:" (the seed
       // format flag_ticket uses). Cheaper than N detail calls.
+      const number = await ticketNumberForId(id)
+      if (number === undefined) return null
       const candidate = gaps.find((g) =>
-        g.title.startsWith(`Ticket #${id}:`),
+        g.title.startsWith(`Ticket #${number}:`),
       )
       if (!candidate) return null
       return await knowledgeGapsService.getKnowledgeGap(candidate.id)

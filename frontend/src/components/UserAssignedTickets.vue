@@ -8,6 +8,7 @@ import { TERMINAL_CATEGORIES } from "@nosdesk/core/types/workflow";
 import { useSyncActions } from "@/composables/useSyncActions";
 import { useWidgetConfigState } from "@/composables/useWidgetConfigState";
 import TicketRow from "@/components/TicketRow.vue";
+import { knownTicketNumber, ticketPath } from "@/utils/ticketNumbers";
 import TicketRowSkeleton from "@/components/TicketRowSkeleton.vue";
 import BaseDropdown, { type DropdownOption } from "@/components/common/BaseDropdown.vue";
 import FilterToggle from "@/components/common/FilterToggle.vue";
@@ -333,13 +334,14 @@ useSyncActions(() => void refetch(), { aggregates: ['ticket'], debounceMs: 300 }
             <li v-for="ticket in tickets" :key="ticket.id">
                 <TicketRow
                     :id="ticket.id"
+                    :number="knownTicketNumber(ticket)"
                     :title="ticket.title"
                     :workflow-state-id="ticket.workflow_state_id"
                     :priority="ticket.priority"
                     :timestamp="ticket.modified"
                     :requester="ticket.requester_user"
                     :new-activity="hasNewActivity(ticket)"
-                    :to="`/tickets/${ticket.id}`"
+                    :to="ticketPath(ticket)"
                 />
             </li>
         </ul>

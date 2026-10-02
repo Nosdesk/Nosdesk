@@ -6,6 +6,13 @@ import { defaultMarkdownSerializer } from 'prosemirror-markdown';
 import { Node } from 'prosemirror-model';
 import JSZip from 'jszip';
 import apiClient from '@nosdesk/core/apiClient';
+import { pooledTicketNumber, ticketPathForId } from '@/utils/ticketNumbers';
+
+/** An inline ticket link: `#N` when the pool knows the number, else plain "Ticket". */
+function ticketLinkMarkdown(ticketId: number): string {
+  const number = pooledTicketNumber(ticketId);
+  return `[${number !== undefined ? `#${number}` : 'Ticket'}](${ticketPathForId(ticketId)})`;
+}
 
 interface DocumentationPageExport {
   id: number;
@@ -38,10 +45,8 @@ const createMarkdownSerializer = () => {
   const marks = { ...defaultMarkdownSerializer.marks };
 
   // Add custom node handlers
-  nodes.ticket_link_card = (state, node) => {
-    const ticketId = node.attrs.ticketId;
-    const title = node.attrs.title || `Ticket #${ticketId}`;
-    state.write(`[${title}](/tickets/${ticketId})\n\n`);
+  nodes.ticket_link = (state, node) => {
+    state.write(ticketLinkMarkdown(Number(node.attrs.ticketId)));
   };
 
   nodes.image = (state, node) => {
@@ -185,10 +190,8 @@ const serializeNode = (node: Node, serializer: ReturnType<typeof createMarkdownS
       const src = node.attrs.src || '';
       return `![${alt}](${src})\n\n`;
 
-    case 'ticket_link_card':
-      const ticketId = node.attrs.ticketId;
-      const title = node.attrs.title || `Ticket #${ticketId}`;
-      return `[${title}](/tickets/${ticketId})\n\n`;
+    case 'ticket_link':
+      return ticketLinkMarkdown(Number(node.attrs.ticketId));
 
     case 'hard_break':
       return '  \n';

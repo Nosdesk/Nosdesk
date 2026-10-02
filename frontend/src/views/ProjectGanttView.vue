@@ -29,6 +29,7 @@ import type { ScheduledCard } from '@/sync/views/gantt/rowModel'
 import GanttToolbar from '@/components/views/GanttToolbar.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
+import { ticketPathForId } from '@/utils/ticketNumbers'
 
 const props = defineProps<{ id: string }>()
 
@@ -149,7 +150,7 @@ watch(projectId, async () => {
 })
 
 function openCard(cardId: number): void {
-  router.push(`/tickets/${cardId}`)
+  router.push(ticketPathForId(cardId))
 }
 
 /** Direct-manipulation write-back (bar move, either edge handle, or

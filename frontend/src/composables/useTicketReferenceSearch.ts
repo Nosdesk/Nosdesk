@@ -7,8 +7,8 @@
  * exact number first); anything else matches the title.
  */
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
-import * as pool from '@nosdesk/core/sync/pool'
 import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
+import { ticketNumber } from '@/utils/ticketNumbers'
 
 const DEFAULT_LIMIT = 8
 
@@ -22,10 +22,10 @@ export function useTicketReferenceSearch(
     if (!q) return []
     const pool = all.value
     if (/^\d+$/.test(q)) {
-      const exact = pool.find((t) => String(t.id) === q)
+      const exact = pool.find((t) => String(ticketNumber(t)) === q)
       const prefix = pool
-        .filter((t) => t.id !== exact?.id && String(t.id).startsWith(q))
-        .sort((a, b) => a.id - b.id)
+        .filter((t) => t.id !== exact?.id && String(ticketNumber(t)).startsWith(q))
+        .sort((a, b) => ticketNumber(a) - ticketNumber(b))
       return (exact ? [exact, ...prefix] : prefix).slice(0, limit)
     }
     const needle = q.toLowerCase()
@@ -34,12 +34,4 @@ export function useTicketReferenceSearch(
       .sort((a, b) => b.last_activity_at.localeCompare(a.last_activity_at))
       .slice(0, limit)
   })
-}
-
-/**
- * True when the pool knows this ticket, so a bare `#123` can safely
- * become a link. Plain read (no reactive scope): the input rule calls it.
- */
-export function poolHasTicket(id: number): boolean {
-  return pool.get<SyncTicket>('ticket', id) != null
 }

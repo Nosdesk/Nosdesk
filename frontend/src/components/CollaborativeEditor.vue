@@ -10,6 +10,7 @@ import { logger } from '@nosdesk/core/utils/logger'
 
 import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
 import { useRouter } from "vue-router";
+import { ticketPathForId } from "@/utils/ticketNumbers";
 import { useFluent } from "fluent-vue";
 import Spinner from "@/components/common/Spinner.vue";
 import ResponsiveMenu from "@/components/common/ResponsiveMenu.vue";
@@ -187,7 +188,7 @@ const handleImageUploadError = (error: unknown, file: { name: string }) => {
 // Set up Vue Router navigation for ticket link cards
 const router = useRouter();
 setTicketNavigationHandler((ticketId: number) => {
-    router.push(`/tickets/${ticketId}`);
+    router.push(ticketPathForId(ticketId));
 });
 
 setDocumentNavigationHandler((slug: string) => {

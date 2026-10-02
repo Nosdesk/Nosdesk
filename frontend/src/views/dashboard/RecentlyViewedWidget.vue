@@ -17,6 +17,7 @@ import { useRecentTicketsStore } from '@/stores/recentTickets'
 import type { RecentTicket } from '@nosdesk/core/types/ticket'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import TicketRow from '@/components/TicketRow.vue'
+import { knownTicketNumber, ticketPath } from '@/utils/ticketNumbers'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
@@ -48,10 +49,11 @@ const errorMessage = computed(() =>
       <li v-for="ticket in tickets" :key="ticket.id">
         <TicketRow
           :id="ticket.id"
+          :number="knownTicketNumber(ticket)"
           :title="ticket.title"
           :workflow-state-id="ticket.workflow_state_id"
           :timestamp="ticket.last_viewed_at"
-          :to="`/tickets/${ticket.id}`"
+          :to="ticketPath(ticket)"
         />
       </li>
     </ul>

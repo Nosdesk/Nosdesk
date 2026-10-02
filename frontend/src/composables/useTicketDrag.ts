@@ -1,10 +1,13 @@
 import { ref, readonly } from 'vue'
 import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
-import { shareableRouteUrl } from '@/utils/shareUrl'
+import { shareableTicketUrl } from '@/utils/shareUrl'
+import { ticketIdFromUrl } from '@/utils/ticketNumbers'
 import { createDragEdgeScroller } from '@/composables/useDragEdgeScroll'
 
 export interface DraggableTicket {
   id: number
+  /** Shown as `#N` on the drag preview; omitted while unknown. */
+  number?: number
   title: string
   category?: WorkflowStateCategory
   assigneeUuid?: string | null
@@ -26,10 +29,7 @@ export function parseTicketDragTransfer(transfer: DataTransfer | null): number |
   }
 
   const text = transfer.getData('text/plain')
-  if (text) {
-    const match = text.trim().match(/\/tickets\/(\d+)/)
-    if (match) return Number.parseInt(match[1], 10)
-  }
+  if (text) return ticketIdFromUrl(text)
 
   return null
 }
@@ -172,8 +172,8 @@ export function useTicketDrag() {
       event.dataTransfer.effectAllowed = 'all'
 
       // Build ticket URL (workspace-scoped in path mode)
-      const ticketUrl = shareableRouteUrl('ticket-view', { id: String(ticket.id) })
-      const ticketLabel = `#${ticket.id} ${ticket.title}`
+      const ticketUrl = shareableTicketUrl(ticket)
+      const ticketLabel = ticket.number !== undefined ? `#${ticket.number} ${ticket.title}` : ticket.title
 
       // Set multiple data formats for maximum compatibility
       // text/plain - most apps use this (Slack, Discord, etc.)

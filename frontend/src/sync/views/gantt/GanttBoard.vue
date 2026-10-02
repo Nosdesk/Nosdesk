@@ -829,7 +829,7 @@ function open(card: CardData): void {
             :title="row.sched.card.title"
             @click="open(row.sched.card)"
           >
-            <span class="font-mono text-tertiary shrink-0">#{{ row.sched.card.id }}</span>
+            <span class="font-mono text-tertiary shrink-0">#{{ row.sched.card.number }}</span>
             <span class="truncate">{{ row.sched.card.title }}</span>
           </button>
         </template>
@@ -865,7 +865,7 @@ function open(card: CardData): void {
               :title="card.title"
               @pointerdown="trayDrag.onPointerDown(card.id, $event)"
             >
-              <span class="font-mono text-tertiary shrink-0">#{{ card.id }}</span>
+              <span class="font-mono text-tertiary shrink-0">#{{ card.number }}</span>
               <span class="truncate">{{ card.title }}</span>
             </button>
           </div>

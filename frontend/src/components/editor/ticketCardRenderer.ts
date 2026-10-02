@@ -8,6 +8,8 @@ import { coarseStatusBucket, type WorkflowStateCategory } from '@nosdesk/core/ty
 
 export interface TicketCardData {
   id: number
+  /** Shown as `#N`; omitted while unknown. */
+  number?: number
   title: string
   category?: WorkflowStateCategory
   priority?: string
@@ -45,12 +47,14 @@ export function getPriorityClass(priority?: string, prefix = 'ticket-link'): str
 
 /**
  * Render the inner HTML for a compact single-row ticket card.
- * Layout: [#ID] [Title] [status dot + label] [priority dot + label]
+ * Layout: [#number] [Title] [status dot + label] [priority dot + label]
  */
 export function renderTicketCardHtml(data: TicketCardData, classPrefix = 'ticket-link'): string {
+  const label =
+    data.number !== undefined ? `<span class="${classPrefix}-id">#${data.number}</span>` : ''
   if (data.loading) {
     return `
-      <span class="${classPrefix}-id">#${data.id}</span>
+      ${label}
       <span class="${classPrefix}-loader"></span>
     `
   }
@@ -62,7 +66,7 @@ export function renderTicketCardHtml(data: TicketCardData, classPrefix = 'ticket
     : ''
 
   return `
-    <span class="${classPrefix}-id">#${data.id}</span>
+    ${label}
     <span class="${classPrefix}-title">${escapeHtml(data.title)}</span>
     ${bucket ? `<span class="${classPrefix}-status ${getStatusClass(bucket, classPrefix)}"><span class="${classPrefix}-dot"></span>${statusText}</span>` : ''}
     ${data.priority ? `<span class="${classPrefix}-priority ${getPriorityClass(data.priority, classPrefix)}"><span class="${classPrefix}-dot"></span>${priorityText}</span>` : ''}

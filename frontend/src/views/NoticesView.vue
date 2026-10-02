@@ -13,6 +13,8 @@ import Button from '@/components/common/Button.vue'
 import NoticeDialog from '@/components/notices/NoticeDialog.vue'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { isLive, noticeService, type Notice } from '@nosdesk/core/services/noticeService'
+import { numberForTicketId } from '@/composables/useTicketNumberLookup'
+import { ticketPath } from '@/utils/ticketNumbers'
 
 const { $t: t } = useFluent()
 const queryCache = useQueryCache()
@@ -62,10 +64,13 @@ function saved(): void {
             <span class="text-xs text-secondary">
               {{ t(`notices-status-${s}`) }} ·
               {{ s === 'ended' ? t('notices-ended', { when: formatRelativeTime(n.ends_at) }) : t('notices-ends', { when: formatRelativeTime(n.ends_at) }) }}
-              <template v-if="n.incident_ticket_id">
+              <template v-if="n.incident_ticket_id && numberForTicketId(n.incident_ticket_id) !== undefined">
                 ·
-                <RouterLink :to="`/tickets/${n.incident_ticket_id}`" class="text-accent hover:underline">
-                  #{{ n.incident_ticket_id }}
+                <RouterLink
+                  :to="ticketPath({ id: n.incident_ticket_id, number: numberForTicketId(n.incident_ticket_id) })"
+                  class="text-accent hover:underline"
+                >
+                  #{{ numberForTicketId(n.incident_ticket_id) }}
                 </RouterLink>
               </template>
             </span>

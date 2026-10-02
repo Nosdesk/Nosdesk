@@ -214,7 +214,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
         <header
           class="flex items-center gap-2 px-4 h-9 border-b border-subtle/60 shrink-0 min-w-0"
         >
-          <span class="text-tertiary font-mono text-2xs tabular-nums shrink-0">#{{ card.id }}</span>
+          <span class="text-tertiary font-mono text-2xs tabular-nums shrink-0">#{{ card.number }}</span>
           <span class="text-tertiary/50 shrink-0" aria-hidden="true">·</span>
           <div class="min-w-0 flex-1">
             <CustomDropdown

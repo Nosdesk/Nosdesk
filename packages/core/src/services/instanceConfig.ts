@@ -25,6 +25,8 @@ interface InstanceConfig {
   control_plane_url: string;
   /** The signed-in person's own Nosdesk account settings (hosted). */
   account_url?: string;
+  /** Tickets carry a per-workspace number that URLs use. */
+  ticket_numbers?: boolean;
 }
 
 // Default 'host': the subdomain / self-hosted model every current deployment
@@ -48,6 +50,11 @@ let inboundForwardingEnabled = false;
 // only when this is non-empty (unset -> a plain explainer, never a dead form).
 let controlPlaneUrl = '';
 let accountUrl = '';
+
+// Default true: this build's own server numbers tickets. Only a resolved config
+// from an older server (the mobile app can reach one) turns it off, and there
+// a URL's ticket number is the ticket's id.
+let ticketNumbers = true;
 
 // Memoised so bootstrap and the router guard share one fetch. The guard awaits
 // this before reading the routing mode, so a cold load (hard refresh, deep link)
@@ -123,6 +130,7 @@ export function fetchInstanceConfig(): Promise<void> {
         if (typeof data?.control_plane_url === 'string') {
           controlPlaneUrl = data.control_plane_url;
         }
+        ticketNumbers = data?.ticket_numbers === true;
         configResolved.value = true;
       } catch (e) {
         logger.error('Failed to fetch instance config; will retry on next call', e);
@@ -153,6 +161,7 @@ export function resetInstanceConfig(): void {
   inboundForwardingEnabled = false;
   controlPlaneUrl = '';
   accountUrl = '';
+  ticketNumbers = true;
 }
 
 /** Reactive: `true` once {@link fetchInstanceConfig} has settled (success or
@@ -163,6 +172,12 @@ export const instanceConfigResolvedRef: Readonly<Ref<boolean>> = readonly(config
 /** Where the workspace lives in the URL. 'host' until the config resolves. */
 export function getWorkspaceRouting(): WorkspaceRouting {
   return workspaceRouting;
+}
+
+/** Whether this server gives tickets a per-workspace number that URLs carry.
+ *  On an older server a URL's ticket number is the ticket's id. */
+export function serverHasTicketNumbers(): boolean {
+  return ticketNumbers;
 }
 
 /** The instance's deployment mode. 'self_hosted' until the config resolves. */

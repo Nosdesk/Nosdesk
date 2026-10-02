@@ -31,6 +31,7 @@ import {
   ToastViewport,
 } from 'reka-ui';
 import { useToastStore, type Toast } from '@nosdesk/core/stores/toast';
+import { ticketPath as ticketPathOf } from '@/utils/ticketNumbers';
 import Icon from '@/components/common/Icon.vue';
 
 const fluent = useFluent();
@@ -112,7 +113,9 @@ const getProgressBarClass = (type: Toast['type']) => {
 // opens the ticket too. Reka cancels the click that ends a swipe, so a
 // half-swipe never navigates.
 const ticketPath = (toast: Toast) =>
-  toast.notification?.ticketId ? `/tickets/${toast.notification.ticketId}` : undefined;
+  toast.notification?.ticketId
+    ? ticketPathOf({ id: toast.notification.ticketId, number: toast.notification.ticketNumber })
+    : undefined;
 
 const openNotification = (toast: Toast, event: Event) => {
   if (event.defaultPrevented || !toast.notification) return;

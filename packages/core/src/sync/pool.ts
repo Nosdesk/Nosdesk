@@ -31,6 +31,23 @@ type Key = `${SyncAggregate}:${string}`
 const rows = reactive(new Map<Key, ShallowReactive<Record<string, unknown>>>())
 
 /**
+ * Ticket number to id. A number names a ticket within its workspace and the
+ * pool holds one workspace, so routes and `#N` references resolve through
+ * here. Kept in step with the `ticket` rows by upsert, patch, remove and
+ * reset.
+ */
+const ticketIdsByNumber = reactive(new Map<number, number>())
+
+/** Re-point the index after a ticket row was written, `before` being its prior number. */
+function indexTicket(id: string | number, before: unknown, row: Record<string, unknown>): void {
+  const ticketId = Number(id)
+  if (typeof before === 'number' && before !== row.number && ticketIdsByNumber.get(before) === ticketId) {
+    ticketIdsByNumber.delete(before)
+  }
+  if (typeof row.number === 'number') ticketIdsByNumber.set(row.number, ticketId)
+}
+
+/**
  * Process-wide change-feed cursor: the composite `(xid8, sync_id)`
  * pair, advanced lexicographically. `sync_id` alone is not commit-safe
  * (a sequence is assigned at INSERT, so its order can diverge from
@@ -77,14 +94,17 @@ export function upsert<T extends object>(
   const k = key(aggregate, id)
   const existing = rows.get(k)
   if (existing) {
+    const before = existing.number
     // shallowReactive root-level writes auto-trigger; this updates
     // the same ShallowReactive instance every consumer of get() is
     // already holding.
     Object.assign(existing, data)
+    if (aggregate === 'ticket') indexTicket(id, before, existing)
     return existing as ShallowReactive<T>
   }
   const created = shallowReactive({ ...data }) as ShallowReactive<T>
   rows.set(k, created as ShallowReactive<Record<string, unknown>>)
+  if (aggregate === 'ticket') indexTicket(id, undefined, created as Record<string, unknown>)
   return created
 }
 
@@ -95,12 +115,30 @@ export function patch<T extends object>(
 ): ShallowReactive<T> | undefined {
   const existing = rows.get(key(aggregate, id))
   if (!existing) return undefined
+  const before = existing.number
   Object.assign(existing, partial)
+  if (aggregate === 'ticket') indexTicket(id, before, existing)
   return existing as ShallowReactive<T>
 }
 
 export function remove(aggregate: SyncAggregate, id: string | number): boolean {
-  return rows.delete(key(aggregate, id))
+  const k = key(aggregate, id)
+  if (aggregate === 'ticket') {
+    const number = rows.get(k)?.number
+    if (typeof number === 'number' && ticketIdsByNumber.get(number) === Number(id)) {
+      ticketIdsByNumber.delete(number)
+    }
+  }
+  return rows.delete(k)
+}
+
+/**
+ * The id of the pooled ticket with this number, or `undefined` when the pool
+ * doesn't hold it. Reactive: a `computed` reading it re-runs when the ticket
+ * arrives.
+ */
+export function ticketIdForNumber(number: number): number | undefined {
+  return ticketIdsByNumber.get(number)
 }
 
 export function get<T extends object>(
@@ -203,6 +241,7 @@ export function currentEpoch(): number {
 export function reset(): void {
   epoch++
   rows.clear()
+  ticketIdsByNumber.clear()
   subscribedGroups.clear()
   lastSyncId = 0
   lastXid8 = 0

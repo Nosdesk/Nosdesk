@@ -642,7 +642,7 @@ pub fn resolve(
             }
         }
         Intent::Referenced {
-            ticket_id,
+            ticket_id: _,
             source_ticket_id,
             comment_id,
             is_internal,

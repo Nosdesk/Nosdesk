@@ -33,7 +33,7 @@ const visible = computed(() => {
     .filter((ticket) => isClosed(ticket) === (filter.value === 'closed'))
     .filter(
       (ticket) =>
-        !needle || ticket.title.toLowerCase().includes(needle) || String(ticket.id) === needle,
+        !needle || ticket.title.toLowerCase().includes(needle) || String(ticket.number) === needle,
     )
 })
 
@@ -77,7 +77,7 @@ function lastMove(ticket: PortalTicket): string {
     >
       <li v-for="ticket in visible" :key="ticket.id">
         <RouterLink
-          :to="`/tickets/${ticket.id}`"
+          :to="`/tickets/${ticket.number}`"
           class="group flex items-start gap-3 px-4 py-3.5 hover:bg-surface-hover focus-visible:outline-none focus-visible:bg-surface-hover transition-colors"
         >
           <TicketStatusIcon
@@ -102,7 +102,7 @@ function lastMove(ticket: PortalTicket): string {
               </span>
             </span>
             <span class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-secondary">
-              <span class="tabular-nums text-tertiary">#{{ ticket.id }}</span>
+              <span class="tabular-nums text-tertiary">#{{ ticket.number }}</span>
               <span>{{ ticket.state?.name }}</span>
               <span v-if="ticket.approval_state === 'pending'" class="text-status-warning">
                 {{ t('portal-requests-awaiting-approval') }}

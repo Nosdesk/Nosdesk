@@ -214,7 +214,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
         <Checkbox
           :model-value="!!bulkSelected"
           size="sm"
-          :aria-label="$t('views-ticket-row-select-aria', { id: card.id })"
+          :aria-label="$t('views-ticket-row-select-aria', { id: card.number })"
           @change="(e: Event) => onLeadingClick(e as unknown as MouseEvent)"
         />
       </span>
@@ -233,7 +233,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       :style="colStyle(col)"
     >
       <template v-if="col.id === 'id'">
-        <span class="text-tertiary font-mono text-2xs tabular-nums">#{{ card.id }}</span>
+        <span class="text-tertiary font-mono text-2xs tabular-nums">#{{ card.number }}</span>
       </template>
 
       <template v-else-if="col.id === 'title'">

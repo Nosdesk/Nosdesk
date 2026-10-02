@@ -5,6 +5,7 @@ import { fetchInstanceConfig, getWorkspaceRouting, isHostedDeployment } from '@n
 import { lastWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
+import { ticketNumberForId } from '@/utils/ticketNumbers'
 import LoginView from '../views/LoginView.vue'
 import PasswordResetView from '../views/PasswordResetView.vue'
 import OnboardingView from '../views/OnboardingView.vue'
@@ -224,10 +225,11 @@ const router = createRouter({
       }
     },
     {
-      path: '/tickets/:id',
+      // The ticket's number within the workspace (an older server's id; see
+      // utils/ticketNumbers). TicketView resolves it to the id.
+      path: '/tickets/:number(\\d+)',
       name: 'ticket-view',
       component: TicketView,
-      props: true,
       meta: {
         requiresAuth: true,
         titleKey: 'route-title-ticket-view',
@@ -239,8 +241,27 @@ const router = createRouter({
         // everything from the object pool.
       },
       beforeEnter: (to) => {
-        to.meta.key = to.params.id
+        to.meta.key = to.params.number
       }
+    },
+    {
+      // A ticket known only by id (an older notification, a stored link):
+      // look its number up and land on its route. Never renders.
+      path: '/tickets/id/:id(\\d+)',
+      name: 'ticket-by-id',
+      component: TicketView,
+      meta: { requiresAuth: true },
+      beforeEnter: async (to) => {
+        const number = await ticketNumberForId(Number(to.params.id))
+        if (number === undefined) return { path: '/tickets', replace: true }
+        return {
+          name: 'ticket-view',
+          params: { ...to.params, id: undefined, number: String(number) },
+          query: to.query,
+          hash: to.hash,
+          replace: true,
+        }
+      },
     },
     {
       path: '/users/:uuid',
@@ -1020,7 +1041,7 @@ installWorkspaceGuard(router)
 
 // Update document title on navigation
 // Routes where useTitleManager handles document.title (skip generic title-setting)
-const titleManagedRoutes = ['ticket', 'device', 'documentation-article'];
+const titleManagedRoutes = ['ticket-view', 'device', 'documentation-article'];
 
 router.beforeResolve((to) => {
   // Skip title-setting for routes managed by useTitleManager —

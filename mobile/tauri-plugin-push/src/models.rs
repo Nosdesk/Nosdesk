@@ -48,4 +48,6 @@ pub struct PendingNotification {
   pub entity_type: Option<String>,
   pub entity_id: Option<i32>,
   pub ticket_id: Option<i32>,
+  /// Absent from servers older than ticket numbers.
+  pub ticket_number: Option<i32>,
 }

@@ -37,6 +37,7 @@ pub struct UpdateUserTicketView {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RecentTicket {
     pub id: i32,
+    pub number: i32,
     pub title: String,
     /// The frontend resolves this to a category / colour via the
     /// workspace workflow-states store.

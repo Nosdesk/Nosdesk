@@ -56,6 +56,8 @@ function prewarmTicket() {
 
 const props = defineProps<{
   id: number
+  /** The ticket's number, shown as `#N`; omitted while unknown. */
+  number?: number
   title: string
   /** Foreign key into the workspace's workflow_states catalogue. The
    *  row resolves the state via the Pinia store and derives the
@@ -109,7 +111,7 @@ const priorityLabel = computed(() =>
 )
 
 const ariaLabel = computed(() => {
-  const parts = [`Ticket #${props.id}: ${props.title}`]
+  const parts = [props.number !== undefined ? `Ticket #${props.number}: ${props.title}` : `Ticket: ${props.title}`]
   if (props.priority) parts.push(`${props.priority} priority`)
   if (statusName.value) parts.push(statusName.value)
   return parts.join(', ')
@@ -143,7 +145,7 @@ const ariaLabel = computed(() => {
           :title="t('tickets-row-new-activity-tooltip')"
           :aria-label="t('tickets-row-new-activity-aria')"
         />
-        <span>#{{ id }}</span>
+        <span v-if="number !== undefined">#{{ number }}</span>
       </span>
 
       <div class="flex-1 min-w-0 flex items-baseline gap-2">

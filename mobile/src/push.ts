@@ -135,6 +135,8 @@ interface NotificationOpenedPayload {
   entityType?: string | null
   entityId?: number | null
   ticketId?: number | null
+  /** Absent from servers (and relays) older than ticket numbers. */
+  ticketNumber?: number | null
 }
 
 /** Map a tapped notification to an in-app route, or `null` if it has no
@@ -142,7 +144,9 @@ interface NotificationOpenedPayload {
  *  their own screens. */
 function routeFromPayload(p: NotificationOpenedPayload | null | undefined): string | null {
   if (!p) return null
-  if (typeof p.ticketId === 'number' && p.ticketId > 0) return `/tickets/${p.ticketId}`
+  if (typeof p.ticketNumber === 'number' && p.ticketNumber > 0) return `/tickets/${p.ticketNumber}`
+  // Without a number, the by-id route looks it up.
+  if (typeof p.ticketId === 'number' && p.ticketId > 0) return `/tickets/id/${p.ticketId}`
   if (p.entityType === 'asset' && typeof p.entityId === 'number' && p.entityId > 0) {
     return `/assets/${p.entityId}`
   }

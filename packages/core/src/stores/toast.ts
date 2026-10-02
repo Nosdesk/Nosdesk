@@ -38,6 +38,8 @@ export interface Toast {
     entityType: string;
     entityId: number;
     ticketId: number;
+    /** Absent from a server older than ticket numbers. */
+    ticketNumber?: number;
     actorName?: string;
     actorAvatar?: string;
   };
@@ -153,7 +155,8 @@ export const useToastStore = defineStore('toast', () => {
     entityId: number,
     ticketId: number,
     actorName?: string,
-    actorAvatar?: string
+    actorAvatar?: string,
+    ticketNumber?: number
   ): string {
     return addToast({
       type: 'notification',
@@ -165,6 +168,7 @@ export const useToastStore = defineStore('toast', () => {
         entityType,
         entityId,
         ticketId,
+        ticketNumber,
         actorName,
         actorAvatar,
       },

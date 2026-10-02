@@ -85,6 +85,8 @@ import { useTicketSelection } from '@/composables/useTicketSelection'
 import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { FACET_ORDER } from '@/components/views/filterFacets'
 import { TICKET_COLUMNS } from '@nosdesk/core/sync/views/ticketColumns'
+import { shareableTicketUrl } from '@/utils/shareUrl'
+import { pooledTicketNumber, ticketPathForId } from '@/utils/ticketNumbers'
 
 const router = useRouter()
 const route = useRoute()
@@ -418,7 +420,7 @@ const isInitiallyLoading = computed(
 )
 
 function open(cardId: number): void {
-  router.push(`/tickets/${cardId}`)
+  router.push(ticketPathForId(cardId))
 }
 
 // Right-click context menu on list rows (table + mobile cards).
@@ -569,7 +571,8 @@ async function handleTicketContextMenuSelect(actionId: string): Promise<void> {
   const ticketId = contextMenuTicketId.value
   if (ticketId == null) return
 
-  const ticketUrl = `/tickets/${ticketId}`
+  // Workspace-scoped in path mode so the link opens the right tenant.
+  const ticketUrl = shareableTicketUrl({ id: ticketId, number: pooledTicketNumber(ticketId) })
 
   switch (actionId) {
     case 'open':
@@ -579,10 +582,10 @@ async function handleTicketContextMenuSelect(actionId: string): Promise<void> {
       window.open(ticketUrl, '_blank')
       break
     case 'copy-link':
-      await copy(`${window.location.origin}${ticketUrl}`)
+      await copy(ticketUrl)
       break
     case 'copy-number':
-      await copy(String(ticketId))
+      await copy(String(pooledTicketNumber(ticketId) ?? ''))
       break
     case 'assign-to-me': {
       const me = authStore.user?.uuid
@@ -877,7 +880,7 @@ const slaOverlays = computed<CalendarOverlay[]>(() => {
       label: sla.breached
         ? `SLA breached: ${card.title}`
         : `SLA target: ${card.title}`,
-      href: `/tickets/${card.id}`,
+      href: `/tickets/${card.number}`,
     })
   }
   return out

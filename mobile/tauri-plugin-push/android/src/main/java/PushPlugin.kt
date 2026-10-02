@@ -147,6 +147,7 @@ class PushPlugin(private val activity: Activity) : Plugin(activity) {
         ret.put("entityType", pending?.entityType)
         ret.put("entityId", pending?.entityId)
         ret.put("ticketId", pending?.ticketId)
+        ret.put("ticketNumber", pending?.ticketNumber)
         invoke.resolve(ret)
     }
 

@@ -8,6 +8,8 @@ data class TappedNotification(
     val entityType: String?,
     val entityId: Int?,
     val ticketId: Int?,
+    /** Absent from servers older than ticket numbers. */
+    val ticketNumber: Int?,
 )
 
 /**
@@ -33,6 +35,7 @@ object PendingNotification {
             entityType = entityType,
             entityId = extras.getString("entity_id")?.toIntOrNull(),
             ticketId = ticketId?.toIntOrNull(),
+            ticketNumber = extras.getString("ticket_number")?.toIntOrNull(),
         )
     }
 

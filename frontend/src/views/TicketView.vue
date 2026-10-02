@@ -49,6 +49,10 @@ import { isLive, noticeService, type Notice } from "@nosdesk/core/services/notic
 import Icon from "@/components/common/Icon.vue";
 import Modal from "@/components/Modal.vue";
 import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
+import * as pool from "@nosdesk/core/sync/pool";
+import ticketService from "@nosdesk/core/services/ticketService";
+import { serverHasTicketNumbers } from "@nosdesk/core/services/instanceConfig";
+import { apiTicketToSync } from "@/sync/stores/tickets";
 import SectionCard from "@/components/common/SectionCard.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
 import { usePluginActions, pluginActionScope, parsePluginMenuActionId } from "@/plugins/usePluginActions";
@@ -70,9 +74,17 @@ const localizedPriorityOptions = computed(() =>
     PRIORITY_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) })),
 );
 
-const ticketId = computed(() =>
-    route.params.id ? Number(route.params.id) : undefined,
+// The route carries the ticket's number (on an older server, its id); the
+// view works on the id. The pool answers for a ticket it holds, and the
+// resolver below fetches any other into it.
+const routeNumber = computed(() =>
+    route.params.number ? Number(route.params.number) : undefined,
 );
+const ticketId = computed(() => {
+    const number = routeNumber.value;
+    if (number === undefined) return undefined;
+    return serverHasTicketNumbers() ? pool.ticketIdForNumber(number) : number;
+});
 
 // Categories (reference data; resolves the category chip + dropdown).
 const categories = ref<TicketCategory[]>([]);
@@ -140,6 +152,28 @@ const {
 // (deleted, or no read access — the bootstrap silently streams
 // nothing). Drives the not-found illustration.
 const error = ref<string | null>(null);
+
+// A number the pool doesn't hold (a cold load, or a ticket outside the
+// workspace group): the server looks it up, and the ticket it returns joins
+// the pool, so `ticketId` resolves and the subscription below takes over.
+watch(
+    routeNumber,
+    async (number) => {
+        if (number === undefined || !serverHasTicketNumbers()) return;
+        if (pool.ticketIdForNumber(number) !== undefined) return;
+        error.value = null;
+        const epoch = pool.currentEpoch();
+        try {
+            const fetched = await ticketService.getTicketByNumber(number);
+            if (pool.currentEpoch() === epoch) {
+                pool.upsert("ticket", fetched.id, apiTicketToSync(fetched));
+            }
+        } catch {
+            if (routeNumber.value === number) error.value = t("ticket-data-load-failed");
+        }
+    },
+    { immediate: true },
+);
 
 // Sidebar's bell toggle emits without arguments — the facade needs the
 // current user uuid to know whose watch flag to flip. Wrapping here
@@ -274,7 +308,7 @@ const handleFlagForDocs = async () => {
  */
 const handleSaveAsDoc = async () => {
     if (!ticket.value || ticketId.value === undefined) return;
-    const titleSeed = ticket.value.title?.trim() || `Ticket #${ticketId.value}`;
+    const titleSeed = ticket.value.title?.trim() || `Ticket #${ticket.value.number}`;
     const created = await documentationService.createPageFromTicket(ticketId.value, {
         title: titleSeed,
         icon: '📄',
@@ -708,7 +742,7 @@ const rootEl = ref<HTMLElement | null>(null);
                                 :devices="devices"
                                 :show-link-drop-affordance="showDropAffordance"
                                 :is-link-drop-target="isLinkDropTarget"
-                                :link-drop-drag-label="dragState.ticket ? `#${dragState.ticket.id} ${dragState.ticket.title}` : null"
+                                :link-drop-drag-label="dragState.ticket ? (dragState.ticket.number !== undefined ? `#${dragState.ticket.number} ${dragState.ticket.title}` : dragState.ticket.title) : null"
                                 :internal-comments="internalComments"
                                 @update:selectedWorkflowStateId="updateWorkflowState"
                                 @update:selectedPriority="updatePriority"
@@ -801,6 +835,7 @@ const rootEl = ref<HTMLElement | null>(null);
                                 :key="`article-${ticket.id}`"
                                 :initial-content="''"
                                 :ticket-id="ticket.id"
+                                :ticket-number="ticket.number"
                             />
                         </div>
 
