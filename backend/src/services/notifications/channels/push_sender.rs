@@ -345,6 +345,7 @@ impl ApnsClient {
             "entity_type": payload.entity_type,
             "entity_id": payload.entity_id,
             "ticket_id": payload.ticket_id,
+            "ticket_number": payload.ticket_number,
         });
 
         let url = format!("https://{}/3/device/{}", self.host(), device_token);
@@ -553,6 +554,7 @@ impl FcmClient {
                     "entity_type": payload.entity_type,
                     "entity_id": payload.entity_id.to_string(),
                     "ticket_id": payload.ticket_id.to_string(),
+                    "ticket_number": payload.ticket_number.to_string(),
                 }
             }
         });
@@ -789,6 +791,7 @@ mod tests {
             entity_type: "ticket".to_string(),
             entity_id: 1,
             ticket_id: 1,
+            ticket_number: 1,
         };
         // No provider for the platform → skipped, no panic, nothing pruned.
         assert!(sender.send(&targets, &payload).await.invalid.is_empty());

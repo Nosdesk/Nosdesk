@@ -1140,6 +1140,7 @@ struct CoalescedNotice {
     recipient: uuid::Uuid,
     workspace_id: i32,
     ticket_id: i32,
+    ticket_number: i32,
     ticket_title: String,
     body: String,
 }
@@ -1179,6 +1180,7 @@ fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
                     recipient,
                     workspace_id,
                     ticket_id: b.ticket_id,
+                    ticket_number: b.ticket_number,
                     ticket_title: b.ticket_title.clone(),
                     body: format!(
                         "{} SLA on #{} \"{}\" breached at {}",
@@ -1211,6 +1213,7 @@ fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
                     recipient,
                     workspace_id,
                     ticket_id: rep.ticket_id,
+                    ticket_number: rep.ticket_number,
                     ticket_title: rep.ticket_title.clone(),
                     body: format!("{} tickets breached their SLA: {}", tickets.len(), listing),
                 }
@@ -1252,6 +1255,7 @@ async fn coalesced_fanout(
             actor.clone(),
             NotificationEntity::Ticket {
                 id: notice.ticket_id,
+                number: Some(notice.ticket_number),
                 title: notice.ticket_title,
             },
             notice.workspace_id,
