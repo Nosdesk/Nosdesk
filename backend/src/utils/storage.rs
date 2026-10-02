@@ -127,12 +127,14 @@ impl LocalStorage {
         }
     }
 
-    fn get_full_path(&self, path: &str) -> String {
-        format!(
+    /// The filesystem path of a storage path, refused if it could leave the
+    /// storage root.
+    fn full_path(&self, path: &str) -> Result<String, StorageError> {
+        Ok(format!(
             "{}/{}",
             self.base_path.trim_end_matches('/'),
-            path.trim_start_matches('/')
-        )
+            checked_path(path)?.trim_start_matches('/')
+        ))
     }
 
     fn ensure_directory_exists(&self, file_path: &str) -> Result<(), StorageError> {
@@ -155,7 +157,7 @@ impl Storage for LocalStorage {
         // Generate unique filename to prevent collisions
         let unique_filename = format!("{}_{}", Uuid::now_v7(), filename);
         let relative_path = format!("{}/{}", folder.trim_end_matches('/'), unique_filename);
-        let full_path = self.get_full_path(&relative_path);
+        let full_path = self.full_path(&relative_path)?;
 
         // Ensure directory exists
         self.ensure_directory_exists(&full_path)?;
@@ -179,7 +181,7 @@ impl Storage for LocalStorage {
         content_type: &str,
     ) -> Result<StoredFile, StorageError> {
         let relative_path = path.trim_start_matches('/').to_string();
-        let full_path = self.get_full_path(&relative_path);
+        let full_path = self.full_path(&relative_path)?;
         self.ensure_directory_exists(&full_path)?;
         std::fs::write(&full_path, data)?;
         Ok(StoredFile {
@@ -196,7 +198,7 @@ impl Storage for LocalStorage {
     }
 
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
-        let full_path = self.get_full_path(path);
+        let full_path = self.full_path(path)?;
         match std::fs::read(&full_path) {
             Ok(data) => Ok(data),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -207,7 +209,7 @@ impl Storage for LocalStorage {
     }
 
     async fn delete_file(&self, path: &str) -> Result<(), StorageError> {
-        let full_path = self.get_full_path(path);
+        let full_path = self.full_path(path)?;
         match std::fs::remove_file(&full_path) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -219,7 +221,7 @@ impl Storage for LocalStorage {
     }
 
     async fn file_exists(&self, path: &str) -> Result<bool, StorageError> {
-        let full_path = self.get_full_path(path);
+        let full_path = self.full_path(path)?;
         Ok(Path::new(&full_path).exists())
     }
 
@@ -232,8 +234,8 @@ impl Storage for LocalStorage {
     }
 
     async fn move_file(&self, from_path: &str, to_path: &str) -> Result<(), StorageError> {
-        let from_full = self.get_full_path(from_path);
-        let to_full = self.get_full_path(to_path);
+        let from_full = self.full_path(from_path)?;
+        let to_full = self.full_path(to_path)?;
 
         // Ensure destination directory exists
         self.ensure_directory_exists(&to_full)?;
@@ -301,6 +303,7 @@ impl Storage for S3Storage {
     ) -> Result<StoredFile, StorageError> {
         let unique_filename = format!("{}_{}", Uuid::now_v7(), filename);
         let key = format!("{}/{}", folder.trim_end_matches('/'), unique_filename);
+        checked_path(&key)?;
 
         self.client
             .put_object()
@@ -328,7 +331,7 @@ impl Storage for S3Storage {
         path: &str,
         content_type: &str,
     ) -> Result<StoredFile, StorageError> {
-        let key = path.trim_start_matches('/').to_string();
+        let key = checked_path(path)?.trim_start_matches('/').to_string();
         self.client
             .put_object()
             .bucket(&self.bucket)
@@ -353,7 +356,7 @@ impl Storage for S3Storage {
             .client
             .get_object()
             .bucket(&self.bucket)
-            .key(path)
+            .key(checked_path(path)?)
             .send()
             .await
             .map_err(|e| match &e {
@@ -380,7 +383,7 @@ impl Storage for S3Storage {
         self.client
             .delete_object()
             .bucket(&self.bucket)
-            .key(path)
+            .key(checked_path(path)?)
             .send()
             .await
             .map_err(|e| StorageError::Backend(format!("S3 delete_object failed: {e}")))?;
@@ -393,7 +396,7 @@ impl Storage for S3Storage {
             .client
             .head_object()
             .bucket(&self.bucket)
-            .key(path)
+            .key(checked_path(path)?)
             .send()
             .await
         {
@@ -421,12 +424,12 @@ impl Storage for S3Storage {
         // S3 has no rename: copy then delete. The copy source is
         // `{bucket}/{key}` and must be URL-encoded per the S3 API (the
         // SDK does not encode it for us).
-        let encoded_key = urlencoding::encode(from_path.trim_start_matches('/'));
+        let encoded_key = urlencoding::encode(checked_path(from_path)?.trim_start_matches('/'));
         let copy_source = format!("{}/{}", self.bucket, encoded_key);
         self.client
             .copy_object()
             .bucket(&self.bucket)
-            .key(to_path)
+            .key(checked_path(to_path)?)
             .copy_source(&copy_source)
             .send()
             .await
@@ -677,16 +680,25 @@ pub(crate) fn is_safe_storage_path(path: &str) -> bool {
         .all(|seg| !seg.is_empty() && seg != "." && seg != "..")
 }
 
+/// `path` if it is a safe storage path. Both backends check every path they
+/// are given, so no name or key can reach outside the storage root (or out of
+/// a workspace's prefix) whichever caller passes it.
+fn checked_path(path: &str) -> Result<&str, StorageError> {
+    if is_safe_storage_path(path) {
+        Ok(path)
+    } else {
+        Err(StorageError::InvalidPath(path.to_string()))
+    }
+}
+
 pub async fn serve_file_from_storage(
     storage: Arc<dyn Storage>,
     path: &str,
     req: &HttpRequest,
 ) -> Result<HttpResponse, actix_web::Error> {
     // Serve routes use `{filename:.*}`, so the tail segment is fully
-    // caller-controlled and can carry `../` to escape the storage root
-    // (LocalStorage::get_full_path is a plain string join). Every serve
-    // path funnels through here, so rejecting traversal once covers all
-    // of them.
+    // caller-controlled and can carry `../`. The backends refuse such a path
+    // too; checking here answers it like any missing file.
     if !is_safe_storage_path(path) {
         warn!(path = %path, "rejected storage path with unsafe segments");
         return Err(actix_web::error::ErrorNotFound("File not found"));
@@ -844,21 +856,95 @@ mod tests {
     // ── LocalStorage path handling ───────────────────────────────
 
     #[test]
-    fn get_full_path_joins_correctly() {
+    fn full_path_joins_correctly() {
         let storage = LocalStorage::new("/app/uploads".into(), "/uploads".into());
         assert_eq!(
-            storage.get_full_path("tickets/file.pdf"),
+            storage.full_path("tickets/file.pdf").unwrap(),
             "/app/uploads/tickets/file.pdf"
         );
     }
 
     #[test]
-    fn get_full_path_handles_extra_slashes() {
+    fn full_path_handles_extra_slashes() {
         let storage = LocalStorage::new("/app/uploads/".into(), "/uploads".into());
         assert_eq!(
-            storage.get_full_path("/tickets/file.pdf"),
+            storage.full_path("/tickets/file.pdf").unwrap(),
             "/app/uploads/tickets/file.pdf"
         );
+    }
+
+    #[test]
+    fn full_path_refuses_a_path_that_leaves_the_root() {
+        let storage = LocalStorage::new("/app/uploads".into(), "/uploads".into());
+        for path in [
+            "../app.db",
+            "tickets/../../x",
+            "tickets/./x",
+            "a//b",
+            "a\\b",
+            "",
+        ] {
+            assert!(
+                matches!(storage.full_path(path), Err(StorageError::InvalidPath(_))),
+                "{path:?}"
+            );
+        }
+    }
+
+    /// Every write, move, read and delete stays inside the root, whatever name
+    /// or path the caller passes; legitimate nested paths still work.
+    #[tokio::test]
+    async fn local_storage_never_reaches_outside_its_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("uploads");
+        let local: Arc<dyn Storage> = Arc::new(LocalStorage::new(
+            root.to_string_lossy().into_owned(),
+            "/uploads".into(),
+        ));
+        let invalid =
+            |result: Result<(), StorageError>| matches!(result, Err(StorageError::InvalidPath(_)));
+
+        // A name with its own `..` components, under a folder.
+        let stored = local
+            .store_file(b"x", "/../../../../outside.txt", "text/plain", "tickets/1")
+            .await
+            .map(|_| ());
+        assert!(invalid(stored));
+        let put = local
+            .put_file(b"x", "tickets/../../outside.txt", "text/plain")
+            .await
+            .map(|_| ());
+        assert!(invalid(put));
+        // A workspace's prefix can't be left for another's either.
+        let scoped = WorkspaceScopedStorage::arc(local.clone(), 1);
+        let put = scoped
+            .put_file(b"x", "../2/tickets/a.txt", "text/plain")
+            .await
+            .map(|_| ());
+        assert!(invalid(put));
+        assert!(invalid(
+            local.move_file("tickets/a.txt", "../outside.txt").await
+        ));
+        assert!(invalid(local.get_file("../outside.txt").await.map(|_| ())));
+        assert!(invalid(
+            local.delete_file("tickets/../../outside.txt").await
+        ));
+        assert!(invalid(
+            local.file_exists("../outside.txt").await.map(|_| ())
+        ));
+
+        let stray: Vec<_> = walkdir::WalkDir::new(dir.path())
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file() && !e.path().starts_with(&root))
+            .collect();
+        assert!(stray.is_empty(), "written outside the root: {stray:?}");
+
+        scoped
+            .put_file(b"ok", "tickets/5/a.txt", "text/plain")
+            .await
+            .unwrap();
+        assert_eq!(scoped.get_file("tickets/5/a.txt").await.unwrap(), b"ok");
     }
 
     #[test]
