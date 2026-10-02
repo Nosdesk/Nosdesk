@@ -186,7 +186,7 @@ pub fn seed_getting_started(conn: &mut DbConnection, author: Uuid) -> QueryResul
 /// Builds a y-prosemirror compatible XmlFragment("prosemirror") with proper
 /// block structure (paragraph, heading, bullet_list, etc.) and inline marks
 /// (bold, italic, code) stored as text formatting attributes via XmlDeltaPrelim.
-fn markdown_to_yjs(markdown: &str) -> Option<Vec<u8>> {
+pub fn markdown_to_yjs(markdown: &str) -> Option<Vec<u8>> {
     let doc = Doc::new();
     let fragment = {
         let mut txn = doc.transact_mut();
