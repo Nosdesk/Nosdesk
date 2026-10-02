@@ -475,3 +475,172 @@ async fn handshake_resolves_workspace_from_doc_id_without_host_context() {
         "non-member must be rejected at the docId-derived handshake"
     );
 }
+
+/// A user who isn't staff opens a document read-only: their document
+/// updates reach neither the document nor anyone else in the room, while
+/// staff edits still reach them. Here the requester of a ticket opens its
+/// notes beside an agent.
+#[actix_web::test]
+async fn a_requesters_updates_reach_no_one() {
+    use diesel::prelude::*;
+
+    install_fast_heartbeat();
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+
+    let person = |name: &str| -> backend::models::User {
+        diesel::insert_into(backend::schema::users::table)
+            .values(&backend::models::NewUser {
+                uuid: uuid::Uuid::new_v4(),
+                name: name.to_string(),
+                pronouns: None,
+                avatar_url: None,
+                banner_url: None,
+                avatar_thumb: None,
+                microsoft_uuid: None,
+                mfa_secret: None,
+                mfa_secret_kek_id: None,
+                mfa_enabled: false,
+                platform_role: Some("user".to_string()),
+            })
+            .get_result(&mut pool.get().expect("conn"))
+            .expect("insert user")
+    };
+    let requester = person("WSRequester");
+    let agent = person("WSAgent");
+    {
+        let mut conn = pool.get().expect("conn");
+        let actor = backend::sync::actor::ActorContext::user(agent.uuid, None).with_workspace(1);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |c| {
+                for (user, role) in [(&requester, "member"), (&agent, "agent")] {
+                    backend::repository::workspaces::add_membership(
+                        c,
+                        1,
+                        user.uuid,
+                        role,
+                        backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                    )?;
+                }
+                Ok(())
+            },
+        )
+        .expect("seed workspace memberships");
+    }
+
+    // The requester's own ticket, so the visibility gate lets them open it.
+    let ticket_uuid = {
+        use backend::schema::{tickets, workflow_states};
+        let mut conn = pool.get().expect("conn");
+        let state_id: i32 = workflow_states::table
+            .filter(workflow_states::workspace_id.eq(1))
+            .filter(workflow_states::is_default.eq(true))
+            .select(workflow_states::id)
+            .first(&mut conn)
+            .expect("default workflow state seeded");
+        let t: backend::models::Ticket = diesel::insert_into(tickets::table)
+            .values(&backend::models::NewTicket {
+                title: "Requester's ticket".to_string(),
+                workflow_state_id: state_id,
+                requester_uuid: Some(requester.uuid),
+                ..Default::default()
+            })
+            .get_result(&mut conn)
+            .expect("insert ticket");
+        t.uuid
+    };
+
+    let state_pool_inner = pool.clone();
+    let srv = actix_test::start(move || {
+        let (state, tmp) = build_app_state(&state_pool_inner);
+        std::mem::forget(tmp);
+        let ws = test_workspace();
+        App::new()
+            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(state_pool_inner.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(ws.clone());
+                srv.call(req)
+            })
+            .route("/ws/{doc}", web::get().to(ws_handler))
+    });
+
+    let doc_id = format!(
+        "ws-{}_ticket-{ticket_uuid}",
+        test_workspace().workspace_uuid
+    );
+    let client = awc::Client::new();
+    let connect = |user: &backend::models::User| {
+        let token = JwtUtils::create_collab_token(
+            &user.uuid.to_string(),
+            &user.platform_role,
+            Some(test_workspace().workspace_uuid),
+        )
+        .expect("mint collab token");
+        client
+            .ws(srv.url(&format!("/ws/{doc_id}?token={token}")))
+            .connect()
+    };
+    let (_, mut theirs) = connect(&requester).await.expect("requester handshake");
+    let (_, mut staff) = connect(&agent).await.expect("agent handshake");
+    for conn in [&mut theirs, &mut staff] {
+        let _ = tokio::time::timeout(Duration::from_secs(2), conn.next())
+            .await
+            .expect("initial frame timeout");
+    }
+
+    // A SyncUpdate inserting `text`, as a client editing the document sends.
+    let update = |text: &str| -> Bytes {
+        use yrs::sync::{Message, SyncMessage};
+        use yrs::updates::encoder::Encode;
+        use yrs::{Doc, ReadTxn, StateVector, Text, Transact};
+        let doc = Doc::new();
+        let content = doc.get_or_insert_text("content");
+        content.insert(&mut doc.transact_mut(), 0, text);
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        Bytes::from(Message::Sync(SyncMessage::Update(update)).encode_v1())
+    };
+    // Whether `frame` arrives on `conn` within `wait`.
+    async fn receives<S, E>(conn: &mut S, frame: &Bytes, wait: Duration) -> bool
+    where
+        S: futures_util::Stream<Item = Result<ws::Frame, E>> + Unpin,
+        E: std::fmt::Debug,
+    {
+        tokio::time::timeout(wait, async {
+            loop {
+                match conn.next().await {
+                    Some(Ok(ws::Frame::Binary(b))) if b.as_ref() == frame.as_ref() => break true,
+                    Some(Ok(_)) => continue,
+                    Some(Err(e)) => panic!("stream error: {e:?}"),
+                    None => break false,
+                }
+            }
+        })
+        .await
+        .unwrap_or(false)
+    }
+
+    let edit = update("from the requester");
+    theirs
+        .send(ws::Message::Binary(edit.clone()))
+        .await
+        .expect("requester send");
+    assert!(
+        !receives(&mut staff, &edit, Duration::from_millis(800)).await,
+        "a requester's update must not reach the room"
+    );
+
+    let edit = update("from the agent");
+    staff
+        .send(ws::Message::Binary(edit.clone()))
+        .await
+        .expect("agent send");
+    assert!(
+        receives(&mut theirs, &edit, Duration::from_secs(3)).await,
+        "the requester still receives staff edits"
+    );
+}

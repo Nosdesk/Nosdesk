@@ -128,6 +128,9 @@ const props = withDefaults(defineProps<Props>(), {
 
 // Get auth store for user info
 const authStore = useAuthStore();
+// Staff edit collaborative documents; anyone else who can open one reads it.
+// The server drops a reader's changes, so the editor doesn't offer them.
+const canEdit = computed(() => authStore.isTechnician);
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -758,7 +761,7 @@ const initEditor = async () => {
             // The revision overlay hides this view but leaves it mounted and
             // syncing. Editing it while it cannot be seen would be an invisible
             // change to the live document, so gate it for as long as it is covered.
-            editable: () => !isViewingRevision.value,
+            editable: () => canEdit.value && !isViewingRevision.value,
             state: EditorState.create({
                 doc: doc,
                 schema,
@@ -1998,7 +2001,7 @@ defineExpose({
     <div class="collaborative-editor">
         <!-- Toolbar. Inert while a revision is on screen: its commands dispatch
              straight to the live view, which is hidden under the overlay. -->
-        <div class="toolbar" :inert="isViewingRevision" :class="{ 'toolbar-inert': isViewingRevision }">
+        <div v-if="canEdit" class="toolbar" :inert="isViewingRevision" :class="{ 'toolbar-inert': isViewingRevision }">
             <!-- Type Dropdown -->
             <div class="relative">
                 <button
