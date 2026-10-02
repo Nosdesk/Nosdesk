@@ -2596,6 +2596,12 @@ pub async fn ws_handler(
         use crate::utils::jwt::JwtUtils;
 
         match JwtUtils::validate_token_with_user_check(token.value(), &mut conn).await {
+            // Only a session token belongs in the access cookie.
+            Ok((claims, _)) if claims.scope != "full" => {
+                return Err(actix_web::error::ErrorUnauthorized(
+                    "Token not valid for this API",
+                ))
+            }
             Ok((claims, user)) => {
                 let accessor = DocAccessor::from_claims(&claims, &mut conn)
                     .ok_or_else(|| actix_web::error::ErrorUnauthorized("Invalid token subject"))?;

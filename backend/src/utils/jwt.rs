@@ -136,8 +136,10 @@ impl JwtUtils {
             });
         }
 
-        // Skip session validation for SSE tokens (short-lived, not stored in active_sessions)
-        let is_sse_token = claims.name == "SSE_TOKEN";
+        // Skip session validation for SSE tokens (short-lived, not stored in
+        // active_sessions). Keyed on the scope: a session token's `name` is the
+        // user's display name, which anyone can set to "SSE_TOKEN".
+        let is_sse_token = claims.scope == "sse";
 
         if !is_sse_token {
             // Use sid claim to look up session by stable UUID
@@ -690,6 +692,25 @@ mod tests {
         let claims = JwtUtils::validate_token(&token).expect("Failed to validate SSE token");
         assert_eq!(claims.scope, "sse");
         assert_eq!(claims.sub, user_id);
+    }
+
+    /// The session check keys on the token's scope. A session token's
+    /// `name` is the user's display name, so a user named "SSE_TOKEN" once
+    /// skipped it and kept working after sign-out.
+    #[tokio::test]
+    async fn a_user_named_sse_token_still_needs_a_live_session() {
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only");
+        }
+        let _ = &*JWT_SECRET;
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let user = crate::test_helpers::TestFixtures::create_user(&mut conn, "SSE_TOKEN", "user");
+        // A session token whose session doesn't exist (signed out).
+        let token = JwtUtils::create_token(&user, &uuid::Uuid::new_v4()).expect("token");
+        assert!(matches!(
+            JwtUtils::validate_token_with_user_check(&token, &mut conn).await,
+            Err(JwtError::SessionRevoked)
+        ));
     }
 
     #[test]
