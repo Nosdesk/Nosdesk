@@ -149,12 +149,18 @@ const authorAndRefocus = (user: (typeof authorCandidates.value)[number]) => {
   inputRef.value?.focus();
 };
 
-watch(selectedIndex, () => {
-  if (selectedIndex.value >= 0 && resultsRef.value) {
-    const selectedElement = resultsRef.value.querySelector('[data-selected="true"]');
-    selectedElement?.scrollIntoView({ block: 'nearest' });
-  }
-});
+// After the render, so `data-selected` already marks the new row rather than
+// the one the arrow just left.
+watch(
+  selectedIndex,
+  () => {
+    if (selectedIndex.value >= 0 && resultsRef.value) {
+      const selectedElement = resultsRef.value.querySelector('[data-selected="true"]');
+      selectedElement?.scrollIntoView({ block: 'nearest' });
+    }
+  },
+  { flush: 'post' },
+);
 
 
 const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
@@ -202,11 +208,21 @@ const dragStyle = computed(() => {
   };
 });
 
+// Whether anything between the touch and the sheet is scrolled down. The lists
+// scroll themselves, so this finds whichever one is under the finger.
+const scrolledUnder = (target: EventTarget | null, sheet: EventTarget | null) => {
+  for (let el = target as HTMLElement | null; el && el !== sheet; el = el.parentElement) {
+    if (el.scrollTop > 0) return true;
+  }
+  return false;
+};
+
 const onTouchStart = (e: TouchEvent) => {
   if (e.touches.length !== 1 || !isMobile()) return;
   startY = e.touches[0].clientY;
-  // Arm only from the top of the results, so scrolling down never dismisses.
-  armed = (resultsRef.value?.scrollTop ?? 0) <= 0;
+  // Arm only when the list under the finger is at its top, so pulling a
+  // scrolled list back up never dismisses.
+  armed = !scrolledUnder(e.target, e.currentTarget);
   dragging.value = false;
   vel = 0;
   lastDy = 0;
@@ -481,15 +497,18 @@ onScopeDispose(() => restoreScroll?.());
               </div>
 
               <!-- Results region. Holds all body states; `min-h-0`
-                   + flex-1 lets the inner scroll container size to
-                   the modal's max height without overflowing it.
+                   + flex-1 lets it size to the modal's max height without
+                   overflowing it. The lists scroll themselves (.search-list),
+                   so each scroll region is the listbox the input's
+                   aria-controls names; this outer scroll only catches a
+                   short state on a very short screen.
                    State swaps are instant — no fade transition. With
                    the debounced query, only one state change happens
                    per search cycle, and it lands fast enough that
                    cross-fading just adds visible "in-between" latency. -->
               <div
                 ref="resultsRef"
-                class="search-results flex-1 overflow-y-auto min-h-0 overscroll-contain"
+                class="search-results flex-1 flex flex-col overflow-y-auto min-h-0 overscroll-contain"
               >
                 <div
                   v-if="searchState === 'error'"
@@ -501,8 +520,8 @@ onScopeDispose(() => restoreScroll?.());
                 <!-- Author picker (mid `from:` token). The candidate list of
                      people replaces the results while active; picking one sets
                      the person chip and drops the token. -->
-                <div v-else-if="fromPromptActive" class="py-1 px-1">
-                  <div class="px-2 pt-2 pb-1">
+                <div v-else-if="fromPromptActive" class="flex-1 min-h-0 flex flex-col">
+                  <div class="px-3 pt-3 pb-1 flex-shrink-0">
                     <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
                       {{ t('search-global-from-heading') }}
                     </span>
@@ -512,6 +531,7 @@ onScopeDispose(() => restoreScroll?.());
                     :id="listboxId"
                     role="listbox"
                     :aria-label="t('search-global-from-heading')"
+                    class="search-list flex-1 min-h-0 overflow-y-auto overscroll-contain px-1 pb-1"
                   >
                   <button
                     v-for="(user, index) in authorCandidates"
@@ -545,7 +565,7 @@ onScopeDispose(() => restoreScroll?.());
                   <!-- Nothing typed yet, or no matches. -->
                   <div
                     v-if="authorCandidates.length === 0"
-                    class="px-3 py-8 text-center text-xs text-tertiary"
+                    class="px-4 pt-8 pb-9 text-center text-xs text-tertiary"
                   >
                     {{ t('search-global-from-hint') }}
                   </div>
@@ -555,13 +575,18 @@ onScopeDispose(() => restoreScroll?.());
                      narrows the search before typing — the palette's one
                      filtering affordance, presented where a filter
                      decision is actually made: before the query. -->
-                <div v-else-if="scopePromptActive" class="py-1 px-1">
-                  <div class="px-2 pt-2 pb-1">
+                <div v-else-if="scopePromptActive" class="flex-1 min-h-0 flex flex-col">
+                  <div class="px-3 pt-3 pb-1 flex-shrink-0">
                     <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
                       {{ t('search-global-scope-heading') }}
                     </span>
                   </div>
-                  <div :id="listboxId" role="listbox" :aria-label="t('search-global-scope-heading')">
+                  <div
+                    :id="listboxId"
+                    role="listbox"
+                    :aria-label="t('search-global-scope-heading')"
+                    class="search-list flex-1 min-h-0 overflow-y-auto overscroll-contain px-1 pb-1"
+                  >
                   <button
                     v-for="row in scopeRows"
                     :id="optionId('s', row.type)"
@@ -609,9 +634,9 @@ onScopeDispose(() => restoreScroll?.());
                      chronological list, since grouping by kind would fight the
                      recency order. A slim sort toolbar rides above the list on
                      mobile (the desktop footer carries the same toggle). -->
-                <div v-else-if="searchState === 'results'">
+                <div v-else-if="searchState === 'results'" class="flex-1 min-h-0 flex flex-col">
                   <div
-                    class="sm:hidden flex items-center justify-end px-3 h-9 border-b border-default"
+                    class="sm:hidden flex-shrink-0 flex items-center justify-end px-3 h-9 border-b border-default"
                   >
                     <SearchSortToggle
                       :model-value="sortOrder"
@@ -624,7 +649,7 @@ onScopeDispose(() => restoreScroll?.());
                     :id="listboxId"
                     role="listbox"
                     :aria-label="t('search-global-aria-label')"
-                    class="py-1 px-1"
+                    class="search-list flex-1 min-h-0 overflow-y-auto overscroll-contain py-1 px-1"
                   >
                     <SearchResultItem
                       v-for="result in flatResults"
@@ -636,7 +661,13 @@ onScopeDispose(() => restoreScroll?.());
                     />
                   </div>
 
-                  <div v-else :id="listboxId" role="listbox" :aria-label="t('search-global-aria-label')">
+                  <div
+                    v-else
+                    :id="listboxId"
+                    role="listbox"
+                    :aria-label="t('search-global-aria-label')"
+                    class="search-list flex-1 min-h-0 overflow-y-auto overscroll-contain"
+                  >
                     <SearchResultGroup
                       v-for="group in resultGroups"
                       :key="group.type"
@@ -770,11 +801,16 @@ onScopeDispose(() => restoreScroll?.());
     padding-bottom: 0;
   }
 
-  /* Results fill the space above the docked input; pad the bottom so the last
+  /* Lists fill the space above the docked input; pad their bottom so the last
      row clears the input bar + keyboard. Padding changes don't move the scroll
-     offset, so toggling the keyboard never jumps the list. */
-  .search-results {
+     offset, so toggling the keyboard never jumps the list. The matching scroll
+     padding keeps a row the arrow keys scroll to (scrollIntoView) clear of the
+     bar too; padding alone doesn't move where that stops. */
+  .search-list {
     padding-bottom: calc(
+      var(--input-bar-h) + var(--keyboard-height, 0px) + env(safe-area-inset-bottom)
+    );
+    scroll-padding-bottom: calc(
       var(--input-bar-h) + var(--keyboard-height, 0px) + env(safe-area-inset-bottom)
     );
   }
