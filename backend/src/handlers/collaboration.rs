@@ -3560,9 +3560,14 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 
     // Everything else is authenticated REST: one auth wrap on one
     // sub-scope is the single boundary that covers every route in
-    // `rest_routes`.
+    // `rest_routes`. API-token scopes are enforced here too (registered
+    // first so it runs after dual_auth puts Claims in extensions): these
+    // routes map to `Full`, so a narrowed token is refused.
     cfg.service(
         web::scope("")
+            .wrap(actix_web::middleware::from_fn(
+                crate::middleware::token_scope::token_scope_middleware,
+            ))
             .wrap(actix_web::middleware::from_fn(
                 crate::middleware::dual_auth_middleware,
             ))
