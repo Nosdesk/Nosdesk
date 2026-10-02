@@ -300,7 +300,7 @@ pub(crate) async fn serve_or_not_found(
     file_path: &str,
     req: &actix_web::HttpRequest,
 ) -> Result<HttpResponse, actix_web::Error> {
-    match crate::utils::storage::serve_file_from_storage(storage, file_path, req).await {
+    match crate::utils::storage::serve_file_from_storage(storage, file_path, req, false).await {
         Ok(response) => Ok(response),
         Err(e) => {
             warn!(error = ?e, file_path = %file_path, "Error serving file");
