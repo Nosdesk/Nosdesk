@@ -44,8 +44,10 @@ impl PluginProxyService {
         // the manifest is still author-supplied. Routing through
         // safe_http means the resolver refuses to dial private IPs
         // even if a manifest author lists a hostname that resolves
-        // into RFC1918 / 169.254.x.x.
-        let client = crate::utils::safe_http::client(Duration::from_secs(30))
+        // into RFC1918 / 169.254.x.x. Redirects aren't followed: a hop
+        // could leave the plugin's declared hosts while carrying the
+        // credentials injected for them, so a 3xx goes back to the plugin.
+        let client = crate::utils::safe_http::no_redirect_client(Duration::from_secs(30))
             .expect("Failed to create SSRF-safe HTTP client");
 
         Self {
