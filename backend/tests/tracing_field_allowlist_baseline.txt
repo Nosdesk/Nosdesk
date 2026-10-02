@@ -327,7 +327,6 @@ src/services/channels/pipeline.rs message_id
 src/services/channels/pipeline.rs original
 src/services/channels/pipeline.rs provider
 src/services/channels/pipeline.rs recipient
-src/services/channels/pipeline.rs rows
 src/services/channels/pipeline.rs via
 src/services/channels/registry.rs channel
 src/services/channels/registry.rs failures

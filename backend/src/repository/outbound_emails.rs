@@ -327,6 +327,8 @@ pub fn mark_bounced(
     recipient: Option<&str>,
     diagnostic: Option<&str>,
 ) -> Result<usize, DieselError> {
+    // A report names the message and the address that bounced; only a row
+    // that sent that message to that address matches.
     diesel::sql_query(
         r#"
         UPDATE outbound_emails
@@ -334,6 +336,7 @@ pub fn mark_bounced(
             bounce_recipient = $2,
             bounce_diagnostic = $3
         WHERE message_id = $1
+          AND ($2 IS NULL OR lower(recipient) = lower($2))
         "#,
     )
     .bind::<Text, _>(message_id)
@@ -347,12 +350,22 @@ pub fn mark_bounced(
 /// VERP Return-Path token (B1) named the originating row directly, which is
 /// more reliable than the DSN echoing the original Message-ID. Stamps the same
 /// bounce metadata and likewise leaves `status` untouched.
+///
+/// Returns the address the row was sent to, or `None` when no row has `id`.
+/// The signed token proves which message bounced, so that address is the one
+/// that bounced even when the report names another (a forwarding address
+/// bouncing under the mailbox it forwards to).
 pub fn mark_bounced_by_id(
     conn: &mut DbConnection,
     id: i64,
     recipient: Option<&str>,
     diagnostic: Option<&str>,
-) -> Result<usize, DieselError> {
+) -> Result<Option<String>, DieselError> {
+    #[derive(diesel::QueryableByName)]
+    struct Bounced {
+        #[diesel(sql_type = Text)]
+        recipient: String,
+    }
     diesel::sql_query(
         r#"
         UPDATE outbound_emails
@@ -360,12 +373,15 @@ pub fn mark_bounced_by_id(
             bounce_recipient = $2,
             bounce_diagnostic = $3
         WHERE id = $1
+        RETURNING recipient
         "#,
     )
     .bind::<BigInt, _>(id)
     .bind::<Nullable<Text>, _>(recipient)
     .bind::<Nullable<Text>, _>(diagnostic)
-    .execute(conn)
+    .get_result::<Bounced>(conn)
+    .optional()
+    .map(|row| row.map(|r| r.recipient))
 }
 
 // sync-audit-only: worker lease release on the outbound queue
@@ -756,20 +772,25 @@ mod tests {
         let row = enqueue(&mut conn, fresh_row(ch, "verp")).unwrap();
         assert!(row.bounced_at.is_none());
 
-        let n = mark_bounced_by_id(
+        // The report names the mailbox the row's address forwarded to.
+        let sent_to = mark_bounced_by_id(
             &mut conn,
             row.id,
-            Some("test-verp@example.com"),
+            Some("forwarded@elsewhere.example"),
             Some("550 mailbox unavailable"),
         )
         .unwrap();
-        assert_eq!(n, 1, "matches exactly the row by id");
+        assert_eq!(
+            sent_to.as_deref(),
+            Some("test-verp@example.com"),
+            "returns the address the row was sent to"
+        );
 
         let refreshed = get(&mut conn, row.id).unwrap();
         assert!(refreshed.bounced_at.is_some());
         assert_eq!(
             refreshed.bounce_recipient.as_deref(),
-            Some("test-verp@example.com")
+            Some("forwarded@elsewhere.example")
         );
         assert_eq!(
             refreshed.bounce_diagnostic.as_deref(),
@@ -781,7 +802,33 @@ mod tests {
         // A non-existent id matches nothing.
         assert_eq!(
             mark_bounced_by_id(&mut conn, row.id + 99_999, None, None).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_bounce_by_message_id_must_name_the_rows_recipient() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let row = enqueue(&mut conn, fresh_row(ch, "owner")).unwrap();
+        let other = Some("someone-else@example.com");
+
+        assert_eq!(
+            mark_bounced(&mut conn, &row.message_id, other, None).unwrap(),
             0
+        );
+        assert!(get(&mut conn, row.id).unwrap().bounced_at.is_none());
+
+        // The address is compared without regard to case.
+        assert_eq!(
+            mark_bounced(
+                &mut conn,
+                &row.message_id,
+                Some("TEST-owner@Example.com"),
+                None
+            )
+            .unwrap(),
+            1
         );
     }
 
