@@ -9,14 +9,13 @@
 //! not the user's, so consumers can distinguish plugin-emitted
 //! events from user-emitted ones.
 //!
-//! The aggregate must be one of the registered `SyncAggregate`
-//! variants. We deliberately don't let plugins invent new
-//! aggregates: every aggregate needs a `sync_aggregate` enum value,
-//! a manifest in `backend/sync-models/`, and downstream consumer
-//! awareness, none of which a runtime emit can synthesize. Plugins
-//! extend behaviour through the `event_type` string instead, which
-//! is free-form per call. (The architecture doc § 6 references this
-//! constraint as part of the manifest design.)
+//! The aggregate must be `plugin`. Plugins can't invent aggregates
+//! (every aggregate needs a `sync_aggregate` enum value, a manifest in
+//! `backend/sync-models/`, and downstream consumer awareness, none of
+//! which a runtime emit can synthesize), and the core aggregates are
+//! rows clients apply as server-written. Plugins extend behaviour
+//! through the `event_type` string instead. (The architecture doc § 6
+//! references this constraint as part of the manifest design.)
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
@@ -63,6 +62,9 @@ const PLUGIN_EVENT_RATE_WINDOW_SECS: u64 = 60;
 /// rejection. (The signature-visible half of the B6 hardening; the group and
 /// rate constraints live in the handler because they need request context.)
 fn validate_event_body(body: &PluginEventBody) -> Result<(), &'static str> {
+    if !matches!(body.aggregate, SyncAggregate::Plugin) {
+        return Err("plugin events must use the plugin aggregate");
+    }
     if body.event_type.trim().is_empty() || body.event_type.len() > PLUGIN_EVENT_TYPE_MAX {
         return Err("event_type must be 1 to 64 characters");
     }
@@ -267,7 +269,7 @@ mod tests {
 
     fn body(event_type: &str, aggregate_id: &str, data: Value) -> PluginEventBody {
         PluginEventBody {
-            aggregate: SyncAggregate::Ticket,
+            aggregate: SyncAggregate::Plugin,
             aggregate_id: aggregate_id.to_string(),
             op: SyncOp::Update,
             event_type: event_type.to_string(),
@@ -279,6 +281,21 @@ mod tests {
     #[test]
     fn accepts_a_reasonable_event() {
         assert!(validate_event_body(&body("x.done", "42", json!({ "a": 1 }))).is_ok());
+    }
+
+    #[test]
+    fn rejects_a_core_aggregate() {
+        for aggregate in [
+            SyncAggregate::Ticket,
+            SyncAggregate::Comment,
+            SyncAggregate::User,
+        ] {
+            let event = PluginEventBody {
+                aggregate,
+                ..body("x.done", "42", json!({}))
+            };
+            assert!(validate_event_body(&event).is_err());
+        }
     }
 
     #[test]
@@ -307,7 +324,7 @@ mod tests {
     #[test]
     fn caller_supplied_groups_are_dropped() {
         let parsed: PluginEventBody = serde_json::from_value(json!({
-            "aggregate": "ticket",
+            "aggregate": "plugin",
             "aggregate_id": "42",
             "op": "U",
             "event_type": "x.done",
