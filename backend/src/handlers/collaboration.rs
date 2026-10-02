@@ -576,6 +576,12 @@ impl DocAccessor {
         }
     }
 
+    /// Staff (agents and up, and platform admins) edit collaborative
+    /// documents. Anyone else who can open one reads it.
+    fn can_edit(&self) -> bool {
+        self.vis.sees_all()
+    }
+
     /// Build from JWT claims when no `AuthContext` is in scope (the
     /// WebSocket handshake validates the token by hand). Resolves the
     /// workspace role from the bootstrap workspace, matching
@@ -601,7 +607,8 @@ impl DocAccessor {
     }
 }
 
-/// True when `accessor` may read/edit `document`. The error type is
+/// True when `accessor` may open `document`; [`DocAccessor::can_edit`]
+/// decides whether they may also change it. The error type is
 /// Diesel's so callers can map a DB failure to a 500 and a `false`
 /// to a 404 (never 403: a 403 leaks existence, per OWASP IDOR).
 fn can_access_document(
@@ -2711,6 +2718,9 @@ pub async fn ws_handler(
         }
     };
 
+    // Staff edit; anyone else the gate admitted reads.
+    let read_only = !accessor.can_edit();
+
     // Per-document affinity routing (Phase 2). In single-instance mode
     // this is always `Local`. Under multi-instance routing, if another
     // machine owns this doc we return a `fly-replay` response WITHOUT
@@ -2766,6 +2776,7 @@ pub async fn ws_handler(
         workspace_id,
         fence,
         doc_type,
+        read_only,
         session,
         msg_stream,
     ));
@@ -2783,6 +2794,8 @@ async fn session_task(
     workspace_id: i32,
     fence: Option<i64>,
     doc_type: DocumentType,
+    // The caller can open the document but not change it.
+    read_only: bool,
     mut session: actix_ws::Session,
     mut msg_stream: actix_ws::AggregatedMessageStream,
 ) {
@@ -2949,6 +2962,7 @@ async fn session_task(
                         doc_id_c,
                         session_id_c,
                         user_uuid,
+                        read_only,
                         tx_c,
                     ));
                 }
@@ -3067,15 +3081,30 @@ async fn session_task(
 /// requests) flow back through `tx` rather than directly through
 /// the `Session`, so the session_task's outbound arm orders them
 /// against other broadcasts the same way it always did.
+/// A y-protocols sync frame that carries document content: SyncStep2 or
+/// SyncUpdate (message type 0, subtype 1 or 2).
+fn is_document_update(frame: &[u8]) -> bool {
+    frame.first() == Some(&0) && matches!(frame.get(1), Some(1) | Some(2))
+}
+
 async fn process_inbound_binary(
     bin: Bytes,
     app_state: YjsAppState,
     doc_id: String,
     session_id: String,
     user_uuid: Uuid,
+    read_only: bool,
     tx: mpsc::UnboundedSender<Bytes>,
 ) {
     if bin.is_empty() {
+        return;
+    }
+    // A read-only session's document changes (SyncStep2 and SyncUpdate) are
+    // dropped before they reach the document or the room. Its state-vector
+    // requests and awareness still go through, so it keeps receiving the
+    // document and others' presence.
+    if read_only && is_document_update(&bin) {
+        debug!(doc_id = %doc_id, session_id = %session_id, "Dropping a read-only session's update");
         return;
     }
 
@@ -3317,6 +3346,10 @@ pub async fn restore_ticket_revision(
     if let Err(resp) = gate_ticket(&mut tc, &auth, ticket_id) {
         return resp;
     }
+    // Restoring rewrites the document, an edit only staff can make.
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Only staff can restore a revision");
+    }
 
     // No saved content means this revision can't exist.
     let article_content = match ticket_article_content(&mut tc, ticket_id) {
@@ -3429,6 +3462,10 @@ pub async fn restore_doc_revision(
     let (doc_id, revision_number) = path.into_inner();
     if let Err(resp) = gate_doc_page(&mut tc, &auth, doc_id) {
         return resp;
+    }
+    // Restoring rewrites the document, an edit only staff can make.
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Only staff can restore a revision");
     }
 
     // Get the revision to restore
@@ -3620,5 +3657,28 @@ mod content_saved_emit_tests {
             Ok::<_, diesel::result::Error>(())
         })
         .expect("emit + read back");
+    }
+}
+
+#[cfg(test)]
+mod read_only_frame_tests {
+    use super::is_document_update;
+    use yrs::sync::{Message, SyncMessage};
+    use yrs::updates::encoder::Encode;
+    use yrs::StateVector;
+
+    #[test]
+    fn only_document_content_counts_as_an_update() {
+        let sync = |m: SyncMessage| Message::Sync(m).encode_v1();
+        assert!(is_document_update(&sync(SyncMessage::SyncStep2(vec![
+            0, 0
+        ]))));
+        assert!(is_document_update(&sync(SyncMessage::Update(vec![0, 0]))));
+        assert!(!is_document_update(&sync(SyncMessage::SyncStep1(
+            StateVector::default()
+        ))));
+        // Awareness (message type 1) and an empty frame.
+        assert!(!is_document_update(&[1, 0]));
+        assert!(!is_document_update(&[]));
     }
 }

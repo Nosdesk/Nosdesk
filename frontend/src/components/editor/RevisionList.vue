@@ -24,6 +24,7 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Icon from '@/components/common/Icon.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import { useAuthStore } from '@/stores/auth'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import apiClient from '@/services/apiConfig'
 
@@ -52,6 +53,10 @@ const emit = defineEmits<{
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+
+// Restoring a revision edits the document, which only staff can do.
+const authStore = useAuthStore()
+const canRestore = computed(() => authStore.isTechnician)
 
 const { getUserHandle } = useUsersDirectory()
 
@@ -314,7 +319,7 @@ onMounted(() => {
         </div>
 
         <button
-          v-if="selectedRevision?.id === revision.id"
+          v-if="canRestore && selectedRevision?.id === revision.id"
           @click.stop="confirmRestore(revision)"
           :disabled="isRestoring"
           class="mt-2 w-full px-3 py-1.5 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"

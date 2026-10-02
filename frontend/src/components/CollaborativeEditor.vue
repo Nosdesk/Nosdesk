@@ -106,6 +106,9 @@ const props = withDefaults(defineProps<Props>(), {
 
 // Get auth store for user info
 const authStore = useAuthStore();
+// Staff edit collaborative documents; anyone else who can open one reads it.
+// The server drops a reader's changes, so the editor doesn't offer them.
+const canEdit = computed(() => authStore.isTechnician);
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -671,6 +674,7 @@ const initEditor = async () => {
         }
 
         editorView = new EditorView(editorElement.value, {
+            editable: () => canEdit.value,
             state: EditorState.create({
                 doc: doc,
                 schema,
@@ -1841,12 +1845,12 @@ function exitRevisionView() {
         log.info("Exiting revision view, returning to live document");
 
         // Restore the original editor state (connected to live Yjs
-        // doc) and flip the editable prop back on. The revision
-        // view setter installed `editable: () => false`; without
-        // this clear, the live doc would inherit the read-only
-        // gate and silently refuse the next keystroke.
+        // doc) and put the editable prop back. The revision view
+        // setter installed `editable: () => false`; without this,
+        // the live doc would inherit the read-only gate and silently
+        // refuse the next keystroke.
         editorView.updateState(originalEditorState);
-        editorView.setProps({ editable: () => true });
+        editorView.setProps({ editable: () => canEdit.value });
 
         // Clear stored state
         originalYXmlFragment = null;
@@ -1947,7 +1951,7 @@ defineExpose({
 <template>
     <div class="collaborative-editor">
         <!-- Toolbar -->
-        <div class="toolbar">
+        <div v-if="canEdit" class="toolbar">
             <!-- Type Dropdown -->
             <div class="relative">
                 <button
