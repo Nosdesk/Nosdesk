@@ -691,10 +691,15 @@ fn checked_path(path: &str) -> Result<&str, StorageError> {
     }
 }
 
+///
+/// `public` is for files served without sign-in (profile photos): shared
+/// caches may keep them and any origin may read them. Anything behind
+/// sign-in goes out `private` with no CORS headers.
 pub async fn serve_file_from_storage(
     storage: Arc<dyn Storage>,
     path: &str,
     req: &HttpRequest,
+    public: bool,
 ) -> Result<HttpResponse, actix_web::Error> {
     // Serve routes use `{filename:.*}`, so the tail segment is fully
     // caller-controlled and can carry `../`. The backends refuse such a path
@@ -721,18 +726,23 @@ pub async fn serve_file_from_storage(
 
     response_builder
         .insert_header((CONTENT_TYPE, content_type))
-        .insert_header((ACCEPT_RANGES, "bytes"))
-        .insert_header((CACHE_CONTROL, "public, max-age=3600"))
-        .insert_header(("Access-Control-Allow-Origin", "*"))
-        .insert_header(("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS"))
-        .insert_header((
-            "Access-Control-Allow-Headers",
-            "Range, Content-Type, Authorization",
-        ))
-        .insert_header((
-            "Access-Control-Expose-Headers",
-            "Content-Range, Content-Length, Accept-Ranges",
-        ));
+        .insert_header((ACCEPT_RANGES, "bytes"));
+    if public {
+        response_builder
+            .insert_header((CACHE_CONTROL, "public, max-age=3600"))
+            .insert_header(("Access-Control-Allow-Origin", "*"))
+            .insert_header(("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS"))
+            .insert_header((
+                "Access-Control-Allow-Headers",
+                "Range, Content-Type, Authorization",
+            ))
+            .insert_header((
+                "Access-Control-Expose-Headers",
+                "Content-Range, Content-Length, Accept-Ranges",
+            ));
+    } else {
+        response_builder.insert_header((CACHE_CONTROL, "private, max-age=3600"));
+    }
 
     // Handle range requests for PDF.js and other file types
     let range_header = req.headers().get("Range");

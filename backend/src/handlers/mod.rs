@@ -1075,6 +1075,7 @@ pub async fn serve_public_file(
         storage.as_ref().clone(),
         &storage_path,
         &req,
+        true,
     )
     .await
     {
