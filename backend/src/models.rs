@@ -2368,7 +2368,8 @@ pub struct NewUserEmail {
 #[diesel(table_name = crate::schema::user_emails)]
 pub struct UserEmailUpdate {
     pub is_primary: Option<bool>,
-    pub is_verified: Option<bool>,
+    /// No `is_verified`: only a challenge to the address proves it, so no
+    /// request body may carry it.
     pub updated_at: Option<NaiveDateTime>,
 }
 

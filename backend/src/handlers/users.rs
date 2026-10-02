@@ -1359,9 +1359,19 @@ pub async fn upload_user_image(
     mut tc: TenantConn,
     search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
     type_query: web::Query<UserImageTypeQuery>,
+    req: HttpRequest,
 ) -> impl Responder {
     let user_uuid = uuid.into_inner();
     let image_type = &type_query.type_; // "avatar" or "banner"
+
+    // Same rule as the other profile writes: yourself, or a platform admin.
+    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
+        Ok(claims) => claims,
+        Err(_) => return errors::unauthorized("Authentication required"),
+    };
+    if claims.sub != user_uuid && !is_platform_admin(&claims) {
+        return errors::forbidden("Not authorized");
+    }
 
     // Validate that the user exists
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
@@ -2299,31 +2309,48 @@ pub async fn update_user_email(
         Err(_) => return errors::not_found_msg("User not found"),
     };
 
-    // If setting as primary, unset other primary emails first
-    if update_data
+    use diesel::prelude::*;
+
+    // The row must be one of this user's addresses: the path user was
+    // authorised above, not the email id.
+    let email = match crate::schema::user_emails::table
+        .find(email_id)
+        .first::<crate::models::UserEmail>(&mut conn)
+    {
+        Ok(email) if email.user_uuid == user.uuid => email,
+        _ => return errors::not_found_msg("Email not found"),
+    };
+    let make_primary = update_data
         .get("is_primary")
         .and_then(|p| p.as_bool())
-        .unwrap_or(false)
-    {
-        use diesel::prelude::*;
-        let _ = diesel::update(crate::schema::user_emails::table)
-            .filter(crate::schema::user_emails::user_uuid.eq(&user.uuid))
-            .set(crate::schema::user_emails::is_primary.eq(false))
-            .execute(&mut conn);
+        .unwrap_or(false);
+    // A primary address is the one sign-in and notifications go to, so it
+    // must be proven first.
+    if make_primary && !email.is_verified {
+        return errors::bad_request("Verify this address before making it primary");
     }
 
-    // Update the email
+    // `is_verified` is not read from the body: this endpoint is authorised by
+    // "you are this user", and only a challenge to the address proves it.
     let email_update = crate::models::UserEmailUpdate {
         is_primary: update_data.get("is_primary").and_then(|p| p.as_bool()),
-        is_verified: update_data.get("is_verified").and_then(|v| v.as_bool()),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    use diesel::prelude::*;
-    match diesel::update(crate::schema::user_emails::table.find(email_id))
-        .set(&email_update)
-        .get_result::<crate::models::UserEmail>(&mut conn)
-    {
+    // Swap the primary in one transaction so a failure can't leave the user
+    // with none.
+    let result = conn.transaction(|conn| {
+        if make_primary {
+            diesel::update(crate::schema::user_emails::table)
+                .filter(crate::schema::user_emails::user_uuid.eq(&user.uuid))
+                .set(crate::schema::user_emails::is_primary.eq(false))
+                .execute(conn)?;
+        }
+        diesel::update(crate::schema::user_emails::table.find(email_id))
+            .set(&email_update)
+            .get_result::<crate::models::UserEmail>(conn)
+    });
+    match result {
         Ok(updated_email) => HttpResponse::Ok().json(json!({
             "status": "success",
             "message": "Email updated successfully",

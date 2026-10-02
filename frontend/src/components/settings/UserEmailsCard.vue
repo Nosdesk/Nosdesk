@@ -230,7 +230,7 @@ watch(() => props.userUuid, () => {
           </span>
 
           <template v-if="canEdit && email.id !== 0 && !email.is_primary">
-            <Button variant="secondary" size="sm" @click="setAsPrimary(email.id, email.email)">
+            <Button v-if="email.is_verified" variant="secondary" size="sm" @click="setAsPrimary(email.id, email.email)">
               {{ $t('settings-emails-set-primary') }}
             </Button>
             <Button
