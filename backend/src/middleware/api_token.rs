@@ -226,6 +226,16 @@ pub async fn dual_auth_middleware(
             actix_web::error::ErrorUnauthorized("Invalid or expired token")
         })?;
 
+    // Only a session token belongs in the access cookie. An SSE token rides
+    // in a query string, so it leaks into logs and history; replanted as the
+    // cookie it must not authenticate.
+    if claims.scope != "full" {
+        warn!(path = %req.path(), scope = %claims.scope, "Rejected non-session token in the access cookie");
+        return Err(actix_web::error::ErrorUnauthorized(
+            "Token not valid for this API",
+        ));
+    }
+
     info!(user = %claims.sub, "Cookie auth: user authenticated successfully");
 
     crate::middleware::cookie_auth::enforce_workspace_membership(&req, &mut conn, &claims)?;
