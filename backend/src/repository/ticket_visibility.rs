@@ -48,6 +48,50 @@ use crate::extractors::AuthContext;
 use crate::models::{Claims, PlatformRole, WorkspaceRole};
 use crate::schema::{ticket_watchers, tickets};
 
+/// Which comments a reader may see on a ticket they can already reach.
+///
+/// Ticket-level access is coarse. A requester can legitimately see their own
+/// ticket, and must still not see the agent's internal notes on it. The sync
+/// bootstrap, the sync delta, SSE and the portal all already draw this line;
+/// the REST readers did not, which is the gap this closes.
+///
+/// It is a REQUIRED argument on every comment reader rather than an option with
+/// a default, so adding a call site is a compile error until its audience is
+/// stated, and "everything" can never be inherited by accident.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommentAudience {
+    /// Staff (agent tier and above): every comment, internal notes included.
+    All,
+    /// Requester tier: public comments only.
+    PublicOnly,
+}
+
+impl CommentAudience {
+    /// The audience a request's caller belongs to.
+    pub fn from_auth(auth: &AuthContext) -> Self {
+        if auth.can_handle_tickets() {
+            Self::All
+        } else {
+            Self::PublicOnly
+        }
+    }
+
+    /// Maintenance paths with no viewer, which must see every row.
+    ///
+    /// Deletion is the one that matters: it loads every comment to collect the
+    /// attachment storage paths before removing them, so a filtered read would
+    /// silently orphan files in object storage. Named rather than implicit so
+    /// its use is visible in review.
+    pub fn system() -> Self {
+        Self::All
+    }
+
+    /// Whether internal notes are included.
+    pub fn includes_internal(self) -> bool {
+        matches!(self, Self::All)
+    }
+}
+
 /// Lightweight projection of `Claims` carrying only the visibility-
 /// relevant fields. Letting handlers pass a `&Claims` directly keeps
 /// the call sites short. `Copy` (two scalar fields) so the sync read

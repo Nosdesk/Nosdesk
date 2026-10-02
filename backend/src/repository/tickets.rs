@@ -540,7 +540,13 @@ pub fn delete_ticket_with_cleanup(
     };
 
     // 1. First, get all comments for this ticket to find attachments
-    let comments = crate::repository::comments::get_comments_by_ticket_id(conn, ticket_id)?;
+    // System audience: this collects attachment storage paths before deleting
+    // them, so a viewer-filtered read would leave orphaned files behind.
+    let comments = crate::repository::comments::get_comments_by_ticket_id(
+        conn,
+        ticket_id,
+        crate::repository::ticket_visibility::CommentAudience::system(),
+    )?;
 
     // 2. Collect all attachment paths for file cleanup
     let mut attachment_paths = Vec::new();
@@ -659,6 +665,7 @@ fn extract_storage_path_from_url(url: &str) -> Option<String> {
 pub fn get_complete_ticket(
     conn: &mut DbConnection,
     ticket_id: i32,
+    audience: crate::repository::ticket_visibility::CommentAudience,
 ) -> Result<CompleteTicket, Error> {
     // Get the main ticket first
     let ticket = get_ticket_by_id(conn, ticket_id)?;
@@ -686,7 +693,9 @@ pub fn get_complete_ticket(
     // endpoint. Two parallel implementations meant the channel-sourced
     // sender's email was missing here.
     let comments_with_attachments =
-        crate::repository::comments::get_comments_with_attachments_by_ticket_id(conn, ticket_id)?;
+        crate::repository::comments::get_comments_with_attachments_by_ticket_id(
+            conn, ticket_id, audience,
+        )?;
 
     // Get article content (now handled by Yjs collaborative editing)
     let article_content: Option<String> = None;

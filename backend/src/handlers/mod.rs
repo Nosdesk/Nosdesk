@@ -185,8 +185,14 @@ pub async fn get_comments_by_ticket_id(
     let ticket_id = access.ticket_id;
     debug!(ticket_id, "Getting comments for ticket");
 
+    // TicketAccess proves the caller may see the ticket. It says nothing about
+    // internal notes on it, so the audience is resolved separately here.
+    let audience = crate::repository::ticket_visibility::CommentAudience::from_auth(&access.auth);
+
     match tc.run(|conn| {
-        crate::repository::comments::get_comments_with_attachments_by_ticket_id(conn, ticket_id)
+        crate::repository::comments::get_comments_with_attachments_by_ticket_id(
+            conn, ticket_id, audience,
+        )
     }) {
         Ok(comments) => {
             // Serialize through serde so every field on
@@ -770,6 +776,7 @@ pub async fn add_comment_to_ticket(
 
 pub async fn delete_comment(
     req: actix_web::HttpRequest,
+    auth: crate::extractors::AuthContext,
     path: web::Path<i32>,
     mut tc: crate::extractors::TenantConn,
     search_service: web::Data<Arc<SearchService>>,
@@ -779,15 +786,44 @@ pub async fn delete_comment(
 
     // Existence guard so a missing comment returns a localized 404
     // before we attempt the delete.
-    if tc
-        .run(|conn| crate::repository::comments::get_comment_by_id(conn, comment_id))
-        .is_err()
-    {
-        return json_error(
-            &request_locale(&req),
-            "backend-error-comment-not-found",
-            StatusCode::NOT_FOUND,
-        );
+    let comment =
+        match tc.run(|conn| crate::repository::comments::get_comment_by_id(conn, comment_id)) {
+            Ok(c) => c,
+            Err(_) => {
+                return json_error(
+                    &request_locale(&req),
+                    "backend-error-comment-not-found",
+                    StatusCode::NOT_FOUND,
+                )
+            }
+        };
+
+    // Visibility first, then authority. RLS bounds this to the workspace, but
+    // not to tickets the caller can read: without this, any member of any role
+    // could delete any comment in the workspace by iterating ids, including
+    // internal notes on tickets they cannot see. Mirrors `get_comment_raw_eml`,
+    // which gates the same resource.
+    let vis = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
+    match tc.run(|conn| {
+        crate::repository::ticket_visibility::can_view_ticket(conn, &vis, comment.ticket_id)
+    }) {
+        Ok(true) => {}
+        // 404, not 403: an attacker iterating ids must not learn which comments
+        // exist on other people's tickets.
+        Ok(false) | Err(_) => {
+            return json_error(
+                &request_locale(&req),
+                "backend-error-comment-not-found",
+                StatusCode::NOT_FOUND,
+            )
+        }
+    }
+
+    // Authority to delete is narrower than authority to read: your own comment,
+    // or any comment if you handle tickets. A requester who can see a ticket
+    // must not be able to delete the agent's notes on it.
+    if comment.user_uuid != auth.user_uuid && !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: you can only delete your own comments");
     }
 
     let delete_result = tc.run(|conn| {
@@ -902,8 +938,47 @@ pub async fn get_comment_raw_eml(
     }
 }
 
+/// Whether `auth` may delete `attachment`.
+///
+/// Parented attachments inherit their comment's ticket: the caller must be able
+/// to see the ticket, and then be the uploader or handle tickets. Orphans (no
+/// comment yet, i.e. a temp upload not yet attached to anything) have no ticket
+/// to check visibility against, so they fall back to uploader-or-staff, which is
+/// coarser by necessity rather than by choice.
+fn can_delete_attachment(
+    tc: &mut crate::extractors::TenantConn,
+    auth: &crate::extractors::AuthContext,
+    attachment: &crate::models::Attachment,
+) -> bool {
+    let owns = attachment.uploaded_by == Some(auth.user_uuid);
+    let staff = auth.can_handle_tickets();
+
+    let Some(comment_id) = attachment.comment_id else {
+        return owns || staff;
+    };
+
+    let Ok(comment) =
+        tc.run(|conn| crate::repository::comments::get_comment_by_id(conn, comment_id))
+    else {
+        return false;
+    };
+
+    let vis = crate::repository::ticket_visibility::VisibilityContext::from_auth(auth);
+    let visible = matches!(
+        tc.run(|conn| {
+            crate::repository::ticket_visibility::can_view_ticket(conn, &vis, comment.ticket_id)
+        }),
+        Ok(true)
+    );
+
+    // Deleting someone else's attachment needs ticket-handling authority, not
+    // merely the ability to read the ticket it hangs off.
+    visible && (owns || staff)
+}
+
 pub async fn delete_attachment(
     req: actix_web::HttpRequest,
+    auth: crate::extractors::AuthContext,
     path: web::Path<i32>,
     mut tc: crate::extractors::TenantConn,
     storage: crate::extractors::ScopedStorage,
@@ -915,6 +990,20 @@ pub async fn delete_attachment(
     match tc.run(|conn| crate::repository::comments::get_attachment_by_id(conn, attachment_id)) {
         Ok(attachment) => {
             debug!(attachment = ?attachment, "Found attachment");
+
+            // Authorize before touching storage. This handler deletes the
+            // stored object BEFORE the row, so an ungated call is an
+            // irreversible destruction of a file the caller may never have been
+            // allowed to read. RLS bounds it to the workspace and nothing else.
+            if !can_delete_attachment(&mut tc, &auth, &attachment) {
+                // 404 on deny, matching the read paths: ids are sequential, so
+                // a 403 would confirm which attachments exist.
+                return json_error(
+                    &request_locale(&req),
+                    "backend-error-attachment-not-found",
+                    StatusCode::NOT_FOUND,
+                );
+            }
 
             // Extract the storage path from the URL. The branch split
             // previously logged different cases for temp vs ticket vs

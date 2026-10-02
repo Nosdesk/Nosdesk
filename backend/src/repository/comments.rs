@@ -26,11 +26,15 @@ pub trait CommentDeletedObserver: Send + Sync {
 pub fn get_comments_by_ticket_id(
     conn: &mut DbConnection,
     ticket_id: i32,
+    audience: crate::repository::ticket_visibility::CommentAudience,
 ) -> QueryResult<Vec<Comment>> {
-    comments::table
+    let mut query = comments::table
         .filter(comments::ticket_id.eq(ticket_id))
-        .order(comments::created_at.desc())
-        .load(conn)
+        .into_boxed();
+    if !audience.includes_internal() {
+        query = query.filter(comments::is_internal.eq(false));
+    }
+    query.order(comments::created_at.desc()).load(conn)
 }
 
 /// Requester-visible comment list: drops internal notes and soft-deleted
@@ -340,8 +344,9 @@ pub fn get_comment_by_id(conn: &mut DbConnection, comment_id: i32) -> QueryResul
 pub fn get_comments_with_attachments_by_ticket_id(
     conn: &mut DbConnection,
     ticket_id: i32,
+    audience: crate::repository::ticket_visibility::CommentAudience,
 ) -> QueryResult<Vec<CommentWithAttachments>> {
-    let comments = get_comments_by_ticket_id(conn, ticket_id)?;
+    let comments = get_comments_by_ticket_id(conn, ticket_id, audience)?;
 
     // Batch-fetch `from_address` for every comment up front so the
     // assembly loop stays O(n) rather than issuing a per-comment
@@ -485,11 +490,65 @@ mod tests {
         assert_eq!(comment.content, "Hello world");
         assert_eq!(comment.ticket_id, ticket.id);
 
-        let comments = get_comments_by_ticket_id(&mut conn, ticket.id).unwrap();
+        let comments = get_comments_by_ticket_id(
+            &mut conn,
+            ticket.id,
+            crate::repository::ticket_visibility::CommentAudience::system(),
+        )
+        .unwrap();
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].id, comment.id);
     }
 
+    /// Internal notes must not reach a requester through the REST readers.
+    ///
+    /// Ticket-level access is coarse: a requester can legitimately see their own
+    /// ticket. Before `CommentAudience` these readers returned every comment on
+    /// it, so the agent's internal notes went out in the same payload. The sync
+    /// bootstrap, the sync delta, SSE and the portal all already drew this line;
+    /// REST was the one path that did not.
+    #[test]
+    fn public_audience_never_sees_internal_notes() {
+        use crate::repository::ticket_visibility::CommentAudience;
+
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "aud_user", "user");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Audience", Some(user.uuid), None);
+
+        TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "visible to the requester");
+        let internal = diesel::insert_into(comments::table)
+            .values(NewComment {
+                content: "internal staff note".into(),
+                ticket_id: ticket.id,
+                user_uuid: user.uuid,
+                is_internal: true,
+                ..Default::default()
+            })
+            .get_result::<Comment>(&mut conn)
+            .expect("insert internal comment");
+        assert!(internal.is_internal, "fixture must be an internal note");
+
+        let staff = get_comments_by_ticket_id(&mut conn, ticket.id, CommentAudience::All).unwrap();
+        assert_eq!(staff.len(), 2, "staff see both comments");
+
+        let requester =
+            get_comments_by_ticket_id(&mut conn, ticket.id, CommentAudience::PublicOnly).unwrap();
+        assert_eq!(requester.len(), 1, "the requester sees only the public one");
+        assert!(
+            requester.iter().all(|c| !c.is_internal),
+            "no internal note may survive the public audience"
+        );
+
+        // The attachment-hydrating reader shares the same filter, so it cannot
+        // drift from the plain one.
+        let hydrated = get_comments_with_attachments_by_ticket_id(
+            &mut conn,
+            ticket.id,
+            CommentAudience::PublicOnly,
+        )
+        .unwrap();
+        assert_eq!(hydrated.len(), 1);
+    }
     #[test]
     fn multiple_comments_all_returned() {
         let mut conn = setup_test_connection();
@@ -499,7 +558,12 @@ mod tests {
         let c1 = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "First");
         let c2 = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "Second");
 
-        let comments = get_comments_by_ticket_id(&mut conn, ticket.id).unwrap();
+        let comments = get_comments_by_ticket_id(
+            &mut conn,
+            ticket.id,
+            crate::repository::ticket_visibility::CommentAudience::system(),
+        )
+        .unwrap();
         assert_eq!(comments.len(), 2);
         let ids: Vec<i32> = comments.iter().map(|c| c.id).collect();
         assert!(ids.contains(&c1.id));
