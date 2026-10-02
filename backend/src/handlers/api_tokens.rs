@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::errors::ApiError;
 use crate::extractors::TenantConn;
-use crate::models::{Claims, CreateApiTokenRequest, WorkspaceRole};
+use crate::models::{Claims, CreateApiTokenRequest, PlatformRole, WorkspaceRole};
 use crate::repository::api_tokens;
 use crate::utils::rbac::require_workspace_role;
 
@@ -110,11 +110,11 @@ pub async fn create_api_token(
         // Active-only — don't let an admin (or a self-issuance
         // path racing a delete) mint a token for a soft-deleted
         // user. F2C.2 H4.
-        match crate::repository::users::find_active_by_uuid(&user_uuid, conn) {
-            Ok(_) => {}
+        let target = match crate::repository::users::find_active_by_uuid(&user_uuid, conn) {
+            Ok(target) => target,
             Err(Error::NotFound) => return Ok(Outcome::TargetUserNotFound),
             Err(e) => return Err(e),
-        }
+        };
         // Privilege-escalation guard: a token acts as its target user, so an
         // Admin minting one for a higher-privileged user (e.g. the Owner) would
         // let them act as that user. Cap the target's workspace role at the
@@ -126,6 +126,14 @@ pub async fn create_api_token(
         let target_role = crate::repository::user_helpers::workspace_role(conn, user_uuid)
             .unwrap_or(WorkspaceRole::Member);
         if target_role > caller_role {
+            return Ok(Outcome::TargetRoleExceedsCaller);
+        }
+        // The token also carries the target's platform role: refuse one the
+        // caller doesn't hold.
+        let caller = crate::repository::users::find_active_by_uuid(&created_by, conn)?;
+        if target.platform_role != PlatformRole::User.as_str()
+            && target.platform_role != caller.platform_role
+        {
             return Ok(Outcome::TargetRoleExceedsCaller);
         }
         let created = api_tokens::create_api_token(
@@ -310,5 +318,60 @@ mod tests {
         req.extensions_mut().insert(claims);
         let resp = actix_test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// A token acts as its target, platform role included: a workspace admin
+    /// with no platform role can mint one for a member, not for someone who
+    /// holds a platform role.
+    #[actix_web::test]
+    async fn minting_is_capped_at_the_callers_platform_role() {
+        use crate::schema::workspace_members;
+        use crate::test_helpers::{create_test_claims, TestFixtures};
+        use diesel::prelude::*;
+
+        let pool = setup_test_pool();
+        let (caller, targets) = {
+            let mut conn = pool.get().expect("test pool connection");
+            let caller = TestFixtures::create_user(&mut conn, "token-admin", "technician");
+            diesel::update(
+                workspace_members::table.filter(workspace_members::user_uuid.eq(caller.uuid)),
+            )
+            .set(workspace_members::role.eq("admin"))
+            .execute(&mut conn)
+            .expect("make the caller a workspace admin");
+            let targets = [
+                // A workspace admin too, so only the platform role differs.
+                (
+                    TestFixtures::create_user(&mut conn, "token-platform-admin", "admin"),
+                    StatusCode::FORBIDDEN,
+                ),
+                (
+                    TestFixtures::create_user(&mut conn, "token-auditor", "audit_reviewer"),
+                    StatusCode::FORBIDDEN,
+                ),
+                (
+                    TestFixtures::create_user(&mut conn, "token-member", "user"),
+                    StatusCode::CREATED,
+                ),
+            ];
+            (caller, targets)
+        };
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(pool.clone()))
+                .route("/admin/api-tokens", web::post().to(create_api_token)),
+        )
+        .await;
+        let claims = create_test_claims(&caller);
+
+        for (target, expected) in targets {
+            let req = actix_test::TestRequest::post()
+                .uri("/admin/api-tokens")
+                .set_json(serde_json::json!({ "name": "CI", "user_uuid": target.uuid }))
+                .to_request();
+            req.extensions_mut().insert(claims.clone());
+            let resp = actix_test::call_service(&app, req).await;
+            assert_eq!(resp.status(), expected, "{}", target.name);
+        }
     }
 }
