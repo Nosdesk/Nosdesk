@@ -28,6 +28,7 @@ mod background_run_cross_tenant_lint;
 mod background_workspace_pin;
 mod backup_basic;
 mod backup_encryption;
+mod backup_plaintext;
 mod backup_q_smoke;
 mod backup_sequences;
 mod backup_tamper;

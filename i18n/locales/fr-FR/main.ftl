@@ -1893,7 +1893,8 @@ admin-backup-description = Exportez et restaurez les données système et les pi
 admin-backup-create-heading = Créer une sauvegarde
 admin-backup-create-description = Exporter toutes les données système et pièces jointes dans une archive ZIP
 admin-backup-include-sensitive-label = Inclure les données sensibles
-admin-backup-include-sensitive-description = Inclut mots de passe, secrets MFA et jetons d'authentification (chiffrés avec un mot de passe)
+# MACHINE TRANSLATION, pending native review
+admin-backup-include-sensitive-description = Mots de passe, secrets MFA, jetons et secrets de webhook, chiffrés avec un mot de passe. Sans eux, une instance restaurée exige de réinitialiser les mots de passe et de reconfigurer la MFA, et ses webhooks sont désactivés.
 admin-backup-encryption-warning = Les données sensibles seront chiffrées. Si vous perdez le mot de passe, les données seront irrécupérables.
 admin-backup-encryption-password-label = Mot de passe de chiffrement
 admin-backup-encryption-password-placeholder = Saisissez le mot de passe de chiffrement
