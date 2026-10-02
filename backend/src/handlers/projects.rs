@@ -1,12 +1,15 @@
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
+use diesel::QueryResult;
 use serde::Deserialize;
 use tracing::debug;
 
-use crate::extractors::TenantConn;
+use crate::db::DbConnection;
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::models::{NewProject, ProjectUpdate, WorkspaceRole};
+use crate::models::{NewProject, ProjectUpdate, TicketListItem, WorkspaceRole};
 use crate::repository;
+use crate::repository::ticket_visibility::{self, VisibilityContext};
 use crate::services::search::SearchService;
 use crate::utils::rbac::require_workspace_role;
 use std::sync::Arc;
@@ -31,6 +34,7 @@ pub async fn get_all_projects(mut tc: TenantConn) -> impl Responder {
 // full ticket list embedded (`?embed=tickets`).
 pub async fn get_project(
     mut tc: TenantConn,
+    auth: AuthContext,
     path: web::Path<i32>,
     query: web::Query<GetProjectQuery>,
 ) -> impl Responder {
@@ -49,7 +53,8 @@ pub async fn get_project(
         };
 
     if want_tickets {
-        match tc.run(|conn| repository::get_project_tickets(conn, project_id)) {
+        let vis = VisibilityContext::from_auth(&auth);
+        match tc.run(|conn| visible_project_tickets(conn, &vis, project_id)) {
             Ok(tickets) => project.tickets = Some(tickets),
             Err(_) => return errors::internal("Failed to embed project tickets"),
         }
@@ -127,10 +132,31 @@ pub async fn delete_project(
     }
 }
 
+/// The project's tickets the caller can see: staff see them all, anyone else
+/// only their own and the ones they watch, as on the ticket list.
+fn visible_project_tickets(
+    conn: &mut DbConnection,
+    vis: &VisibilityContext,
+    project_id: i32,
+) -> QueryResult<Vec<TicketListItem>> {
+    let mut tickets = repository::get_project_tickets(conn, project_id)?;
+    if !vis.sees_all() {
+        let ids: Vec<i32> = tickets.iter().map(|t| t.ticket.id).collect();
+        let visible = ticket_visibility::visible_ticket_ids(conn, vis, &ids)?;
+        tickets.retain(|t| visible.contains(&t.ticket.id));
+    }
+    Ok(tickets)
+}
+
 // Get all tickets in a project
-pub async fn get_project_tickets(mut tc: TenantConn, path: web::Path<i32>) -> impl Responder {
+pub async fn get_project_tickets(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<i32>,
+) -> impl Responder {
     let project_id = path.into_inner();
-    match tc.run(|conn| repository::get_project_tickets(conn, project_id)) {
+    let vis = VisibilityContext::from_auth(&auth);
+    match tc.run(|conn| visible_project_tickets(conn, &vis, project_id)) {
         Ok(tickets) => HttpResponse::Ok().json(tickets),
         Err(_) => errors::internal("Failed to get project tickets"),
     }
@@ -138,12 +164,25 @@ pub async fn get_project_tickets(mut tc: TenantConn, path: web::Path<i32>) -> im
 
 /// Dependency edges for the project's Gantt view. Returns one
 /// row per linked_tickets entry where both ends fall inside the
-/// project. The Gantt renders `blocks` arrows; other link kinds
-/// round-trip so the renderer can switch them on without a
-/// backend change.
-pub async fn get_project_dependencies(mut tc: TenantConn, path: web::Path<i32>) -> impl Responder {
+/// project and the caller can see both. The Gantt renders `blocks`
+/// arrows; other link kinds round-trip so the renderer can switch
+/// them on without a backend change.
+pub async fn get_project_dependencies(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<i32>,
+) -> impl Responder {
     let project_id = path.into_inner();
-    match tc.run(|conn| repository::linked_tickets::dependencies_for_project(conn, project_id)) {
+    let vis = VisibilityContext::from_auth(&auth);
+    match tc.run(|conn| {
+        let mut rows = repository::linked_tickets::dependencies_for_project(conn, project_id)?;
+        if !vis.sees_all() {
+            let ids: Vec<i32> = rows.iter().flat_map(|(from, to, _)| [*from, *to]).collect();
+            let visible = ticket_visibility::visible_ticket_ids(conn, &vis, &ids)?;
+            rows.retain(|(from, to, _)| visible.contains(from) && visible.contains(to));
+        }
+        Ok(rows)
+    }) {
         Ok(rows) => {
             let payload: Vec<serde_json::Value> = rows
                 .into_iter()
