@@ -53,6 +53,12 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             "/tickets/{id}/applicable-actions",
             web::get().to(crate::handlers::rules::list_applicable_actions),
         )
+        // A ticket by its number in the workspace; `TicketAccess` resolves
+        // the `{number}` placeholder.
+        .route(
+            "/tickets/by-number/{number}",
+            web::get().to(crate::handlers::get_ticket),
+        )
         .route("/tickets/{id}", web::get().to(crate::handlers::get_ticket))
         .route(
             "/tickets/{id}",

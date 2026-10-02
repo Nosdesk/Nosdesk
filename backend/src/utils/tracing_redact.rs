@@ -88,6 +88,7 @@ const ALLOWED_FIELDS: &[&str] = &[
     "bug_report_id",
     "client_session_id",
     "ticket_id",
+    "ticket_number",
     "user_uuid",
     "webhook_id",
     "workspace_id",

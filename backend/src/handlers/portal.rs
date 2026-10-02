@@ -906,6 +906,8 @@ pub async fn logout(
 #[derive(Debug, Serialize)]
 pub struct CustomerTicket {
     pub id: i32,
+    /// The number the requester knows the ticket by.
+    pub number: i32,
     pub uuid: Uuid,
     pub title: String,
     pub priority: TicketPriority,
@@ -948,6 +950,7 @@ impl CustomerTicket {
         });
         Self {
             id: t.id,
+            number: t.number,
             uuid: t.uuid,
             title: t.title,
             priority: t.priority,
@@ -1825,8 +1828,7 @@ pub async fn add_participant(
                     &email,
                     person.uuid,
                     &adder,
-                    ticket_id,
-                    &ticket.title,
+                    &ticket,
                     &url,
                     &locale,
                 ) {

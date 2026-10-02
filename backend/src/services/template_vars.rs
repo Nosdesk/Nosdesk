@@ -66,7 +66,8 @@ pub struct ReplyContext<'a> {
 /// [`utils::template_variables::unknown_variables`] with the
 /// `RULE_REPLY_VARIABLES` allow-list.
 pub fn render(template: &str, ctx: &TemplateContext<'_>) -> String {
-    let ticket_id = ctx.ticket.id.to_string();
+    // `{{ticket_id}}` is the number people know the ticket by.
+    let ticket_id = ctx.ticket.number.to_string();
     let agent_first = first_name(&ctx.agent.name);
     let customer_name = ctx.requester.map(|r| r.name.as_str()).unwrap_or("");
     let customer_first = first_name(customer_name);
@@ -190,7 +191,8 @@ mod tests {
             sla_paused_at: None,
             sla_override: "auto".to_string(),
             approval_state: None,
-            number: id,
+            // Distinct from the id, so output that quotes the id fails.
+            number: id + 1000,
         }
     }
 
@@ -237,7 +239,7 @@ mod tests {
         // through html_escape::encode_safe.
         assert_eq!(
             out,
-            "Hi , ticket 42 (Wi-Fi outage) is being looked at by Kyle Phillips. Cheers, Kyle from Nosdesk."
+            "Hi , ticket 1042 (Wi-Fi outage) is being looked at by Kyle Phillips. Cheers, Kyle from Nosdesk."
         );
     }
 
@@ -291,7 +293,7 @@ mod tests {
             "Hi {{customer_first_name}}, we got your ticket {{ticket_id}}.",
             &ctx,
         );
-        assert_eq!(out, "Hi Jordan, we got your ticket 7.");
+        assert_eq!(out, "Hi Jordan, we got your ticket 1007.");
     }
 
     #[test]

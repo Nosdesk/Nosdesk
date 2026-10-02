@@ -331,6 +331,8 @@ pub struct OutboundAttachment {
 #[derive(Debug, Clone)]
 pub struct ThreadContext {
     pub ticket_id: i32,
+    /// The ticket's number, for the subject tag.
+    pub ticket_number: i32,
     pub channel_id: i32,
     /// Provider-native pointer to the thread: the parent Message-ID for
     /// email, `thread_ts` for Slack, etc. Adapters that don't have an

@@ -372,6 +372,16 @@ impl TestFixtures {
             .expect("Failed to create test ticket")
     }
 
+    /// Give `ticket` a number unlike its id. In the shared test database a
+    /// workspace's numbers and ids advance together, so a test that must tell
+    /// them apart needs this.
+    pub fn renumber_ticket(conn: &mut DbConnection, ticket: Ticket) -> Ticket {
+        diesel::update(tickets::table.find(ticket.id))
+            .set(tickets::number.eq(ticket.id + 1_000_000))
+            .get_result(conn)
+            .expect("Failed to renumber test ticket")
+    }
+
     /// Insert a comment on a ticket and return it.
     pub fn create_comment(
         conn: &mut DbConnection,

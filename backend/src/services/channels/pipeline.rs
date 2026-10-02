@@ -433,11 +433,11 @@ pub async fn process_event(
                 resolve_identity(channel, &msg, &sender_email, conn, ctx)?;
             let sender_uuid = sender.uuid;
 
-            // existing_ticket_id may point at a ticket that no longer exists, was
-            // resolved by a loose subject "#N" match, or lives in another workspace
-            // (RLS-hidden under the channel's pin). Treat a missing or invisible
-            // ticket as "start a new one" rather than erroring, which would drop
-            // the inbound message after the IMAP cursor already advanced.
+            // existing_ticket_id may point at a ticket that no longer exists or
+            // lives in another workspace (RLS-hidden under the channel's pin).
+            // Treat a missing or invisible ticket as "start a new one" rather than
+            // erroring, which would drop the inbound message after the IMAP cursor
+            // already advanced.
             let resolved_existing = match existing_ticket_id {
                 Some(ticket_id) => tickets_repo::get_ticket_by_id(conn, ticket_id).optional()?,
                 None => None,

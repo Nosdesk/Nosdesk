@@ -373,17 +373,21 @@ impl TicketQuery {
             }
         }
 
-        // Search filter
+        // Search filter: the title, or the ticket's number ("42" or "#42")
         if let Some(ref search_term) = self.search {
             let pattern = format!("%{}%", search_term.to_lowercase());
             query = query.filter(
-                tickets::title.ilike(pattern.clone()).or(tickets::id.eq_any(
-                    search_term
-                        .parse::<i32>()
-                        .ok()
-                        .map(|id| vec![id])
-                        .unwrap_or_default(),
-                )),
+                tickets::title
+                    .ilike(pattern.clone())
+                    .or(tickets::number.eq_any(
+                        search_term
+                            .trim()
+                            .trim_start_matches('#')
+                            .parse::<i32>()
+                            .ok()
+                            .map(|number| vec![number])
+                            .unwrap_or_default(),
+                    )),
             );
         }
 
@@ -649,6 +653,35 @@ mod tests {
             .unwrap();
 
         assert!(result.total >= 2);
+    }
+
+    #[test]
+    fn search_finds_a_ticket_by_its_number() {
+        let mut conn = setup_test_connection();
+        let admin = TestFixtures::create_user(&mut conn, "num_admin", "admin");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Numbered", None, None);
+        let ticket = TestFixtures::renumber_ticket(&mut conn, ticket);
+        let auth = AuthContext::test_context(admin.uuid, "admin", vec![]);
+        let ids_for = |conn: &mut crate::db::DbConnection, term: String| -> Vec<i32> {
+            TicketQuery::new()
+                .visible_to(&auth)
+                .search(Some(term))
+                .paginate(1, 50)
+                .execute_with_users(conn)
+                .unwrap()
+                .data
+                .iter()
+                .map(|i| i.ticket.id)
+                .collect()
+        };
+
+        for term in [ticket.number.to_string(), format!("#{}", ticket.number)] {
+            assert_eq!(ids_for(&mut conn, term.clone()), vec![ticket.id], "{term}");
+        }
+        assert!(
+            !ids_for(&mut conn, ticket.id.to_string()).contains(&ticket.id),
+            "the id isn't the number people search for"
+        );
     }
 
     #[test]

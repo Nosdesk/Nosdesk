@@ -83,6 +83,7 @@ mod sync_visibility;
 mod tenant_table_grants_lint;
 mod tenant_table_rls_lint;
 mod ticket_activity_visibility;
+mod ticket_by_number;
 mod ticket_create_columns;
 mod ticket_merge;
 mod ticket_numbers;
