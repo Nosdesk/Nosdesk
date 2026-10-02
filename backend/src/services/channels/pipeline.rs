@@ -210,40 +210,50 @@ pub async fn process_event(
         };
 
         for report in &msg.bounce_reports {
+            // The address this report bounced, once it links to a row we
+            // sent. A VERP token proves which row bounced, so that row's own
+            // recipient is the address, even when a forwarding address
+            // bounced under the mailbox it forwards to. A Message-ID match
+            // counts only when the report names the row's recipient
+            // (`mark_bounced` checks), so there it's the report's address.
+            // `None`: no row. `Some(None)`: a row, but no address to act on.
             let linkage = match verp_row_id {
                 Some(id) => crate::repository::outbound_emails::mark_bounced_by_id(
                     conn,
                     id,
                     report.recipient.as_deref(),
                     report.diagnostic.as_deref(),
-                ),
+                )
+                .map(|sent_to| sent_to.map(Some)),
                 None => crate::repository::outbound_emails::mark_bounced(
                     conn,
                     &report.original_message_id,
                     report.recipient.as_deref(),
                     report.diagnostic.as_deref(),
-                ),
+                )
+                .map(|rows| (rows > 0).then(|| report.recipient.clone())),
             };
             // How the row was located, for the log line below.
             let via = verp_row_id.map_or("message-id", |_| "verp");
-            match linkage {
-                Ok(0) => {
+            let bounced = match linkage {
+                Ok(None) => {
                     debug!(
                         channel_id = channel.id,
                         message_id = %report.original_message_id,
                         via,
                         "bounce: no matching outbound row"
                     );
+                    None
                 }
-                Ok(n) => {
+                Ok(Some(address)) => {
                     debug!(
                         channel_id = channel.id,
                         message_id = %report.original_message_id,
                         via,
-                        rows = n,
                         recipient = ?report.recipient,
                         "bounce: linked to outbound row"
                     );
+                    address
                 }
                 Err(e) => {
                     warn!(
@@ -253,16 +263,18 @@ pub async fn process_event(
                         via,
                         "bounce: failed to update outbound row"
                     );
+                    None
                 }
-            }
+            };
 
             // Auto-suppress on hard bounces only. Soft bounces
             // (4xx — transient) shouldn't permanently block a
             // recipient; they retry naturally on the next send.
             // `BounceReport::is_hard` prefers the structured Status
             // code (RFC 3464's canonical signal) and falls back to
-            // scanning the diagnostic when Status is absent.
-            if let Some(recipient) = report.recipient.as_deref() {
+            // scanning the diagnostic when Status is absent. Only an
+            // address linked to a message we sent it is suppressed.
+            if let Some(recipient) = bounced.as_deref() {
                 if report.is_hard() {
                     let new = crate::models::NewEmailSuppression {
                         email: recipient.to_string(),
@@ -1856,12 +1868,11 @@ mod tests {
         );
     }
 
-    /// RFC 3464 §2.1 multi-block DSN: when a single outbound (e.g.
-    /// to a distribution list) bounces for several downstream
-    /// recipients, the pipeline must suppress *each* failed address
-    /// independently rather than just the first per-recipient block.
+    /// RFC 3464 §2.1 multi-block DSN from a list server, reporting members
+    /// we sent nothing to directly: none of them is suppressed, because only
+    /// an address we sent the reported message to is.
     #[tokio::test]
-    async fn multi_recipient_dsn_suppresses_every_failed_recipient() {
+    async fn a_list_servers_report_on_its_members_suppresses_none_of_them() {
         let mut conn = setup_test_connection();
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
 
@@ -1893,26 +1904,60 @@ mod tests {
         .unwrap();
         assert_eq!(outcome, PipelineOutcome::SkippedBounce);
 
-        // Both failed downstream addresses must be on the
-        // suppression list, even though only one outbound row
-        // existed (we sent to the list, not to the members).
+        for member in ["alice@example.org", "carol@example.org"] {
+            assert!(
+                !crate::repository::email_suppressions::is_suppressed(
+                    &mut conn,
+                    ch.workspace_id,
+                    member,
+                )
+                .unwrap(),
+                "{member} was never mailed, so isn't suppressed",
+            );
+        }
+    }
+
+    /// A report citing a Message-ID we sent to someone else, beside the
+    /// address it says bounced, stamps no row and suppresses nobody.
+    #[tokio::test]
+    async fn a_report_naming_an_address_we_didnt_mail_suppresses_nothing() {
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+        // The fixture reports bob@example.org; we sent its message elsewhere.
+        let original = crate::repository::outbound_emails::enqueue(
+            &mut conn,
+            outbound_row(
+                ch.id,
+                "out-42-canonical@yourco.com",
+                "someone-else@example.net",
+            ),
+        )
+        .unwrap();
+
+        let raw = include_bytes!("../../../tests/fixtures/dsn/postfix-canonical.eml");
+        let msg = super::super::email_imap::parse_rfc822_into_inbound_message(raw, None)
+            .expect("fixture should parse");
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, PipelineOutcome::SkippedBounce);
+
+        let refreshed = crate::repository::outbound_emails::get(&mut conn, original.id).unwrap();
+        assert!(refreshed.bounced_at.is_none(), "the row wasn't sent to bob");
         assert!(
-            crate::repository::email_suppressions::is_suppressed(
+            !crate::repository::email_suppressions::is_suppressed(
                 &mut conn,
                 ch.workspace_id,
-                "alice@example.org",
+                "bob@example.org",
             )
             .unwrap(),
-            "alice should be auto-suppressed",
-        );
-        assert!(
-            crate::repository::email_suppressions::is_suppressed(
-                &mut conn,
-                ch.workspace_id,
-                "carol@example.org",
-            )
-            .unwrap(),
-            "carol should be auto-suppressed",
+            "bob must not be suppressed"
         );
     }
 
