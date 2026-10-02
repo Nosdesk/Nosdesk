@@ -686,6 +686,7 @@ pub async fn oauth_callback(
                     let user_result = find_or_create_oauth_user(
                         &user_info,
                         &provider.provider_type,
+                        true,
                         &mut conn,
                         workspace_id,
                     )
@@ -894,6 +895,7 @@ pub async fn oauth_callback(
                     let user_result = find_or_create_oauth_user(
                         &oidc_user_info,
                         &oidc_identity_issuer(),
+                        user_info.email_verified == Some(true),
                         &mut conn,
                         workspace_id,
                     )
@@ -1481,6 +1483,10 @@ async fn find_or_create_oauth_user(
     // control plane projected under `(iss, sub)`, not the literal
     // string `"oidc"`. See `oidc_identity_issuer`.
     iss: &str,
+    // Whether the provider vouches for the email: Microsoft's directory owns
+    // its addresses (the tenant is pinned, see `get_microsoft_tenant_id`);
+    // OIDC must say `email_verified: true`.
+    email_verified: bool,
     conn: &mut DbConnection,
     workspace_id: i32,
 ) -> Result<crate::models::User, String> {
@@ -1531,6 +1537,7 @@ async fn find_or_create_oauth_user(
         iss: iss.to_string(),
         sub: provider_user_id,
         email,
+        email_verified,
         name: Some(name),
         role: "member".to_string(),
         workspace_id,

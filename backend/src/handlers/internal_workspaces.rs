@@ -368,6 +368,8 @@ pub async fn upsert_projected_user(
         iss,
         sub,
         email,
+        // The control plane provisions verified seat emails.
+        email_verified: true,
         name,
         role: role.clone(),
         workspace_id: workspace.id,

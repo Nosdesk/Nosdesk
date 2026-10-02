@@ -56,6 +56,11 @@ pub struct ProjectedUserInput {
     /// Mapped onto `user_auth_identities.external_id`.
     pub sub: String,
     pub email: String,
+    /// Whether the provider vouches that `email` belongs to this identity.
+    /// Linking a new identity to an existing account by email needs it:
+    /// otherwise anyone the provider lets assert an address could take over
+    /// the account that has it.
+    pub email_verified: bool,
     /// Display name. Required for new-user creation; for the
     /// existing-by-identity path we use whatever's already on the
     /// users row (no rename here).
@@ -114,6 +119,7 @@ pub fn find_or_create_projected_user(
         iss,
         sub,
         email,
+        email_verified,
         name,
         role,
         workspace_id,
@@ -131,6 +137,15 @@ pub fn find_or_create_projected_user(
         Ok(None) => {
             // --- 2. fall back by email; attach identity if found ---
             match users_repo::get_user_by_email(&email, conn) {
+                // The address belongs to an existing account, but the provider
+                // doesn't vouch for it: neither link nor create a second
+                // account for it.
+                Ok(_) if !email_verified => {
+                    return Err(format!(
+                        "identity provider {iss} didn't verify the email address, so the \
+                         identity isn't linked to the existing account that has it"
+                    ));
+                }
                 Ok(user) => {
                     let new_identity = NewUserAuthIdentity {
                         user_uuid: user.uuid,
@@ -346,6 +361,7 @@ mod tests {
         let email = format!("owner+{}@acme.example", uuid::Uuid::new_v4());
 
         let eager = ProjectedUserInput {
+            email_verified: true,
             iss: iss.to_string(),
             sub: sub.clone(),
             email: email.clone(),
@@ -360,6 +376,7 @@ mod tests {
         let first_uuid = first.into_user().uuid;
 
         let lazy = ProjectedUserInput {
+            email_verified: true,
             iss: iss.to_string(),
             sub: sub.clone(),
             email: email.clone(),
@@ -381,6 +398,58 @@ mod tests {
         );
     }
 
+    /// A new identity whose provider doesn't vouch for the email links to
+    /// nothing: not to the existing account that has the address, and no
+    /// second account is made for it.
+    #[test]
+    fn an_unverified_email_doesnt_reach_the_account_that_has_it() {
+        let mut conn = setup_test_connection();
+        let iss = "https://idp.example/";
+        let email = format!("victim+{}@acme.example", uuid::Uuid::new_v4());
+        let victim = find_or_create_projected_user(
+            &mut conn,
+            ProjectedUserInput {
+                email_verified: true,
+                iss: iss.to_string(),
+                sub: format!("victim-{}", uuid::Uuid::new_v4()),
+                email: email.clone(),
+                name: Some("Victim".to_string()),
+                role: "admin".to_string(),
+                workspace_id: 1,
+                password_hash: None,
+                metadata: None,
+            },
+        )
+        .expect("project the victim")
+        .into_user();
+
+        let attacker_sub = format!("attacker-{}", uuid::Uuid::new_v4());
+        let outcome = find_or_create_projected_user(
+            &mut conn,
+            ProjectedUserInput {
+                email_verified: false,
+                iss: iss.to_string(),
+                sub: attacker_sub.clone(),
+                email: email.clone(),
+                name: Some("Attacker".to_string()),
+                role: "member".to_string(),
+                workspace_id: 1,
+                password_hash: None,
+                metadata: None,
+            },
+        );
+        assert!(
+            outcome.is_err(),
+            "an unverified email must not resolve a user"
+        );
+        assert_eq!(
+            user_auth_identities::find_user_by_identity(iss, &attacker_sub, &mut conn).unwrap(),
+            None,
+            "no identity is attached to {}",
+            victim.uuid
+        );
+    }
+
     /// Same shape as above but asserts the trailing slash matters: a
     /// lazy lookup with `iss` minus the trailing slash misses, falls
     /// to the email-fallback branch, and (since this test reuses the
@@ -399,6 +468,7 @@ mod tests {
         let email = format!("owner+{}@acme.example", uuid::Uuid::new_v4());
 
         let eager = ProjectedUserInput {
+            email_verified: true,
             iss: iss_canonical.to_string(),
             sub: sub.clone(),
             email: email.clone(),
@@ -412,6 +482,7 @@ mod tests {
         let first_uuid = first.into_user().uuid;
 
         let drifted = ProjectedUserInput {
+            email_verified: true,
             iss: iss_drifted.to_string(),
             sub: sub.clone(),
             email: email.clone(),
