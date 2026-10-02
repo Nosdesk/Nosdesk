@@ -1691,12 +1691,12 @@ mod tests {
         );
     }
 
-    /// RFC 3464 §2.1 multi-block DSN: when a single outbound (e.g.
-    /// to a distribution list) bounces for several downstream
-    /// recipients, the pipeline must suppress *each* failed address
-    /// independently rather than just the first per-recipient block.
+    /// RFC 3464 §2.1 multi-block DSN from a list server, reporting members
+    /// we sent nothing to directly: none of them is suppressed. Suppressing
+    /// an address on a report about mail we never sent it would let anyone
+    /// we've mailed stop someone else's mail.
     #[tokio::test]
-    async fn multi_recipient_dsn_suppresses_every_failed_recipient() {
+    async fn a_list_servers_report_on_its_members_suppresses_none_of_them() {
         let mut conn = setup_test_connection();
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
 
@@ -1728,19 +1728,12 @@ mod tests {
         .unwrap();
         assert_eq!(outcome, PipelineOutcome::SkippedBounce);
 
-        // Both failed downstream addresses must be on the
-        // suppression list, even though only one outbound row
-        // existed (we sent to the list, not to the members).
-        assert!(
-            crate::repository::email_suppressions::is_suppressed(&mut conn, "alice@example.org")
-                .unwrap(),
-            "alice should be auto-suppressed",
-        );
-        assert!(
-            crate::repository::email_suppressions::is_suppressed(&mut conn, "carol@example.org")
-                .unwrap(),
-            "carol should be auto-suppressed",
-        );
+        for member in ["alice@example.org", "carol@example.org"] {
+            assert!(
+                !crate::repository::email_suppressions::is_suppressed(&mut conn, member).unwrap(),
+                "{member} was never mailed, so isn't suppressed",
+            );
+        }
     }
 
     /// Duplicate DSN ingest must not double-count the suppression's
