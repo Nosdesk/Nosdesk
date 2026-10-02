@@ -803,6 +803,35 @@ mod tests {
         );
     }
 
+    /// Moves these events' `occurred_at` back to `at`. An earlier month moves
+    /// each row to that month's partition, which Postgres does as DELETE +
+    /// INSERT, re-firing the webhook outbox trigger for a `sync_id` already
+    /// queued, so the queued rows are cleared first. Production never
+    /// rewrites `occurred_at`.
+    fn backdate_events(
+        conn: &mut DbConnection,
+        event_type: &str,
+        aggregate_ids: &[String],
+        at: chrono::DateTime<Utc>,
+    ) {
+        diesel::sql_query(
+            "DELETE FROM webhook_outbox WHERE sync_id IN \
+             (SELECT sync_id FROM sync_actions WHERE event_type = $1 AND aggregate_id = ANY($2))",
+        )
+        .bind::<diesel::sql_types::Text, _>(event_type)
+        .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(aggregate_ids)
+        .execute(conn)
+        .unwrap();
+        diesel::update(
+            sync_actions::table
+                .filter(sync_actions::event_type.eq(event_type))
+                .filter(sync_actions::aggregate_id.eq_any(aggregate_ids)),
+        )
+        .set(sync_actions::occurred_at.eq(at))
+        .execute(conn)
+        .unwrap();
+    }
+
     #[test]
     fn burnup_reconstructs_scope_and_completed_series() {
         let mut conn = setup_test_connection();
@@ -844,27 +873,21 @@ mod tests {
         // makes the scope ramp real and removes that sub-second skew as a
         // source of flakiness (a ticket added "now" but recorded one tick in
         // the future would otherwise drop out of final_scope).
-        diesel::update(
-            sync_actions::table
-                .filter(sync_actions::aggregate.eq(SyncAggregate::CycleTicket))
-                .filter(sync_actions::aggregate_id.eq(format!("{}:{}", cycle.id, t1.id)))
-                .filter(sync_actions::event_type.eq("cycle_ticket.added")),
-        )
-        .set(sync_actions::occurred_at.eq(now - chrono::Duration::days(2)))
-        .execute(&mut conn)
-        .unwrap();
-        diesel::update(
-            sync_actions::table
-                .filter(sync_actions::aggregate.eq(SyncAggregate::CycleTicket))
-                .filter(sync_actions::aggregate_id.eq_any([
-                    format!("{}:{}", cycle.id, t2.id),
-                    format!("{}:{}", cycle.id, t3.id),
-                ]))
-                .filter(sync_actions::event_type.eq("cycle_ticket.added")),
-        )
-        .set(sync_actions::occurred_at.eq(now - chrono::Duration::days(1)))
-        .execute(&mut conn)
-        .unwrap();
+        backdate_events(
+            &mut conn,
+            "cycle_ticket.added",
+            &[format!("{}:{}", cycle.id, t1.id)],
+            now - chrono::Duration::days(2),
+        );
+        backdate_events(
+            &mut conn,
+            "cycle_ticket.added",
+            &[
+                format!("{}:{}", cycle.id, t2.id),
+                format!("{}:{}", cycle.id, t3.id),
+            ],
+            now - chrono::Duration::days(1),
+        );
 
         // Close t1 so completed picks up at least one ticket. Close at
         // the ticket's own created_at rather than the `now` captured at
@@ -920,26 +943,23 @@ mod tests {
 
         // Backdate both joins to two days ago, then remove t1 a day ago.
         // (Membership is replayed from the events' occurred_at.)
-        diesel::update(
-            crate::schema::sync_actions::table
-                .filter(crate::schema::sync_actions::event_type.eq("cycle_ticket.added"))
-                .filter(crate::schema::sync_actions::aggregate_id.like(format!("{}:%", cycle.id))),
-        )
-        .set(crate::schema::sync_actions::occurred_at.eq(now - chrono::Duration::days(2)))
-        .execute(&mut conn)
-        .unwrap();
+        backdate_events(
+            &mut conn,
+            "cycle_ticket.added",
+            &[
+                format!("{}:{}", cycle.id, t1.id),
+                format!("{}:{}", cycle.id, t2.id),
+            ],
+            now - chrono::Duration::days(2),
+        );
 
         remove_ticket(&mut conn, t1.id).unwrap();
-        diesel::update(
-            crate::schema::sync_actions::table
-                .filter(crate::schema::sync_actions::event_type.eq("cycle_ticket.removed"))
-                .filter(
-                    crate::schema::sync_actions::aggregate_id.eq(format!("{}:{}", cycle.id, t1.id)),
-                ),
-        )
-        .set(crate::schema::sync_actions::occurred_at.eq(now - chrono::Duration::days(1)))
-        .execute(&mut conn)
-        .unwrap();
+        backdate_events(
+            &mut conn,
+            "cycle_ticket.removed",
+            &[format!("{}:{}", cycle.id, t1.id)],
+            now - chrono::Duration::days(1),
+        );
 
         let series = build_burnup(&mut conn, &cycle).unwrap();
         let points = series["points"].as_array().unwrap();
