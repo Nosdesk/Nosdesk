@@ -439,10 +439,14 @@ pub async fn get_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Respon
 
     // A `not_found` here is a genuine "deleted between extraction
     // and load" race, which we still want to surface as 404.
-    let complete_ticket = match tc.run(|conn| repository::get_complete_ticket(conn, ticket_id)) {
-        Ok(ticket) => ticket,
-        Err(_) => return errors::not_found_msg("Ticket not found"),
-    };
+    // TicketAccess proves the ticket is reachable; internal notes on it are a
+    // separate question, so resolve the audience from the same caller.
+    let audience = crate::repository::ticket_visibility::CommentAudience::from_auth(&auth);
+    let complete_ticket =
+        match tc.run(|conn| repository::get_complete_ticket(conn, ticket_id, audience)) {
+            Ok(ticket) => ticket,
+            Err(_) => return errors::not_found_msg("Ticket not found"),
+        };
 
     // Record the view, best-effort (don't fail the request if it
     // errors). Runs under TenantConn so user_ticket_views' workspace
@@ -918,7 +922,16 @@ pub async fn create_empty_ticket(
     );
 
     // Return the complete ticket with article content
-    match tc.run(|conn| repository::get_complete_ticket(conn, ticket.id)) {
+    // The ticket was created moments ago and has no comments, so the audience
+    // filters nothing. Stated explicitly rather than defaulted, because the
+    // argument exists precisely so nobody has to guess.
+    match tc.run(|conn| {
+        repository::get_complete_ticket(
+            conn,
+            ticket.id,
+            crate::repository::ticket_visibility::CommentAudience::system(),
+        )
+    }) {
         Ok(complete_ticket) => HttpResponse::Created().json(complete_ticket),
         Err(_) => HttpResponse::Created().json(ticket), // Fallback to just the ticket if getting complete ticket fails
     }
@@ -1275,11 +1288,16 @@ pub async fn update_ticket_partial(
 
             // Now fetch the complete ticket for the response
             // This happens after SSE broadcast so it doesn't delay real-time updates
-            let updated_ticket =
-                match tc.run(|conn| repository::get_complete_ticket(conn, ticket_id)) {
-                    Ok(ticket) => ticket,
-                    Err(_) => return errors::internal("Failed to fetch updated ticket"),
-                };
+            let updated_ticket = match tc.run(|conn| {
+                repository::get_complete_ticket(
+                    conn,
+                    ticket_id,
+                    crate::repository::ticket_visibility::CommentAudience::from_auth(&auth),
+                )
+            }) {
+                Ok(ticket) => ticket,
+                Err(_) => return errors::internal("Failed to fetch updated ticket"),
+            };
 
             // Trigger notifications for relevant changes (runs async, doesn't block response)
             if let Some(ref old) = old_ticket {
@@ -1862,8 +1880,12 @@ mod tests {
         let ticket = TestFixtures::create_ticket(&mut conn, "Get Me Ticket", Some(user.uuid), None);
 
         // Test via repository layer
-        let fetched = crate::repository::get_complete_ticket(&mut conn, ticket.id)
-            .expect("Should fetch ticket");
+        let fetched = crate::repository::get_complete_ticket(
+            &mut conn,
+            ticket.id,
+            crate::repository::ticket_visibility::CommentAudience::system(),
+        )
+        .expect("Should fetch ticket");
 
         assert_eq!(fetched.ticket.title, "Get Me Ticket");
         assert_eq!(fetched.ticket.id, ticket.id);
@@ -1983,8 +2005,12 @@ mod tests {
         assert_eq!(ticket.category_id, Some(category.id));
 
         // Fetch via repository
-        let fetched = crate::repository::get_complete_ticket(&mut conn, ticket.id)
-            .expect("Should fetch ticket");
+        let fetched = crate::repository::get_complete_ticket(
+            &mut conn,
+            ticket.id,
+            crate::repository::ticket_visibility::CommentAudience::system(),
+        )
+        .expect("Should fetch ticket");
 
         assert_eq!(fetched.ticket.category_id, Some(category.id));
         assert_eq!(fetched.ticket.title, "Categorized Ticket");
