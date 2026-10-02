@@ -107,7 +107,10 @@ struct Fixture {
 
 fn setup(conn: &mut DbConnection, slug: &str) -> Fixture {
     let workspace_id = common::mint_workspace(conn, slug, slug);
-    backend::sync::session::pin_workspace(conn, workspace_id).expect("pin");
+    diesel::sql_query("SELECT set_config('app.workspace_id', $1, false)")
+        .bind::<diesel::sql_types::Text, _>(workspace_id.to_string())
+        .execute(conn)
+        .expect("pin");
     let author = common::insert_user(conn, "Doc Author");
     let reader = common::insert_user(conn, "Doc Reader");
     let other = common::insert_user(conn, "Someone Else");

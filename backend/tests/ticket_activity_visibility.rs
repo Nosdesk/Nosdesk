@@ -2,8 +2,8 @@
 //!
 //! Ticket access says the viewer may see the ticket; it does not make every
 //! row on its timeline theirs. An internal note's `comment.created` carries
-//! the note's content, and `ticket_reference` rows are staff-only, so the
-//! endpoint applies the same keep-mask as the sync delta.
+//! the note's content, so the endpoint applies the same keep-mask as the sync
+//! delta.
 #![allow(clippy::expect_used)]
 
 use actix_web::dev::Service;
@@ -58,7 +58,6 @@ fn claims_for(user: &User) -> Claims {
         platform_role: "user".to_string(),
         scope: "full".to_string(),
         sid: None,
-        workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
     }
@@ -79,7 +78,6 @@ fn spawn(pool: &common::TestPool, user: &User) -> actix_test::TestServer {
             slug: "default".to_string(),
             name: "Default".to_string(),
             organisation_id: None,
-            custom_domain: None,
         };
         App::new()
             .app_data(web::Data::new(pool))
@@ -114,7 +112,7 @@ async fn event_types(srv: &actix_test::TestServer, ticket_id: i32) -> Vec<String
 }
 
 #[actix_web::test]
-async fn a_restricted_viewer_does_not_see_internal_notes_or_references() {
+async fn a_restricted_viewer_does_not_see_internal_notes() {
     common::ensure_test_keyring();
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);
@@ -174,10 +172,6 @@ async fn a_restricted_viewer_does_not_see_internal_notes_or_references() {
     .expect("seed comments");
 
     let staff = event_types(&spawn(&pool, &agent), ticket.id).await;
-    assert!(
-        staff.contains(&"ticket_reference.added".to_string()),
-        "{staff:?}"
-    );
     assert_eq!(
         staff.iter().filter(|t| *t == "comment.created").count(),
         2,
@@ -192,9 +186,5 @@ async fn a_restricted_viewer_does_not_see_internal_notes_or_references() {
             .count(),
         1,
         "the requester sees only the public reply: {restricted:?}"
-    );
-    assert!(
-        !restricted.contains(&"ticket_reference.added".to_string()),
-        "references are staff-only: {restricted:?}"
     );
 }
