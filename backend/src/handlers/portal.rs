@@ -69,6 +69,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             web::get().to(crate::handlers::portal_events::portal_events),
         )
         .route("/notices/{id}/follow", web::post().to(follow_notice))
+        .route(
+            "/tickets/by-number/{number}",
+            web::get().to(get_my_ticket_by_number),
+        )
         .route("/tickets/{id}", web::get().to(get_my_ticket))
         .route("/tickets/{id}/comments", web::post().to(reply_to_my_ticket))
         .route("/tickets/{id}/resolve", web::post().to(resolve_my_ticket))
@@ -1155,11 +1159,33 @@ pub async fn list_my_tickets(mut tc: TenantConn, portal: PortalContext) -> impl 
 /// customer-visible thread (internal notes dropped). 404 (not 403) when the
 /// ticket isn't theirs, so ticket existence doesn't leak.
 pub async fn get_my_ticket(
-    mut tc: TenantConn,
+    tc: TenantConn,
     portal: PortalContext,
     path: web::Path<i32>,
 ) -> impl Responder {
-    let ticket_id = path.into_inner();
+    my_ticket(tc, portal, path.into_inner())
+}
+
+/// `GET /api/portal/tickets/by-number/{number}`: the same, by the ticket's
+/// number in the portal's workspace.
+pub async fn get_my_ticket_by_number(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    path: web::Path<i32>,
+) -> HttpResponse {
+    let number = path.into_inner();
+    let workspace_id = portal.workspace_id;
+    match tc.run(|conn| crate::repository::tickets::id_for_number(conn, workspace_id, number)) {
+        Ok(Some(ticket_id)) => my_ticket(tc, portal, ticket_id),
+        Ok(None) => errors::not_found("Ticket not found"),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to load ticket");
+            errors::internal("Failed to load ticket")
+        }
+    }
+}
+
+fn my_ticket(mut tc: TenantConn, portal: PortalContext, ticket_id: i32) -> HttpResponse {
     let viewer = portal.user_uuid;
     let result = tc.run(move |conn| {
         let vis = portal_visibility(conn, viewer)?;

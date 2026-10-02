@@ -43,6 +43,7 @@ fn seed(pool: &backend::db::Pool, ws_id: i32, user: uuid::Uuid) -> (i32, Notific
         },
         NotificationEntity::Ticket {
             id: 1,
+            number: None,
             title: "T".into(),
         },
         ws_id,

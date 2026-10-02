@@ -120,6 +120,20 @@ pub fn number_of(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Option<
         .optional()
 }
 
+/// The numbers of the tickets `ids` in `workspace_id`, by id.
+pub fn numbers_of(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, i32>> {
+    tickets::table
+        .filter(tickets::workspace_id.eq(workspace_id))
+        .filter(tickets::id.eq_any(ids))
+        .select((tickets::id, tickets::number))
+        .load::<(i32, i32)>(conn)
+        .map(|rows| rows.into_iter().collect())
+}
+
 /// The id of the ticket numbered `number` in `workspace_id`.
 pub fn id_for_number(
     conn: &mut DbConnection,

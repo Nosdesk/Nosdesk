@@ -387,6 +387,7 @@ pub fn resolve(
                     actor,
                     NotificationEntity::Ticket {
                         id: ticket_id,
+                        number: Some(number),
                         title: ticket_title,
                     },
                     workspace_id,
@@ -414,6 +415,7 @@ pub fn resolve(
                         actor,
                         NotificationEntity::Ticket {
                             id: ticket_id,
+                            number: Some(number),
                             title: ticket_title.clone(),
                         },
                         workspace_id,
@@ -440,6 +442,7 @@ pub fn resolve(
                         actor.clone(),
                         NotificationEntity::Ticket {
                             id: ticket_id,
+                            number: Some(number),
                             title: ticket_title.clone(),
                         },
                         workspace_id,
@@ -490,6 +493,7 @@ pub fn resolve(
                     actor,
                     NotificationEntity::Ticket {
                         id: ticket_id,
+                        number: Some(number),
                         title: ticket_title,
                     },
                     workspace_id,
@@ -537,6 +541,7 @@ pub fn resolve(
                     actor,
                     NotificationEntity::Ticket {
                         id: ticket_id,
+                        number: Some(number),
                         title: ticket_title,
                     },
                     workspace_id,
@@ -606,6 +611,7 @@ pub fn resolve(
             let entity = || NotificationEntity::Comment {
                 id: comment_id,
                 ticket_id,
+                ticket_number: Some(number),
                 ticket_title: ticket_title.clone(),
             };
             for recipient in recipients {
@@ -662,6 +668,7 @@ pub fn resolve(
                     NotificationEntity::Comment {
                         id: comment_id,
                         ticket_id: source_ticket_id,
+                        ticket_number: Some(source.number),
                         ticket_title: source.title,
                     },
                     workspace_id,
