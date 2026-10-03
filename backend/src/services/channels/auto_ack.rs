@@ -176,14 +176,16 @@ async fn send_auto_ack(
         }
     };
 
-    // Close with a way back to the request (signed in on hosted). Pinned to the
-    // ticket's workspace: the link and the requester's locale are tenant reads.
-    let body = match ticket.requester_uuid {
-        Some(requester) => crate::sync::session::run_in_workspace(
-            pool,
-            "background:auto_ack_link",
-            ticket.workspace_id,
-            |conn| {
+    // Close with a way back to the request (signed in on hosted), then the
+    // workspace's security note. Pinned to the ticket's workspace: the link,
+    // the requester's locale and the sending address are tenant reads.
+    let body = crate::sync::session::run_in_workspace(
+        pool,
+        "background:auto_ack_link",
+        ticket.workspace_id,
+        |conn| {
+            let mut body = body.clone();
+            if let Some(requester) = ticket.requester_uuid {
                 let url = crate::utils::portal_ticket_link::view_request_url(
                     conn,
                     ticket.workspace_id,
@@ -193,22 +195,28 @@ async fn send_auto_ack(
                 let locale =
                     crate::repository::user_locale::resolve_effective_locale(conn, requester);
                 // A live known-issue notice goes before the link.
-                let body = match crate::handlers::notices::ack_notice_paragraph(conn, &locale) {
-                    Some(note) => format!("{body}\n\n{note}"),
-                    None => body.clone(),
-                };
-                Ok::<_, diesel::result::Error>(match url {
-                    Some(url) => {
-                        let label = crate::utils::i18n::tr(&locale, "reply-email-view-request");
-                        format!("{body}\n\n{label}: {url}")
-                    }
-                    None => body,
-                })
-            },
-        )
-        .unwrap_or(body),
-        None => body,
-    };
+                if let Some(notice) = crate::handlers::notices::ack_notice_paragraph(conn, &locale)
+                {
+                    body = format!("{body}\n\n{notice}");
+                }
+                if let Some(url) = url {
+                    let label = crate::utils::i18n::tr(&locale, "reply-email-view-request");
+                    body = format!("{body}\n\n{label}: {url}");
+                }
+            }
+            // It leaves under the workspace's own identity, like a reply.
+            if let Some(note) = crate::utils::email_branding::security_note(
+                conn,
+                &settings,
+                "",
+                crate::utils::email_branding::SentFrom::Workspace,
+            ) {
+                body = format!("{body}\n\n{note}");
+            }
+            Ok::<_, diesel::result::Error>(body)
+        },
+    )
+    .unwrap_or(body);
 
     // Build outbound email. The Message-ID is stamped by the threading
     // helper so the recipient's reply matches back to this ticket via

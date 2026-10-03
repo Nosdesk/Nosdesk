@@ -263,6 +263,7 @@ pub fn enqueue_for_comment(
                             .unwrap_or_else(|| "nosdesk.local".to_string());
                         let participants =
                             super::relay::relay_participants(conn, &ticket, &comment)?;
+                        let note = reply_security_note(conn);
                         let copies = requester_copy
                             .then_some((ticket.requester_uuid, recipient))
                             .into_iter()
@@ -271,6 +272,7 @@ pub fn enqueue_for_comment(
                         for (to_uuid, to_email) in copies {
                             let body =
                                 with_request_link(conn, &ticket, to_uuid, base.clone(), true);
+                            let body = with_security_note(body, note.as_deref());
                             let mut new_row = reply_row(
                                 None,
                                 ticket.id,
@@ -347,6 +349,7 @@ pub fn enqueue_for_comment(
                 // thread and Reply-To, each with its own Message-ID (which
                 // still threads a reply back) and its own View request link.
                 let participants = super::relay::relay_participants(conn, &ticket, &comment)?;
+                let note = reply_security_note(conn);
                 let copies = requester_copy
                     .then_some((ticket.requester_uuid, recipient))
                     .into_iter()
@@ -354,6 +357,7 @@ pub fn enqueue_for_comment(
                 let mut first = None;
                 for (to_uuid, to_email) in copies {
                     let body = with_request_link(conn, &ticket, to_uuid, base.clone(), false);
+                    let body = with_security_note(body, note.as_deref());
                     let body =
                         super::quote_previous::maybe_prepend_quote(conn, &channel, &ticket, body);
                     let mut new_row = reply_row(
@@ -453,6 +457,37 @@ fn with_request_link(
     body
 }
 
+/// The workspace's anti-phishing note, when it has one on. A reply leaves
+/// under the workspace's own identity, so the note names that domain.
+fn reply_security_note(conn: &mut DbConnection) -> Option<String> {
+    let settings = crate::repository::site_settings::get_site_settings(conn).ok()?;
+    crate::utils::email_branding::security_note(
+        conn,
+        &settings,
+        "",
+        crate::utils::email_branding::SentFrom::Workspace,
+    )
+}
+
+/// Close a reply with the security note: one small line after the signature
+/// and the request link. It sets no colour, so it follows the mail app's
+/// theme, dark mode included.
+fn with_security_note(
+    body: super::reply_body::ReplyBody,
+    note: Option<&str>,
+) -> super::reply_body::ReplyBody {
+    match note {
+        Some(note) => body.append(
+            &format!(
+                r#"<p style="font-size:12px;line-height:1.5;">{}</p>"#,
+                crate::utils::email::escape_html(note)
+            ),
+            &format!("\n\n{note}"),
+        ),
+        None => body,
+    }
+}
+
 /// The queue row for a reply to the requester. Agent replies are conversation
 /// mail: workspace identity, but transactional (no List-Unsubscribe on a human
 /// reply).
@@ -515,6 +550,33 @@ mod tests {
             enabled: false,
             security: crate::utils::email::SmtpSecurity::StartTls,
         }))
+    }
+
+    #[test]
+    fn a_reply_closes_with_the_security_note_after_its_link() {
+        let body = super::super::reply_body::ReplyBody {
+            html: r#"<p>Fixed it.</p><p><a href="https://desk.test/r">View your request</a></p>"#
+                .into(),
+            text: "Fixed it.\n\nView your request: https://desk.test/r".into(),
+        };
+        let noted = with_security_note(
+            body.clone(),
+            Some("Acme <IT> only emails you from acme.test."),
+        );
+        assert_eq!(
+            noted.html,
+            format!(
+                r#"{}<p style="font-size:12px;line-height:1.5;">Acme &lt;IT&gt; only emails you from acme.test.</p>"#,
+                body.html
+            )
+        );
+        assert_eq!(
+            noted.text,
+            format!("{}\n\nAcme <IT> only emails you from acme.test.", body.text)
+        );
+
+        let unchanged = with_security_note(body.clone(), None);
+        assert_eq!((unchanged.html, unchanged.text), (body.html, body.text));
     }
 
     #[tokio::test]
