@@ -2160,7 +2160,8 @@ admin-channels-email-auto-ack-save = Enregistrer l'accusé
 admin-channels-email-auto-ack-success-saved = Accusé de réception mis à jour
 # Note de sécurité (machine, à relire par un locuteur natif).
 admin-email-security-note-heading = Note de sécurité
-admin-email-security-note-subtitle = Ajoutez une ligne anti-hameçonnage au pied des e-mails transactionnels (réinitialisations de mot de passe, invitations) pour que les destinataires distinguent un message authentique d'une usurpation.
+# Machine, à relire par un locuteur natif.
+admin-email-security-note-subtitle = Ajoutez une ligne anti-hameçonnage à la fin des e-mails de cet espace de travail, réponses comprises, pour que les destinataires distinguent un message authentique d'une usurpation.
 admin-email-security-note-toggle-label = Afficher la note de sécurité
 admin-email-security-note-toggle-description = Désactivée par défaut. Activez-la une fois votre domaine d'envoi et votre image de marque configurés.
 admin-email-security-note-template-label = Note personnalisée

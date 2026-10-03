@@ -657,7 +657,11 @@ pub async fn email_preview(
     let (branding, locale) = tc
         .run(|conn| {
             Ok::<_, diesel::result::Error>((
-                crate::utils::email_branding::get_email_branding(conn, &base_url),
+                crate::utils::email_branding::get_email_branding(
+                    conn,
+                    &base_url,
+                    crate::utils::email_branding::SentFrom::Workspace,
+                ),
                 crate::repository::user_locale::resolve_effective_locale(conn, user_uuid),
             ))
         })

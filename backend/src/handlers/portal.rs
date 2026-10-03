@@ -478,7 +478,11 @@ pub(crate) fn send_sign_in_link(pool: &Pool, ctx: &WorkspaceContext, email: &str
         "background:portal_magic_link",
         ctx.workspace_id,
         move |conn| {
-            let branding = crate::utils::email_branding::get_email_branding(conn, &base_url);
+            let branding = crate::utils::email_branding::get_email_branding(
+                conn,
+                &base_url,
+                crate::utils::email_branding::SentFrom::Workspace,
+            );
             let locale = crate::repository::user_locale::resolve_effective_locale(conn, user.uuid);
             crate::services::transactional_email::enqueue_portal_magic_link(
                 conn,
@@ -1844,7 +1848,11 @@ pub async fn add_participant(
                     .find("/api/")
                     .map(|i| url[..i].to_string())
                     .unwrap_or_default();
-                let branding = crate::utils::email_branding::get_email_branding(conn, &base);
+                let branding = crate::utils::email_branding::get_email_branding(
+                    conn,
+                    &base,
+                    crate::utils::email_branding::SentFrom::Workspace,
+                );
                 let locale =
                     crate::repository::user_locale::resolve_effective_locale(conn, person.uuid);
                 if let Err(e) = crate::services::transactional_email::enqueue_participant_added(
