@@ -27,6 +27,60 @@ fn hit_ticket_id(r: &crate::services::search::types::SearchResult) -> Option<i32
     }
 }
 
+/// The ticket a query names by number ("83" or "#83"), as a search hit, when
+/// the caller can see it. Not for a search narrowed to other entity types or
+/// to one author.
+fn ticket_number_hit(
+    pool: &web::Data<Pool>,
+    auth: &AuthContext,
+    workspace_id: i32,
+    query: &SearchQuery,
+) -> Result<Option<crate::services::search::types::SearchResult>, ApiError> {
+    use crate::repository::ticket_visibility::{self, VisibilityContext};
+
+    if query.author.is_some()
+        || query
+            .entity_types()
+            .is_some_and(|types| !types.contains(&EntityType::Ticket))
+    {
+        return Ok(None);
+    }
+    let Ok(number) = query.q.trim().trim_start_matches('#').parse::<i32>() else {
+        return Ok(None);
+    };
+    let mut conn = helpers::db_conn(pool)?;
+    helpers::pin_workspace(&mut conn, workspace_id);
+    let lookup = (|| {
+        let Some(id) = crate::repository::tickets::id_for_number(&mut conn, workspace_id, number)?
+        else {
+            return Ok(None);
+        };
+        let vis = VisibilityContext::from_auth(auth);
+        if !ticket_visibility::can_view_ticket(&mut conn, &vis, id)? {
+            return Ok(None);
+        }
+        crate::repository::tickets::get_ticket_by_id(&mut conn, id).map(Some)
+    })();
+    let ticket = lookup.map_err(|e: diesel::result::Error| {
+        error!(error = ?e, "search ticket number lookup failed");
+        ApiError::Internal("Search failed".into())
+    })?;
+    Ok(
+        ticket.map(|t| crate::services::search::types::SearchResult {
+            id: format!("ticket-{}", t.id),
+            entity_type: "ticket".to_string(),
+            entity_id: i64::from(t.id),
+            title: t.title,
+            preview: String::new(),
+            // Rewritten to the number with the other hits below.
+            url: format!("/tickets/{}", t.id),
+            score: f32::MAX,
+            updated_at: Some(t.updated_at.and_utc().to_rfc3339()),
+            is_internal: None,
+        }),
+    )
+}
+
 /// Search routes, mounted inside the authenticated `/api` scope in main.rs.
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/search", web::get().to(search))
@@ -91,6 +145,22 @@ pub async fn search(
 
     match search_service.search(&query, include_internal, ws.workspace_id as i64) {
         Ok(mut response) => {
+            // A ticket's number finds the ticket. The index holds titles and
+            // text, not numbers, and "#83" is how people name one.
+            if let Some(hit) = ticket_number_hit(&pool, &auth, ws.workspace_id, &query)? {
+                let already = response
+                    .results
+                    .iter()
+                    .position(|r| r.entity_type == "ticket" && r.entity_id == hit.entity_id);
+                match already {
+                    Some(i) => {
+                        response.results.remove(i);
+                    }
+                    None => response.total += 1,
+                }
+                response.results.insert(0, hit);
+            }
+
             // AUD-011: end-users must not learn about tickets they
             // can't read via search. Staff bypass this filter (their
             // visibility predicate matches every ticket). Comment

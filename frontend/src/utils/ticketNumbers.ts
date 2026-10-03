@@ -88,9 +88,15 @@ export function pooledTicketIdForNumber(number: number): number | undefined {
  * workspace's slug, the same number is a different ticket.
  */
 export function ticketIdFromUrl(text: string): number | null {
+  // A link copied from some chat apps arrives without its scheme
+  // (`app.nosdesk.dev/acme/tickets/8`); read this site's host as the link it is.
+  const trimmed = text.trim()
+  const href = trimmed.startsWith(`${window.location.host}/`)
+    ? `${window.location.protocol}//${trimmed}`
+    : trimmed
   let url: URL
   try {
-    url = new URL(text.trim(), window.location.origin)
+    url = new URL(href, window.location.origin)
   } catch {
     return null
   }
