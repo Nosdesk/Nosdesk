@@ -201,7 +201,7 @@ ammonia = "4"
 hickory-resolver = { version = "0.26", features = ["tokio"] }
 
 # File validation - MIME type detection via magic numbers
-infer = "0.16"             # Detect file types from magic numbers for secure upload validation
+infer = "0.22"             # Detect file types from magic numbers for secure upload validation
 
 # OpenID Connect support
 openidconnect = "4.0"      # OIDC client library with PKCE, discovery, and token validation
