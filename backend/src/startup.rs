@@ -182,6 +182,9 @@ pub fn build_state(
             pool.clone(),
             email_service.clone(),
         ));
+    // Process-wide too: composing a message names the domain it leaves from
+    // (the security note) with only a connection to hand.
+    crate::services::outbound_email::set_process_resolver(outbound_resolver.clone());
 
     // Spawn the outbound email queue listener (Item J Pass 1). Holds a
     // dedicated tokio_postgres LISTEN connection on

@@ -17,7 +17,7 @@ use crate::services::notifications::types::{
     DeliverableNotification, NotificationChannel, NotificationTypeCode,
 };
 use crate::utils::email::EmailService;
-use crate::utils::email_branding::get_email_branding;
+use crate::utils::email_branding::{get_email_branding, SentFrom};
 
 /// Rate limit duration in seconds (5 minutes)
 const RATE_LIMIT_SECONDS: i64 = 300;
@@ -376,7 +376,7 @@ impl NotificationDeliveryChannel for EmailChannel {
                             }
                             _ => fallback_base.clone(),
                         };
-                    let branding = get_email_branding(conn, &base_url);
+                    let branding = get_email_branding(conn, &base_url, SentFrom::Workspace);
                     let locale = crate::repository::user_locale::resolve_effective_locale(
                         conn,
                         recipient_uuid,

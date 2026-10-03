@@ -2156,7 +2156,8 @@ admin-channels-email-auto-ack-save = Ontvangstbevestiging opslaan
 admin-channels-email-auto-ack-success-saved = Ontvangstbevestiging bijgewerkt
 # Beveiligingsnotitie (machine, na te kijken door een moedertaalspreker).
 admin-email-security-note-heading = Beveiligingsnotitie
-admin-email-security-note-subtitle = Voeg een anti-phishingregel toe aan de voettekst van transactionele e-mails (wachtwoordherstel, uitnodigingen) zodat ontvangers een echt bericht van een vervalsing kunnen onderscheiden.
+# Machine, nog na te kijken door moedertaalspreker.
+admin-email-security-note-subtitle = Voeg een anti-phishingregel toe aan het einde van e-mails van deze werkruimte, antwoorden inbegrepen, zodat ontvangers een echt bericht van een vervalsing kunnen onderscheiden.
 admin-email-security-note-toggle-label = Beveiligingsnotitie tonen
 admin-email-security-note-toggle-description = Standaard uit. Schakel in zodra uw verzenddomein en huisstijl zijn ingesteld.
 admin-email-security-note-template-label = Aangepaste notitie

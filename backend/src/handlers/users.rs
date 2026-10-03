@@ -20,7 +20,7 @@ use crate::repository::user_emails as user_emails_repo;
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
 use crate::utils;
-use crate::utils::email_branding::get_email_branding;
+use crate::utils::email_branding::{get_email_branding, SentFrom};
 use crate::utils::rbac::is_platform_admin;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -424,7 +424,7 @@ fn prepare_invitation(
 
     let email_service = crate::utils::email::EmailService::from_env()
         .map_err(|e| SendInvitationResult::EmailServiceError(format!("{e:?}")))?;
-    let branding = get_email_branding(conn, &base_url);
+    let branding = get_email_branding(conn, &base_url, SentFrom::Instance);
 
     Ok(PreparedInvitation {
         raw_token: invitation_token.raw_token,

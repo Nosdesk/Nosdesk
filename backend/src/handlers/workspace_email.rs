@@ -716,11 +716,13 @@ fn classify(e: &SmtpError) -> &'static str {
 }
 
 /// The workspace's email branding and the admin's language, for the test
-/// letter, read on the request's tenant connection.
+/// letter, read on the request's tenant connection. `from` is the address the
+/// test goes out from, which the security note names.
 fn test_letter_context(
     conn: &mut crate::db::DbConnection,
     req: &HttpRequest,
     user: uuid::Uuid,
+    from: &str,
 ) -> (EmailBranding, unic_langid::LanguageIdentifier) {
     let base_url = crate::utils::tenant_origin::email_link_base(
         req.extensions()
@@ -729,7 +731,11 @@ fn test_letter_context(
     )
     .unwrap_or_else(|| EmailBranding::default().base_url);
     (
-        crate::utils::email_branding::get_email_branding(conn, &base_url),
+        crate::utils::email_branding::get_email_branding(
+            conn,
+            &base_url,
+            crate::utils::email_branding::SentFrom::Address(from),
+        ),
         crate::repository::user_locale::resolve_effective_locale(conn, user),
     )
 }
@@ -792,10 +798,11 @@ pub async fn test_relay(
 
     let host = relay.host.clone();
     let username = relay.username.clone();
+    let from = relay.from_email.clone();
     let loaded = tc.run(|conn| {
         let row = ws_settings::get(conn)?;
         let recipient = user_helpers::get_primary_email(&user, conn);
-        let letter = test_letter_context(conn, &req, user);
+        let letter = test_letter_context(conn, &req, user, &from);
         let stored = match &row {
             Some(r) if r.smtp_host == host && r.smtp_username == username => {
                 ws_settings::decrypt_password(r)
@@ -861,15 +868,11 @@ pub async fn test_send(
             serde_json::json!({}),
         ));
     }
-    let loaded = tc.run(|conn| {
-        Ok::<_, diesel::result::Error>((
-            user_helpers::get_primary_email(&user, conn),
-            test_letter_context(conn, &req, user),
-        ))
-    });
-    let (recipient, (branding, locale)) = match loaded {
-        Ok((Some(r), letter)) => (r, letter),
-        Ok((None, _)) => {
+    let recipient = match tc
+        .run(|conn| Ok::<_, diesel::result::Error>(user_helpers::get_primary_email(&user, conn)))
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => {
             return Err(ApiError::BadRequest(
                 "your account has no email address".into(),
             ))
@@ -887,6 +890,10 @@ pub async fn test_send(
             }))
         }
     };
+    let from = svc.config().from_email.clone();
+    let (branding, locale) = tc
+        .run(|conn| Ok::<_, diesel::result::Error>(test_letter_context(conn, &req, user, &from)))
+        .map_err(|e| ApiError::Internal(format!("test prep: {e}")))?;
     Ok(HttpResponse::Ok().json(send_test(&svc, recipient, &branding, &locale).await))
 }
 
