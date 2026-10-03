@@ -50,36 +50,115 @@ pub fn update_site_settings(
         .get_result(conn)
 }
 
-// sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe
-/// Update logo URL
-pub fn update_logo_url(
-    conn: &mut DbConnection,
-    logo_url: Option<String>,
-    updated_by: Uuid,
-) -> QueryResult<SiteSettings> {
-    ensure_row(conn)?;
-    diesel::update(site_settings::table)
-        .set((
-            site_settings::logo_url.eq(logo_url),
-            site_settings::updated_by.eq(Some(updated_by)),
-        ))
-        .get_result(conn)
+/// One of the workspace's two logos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Logo {
+    /// `logo_url`: the dark-theme logo, and the fallback for the light theme.
+    Main,
+    /// `logo_light_url`: the light-theme logo.
+    Light,
 }
 
 // sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe
-/// Update light theme logo URL
-pub fn update_logo_light_url(
+/// Point a logo at a new upload, or clear it, together with its email copy,
+/// so the two never disagree.
+pub fn set_logo(
     conn: &mut DbConnection,
-    logo_light_url: Option<String>,
+    logo: Logo,
+    url: Option<String>,
+    email_copy: Option<serde_json::Value>,
     updated_by: Uuid,
 ) -> QueryResult<SiteSettings> {
     ensure_row(conn)?;
-    diesel::update(site_settings::table)
-        .set((
-            site_settings::logo_light_url.eq(logo_light_url),
-            site_settings::updated_by.eq(Some(updated_by)),
+    let update = diesel::update(site_settings::table);
+    match logo {
+        Logo::Main => update
+            .set((
+                site_settings::logo_url.eq(url),
+                site_settings::email_logo.eq(email_copy),
+                site_settings::updated_by.eq(Some(updated_by)),
+            ))
+            .get_result(conn),
+        Logo::Light => update
+            .set((
+                site_settings::logo_light_url.eq(url),
+                site_settings::email_logo_light.eq(email_copy),
+                site_settings::updated_by.eq(Some(updated_by)),
+            ))
+            .get_result(conn),
+    }
+}
+
+/// A workspace's logos that have no email copy. A URL is `None` when that
+/// logo is unset or already has its copy.
+#[derive(Debug, Queryable)]
+pub struct LogosWithoutEmailCopy {
+    pub workspace_id: i32,
+    pub workspace_uuid: Uuid,
+    pub logo_url: Option<String>,
+    pub logo_light_url: Option<String>,
+}
+
+/// Every workspace with a logo that has no email copy. Reads across
+/// workspaces, so the connection must be elevated.
+pub fn logos_without_email_copies(
+    conn: &mut DbConnection,
+) -> QueryResult<Vec<LogosWithoutEmailCopy>> {
+    use crate::schema::workspaces;
+    use diesel::dsl::sql;
+    use diesel::sql_types::{Nullable, Text};
+
+    site_settings::table
+        .inner_join(workspaces::table)
+        .filter(
+            site_settings::logo_url
+                .is_not_null()
+                .and(site_settings::email_logo.is_null())
+                .or(site_settings::logo_light_url
+                    .is_not_null()
+                    .and(site_settings::email_logo_light.is_null())),
+        )
+        .select((
+            site_settings::workspace_id,
+            workspaces::uuid,
+            sql::<Nullable<Text>>(
+                "CASE WHEN site_settings.email_logo IS NULL THEN site_settings.logo_url END",
+            ),
+            sql::<Nullable<Text>>(
+                "CASE WHEN site_settings.email_logo_light IS NULL \
+                 THEN site_settings.logo_light_url END",
+            ),
         ))
-        .get_result(conn)
+        .load(conn)
+}
+
+// sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe
+/// Record the email copy made for a logo after its upload, but only while the
+/// logo is still `source_url` and has no copy: an upload since then made its
+/// own. Returns whether it was recorded.
+pub fn record_email_copy(
+    conn: &mut DbConnection,
+    logo: Logo,
+    source_url: &str,
+    email_copy: serde_json::Value,
+) -> QueryResult<bool> {
+    let updated = match logo {
+        Logo::Main => diesel::update(
+            site_settings::table
+                .filter(site_settings::logo_url.eq(source_url))
+                .filter(site_settings::email_logo.is_null()),
+        )
+        .set(site_settings::email_logo.eq(email_copy))
+        .execute(conn)?,
+        Logo::Light => diesel::update(
+            site_settings::table
+                .filter(site_settings::logo_light_url.eq(source_url))
+                .filter(site_settings::email_logo_light.is_null()),
+        )
+        .set(site_settings::email_logo_light.eq(email_copy))
+        .execute(conn)?,
+    };
+    Ok(updated > 0)
 }
 
 // sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe

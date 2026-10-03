@@ -1937,12 +1937,12 @@ admin-branding-logo-light-label = Light Theme Logo (Optional)
 admin-branding-logo-upload = Upload Logo
 admin-branding-logo-uploading = Uploading...
 admin-branding-logo-remove = Remove
-admin-branding-logo-formats = PNG, SVG, JPEG, or WebP. Max 2MB.
+admin-branding-logo-formats = PNG, JPEG, or WebP. Max 2MB.
 admin-branding-logo-light-hint = Used when light theme is active. Falls back to main logo.
 admin-branding-favicon-heading = Favicon
 admin-branding-favicon-upload = Upload Favicon
 admin-branding-favicon-uploading = Uploading...
-admin-branding-favicon-formats = ICO, PNG, or SVG. Recommended size: 32x32 or 64x64 pixels.
+admin-branding-favicon-formats = ICO or PNG. Recommended size: 32x32 or 64x64 pixels.
 admin-branding-preview-heading = Preview
 admin-branding-primary-color-preview = Primary Color
 admin-branding-configured = Custom branding configured
@@ -1964,6 +1964,16 @@ admin-branding-asset-favicon = Favicon
 admin-branding-confirm-title = Remove { $asset }?
 admin-branding-confirm-message = This removes the uploaded image. You can re-upload at any time, but the previous file is not recoverable.
 admin-branding-confirm-remove = Remove
+# Email preview on the Branding page.
+admin-branding-email-heading = Email
+admin-branding-email-description = The top of every email this workspace sends, and the color of its buttons.
+admin-branding-email-paper-label = Color mode
+admin-branding-email-light = Light
+admin-branding-email-dark = Dark
+admin-branding-email-frame-title = Email preview
+admin-branding-email-dark-hint = Mail apps that follow dark mode, such as Apple Mail, show this version. Gmail and Outlook darken the light one themselves.
+admin-branding-email-test-description = Sends this email to you through this workspace's email setup.
+admin-branding-email-error-load = Couldn't load the email preview.
 
 # Admin: Backup & Restore (BackupRestoreView). Create backup +
 # optional encrypted sensitive data, recent backups list,
@@ -6769,6 +6779,15 @@ email-link-fallback-prompt = Or copy and paste this link into your browser:
 email-footer-rights = All rights reserved.
 email-footer-automated = This is an automated message. Please do not reply directly to this email.
 email-footer-help = Help
+# Test email: sent by "Send test email", and shown as the Branding page's
+# preview. $app is the workspace name; $server is host:port, $from the
+# sender. The HTML variants receive HTML-escaped values.
+email-test-message-subject = [{ $app }] Test email
+email-test-message-headline = A test email from { $app }
+email-test-message-body = This is how email from { $app } looks, with your branding at the top and your color on buttons.
+email-test-message-delivered = It reached you, so sending works.
+email-test-message-server = Sent through { $server } as { $from }.
+email-test-message-cta = Open { $app }
 # Built-in default for the opt-in anti-phishing footer note. Rendered
 # as plain text (escaped), so no markup. { $brand_name } is the workspace
 # name and { $domain } is the address it sends mail from. Admins can

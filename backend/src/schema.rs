@@ -1577,6 +1577,8 @@ diesel::table! {
         approval_waiting_display -> Text,
         approval_skip_by -> Text,
         approval_auto_approve_days -> Nullable<Int4>,
+        email_logo -> Nullable<Jsonb>,
+        email_logo_light -> Nullable<Jsonb>,
     }
 }
 

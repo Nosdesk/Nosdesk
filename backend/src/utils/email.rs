@@ -84,6 +84,10 @@ impl Header for ListUnsubscribePost {
 use std::env;
 use std::str::FromStr;
 
+use crate::utils::email_logo::{
+    parse_hex_color, text_on, wordmark_reads_on, EmailLogo, PAPER_DARK, PAPER_LIGHT,
+};
+
 /// Build the plaintext `SinglePart` used in outbound replies with
 /// the `format=flowed` parameter declared (RFC 3676). Our generated
 /// plaintext (`> ` quote prefixes, `-- ` signature separator,
@@ -115,7 +119,11 @@ pub(crate) fn escape_html(s: &str) -> String {
 #[derive(Debug, Clone)]
 pub struct EmailBranding {
     pub app_name: String,
-    pub logo_url: Option<String>,
+    /// Email copy of the main logo, the one the web app shows on dark
+    /// backgrounds and falls back to on light ones.
+    pub logo: Option<EmailLogo>,
+    /// Email copy of the light-theme logo.
+    pub logo_light: Option<EmailLogo>,
     pub primary_color: String,
     pub base_url: String,
     /// Fully-resolved anti-phishing footer line, or `None` to omit it.
@@ -128,8 +136,9 @@ pub struct EmailBranding {
 impl Default for EmailBranding {
     fn default() -> Self {
         Self {
-            app_name: "Nosdesk".to_string(),
-            logo_url: None,
+            app_name: DEFAULT_APP_NAME.to_string(),
+            logo: None,
+            logo_light: None,
             primary_color: "#FF6B1A".to_string(),
             base_url: env::var("FRONTEND_URL")
                 .unwrap_or_else(|_| "http://localhost:3000".to_string()),
@@ -140,20 +149,53 @@ impl Default for EmailBranding {
 
 impl EmailBranding {
     /// Create branding config from site settings
-    pub fn new(
-        app_name: String,
-        logo_url: Option<String>,
-        primary_color: Option<String>,
-        base_url: String,
-    ) -> Self {
+    pub fn new(app_name: String, primary_color: Option<String>, base_url: String) -> Self {
         Self {
             app_name,
-            logo_url,
+            logo: None,
+            logo_light: None,
             primary_color: primary_color.unwrap_or_else(|| "#FF6B1A".to_string()),
             base_url,
             security_note: None,
         }
     }
+
+    /// The brand colour's channels, Nosdesk orange when it isn't a colour.
+    fn brand(&self) -> [u8; 3] {
+        parse_hex_color(&self.primary_color).unwrap_or(NOSDESK_ORANGE)
+    }
+}
+
+/// The product name a workspace starts with. Until it is changed, a
+/// workspace with no logo signs its mail with the Nosdesk wordmark.
+const DEFAULT_APP_NAME: &str = "Nosdesk";
+const NOSDESK_ORANGE: [u8; 3] = [0xff, 0x6b, 0x1a];
+
+/// The Nosdesk wordmark (orange, 296 x 54 px), served by every instance from
+/// the binary (`handlers::branding::serve_email_asset`), so mail never loads
+/// it from nosdesk.com.
+const DEFAULT_WORDMARK_PATH: &str = "/email-assets/nosdesk-wordmark.png?v=1";
+const DEFAULT_WORDMARK_SIZE: (u32, u32) = (148, 27);
+
+/// Light-text ink for a wordmark on the dark paper.
+const C_MARK_ON_DARK: &str = "#f4f1ea";
+
+fn hex([r, g, b]: [u8; 3]) -> String {
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
+/// Which paper a letter is drawn on. Mail follows the reader's setting; a
+/// preview is fixed to one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Paper {
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rendering {
+    Mail,
+    Preview(Paper),
 }
 
 // ===========================================================================
@@ -194,7 +236,6 @@ const C_HAIR: &str = "#e6ddcd";
 const C_NOTERULE: &str = "#d8d0c2";
 const C_FALLBACK_BG: &str = "#efe9dd";
 const C_STRONG: &str = "#5b5349";
-const C_CTA: &str = "#ff6b1a";
 
 /// A single rendered body block. The inline styling is baked in by the
 /// `text` / `heading` / `note` helpers so compose_* code only ever deals
@@ -289,11 +330,33 @@ pub struct EmailLayout<'a> {
 /// Email template builder for consistent, branded emails
 struct EmailTemplate<'a> {
     branding: &'a EmailBranding,
+    rendering: Rendering,
 }
 
 impl<'a> EmailTemplate<'a> {
     fn new(branding: &'a EmailBranding) -> Self {
-        Self { branding }
+        Self {
+            branding,
+            rendering: Rendering::Mail,
+        }
+    }
+
+    /// A letter for showing in the app, on one paper. Its images load from
+    /// the page's own origin, which its content security policy allows.
+    fn preview(branding: &'a EmailBranding, paper: Paper) -> Self {
+        Self {
+            branding,
+            rendering: Rendering::Preview(paper),
+        }
+    }
+
+    /// Where the letter's own images load from: the link origin in mail,
+    /// the page's origin in a preview.
+    fn asset_origin(&self) -> String {
+        match self.rendering {
+            Rendering::Mail => origin_of(&self.branding.base_url),
+            Rendering::Preview(_) => String::new(),
+        }
     }
 
     /// Resolve the logo URL: absolute `http(s)` URLs pass through; a
@@ -307,31 +370,93 @@ impl<'a> EmailTemplate<'a> {
         if logo_url.starts_with("http") {
             logo_url.to_string()
         } else {
-            format!("{}{}", origin_of(&self.branding.base_url), logo_url)
+            format!("{}{}", self.asset_origin(), logo_url)
         }
     }
 
-    /// The letterhead: a logo `<img>` when branding carries one, otherwise
-    /// the wordmark fallback in brand orange.
+    /// The letterhead. The logo's email copy when there is one: on the light
+    /// paper the light-theme logo, else the main one; on the dark paper the
+    /// main logo, else the light one, as the web app picks them. A logo that
+    /// can't be seen on a paper sits on a backing of the other. With no logo,
+    /// the Nosdesk wordmark while the workspace carries the Nosdesk name, and
+    /// the workspace's name set in its colour otherwise.
     fn build_logo_section(&self) -> String {
-        match &self.branding.logo_url {
-            Some(logo_url) if !logo_url.is_empty() => {
-                let full_url = self.logo_full_url(logo_url);
-                format!(
-                    r#"<img src="{src}" width="150" height="27" alt="{alt}" style="display:block;width:150px;height:27px;border:0;outline:none;" />"#,
-                    src = escape_html(&full_url),
-                    alt = escape_html(&self.branding.app_name),
+        let branding = self.branding;
+        let on_light = branding.logo_light.as_ref().or(branding.logo.as_ref());
+        let on_dark = branding.logo.as_ref().or(branding.logo_light.as_ref());
+        match (on_light, on_dark) {
+            (Some(on_light), Some(on_dark)) => {
+                let light = self.logo_image(on_light, Paper::Light);
+                let dark = self.logo_image(on_dark, Paper::Dark);
+                if light == dark {
+                    light
+                } else {
+                    // Clients without `prefers-color-scheme` (Gmail, Outlook)
+                    // only ever show the first.
+                    format!(
+                        r#"<div class="nd-light-only">{light}</div><!--[if !mso]><!--><div class="nd-dark-only" style="display:none;overflow:hidden;max-height:0;max-width:0;mso-hide:all;">{dark}</div><!--<![endif]-->"#
+                    )
+                }
+            }
+            _ if branding.app_name.trim() == DEFAULT_APP_NAME => {
+                let (width, height) = DEFAULT_WORDMARK_SIZE;
+                self.image(
+                    &format!("{}{DEFAULT_WORDMARK_PATH}", self.asset_origin()),
+                    width,
+                    height,
                 )
             }
-            _ => {
-                // Text wordmark fallback in brand orange (not the old blue).
-                format!(
-                    r#"<span style="display:inline-block;color:{cta};font-size:24px;font-weight:700;letter-spacing:-0.02em;">{name}</span>"#,
-                    cta = C_CTA,
-                    name = escape_html(&self.branding.app_name),
-                )
-            }
+            _ => format!(
+                r#"<span class="nd-mark" style="display:inline-block;color:{color};font-size:24px;font-weight:700;letter-spacing:-0.02em;">{name}</span>"#,
+                color = self.mark_colors().0,
+                name = escape_html(&branding.app_name),
+            ),
         }
+    }
+
+    /// The colours the workspace's name is set in, on the light and the dark
+    /// paper: its brand colour where that reads, plain ink where it doesn't.
+    fn mark_colors(&self) -> (String, String) {
+        let brand = self.branding.brand();
+        let light = if wordmark_reads_on(brand, PAPER_LIGHT) {
+            hex(brand)
+        } else {
+            C_HEAD.to_string()
+        };
+        let dark = if wordmark_reads_on(brand, PAPER_DARK) {
+            hex(brand)
+        } else {
+            C_MARK_ON_DARK.to_string()
+        };
+        (light, dark)
+    }
+
+    /// An email copy of a logo for one paper, on a backing of the other paper
+    /// when it only reads there.
+    fn logo_image(&self, logo: &EmailLogo, paper: Paper) -> String {
+        let image = self.image(&self.logo_full_url(&logo.url), logo.width, logo.height);
+        let (reads_here, reads_on_other, backing) = match paper {
+            Paper::Light => (logo.reads_on_light, logo.reads_on_dark, PAPER_DARK),
+            Paper::Dark => (logo.reads_on_dark, logo.reads_on_light, PAPER_LIGHT),
+        };
+        if reads_here || !reads_on_other {
+            return image;
+        }
+        format!(
+            r#"<table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center"><tr><td style="background-color:{backing};border-radius:10px;padding:10px 14px;">{image}</td></tr></table>"#,
+            backing = hex(backing),
+        )
+    }
+
+    /// A letterhead image. Its alt text is styled as the workspace's name,
+    /// since desktop Outlook blocks images until asked.
+    fn image(&self, src: &str, width: u32, height: u32) -> String {
+        format!(
+            r#"<img class="nd-mark" src="{src}" width="{width}" height="{height}" alt="{alt}" style="display:block;margin:0 auto;width:{width}px;height:{height}px;border:0;outline:none;color:{alt_color};font-size:18px;font-weight:700;line-height:{height}px;text-align:center;" />"#,
+            src = escape_html(src),
+            alt = escape_html(&self.branding.app_name),
+            alt_color = self.mark_colors().0,
+        )
     }
 
     /// Render the bulleted notice box, or empty string when no items.
@@ -373,16 +498,18 @@ impl<'a> EmailTemplate<'a> {
     /// plus the paste-the-link fallback.
     fn build_cta_section(&self, cta: &Cta, locale: &unic_langid::LanguageIdentifier) -> String {
         let fallback_prompt = crate::utils::i18n::tr(locale, "email-link-fallback-prompt");
+        // The workspace's colour, with whichever of black or white reads on it.
+        let brand = self.branding.brand();
         format!(
             r#"<tr>
             <td class="nd-pad" style="padding:30px 8px 0 8px;">
               <!--[if mso]>
               <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{url}" style="height:46px;v-text-anchor:middle;width:200px;" arcsize="18%" strokecolor="{cta}" fillcolor="{cta}">
-              <w:anchorlock/><center style="color:#ffffff;font-family:sans-serif;font-size:15px;font-weight:600;">{label}</center>
+              <w:anchorlock/><center style="color:{cta_text};font-family:sans-serif;font-size:15px;font-weight:600;">{label}</center>
               </v:roundrect>
               <![endif]-->
               <!--[if !mso]><!-->
-              <a href="{url}" target="_blank" role="button" style="display:inline-block;background-color:{cta};color:#ffffff;font-size:15px;font-weight:600;padding:13px 30px;border-radius:8px;letter-spacing:0.01em;">{label}</a>
+              <a href="{url}" target="_blank" role="button" style="display:inline-block;background-color:{cta};color:{cta_text};font-size:15px;font-weight:600;padding:13px 30px;border-radius:8px;letter-spacing:0.01em;">{label}</a>
               <!--<![endif]-->
             </td>
           </tr>
@@ -397,7 +524,8 @@ impl<'a> EmailTemplate<'a> {
             url = cta.url,
             url_text = escape_html(&cta.url),
             label = escape_html(&cta.label),
-            cta = C_CTA,
+            cta = hex(brand),
+            cta_text = text_on(brand),
             muted = C_MUTED,
             link = C_LINK,
             fallback_bg = C_FALLBACK_BG,
@@ -478,22 +606,11 @@ impl<'a> EmailTemplate<'a> {
             })
             .unwrap_or_default();
 
-        format!(
-            r#"<!DOCTYPE html>
-<html lang="{lang}" style="margin:0;padding:0;">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="color-scheme" content="light dark">
-  <meta name="supported-color-schemes" content="light dark">
-  <title>{title}</title>
-  <!--[if mso]>
-  <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
-  <![endif]-->
-  <style>
-    @media (prefers-color-scheme: dark) {{
-      .nd-paper   {{ background:#0b0a08 !important; }}
+        // The dark paper. Mail switches to it with the reader's setting; a
+        // preview is drawn on one paper whatever the viewer's setting is.
+        let dark_rules = format!(
+            r#"
+      .nd-paper   {{ background:{paper_dark} !important; }}
       .nd-head    {{ color:#f4f1ea !important; }}
       .nd-body    {{ color:#cfc8bd !important; }}
       .nd-muted   {{ color:#9a9082 !important; }}
@@ -503,7 +620,42 @@ impl<'a> EmailTemplate<'a> {
       .nd-hair    {{ border-color:#2a2620 !important; }}
       .nd-noterule{{ border-color:#3a352d !important; }}
       .nd-strong  {{ color:#e6ded0 !important; }}
-    }}
+      .nd-mark    {{ color:{mark_dark} !important; }}
+      .nd-light-only {{ display:none !important; }}
+      .nd-dark-only  {{ display:block !important; max-height:none !important; max-width:none !important; overflow:visible !important; }}
+"#,
+            paper_dark = hex(PAPER_DARK),
+            mark_dark = self.mark_colors().1,
+        );
+        let (color_scheme, dark_css, preview_base) = match self.rendering {
+            Rendering::Mail => (
+                "light dark",
+                format!("@media (prefers-color-scheme: dark) {{{dark_rules}    }}"),
+                "",
+            ),
+            // A preview's links open nothing: the frame that shows it is
+            // sandboxed without popups.
+            Rendering::Preview(Paper::Light) => {
+                ("light", String::new(), r#"<base target="_blank">"#)
+            }
+            Rendering::Preview(Paper::Dark) => ("dark", dark_rules, r#"<base target="_blank">"#),
+        };
+
+        format!(
+            r#"<!DOCTYPE html>
+<html lang="{lang}" style="margin:0;padding:0;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="color-scheme" content="{color_scheme}">
+  <meta name="supported-color-schemes" content="{color_scheme}">
+  <title>{title}</title>{preview_base}
+  <!--[if mso]>
+  <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+  <![endif]-->
+  <style>
+    {dark_css}
     a {{ text-decoration:none; }}
     @media only screen and (max-width:560px) {{
       .nd-pad   {{ padding-left:14px !important; padding-right:14px !important; }}
@@ -1426,26 +1578,27 @@ impl EmailService {
 
     /// Send a test email. The typed error lets the admin test say which step
     /// failed (DNS, blocked host, auth, ...).
-    pub async fn send_test(&self, to: &str, branding: &EmailBranding) -> Result<(), SmtpError> {
-        let subject = format!("{} Test Email", branding.app_name);
-        let body = format!(
-            "This is a test email from {}.\n\n\
-            If you received this email, your email configuration is working correctly.\n\n\
-            SMTP Server: {}\n\
-            SMTP Port: {}\n\
-            From: {} <{}>",
-            branding.app_name,
-            self.config.smtp_host,
-            self.config.smtp_port,
-            self.config.from_name,
-            self.config.from_email
+    /// Send the test letter: the workspace's letterhead and colours, and the
+    /// server it went through.
+    pub async fn send_test(
+        &self,
+        to: &str,
+        branding: &EmailBranding,
+        locale: &unic_langid::LanguageIdentifier,
+    ) -> Result<(), SmtpError> {
+        let server = format!("{}:{}", self.config.smtp_host, self.config.smtp_port);
+        let from = format!("{} <{}>", self.config.from_name, self.config.from_email);
+        let (subject, body_html, body_text) = test_letter(
+            &EmailTemplate::new(branding),
+            locale,
+            Some((&server, &from)),
         );
         let message_id = self.generate_message_id();
         let outbound = OutboundEmailMessage {
             to,
             subject: &subject,
-            body_text: &body,
-            body_html: None,
+            body_text: &body_text,
+            body_html: Some(&body_html),
             message_id: &message_id,
             in_reply_to: None,
             references: &[],
@@ -2178,6 +2331,72 @@ pub struct OutboundEmailMessage<'a> {
     pub list_unsubscribe: Option<&'a str>,
 }
 
+/// The test letter on one paper, as the Branding page previews it.
+pub fn preview_test_letter(
+    branding: &EmailBranding,
+    locale: &unic_langid::LanguageIdentifier,
+    paper: Paper,
+) -> String {
+    test_letter(&EmailTemplate::preview(branding, paper), locale, None).1
+}
+
+/// What the workspace's mail looks like, and when it was really sent, the
+/// server it went through (`server`, `from`). Returns
+/// `(subject, body_html, body_text)`.
+fn test_letter(
+    template: &EmailTemplate<'_>,
+    locale: &unic_langid::LanguageIdentifier,
+    sent_through: Option<(&str, &str)>,
+) -> (String, String, String) {
+    let app = template.branding.app_name.as_str();
+    let tr = |key: &str, args: &[(&str, fluent_bundle::FluentValue<'static>)]| {
+        crate::utils::i18n::tr_with(locale, key, args)
+    };
+    let app_arg = |escape: bool| -> Vec<(&'static str, fluent_bundle::FluentValue<'static>)> {
+        let value = if escape {
+            escape_html(app)
+        } else {
+            app.to_string()
+        };
+        vec![("app", value.into())]
+    };
+
+    let headline = tr("email-test-message-headline", &app_arg(false));
+    let mut body = vec![text(tr("email-test-message-body", &app_arg(true)))];
+    let mut plain = vec![tr("email-test-message-body", &app_arg(false))];
+    if let Some((server, from)) = sent_through {
+        let details = |escape: bool| -> Vec<(&'static str, fluent_bundle::FluentValue<'static>)> {
+            let e = |v: &str| {
+                if escape {
+                    escape_html(v)
+                } else {
+                    v.to_string()
+                }
+            };
+            vec![("server", e(server).into()), ("from", e(from).into())]
+        };
+        body.push(text(tr("email-test-message-delivered", &[])));
+        body.push(muted(tr("email-test-message-server", &details(true))));
+        plain.push(tr("email-test-message-delivered", &[]));
+        plain.push(tr("email-test-message-server", &details(false)));
+    }
+    let label = tr("email-test-message-cta", &app_arg(false));
+    let url = template.branding.base_url.clone();
+    plain.push(format!("{label}: {url}"));
+
+    let html = template.render(
+        EmailLayout {
+            headline: &headline,
+            body,
+            cta: Some(Cta { label, url }),
+            ..Default::default()
+        },
+        locale,
+    );
+    let subject = tr("email-test-message-subject", &app_arg(false));
+    (subject, html, plain.join("\n\n") + "\n")
+}
+
 /// `scheme://host[:port]` of a URL, with any path dropped. A base without a
 /// scheme is returned unchanged.
 fn origin_of(base_url: &str) -> String {
@@ -2193,28 +2412,290 @@ fn origin_of(base_url: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    fn copy(url: &str, (width, height): (u32, u32), light: bool, dark: bool) -> super::EmailLogo {
+        super::EmailLogo {
+            url: url.into(),
+            width,
+            height,
+            reads_on_light: light,
+            reads_on_dark: dark,
+        }
+    }
+
+    fn letterhead(branding: &super::EmailBranding) -> String {
+        super::EmailTemplate::new(branding).build_logo_section()
+    }
+
     #[test]
     fn logo_resolves_against_the_origin_not_the_slug_base() {
         let mut branding = super::EmailBranding::default();
-        branding.logo_url = Some("/uploads/branding/ws/logo.png".into());
+        branding.logo = Some(copy(
+            "/uploads/branding/ws/email_logo_1.png",
+            (200, 40),
+            true,
+            true,
+        ));
         branding.base_url = "https://app.nosdesk.example/acme".into();
-        let html = super::EmailTemplate::new(&branding).build_logo_section();
+        let html = letterhead(&branding);
         assert!(
-            html.contains(r#"src="https://app.nosdesk.example/uploads/branding/ws/logo.png""#),
+            html.contains(
+                r#"src="https://app.nosdesk.example/uploads/branding/ws/email_logo_1.png""#
+            ),
             "{html}"
         );
 
-        let mut branding = super::EmailBranding::default();
-        branding.logo_url = Some("/uploads/branding/ws/logo.png".into());
         branding.base_url = "https://acme.nosdesk.example/".into();
-        let html = super::EmailTemplate::new(&branding).build_logo_section();
-        assert!(html.contains(r#"src="https://acme.nosdesk.example/uploads/branding/ws/logo.png""#));
+        let html = letterhead(&branding);
+        assert!(html.contains(
+            r#"src="https://acme.nosdesk.example/uploads/branding/ws/email_logo_1.png""#
+        ));
 
-        let mut branding = super::EmailBranding::default();
-        branding.logo_url = Some("https://cdn.example/logo.png".into());
+        branding.logo = Some(copy("https://cdn.example/logo.png", (200, 40), true, true));
         branding.base_url = "https://app.nosdesk.example/acme".into();
-        let html = super::EmailTemplate::new(&branding).build_logo_section();
-        assert!(html.contains(r#"src="https://cdn.example/logo.png""#));
+        assert!(letterhead(&branding).contains(r#"src="https://cdn.example/logo.png""#));
+    }
+
+    #[test]
+    fn the_logo_is_drawn_at_its_copys_size() {
+        let mut branding = super::EmailBranding::default();
+        branding.logo = Some(copy("/l.png", (48, 48), true, true));
+        let html = letterhead(&branding);
+        assert!(html.contains(r#"width="48" height="48""#), "{html}");
+        assert!(html.contains("width:48px;height:48px;"), "{html}");
+        assert!(!html.contains("150"), "no fixed size left: {html}");
+    }
+
+    #[test]
+    fn a_logo_that_reads_on_both_papers_appears_once() {
+        let mut branding = super::EmailBranding::default();
+        branding.logo = Some(copy("/l.png", (200, 40), true, true));
+        let html = letterhead(&branding);
+        assert_eq!(html.matches("<img").count(), 1, "{html}");
+        assert!(!html.contains("nd-dark-only"), "{html}");
+    }
+
+    #[test]
+    fn the_light_theme_logo_leads_on_light_paper_and_the_main_one_on_dark() {
+        let mut branding = super::EmailBranding::default();
+        branding.logo = Some(copy("/main.png", (200, 40), false, true));
+        branding.logo_light = Some(copy("/light.png", (200, 40), true, false));
+        let html = letterhead(&branding);
+        let light = html.find("/light.png").expect("light-theme logo");
+        let main = html.find("/main.png").expect("main logo");
+        assert!(light < main, "the light paper's logo comes first: {html}");
+        assert!(html.contains(r#"<div class="nd-light-only">"#), "{html}");
+        assert!(
+            html.contains(r#"class="nd-dark-only" style="display:none;"#),
+            "the dark paper's logo is hidden unless the client switches: {html}"
+        );
+        assert!(
+            html.contains("mso-hide:all"),
+            "desktop Outlook never shows it: {html}"
+        );
+        assert!(
+            !html.contains("background-color"),
+            "each reads bare on its paper: {html}"
+        );
+    }
+
+    #[test]
+    fn a_dark_logo_sits_on_light_paper_in_dark_mode() {
+        let mut branding = super::EmailBranding::default();
+        branding.logo = Some(copy("/navy.png", (200, 40), true, false));
+        let html = letterhead(&branding);
+        let (light, dark) = html.split_once("nd-dark-only").expect("a dark block");
+        assert!(
+            !light.contains("background-color"),
+            "bare on the light paper: {html}"
+        );
+        assert!(
+            dark.contains("background-color:#f6f2ea"),
+            "backed in dark mode: {html}"
+        );
+    }
+
+    #[test]
+    fn a_white_logo_sits_on_dark_paper_in_light_mode() {
+        let mut branding = super::EmailBranding::default();
+        branding.logo = Some(copy("/white.png", (200, 40), false, true));
+        let html = letterhead(&branding);
+        let (light, dark) = html.split_once("nd-dark-only").expect("a dark block");
+        assert!(
+            light.contains("background-color:#0b0a08"),
+            "backed on light paper: {html}"
+        );
+        assert!(
+            !dark.contains("background-color"),
+            "bare in dark mode: {html}"
+        );
+    }
+
+    #[test]
+    fn a_logo_that_reads_on_neither_paper_is_shown_bare() {
+        let mut branding = super::EmailBranding::default();
+        branding.logo = Some(copy("/grey.png", (200, 40), false, false));
+        assert!(!letterhead(&branding).contains("background-color"));
+    }
+
+    #[test]
+    fn no_logo_and_the_nosdesk_name_sign_with_the_wordmark() {
+        let mut branding = super::EmailBranding::default();
+        branding.base_url = "https://app.nosdesk.example/acme".into();
+        let html = letterhead(&branding);
+        assert!(
+            html.contains(
+                r#"src="https://app.nosdesk.example/email-assets/nosdesk-wordmark.png?v=1" width="148" height="27""#
+            ),
+            "served by the instance itself: {html}"
+        );
+        assert!(html.contains(r#"alt="Nosdesk""#), "{html}");
+    }
+
+    #[test]
+    fn no_logo_and_a_custom_name_set_the_name_in_its_colour() {
+        let mut branding = super::EmailBranding::default();
+        branding.app_name = "Acme IT".into();
+        branding.primary_color = "#1e3a8a".into();
+        let template = super::EmailTemplate::new(&branding);
+        let html = template.build_logo_section();
+        assert!(!html.contains("<img"), "{html}");
+        assert!(html.contains(r#"class="nd-mark""#), "{html}");
+        assert!(
+            html.contains("color:#1e3a8a;"),
+            "navy reads on light paper: {html}"
+        );
+        assert_eq!(
+            template.mark_colors().1,
+            "#f4f1ea",
+            "navy is lost on the dark paper, so the name turns light there"
+        );
+
+        branding.primary_color = "#ffd600".into();
+        let template = super::EmailTemplate::new(&branding);
+        assert_eq!(
+            template.mark_colors(),
+            (super::C_HEAD.to_string(), "#ffd600".to_string()),
+            "yellow is lost on the light paper"
+        );
+    }
+
+    #[test]
+    fn the_button_takes_the_brand_colour_with_text_that_reads_on_it() {
+        let locale: unic_langid::LanguageIdentifier = "en-US".parse().unwrap();
+        let cta = super::Cta {
+            label: "Open".into(),
+            url: "https://desk.example/x".into(),
+        };
+        for (brand, text) in [
+            ("#ffd600", "#000000"),
+            ("#1e3a8a", "#ffffff"),
+            ("#FF6B1A", "#000000"),
+        ] {
+            let mut branding = super::EmailBranding::default();
+            branding.primary_color = brand.into();
+            let html = super::EmailTemplate::new(&branding).build_cta_section(&cta, &locale);
+            let fill = brand.to_lowercase();
+            assert!(
+                html.contains(&format!("background-color:{fill};color:{text};")),
+                "{brand}: {html}"
+            );
+            assert!(
+                html.contains(&format!(r#"strokecolor="{fill}" fillcolor="{fill}""#)),
+                "Outlook's button too: {html}"
+            );
+            assert!(
+                html.contains(&format!("<center style=\"color:{text};")),
+                "Outlook's label too: {html}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unreadable_brand_colour_falls_back_to_nosdesk_orange() {
+        let mut branding = super::EmailBranding::default();
+        branding.primary_color = "blue".into();
+        assert_eq!(branding.brand(), super::NOSDESK_ORANGE);
+    }
+
+    #[test]
+    fn mail_switches_paper_with_the_readers_setting() {
+        let html = super::EmailTemplate::new(&super::EmailBranding::default()).render(
+            super::EmailLayout {
+                headline: "Hi",
+                ..Default::default()
+            },
+            &"en-US".parse().unwrap(),
+        );
+        assert!(
+            html.contains("@media (prefers-color-scheme: dark)"),
+            "{html}"
+        );
+        assert!(html.contains(r#"content="light dark""#));
+        assert!(!html.contains("<base"), "mail links open normally");
+    }
+
+    #[test]
+    fn a_preview_is_drawn_on_one_paper_with_images_from_the_page() {
+        let locale: unic_langid::LanguageIdentifier = "en-US".parse().unwrap();
+        let mut branding = super::EmailBranding::default();
+        branding.base_url = "https://app.nosdesk.example/acme".into();
+        branding.logo = Some(copy(
+            "/uploads/branding/ws/email_logo_1.png",
+            (200, 40),
+            true,
+            false,
+        ));
+
+        let light = super::preview_test_letter(&branding, &locale, super::Paper::Light);
+        assert!(!light.contains("prefers-color-scheme"), "{light}");
+        assert!(
+            !light.contains(".nd-paper"),
+            "no dark rules at all: {light}"
+        );
+        assert!(
+            light.contains(r#"src="/uploads/branding/ws/email_logo_1.png""#),
+            "{light}"
+        );
+        assert!(light.contains(r#"<base target="_blank">"#));
+
+        let dark = super::preview_test_letter(&branding, &locale, super::Paper::Dark);
+        assert!(!dark.contains("prefers-color-scheme"), "{dark}");
+        assert!(
+            dark.contains(".nd-paper   { background:#0b0a08 !important; }"),
+            "{dark}"
+        );
+        assert!(
+            dark.contains(".nd-dark-only  { display:block !important;"),
+            "{dark}"
+        );
+        assert!(dark.contains(r#"content="dark""#));
+    }
+
+    #[test]
+    fn the_test_letter_names_the_server_it_went_through() {
+        let locale: unic_langid::LanguageIdentifier = "en-US".parse().unwrap();
+        let mut branding = super::EmailBranding::default();
+        branding.app_name = "Acme <IT>".into();
+        let (subject, html, text) = super::test_letter(
+            &super::EmailTemplate::new(&branding),
+            &locale,
+            Some(("smtp.example.com:587", "Acme <help@acme.test>")),
+        );
+        assert!(subject.contains("Acme <IT>"), "{subject}");
+        assert!(html.contains("smtp.example.com:587"), "{html}");
+        assert!(
+            html.contains("Acme &lt;help@acme.test&gt;"),
+            "escaped: {html}"
+        );
+        assert!(!html.contains("Acme <IT>"), "the name is escaped: {html}");
+        assert!(text.contains("smtp.example.com:587"), "{text}");
+        assert!(text.contains("Acme <help@acme.test>"), "{text}");
+
+        let preview = super::preview_test_letter(&branding, &locale, super::Paper::Light);
+        assert!(
+            !preview.contains("smtp.example.com"),
+            "a preview was never sent"
+        );
     }
 
     use super::*;

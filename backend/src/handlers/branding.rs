@@ -14,15 +14,17 @@ use crate::extractors::{ScopedStorage, TenantConn, WorkspaceContext};
 use crate::handlers::files::serve_or_not_found;
 use crate::handlers::helpers;
 use crate::models::{SiteSettingsResponse, UpdateSiteSettings, WorkspaceRole};
-use crate::repository::site_settings;
+use crate::repository::site_settings::{self, Logo};
+use crate::services::email_logos;
 use crate::utils;
+use crate::utils::email::{preview_test_letter, EmailBranding, Paper};
 use crate::utils::rbac::require_workspace_role;
 use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
 
 /// Logical storage folder for branding objects. Physically this sits under the
 /// workspace prefix `WorkspaceScopedStorage` adds, so one workspace's branding
 /// is not addressable from another.
-const BRANDING_DIR: &str = "branding";
+pub(crate) const BRANDING_DIR: &str = "branding";
 
 /// The workspace-relative storage path for a branding image.
 ///
@@ -41,11 +43,23 @@ fn branding_logical_path(image_type: &str, file_ext: &str) -> String {
 /// design. Those objects predate workspace scoping and live in a directory
 /// shared by every workspace, so deleting one could remove another tenant's
 /// file. They are left to age out; the legacy route keeps serving them.
-fn owned_logical_path(url: &str, workspace_uuid: Uuid) -> Option<String> {
+pub(crate) fn owned_logical_path(url: &str, workspace_uuid: Uuid) -> Option<String> {
     let rest = url.strip_prefix("/uploads/branding/")?;
     let rest = rest.split('?').next().unwrap_or(rest);
     let (uuid_segment, filename) = rest.split_once('/')?;
     if uuid_segment != workspace_uuid.to_string() || !is_allowed_branding_filename(filename) {
+        return None;
+    }
+    Some(format!("{BRANDING_DIR}/{filename}"))
+}
+
+/// The unscoped storage path of a legacy flat branding URL
+/// (`/uploads/branding/logo_123.png`). Only for reading: see
+/// [`owned_logical_path`] on why these are never deleted.
+pub(crate) fn legacy_logical_path(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("/uploads/branding/")?;
+    let filename = rest.split('?').next().unwrap_or(rest);
+    if filename.contains('/') || !is_allowed_branding_filename(filename) {
         return None;
     }
     Some(format!("{BRANDING_DIR}/{filename}"))
@@ -66,6 +80,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route(
             "/admin/branding/image",
             web::delete().to(delete_branding_image),
+        )
+        .route(
+            "/admin/branding/email-preview",
+            web::get().to(email_preview),
         );
 }
 
@@ -391,6 +409,27 @@ pub async fn upload_branding_image(
             ));
         }
 
+        // A logo also gets its email copy (`utils::email_logo`), rendered
+        // before anything is stored so an image that can't be decoded is
+        // refused here rather than saved and shown broken.
+        let logo = match image_type.as_str() {
+            "logo" => Some(Logo::Main),
+            "logo_light" => Some(Logo::Light),
+            _ => None,
+        };
+        let rendition = match logo {
+            Some(_) => match email_logos::render(file_data.clone()).await {
+                Ok(rendition) => Some(rendition),
+                Err(e) => {
+                    warn!(error = %e, image_type = %image_type, "Could not decode a branding upload");
+                    return Err(ApiError::BadRequest(
+                        "This image could not be read. Upload a PNG, JPEG, or WebP file.".into(),
+                    ));
+                }
+            },
+            None => None,
+        };
+
         // What this type pointed at before, so a format change can have its
         // now-unreferenced object removed once the new one is recorded.
         let previous_url = tc
@@ -430,14 +469,29 @@ pub async fn upload_branding_image(
 
         info!(logical_path = %logical_path, workspace_id = %ws.workspace_id, "Saved branding image");
 
-        // Update the database with the new URL
+        let email_copy = match (logo, &rendition) {
+            (Some(logo), Some(rendition)) => {
+                match email_logos::save(&storage.get(), ws.workspace_uuid, logo, rendition).await {
+                    Ok(copy) => Some(copy),
+                    Err(e) => {
+                        error!(error = %e, "Error saving a logo's email copy");
+                        return Err(ApiError::Internal("Failed to save file".into()));
+                    }
+                }
+            }
+            _ => None,
+        };
+        let copy_value = email_copy
+            .as_ref()
+            .and_then(|copy| serde_json::to_value(copy).ok());
+
+        // The logo and its email copy are recorded in one write.
         let url_for_db = url.clone();
-        let image_type_owned = image_type.clone();
-        let result = tc.run(|conn| match image_type_owned.as_str() {
-            "logo" => site_settings::update_logo_url(conn, Some(url_for_db), user_uuid),
-            "logo_light" => site_settings::update_logo_light_url(conn, Some(url_for_db), user_uuid),
-            "favicon" => site_settings::update_favicon_url(conn, Some(url_for_db), user_uuid),
-            _ => unreachable!(),
+        let result = tc.run(|conn| match logo {
+            Some(logo) => {
+                site_settings::set_logo(conn, logo, Some(url_for_db), copy_value, user_uuid)
+            }
+            None => site_settings::update_favicon_url(conn, Some(url_for_db), user_uuid),
         });
 
         match result {
@@ -465,6 +519,13 @@ pub async fn upload_branding_image(
             }
             Err(e) => {
                 error!(error = ?e, image_type = %image_type, "Error updating site settings");
+                // The copy was never recorded, so nothing refers to it.
+                if let Some(path) = email_copy
+                    .as_ref()
+                    .and_then(|copy| owned_logical_path(&copy.url, ws.workspace_uuid))
+                {
+                    let _ = storage.get().delete_file(&path).await;
+                }
                 return Err(ApiError::Internal(
                     "Failed to update branding settings".into(),
                 ));
@@ -518,12 +579,16 @@ pub async fn delete_branding_image(
         }
     };
 
-    // Get the URL to delete
-    let url_to_delete = match image_type.as_str() {
-        "logo" => current_settings.logo_url,
-        "logo_light" => current_settings.logo_light_url,
-        "favicon" => current_settings.favicon_url,
-        _ => None,
+    // Get the URL to delete, and the logo's current email copy. Copies of
+    // earlier logos stay, for messages already sent with them.
+    let (url_to_delete, copy_to_delete) = match image_type.as_str() {
+        "logo" => (current_settings.logo_url, current_settings.email_logo),
+        "logo_light" => (
+            current_settings.logo_light_url,
+            current_settings.email_logo_light,
+        ),
+        "favicon" => (current_settings.favicon_url, None),
+        _ => (None, None),
     };
 
     // Remove the object through scoped storage, so this works on every backend
@@ -538,12 +603,20 @@ pub async fn delete_branding_image(
             warn!(error = ?e, path = %path, "Failed to delete branding image");
         }
     }
+    if let Some(path) = copy_to_delete
+        .as_ref()
+        .and_then(|copy| email_logos::stored_copy_path(copy, ws.workspace_uuid))
+    {
+        if let Err(e) = storage.get().delete_file(&path).await {
+            warn!(error = ?e, path = %path, "Failed to delete a logo's email copy");
+        }
+    }
 
     // Update the database to remove the URL
     let image_type_owned = image_type.clone();
     let result = tc.run(|conn| match image_type_owned.as_str() {
-        "logo" => site_settings::update_logo_url(conn, None, user_uuid),
-        "logo_light" => site_settings::update_logo_light_url(conn, None, user_uuid),
+        "logo" => site_settings::set_logo(conn, Logo::Main, None, None, user_uuid),
+        "logo_light" => site_settings::set_logo(conn, Logo::Light, None, None, user_uuid),
         "favicon" => site_settings::update_favicon_url(conn, None, user_uuid),
         _ => unreachable!(),
     });
@@ -565,6 +638,57 @@ pub async fn delete_branding_image(
     }
 }
 
+/// GET /api/admin/branding/email-preview: the test letter on the light and
+/// the dark paper, with the workspace's logo and colour as mail shows them.
+pub async fn email_preview(
+    mut tc: TenantConn,
+    req: HttpRequest,
+    ws: WorkspaceContext,
+) -> Result<HttpResponse, ApiError> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    let user_uuid = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => utils::parse_uuid(&claims.sub)
+            .map_err(|_| ApiError::BadRequest("Invalid user UUID".into()))?,
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
+    };
+    let base_url = crate::utils::tenant_origin::email_link_base(ws.canonical_origin())
+        .unwrap_or_else(|| EmailBranding::default().base_url);
+
+    let (branding, locale) = tc
+        .run(|conn| {
+            Ok::<_, diesel::result::Error>((
+                crate::utils::email_branding::get_email_branding(conn, &base_url),
+                crate::repository::user_locale::resolve_effective_locale(conn, user_uuid),
+            ))
+        })
+        .map_err(|e| ApiError::Internal(format!("email preview: {e}")))?;
+
+    Ok(HttpResponse::Ok().json(json!({
+        "light": preview_test_letter(&branding, &locale, Paper::Light),
+        "dark": preview_test_letter(&branding, &locale, Paper::Dark),
+    })))
+}
+
+/// The Nosdesk wordmark (296 x 54, orange) on mail from a workspace that has
+/// no logo and still carries the Nosdesk name.
+const NOSDESK_WORDMARK: &[u8] = include_bytes!("branding/nosdesk-wordmark.png");
+
+/// GET `/email-assets/{filename}` (public): images the email template itself
+/// uses, served from the binary so mail never loads them from nosdesk.com.
+/// The template versions their URLs, so caches may keep them for good.
+pub async fn serve_email_asset(filename: web::Path<String>) -> HttpResponse {
+    match filename.as_str() {
+        "nosdesk-wordmark.png" => HttpResponse::Ok()
+            .content_type("image/png")
+            .insert_header((
+                actix_web::http::header::CACHE_CONTROL,
+                "public, max-age=31536000, immutable",
+            ))
+            .body(NOSDESK_WORDMARK),
+        _ => errors::not_found_msg("Not found"),
+    }
+}
+
 // Helper function to validate hex color
 fn is_valid_hex_color(color: &str) -> bool {
     let hex = match color.strip_prefix('#') {
@@ -575,6 +699,27 @@ fn is_valid_hex_color(color: &str) -> bool {
         return false;
     }
     hex.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// The filename stems branding objects are stored under: the uploads, and
+/// the logos' email copies (`services::email_logos`).
+const BRANDING_STEMS: &[&str] = &[
+    "logo_light",
+    "logo",
+    "favicon",
+    "email_logo_light",
+    "email_logo",
+];
+
+/// An email copy of a logo. Its name is versioned and its content never
+/// changes, so caches may keep it for good.
+fn is_email_copy(filename: &str) -> bool {
+    let stem = filename.split('.').next().unwrap_or(filename);
+    ["email_logo_light", "email_logo"].iter().any(|base| {
+        stem.strip_prefix(base)
+            .and_then(|r| r.strip_prefix('_'))
+            .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
+    })
 }
 
 /// Validate a branding filename against the exact shape the upload
@@ -593,7 +738,7 @@ fn is_allowed_branding_filename(filename: &str) -> bool {
         return false;
     }
     // stem is exactly an allowed base, or base + "_" + all-digits.
-    ["logo_light", "logo", "favicon"].iter().any(|base| {
+    BRANDING_STEMS.iter().any(|base| {
         if stem == *base {
             return true;
         }
@@ -643,7 +788,12 @@ pub async fn serve_workspace_branding_file(
     let storage =
         WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace.workspace_id);
     let logical_path = format!("{BRANDING_DIR}/{filename}");
-    match serve_or_not_found(storage, &logical_path, &req, Caching::Public).await {
+    let caching = if is_email_copy(&filename) {
+        Caching::Immutable
+    } else {
+        Caching::Public
+    };
+    match serve_or_not_found(storage, &logical_path, &req, caching).await {
         Ok(response) => Ok(response),
         Err(_) => Err(ApiError::NotFoundMsg("Not found".into())),
     }
