@@ -6,6 +6,9 @@ name: Release
 # push to GHCR only and are marked prerelease so the in-app updater
 # (stable-only /releases/latest) skips them.
 # Does NOT re-run tests: tag a commit that already passed CI on main.
+# Does wait for CodeQL's analysis of the tag (codeql.yml runs on v* tags), and
+# publishes nothing while the tag has an open high or critical alert. A release
+# therefore lands about two hours after the tag.
 #
 # Required repository secrets:
 #   DOCKERHUB_USERNAME  - Docker Hub account/org with push access to nosdesk/nosdesk
@@ -34,8 +37,84 @@ permissions:
   contents: read
 
 jobs:
+  codeql-gate:
+    name: CodeQL gate
+    runs-on: ubuntu-latest
+    # The tag's Rust analysis alone takes well over an hour.
+    timeout-minutes: 180
+    permissions:
+      actions: read          # the CodeQL run for this tag
+      security-events: read  # its analyses and alerts
+    steps:
+      - name: Wait for CodeQL to analyse the tag
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # codeql.yml starts on the same tag push. Allow a few minutes for it
+          # to appear, then until the job timeout for it to finish.
+          for attempt in $(seq 1 85); do
+            run=$(gh run list -R "$REPO" --workflow codeql.yml --commit "$SHA" --event push \
+              --json databaseId,headBranch,status,conclusion \
+              --jq "[.[] | select(.headBranch == \"$TAG\")][0] // empty | \"\(.databaseId) \(.status) \(.conclusion)\"")
+            case "$run" in
+              *" completed success")
+                echo "id=${run%% *}" >> "$GITHUB_OUTPUT"
+                exit 0 ;;
+              *" completed "*)
+                echo "::error::CodeQL on $TAG finished as '${run##* }'. Re-run CodeQL on the tag, then re-run this release."
+                exit 1 ;;
+              "")
+                if [ "$attempt" -ge 5 ]; then
+                  echo "::error::No CodeQL run for $TAG. Run the CodeQL workflow on the tag, then re-run this release."
+                  exit 1
+                fi ;;
+            esac
+            sleep 120
+          done
+          echo "::error::CodeQL on $TAG did not finish in time. Re-run this release once it has."
+          exit 1
+
+      - name: No open high or critical alerts on the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ steps.run.outputs.id }}
+        run: |
+          set -euo pipefail
+          # One analysis per language the run analysed. Uploaded results take
+          # a moment to process, so wait for all of them.
+          expected=$(gh run view "$RUN_ID" -R "$REPO" --json jobs \
+            --jq '[.jobs[] | select(.name | startswith("Analyze"))] | length')
+          for attempt in $(seq 1 20); do
+            have=$(gh api "repos/$REPO/code-scanning/analyses?tool_name=CodeQL&ref=$REF&per_page=100" \
+              --jq "[.[] | select(.commit_sha == \"$SHA\") | .category] | unique | length")
+            [ "$have" -ge "$expected" ] && break
+            if [ "$attempt" -eq 20 ]; then
+              echo "::error::Only $have of $expected CodeQL analyses are recorded for $TAG."
+              exit 1
+            fi
+            sleep 30
+          done
+          found=$(gh api --paginate "repos/$REPO/code-scanning/alerts?tool_name=CodeQL&ref=$REF&state=open&per_page=100" \
+            --jq '.[] | select(.rule.security_severity_level == "high" or .rule.security_severity_level == "critical") | "\(.rule.security_severity_level): \(.rule.description) at \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line) \(.html_url)"')
+          if [ -n "$found" ]; then
+            echo "::error::$TAG has open high or critical CodeQL alerts. Fix or dismiss them, then re-run this release."
+            echo "$found"
+            exit 1
+          fi
+          echo "CodeQL: no open high or critical alerts on $TAG."
+
   image:
     name: Build & push image
+    needs: codeql-gate
     runs-on: ubuntu-latest
     permissions:
       contents: write   # create the GitHub Release

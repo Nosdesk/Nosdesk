@@ -4,18 +4,20 @@ name: CodeQL
 #
 # Rust is analysed with `build-mode: none`: CodeQL's Rust support went GA in
 # October 2025 and no longer needs to observe a real cargo build, so this does
-# not duplicate ci.yml's compile. That also keeps the job off the critical path
-# for merges, which is why findings land in the Security tab rather than as a
-# blocking check.
+# not duplicate ci.yml's compile. None of this gates a merge: findings land in
+# the Security tab and are triaged after the merge. A release is gated on the
+# analysis of its own tag (release.yml).
 #
 # `actions` is a language here, not a mistake: CodeQL scans workflow files for
 # injection and permission problems. It overlaps zizmor.yml deliberately (the
 # two disagree often enough to be worth both).
 #
-# A pull request analyses only the languages it changes; the Rust analysis
-# alone takes well over an hour, and a docs-only change gets none. Pushes to
-# main and the weekly run analyse every language, so main always has a full
-# baseline. A change to this file or .github/codeql/ analyses every language
+# A pull request analyses the JavaScript/TypeScript and workflows it changes,
+# which takes a minute or two. Rust is analysed on main, on version tags and
+# weekly, not on pull requests: the backend analysis alone takes well over an
+# hour (GitHub's advice for a slow analysis). Pushes to main, tags and the
+# weekly run analyse every language, so main keeps a full baseline. A change
+# to this file or .github/codeql/ analyses every language on the pull request
 # too.
 #
 # Rust is two analyses. The backend's leaves out test code: the extractor turns
@@ -27,6 +29,8 @@ name: CodeQL
 on:
   push:
     branches: [main]
+    # A release waits for the analysis of exactly what it ships (release.yml).
+    tags: ['v*']
   pull_request:
   schedule:
     # Weekly, so a new query release finds old code without waiting for a push
@@ -66,25 +70,19 @@ jobs:
           else
             changed=ALL
           fi
-          # touches INCLUDE [EXCLUDE]: a changed path matches INCLUDE and not
-          # EXCLUDE. Pushes, the schedule and CodeQL config changes match all.
-          touches() {
+          # full: pushes, tags, the schedule and CodeQL config changes analyse
+          # every language. touches PATTERN: a changed path matches PATTERN.
+          full() {
             [ "$changed" = ALL ] && return 0
-            grep -qE '^\.github/(workflows/codeql\.yml|codeql/)' <<<"$changed" && return 0
-            local hits
-            hits=$(grep -E "$1" <<<"$changed" || true)
-            if [ -n "${2:-}" ]; then
-              hits=$(grep -vE "$2" <<<"$hits" || true)
-            fi
-            [ -n "$hits" ]
+            grep -qE '^\.github/(workflows/codeql\.yml|codeql/)' <<<"$changed"
           }
-          rust='\.rs$|(^|/)Cargo\.(toml|lock)$'
-          rust_tests='^backend/tests/|/tests\.rs$|^backend/src/(test_helpers|route_registration_tests)\.rs$'
+          touches() {
+            full || grep -qE "$1" <<<"$changed"
+          }
           langs=()
-          if touches "$rust" "^mobile/|$rust_tests"; then
+          # Rust only on a full analysis; pull requests skip it (see the top).
+          if full; then
             langs+=('{"name":"rust","language":"rust","build-mode":"none","config-file":"./.github/codeql/rust-backend.yml","category":"/language:rust"}')
-          fi
-          if touches "^mobile/.*($rust)"; then
             langs+=('{"name":"rust-mobile","language":"rust","build-mode":"none","config-file":"./.github/codeql/rust-mobile.yml","category":"/language:rust-mobile"}')
           fi
           if touches '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|vue|html)$'; then
