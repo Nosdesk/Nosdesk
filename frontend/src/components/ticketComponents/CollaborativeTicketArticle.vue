@@ -107,6 +107,13 @@ const handleSelectRevision = async (revisionNumber: number | null) => {
   }
 };
 
+// The editor owns the revert: it is a transaction on the live view, which
+// ySyncPlugin turns into the operations that reach every peer. The list's
+// restore call only authorises it.
+const handleRevisionRestored = async (revisionNumber: number) => {
+  await editorRef.value?.restoreRevision(revisionNumber);
+};
+
 // The editor owns which revision is on screen, so the list highlight follows it
 // whether the exit came from the list or from the overlay's own button.
 const activeRevisionNumber = computed(() => editorRef.value?.currentRevisionNumber ?? null);
@@ -220,6 +227,7 @@ const confirmPromote = async () => {
           :ticket-id="ticketId"
           :active-revision-number="activeRevisionNumber"
           @select-revision="handleSelectRevision"
+          @restored="handleRevisionRestored"
         />
       </aside>
     </div>
