@@ -86,11 +86,10 @@ pub fn validate(bytes: &[u8]) -> Result<(), SvgValidationError> {
             // Empty `<foo .../>` is the same shape as Start for our
             // purposes; both run through the validator.
             Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+                // Names are text: the reader refuses input that isn't
+                // UTF-8 before an event is built.
                 let raw_name = e.name();
-                let name_bytes = raw_name.as_ref();
-                let name_str = std::str::from_utf8(name_bytes).map_err(|err| {
-                    SvgValidationError::NotXml(format!("non-utf8 element name: {err}"))
-                })?;
+                let name_str: &str = raw_name.as_ref();
                 let local = local_name(name_str);
 
                 if !seen_root {
@@ -133,9 +132,7 @@ fn check_attributes(
     for attr_result in e.attributes().with_checks(false) {
         let attr = attr_result
             .map_err(|err| SvgValidationError::NotXml(format!("attribute parse: {err}")))?;
-        let key_bytes = attr.key.as_ref();
-        let key_str = std::str::from_utf8(key_bytes)
-            .map_err(|err| SvgValidationError::NotXml(format!("non-utf8 attribute name: {err}")))?;
+        let key_str: &str = attr.key.as_ref();
         let key_lower = key_str.to_ascii_lowercase();
         let key_local = local_name(&key_lower);
 
@@ -207,6 +204,20 @@ mod tests {
             validate(bytes),
             Err(SvgValidationError::NotXml(_) | SvgValidationError::NotSvgRoot { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_non_utf8() {
+        // A Latin-1 byte inside an element name and inside an attribute.
+        for bytes in [
+            &b"<svg xmlns=\"http://www.w3.org/2000/svg\"><g\xe9/></svg>"[..],
+            &b"<svg xmlns=\"http://www.w3.org/2000/svg\" o\xe9nload=\"x\"></svg>"[..],
+        ] {
+            match validate(bytes) {
+                Err(SvgValidationError::NotXml(_)) => {}
+                other => panic!("expected NotXml, got {other:?}"),
+            }
+        }
     }
 
     #[test]
