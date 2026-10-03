@@ -845,6 +845,7 @@ pub fn configure_app(
             // two-segment path, which a greedy tail pattern would.
             .route("/uploads/branding/{workspace_uuid}/{filename}", web::get().to(crate::handlers::branding::serve_workspace_branding_file))
             .route("/uploads/branding/{filename}", web::get().to(crate::handlers::branding::serve_branding_file))
+            .route("/email-assets/{filename}", web::get().to(crate::handlers::branding::serve_email_asset))
 
             // Public branding config (needed for favicon/logo before login)
             .route("/api/branding", web::get().to(crate::handlers::branding::get_public_branding))

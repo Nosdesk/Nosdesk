@@ -1,7 +1,10 @@
+use tracing::warn;
+
 use crate::db::DbConnection;
 use crate::models::SiteSettings;
 use crate::repository::site_settings;
 use crate::utils::email::EmailBranding;
+use crate::utils::email_logo::EmailLogo;
 
 /// Get email branding from site settings, with fallbacks. Also
 /// resolves the opt-in anti-phishing footer note so the email
@@ -10,22 +13,34 @@ pub fn get_email_branding(conn: &mut DbConnection, base_url: &str) -> EmailBrand
     site_settings::get_site_settings(conn)
         .map(|settings| {
             let security_note = resolve_security_note(&settings, base_url);
+            let logo = email_copy(settings.email_logo.as_ref());
+            let logo_light = email_copy(settings.email_logo_light.as_ref());
             let mut branding = EmailBranding::new(
                 settings.app_name,
-                settings.logo_url,
                 settings.primary_color,
                 base_url.to_string(),
             );
+            branding.logo = logo;
+            branding.logo_light = logo_light;
             branding.security_note = security_note;
             branding
         })
         .unwrap_or_else(|_| EmailBranding {
-            app_name: "Nosdesk".to_string(),
-            logo_url: None,
-            primary_color: "#2563eb".to_string(),
             base_url: base_url.to_string(),
-            security_note: None,
+            ..EmailBranding::default()
         })
+}
+
+/// A logo's stored email copy. One that doesn't parse is left out, and the
+/// letterhead falls back as if there were none.
+fn email_copy(value: Option<&serde_json::Value>) -> Option<EmailLogo> {
+    match serde_json::from_value(value?.clone()) {
+        Ok(copy) => Some(copy),
+        Err(e) => {
+            warn!(error = %e, "Unreadable logo email copy");
+            None
+        }
+    }
 }
 
 /// Resolve the anti-phishing footer note into a ready-to-render

@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 
 use crate::db::Pool;
@@ -26,7 +26,8 @@ use crate::services::outbound_email::OutboundEmailResolver;
 use crate::services::ses_identity;
 use crate::sync::session::run_in_workspace;
 use crate::utils::email::{
-    check_port_security, EmailConfig, EmailService, SmtpCoherence, SmtpError, SmtpSecurity,
+    check_port_security, EmailBranding, EmailConfig, EmailService, SmtpCoherence, SmtpError,
+    SmtpSecurity,
 };
 use crate::utils::rbac;
 
@@ -714,9 +715,32 @@ fn classify(e: &SmtpError) -> &'static str {
     }
 }
 
-async fn send_test(svc: &EmailService, to: String) -> TestResult {
-    let branding = crate::utils::email::EmailBranding::default();
-    match svc.send_test(&to, &branding).await {
+/// The workspace's email branding and the admin's language, for the test
+/// letter, read on the request's tenant connection.
+fn test_letter_context(
+    conn: &mut crate::db::DbConnection,
+    req: &HttpRequest,
+    user: uuid::Uuid,
+) -> (EmailBranding, unic_langid::LanguageIdentifier) {
+    let base_url = crate::utils::tenant_origin::email_link_base(
+        req.extensions()
+            .get::<crate::extractors::WorkspaceContext>()
+            .and_then(|ws| ws.canonical_origin()),
+    )
+    .unwrap_or_else(|| EmailBranding::default().base_url);
+    (
+        crate::utils::email_branding::get_email_branding(conn, &base_url),
+        crate::repository::user_locale::resolve_effective_locale(conn, user),
+    )
+}
+
+async fn send_test(
+    svc: &EmailService,
+    to: String,
+    branding: &EmailBranding,
+    locale: &unic_langid::LanguageIdentifier,
+) -> TestResult {
+    match svc.send_test(&to, branding, locale).await {
         Ok(()) => TestResult {
             ok: true,
             to,
@@ -768,9 +792,10 @@ pub async fn test_relay(
 
     let host = relay.host.clone();
     let username = relay.username.clone();
-    let loaded = tc.run(move |conn| {
+    let loaded = tc.run(|conn| {
         let row = ws_settings::get(conn)?;
         let recipient = user_helpers::get_primary_email(&user, conn);
+        let letter = test_letter_context(conn, &req, user);
         let stored = match &row {
             Some(r) if r.smtp_host == host && r.smtp_username == username => {
                 ws_settings::decrypt_password(r)
@@ -778,9 +803,9 @@ pub async fn test_relay(
             }
             _ => None,
         };
-        Ok::<_, diesel::result::Error>((recipient, stored))
+        Ok::<_, diesel::result::Error>((recipient, stored, letter))
     });
-    let (recipient, stored_password) = match loaded {
+    let (recipient, stored_password, (branding, locale)) = match loaded {
         Ok(v) => v,
         Err(e) => return Err(ApiError::Internal(format!("relay test prep: {e}"))),
     };
@@ -812,7 +837,7 @@ pub async fn test_relay(
         security: relay.security,
     };
     let svc = EmailService::new_untrusted_relay_with_timeout(config, TEST_TIMEOUT);
-    Ok(HttpResponse::Ok().json(send_test(&svc, recipient).await))
+    Ok(HttpResponse::Ok().json(send_test(&svc, recipient, &branding, &locale).await))
 }
 
 /// POST /admin/email/outbound/test — send a test through whatever this
@@ -836,11 +861,15 @@ pub async fn test_send(
             serde_json::json!({}),
         ));
     }
-    let recipient = match tc
-        .run(|conn| Ok::<_, diesel::result::Error>(user_helpers::get_primary_email(&user, conn)))
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => {
+    let loaded = tc.run(|conn| {
+        Ok::<_, diesel::result::Error>((
+            user_helpers::get_primary_email(&user, conn),
+            test_letter_context(conn, &req, user),
+        ))
+    });
+    let (recipient, (branding, locale)) = match loaded {
+        Ok((Some(r), letter)) => (r, letter),
+        Ok((None, _)) => {
             return Err(ApiError::BadRequest(
                 "your account has no email address".into(),
             ))
@@ -858,7 +887,7 @@ pub async fn test_send(
             }))
         }
     };
-    Ok(HttpResponse::Ok().json(send_test(&svc, recipient).await))
+    Ok(HttpResponse::Ok().json(send_test(&svc, recipient, &branding, &locale).await))
 }
 
 /// DELETE /admin/email/outbound — revert to the instance fallback identity.

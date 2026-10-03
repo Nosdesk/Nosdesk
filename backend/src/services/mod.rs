@@ -9,6 +9,7 @@ pub mod connection_registry;
 pub mod custom_fields;
 pub mod dkim_verification;
 pub mod dns_diagnostics;
+pub mod email_logos;
 pub mod email_queue;
 pub mod email_verification;
 pub mod imports;

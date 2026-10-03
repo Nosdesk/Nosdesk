@@ -376,6 +376,8 @@ mod tests {
             approval_waiting_display: "badge".into(),
             approval_skip_by: "admins".into(),
             approval_auto_approve_days: None,
+            email_logo: None,
+            email_logo_light: None,
         }
     }
 

@@ -75,6 +75,11 @@ pub struct SiteSettings {
     pub approval_skip_by: String,
     /// An unanswered approval approves itself after this many days; `None` = never.
     pub approval_auto_approve_days: Option<i32>,
+    /// The email-ready copy of `logo_url`, an
+    /// [`EmailLogo`](crate::utils::email_logo::EmailLogo). `None` until made.
+    pub email_logo: Option<serde_json::Value>,
+    /// The email-ready copy of `logo_light_url`.
+    pub email_logo_light: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]

@@ -17,6 +17,7 @@ import { useBrandingStore } from '@/stores/branding'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import { useUnsavedChanges } from '@/composables/useUnsavedChanges'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import EmailBrandingPreview from '@/components/admin/branding/EmailBrandingPreview.vue'
 import { extractErrorMessage } from '@/utils/errors'
 
 // Get the branding store to update it when settings change
@@ -144,7 +145,7 @@ const handleLogoUpload = async (event: Event) => {
   // Validate file
   const validation = uploadService.validateFile(file, {
     maxSizeMB: 2,
-    allowedTypes: ['image/png', 'image/svg+xml', 'image/jpeg', 'image/webp']
+    allowedTypes: ['image/png', 'image/jpeg', 'image/webp']
   })
 
   if (!validation.valid) {
@@ -180,7 +181,7 @@ const handleLogoLightUpload = async (event: Event) => {
 
   const validation = uploadService.validateFile(file, {
     maxSizeMB: 2,
-    allowedTypes: ['image/png', 'image/svg+xml', 'image/jpeg', 'image/webp']
+    allowedTypes: ['image/png', 'image/jpeg', 'image/webp']
   })
 
   if (!validation.valid) {
@@ -216,7 +217,7 @@ const handleFaviconUpload = async (event: Event) => {
 
   const validation = uploadService.validateFile(file, {
     maxSizeMB: 2,
-    allowedTypes: ['image/x-icon', 'image/vnd.microsoft.icon', 'image/png', 'image/svg+xml']
+    allowedTypes: ['image/x-icon', 'image/vnd.microsoft.icon', 'image/png']
   })
 
   if (!validation.valid) {
@@ -401,7 +402,7 @@ async function confirmDeleteBrandingImage(): Promise<void> {
                   <input
                     ref="logoInput"
                     type="file"
-                    accept="image/png,image/svg+xml,image/jpeg,image/webp"
+                    accept="image/png,image/jpeg,image/webp"
                     class="hidden"
                     @change="handleLogoUpload"
                   />
@@ -446,7 +447,7 @@ async function confirmDeleteBrandingImage(): Promise<void> {
                   <input
                     ref="logoLightInput"
                     type="file"
-                    accept="image/png,image/svg+xml,image/jpeg,image/webp"
+                    accept="image/png,image/jpeg,image/webp"
                     class="hidden"
                     @change="handleLogoLightUpload"
                   />
@@ -489,7 +490,7 @@ async function confirmDeleteBrandingImage(): Promise<void> {
                 <input
                   ref="faviconInput"
                   type="file"
-                  accept="image/x-icon,image/vnd.microsoft.icon,image/png,image/svg+xml"
+                  accept="image/x-icon,image/vnd.microsoft.icon,image/png"
                   class="hidden"
                   @change="handleFaviconUpload"
                 />
@@ -551,6 +552,8 @@ async function confirmDeleteBrandingImage(): Promise<void> {
             </div>
           </div>
         </div>
+
+        <EmailBrandingPreview :version="brandingConfig.updated_at" />
 
         <!-- Configuration status (only shown when custom branding is configured) -->
         <div

@@ -718,7 +718,6 @@ mod tests {
     fn test_branding() -> EmailBranding {
         EmailBranding::new(
             "Nosdesk".to_string(),
-            None,
             Some("#2563eb".to_string()),
             "https://desk.example.com".to_string(),
         )

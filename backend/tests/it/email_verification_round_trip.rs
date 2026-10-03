@@ -32,7 +32,6 @@ fn email_service_stub() -> EmailService {
 fn branding() -> EmailBranding {
     EmailBranding {
         app_name: "Nosdesk".to_string(),
-        logo_url: None,
         primary_color: "#000000".to_string(),
         base_url: "https://help.example.com".to_string(),
         ..Default::default()

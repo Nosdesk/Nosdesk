@@ -38,6 +38,11 @@ export interface BrandingConfig {
   email_security_note_template: string | null
 }
 
+export interface EmailPreview {
+  light: string
+  dark: string
+}
+
 export interface UpdateBrandingRequest {
   app_name?: string
   primary_color?: string | null
@@ -152,6 +157,15 @@ class BrandingService {
       logger.error('Error deleting branding image:', error)
       throw error
     }
+  }
+
+  /**
+   * The test email as recipients see it, on the light and the dark paper
+   * (admin only). Each is a complete HTML document for a sandboxed frame.
+   */
+  async getEmailPreview(): Promise<EmailPreview> {
+    const response = await apiClient.get<EmailPreview>('/admin/branding/email-preview')
+    return response.data
   }
 
   // Note: Favicon management is now handled by useFavicon composable in App.vue
