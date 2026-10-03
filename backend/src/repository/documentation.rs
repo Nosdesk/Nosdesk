@@ -980,6 +980,14 @@ pub enum PageAudience {
 }
 
 impl PageAudience {
+    /// The caller of a docs route.
+    pub fn from_auth(auth: &crate::extractors::AuthContext) -> Self {
+        PageAudience::User {
+            user_uuid: auth.user_uuid,
+            is_admin: auth.is_workspace_admin(),
+        }
+    }
+
     /// Fails closed: a lookup error reads as "not accessible", matching the
     /// handlers, which turn a visibility-check failure into a refusal rather
     /// than falling through to the content.
@@ -991,6 +999,68 @@ impl PageAudience {
                 is_admin,
             } => can_user_access_page(conn, page_id, user_uuid, *is_admin).unwrap_or(false),
         }
+    }
+
+    /// The page, if it exists and this audience may read it. A page it may
+    /// not read comes back `None` like a missing one, so a route answers both
+    /// with the same 404 and changes nothing. `can_read` alone isn't enough
+    /// here: an id with no row has no visibility rules, so it reads as public.
+    pub fn readable_page(
+        &self,
+        conn: &mut DbConnection,
+        page_id: i32,
+    ) -> Result<Option<DocumentationPage>, Error> {
+        let page = documentation_pages::table
+            .find(page_id)
+            .first::<DocumentationPage>(conn)
+            .optional()?;
+        Ok(page.filter(|p| self.can_read(conn, p.id)))
+    }
+
+    /// The pages in `pages` this audience may read.
+    pub fn filter_pages(
+        &self,
+        conn: &mut DbConnection,
+        pages: Vec<DocumentationPage>,
+    ) -> Result<Vec<DocumentationPage>, Error> {
+        match self {
+            PageAudience::Unrestricted => Ok(pages),
+            PageAudience::User {
+                user_uuid,
+                is_admin,
+            } => filter_pages_for_user(conn, pages, user_uuid, *is_admin),
+        }
+    }
+
+    /// Fails closed, like [`PageAudience::can_read`].
+    pub fn can_read_collection(&self, conn: &mut DbConnection, collection_id: i32) -> bool {
+        match self {
+            PageAudience::Unrestricted => true,
+            PageAudience::User {
+                user_uuid,
+                is_admin,
+            } => crate::repository::documentation_collections::can_user_access_collection(
+                conn,
+                collection_id,
+                user_uuid,
+                *is_admin,
+            )
+            .unwrap_or(false),
+        }
+    }
+
+    /// The collection, if it exists and this audience may see it. Same
+    /// contract as [`PageAudience::readable_page`].
+    pub fn readable_collection(
+        &self,
+        conn: &mut DbConnection,
+        collection_id: i32,
+    ) -> Result<Option<crate::models::DocumentationCollection>, Error> {
+        let collection = documentation_collections::table
+            .find(collection_id)
+            .first::<crate::models::DocumentationCollection>(conn)
+            .optional()?;
+        Ok(collection.filter(|c| self.can_read_collection(conn, c.id)))
     }
 }
 

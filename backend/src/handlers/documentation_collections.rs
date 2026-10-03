@@ -106,23 +106,24 @@ enum CollectionFetchOutcome {
 pub async fn get_collection(
     mut tc: TenantConn,
     path: web::Path<i32>,
-    _auth: AuthContext,
+    auth: AuthContext,
     ws: WorkspaceContext,
 ) -> impl Responder {
     let collection_id = path.into_inner();
     let workspace_uuid = ws.workspace_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        let collection =
-            match repository::documentation_collections::get_collection(conn, collection_id) {
-                Ok(c) => c,
-                Err(Error::NotFound) => return Ok(CollectionFetchOutcome::NotFound),
-                Err(_) => return Ok(CollectionFetchOutcome::Failed),
-            };
+        let collection = match audience.readable_collection(conn, collection_id) {
+            Ok(Some(c)) => c,
+            Ok(None) => return Ok(CollectionFetchOutcome::NotFound),
+            Err(_) => return Ok(CollectionFetchOutcome::Failed),
+        };
         Ok::<_, diesel::result::Error>(CollectionFetchOutcome::Ok(collection_response(
             conn,
             collection,
             workspace_uuid,
+            &audience,
         )))
     });
 
@@ -138,11 +139,12 @@ pub async fn get_collection(
 pub async fn get_collection_by_slug(
     mut tc: TenantConn,
     path: web::Path<String>,
-    _auth: AuthContext,
+    auth: AuthContext,
     ws: WorkspaceContext,
 ) -> impl Responder {
     let slug = path.into_inner();
     let workspace_uuid = ws.workspace_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
         let collection =
@@ -151,10 +153,14 @@ pub async fn get_collection_by_slug(
                 Err(Error::NotFound) => return Ok(CollectionFetchOutcome::NotFound),
                 Err(_) => return Ok(CollectionFetchOutcome::Failed),
             };
+        if !audience.can_read_collection(conn, collection.id) {
+            return Ok(CollectionFetchOutcome::NotFound);
+        }
         Ok::<_, diesel::result::Error>(CollectionFetchOutcome::Ok(collection_response(
             conn,
             collection,
             workspace_uuid,
+            &audience,
         )))
     });
 
@@ -178,12 +184,16 @@ pub async fn get_collection_by_slug(
 /// invariants are documented in
 /// `frontend/src/utils/collabDocId.ts` and enforced by
 /// `collaboration.rs::DocumentType::from_namespaced_doc_id`.
+///
+/// Lists only the pages `audience` may read.
 fn collection_response(
     conn: &mut crate::db::DbConnection,
     collection: crate::models::DocumentationCollection,
     workspace_uuid: Uuid,
+    audience: &repository::PageAudience,
 ) -> serde_json::Value {
     let pages = repository::documentation_collections::get_pages_in_collection(conn, collection.id)
+        .and_then(|pages| audience.filter_pages(conn, pages))
         .unwrap_or_default();
     let visible_groups = repository::documentation_collections::get_visible_groups_for_collection(
         conn,
@@ -222,8 +232,12 @@ fn collection_response(
 }
 
 /// Get pages that don't belong to any collection
-pub async fn get_uncollected_pages(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
-    match tc.run(repository::documentation_collections::get_uncollected_pages) {
+pub async fn get_uncollected_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    let audience = repository::PageAudience::from_auth(&auth);
+    match tc.run(|conn| {
+        let pages = repository::documentation_collections::get_uncollected_pages(conn)?;
+        audience.filter_pages(conn, pages)
+    }) {
         Ok(pages) => HttpResponse::Ok().json(pages),
         Err(e) => {
             error!(error = ?e, "Failed to get uncollected pages");
@@ -259,6 +273,7 @@ pub async fn create_collection(
     let created_by = Some(auth.user_uuid);
     let body = body.into_inner();
     let workspace_uuid = ws.workspace_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let result = tc.run(|conn| {
         let slug = match body
@@ -302,7 +317,7 @@ pub async fn create_collection(
                 }
             }
         }
-        let payload = collection_response(conn, collection, workspace_uuid);
+        let payload = collection_response(conn, collection, workspace_uuid, &audience);
         Ok(CreateCollectionOutcome::Created(payload))
     });
 
@@ -355,14 +370,14 @@ pub async fn update_collection(
 
     let collection_id = path.into_inner();
     let body = body.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        let collection =
-            match repository::documentation_collections::get_collection(conn, collection_id) {
-                Ok(c) => c,
-                Err(Error::NotFound) => return Ok(UpdateCollectionOutcome::NotFound),
-                Err(_) => return Ok(UpdateCollectionOutcome::UpdateFailed),
-            };
+        let collection = match audience.readable_collection(conn, collection_id) {
+            Ok(Some(c)) => c,
+            Ok(None) => return Ok(UpdateCollectionOutcome::NotFound),
+            Err(_) => return Ok(UpdateCollectionOutcome::UpdateFailed),
+        };
 
         if collection.is_system && (body.name.is_some() || body.slug.is_some()) {
             return Ok(UpdateCollectionOutcome::SystemRenameBlocked);
@@ -503,6 +518,7 @@ pub async fn add_page_to_collection(
 
     let collection_id = path.into_inner();
     let created_by = Some(auth.user_uuid);
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let new_entry = NewDocumentationCollectionPage {
         collection_id,
@@ -515,15 +531,25 @@ pub async fn add_page_to_collection(
     // new collection's root instead of dangling under a parent
     // that's now in a different collection.
     match tc.run(|conn| {
+        if audience.readable_page(conn, new_entry.page_id)?.is_none()
+            || audience.readable_collection(conn, collection_id)?.is_none()
+        {
+            return Ok(None);
+        }
         repository::documentation_collections::add_page_to_collection_at_root(conn, new_entry)
+            .map(Some)
     }) {
-        Ok(entry) => HttpResponse::Created().json(entry),
+        Ok(Some(entry)) => HttpResponse::Created().json(entry),
+        Ok(None) => errors::not_found_msg(PAGE_OR_COLLECTION_NOT_FOUND),
         Err(e) => {
             error!(error = ?e, "Failed to add page to collection");
             errors::internal("Failed to add page to collection")
         }
     }
 }
+
+/// A page or collection that doesn't exist or that the caller can't see.
+const PAGE_OR_COLLECTION_NOT_FOUND: &str = "Page or collection not found";
 
 /// Remove a page from a collection (technician+)
 pub async fn remove_page_from_collection(
@@ -536,16 +562,24 @@ pub async fn remove_page_from_collection(
     }
 
     let (collection_id, page_id) = path.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     match tc.run(|conn| {
+        if audience.readable_page(conn, page_id)?.is_none()
+            || audience.readable_collection(conn, collection_id)?.is_none()
+        {
+            return Ok(None);
+        }
         repository::documentation_collections::remove_page_from_collection(
             conn,
             collection_id,
             page_id,
         )
+        .map(Some)
     }) {
-        Ok(0) => errors::not_found_msg("Page not in collection"),
-        Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
+        Ok(None) => errors::not_found_msg(PAGE_OR_COLLECTION_NOT_FOUND),
+        Ok(Some(0)) => errors::not_found_msg("Page not in collection"),
+        Ok(Some(_)) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
             error!(error = ?e, "Failed to remove page from collection");
             errors::internal("Failed to remove page from collection")
@@ -557,14 +591,26 @@ pub async fn remove_page_from_collection(
 pub async fn get_collections_for_page(
     mut tc: TenantConn,
     path: web::Path<i32>,
-    _auth: AuthContext,
+    auth: AuthContext,
 ) -> impl Responder {
     let page_id = path.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
 
-    match tc
-        .run(|conn| repository::documentation_collections::get_collections_for_page(conn, page_id))
-    {
-        Ok(collections) => HttpResponse::Ok().json(collections),
+    match tc.run(|conn| {
+        if audience.readable_page(conn, page_id)?.is_none() {
+            return Ok(None);
+        }
+        let collections =
+            repository::documentation_collections::get_collections_for_page(conn, page_id)?;
+        Ok(Some(
+            collections
+                .into_iter()
+                .filter(|c| audience.can_read_collection(conn, c.id))
+                .collect::<Vec<_>>(),
+        ))
+    }) {
+        Ok(Some(collections)) => HttpResponse::Ok().json(collections),
+        Ok(None) => errors::not_found_msg("Page not found"),
         Err(e) => {
             error!(error = ?e, "Failed to get collections for page");
             errors::internal("Failed to get collections for page")
@@ -587,14 +633,20 @@ pub async fn get_collection_visibility(
     }
 
     let collection_id = path.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     match tc.run(|conn| {
+        if audience.readable_collection(conn, collection_id)?.is_none() {
+            return Ok(None);
+        }
         repository::documentation_collections::get_visible_groups_for_collection(
             conn,
             collection_id,
         )
+        .map(Some)
     }) {
-        Ok(groups) => HttpResponse::Ok().json(groups),
+        Ok(Some(groups)) => HttpResponse::Ok().json(groups),
+        Ok(None) => errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!(error = ?e, "Failed to get collection visibility");
             errors::internal("Failed to get collection visibility")
@@ -655,11 +707,13 @@ pub async fn set_collection_visibility(
 /// Outcome of the page-overrides aggregation.
 enum PageOverridesOutcome {
     Ok(Vec<serde_json::Value>),
+    NotFound,
     PagesFailed,
     OverridesFailed,
 }
 
-/// Get page-level visibility overrides for all pages in a collection (technician+)
+/// Get page-level visibility overrides for the pages in a collection that the
+/// caller can read (technician+)
 pub async fn get_page_overrides_in_collection(
     mut tc: TenantConn,
     path: web::Path<i32>,
@@ -670,12 +724,18 @@ pub async fn get_page_overrides_in_collection(
     }
 
     let collection_id = path.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
+        if audience.readable_collection(conn, collection_id)?.is_none() {
+            return Ok(PageOverridesOutcome::NotFound);
+        }
         let pages = match repository::documentation_collections::get_pages_in_collection(
             conn,
             collection_id,
-        ) {
+        )
+        .and_then(|pages| audience.filter_pages(conn, pages))
+        {
             Ok(p) => p,
             Err(e) => {
                 error!(error = ?e, "Failed to get pages in collection");
@@ -750,6 +810,7 @@ pub async fn get_page_overrides_in_collection(
 
     match outcome {
         Ok(PageOverridesOutcome::Ok(payload)) => HttpResponse::Ok().json(payload),
+        Ok(PageOverridesOutcome::NotFound) => errors::not_found_msg("Collection not found"),
         Ok(PageOverridesOutcome::PagesFailed) => errors::internal("Failed to get pages"),
         Ok(PageOverridesOutcome::OverridesFailed) => {
             errors::internal("Failed to get page overrides")
@@ -777,11 +838,22 @@ pub async fn reorder_collections(
         return errors::forbidden("Forbidden");
     }
     let body = body.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     match tc.run(|conn| {
+        for order in &body.collection_orders {
+            if audience
+                .readable_collection(conn, order.collection_id)?
+                .is_none()
+            {
+                return Ok(None);
+            }
+        }
         repository::documentation_collections::reorder_collections(conn, &body.collection_orders)
+            .map(Some)
     }) {
-        Ok(collections) => HttpResponse::Ok().json(collections),
+        Ok(Some(collections)) => HttpResponse::Ok().json(collections),
+        Ok(None) => errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!(error = ?e, "Failed to reorder collections");
             errors::internal("Failed to reorder collections")
@@ -809,8 +881,12 @@ pub async fn set_page_collections(
     let page_id = path.into_inner();
     let created_by = Some(auth.user_uuid);
     let body = body.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let result = tc.run(|conn| {
+        if audience.readable_page(conn, page_id)?.is_none() {
+            return Ok(None);
+        }
         let current_collections =
             match repository::documentation_collections::get_collections_for_page(conn, page_id) {
                 Ok(c) => c,
@@ -821,10 +897,16 @@ pub async fn set_page_collections(
             };
 
         let current_ids: Vec<i32> = current_collections.iter().map(|c| c.id).collect();
+        for id in &body.collection_ids {
+            if !current_ids.contains(id) && audience.readable_collection(conn, *id)?.is_none() {
+                return Ok(None);
+            }
+        }
 
-        // Remove from collections not in the new list
+        // Remove from collections not in the new list. One the caller can't
+        // see stays as it is.
         for id in &current_ids {
-            if !body.collection_ids.contains(id) {
+            if !body.collection_ids.contains(id) && audience.can_read_collection(conn, *id) {
                 let _ = repository::documentation_collections::remove_page_from_collection(
                     conn, *id, page_id,
                 );
@@ -843,11 +925,19 @@ pub async fn set_page_collections(
             }
         }
 
-        repository::documentation_collections::get_collections_for_page(conn, page_id)
+        let collections =
+            repository::documentation_collections::get_collections_for_page(conn, page_id)?;
+        Ok(Some(
+            collections
+                .into_iter()
+                .filter(|c| audience.can_read_collection(conn, c.id))
+                .collect::<Vec<_>>(),
+        ))
     });
 
     match result {
-        Ok(collections) => HttpResponse::Ok().json(collections),
+        Ok(Some(collections)) => HttpResponse::Ok().json(collections),
+        Ok(None) => errors::not_found_msg(PAGE_OR_COLLECTION_NOT_FOUND),
         Err(e) => {
             error!(error = ?e, "Failed to update page collections");
             errors::internal("Failed to update page collections")

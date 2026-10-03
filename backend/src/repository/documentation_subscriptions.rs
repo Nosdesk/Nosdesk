@@ -14,6 +14,43 @@ pub fn get_page_subscribers(conn: &mut DbConnection, page_id: i32) -> Vec<Uuid> 
         .unwrap_or_default()
 }
 
+/// Subscribers to `page_id` who may still read it. A subscription outlives a
+/// change to the page's visibility, so who hears about an update is decided
+/// when it is sent.
+pub fn get_page_subscribers_who_can_read(
+    conn: &mut DbConnection,
+    page_id: i32,
+) -> Result<Vec<Uuid>, diesel::result::Error> {
+    use crate::models::{PlatformRole, WorkspaceRole};
+    use crate::schema::users;
+
+    let subscribers = get_page_subscribers(conn, page_id);
+    if subscribers.is_empty() {
+        return Ok(subscribers);
+    }
+    let platform_admins: std::collections::HashSet<Uuid> = users::table
+        .filter(users::uuid.eq_any(&subscribers))
+        .select((users::uuid, users::platform_role))
+        .load::<(Uuid, String)>(conn)?
+        .into_iter()
+        .filter(|(_, role)| PlatformRole::from_db(role).is_platform_admin())
+        .map(|(uuid, _)| uuid)
+        .collect();
+    let roles = crate::repository::user_helpers::workspace_roles_batch(&subscribers, conn);
+
+    let mut readers = Vec::with_capacity(subscribers.len());
+    for uuid in subscribers {
+        let is_admin = platform_admins.contains(&uuid)
+            || roles
+                .get(&uuid)
+                .is_some_and(|r| r.meets(WorkspaceRole::Admin));
+        if crate::repository::documentation::can_user_access_page(conn, page_id, &uuid, is_admin)? {
+            readers.push(uuid);
+        }
+    }
+    Ok(readers)
+}
+
 /// Check if a specific user is subscribed to a page
 pub fn is_user_subscribed(conn: &mut DbConnection, user_uuid: Uuid, page_id: i32) -> bool {
     documentation_subscriptions::table

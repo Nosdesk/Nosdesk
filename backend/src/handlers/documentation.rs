@@ -783,31 +783,47 @@ pub async fn get_documentation_page_content_by_uuid(
 }
 
 // Sync the embedding references for a page
-// Called by the frontend after saving, with the list of embedded document UUIDs
+// Called by the frontend after saving, with the list of embedded document UUIDs.
+// Staff only, like editing the page; an embed of a page the caller can't open
+// is dropped like an unknown uuid.
 pub async fn sync_page_embeddings(
     mut tc: TenantConn,
     page_id: web::Path<i32>,
     body: web::Json<SyncEmbeddingsRequest>,
+    auth: AuthContext,
 ) -> impl Responder {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can update documentation pages",
+        );
+    }
+
     let source_page_id = page_id.into_inner();
     let body = body.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let result = tc.run(|conn| {
+        if audience.readable_page(conn, source_page_id)?.is_none() {
+            return Ok(false);
+        }
         // Resolve UUIDs to page IDs
         let mut target_page_ids = Vec::new();
         for uuid_str in &body.embedded_uuids {
             if let Ok(uuid) = Uuid::parse_str(uuid_str) {
                 if let Ok(page) = repository::get_documentation_page_by_uuid(&uuid, conn) {
-                    target_page_ids.push(page.id);
+                    if audience.can_read(conn, page.id) {
+                        target_page_ids.push(page.id);
+                    }
                 }
             }
         }
         repository::sync_page_embeddings(conn, source_page_id, &target_page_ids)?;
-        Ok::<_, diesel::result::Error>(())
+        Ok::<_, diesel::result::Error>(true)
     });
 
     match result {
-        Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
+        Ok(true) => HttpResponse::Ok().json(json!({"success": true})),
+        Ok(false) => errors::not_found_msg("Page not found"),
         Err(e) => {
             error!("Failed to sync page embeddings: {}", e);
             errors::internal("Failed to sync embeddings")
@@ -834,6 +850,7 @@ pub async fn create_documentation_page(
     }
 
     let user_uuid = auth.user_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
     let request = page_request.into_inner();
 
     // Parse status string to enum
@@ -844,6 +861,19 @@ pub async fn create_documentation_page(
     };
 
     let create_result = tc.run(|conn| {
+        // A parent or collection the caller can't see is refused like a
+        // missing one.
+        if let Some(pid) = request.parent_id {
+            if audience.readable_page(conn, pid)?.is_none() {
+                return Ok(CreatePageOutcome::InvalidParent);
+            }
+        }
+        if let Some(cid) = request.collection_id {
+            if audience.readable_collection(conn, cid)?.is_none() {
+                return Ok(CreatePageOutcome::InvalidCollection);
+            }
+        }
+
         // Build the NewDocumentationPage from request
         let slug = utils::slug::generate_unique_slug(&request.title, conn);
         let new_page = NewDocumentationPage {
@@ -865,7 +895,13 @@ pub async fn create_documentation_page(
             has_unsaved_changes: request.has_unsaved_changes.unwrap_or(false),
         };
 
-        let created_page = repository::create_documentation_page(new_page, conn)?;
+        let created_page = match repository::create_documentation_page(new_page, conn) {
+            Ok(p) => p,
+            Err(diesel::result::Error::RollbackTransaction) => {
+                return Ok(CreatePageOutcome::InvalidParent);
+            }
+            Err(e) => return Err(e),
+        };
 
         // If the request named a ticket, record it as a
         // 'resolves' link. This keeps the legacy "create page
@@ -924,11 +960,11 @@ pub async fn create_documentation_page(
         let response = to_page_response(created_page.clone(), conn).map_err(|_| {
             diesel::result::Error::QueryBuilderError("Failed to build page response".into())
         })?;
-        Ok::<_, diesel::result::Error>((created_page, response))
+        Ok::<_, diesel::result::Error>(CreatePageOutcome::Created(created_page, response))
     });
 
     match create_result {
-        Ok((created_page, response)) => {
+        Ok(CreatePageOutcome::Created(created_page, response)) => {
             // Index the new documentation page in search
             indexing_tasks::spawn_index_documentation(
                 search_service.get_ref().clone(),
@@ -940,14 +976,25 @@ pub async fn create_documentation_page(
             // the same stream, so no discrete SSE here.
             HttpResponse::Created().json(response)
         }
-        Err(diesel::result::Error::RollbackTransaction) => errors::bad_request(INVALID_PARENT),
+        Ok(CreatePageOutcome::InvalidParent) => errors::bad_request(INVALID_PARENT),
+        Ok(CreatePageOutcome::InvalidCollection) => errors::bad_request(INVALID_COLLECTION),
         Err(_) => errors::internal("Failed to create page"),
     }
 }
 
+/// Outcome of the create_documentation_page transaction.
+enum CreatePageOutcome {
+    Created(DocumentationPage, DocumentationPageResponse),
+    InvalidParent,
+    InvalidCollection,
+}
+
 /// A parent the repository refused: not a page in this workspace, or the page
-/// itself or one inside it.
+/// itself or one inside it. A page the caller can't see is refused the same way.
 const INVALID_PARENT: &str = "Invalid parent page";
+
+/// A collection that doesn't exist or that the caller can't see.
+const INVALID_COLLECTION: &str = "Invalid collection";
 
 // DTO for updating documentation pages (partial update)
 #[derive(Debug, Deserialize)]
@@ -996,6 +1043,7 @@ pub async fn update_documentation_page(
 
     let user_uuid = auth.user_uuid;
     let actor_name = auth.name.clone();
+    let audience = repository::PageAudience::from_auth(&auth);
     let update_req = page.into_inner();
     let now = chrono::Utc::now().naive_utc();
 
@@ -1010,9 +1058,13 @@ pub async fn update_documentation_page(
     };
 
     let outcome = tc.run(|conn| {
-        // Check if the page exists
-        if repository::get_documentation_page(page_id, conn).is_err() {
+        if audience.readable_page(conn, page_id)?.is_none() {
             return Ok(UpdatePageOutcome::NotFound);
+        }
+        if let Some(Some(parent_id)) = update_req.parent_id {
+            if audience.readable_page(conn, parent_id)?.is_none() {
+                return Ok(UpdatePageOutcome::InvalidParent);
+            }
         }
 
         // Auto-regenerate slug when title changes (unless user explicitly provided a slug)
@@ -1101,6 +1153,7 @@ pub async fn update_documentation_page(
     // returns rows: the runtime role is NOBYPASSRLS and the pool scrubs
     // app.workspace_id per checkout, so a bare connection sees zero
     // subscribers and silently drops every doc-page notification.
+    // Only subscribers who can still open the page hear about it.
     {
         let pool = pool.clone();
         let notification_service = notification_service.clone();
@@ -1113,9 +1166,7 @@ pub async fn update_documentation_page(
                 "doc_page_notify_subscribers",
                 page_workspace,
                 |conn| {
-                    Ok(documentation_subscriptions::get_page_subscribers(
-                        conn, page_id,
-                    ))
+                    documentation_subscriptions::get_page_subscribers_who_can_read(conn, page_id)
                 },
             )
             .unwrap_or_default();
@@ -1176,9 +1227,10 @@ pub async fn delete_documentation_page(
     }
 
     let actor_name = auth.name.clone();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        if repository::get_documentation_page(page_id, conn).is_err() {
+        if audience.readable_page(conn, page_id)?.is_none() {
             return Ok(DeletePageOutcome::NotFound);
         }
         // Soft delete: update status to Deleted and set deleted_at
@@ -1433,15 +1485,40 @@ pub async fn reorder_pages(
 
     let parent_id = request.parent_id;
     let request = request.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
 
-    match tc.run(|conn| repository::reorder_pages(conn, Some(parent_id), &request.page_orders)) {
-        Ok(updated_pages) => HttpResponse::Ok().json(updated_pages),
-        Err(diesel::result::Error::RollbackTransaction) => errors::bad_request(INVALID_PARENT),
+    let outcome = tc.run(|conn| {
+        if audience.readable_page(conn, parent_id)?.is_none() {
+            return Ok(ReorderOutcome::InvalidParent);
+        }
+        for order in &request.page_orders {
+            if audience.readable_page(conn, order.page_id)?.is_none() {
+                return Ok(ReorderOutcome::NotFound);
+            }
+        }
+        match repository::reorder_pages(conn, Some(parent_id), &request.page_orders) {
+            Ok(pages) => Ok(ReorderOutcome::Ok(pages)),
+            Err(diesel::result::Error::RollbackTransaction) => Ok(ReorderOutcome::InvalidParent),
+            Err(e) => Err(e),
+        }
+    });
+
+    match outcome {
+        Ok(ReorderOutcome::Ok(updated_pages)) => HttpResponse::Ok().json(updated_pages),
+        Ok(ReorderOutcome::InvalidParent) => errors::bad_request(INVALID_PARENT),
+        Ok(ReorderOutcome::NotFound) => errors::not_found_msg("Page not found"),
         Err(e) => {
             error!(parent_id = parent_id, error = ?e, "Error reordering pages");
             errors::internal("Failed to reorder pages")
         }
     }
+}
+
+/// Outcome of the reorder_pages transaction.
+enum ReorderOutcome {
+    Ok(Vec<DocumentationPage>),
+    InvalidParent,
+    NotFound,
 }
 
 #[derive(Deserialize)]
@@ -1473,17 +1550,40 @@ pub async fn move_page_to_parent(
 
     let page_id = request.page_id;
     let new_parent_id = request.new_parent_id;
+    let audience = repository::PageAudience::from_auth(&auth);
 
-    match tc
-        .run(|conn| repository::move_page_to_parent(conn, page_id, new_parent_id, display_order))
-    {
-        Ok(page) => HttpResponse::Ok().json(page),
-        Err(diesel::result::Error::RollbackTransaction) => errors::bad_request(INVALID_PARENT),
+    let outcome = tc.run(|conn| {
+        if audience.readable_page(conn, page_id)?.is_none() {
+            return Ok(MoveOutcome::NotFound);
+        }
+        if let Some(parent_id) = new_parent_id {
+            if audience.readable_page(conn, parent_id)?.is_none() {
+                return Ok(MoveOutcome::InvalidParent);
+            }
+        }
+        match repository::move_page_to_parent(conn, page_id, new_parent_id, display_order) {
+            Ok(page) => Ok(MoveOutcome::Ok(page)),
+            Err(diesel::result::Error::RollbackTransaction) => Ok(MoveOutcome::InvalidParent),
+            Err(e) => Err(e),
+        }
+    });
+
+    match outcome {
+        Ok(MoveOutcome::Ok(page)) => HttpResponse::Ok().json(page),
+        Ok(MoveOutcome::InvalidParent) => errors::bad_request(INVALID_PARENT),
+        Ok(MoveOutcome::NotFound) => errors::not_found_msg("Page not found"),
         Err(e) => {
             error!(page_id = page_id, new_parent_id = ?new_parent_id, error = ?e, "Error moving page");
             errors::internal("Internal server error: Failed to move page to new parent")
         }
     }
+}
+
+/// Outcome of the move_page_to_parent transaction.
+enum MoveOutcome {
+    Ok(DocumentationPage),
+    InvalidParent,
+    NotFound,
 }
 
 // Get top-level pages (with ordering)
@@ -1594,8 +1694,12 @@ pub async fn export_documentation_pages(mut tc: TenantConn, auth: AuthContext) -
             "Forbidden: Only technicians and administrators can export documentation",
         );
     }
+    let audience = repository::PageAudience::from_auth(&auth);
 
-    match tc.run(repository::get_documentation_pages) {
+    match tc.run(|conn| {
+        let pages = repository::get_documentation_pages(conn)?;
+        audience.filter_pages(conn, pages)
+    }) {
         Ok(pages) => {
             let export_pages: Vec<DocumentationPageExport> = pages
                 .into_iter()
@@ -1725,13 +1829,22 @@ pub async fn create_documentation_page_from_ticket(
     }
 
     let user_uuid = auth.user_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
     let page_data = page_data.into_inner();
 
     let outcome = tc.run(|conn| {
-        // Check if a documentation page already exists for this ticket
+        if let Some(pid) = page_data.parent_id {
+            if audience.readable_page(conn, pid)?.is_none() {
+                return Ok(CreateFromTicketOutcome::InvalidParent);
+            }
+        }
+
+        // Check if a documentation page already exists for this ticket. One
+        // the caller can't open doesn't count, so they get a page of their own.
         if let Ok(existing_pages) =
             repository::get_documentation_pages_by_ticket_id(conn, ticket_id)
         {
+            let existing_pages = audience.filter_pages(conn, existing_pages)?;
             if let Some(existing_page) = existing_pages.into_iter().next() {
                 return Ok(CreateFromTicketOutcome::Existing(existing_page));
             }
@@ -1860,18 +1973,23 @@ pub async fn get_page_visibility(
     }
 
     let page_id = path.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let result = tc.run(|conn| {
+        if audience.readable_page(conn, page_id)?.is_none() {
+            return Ok(None);
+        }
         let groups = repository::get_visible_groups_for_page(conn, page_id)?;
         let users = repository::get_visible_users_for_page(conn, page_id)?;
-        Ok::<_, diesel::result::Error>((groups, users))
+        Ok::<_, diesel::result::Error>(Some((groups, users)))
     });
 
     match result {
-        Ok((groups, users)) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(Some((groups, users))) => HttpResponse::Ok().json(serde_json::json!({
             "groups": groups,
             "users": users,
         })),
+        Ok(None) => errors::not_found_msg("Page not found"),
         Err(e) => {
             error!(error = ?e, "Failed to get page visibility");
             errors::internal("Failed to get page visibility")
@@ -1953,9 +2071,10 @@ pub async fn restore_page(
     }
 
     let actor_name = auth.name.clone();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        if repository::get_documentation_page(page_id, conn).is_err() {
+        if audience.readable_page(conn, page_id)?.is_none() {
             return Ok(RestorePageOutcome::NotFound);
         }
         let now = chrono::Utc::now().naive_utc();
@@ -2088,6 +2207,7 @@ pub async fn subscribe_to_page(
 ) -> impl Responder {
     let page_id = path.into_inner();
     let user_uuid = auth.user_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
 
     enum SubscribeOutcome {
         Ok,
@@ -2096,7 +2216,7 @@ pub async fn subscribe_to_page(
     }
 
     let outcome = tc.run(|conn| {
-        if repository::get_documentation_page(page_id, conn).is_err() {
+        if audience.readable_page(conn, page_id)?.is_none() {
             return Ok(SubscribeOutcome::NotFound);
         }
         match documentation_subscriptions::subscribe_user(conn, user_uuid, page_id) {
@@ -2138,13 +2258,23 @@ pub async fn unsubscribe_from_page(
 // Starred Pages
 // ============================================================================
 
-/// Get all starred pages for the current user (for sidebar)
+/// Get all starred pages for the current user (for sidebar). A star outlives
+/// a change to the page's visibility, so pages the user can no longer open
+/// are left out.
 pub async fn get_starred_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     let user_uuid = auth.user_uuid;
+    let is_admin = auth.is_workspace_admin();
     match tc.run(|conn| {
-        Ok::<_, diesel::result::Error>(documentation_starred_pages::get_user_starred_pages(
-            conn, user_uuid,
-        ))
+        let starred = documentation_starred_pages::get_user_starred_pages(conn, user_uuid);
+        let page_ids: Vec<i32> = starred.iter().map(|s| s.page_id).collect();
+        let (hidden, _) =
+            repository::hidden_documentation_ids(conn, &page_ids, &[], &user_uuid, is_admin)?;
+        Ok::<_, diesel::result::Error>(
+            starred
+                .into_iter()
+                .filter(|s| !hidden.contains(&s.page_id))
+                .collect::<Vec<_>>(),
+        )
     }) {
         Ok(starred) => HttpResponse::Ok().json(starred),
         Err(_) => errors::internal("Failed to load starred pages"),
@@ -2178,6 +2308,7 @@ pub async fn star_page(
 ) -> impl Responder {
     let page_id = path.into_inner();
     let user_uuid = auth.user_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
 
     enum StarOutcome {
         Ok,
@@ -2186,7 +2317,7 @@ pub async fn star_page(
     }
 
     let outcome = tc.run(|conn| {
-        if repository::get_documentation_page(page_id, conn).is_err() {
+        if audience.readable_page(conn, page_id)?.is_none() {
             return Ok(StarOutcome::NotFound);
         }
         match documentation_starred_pages::star_page(conn, user_uuid, page_id) {
@@ -2333,8 +2464,12 @@ pub async fn create_page_ticket_link(
     if let Err(msg) = repository::documentation_page_tickets::validate_link_type(&link_type) {
         return errors::bad_request(msg);
     }
+    let audience = repository::PageAudience::from_auth(&auth);
 
     match tc.run(|conn| {
+        if audience.readable_page(conn, page_id)?.is_none() {
+            return Ok(None);
+        }
         // A 'resolves' link also moves on the ticket's flagged gap.
         if link_type == repository::documentation_page_tickets::LINK_RESOLVES {
             repository::knowledge_gaps::link_page_resolves_ticket(
@@ -2352,8 +2487,10 @@ pub async fn create_page_ticket_link(
                 Some(user_uuid),
             )
         }
+        .map(Some)
     }) {
-        Ok(row) => HttpResponse::Created().json(row),
+        Ok(Some(row)) => HttpResponse::Created().json(row),
+        Ok(None) => errors::not_found_msg("Page not found"),
         Err(e) => {
             error!(error = ?e, "Failed to create page<->ticket link");
             errors::internal("Failed to create link")
@@ -2371,10 +2508,16 @@ pub async fn delete_page_ticket_link(
         return errors::forbidden("Forbidden");
     }
     let (page_id, ticket_id) = path.into_inner();
-    match tc
-        .run(|conn| repository::documentation_page_tickets::delete_link(conn, page_id, ticket_id))
-    {
-        Ok(_) => HttpResponse::NoContent().finish(),
+    let audience = repository::PageAudience::from_auth(&auth);
+    match tc.run(|conn| {
+        if audience.readable_page(conn, page_id)?.is_none() {
+            return Ok(false);
+        }
+        repository::documentation_page_tickets::delete_link(conn, page_id, ticket_id)?;
+        Ok(true)
+    }) {
+        Ok(true) => HttpResponse::NoContent().finish(),
+        Ok(false) => errors::not_found_msg("Page not found"),
         Err(e) => {
             error!(error = ?e, "Failed to delete page<->ticket link");
             errors::internal("Failed to delete link")
@@ -2474,6 +2617,7 @@ pub struct VerifyPageRequest {
 /// Outcome of the verify/unverify-page transaction.
 enum VerifyPageOutcome {
     Ok(DocumentationPage, DocumentationPageResponse),
+    NotFound,
     UpdateFailed,
     ResponseBuildFailed(String),
 }
@@ -2494,9 +2638,13 @@ pub async fn verify_page(
         return errors::bad_request("interval_days must be positive");
     }
     let user_uuid = auth.user_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
     let now = chrono::Utc::now().naive_utc();
 
     let outcome = tc.run(|conn| {
+        if audience.readable_page(conn, page_id)?.is_none() {
+            return Ok(VerifyPageOutcome::NotFound);
+        }
         let update = crate::models::DocumentationPageUpdate {
             verified_by: Some(Some(user_uuid)),
             verified_at: Some(Some(now)),
@@ -2532,6 +2680,7 @@ pub async fn verify_page(
             // documentation_page sync aggregate (the .verified emit).
             HttpResponse::Ok().json(response)
         }
+        Ok(VerifyPageOutcome::NotFound) => errors::not_found_msg("Page not found"),
         Ok(VerifyPageOutcome::UpdateFailed) => errors::internal("Failed to verify page"),
         Ok(VerifyPageOutcome::ResponseBuildFailed(err)) => {
             error!(error = %err, "Failed to build page response");
@@ -2551,9 +2700,13 @@ pub async fn unverify_page(
         return errors::forbidden("Forbidden");
     }
     let page_id = path.into_inner();
+    let audience = repository::PageAudience::from_auth(&auth);
     let now = chrono::Utc::now().naive_utc();
 
     let outcome = tc.run(|conn| {
+        if audience.readable_page(conn, page_id)?.is_none() {
+            return Ok(VerifyPageOutcome::NotFound);
+        }
         let update = crate::models::DocumentationPageUpdate {
             verified_by: Some(None),
             verified_at: Some(None),
@@ -2581,6 +2734,7 @@ pub async fn unverify_page(
             // documentation_page sync aggregate (metadata_changed emit).
             HttpResponse::Ok().json(response)
         }
+        Ok(VerifyPageOutcome::NotFound) => errors::not_found_msg("Page not found"),
         Ok(VerifyPageOutcome::UpdateFailed) => errors::internal("Failed to clear verification"),
         Ok(VerifyPageOutcome::ResponseBuildFailed(err)) => {
             error!(error = %err, "Failed to build page response");

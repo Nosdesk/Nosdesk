@@ -255,9 +255,9 @@ const getEmbeddedUuids = (): string[] => {
 };
 
 // Sync embeddings to the backend. Documentation pages only; tickets and
-// collections have no embedding table.
+// collections have no embedding table. Only editors write them.
 const syncEmbeddings = async () => {
-    if (docKind.value !== 'doc') return;
+    if (docKind.value !== 'doc' || !canEdit.value) return;
     const pageId = props.resourceId;
     if (!pageId) return;
 
