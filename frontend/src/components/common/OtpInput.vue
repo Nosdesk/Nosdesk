@@ -61,12 +61,13 @@ function join(values: Array<number | undefined | null>): string {
     .slice(0, props.length);
 }
 
-function onUpdate(values: number[]) {
+// Reka gives an empty box as `undefined`; `join` skips it.
+function onUpdate(values: Array<number | undefined>) {
   const next = join(values);
   if (next !== props.modelValue) emit('update:modelValue', next);
 }
 
-function onComplete(values: number[]) {
+function onComplete(values: Array<number | undefined>) {
   emit('complete', join(values));
 }
 </script>
