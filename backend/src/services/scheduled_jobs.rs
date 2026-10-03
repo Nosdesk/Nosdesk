@@ -39,6 +39,7 @@ const LDAP_RECONCILE_LOCK: i64 = 0x004e_6f73_4c44_5243;
 const KNOWLEDGE_GAP_DETECT_LOCK: i64 = 0x004e_6f73_4b47_4450;
 const APPROVAL_TIMEOUT_LOCK: i64 = 0x004e_6f73_4150_544f;
 const GUEST_RESIDUE_LOCK: i64 = 0x004e_6f73_4752_4553;
+const EMAIL_LOGO_COPIES_LOCK: i64 = 0x004e_6f73_454d_4c47;
 // Partition drops (DETACH CONCURRENTLY + DROP) can't run in a transaction,
 // so they can't use the provisioner's transaction-scoped lock; a session
 // try-lock skips the tick when a peer machine is already pruning. Per-parent
@@ -272,6 +273,20 @@ pub async fn backfill_user_thumbnails(pool: Pool) -> Result<()> {
             "scheduler: avatar thumbnails backfilled"
         );
     }
+    Ok(())
+}
+
+/// Make the email copies of logos that have none: logos uploaded before
+/// email copies existed, and ones a restore or import brought in without.
+/// Does no work once every logo has its copy.
+pub async fn make_email_logo_copies(pool: Pool) -> Result<()> {
+    // One machine is enough: the copies land in shared storage.
+    let _lock = match try_job_lock(&pool, EMAIL_LOGO_COPIES_LOCK, "branding.email_logo_copies")? {
+        Some(lock) => lock,
+        None => return Ok(()),
+    };
+    crate::services::email_logos::make_missing(&pool, crate::utils::storage::process_storage())
+        .await;
     Ok(())
 }
 

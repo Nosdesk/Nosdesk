@@ -23,7 +23,7 @@
 //! [`resolve_on_conn`]: OutboundEmailResolver::resolve_on_conn
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use diesel::QueryResult;
 
@@ -108,6 +108,33 @@ impl std::fmt::Display for ResolveError {
 }
 impl std::error::Error for ResolveError {}
 
+static PROCESS_RESOLVER: OnceLock<Arc<OutboundEmailResolver>> = OnceLock::new();
+
+/// Install the resolver process-wide, once at startup, for code that composes
+/// mail on a connection but has no resolver to hand (the security note names
+/// the domain a workspace's mail leaves from).
+pub fn set_process_resolver(resolver: Arc<OutboundEmailResolver>) {
+    let _ = PROCESS_RESOLVER.set(resolver);
+}
+
+/// The process-wide resolver; `None` before startup installs it (tests, CLI).
+pub fn process_resolver() -> Option<Arc<OutboundEmailResolver>> {
+    PROCESS_RESOLVER.get().cloned()
+}
+
+/// Whether a workspace's own settings can send: turned on, and a relay with a
+/// host or a domain that has passed verification.
+fn row_can_send(r: &WorkspaceEmailSettings) -> bool {
+    r.enabled
+        && match r.sending_mode.as_str() {
+            workspace_email_sending_mode::SMTP_RELAY => !r.smtp_host.trim().is_empty(),
+            workspace_email_sending_mode::VERIFIED_DOMAIN => {
+                r.verification_status == workspace_email_verification_status::VERIFIED
+            }
+            _ => false,
+        }
+}
+
 impl OutboundEmailResolver {
     pub fn new(pool: Pool, fallback: Option<Arc<EmailService>>) -> Self {
         // Self-host: the env identity is the operator's own, so WORKSPACE mail
@@ -132,7 +159,7 @@ impl OutboundEmailResolver {
     /// domain explicitly, since `DeploymentMode::current()` is process-cached
     /// and env reads race across tests.
     #[cfg(test)]
-    fn with_policy(
+    pub(crate) fn with_policy(
         pool: Pool,
         fallback: Option<Arc<EmailService>>,
         workspace_fallback_allowed: bool,
@@ -293,6 +320,37 @@ impl OutboundEmailResolver {
         self.fallback.clone()
     }
 
+    /// The address the queue worker sends `workspace_id`'s own mail from, by
+    /// the same choice as [`resolve_batch`](Self::resolve_batch): the
+    /// workspace's relay or verified domain, else the managed address on
+    /// hosted, else the env identity on self-host. `None` when its mail would
+    /// wait for an identity. Builds no transport and decrypts nothing.
+    pub fn workspace_from_address(
+        &self,
+        conn: &mut DbConnection,
+        workspace_id: i32,
+    ) -> QueryResult<Option<String>> {
+        if let Some(r) = ws_settings::get_for_workspace(conn, workspace_id)? {
+            if row_can_send(&r) {
+                return Ok(Some(r.from_email));
+            }
+        }
+        if let Some(domain) = self.managed_domain.as_deref() {
+            if self.managed_applicable() {
+                if let Some((_, slug, _)) =
+                    workspaces::identity_for_ids(conn, &[workspace_id])?.pop()
+                {
+                    return Ok(Some(crate::utils::tenant_origin::managed_email_address(
+                        &slug, domain,
+                    )));
+                }
+            }
+        }
+        Ok(self
+            .workspace_safe_fallback()
+            .map(|svc| svc.config().from_email.clone()))
+    }
+
     /// Whether an env fallback identity exists. The comment-relay enqueue
     /// gate uses this (conn-free, so it doesn't amplify the hot comment-
     /// create path): a channel that produces comments already requires the
@@ -339,14 +397,11 @@ impl OutboundEmailResolver {
         &self,
         r: &WorkspaceEmailSettings,
     ) -> Result<Option<Arc<EmailService>>, ResolveError> {
-        if !r.enabled {
+        if !row_can_send(r) {
             return Ok(None);
         }
         match r.sending_mode.as_str() {
             workspace_email_sending_mode::SMTP_RELAY => {
-                if r.smtp_host.trim().is_empty() {
-                    return Ok(None);
-                }
                 let password = ws_settings::decrypt_password(r)
                     .map_err(ResolveError::Credential)?
                     .unwrap_or_default();
@@ -358,9 +413,6 @@ impl OutboundEmailResolver {
                 ))))
             }
             workspace_email_sending_mode::VERIFIED_DOMAIN => {
-                if r.verification_status != workspace_email_verification_status::VERIFIED {
-                    return Ok(None);
-                }
                 self.build_verified_domain_service(r).map(Some)
             }
             // `fallback` or any unexpected value.
@@ -577,6 +629,49 @@ mod tests {
             .resolve_on_conn(&mut conn, 1)
             .unwrap();
         assert_eq!(svc.config().from_email, "platform@fallback.test");
+    }
+
+    /// The address the note names must be the one the worker sends from.
+    #[test]
+    fn workspace_from_address_follows_the_workers_choice() {
+        let mut conn = setup_test_connection();
+        let address = |r: OutboundEmailResolver, conn: &mut DbConnection| {
+            r.workspace_from_address(conn, 1).unwrap()
+        };
+
+        // Nothing of its own: the env identity on self-host, the managed
+        // address on hosted, and nothing at all on hosted without a tenant
+        // domain (its mail waits; it never borrows the platform address).
+        assert_eq!(
+            address(resolver_with_fallback(), &mut conn).as_deref(),
+            Some("platform@fallback.test")
+        );
+        assert_eq!(
+            address(resolver_hosted_managed(), &mut conn).as_deref(),
+            Some("support@default.nosdesk.test")
+        );
+        assert_eq!(address(resolver_hosted_with_fallback(), &mut conn), None);
+        assert_eq!(address(resolver_no_fallback(), &mut conn), None);
+
+        // A domain still waiting on verification doesn't send yet.
+        let mut pending = enabled_fields();
+        pending.sending_mode = "verified_domain".into();
+        repo::upsert(&mut conn, pending).unwrap();
+        assert_eq!(
+            address(resolver_hosted_managed(), &mut conn).as_deref(),
+            Some("support@default.nosdesk.test")
+        );
+
+        // Its own relay wins in either mode.
+        repo::upsert(&mut conn, enabled_fields()).unwrap();
+        assert_eq!(
+            address(resolver_with_fallback(), &mut conn).as_deref(),
+            Some("support@acme.test")
+        );
+        assert_eq!(
+            address(resolver_hosted_managed(), &mut conn).as_deref(),
+            Some("support@acme.test")
+        );
     }
 
     #[test]

@@ -182,6 +182,9 @@ pub fn build_state(
             pool.clone(),
             email_service.clone(),
         ));
+    // Process-wide too: composing a message names the domain it leaves from
+    // (the security note) with only a connection to hand.
+    crate::services::outbound_email::set_process_resolver(outbound_resolver.clone());
 
     // Spawn the outbound email queue listener (Item J Pass 1). Holds a
     // dedicated tokio_postgres LISTEN connection on
@@ -845,6 +848,7 @@ pub fn configure_app(
             // two-segment path, which a greedy tail pattern would.
             .route("/uploads/branding/{workspace_uuid}/{filename}", web::get().to(crate::handlers::branding::serve_workspace_branding_file))
             .route("/uploads/branding/{filename}", web::get().to(crate::handlers::branding::serve_branding_file))
+            .route("/email-assets/{filename}", web::get().to(crate::handlers::branding::serve_email_asset))
 
             // Public branding config (needed for favicon/logo before login)
             .route("/api/branding", web::get().to(crate::handlers::branding::get_public_branding))

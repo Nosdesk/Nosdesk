@@ -342,7 +342,9 @@ fn create_square_crop(img: &image::DynamicImage, target_size: u32) -> image::Dyn
 
 /// Load an image from bytes and apply EXIF orientation correction
 /// This ensures images taken on phones/cameras display correctly regardless of how they were held
-fn load_image_with_orientation(image_bytes: &[u8]) -> Result<image::DynamicImage, String> {
+pub(crate) fn load_image_with_orientation(
+    image_bytes: &[u8],
+) -> Result<image::DynamicImage, String> {
     use image::ImageDecoder;
 
     let cursor = Cursor::new(image_bytes);

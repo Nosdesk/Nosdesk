@@ -268,6 +268,18 @@ pub fn spawn_scheduled_jobs(
             move || jobs::backfill_user_thumbnails(p.clone()),
         );
 
+        // Hourly: make the email copies of logos that have none (uploaded
+        // before copies existed, or restored without one). One small query
+        // once every logo has its copy.
+        let p = pool.clone();
+        spawn_periodic(
+            "branding.email_logo_copies",
+            Duration::from_secs(60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::make_email_logo_copies(p.clone()),
+        );
+
         // Every 60s: detect SLA breaches and flip the pill live. Scans
         // the materialised `sla_response_target_at` /
         // `sla_resolution_target_at` columns (cheap partial indexes),

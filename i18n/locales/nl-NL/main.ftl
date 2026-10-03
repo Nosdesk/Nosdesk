@@ -1856,12 +1856,12 @@ admin-branding-logo-light-label = Logo licht thema (optioneel)
 admin-branding-logo-upload = Logo uploaden
 admin-branding-logo-uploading = Uploaden...
 admin-branding-logo-remove = Verwijderen
-admin-branding-logo-formats = PNG, SVG, JPEG of WebP. Max 2MB.
+admin-branding-logo-formats = PNG, JPEG of WebP. Max 2MB.
 admin-branding-logo-light-hint = Wordt gebruikt wanneer het lichte thema actief is. Valt terug op het hoofdlogo.
 admin-branding-favicon-heading = Favicon
 admin-branding-favicon-upload = Favicon uploaden
 admin-branding-favicon-uploading = Uploaden...
-admin-branding-favicon-formats = ICO, PNG of SVG. Aanbevolen formaat: 32x32 of 64x64 pixels.
+admin-branding-favicon-formats = ICO of PNG. Aanbevolen formaat: 32x32 of 64x64 pixels.
 admin-branding-preview-heading = Voorbeeld
 admin-branding-primary-color-preview = Hoofdkleur
 admin-branding-configured = Aangepaste branding geconfigureerd
@@ -1883,6 +1883,16 @@ admin-branding-asset-favicon = Favicon
 admin-branding-confirm-title = { $asset } verwijderen?
 admin-branding-confirm-message = Hiermee wordt de geüploade afbeelding verwijderd. U kunt opnieuw uploaden, maar het vorige bestand is niet herstelbaar.
 admin-branding-confirm-remove = Verwijderen
+# E-mailvoorbeeld op de pagina Branding (machine, nog na te kijken door moedertaalspreker).
+admin-branding-email-heading = E-mail
+admin-branding-email-description = Het begin van elke e-mail die deze werkruimte verstuurt, en de kleur van de knoppen.
+admin-branding-email-paper-label = Kleurmodus
+admin-branding-email-light = Licht
+admin-branding-email-dark = Donker
+admin-branding-email-frame-title = Voorbeeld van de e-mail
+admin-branding-email-dark-hint = Mail-apps die de donkere modus volgen, zoals Apple Mail, tonen deze versie. Gmail en Outlook maken de lichte versie zelf donker.
+admin-branding-email-test-description = Stuurt deze e-mail naar je via de e-mailinstellingen van deze werkruimte.
+admin-branding-email-error-load = Het voorbeeld van de e-mail kon niet worden geladen.
 
 # Beheer: Back-up en herstel.
 admin-backup-title = Back-up en herstel
@@ -2146,7 +2156,8 @@ admin-channels-email-auto-ack-save = Ontvangstbevestiging opslaan
 admin-channels-email-auto-ack-success-saved = Ontvangstbevestiging bijgewerkt
 # Beveiligingsnotitie (machine, na te kijken door een moedertaalspreker).
 admin-email-security-note-heading = Beveiligingsnotitie
-admin-email-security-note-subtitle = Voeg een anti-phishingregel toe aan de voettekst van transactionele e-mails (wachtwoordherstel, uitnodigingen) zodat ontvangers een echt bericht van een vervalsing kunnen onderscheiden.
+# Machine, nog na te kijken door moedertaalspreker.
+admin-email-security-note-subtitle = Voeg een anti-phishingregel toe aan het einde van e-mails van deze werkruimte, antwoorden inbegrepen, zodat ontvangers een echt bericht van een vervalsing kunnen onderscheiden.
 admin-email-security-note-toggle-label = Beveiligingsnotitie tonen
 admin-email-security-note-toggle-description = Standaard uit. Schakel in zodra uw verzenddomein en huisstijl zijn ingesteld.
 admin-email-security-note-template-label = Aangepaste notitie
@@ -6771,6 +6782,13 @@ email-footer-rights = Alle rechten voorbehouden.
 email-footer-automated = Dit is een geautomatiseerd bericht. Reageer hier niet rechtstreeks op.
 # TODO: translate
 email-footer-help = Help
+# Testmail (machine, nog na te kijken door moedertaalspreker).
+email-test-message-subject = [{ $app }] Testmail
+email-test-message-headline = Een testmail van { $app }
+email-test-message-body = Zo ziet e-mail van { $app } eruit, met je huisstijl bovenaan en je kleur op de knoppen.
+email-test-message-delivered = Hij is bij je aangekomen, dus versturen werkt.
+email-test-message-server = Verstuurd via { $server } als { $from }.
+email-test-message-cta = { $app } openen
 # Anti-phishing trust line in the email footer. Carries inline markup
 # (emphasis span + mailto link); preserve the tags and the literal
 # Standaard anti-phishingnotitie in de e-mailvoettekst (machine, na te

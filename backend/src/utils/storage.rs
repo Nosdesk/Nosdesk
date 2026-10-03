@@ -813,6 +813,8 @@ pub enum Caching {
     Public,
     /// Served behind auth, so only the requesting browser may keep it.
     Private,
+    /// Public, under a versioned name whose content never changes.
+    Immutable,
 }
 
 impl Caching {
@@ -820,6 +822,7 @@ impl Caching {
         match self {
             Self::Public => "public, max-age=3600",
             Self::Private => "private, max-age=3600",
+            Self::Immutable => "public, max-age=31536000, immutable",
         }
     }
 }

@@ -1860,12 +1860,12 @@ admin-branding-logo-light-label = Logo thème clair (facultatif)
 admin-branding-logo-upload = Téléverser le logo
 admin-branding-logo-uploading = Téléversement...
 admin-branding-logo-remove = Retirer
-admin-branding-logo-formats = PNG, SVG, JPEG ou WebP. 2 Mo max.
+admin-branding-logo-formats = PNG, JPEG ou WebP. 2 Mo max.
 admin-branding-logo-light-hint = Utilisé quand le thème clair est actif. Repli sur le logo principal.
 admin-branding-favicon-heading = Favicon
 admin-branding-favicon-upload = Téléverser le favicon
 admin-branding-favicon-uploading = Téléversement...
-admin-branding-favicon-formats = ICO, PNG ou SVG. Taille recommandée : 32x32 ou 64x64 pixels.
+admin-branding-favicon-formats = ICO ou PNG. Taille recommandée : 32x32 ou 64x64 pixels.
 admin-branding-preview-heading = Aperçu
 admin-branding-primary-color-preview = Couleur principale
 admin-branding-configured = Marque personnalisée configurée
@@ -1887,6 +1887,16 @@ admin-branding-asset-favicon = Favicon
 admin-branding-confirm-title = Retirer { $asset } ?
 admin-branding-confirm-message = Cela supprime l'image téléversée. Vous pouvez en remettre une, mais le fichier précédent ne sera pas récupérable.
 admin-branding-confirm-remove = Retirer
+# Aperçu des e-mails sur la page Image de marque (machine, à relire par un locuteur natif).
+admin-branding-email-heading = E-mail
+admin-branding-email-description = Le haut de chaque e-mail envoyé par cet espace de travail, et la couleur de ses boutons.
+admin-branding-email-paper-label = Mode de couleur
+admin-branding-email-light = Clair
+admin-branding-email-dark = Sombre
+admin-branding-email-frame-title = Aperçu de l'e-mail
+admin-branding-email-dark-hint = Les applications de messagerie qui suivent le mode sombre, comme Apple Mail, affichent cette version. Gmail et Outlook assombrissent eux-mêmes la version claire.
+admin-branding-email-test-description = Vous envoie cet e-mail via la configuration e-mail de cet espace de travail.
+admin-branding-email-error-load = Impossible de charger l'aperçu de l'e-mail.
 
 # Admin : Sauvegarde et restauration.
 admin-backup-title = Sauvegarde et restauration
@@ -2150,7 +2160,8 @@ admin-channels-email-auto-ack-save = Enregistrer l'accusé
 admin-channels-email-auto-ack-success-saved = Accusé de réception mis à jour
 # Note de sécurité (machine, à relire par un locuteur natif).
 admin-email-security-note-heading = Note de sécurité
-admin-email-security-note-subtitle = Ajoutez une ligne anti-hameçonnage au pied des e-mails transactionnels (réinitialisations de mot de passe, invitations) pour que les destinataires distinguent un message authentique d'une usurpation.
+# Machine, à relire par un locuteur natif.
+admin-email-security-note-subtitle = Ajoutez une ligne anti-hameçonnage à la fin des e-mails de cet espace de travail, réponses comprises, pour que les destinataires distinguent un message authentique d'une usurpation.
 admin-email-security-note-toggle-label = Afficher la note de sécurité
 admin-email-security-note-toggle-description = Désactivée par défaut. Activez-la une fois votre domaine d'envoi et votre image de marque configurés.
 admin-email-security-note-template-label = Note personnalisée
@@ -6781,6 +6792,13 @@ email-footer-rights = Tous droits réservés.
 email-footer-automated = Ceci est un message automatique. Veuillez ne pas y répondre directement.
 # TODO: translate
 email-footer-help = Help
+# E-mail de test (machine, à relire par un locuteur natif).
+email-test-message-subject = [{ $app }] E-mail de test
+email-test-message-headline = Un e-mail de test de { $app }
+email-test-message-body = Voici l'apparence des e-mails de { $app } : votre image de marque en haut et votre couleur sur les boutons.
+email-test-message-delivered = Il vous est parvenu : l'envoi fonctionne.
+email-test-message-server = Envoyé via { $server } en tant que { $from }.
+email-test-message-cta = Ouvrir { $app }
 # Anti-phishing trust line in the email footer. Carries inline markup
 # (emphasis span + mailto link); preserve the tags and the literal
 # Note anti-hameçonnage par défaut du pied de page (machine, à relire

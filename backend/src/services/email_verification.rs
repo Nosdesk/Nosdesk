@@ -111,7 +111,11 @@ pub fn send_verification(
         conn,
         &actor,
         move |conn| {
-            let branding = crate::utils::email_branding::get_email_branding(conn, &base_url);
+            let branding = crate::utils::email_branding::get_email_branding(
+                conn,
+                &base_url,
+                crate::utils::email_branding::SentFrom::Workspace,
+            );
             let locale = crate::repository::user_locale::resolve_effective_locale(conn, user_uuid);
             crate::services::transactional_email::enqueue_email_verification(
                 conn,
