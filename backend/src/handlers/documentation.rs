@@ -803,7 +803,7 @@ pub async fn sync_page_embeddings(
     let audience = repository::PageAudience::from_auth(&auth);
 
     let result = tc.run(|conn| {
-        if audience.readable_page(conn, source_page_id)?.is_none() {
+        if !audience.can_open_page(conn, source_page_id)? {
             return Ok(false);
         }
         // Resolve UUIDs to page IDs
@@ -864,12 +864,12 @@ pub async fn create_documentation_page(
         // A parent or collection the caller can't see is refused like a
         // missing one.
         if let Some(pid) = request.parent_id {
-            if audience.readable_page(conn, pid)?.is_none() {
+            if !audience.can_open_page(conn, pid)? {
                 return Ok(CreatePageOutcome::InvalidParent);
             }
         }
         if let Some(cid) = request.collection_id {
-            if audience.readable_collection(conn, cid)?.is_none() {
+            if !audience.can_open_collection(conn, cid)? {
                 return Ok(CreatePageOutcome::InvalidCollection);
             }
         }
@@ -1058,11 +1058,11 @@ pub async fn update_documentation_page(
     };
 
     let outcome = tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(UpdatePageOutcome::NotFound);
         }
         if let Some(Some(parent_id)) = update_req.parent_id {
-            if audience.readable_page(conn, parent_id)?.is_none() {
+            if !audience.can_open_page(conn, parent_id)? {
                 return Ok(UpdatePageOutcome::InvalidParent);
             }
         }
@@ -1230,7 +1230,7 @@ pub async fn delete_documentation_page(
     let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(DeletePageOutcome::NotFound);
         }
         // Soft delete: update status to Deleted and set deleted_at
@@ -1488,11 +1488,11 @@ pub async fn reorder_pages(
     let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        if audience.readable_page(conn, parent_id)?.is_none() {
+        if !audience.can_open_page(conn, parent_id)? {
             return Ok(ReorderOutcome::InvalidParent);
         }
         for order in &request.page_orders {
-            if audience.readable_page(conn, order.page_id)?.is_none() {
+            if !audience.can_open_page(conn, order.page_id)? {
                 return Ok(ReorderOutcome::NotFound);
             }
         }
@@ -1553,11 +1553,11 @@ pub async fn move_page_to_parent(
     let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(MoveOutcome::NotFound);
         }
         if let Some(parent_id) = new_parent_id {
-            if audience.readable_page(conn, parent_id)?.is_none() {
+            if !audience.can_open_page(conn, parent_id)? {
                 return Ok(MoveOutcome::InvalidParent);
             }
         }
@@ -1834,7 +1834,7 @@ pub async fn create_documentation_page_from_ticket(
 
     let outcome = tc.run(|conn| {
         if let Some(pid) = page_data.parent_id {
-            if audience.readable_page(conn, pid)?.is_none() {
+            if !audience.can_open_page(conn, pid)? {
                 return Ok(CreateFromTicketOutcome::InvalidParent);
             }
         }
@@ -1976,7 +1976,7 @@ pub async fn get_page_visibility(
     let audience = repository::PageAudience::from_auth(&auth);
 
     let result = tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(None);
         }
         let groups = repository::get_visible_groups_for_page(conn, page_id)?;
@@ -2074,7 +2074,7 @@ pub async fn restore_page(
     let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(RestorePageOutcome::NotFound);
         }
         let now = chrono::Utc::now().naive_utc();
@@ -2216,7 +2216,7 @@ pub async fn subscribe_to_page(
     }
 
     let outcome = tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(SubscribeOutcome::NotFound);
         }
         match documentation_subscriptions::subscribe_user(conn, user_uuid, page_id) {
@@ -2317,7 +2317,7 @@ pub async fn star_page(
     }
 
     let outcome = tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(StarOutcome::NotFound);
         }
         match documentation_starred_pages::star_page(conn, user_uuid, page_id) {
@@ -2467,7 +2467,7 @@ pub async fn create_page_ticket_link(
     let audience = repository::PageAudience::from_auth(&auth);
 
     match tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(None);
         }
         // A 'resolves' link also moves on the ticket's flagged gap.
@@ -2510,7 +2510,7 @@ pub async fn delete_page_ticket_link(
     let (page_id, ticket_id) = path.into_inner();
     let audience = repository::PageAudience::from_auth(&auth);
     match tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(false);
         }
         repository::documentation_page_tickets::delete_link(conn, page_id, ticket_id)?;
@@ -2642,7 +2642,7 @@ pub async fn verify_page(
     let now = chrono::Utc::now().naive_utc();
 
     let outcome = tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(VerifyPageOutcome::NotFound);
         }
         let update = crate::models::DocumentationPageUpdate {
@@ -2704,7 +2704,7 @@ pub async fn unverify_page(
     let now = chrono::Utc::now().naive_utc();
 
     let outcome = tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(VerifyPageOutcome::NotFound);
         }
         let update = crate::models::DocumentationPageUpdate {

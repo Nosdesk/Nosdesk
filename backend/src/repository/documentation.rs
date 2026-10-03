@@ -1001,20 +1001,18 @@ impl PageAudience {
         }
     }
 
-    /// The page, if it exists and this audience may read it. A page it may
-    /// not read comes back `None` like a missing one, so a route answers both
-    /// with the same 404 and changes nothing. `can_read` alone isn't enough
-    /// here: an id with no row has no visibility rules, so it reads as public.
-    pub fn readable_page(
-        &self,
-        conn: &mut DbConnection,
-        page_id: i32,
-    ) -> Result<Option<DocumentationPage>, Error> {
-        let page = documentation_pages::table
+    /// Whether the page exists and this audience may read it. A route answers
+    /// a page it may not read like a missing one, with the same 404, and
+    /// changes nothing. `can_read` alone isn't enough here: an id with no row
+    /// has no visibility rules, so it reads as public.
+    pub fn can_open_page(&self, conn: &mut DbConnection, page_id: i32) -> Result<bool, Error> {
+        let exists = documentation_pages::table
             .find(page_id)
-            .first::<DocumentationPage>(conn)
-            .optional()?;
-        Ok(page.filter(|p| self.can_read(conn, p.id)))
+            .select(documentation_pages::id)
+            .first::<i32>(conn)
+            .optional()?
+            .is_some();
+        Ok(exists && self.can_read(conn, page_id))
     }
 
     /// The pages in `pages` this audience may read.
@@ -1049,8 +1047,24 @@ impl PageAudience {
         }
     }
 
-    /// The collection, if it exists and this audience may see it. Same
-    /// contract as [`PageAudience::readable_page`].
+    /// Whether the collection exists and this audience may see it. Same
+    /// contract as [`PageAudience::can_open_page`].
+    pub fn can_open_collection(
+        &self,
+        conn: &mut DbConnection,
+        collection_id: i32,
+    ) -> Result<bool, Error> {
+        let exists = documentation_collections::table
+            .find(collection_id)
+            .select(documentation_collections::id)
+            .first::<i32>(conn)
+            .optional()?
+            .is_some();
+        Ok(exists && self.can_read_collection(conn, collection_id))
+    }
+
+    /// The collection, if it exists and this audience may see it, for routes
+    /// that need the row.
     pub fn readable_collection(
         &self,
         conn: &mut DbConnection,

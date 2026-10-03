@@ -531,8 +531,8 @@ pub async fn add_page_to_collection(
     // new collection's root instead of dangling under a parent
     // that's now in a different collection.
     match tc.run(|conn| {
-        if audience.readable_page(conn, new_entry.page_id)?.is_none()
-            || audience.readable_collection(conn, collection_id)?.is_none()
+        if !audience.can_open_page(conn, new_entry.page_id)?
+            || !audience.can_open_collection(conn, collection_id)?
         {
             return Ok(None);
         }
@@ -565,8 +565,8 @@ pub async fn remove_page_from_collection(
     let audience = repository::PageAudience::from_auth(&auth);
 
     match tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none()
-            || audience.readable_collection(conn, collection_id)?.is_none()
+        if !audience.can_open_page(conn, page_id)?
+            || !audience.can_open_collection(conn, collection_id)?
         {
             return Ok(None);
         }
@@ -597,7 +597,7 @@ pub async fn get_collections_for_page(
     let audience = repository::PageAudience::from_auth(&auth);
 
     match tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(None);
         }
         let collections =
@@ -636,7 +636,7 @@ pub async fn get_collection_visibility(
     let audience = repository::PageAudience::from_auth(&auth);
 
     match tc.run(|conn| {
-        if audience.readable_collection(conn, collection_id)?.is_none() {
+        if !audience.can_open_collection(conn, collection_id)? {
             return Ok(None);
         }
         repository::documentation_collections::get_visible_groups_for_collection(
@@ -727,7 +727,7 @@ pub async fn get_page_overrides_in_collection(
     let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        if audience.readable_collection(conn, collection_id)?.is_none() {
+        if !audience.can_open_collection(conn, collection_id)? {
             return Ok(PageOverridesOutcome::NotFound);
         }
         let pages = match repository::documentation_collections::get_pages_in_collection(
@@ -842,10 +842,7 @@ pub async fn reorder_collections(
 
     match tc.run(|conn| {
         for order in &body.collection_orders {
-            if audience
-                .readable_collection(conn, order.collection_id)?
-                .is_none()
-            {
+            if !audience.can_open_collection(conn, order.collection_id)? {
                 return Ok(None);
             }
         }
@@ -884,7 +881,7 @@ pub async fn set_page_collections(
     let audience = repository::PageAudience::from_auth(&auth);
 
     let result = tc.run(|conn| {
-        if audience.readable_page(conn, page_id)?.is_none() {
+        if !audience.can_open_page(conn, page_id)? {
             return Ok(None);
         }
         let current_collections =
@@ -898,7 +895,7 @@ pub async fn set_page_collections(
 
         let current_ids: Vec<i32> = current_collections.iter().map(|c| c.id).collect();
         for id in &body.collection_ids {
-            if !current_ids.contains(id) && audience.readable_collection(conn, *id)?.is_none() {
+            if !current_ids.contains(id) && !audience.can_open_collection(conn, *id)? {
                 return Ok(None);
             }
         }
