@@ -278,15 +278,20 @@ enum AdminCommand {
         password_stdin: bool,
     },
 
-    /// Generate a strong random password, bcrypt it, and replace
-    /// the user's local auth password. Prints the new password
-    /// exactly once on stdout; pipe to a secret manager or hand it
-    /// directly to the user. All of the user's sessions are
-    /// revoked as a side-effect so the old credentials stop working
-    /// everywhere.
+    /// Replace the user's local auth password with one you enter:
+    /// from a TTY prompt by default (no echo), or one line from
+    /// stdin with `--password-stdin`. Nothing is printed, so the
+    /// password never lands in terminal scrollback or a job log.
+    /// All of the user's sessions are revoked as a side-effect so
+    /// the old credentials stop working everywhere.
     ResetPassword {
         #[arg(value_name = "EMAIL", help = "User email")]
         email: String,
+        #[arg(
+            long,
+            help = "Read the new password from stdin (one line). Use for scripts; omit for an interactive prompt."
+        )]
+        password_stdin: bool,
     },
 
     /// Disable MFA for a user. Clears the TOTP secret and backup
@@ -633,7 +638,10 @@ fn run_admin(cmd: AdminCommand) -> Result<()> {
             email,
             password_stdin,
         } => admin_create(&name, &email, password_stdin),
-        AdminCommand::ResetPassword { email } => admin_reset_password(&email),
+        AdminCommand::ResetPassword {
+            email,
+            password_stdin,
+        } => admin_reset_password(&email, password_stdin),
         AdminCommand::ClearMfa { email } => admin_clear_mfa(&email),
         AdminCommand::ClearPasskeys { email } => admin_clear_passkeys(&email),
     }
@@ -655,17 +663,7 @@ fn admin_create(name: &str, email: &str, password_stdin: bool) -> Result<()> {
         bail!("--email does not look like a valid address");
     }
 
-    let password = if password_stdin {
-        read_password_from_stdin()?
-    } else {
-        read_password_interactive()?
-    };
-    if password.len() < 8 {
-        bail!("password must be at least 8 characters");
-    }
-    if password.len() > 128 {
-        bail!("password must be less than 128 characters");
-    }
+    let password = read_new_password(password_stdin)?;
 
     let hashed = hash(&password, DEFAULT_COST).with_context(|| "hashing password")?;
 
@@ -729,6 +727,23 @@ fn secrets_bcrypt_hash(from_stdin: bool) -> Result<()> {
     Ok(())
 }
 
+/// A new account password, from stdin or the TTY prompt, held to the
+/// same 8 to 128 characters as the web forms.
+fn read_new_password(password_stdin: bool) -> Result<String> {
+    let password = if password_stdin {
+        read_password_from_stdin()?
+    } else {
+        read_password_interactive()?
+    };
+    if password.len() < 8 {
+        bail!("password must be at least 8 characters");
+    }
+    if password.len() > 128 {
+        bail!("password must be less than 128 characters");
+    }
+    Ok(password)
+}
+
 fn read_password_interactive() -> Result<String> {
     let pw =
         rpassword::prompt_password("Password: ").with_context(|| "reading password from TTY")?;
@@ -752,13 +767,13 @@ fn read_password_from_stdin() -> Result<String> {
     Ok(buf.trim_end_matches(['\n', '\r']).to_string())
 }
 
-fn admin_reset_password(email: &str) -> Result<()> {
+fn admin_reset_password(email: &str, password_stdin: bool) -> Result<()> {
     let mut conn = connect_db()?;
 
     let user = user_helpers::get_user_by_email(email, &mut conn)
         .map_err(|e| anyhow!("no user found for {email}: {e}"))?;
 
-    let new_password = generate_password(20);
+    let new_password = read_new_password(password_stdin)?;
     let hashed = hash(&new_password, DEFAULT_COST).with_context(|| "hashing new password")?;
 
     let rows = user_auth_identities::update_local_password_hash(&mut conn, &user.uuid, &hashed)
@@ -778,9 +793,7 @@ fn admin_reset_password(email: &str) -> Result<()> {
 
     println!("reset password for {} ({})", user.name, user.uuid);
     println!("revoked {revoked} active session(s)");
-    println!();
-    println!("new password (shown once):");
-    println!("  {new_password}");
+    println!("the user can now log in via the web UI with the password you provided");
     Ok(())
 }
 
@@ -1076,18 +1089,6 @@ fn build_zip(entries: &[signing::ArchiveEntry], envelope: &[u8]) -> Result<Vec<u
         zip.finish()?;
     }
     Ok(buf)
-}
-
-/// Cryptographically random password from an alphabet that excludes
-/// visually-confusable characters (no 0/O, 1/l/I, etc). Long enough
-/// that bcrypt's 72-byte cap isn't a concern.
-fn generate_password(len: usize) -> String {
-    use rand::seq::IndexedRandom;
-    const ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_@#%!";
-    let mut rng = rand::rng();
-    (0..len)
-        .map(|_| *ALPHABET.choose(&mut rng).unwrap() as char)
-        .collect()
 }
 
 fn base64_decode(s: &str) -> Result<Vec<u8>> {
