@@ -214,7 +214,7 @@ webauthn-rs-proto = "0.5"  # Protocol types for WebAuthn
 # Backup and restore dependencies
 zip = "8.6"                # ZIP archive creation/extraction
 walkdir = "2.5"            # Directory walking for file backup
-sanitize-filename = "0.5"  # Filename sanitization for uploads
+sanitize-filename = "0.6"  # Filename sanitization for uploads
 
 # Full-text search
 tantivy = "0.26"           # Fast full-text search engine (Rust equivalent of Lucene)
