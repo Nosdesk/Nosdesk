@@ -12,8 +12,8 @@
  * Contract with the rest of the app:
  *   - `main.ts` sets `data-ready` on #app-splash after the first real
  *     screen has painted (double-rAF post-mount).
- *   - the resolved theme is cached in localStorage `nosdesk_launch_theme`
- *     by the theme store, so the field + N match the user's theme.
+ *   - on the web, the theme store caches the user's theme background in
+ *     localStorage `nosdesk_launch_theme` for the field.
  */
 (function () {
   var MIN_DISPLAY_MS = 700 // app: keep the intro up long enough for a sheen pass
@@ -22,29 +22,35 @@
 
   var root = document.documentElement
 
-  // --- Colours (before first paint) --------------------------------------
-  var bg = null
-  var fg = null
-  try {
-    var cached = JSON.parse(localStorage.getItem('nosdesk_launch_theme') || '{}')
-    if (cached && typeof cached.app === 'string') bg = cached.app
-    if (cached && typeof cached.accent === 'string') fg = cached.accent
-  } catch (e) {
-    /* private mode / malformed: fall through to defaults */
-  }
-  // First launch (no cache): match OS appearance so a light-mode user
-  // never gets a dark flash; dark brand is the default field.
-  var prefersDark = !window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches
-  if (!bg) bg = prefersDark ? '#08090a' : '#f3f4f6'
-  if (!fg) fg = '#FF6B1A'
-  root.style.setProperty('--splash-bg', bg)
-  root.style.setProperty('--splash-fg', fg)
-
   // Runtime marker gates the animated N to the mobile app (set before
   // paint so plain web never even flashes the mark). `window.isTauri`
   // is injected by Tauri before the page loads.
   var isApp = !!window.isTauri
   root.classList.add(isApp ? 'runtime-app' : 'runtime-web')
+
+  // --- Colours (before first paint) --------------------------------------
+  var prefersDark = !window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches
+  var bg = null
+  if (isApp) {
+    // The system draws the app's launch screen from the phone's light/dark
+    // setting before any of our code runs. The field takes the same colour
+    // so the hand-off doesn't change it, and the user's own theme arrives
+    // with the crossfade at the end.
+    bg = prefersDark ? '#08090a' : '#f3f4f6'
+  } else {
+    // The web has no launch screen: cover the pre-mount flash in the
+    // user's last theme.
+    try {
+      var cached = JSON.parse(localStorage.getItem('nosdesk_launch_theme') || '{}')
+      if (cached && typeof cached.app === 'string') bg = cached.app
+    } catch (e) {
+      /* private mode / malformed: fall through to the default */
+    }
+    if (!bg) bg = prefersDark ? '#08090a' : '#f3f4f6'
+  }
+  root.style.setProperty('--splash-bg', bg)
+  // The N is the app icon's brand orange, readable on either field.
+  root.style.setProperty('--splash-fg', '#FF6B1A')
 
   // --- Teardown ----------------------------------------------------------
   function whenReady(el, done, minMs) {

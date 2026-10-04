@@ -121,18 +121,15 @@ ${colors.syntax ? Object.entries(colors.syntax).map(([key, value]) => `
   // Store active theme ID for reference
   root.dataset.theme = theme.meta.id
 
-  // Cache the resolved app background + accent for the next cold
-  // launch. The pre-mount splash (`public/splash.js`) reads this so
-  // its background and the "N" match the user's real theme before
-  // any Vue/JS has run. Mirrors the `nosdesk_branding_cache` pattern
-  // read by `branding-init.js`. Best-effort: localStorage can throw
-  // in private mode, and a stale cache only costs one off-theme
-  // launch frame.
+  // Cache the resolved app background for the next page load. On the web,
+  // the pre-mount cover (`public/splash.js`) reads it so the cover matches
+  // the user's theme before any Vue has run; the mobile app's launch
+  // follows the phone's light/dark setting instead, like its native launch
+  // screen. Mirrors the `nosdesk_branding_cache` pattern read by
+  // `branding-init.js`. Best-effort: localStorage can throw in private
+  // mode, and a stale cache only costs one off-theme frame.
   try {
-    localStorage.setItem(
-      'nosdesk_launch_theme',
-      JSON.stringify({ app: colors.app, accent: colors.accent }),
-    )
+    localStorage.setItem('nosdesk_launch_theme', JSON.stringify({ app: colors.app }))
   } catch {
     // ignore: splash falls back to prefers-color-scheme + dark brand
   }

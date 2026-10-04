@@ -18,8 +18,13 @@
       /* Pre-mount launch splash. Covers the whole window from the first
          painted frame until the app's first real screen is up, so the
          native launch field hands off to the app with no white/light-gray
-         flash. Colours come from CSS vars set by splash.js (cached theme),
-         with a dark-brand default.
+         flash. Colours come from CSS vars set by splash.js (in the app, the
+         phone's light/dark setting, as on the native launch screen), with a
+         dark-brand default.
+
+         The N is centred on the whole screen, not inside the safe area: iOS
+         can report the safe-area insets after the first frame, and a mark
+         centred between them moves when they arrive.
 
          Loading: the N spins on its own axis. The glyph is 180-degree
          rotationally symmetric, so every half-turn lands on an identical
@@ -33,8 +38,6 @@
         display: grid;
         place-items: center;
         overflow: hidden;
-        padding: env(safe-area-inset-top) env(safe-area-inset-right)
-                 env(safe-area-inset-bottom) env(safe-area-inset-left);
       }
       #app-splash .splash-bg {
         position: absolute;
