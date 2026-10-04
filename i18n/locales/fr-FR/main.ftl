@@ -2158,6 +2158,9 @@ admin-channels-email-auto-ack-variables-hint = Variables (remplies pour chaque t
 admin-channels-email-auto-ack-saving = Enregistrement…
 admin-channels-email-auto-ack-save = Enregistrer l'accusé
 admin-channels-email-auto-ack-success-saved = Accusé de réception mis à jour
+# Accusé de réception déplacé (machine, à relire par un locuteur natif).
+admin-channels-email-auto-ack-elsewhere = L'accusé de réception automatique se règle sur la page Distribution des e-mails
+admin-email-auto-ack-error-save = Échec de l'enregistrement de l'accusé de réception automatique. Veuillez réessayer.
 # Note de sécurité (machine, à relire par un locuteur natif).
 admin-email-security-note-heading = Note de sécurité
 # Machine, à relire par un locuteur natif.
