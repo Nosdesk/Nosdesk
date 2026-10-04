@@ -291,8 +291,13 @@
              so the form lives here. Hidden when no email channel
              exists since the auto-ack won't fire without inbound
              mail to react to. -->
+        <AlertMessage
+          v-if="channel && brandingLoadFailed"
+          type="error"
+          :message="$t('admin-branding-error-load')"
+        />
         <form
-          v-if="channel"
+          v-else-if="channel && brandingConfig"
           class="bg-surface border border-default rounded-xl p-6 flex flex-col gap-6"
           @submit.prevent="saveAutoAck"
         >
@@ -475,10 +480,14 @@ const hasLoadedData = computed(() => channelQuery.data.value !== undefined);
 const BRANDING_KEY = ['branding-config'] as const;
 const brandingQuery = useQuery({
   key: BRANDING_KEY,
-  query: () => brandingService.getBrandingConfig(),
+  query: () => brandingService.getAdminBrandingConfig(),
 });
 const brandingConfig = computed<BrandingConfig | null>(
   () => brandingQuery.data.value ?? null,
+);
+// The auto-ack form never shows values it couldn't load.
+const brandingLoadFailed = computed(
+  () => !!brandingQuery.error.value && !brandingQuery.data.value,
 );
 
 const saving = ref(false);

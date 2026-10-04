@@ -84,6 +84,17 @@ class BrandingService {
   }
 
   /**
+   * The workspace's branding settings, for the admin forms that edit them.
+   * Unlike `getBrandingConfig`, a failure throws: a form seeded from the
+   * defaults would show the workspace's settings as unset.
+   */
+  async getAdminBrandingConfig(): Promise<BrandingConfig> {
+    const response = await apiClient.get<BrandingConfig>('/admin/branding/config')
+    this.cachedConfig = response.data
+    return response.data
+  }
+
+  /**
    * Get cached branding config (for synchronous access)
    */
   getCachedConfig(): BrandingConfig | null {

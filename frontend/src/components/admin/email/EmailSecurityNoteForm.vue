@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
- * Anti-phishing security note: footer copy for transactional mail (password
- * reset, invitation). Workspace-wide (site_settings), off by default. Shares
- * the `branding-config` cache key with the branding and auto-ack surfaces.
+ * Anti-phishing security note: the closing line of the workspace's mail,
+ * replies included. Workspace-wide (site_settings), off by default. Shares
+ * the `branding-config` cache key with the branding and auto-ack surfaces,
+ * all reading the admin settings, never the public branding.
  */
 import { ref, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
@@ -24,9 +25,11 @@ const queryCache = useQueryCache();
 const BRANDING_KEY = ['branding-config'] as const;
 const brandingQuery = useQuery({
   key: BRANDING_KEY,
-  query: () => brandingService.getBrandingConfig(),
+  query: () => brandingService.getAdminBrandingConfig(),
 });
 const brandingConfig = computed<BrandingConfig | null>(() => brandingQuery.data.value ?? null);
+// The form never shows values it couldn't load.
+const loadFailed = computed(() => !!brandingQuery.error.value && !brandingQuery.data.value);
 
 const securityNoteEnabled = ref(false);
 const securityNoteTemplate = ref('');
@@ -77,8 +80,9 @@ async function saveSecurityNote() {
 </script>
 
 <template>
+  <AlertMessage v-if="loadFailed" type="error" :message="$t('admin-branding-error-load')" />
   <form
-    v-if="brandingConfig"
+    v-else-if="brandingConfig"
     class="bg-surface border border-default rounded-xl p-6 flex flex-col gap-6"
     @submit.prevent="saveSecurityNote"
   >

@@ -122,8 +122,29 @@ pub struct UpdateBrandingRequest {
     pub email_security_note_template: Option<String>,
 }
 
-// GET /api/admin/branding/config - Get branding settings (public for initial load)
-pub async fn get_branding_config(
+// GET /api/admin/branding/config - The workspace's branding settings, for the
+// admin forms that edit them. A failed read is an error, never the built-in
+// defaults: a form seeded from defaults shows the workspace's settings as unset,
+// and saving it writes them back that way.
+pub async fn get_branding_config(mut tc: TenantConn) -> Result<HttpResponse, ApiError> {
+    match tc.run(site_settings::get_site_settings) {
+        Ok(settings) => {
+            let response: SiteSettingsResponse = settings.into();
+            Ok(HttpResponse::Ok().json(response))
+        }
+        Err(e) => {
+            error!(error = ?e, "Error fetching site settings");
+            Err(ApiError::Internal(
+                "Failed to load branding configuration".into(),
+            ))
+        }
+    }
+}
+
+// GET /api/branding - Public endpoint for branding (no auth required). Falls
+// back to the built-in branding when no workspace resolves, as on the sign-in
+// page.
+pub async fn get_public_branding(
     req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> Result<HttpResponse, ApiError> {
@@ -159,11 +180,6 @@ pub async fn get_branding_config(
             })))
         }
     }
-}
-
-// GET /api/branding - Public endpoint for branding (no auth required)
-pub async fn get_public_branding(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
-    get_branding_config(req, pool).await
 }
 
 // PATCH /api/admin/branding/config - Update branding settings
