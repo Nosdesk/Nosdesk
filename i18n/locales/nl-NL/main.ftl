@@ -2154,6 +2154,9 @@ admin-channels-email-auto-ack-variables-hint = Variabelen (per ticket ingevuld):
 admin-channels-email-auto-ack-saving = Opslaan…
 admin-channels-email-auto-ack-save = Ontvangstbevestiging opslaan
 admin-channels-email-auto-ack-success-saved = Ontvangstbevestiging bijgewerkt
+# Verplaatste ontvangstbevestiging (machine, na te kijken door een moedertaalspreker).
+admin-channels-email-auto-ack-elsewhere = De automatische ontvangstbevestiging stel je in op de pagina E-mailbezorging
+admin-email-auto-ack-error-save = Opslaan van de automatische ontvangstbevestiging mislukt. Probeer het opnieuw.
 # Beveiligingsnotitie (machine, na te kijken door een moedertaalspreker).
 admin-email-security-note-heading = Beveiligingsnotitie
 # Machine, nog na te kijken door moedertaalspreker.

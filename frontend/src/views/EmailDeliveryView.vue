@@ -4,7 +4,8 @@
  *
  * One page, two sub-tabs:
  *   - Setup: how the workspace sends (server default, own domain, own SMTP
- *     server), a test send, and the security note.
+ *     server), a test send, the acknowledgement new emails get, and the
+ *     security note.
  *   - Activity: the outbound queue + suppression list.
  */
 import { computed } from 'vue';
@@ -13,6 +14,7 @@ import { useFluent } from 'fluent-vue';
 import TabBar, { type TabBarItem } from '@/components/common/TabBar.vue';
 
 import SendingSetup from '@/components/admin/email/SendingSetup.vue';
+import EmailAutoAckForm from '@/components/admin/email/EmailAutoAckForm.vue';
 import EmailSecurityNoteForm from '@/components/admin/email/EmailSecurityNoteForm.vue';
 import EmailQueueView from './admin/EmailQueueView.vue';
 import EmailSuppressionsView from './admin/EmailSuppressionsView.vue';
@@ -56,6 +58,7 @@ const tabItems = computed<TabBarItem<Tab>[]>(() => [
 
       <div v-if="tab === 'setup'" class="flex flex-col gap-6">
         <SendingSetup />
+        <EmailAutoAckForm />
         <EmailSecurityNoteForm />
       </div>
       <div v-else class="flex flex-col gap-8">

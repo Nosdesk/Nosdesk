@@ -285,63 +285,15 @@
           </div>
         </form>
 
-        <!-- Auto-acknowledgement. Workspace-wide setting (stored on
-             site_settings) but the admin discovery path runs through
-             "I configured email, now what does the customer see?",
-             so the form lives here. Hidden when no email channel
-             exists since the auto-ack won't fire without inbound
-             mail to react to. -->
-        <AlertMessage
-          v-if="channel && brandingLoadFailed"
-          type="error"
-          :message="$t('admin-branding-error-load')"
-        />
-        <form
-          v-else-if="channel && brandingConfig"
-          class="bg-surface border border-default rounded-xl p-6 flex flex-col gap-6"
-          @submit.prevent="saveAutoAck"
+        <!-- The acknowledgement covers every inbound channel, so it is set on
+             Email delivery; the channel page points there. -->
+        <RouterLink
+          v-if="channel"
+          to="/admin/email"
+          class="text-sm text-accent hover:underline self-start"
         >
-          <div class="flex flex-col gap-1">
-            <h2 class="text-lg font-semibold text-primary">
-              {{ $t('admin-channels-email-auto-ack-heading') }}
-            </h2>
-            <p class="text-sm text-secondary">
-              {{ $t('admin-channels-email-auto-ack-subtitle') }}
-            </p>
-          </div>
-
-          <ToggleSwitch
-            v-model="autoAckEnabled"
-            :label="$t('admin-channels-email-auto-ack-toggle-label')"
-            :description="$t('admin-channels-email-auto-ack-toggle-description')"
-          />
-
-          <div class="flex flex-col gap-2">
-            <FormTextarea
-              v-model="autoAckTemplate"
-              :label="$t('admin-channels-email-auto-ack-template-label')"
-              :placeholder="$t('admin-channels-email-auto-ack-template-placeholder')"
-              :description="$t('admin-channels-email-auto-ack-template-hint')"
-              :rows="6"
-              mono
-              :disabled="!autoAckEnabled"
-            />
-            <p class="text-xs text-tertiary">
-              {{ $t('admin-channels-email-auto-ack-variables-hint') }}
-              <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;ticket_id&#125;&#125;</code>,
-              <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;ticket_title&#125;&#125;</code>,
-              <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;customer_name&#125;&#125;</code>,
-              <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;customer_first_name&#125;&#125;</code>,
-              <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;app_name&#125;&#125;</code>
-            </p>
-          </div>
-
-          <div class="flex justify-end border-t border-default pt-4">
-            <Button type="submit" :loading="savingAutoAck" :disabled="!autoAckIsDirty">
-              {{ savingAutoAck ? $t('admin-channels-email-auto-ack-saving') : $t('admin-channels-email-auto-ack-save') }}
-            </Button>
-          </div>
-        </form>
+          {{ $t('admin-channels-email-auto-ack-elsewhere') }}
+        </RouterLink>
       </div>
     </div>
 
@@ -378,7 +330,6 @@ import {
   type ImapChannelConfig,
   type ImapRuntimeState
 } from '@nosdesk/core/services/channelsService';
-import brandingService, { type BrandingConfig } from '@nosdesk/core/services/brandingService';
 import apiClient from '@nosdesk/core/apiClient';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { createErrorFromResponse, errorCode, errorStatus } from '@/utils/errors';
@@ -387,7 +338,6 @@ import {
   isHostedDeployment,
   isInboundForwardingEnabled,
 } from '@nosdesk/core/services/instanceConfig';
-import FormTextarea from '@/components/common/FormTextarea.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -472,32 +422,11 @@ const loadError = computed(() => {
 // a successful "no email channel configured" result, which is null.
 const hasLoadedData = computed(() => channelQuery.data.value !== undefined);
 
-// Auto-ack settings live on site_settings, not on the channel row,
-// but they're conceptually a property of "what happens when a new
-// email lands" so the admin form belongs here. We share the
-// branding query key with BrandingSettingsView so a save here
-// invalidates that view's cache and vice-versa.
-const BRANDING_KEY = ['branding-config'] as const;
-const brandingQuery = useQuery({
-  key: BRANDING_KEY,
-  query: () => brandingService.getAdminBrandingConfig(),
-});
-const brandingConfig = computed<BrandingConfig | null>(
-  () => brandingQuery.data.value ?? null,
-);
-// The auto-ack form never shows values it couldn't load.
-const brandingLoadFailed = computed(
-  () => !!brandingQuery.error.value && !brandingQuery.data.value,
-);
-
 const saving = ref(false);
 const testing = ref(false);
 const deleting = ref(false);
 const clearing = ref(false);
-const savingAutoAck = ref(false);
 const form = ref<FormState>(emptyForm());
-const autoAckEnabled = ref(true);
-const autoAckTemplate = ref('');
 const testResult = ref<ImapTestResult | null>(null);
 const passwordError = ref('');
 const errorMessage = ref('');
@@ -513,21 +442,6 @@ watch(
     if (data === undefined || seeded.value) return;
     if (data) populateForm(data);
     seeded.value = true;
-  },
-  { immediate: true },
-);
-
-// Same one-shot seed shape for the auto-ack form. Separate flag so
-// the two queries can resolve in any order without one clobbering
-// the other's seed.
-const autoAckSeeded = ref(false);
-watch(
-  brandingQuery.data,
-  (data) => {
-    if (!data || autoAckSeeded.value) return;
-    autoAckEnabled.value = data.channel_auto_ack_enabled;
-    autoAckTemplate.value = data.channel_auto_ack_template ?? '';
-    autoAckSeeded.value = true;
   },
   { immediate: true },
 );
@@ -632,15 +546,6 @@ const submitLabel = computed(() => {
   return channel.value ? t('admin-channels-email-save') : t('admin-channels-email-create');
 });
 
-const autoAckIsDirty = computed(() => {
-  const cfg = brandingConfig.value;
-  if (!cfg) return false;
-  return (
-    autoAckEnabled.value !== cfg.channel_auto_ack_enabled ||
-    autoAckTemplate.value !== (cfg.channel_auto_ack_template ?? '')
-  );
-});
-
 function populateForm(ch: Channel) {
   const cfg = (ch.config ?? {}) as unknown as ImapChannelConfig;
   form.value = {
@@ -741,27 +646,6 @@ async function testConnection() {
     }
   } finally {
     testing.value = false;
-  }
-}
-
-async function saveAutoAck() {
-  if (!autoAckIsDirty.value) return;
-  clearMessages();
-  savingAutoAck.value = true;
-  try {
-    const updated = await brandingService.updateBrandingConfig({
-      channel_auto_ack_enabled: autoAckEnabled.value,
-      // Empty string clears back to "use built-in FTL default".
-      channel_auto_ack_template: autoAckTemplate.value,
-    });
-    // Keep the shared branding cache in lockstep so BrandingSettingsView
-    // (which uses the same key) reflects the change without a refetch.
-    queryCache.setQueryData(BRANDING_KEY, updated);
-    flashSuccess('admin-channels-email-auto-ack-success-saved');
-  } catch (e: unknown) {
-    errorMessage.value = createErrorFromResponse(e).getUserMessage();
-  } finally {
-    savingAutoAck.value = false;
   }
 }
 
