@@ -350,6 +350,20 @@ impl<'a> EmailTemplate<'a> {
         }
     }
 
+    /// End a plain-text part the way the letter's footer ends: with the
+    /// workspace's security note, when it has one.
+    fn finish_text(&self, body: String) -> String {
+        match self
+            .branding
+            .security_note
+            .as_deref()
+            .filter(|note| !note.trim().is_empty())
+        {
+            Some(note) => format!("{}\n\n{note}", body.trim_end()),
+            None => body,
+        }
+    }
+
     /// Where the letter's own images load from: the link origin in mail,
     /// the page's origin in a preview.
     fn asset_origin(&self) -> String {
@@ -1699,7 +1713,7 @@ impl EmailService {
             ],
         );
 
-        (subject, html_body, body_text)
+        (subject, html_body, template.finish_text(body_text))
     }
 
     /// Render the invitation email without sending. See
@@ -1784,7 +1798,7 @@ impl EmailService {
             ],
         );
 
-        (subject, html_body, body_text)
+        (subject, html_body, template.finish_text(body_text))
     }
 
     /// Render the customer-portal passwordless sign-in email. Returns
@@ -1847,7 +1861,7 @@ impl EmailService {
             tr("participant-added-replies", &[]),
             tr("participant-added-cta", &[]),
         );
-        (subject, html_body, body_text)
+        (subject, html_body, template.finish_text(body_text))
     }
 
     pub fn compose_portal_magic_link(
@@ -1947,7 +1961,7 @@ impl EmailService {
             body_text = format!("{body_text}\n\n{line}");
         }
 
-        (subject, html_body, body_text)
+        (subject, html_body, template.finish_text(body_text))
     }
 
     /// Compose the "confirm this address" email for an address added to a
@@ -2033,7 +2047,7 @@ impl EmailService {
             ],
         );
 
-        (subject, html_body, body_text)
+        (subject, html_body, template.finish_text(body_text))
     }
 
     /// Render the guest ticket-confirmation email without sending. Returns
@@ -2115,7 +2129,7 @@ impl EmailService {
         if let Some(url) = stop_url {
             body_text.push_str(&format!("\n\nNot you? Stop these emails: {url}"));
         }
-        (subject, html_body, body_text)
+        (subject, html_body, template.finish_text(body_text))
     }
 
     /// Send a technician's reply to a ticket as an email. Sets the
@@ -2280,7 +2294,7 @@ impl EmailService {
             )
         };
 
-        (html_body, body_text)
+        (html_body, template.finish_text(body_text))
     }
 }
 
@@ -2394,7 +2408,11 @@ fn test_letter(
         locale,
     );
     let subject = tr("email-test-message-subject", &app_arg(false));
-    (subject, html, plain.join("\n\n") + "\n")
+    (
+        subject,
+        html,
+        template.finish_text(plain.join("\n\n")) + "\n",
+    )
 }
 
 /// `scheme://host[:port]` of a URL, with any path dropped. A base without a
@@ -3240,6 +3258,105 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             .block_on(disabled.send_ticket_reply(outbound))
             .unwrap_err();
         assert!(err.contains("not configured"), "unexpected error: {err}");
+    }
+
+    /// The plain-text part of every letter, one per builder.
+    fn every_letter_text(
+        svc: &EmailService,
+        branding: &EmailBranding,
+    ) -> Vec<(&'static str, String)> {
+        use std::str::FromStr;
+        let locale = unic_langid::LanguageIdentifier::from_str("en-US").unwrap();
+        vec![
+            (
+                "password reset",
+                svc.compose_password_reset("Alex", "TOKEN", branding, &locale)
+                    .2,
+            ),
+            (
+                "invitation",
+                svc.compose_invitation("Alex", "TOKEN", branding, "Kyle", &locale)
+                    .2,
+            ),
+            (
+                "participant added",
+                svc.compose_participant_added(
+                    "Kyle",
+                    42,
+                    "Printer fire",
+                    "https://desk.example.com/tickets/42",
+                    branding,
+                    &locale,
+                )
+                .2,
+            ),
+            (
+                "portal sign-in",
+                svc.compose_portal_magic_link("Alex", "TOKEN", Some("123456"), branding, &locale)
+                    .2,
+            ),
+            (
+                "email verification",
+                svc.compose_email_verification(
+                    "Alex",
+                    "alex@example.com",
+                    "TOKEN",
+                    branding,
+                    &locale,
+                )
+                .2,
+            ),
+            (
+                "guest ticket confirmation",
+                svc.compose_guest_ticket_confirmation("TOKEN", branding, None)
+                    .2,
+            ),
+            (
+                "notification",
+                svc.compose_notification(
+                    "New comment on: Printer fire",
+                    "Can someone take a look?",
+                    "Kyle",
+                    "https://desk.example.com/tickets/42",
+                    None,
+                    None,
+                    branding,
+                    &locale,
+                )
+                .1,
+            ),
+            (
+                "test email",
+                super::test_letter(
+                    &super::EmailTemplate::new(branding),
+                    &locale,
+                    Some(("smtp.example.com:587", "Acme <support@acme.example.com>")),
+                )
+                .2,
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_letter_ends_its_plain_text_with_the_security_note() {
+        let svc = svc();
+        let mut branding = EmailBranding::default();
+        let note = "Acme will only ever email you from acme.example.com.";
+        branding.security_note = Some(note.to_string());
+        for (letter, text) in every_letter_text(&svc, &branding) {
+            assert!(
+                text.trim_end().ends_with(note),
+                "{letter}: plain text should end with the note:\n{text}"
+            );
+        }
+
+        branding.security_note = None;
+        for (letter, text) in every_letter_text(&svc, &branding) {
+            assert!(
+                !text.contains("will only ever email you"),
+                "{letter}: no note when it's off:\n{text}"
+            );
+        }
     }
 
     // ---------- email design preview harness ----------
