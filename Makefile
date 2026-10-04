@@ -77,27 +77,34 @@ clean-db: ## Wipe only the postgres data volume (keeps caches)
 	docker volume rm nosdesk_postgres_data
 	$(COMPOSE) up -d
 
-# Reclaim orphaned HOST cargo artifacts in backend/target. Distinct
-# from `make clean`, which wipes the CONTAINER's target volume: this
-# targets the host tree that occasional `cargo test` / rust-analyzer
-# builds write to. Cargo never GCs stale-hash .rlib/.rmeta/binaries,
-# so they pile up (split-debuginfo="packed" already stops the far
-# larger .o-file blowup). `--installed` drops artifacts from
-# toolchains you no longer have; `--time 15` drops anything untouched
-# for 15 days. Needs cargo-sweep (`cargo install cargo-sweep`).
-sweep-target: ## Reclaim stale host cargo artifacts (backend/target)
+# The backend's host cargo build folder: backend/target, unless
+# CARGO_TARGET_DIR or a cargo config `target-dir` puts it elsewhere (often a
+# folder shared by every Rust project on the machine). Resolved only when a
+# recipe below uses it.
+CARGO_TARGET = $(or $(shell cd backend && cargo metadata --no-deps --format-version 1 2>/dev/null | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p'),backend/target)
+
+# Reclaim orphaned HOST cargo artifacts in that folder. Distinct from
+# `make clean`, which wipes the CONTAINER's target volume: this targets
+# the host tree that occasional `cargo test` / rust-analyzer builds
+# write to. Cargo never GCs stale-hash .rlib/.rmeta/binaries, so they
+# pile up (split-debuginfo="packed" already stops the far larger
+# .o-file blowup). `--installed` drops artifacts from toolchains you no
+# longer have; `--time 15` drops anything untouched for 15 days, other
+# projects' artifacts included when the folder is shared. Needs
+# cargo-sweep (`cargo install cargo-sweep`).
+sweep-target: ## Reclaim stale host cargo artifacts (the backend's build folder)
 	@command -v cargo-sweep >/dev/null 2>&1 || { echo "cargo-sweep not found: run 'cargo install cargo-sweep'"; exit 1; }
 	cargo sweep --installed backend
 	cargo sweep --time 15 backend
-	@printf "backend/target now: "; du -sh backend/target 2>/dev/null | cut -f1 || echo "absent"
+	@printf "%s now: " "$(CARGO_TARGET)"; du -sh "$(CARGO_TARGET)" 2>/dev/null | cut -f1 || echo "absent"
 
-# Cheap on-demand health check: host disk headroom + backend/target
+# Cheap on-demand health check: host disk headroom + the build folder's
 # size. The pre-commit hook runs a passive df-only version of this on
 # every commit; run `make doctor` for the precise du figure, then
-# `make sweep-target` (or `cd backend && cargo clean`) if it's large.
-doctor: ## Report host disk headroom + backend/target size
+# `make sweep-target` if it's large.
+doctor: ## Report host disk headroom + the cargo build folder's size
 	@df -h . | awk 'NR==1{print} /\//{print}' | head -2
-	@printf "backend/target: "; du -sh backend/target 2>/dev/null | cut -f1 || echo "absent"
+	@printf "cargo build folder %s: " "$(CARGO_TARGET)"; du -sh "$(CARGO_TARGET)" 2>/dev/null | cut -f1 || echo "absent"
 
 # Restart just the backend container. Common when bacon stops
 # rebuilding cleanly (it happens) or when you change something
