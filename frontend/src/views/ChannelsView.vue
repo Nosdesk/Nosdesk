@@ -54,7 +54,7 @@ const CHANNEL_TYPES: ChannelType[] = [
     icon: 'email',
     titleKey: 'admin-channels-type-email-managed',
     descriptionKey: 'admin-channels-type-email-managed-description',
-    route: '/admin/email/delivery',
+    route: '/admin/email',
   },
 ];
 
