@@ -33,7 +33,7 @@ const BRANDING_KEY = ['branding-config'] as const
 const queryCache = useQueryCache()
 const brandingQuery = useQuery({
   key: BRANDING_KEY,
-  query: () => brandingService.getBrandingConfig(),
+  query: () => brandingService.getAdminBrandingConfig(),
 })
 const brandingConfig = computed<BrandingConfig | null>(() => brandingQuery.data.value ?? null)
 const isFirstLoad = computed(
