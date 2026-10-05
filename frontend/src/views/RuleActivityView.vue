@@ -25,6 +25,8 @@ import Button from '@/components/common/Button.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
+import StatusPill from '@/components/common/StatusPill.vue';
+import type { StatusPillTone } from '@/components/common/statusPillTone';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import rulesService from '@nosdesk/core/services/rulesService';
 import { useMobileDetection } from '@/composables/useMobileDetection';
@@ -94,11 +96,11 @@ const limitModel = computed<string>({
   },
 });
 
-function statusVariant(status: RuleApplicationStatus): string {
-  if (status === 'succeeded') return 'bg-success/10 text-success';
-  if (status === 'dry_run') return 'bg-info/10 text-info';
-  if (status === 'failed') return 'bg-error/10 text-error';
-  return 'bg-warning/10 text-warning';
+function statusTone(status: RuleApplicationStatus): StatusPillTone {
+  if (status === 'succeeded') return 'positive';
+  if (status === 'dry_run') return 'info';
+  if (status === 'failed') return 'critical';
+  return 'caution';
 }
 
 function formatTime(value: string): string {
@@ -178,29 +180,21 @@ function back(): void {
       <li
         v-for="app in applications"
         :key="app.id"
-        class="border rounded-md bg-surface"
+        class="border border-default rounded-lg bg-surface overflow-hidden"
       >
         <div
           class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-hover"
           @click="toggleExpanded(app.id)"
         >
-          <span
-            :class="[
-              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-              statusVariant(app.status),
-            ]"
-          >
-            {{ statusLabel(app.status) }}
-          </span>
+          <StatusPill :label="statusLabel(app.status)" :tone="statusTone(app.status)" />
           <span class="font-mono text-xs text-secondary">
             #{{ app.rule_id }} v{{ app.rule_version }}
           </span>
           <span class="text-sm flex-1 min-w-0 truncate">
-            {{ t('admin-rules-activity-row-summary', {
+            {{ t(app.actor_kind === 'system'
+              ? 'admin-rules-activity-row-automatic'
+              : 'admin-rules-activity-row-by-agent', {
               ticket_id: numberForTicketId(app.ticket_id) ?? '',
-              actor: app.actor_kind === 'system'
-                ? t('admin-rules-activity-actor-system')
-                : t('admin-rules-activity-actor-user'),
             }) }}
           </span>
           <span class="text-xs text-secondary">{{ formatTime(app.applied_at) }}</span>
@@ -211,7 +205,7 @@ function back(): void {
         </div>
         <pre
           v-if="expanded.has(app.id)"
-          class="text-xs px-3 py-2 border-t bg-surface-hover overflow-x-auto"
+          class="text-xs px-3 py-2 border-t border-subtle bg-surface-alt overflow-x-auto"
         >{{ inspectorPayload(app) }}</pre>
       </li>
     </ul>

@@ -6921,8 +6921,9 @@ route-title-admin-rules-activity = Activité des règles
 route-title-admin-rules-new = Nouvelle règle
 route-title-admin-rules-edit = Modifier la règle
 
+# Règles et boîte de dialogue Actions des tickets, textes revus (machine, à relire par un locuteur natif).
 admin-rules-title = Règles
-admin-rules-help-intro = Une seule entité couvre les actions manuelles, les automatisations événementielles et les escalades temporisées. Les règles manuelles apparaissent dans la barre d'outils des agents ; les autres sont déclenchées par le moteur.
+admin-rules-help-intro = Une règle est un ensemble d'étapes, comme une réponse et un changement de priorité, que les agents appliquent à un ticket en une fois depuis son bouton Actions.
 admin-rules-new-cta = Nouvelle règle
 admin-rules-activity-cta = Activité récente
 admin-rules-search-placeholder = Rechercher une règle par nom
@@ -6934,85 +6935,106 @@ admin-rules-trigger-ticket-updated = À la mise à jour d'un ticket
 admin-rules-trigger-ticket-replied = À la réponse
 admin-rules-trigger-time-elapsed = Temps écoulé
 admin-rules-state-draft = Brouillon
-admin-rules-state-dry-run = Test à vide
+admin-rules-state-dry-run = En pause
 admin-rules-state-live = Active
 admin-rules-state-archived = Archivée
 admin-rules-col-name = Nom
 admin-rules-col-trigger = Déclencheur
 admin-rules-col-state = État
-admin-rules-col-last-fired = Dernier déclenchement
-admin-rules-col-fire-count = Déclenchements (total)
+admin-rules-col-last-fired = Dernière exécution
+admin-rules-col-fire-count = Exécutions
 admin-rules-last-fired-never = Jamais
 admin-rules-empty-title = Aucune règle pour le moment
-admin-rules-empty-hint = Créez votre première règle ou parcourez le catalogue (bientôt disponible).
+admin-rules-empty-hint = Créez une règle pour donner aux agents un ensemble d'étapes à appliquer à un ticket en une fois.
 admin-rules-error-load = Impossible de charger la liste des règles.
 admin-rules-error-archive = Impossible d'archiver cette règle.
-admin-rules-error-transition = Impossible de changer l'état.
+admin-rules-error-transition = Impossible de mettre à jour la règle.
 admin-rules-toast-archived = { $name } archivée.
-admin-rules-toast-state-changed = État modifié : { $state }.
-admin-rules-action-pause-tooltip = Mettre en pause (test à vide)
-admin-rules-action-resume-tooltip = Réactiver
 admin-rules-action-archive-tooltip = Archiver
 admin-rules-archive-confirm-title = Archiver la règle ?
-admin-rules-archive-confirm-body = { $name } cessera de se déclencher et n'apparaîtra plus dans le sélecteur. L'historique d'audit est conservé. Vous pourrez la supprimer définitivement plus tard depuis la vue archivée.
+admin-rules-archive-confirm-body = { $name } n'apparaîtra plus dans Actions sur les tickets. Son activité reste dans le journal.
 admin-rules-archive-confirm-button = Archiver
 
 admin-rules-activity-title = Activité des règles
-admin-rules-activity-help = Chaque déclenchement écrit une ligne, qu'il soit réussi, ignoré, supprimé ou échoué. Cliquez sur une ligne pour voir l'évaluation des conditions et les actions exécutées.
+admin-rules-activity-help = Chaque fois qu'une règle s'exécute sur un ticket, elle ajoute une ligne ici. Une exécution échouée ou ignorée en indique la raison.
 admin-rules-activity-back = Retour aux règles
 admin-rules-activity-error-load = Impossible de charger le journal d'activité.
 admin-rules-activity-empty-title = Aucune activité pour le moment
-admin-rules-activity-empty-hint = Les règles écrivent ici dès qu'elles se déclenchent.
+admin-rules-activity-empty-hint = Les exécutions apparaissent ici dès qu'un agent applique une règle.
 admin-rules-activity-filter-all = Tous les statuts
 admin-rules-activity-limit = Dernier { $n }
-admin-rules-activity-actor-system = moteur
-admin-rules-activity-actor-user = agent
-admin-rules-activity-row-summary = sur le ticket #{ $ticket_id } par { $actor }
-admin-rules-activity-inspector-empty = Aucun détail d'inspecteur (le déclenchement réussi reste compact).
+admin-rules-activity-inspector-empty = Rien d'autre n'a été enregistré pour cette exécution.
 admin-rules-activity-status-succeeded = Réussi
 admin-rules-activity-status-dry-run = Test à vide
-admin-rules-activity-status-skipped-preflight = Ignoré (préchecks)
-admin-rules-activity-status-skipped-condition-unmet = Ignoré (pas de correspondance)
-admin-rules-activity-status-suppressed-recursion-budget = Supprimé (récursion)
-admin-rules-activity-status-suppressed-loop-guard = Supprimé (anti-boucle)
+admin-rules-activity-status-skipped-preflight = Ignorée avant l'exécution
+admin-rules-activity-status-skipped-condition-unmet = Ignorée : conditions non remplies
+admin-rules-activity-status-suppressed-recursion-budget = Arrêtée : trop de règles à la suite
+admin-rules-activity-status-suppressed-loop-guard = Arrêtée : elle aurait tourné en boucle
 admin-rules-activity-status-failed = Échec
+admin-rules-toast-created = { $name } créée.
+admin-rules-toast-saved = { $name } enregistrée.
+admin-rules-toast-live = { $name } est active.
+admin-rules-toast-paused = { $name } est en pause.
+admin-rules-go-live = Activer
+admin-rules-pause = Mettre en pause
+admin-rules-activity-row-by-agent = Appliquée au ticket #{ $ticket_id } par un agent
+admin-rules-activity-row-automatic = Exécutée automatiquement sur le ticket #{ $ticket_id }
 
 ticket-activity-phrase-rule-applied = a appliqué la règle « { $rule } »
 ticket-activity-phrase-rule-applied-dry-run = a prévisualisé la règle « { $rule } » en test à vide
 
+# Règles et boîte de dialogue Actions des tickets, textes revus (machine, à relire par un locuteur natif).
 ticket-actions-button = Actions
 ticket-actions-dialog-title = Appliquer une action
-ticket-actions-dialog-picker-placeholder = Rechercher une action...
-ticket-actions-dialog-empty = Aucune règle manuelle active dans cet espace de travail.
-ticket-actions-dialog-action-list-label = Cette action va :
+ticket-actions-dialog-empty = Aucune action n'est encore disponible.
 ticket-actions-dialog-cancel = Annuler
 ticket-actions-dialog-apply = Appliquer
-ticket-actions-dialog-applying = Application en cours...
 ticket-actions-success-toast = « { $rule } » appliquée.
-ticket-actions-error-toast = Impossible d'appliquer cette action.
+ticket-actions-dialog-description = Voyez ce qu'une action fera sur ce ticket avant de l'appliquer.
+ticket-actions-dialog-list-label = Actions disponibles
+ticket-actions-dialog-search-placeholder = Rechercher une action
+ticket-actions-dialog-no-match = Aucune action ne correspond à votre recherche.
+ticket-actions-dialog-steps-label = Cette action va :
+ticket-actions-error = Impossible d'appliquer cette action.
+ticket-actions-step-reply = Répondre au demandeur
+ticket-actions-step-note = Ajouter une note interne
+ticket-actions-step-status = Passer le statut à { $status }
+ticket-actions-step-status-unknown = Changer le statut
+ticket-actions-step-assign = Assigner à { $name }
+ticket-actions-step-assign-unknown = Assigner à une personne précise
+ticket-actions-step-unassign = Retirer la personne assignée
+ticket-actions-step-add-tags =
+    { $count ->
+        [one] Ajouter l'étiquette { $tags }
+       *[other] Ajouter les étiquettes { $tags }
+    }
+ticket-actions-step-add-tags-unknown =
+    { $count ->
+        [one] Ajouter une étiquette
+       *[other] Ajouter { $count } étiquettes
+    }
+ticket-actions-step-remove-tags =
+    { $count ->
+        [one] Retirer l'étiquette { $tags }
+       *[other] Retirer les étiquettes { $tags }
+    }
+ticket-actions-step-remove-tags-unknown =
+    { $count ->
+        [one] Retirer une étiquette
+       *[other] Retirer { $count } étiquettes
+    }
+ticket-actions-step-priority = Passer la priorité à { $priority }
+ticket-actions-reply-edit = Modifier la réponse
+ticket-actions-reply-edit-label = Réponse
+ticket-actions-reply-edit-hint = Les variables comme {"{{"}customer_name{"}}"} sont remplies à l'envoi.
+ticket-actions-reply-empty = Écrivez une réponse ou décochez cette étape.
 
-admin-rules-action-chip-reply-public = Répondre au client
-admin-rules-action-chip-reply-internal = Ajouter une note interne
-admin-rules-action-chip-set-status = Passer à l'état #{ $state_id }
-admin-rules-action-chip-assign = Assigner à un utilisateur
-admin-rules-action-chip-unassign = Retirer l'assignation
-admin-rules-action-chip-add-tags = Ajouter { $count ->
-    [one] 1 étiquette
-   *[other] { $count } étiquettes
-  }
-admin-rules-action-chip-remove-tags = Retirer { $count ->
-    [one] 1 étiquette
-   *[other] { $count } étiquettes
-  }
-admin-rules-action-chip-set-priority = Définir la priorité sur { $priority }
-admin-rules-action-chip-notify = Envoyer une notification
-admin-rules-action-chip-stop-processing = Arrêter ici
 
+# Règles et boîte de dialogue Actions des tickets, textes revus (machine, à relire par un locuteur natif).
 admin-rule-editor-title-new = Nouvelle règle
 admin-rule-editor-title-edit = Modifier « { $name } »
 admin-rule-editor-back = Retour aux règles
 admin-rule-editor-save = Enregistrer
-admin-rule-editor-saving = Enregistrement...
 admin-rule-editor-section-name = Quoi
 admin-rule-editor-section-trigger = Quand
 admin-rule-editor-section-actions = Alors
@@ -7020,17 +7042,34 @@ admin-rule-editor-section-state = État
 admin-rule-editor-name-label = Nom
 admin-rule-editor-name-placeholder = Accuser réception et escalader à l'équipe réseau
 admin-rule-editor-description-label = Description (optionnelle)
-admin-rule-editor-description-placeholder = Note rapide pour expliquer quand un agent devrait utiliser cette règle.
+admin-rule-editor-description-placeholder = Une courte note sur le moment où utiliser cette règle.
 admin-rule-editor-trigger-label = Déclencheur
-admin-rule-editor-trigger-manual-note = Les règles manuelles apparaissent dans la barre d'outils Actions des agents. Pas de condition par ticket ; le sélecteur filtre par catégorie.
-admin-rule-editor-trigger-other-phase = Les déclencheurs événementiels et temporisés arriveront en phase 2 du moteur de règles ; ils peuvent être enregistrés en brouillon mais ne se déclencheront qu'une fois le moteur abonné.
-admin-rule-editor-actions-add = Ajouter une action
-admin-rule-editor-actions-empty = Cette règle a besoin d'au moins une action.
-admin-rule-editor-action-remove = Retirer
+admin-rule-editor-trigger-other-phase = Ce déclencheur ne s'exécute pas encore, donc la règle ne fait jamais rien. Passez-la en Manuelle pour que les agents puissent l'appliquer.
+admin-rule-editor-actions-add = Ajouter une étape
+admin-rule-editor-actions-empty = Cette règle a besoin d'au moins une étape.
+admin-rule-editor-action-remove = Retirer l'étape
 admin-rule-editor-error-save = Impossible d'enregistrer la règle.
-admin-rule-editor-error-conflict = Cette règle lit et écrit dans les mêmes champs. Enregistrez quand même pour outrepasser.
-admin-rule-editor-override-self-ref = Je sais que cette règle peut boucler
-admin-rule-editor-priority-label = Priorité (la plus basse en premier)
+admin-rule-editor-override-self-ref = Enregistrer même si cette règle modifie un champ qu'elle vérifie aussi
+admin-rule-editor-priority-label = Ordre d'exécution (le plus bas d'abord)
+admin-rule-editor-trigger-manual-summary = Quand un agent l'applique depuis le bouton Actions d'un ticket.
+admin-rule-editor-state-new = Les nouvelles règles commencent en brouillon. Enregistrez celle-ci, puis cliquez sur Activer.
+admin-rule-editor-state-draft = Brouillon. Les agents ne la voient pas encore.
+admin-rule-editor-state-paused = En pause. Les agents ne la voient pas.
+admin-rule-editor-state-live = Active. Les agents peuvent l'appliquer depuis le bouton Actions de n'importe quel ticket.
+admin-rule-editor-action-reply = Répondre
+admin-rule-editor-action-set-status = Définir le statut
+admin-rule-editor-action-assign = Assigner
+admin-rule-editor-action-unassign = Retirer la personne assignée
+admin-rule-editor-action-add-tags = Ajouter des étiquettes
+admin-rule-editor-action-remove-tags = Retirer des étiquettes
+admin-rule-editor-action-set-priority = Définir la priorité
+admin-rule-editor-action-stop-processing = S'arrêter ici
+admin-rule-editor-reply-public = Réponse publique au demandeur
+admin-rule-editor-reply-internal = Note interne
+admin-rule-editor-reply-placeholder = Bonjour {"{{"}customer_name{"}}"}, ...
+admin-rule-editor-status-id-label = ID du statut
+admin-rule-editor-user-id-label = ID de l'utilisateur
+admin-rule-editor-tag-ids-label = ID des étiquettes, séparés par des virgules
 asset-catalog-col-model = Modèle
 asset-catalog-col-type = Type
 asset-catalog-col-part-number = Référence

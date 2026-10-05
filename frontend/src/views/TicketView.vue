@@ -39,11 +39,15 @@ import { docUrl } from "@nosdesk/core/utils/docUrl";
 import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
 import { useFlagTicketMutation } from "@/composables/useKnowledgeGaps";
 import { useToastStore } from "@nosdesk/core/stores/toast";
-import { useQueryCache } from "@pinia/colada";
+import { useQuery, useQueryCache } from "@pinia/colada";
+import rulesService from "@nosdesk/core/services/rulesService";
+import type { TemplateVars } from "@nosdesk/core/services/cannedResponsesService";
+import { useBrandingStore } from "@/stores/branding";
 import BackButton from "@/components/common/BackButton.vue";
 import ResponsiveMenu from "@/components/common/ResponsiveMenu.vue";
 import MenuList, { type MenuItem } from "@/components/common/MenuList.vue";
 import NoticeDialog from "@/components/notices/NoticeDialog.vue";
+import ActionsDialog from "@/components/ticketComponents/ActionsDialog.vue";
 import ApprovalBanner from "@/components/ticketComponents/ApprovalBanner.vue";
 import { isLive, noticeService, type Notice } from "@nosdesk/core/services/noticeService";
 import Icon from "@/components/common/Icon.vue";
@@ -343,6 +347,30 @@ const onNoticeSaved = (notice: Notice) => {
     toast.success(isLive(notice) ? t('notice-saved-live') : t('notice-saved-ended'));
 };
 
+// The live manual rules an agent can apply to this ticket. The Actions
+// button shows only when there is at least one. Manual rules don't depend
+// on the ticket yet, so one workspace-wide entry serves every ticket; put
+// the id back in the key if per-ticket conditions arrive.
+const applicableRulesQuery = useQuery({
+    key: ['rules', 'applicable'],
+    query: () => rulesService.pickableActions(ticketId.value as number),
+    enabled: () => authStore.isTechnician && ticketId.value !== undefined,
+    staleTime: 60_000,
+});
+const applicableRules = computed(() => applicableRulesQuery.data.value ?? []);
+const actionsDialogOpen = ref(false);
+
+// This ticket's values for reply variables, filled in by saved replies in
+// the composer and by rule replies in the Actions dialog.
+const brandingStore = useBrandingStore();
+const templateVars = computed<TemplateVars>(() => ({
+    ticket_id: ticket.value?.number,
+    ticket_title: ticket.value?.title ?? '',
+    customer_name: ticket.value?.requester_user?.name ?? '',
+    tech_name: authStore.user?.name ?? '',
+    app_name: brandingStore.appName,
+}));
+
 const handleOverflowSelect = (itemId: string) => {
     overflowMenuOpen.value = false;
     if (itemId === 'flag-for-docs') {
@@ -596,19 +624,29 @@ const rootEl = ref<HTMLElement | null>(null);
                     <div v-else class="h-8 w-24 bg-surface-alt rounded-lg animate-pulse"></div>
                 </div>
 
-                <button
-                    v-if="ticket"
-                    ref="overflowTriggerRef"
-                    type="button"
-                    class="inline-flex items-center justify-center w-8 h-8 rounded-md text-tertiary hover:text-primary hover:bg-surface-hover transition-colors cursor-pointer"
-                    :aria-expanded="overflowMenuOpen"
-                    aria-haspopup="menu"
-                    :title="$t('ticket-detail-more-actions')"
-                    :aria-label="$t('ticket-detail-more-actions')"
-                    @click="overflowMenuOpen = !overflowMenuOpen"
-                >
-                    <Icon name="more" class="w-5 h-5" />
-                </button>
+                <div v-if="ticket" class="flex items-center gap-2">
+                    <Button
+                        v-if="applicableRules.length > 0"
+                        variant="secondary"
+                        size="sm"
+                        icon="lightning"
+                        @click="actionsDialogOpen = true"
+                    >
+                        {{ $t('ticket-actions-button') }}
+                    </Button>
+                    <button
+                        ref="overflowTriggerRef"
+                        type="button"
+                        class="inline-flex items-center justify-center w-8 h-8 rounded-md text-tertiary hover:text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+                        :aria-expanded="overflowMenuOpen"
+                        aria-haspopup="menu"
+                        :title="$t('ticket-detail-more-actions')"
+                        :aria-label="$t('ticket-detail-more-actions')"
+                        @click="overflowMenuOpen = !overflowMenuOpen"
+                    >
+                        <Icon name="more" class="w-5 h-5" />
+                    </button>
+                </div>
 
                 <ResponsiveMenu
                     :open="overflowMenuOpen"
@@ -869,6 +907,7 @@ const rootEl = ref<HTMLElement | null>(null);
                         >
                             <CommentsAndAttachments
                                 :can-manage-saved-replies="authStore.isAdmin"
+                                :template-vars="templateVars"
                                 :ticket-id="ticketId"
                                 :comments="comments"
                                 :current-user="
@@ -918,6 +957,15 @@ const rootEl = ref<HTMLElement | null>(null);
                 "
                 @close="showProjectModal = false"
                 @select-project="addToProject"
+            />
+
+            <ActionsDialog
+                v-if="ticketId !== undefined"
+                :show="actionsDialogOpen"
+                :ticket-id="ticketId"
+                :rules="applicableRules"
+                :vars="templateVars"
+                @close="actionsDialogOpen = false"
             />
 
             <NoticeDialog

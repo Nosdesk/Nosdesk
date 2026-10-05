@@ -2,16 +2,20 @@
 /**
  * Admin rule editor. Creates a new rule when route name is
  * `admin-rules-new`, edits an existing rule by id when route name
- * is `admin-rules-edit`. Manual rules (the Phase 1 trigger kind)
- * have `conditions = []` enforced by the backend; the editor
- * hides the conditions section for manual rules.
+ * is `admin-rules-edit`. Agents apply manual rules from a ticket's
+ * Actions dialog; manual rules have `conditions = []` enforced by the
+ * backend, so the editor has no conditions section.
  *
  * The action list is the main interaction surface. Each action
  * carries a typed `kind` plus a kind-specific config object. The
- * supported kinds for Phase 1 are reply / set_status / assign /
- * unassign / add_tags / remove_tags / set_priority /
- * stop_processing; notify / apply_macro_template / webhook are
- * deferred and rejected by the backend with RULE_ACTION_UNSUPPORTED.
+ * supported kinds are reply / set_status / assign / unassign /
+ * add_tags / remove_tags / set_priority / stop_processing; notify /
+ * apply_macro_template / webhook are deferred and rejected by the
+ * backend with RULE_ACTION_UNSUPPORTED.
+ *
+ * Only manual rules run today, so a new rule is always manual. An older
+ * rule saved with another trigger keeps it, with a note that it won't
+ * run and the option to switch it to manual.
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -58,6 +62,7 @@ const ruleId = computed<number | null>(() =>
 
 const loading = ref(false);
 const saving = ref(false);
+const transitioning = ref(false);
 const errorMessage = ref('');
 const original = ref<Rule | null>(null);
 
@@ -68,18 +73,21 @@ const priority = ref<number>(100);
 const actions = ref<RuleAction[]>([{ kind: 'reply', config: { visibility: 'public', body: '' } }]);
 const overrideSelfRef = ref(false);
 
+function fill(rule: Rule): void {
+  original.value = rule;
+  name.value = rule.name;
+  description.value = rule.description ?? '';
+  triggerKind.value = rule.trigger_kind;
+  priority.value = rule.priority;
+  actions.value = Array.isArray(rule.actions) ? [...rule.actions] : [];
+}
+
 onMounted(async () => {
   if (isNew.value) return;
   if (ruleId.value == null) return;
   loading.value = true;
   try {
-    const rule = await rulesService.get(ruleId.value);
-    original.value = rule;
-    name.value = rule.name;
-    description.value = rule.description ?? '';
-    triggerKind.value = rule.trigger_kind;
-    priority.value = rule.priority;
-    actions.value = Array.isArray(rule.actions) ? [...rule.actions] : [];
+    fill(await rulesService.get(ruleId.value));
   } catch (err) {
     errorMessage.value = extractErrorMessage(err, t('admin-rule-editor-error-save'));
   } finally {
@@ -92,6 +100,8 @@ const headerTitle = computed(() =>
     ? t('admin-rule-editor-title-new')
     : t('admin-rule-editor-title-edit', { name: original.value?.name ?? '' }),
 );
+
+const isManual = computed(() => triggerKind.value === 'manual');
 
 function addAction(): void {
   actions.value.push({ kind: 'reply', config: { visibility: 'public', body: '' } });
@@ -120,7 +130,7 @@ function setActionKind(index: number, kind: RuleAction['kind']): void {
       case 'remove_tags':
         return { tag_ids: [] };
       case 'set_priority':
-        return { priority: 'normal' };
+        return { priority: 'medium' };
       case 'stop_processing':
         return {};
       default:
@@ -140,9 +150,23 @@ const canSave = computed(
   () => name.value.trim().length > 0 && actions.value.length > 0 && !saving.value,
 );
 
-async function save(): Promise<void> {
+/** Unsaved edits, compared with the rule as last loaded or saved. */
+const isDirty = computed(() => {
+  const rule = original.value;
+  if (!rule) return true;
+  return (
+    name.value.trim() !== rule.name ||
+    (description.value.trim() || null) !== rule.description ||
+    triggerKind.value !== rule.trigger_kind ||
+    priority.value !== rule.priority ||
+    JSON.stringify(actions.value) !== JSON.stringify(rule.actions)
+  );
+});
+
+/** Saves the form; `quiet` skips the toast when going live follows. */
+async function save(options: { quiet?: boolean } = {}): Promise<boolean> {
   errorMessage.value = '';
-  if (!canSave.value) return;
+  if (!canSave.value) return false;
   saving.value = true;
   try {
     const payload: CreateRuleRequest = {
@@ -156,8 +180,11 @@ async function save(): Promise<void> {
     };
     if (isNew.value) {
       const created = await rulesService.create(payload);
+      // The route changes but this component stays mounted, so keep the
+      // saved rule here rather than waiting for a reload.
+      fill(created);
       await queryCache.invalidateQueries({ key: ['rules'] });
-      toast.success(t('admin-rules-toast-archived', { name: created.name }));
+      if (!options.quiet) toast.success(t('admin-rules-toast-created', { name: created.name }));
       router.push({ name: 'admin-rules-edit', params: { id: created.id } });
     } else if (ruleId.value != null) {
       const update: UpdateRuleRequest = {
@@ -168,29 +195,80 @@ async function save(): Promise<void> {
         priority: payload.priority,
         override_self_reference: overrideSelfRef.value,
       };
-      await rulesService.update(ruleId.value, update);
+      fill(await rulesService.update(ruleId.value, update));
       await queryCache.invalidateQueries({ key: ['rules'] });
-      toast.success(t('admin-rules-toast-state-changed', { state: name.value }));
+      if (!options.quiet) toast.success(t('admin-rules-toast-saved', { name: payload.name }));
     }
+    return true;
   } catch (err) {
     errorMessage.value = extractErrorMessage(err, t('admin-rule-editor-error-save'));
+    return false;
   } finally {
     saving.value = false;
   }
 }
 
+// Agents can apply a rule only while it's live; pausing (the dry_run
+// state) takes it out of their Actions list. Going live saves pending
+// edits first so agents get the rule as shown here.
+async function setLive(live: boolean): Promise<void> {
+  if (isDirty.value && !(await save({ quiet: true }))) return;
+  const rule = original.value;
+  if (!rule) return;
+  transitioning.value = true;
+  try {
+    fill(await rulesService.transitionState(rule.id, { state: live ? 'live' : 'dry_run' }));
+    await queryCache.invalidateQueries({ key: ['rules'] });
+    toast.success(t(live ? 'admin-rules-toast-live' : 'admin-rules-toast-paused', { name: rule.name }));
+  } catch (err) {
+    errorMessage.value = extractErrorMessage(err, t('admin-rules-error-transition'));
+  } finally {
+    transitioning.value = false;
+  }
+}
+
+const stateNote = computed(() => {
+  switch (original.value?.state) {
+    case undefined:
+      return t('admin-rule-editor-state-new');
+    case 'live':
+      return t('admin-rule-editor-state-live');
+    case 'dry_run':
+      return t('admin-rule-editor-state-paused');
+    default:
+      return t('admin-rule-editor-state-draft');
+  }
+});
+
 function back(): void {
   router.push({ name: 'admin-rules' });
 }
 
-const triggerKinds: RuleTriggerKind[] = [
-  'manual',
-  'ticket_created',
-  'ticket_updated',
-  'ticket_replied',
-  'time_elapsed',
-];
-const actionKinds: RuleAction['kind'][] = [
+function triggerLabel(kind: RuleTriggerKind): string {
+  return t(`admin-rules-trigger-${kind.replace(/_/g, '-')}`);
+}
+
+// A rule saved with a trigger that doesn't run yet can switch to manual.
+// New and manual rules have nothing to choose.
+const triggerOptions = computed(() => {
+  const saved = original.value?.trigger_kind;
+  if (!saved || saved === 'manual') return [];
+  return [saved, 'manual' as const].map((k) => ({ value: k, label: triggerLabel(k) }));
+});
+
+// stop_processing only means something to rules that run on their own.
+const actionKinds = computed<RuleAction['kind'][]>(() => [
+  'reply',
+  'set_status',
+  'assign',
+  'unassign',
+  'add_tags',
+  'remove_tags',
+  'set_priority',
+  ...(isManual.value ? [] : (['stop_processing'] as const)),
+]);
+
+const SUPPORTED_KINDS: RuleAction['kind'][] = [
   'reply',
   'set_status',
   'assign',
@@ -201,44 +279,28 @@ const actionKinds: RuleAction['kind'][] = [
   'stop_processing',
 ];
 
-function triggerLabel(kind: RuleTriggerKind): string {
-  return t(`admin-rules-trigger-${kind.replace(/_/g, '-')}`);
-}
-
 function actionLabel(kind: RuleAction['kind']): string {
-  const map: Record<RuleAction['kind'], string> = {
-    reply: 'Reply',
-    set_status: 'Set status',
-    assign: 'Assign',
-    unassign: 'Unassign',
-    add_tags: 'Add tags',
-    remove_tags: 'Remove tags',
-    set_priority: 'Set priority',
-    notify: 'Notify',
-    apply_macro_template: 'Apply template',
-    webhook: 'Webhook',
-    stop_processing: 'Stop processing',
-  };
-  return map[kind] ?? kind;
+  return SUPPORTED_KINDS.includes(kind)
+    ? t(`admin-rule-editor-action-${kind.replace(/_/g, '-')}`)
+    : kind;
 }
 
 // BaseDropdown option lists (value/label) for the enum selects.
-const triggerOptions = computed(() =>
-  triggerKinds.map((k) => ({ value: k, label: triggerLabel(k) })),
-);
 const actionOptions = computed(() =>
-  actionKinds.map((k) => ({ value: k, label: actionLabel(k) })),
+  actionKinds.value.map((k) => ({ value: k, label: actionLabel(k) })),
 );
 const replyVisibilityOptions = computed(() => [
-  { value: 'public', label: t('admin-rules-action-chip-reply-public') },
-  { value: 'internal', label: t('admin-rules-action-chip-reply-internal') },
+  { value: 'public', label: t('admin-rule-editor-reply-public') },
+  { value: 'internal', label: t('admin-rule-editor-reply-internal') },
 ]);
-const priorityOptions = [
-  { value: 'low', label: 'Low' },
-  { value: 'normal', label: 'Normal' },
-  { value: 'high', label: 'High' },
-  { value: 'urgent', label: 'Urgent' },
-];
+const priorityOptions = computed(() =>
+  ['low', 'medium', 'high', 'urgent'].map((value) => ({ value, label: t(`priority-${value}`) })),
+);
+// The backend reads `normal` as medium; older rules may carry it.
+const priorityValue = (config: Record<string, unknown> | undefined) => {
+  const value = String(config?.priority ?? 'medium');
+  return value === 'normal' ? 'medium' : value;
+};
 </script>
 
 <template>
@@ -250,8 +312,8 @@ const priorityOptions = [
       <h1 class="text-2xl font-semibold flex-1 min-w-0 truncate">
         {{ headerTitle }}
       </h1>
-      <Button variant="primary" :disabled="!canSave" @click="save">
-        {{ saving ? t('admin-rule-editor-saving') : t('admin-rule-editor-save') }}
+      <Button variant="primary" :disabled="!canSave" :loading="saving" @click="save()">
+        {{ t('admin-rule-editor-save') }}
       </Button>
     </div>
 
@@ -279,17 +341,18 @@ const priorityOptions = [
       <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
         {{ t('admin-rule-editor-section-trigger') }}
       </h2>
-      <label class="block text-sm font-medium">{{ t('admin-rule-editor-trigger-label') }}</label>
       <BaseDropdown
+        v-if="triggerOptions.length > 0"
         :model-value="triggerKind"
         :options="triggerOptions"
+        :label="t('admin-rule-editor-trigger-label')"
         size="sm"
         @update:model-value="triggerKind = String($event) as RuleTriggerKind"
       />
-      <p v-if="triggerKind === 'manual'" class="text-xs text-secondary">
-        {{ t('admin-rule-editor-trigger-manual-note') }}
+      <p v-if="isManual" class="text-sm text-secondary">
+        {{ t('admin-rule-editor-trigger-manual-summary') }}
       </p>
-      <p v-else class="text-xs text-warning">
+      <p v-else class="text-sm text-status-warning">
         {{ t('admin-rule-editor-trigger-other-phase') }}
       </p>
     </section>
@@ -304,7 +367,7 @@ const priorityOptions = [
         </Button>
       </div>
 
-      <p v-if="actions.length === 0" class="text-sm text-warning">
+      <p v-if="actions.length === 0" class="text-sm text-status-warning">
         {{ t('admin-rule-editor-actions-empty') }}
       </p>
 
@@ -312,7 +375,7 @@ const priorityOptions = [
         <li
           v-for="(action, i) in actions"
           :key="i"
-          class="border rounded-md p-3 flex flex-col gap-2 bg-surface"
+          class="border border-default rounded-lg p-3 flex flex-col gap-2 bg-surface"
         >
           <div class="flex items-center gap-2">
             <span class="text-xs text-secondary font-mono">#{{ i + 1 }}</span>
@@ -327,8 +390,8 @@ const priorityOptions = [
           </div>
 
           <!-- Per-kind config form. Kept inline so the editor stays
-               a single component for the Phase 1 surface; if it
-               grows past a screen each kind gets its own card. -->
+               a single component; if it grows past a screen each
+               kind gets its own card. -->
           <template v-if="action.kind === 'reply'">
             <BaseDropdown
               :model-value="(action.config as any)?.visibility ?? 'public'"
@@ -340,7 +403,7 @@ const priorityOptions = [
               :model-value="(action.config as any)?.body ?? ''"
               @update:model-value="updateConfigField(i, 'body', $event)"
               :rows="3"
-              placeholder="Hi {{customer_name}}, ..."
+              :placeholder="t('admin-rule-editor-reply-placeholder')"
             />
           </template>
 
@@ -348,7 +411,7 @@ const priorityOptions = [
             <FormNumber
               :model-value="Number((action.config as any)?.workflow_state_id) || null"
               @update:model-value="updateConfigField(i, 'workflow_state_id', $event ?? undefined)"
-              :label="t('admin-rules-action-chip-set-status', { state_id: '' })"
+              :label="t('admin-rule-editor-status-id-label')"
               :min="1"
               integer
             />
@@ -358,14 +421,14 @@ const priorityOptions = [
             <FormInput
               :model-value="(action.config as any)?.user_uuid ?? ''"
               @update:model-value="updateConfigField(i, 'user_uuid', $event)"
-              label="Assign to user UUID"
+              :label="t('admin-rule-editor-user-id-label')"
               placeholder="00000000-0000-0000-0000-000000000000"
             />
           </template>
 
           <template v-else-if="action.kind === 'set_priority'">
             <BaseDropdown
-              :model-value="(action.config as any)?.priority ?? 'normal'"
+              :model-value="priorityValue(action.config)"
               :options="priorityOptions"
               size="sm"
               @update:model-value="updateConfigField(i, 'priority', String($event))"
@@ -377,7 +440,7 @@ const priorityOptions = [
               :model-value="((action.config as any)?.tag_ids ?? []).join(',')"
               @update:model-value="updateConfigField(i, 'tag_ids',
                 $event.split(',').map((x: string) => Number(x.trim())).filter((n: number) => Number.isFinite(n)))"
-              label="Tag IDs (comma-separated)"
+              :label="t('admin-rule-editor-tag-ids-label')"
               placeholder="1, 2, 3"
             />
           </template>
@@ -389,16 +452,44 @@ const priorityOptions = [
       <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
         {{ t('admin-rule-editor-section-state') }}
       </h2>
-      <FormNumber
-        :model-value="priority"
-        @update:model-value="priority = $event ?? 100"
-        :label="t('admin-rule-editor-priority-label')"
-        integer
-      />
-      <Checkbox
-        v-model="overrideSelfRef"
-        :label="t('admin-rule-editor-override-self-ref')"
-      />
+      <div class="flex flex-col gap-3 rounded-lg border border-default bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p class="text-sm text-secondary">{{ stateNote }}</p>
+        <Button
+          v-if="original?.state === 'live'"
+          variant="secondary"
+          size="sm"
+          icon="pause"
+          :loading="transitioning"
+          @click="setLive(false)"
+        >
+          {{ t('admin-rules-pause') }}
+        </Button>
+        <Button
+          v-else-if="original && isManual"
+          variant="secondary"
+          size="sm"
+          icon="play"
+          :loading="transitioning"
+          :disabled="!canSave"
+          @click="setLive(true)"
+        >
+          {{ t('admin-rules-go-live') }}
+        </Button>
+      </div>
+      <!-- Run order and the loop override only matter to rules that run
+           on their own. -->
+      <template v-if="!isManual">
+        <FormNumber
+          :model-value="priority"
+          @update:model-value="priority = $event ?? 100"
+          :label="t('admin-rule-editor-priority-label')"
+          integer
+        />
+        <Checkbox
+          v-model="overrideSelfRef"
+          :label="t('admin-rule-editor-override-self-ref')"
+        />
+      </template>
     </section>
   </div>
 </template>

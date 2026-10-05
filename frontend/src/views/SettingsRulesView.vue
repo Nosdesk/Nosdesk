@@ -1,10 +1,9 @@
 <script setup lang="ts">
 /**
- * Admin list view for the unified rules engine (Phase 1 surface).
- * Lists every rule in the workspace, filtered by trigger kind /
- * state, with edit + archive + state-toggle affordances. Reads use
- * Pinia Colada so navigating away and back renders instantly from
- * cache and revalidates in the background.
+ * Admin list of the workspace's rules, filtered by state (and by trigger
+ * when more than one kind is in use), with edit, go live / pause and
+ * archive. Reads use Pinia Colada so navigating away and back renders
+ * instantly from cache and revalidates in the background.
  *
  * Cross-link to the activity tab via the `/admin/rules/activity`
  * route; the editor lives at `/admin/rules/:id` (Wave 7).
@@ -22,6 +21,8 @@ import IconButton from '@/components/common/IconButton.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import SearchInput from '@/components/common/SearchInput.vue';
+import StatusPill from '@/components/common/StatusPill.vue';
+import type { StatusPillTone } from '@/components/common/statusPillTone';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import rulesService from '@nosdesk/core/services/rulesService';
@@ -86,13 +87,18 @@ function stateLabel(state: RuleState): string {
   return t(`admin-rules-state-${state.replace(/_/g, '-')}`);
 }
 
+function stateTone(state: RuleState): StatusPillTone {
+  if (state === 'live') return 'positive';
+  if (state === 'dry_run') return 'caution';
+  return 'neutral';
+}
+
+// Only manual rules can be created, so the trigger filter appears only
+// when older rules with another trigger are still around.
+const triggerKindsInUse = computed(() => [...new Set(rules.value.map((r) => r.trigger_kind))]);
 const triggerFilterOptions = computed(() => [
   { value: 'all', label: t('admin-rules-filter-trigger-all') },
-  { value: 'manual', label: triggerLabel('manual') },
-  { value: 'ticket_created', label: triggerLabel('ticket_created') },
-  { value: 'ticket_updated', label: triggerLabel('ticket_updated') },
-  { value: 'ticket_replied', label: triggerLabel('ticket_replied') },
-  { value: 'time_elapsed', label: triggerLabel('time_elapsed') },
+  ...triggerKindsInUse.value.map((kind) => ({ value: kind, label: triggerLabel(kind) })),
 ]);
 const stateFilterOptions = computed(() => [
   { value: 'all', label: t('admin-rules-filter-state-all') },
@@ -128,13 +134,17 @@ async function archive(rule: Rule): Promise<void> {
   archiveTarget.value = null;
 }
 
-async function toggleLive(rule: Rule): Promise<void> {
+// Agents can apply a rule only while it's live; pausing (the dry_run
+// state) takes it out of their Actions list. Only manual rules can go
+// live: no other trigger runs yet.
+const canGoLive = (rule: Rule) => rule.trigger_kind === 'manual' && rule.state !== 'live';
+
+async function setLive(rule: Rule, live: boolean): Promise<void> {
   errorMessage.value = '';
-  const target: RuleState = rule.state === 'live' ? 'dry_run' : 'live';
   try {
-    await rulesService.transitionState(rule.id, { state: target });
+    await rulesService.transitionState(rule.id, { state: live ? 'live' : 'dry_run' });
     await queryCache.invalidateQueries({ key: RULES_KEY });
-    toast.success(t('admin-rules-toast-state-changed', { state: stateLabel(target) }));
+    toast.success(t(live ? 'admin-rules-toast-live' : 'admin-rules-toast-paused', { name: rule.name }));
   } catch (err) {
     errorMessage.value = extractErrorMessage(err, t('admin-rules-error-transition'));
   }
@@ -169,6 +179,7 @@ async function toggleLive(rule: Rule): Promise<void> {
         class="flex-1 min-w-[12rem]"
       />
       <BaseDropdown
+        v-if="triggerKindsInUse.length > 1"
         :model-value="triggerFilter"
         :options="triggerFilterOptions"
         size="sm"
@@ -198,7 +209,7 @@ async function toggleLive(rule: Rule): Promise<void> {
 
     <table v-else class="w-full text-sm">
       <thead>
-        <tr class="border-b text-left text-secondary">
+        <tr class="border-b border-default text-left text-secondary">
           <th class="py-2 font-medium">{{ t('admin-rules-col-name') }}</th>
           <th class="py-2 font-medium">{{ t('admin-rules-col-trigger') }}</th>
           <th class="py-2 font-medium">{{ t('admin-rules-col-state') }}</th>
@@ -211,7 +222,7 @@ async function toggleLive(rule: Rule): Promise<void> {
         <tr
           v-for="rule in filtered"
           :key="rule.id"
-          class="border-b hover:bg-surface-hover cursor-pointer"
+          class="border-b border-subtle hover:bg-surface-hover cursor-pointer"
           @click="openEdit(rule)"
         >
           <td class="py-2">
@@ -222,30 +233,30 @@ async function toggleLive(rule: Rule): Promise<void> {
           </td>
           <td class="py-2 text-secondary">{{ triggerLabel(rule.trigger_kind) }}</td>
           <td class="py-2">
-            <span
-              :class="[
-                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-                rule.state === 'live' ? 'bg-success/10 text-success' : '',
-                rule.state === 'dry_run' ? 'bg-warning/10 text-warning' : '',
-                rule.state === 'draft' ? 'bg-info/10 text-info' : '',
-              ]"
-            >
-              {{ stateLabel(rule.state) }}
-            </span>
+            <StatusPill :label="stateLabel(rule.state)" :tone="stateTone(rule.state)" />
           </td>
           <td class="py-2 text-secondary">{{ formatLastFired(rule.last_fired_at) }}</td>
           <td class="py-2 text-right tabular-nums">{{ rule.fire_count }}</td>
           <td class="py-2 text-right" @click.stop>
             <div class="flex items-center justify-end gap-2">
-              <IconButton
+              <Button
+                v-if="rule.state === 'live'"
                 variant="secondary"
                 size="sm"
-                :icon="rule.state === 'live' ? 'eyeOff' : 'eye'"
-                :label="rule.state === 'live'
-                  ? t('admin-rules-action-pause-tooltip')
-                  : t('admin-rules-action-resume-tooltip')"
-                @click="toggleLive(rule)"
-              />
+                icon="pause"
+                @click="setLive(rule, false)"
+              >
+                {{ t('admin-rules-pause') }}
+              </Button>
+              <Button
+                v-else-if="canGoLive(rule)"
+                variant="secondary"
+                size="sm"
+                icon="play"
+                @click="setLive(rule, true)"
+              >
+                {{ t('admin-rules-go-live') }}
+              </Button>
               <IconButton
                 size="sm"
                 icon="trash"
