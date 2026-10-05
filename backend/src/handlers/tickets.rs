@@ -3,18 +3,18 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
 use crate::middleware::request_context::record_canonical;
-use crate::models::{AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson};
+use crate::models::{Claims, NewTicket, TicketUpdate, TicketsJson};
 use crate::repository;
 use crate::repository::ticket_query::TicketQuery;
-use crate::services::assignment::AssignmentEngine;
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
+use crate::services::ticket_updates::assign_new_ticket;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/tickets", web::get().to(crate::handlers::get_tickets))
@@ -680,50 +680,8 @@ pub async fn create_ticket(
 
     match tc.run(|conn| repository::create_ticket(conn, new_ticket)) {
         Ok(mut ticket) => {
-            // Run automatic assignment rules if no assignee
-            if ticket.assignee_uuid.is_none() {
-                let rules_result = tc
-                    .run(|conn| {
-                        Ok::<_, diesel::result::Error>(AssignmentEngine::evaluate_rules(
-                            conn,
-                            &ticket,
-                            AssignmentTrigger::TicketCreated,
-                        ))
-                    })
-                    .ok()
-                    .flatten();
-
-                if let Some(result) = rules_result {
-                    if let Some(assigned_uuid) = result.assigned_user_uuid {
-                        let assign_update = TicketUpdate {
-                            assignee_uuid: Some(Some(assigned_uuid)),
-                            updated_at: Some(chrono::Utc::now().naive_utc()),
-                            ..Default::default()
-                        };
-                        if let Ok(updated) = tc.run(|conn| {
-                            repository::update_ticket_partial(
-                                conn,
-                                ticket.id,
-                                assign_update,
-                                Some(search_service.get_ref()),
-                            )
-                        }) {
-                            ticket = updated;
-                            info!(
-                                ticket_id = ticket.id,
-                                assignee = %assigned_uuid,
-                                rule = %result.rule_name,
-                                method = %result.method,
-                                "Auto-assigned new ticket via create_ticket"
-                            );
-
-                            // The assignment notification derives from the
-                            // ticket.assignee_changed sync action this write
-                            // emitted (services/notifications/deriver.rs).
-                        }
-                    }
-                }
-            }
+            // The assignment rules pick an assignee when it has none.
+            ticket = assign_new_ticket(&mut tc, Some(search_service.get_ref()), ticket);
 
             // Index the new ticket in search
             indexing_tasks::spawn_index_ticket(
@@ -955,50 +913,8 @@ pub async fn create_empty_ticket(
         }
     };
 
-    // Run automatic assignment rules if no assignee
-    if ticket.assignee_uuid.is_none() {
-        let rules_result = tc
-            .run(|conn| {
-                Ok::<_, diesel::result::Error>(AssignmentEngine::evaluate_rules(
-                    conn,
-                    &ticket,
-                    AssignmentTrigger::TicketCreated,
-                ))
-            })
-            .ok()
-            .flatten();
-
-        if let Some(result) = rules_result {
-            // Update ticket with auto-assigned user
-            if let Some(assigned_uuid) = result.assigned_user_uuid {
-                let assign_update = TicketUpdate {
-                    assignee_uuid: Some(Some(assigned_uuid)),
-                    updated_at: Some(chrono::Utc::now().naive_utc()),
-                    ..Default::default()
-                };
-                if let Ok(updated) = tc.run(|conn| {
-                    repository::update_ticket_partial(
-                        conn,
-                        ticket.id,
-                        assign_update,
-                        Some(search_service.get_ref()),
-                    )
-                }) {
-                    ticket = updated;
-                    info!(
-                        ticket_id = ticket.id,
-                        assignee = %assigned_uuid,
-                        rule = %result.rule_name,
-                        method = %result.method,
-                        "Auto-assigned new ticket"
-                    );
-
-                    // The assignment notification derives from the
-                    // ticket.assignee_changed sync action this write emitted.
-                }
-            }
-        }
-    }
+    // The assignment rules pick an assignee when it has none.
+    ticket = assign_new_ticket(&mut tc, Some(search_service.get_ref()), ticket);
 
     // Create empty article content for the ticket
     let new_article_content = crate::models::NewArticleContent {

@@ -135,38 +135,53 @@ fn assign_on_category_change(
     search: Option<&Arc<SearchService>>,
     updated: &Ticket,
 ) {
-    let picked = db
-        .run(|conn| {
-            Ok(AssignmentEngine::evaluate_rules(
-                conn,
-                updated,
-                AssignmentTrigger::CategoryChanged,
-            ))
-        })
+    run_assignment_rules(db, search, updated, AssignmentTrigger::CategoryChanged);
+}
+
+/// A new ticket nobody is assigned to goes through the assignment rules,
+/// whichever way it arrived: the app, the portal, a guest form or email.
+/// Returns the ticket as it now stands.
+pub fn assign_new_ticket(
+    db: &mut impl InWorkspace,
+    search: Option<&Arc<SearchService>>,
+    ticket: Ticket,
+) -> Ticket {
+    if ticket.assignee_uuid.is_some() {
+        return ticket;
+    }
+    run_assignment_rules(db, search, &ticket, AssignmentTrigger::TicketCreated).unwrap_or(ticket)
+}
+
+/// Runs the assignment rules for `trigger` and saves the assignee they pick,
+/// through `update_ticket_partial` so the assignment notification derives
+/// from its `ticket.assignee_changed` sync action. `None` when no rule
+/// assigned anyone or the save failed.
+fn run_assignment_rules(
+    db: &mut impl InWorkspace,
+    search: Option<&Arc<SearchService>>,
+    ticket: &Ticket,
+    trigger: AssignmentTrigger,
+) -> Option<Ticket> {
+    let result = db
+        .run(|conn| Ok(AssignmentEngine::evaluate_rules(conn, ticket, trigger)))
         .ok()
-        .flatten();
-    let Some(result) = picked else {
-        return;
-    };
-    let Some(assigned_uuid) = result.assigned_user_uuid else {
-        return;
-    };
+        .flatten()?;
+    let assigned_uuid = result.assigned_user_uuid?;
     let assign = TicketUpdate {
         assignee_uuid: Some(Some(assigned_uuid)),
         updated_at: Some(chrono::Utc::now().naive_utc()),
         ..Default::default()
     };
     let observer = search.map(|s| s as &dyn TicketUpdatedObserver);
-    if db
-        .run(|conn| repository::update_ticket_partial(conn, updated.id, assign, observer))
-        .is_ok()
-    {
-        info!(
-            ticket_id = updated.id,
-            assignee = %assigned_uuid,
-            rule = %result.rule_name,
-            method = %result.method,
-            "Auto-assigned ticket on category change"
-        );
-    }
+    let updated = db
+        .run(|conn| repository::update_ticket_partial(conn, ticket.id, assign, observer))
+        .ok()?;
+    info!(
+        ticket_id = ticket.id,
+        assignee = %assigned_uuid,
+        rule = %result.rule_name,
+        method = %result.method,
+        "Auto-assigned ticket by an assignment rule"
+    );
+    Some(updated)
 }

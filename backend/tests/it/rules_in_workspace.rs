@@ -215,11 +215,16 @@ async fn a_team_step_assigns_whoever_has_the_fewest_open_tickets() {
     let created = as_admin(
         &pool,
         a,
-        http_test::TestRequest::post().uri("/api/rules").set_json(json!({
-            "name": "Hand to network",
-            "trigger_kind": "manual",
-            "actions": [{ "kind": "assign", "config": { "method": "group", "group_id": team } }],
-        })),
+        http_test::TestRequest::post()
+            .uri("/api/rules")
+            .set_json(json!({
+                "name": "Hand to network",
+                "trigger_kind": "manual",
+                "actions": [
+                    { "kind": "set_priority", "config": { "priority": "high" } },
+                    { "kind": "assign", "config": { "method": "group", "group_id": team } },
+                ],
+            })),
     )
     .await;
     assert_eq!(created.status(), StatusCode::CREATED);
@@ -248,10 +253,34 @@ async fn a_team_step_assigns_whoever_has_the_fewest_open_tickets() {
     assert_eq!(applied.status(), StatusCode::OK);
 
     // The admin already has an open ticket, so the member gets this one.
+    let mut conn = db.pool_with_size(1).get().expect("conn");
     let assignee: Option<Uuid> = tickets::table
         .find(target)
         .select(tickets::assignee_uuid)
-        .first(&mut db.pool_with_size(1).get().expect("conn"))
+        .first(&mut conn)
         .expect("ticket");
     assert_eq!(assignee, Some(a.member_uuid));
+
+    // Each change reached the sync stream the way a manual edit does, so
+    // clients update and the new assignee can be notified.
+    use backend::schema::sync_actions;
+    let events: Vec<(String, Value)> = sync_actions::table
+        .filter(sync_actions::aggregate_id.eq(target.to_string()))
+        .select((sync_actions::event_type, sync_actions::data))
+        .load(&mut conn)
+        .expect("sync actions");
+    assert!(
+        events
+            .iter()
+            .any(|(kind, data)| kind == "ticket.priority_changed" && data["priority"] == "high"),
+        "priority change emitted: {events:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|(kind, data)| kind == "ticket.assignee_changed"
+                && data["assignee_uuid"] == json!(a.member_uuid)
+                && data.get("previous_assignee_uuid").is_some()),
+        "assignment emitted with the previous assignee: {events:?}"
+    );
 }

@@ -527,6 +527,23 @@ pub async fn process_event(
     )
     .await;
 
+    // A new ticket goes through the assignment rules, as one opened in the
+    // app does. The rules act as the system, so the assignee is notified.
+    let ticket = if is_new_ticket {
+        let actor = crate::sync::actor::ActorContext::system("assignment_rules")
+            .with_workspace(channel.workspace_id);
+        crate::services::ticket_updates::assign_new_ticket(
+            &mut crate::services::ticket_updates::ActorConn {
+                conn: &mut *conn,
+                actor: &actor,
+            },
+            None,
+            ticket,
+        )
+    } else {
+        ticket
+    };
+
     // New tickets + comments both reach clients through the sync pool
     // (the repository writes emit `ticket.created` / `comment.created`);
     // no discrete SSE side effects here.

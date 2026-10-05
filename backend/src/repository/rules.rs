@@ -28,7 +28,7 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::{
     NewComment, NewRule, NewRuleApplication, Rule, RuleApplication, RuleApplicationStatus,
-    RuleState, RuleTriggerKind, RuleUpdate, RuleVersion, TicketPriority,
+    RuleState, RuleTriggerKind, RuleUpdate, RuleVersion, TicketPriority, TicketUpdate,
 };
 use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::comments;
@@ -669,11 +669,11 @@ pub fn apply_manual(
                     })?,
                 "unassign" => execute_unassign(conn, ticket.id)
                     .map(|_| json!({ "index": one_based, "kind": kind }))?,
-                "add_tags" => execute_add_tags(conn, ticket.id, workspace_id, &config, actor)
+                "add_tags" => execute_add_tags(conn, ticket.id, &config, actor)
                     .map(|added| {
                         json!({ "index": one_based, "kind": kind, "tag_ids_added": added })
                     })?,
-                "remove_tags" => execute_remove_tags(conn, ticket.id, &config).map(|removed| {
+                "remove_tags" => execute_remove_tags(conn, ticket.id, &config, actor).map(|removed| {
                     json!({ "index": one_based, "kind": kind, "tag_ids_removed": removed })
                 })?,
                 "set_priority" => execute_set_priority(conn, one_based, ticket.id, &config)
@@ -941,16 +941,27 @@ fn least_loaded_member(conn: &mut DbConnection, group_id: i32) -> QueryResult<Op
     Ok(members.iter().min_by_key(|u| count(u)).copied())
 }
 
-/// `set_status` action. Updates `tickets.workflow_state_id`; the
-/// existing tickets-table trigger handles `resolved_at` /
-/// `closed_at` stamping for terminal categories.
+/// A rule step's change to the ticket row, made the way a manual edit makes
+/// it: through `update_ticket_partial`, which records the previous assignee
+/// and status, recomputes the SLA and emits the `ticket.*` sync action that
+/// clients, notifications and webhooks read.
+fn update_ticket_fields(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    update: TicketUpdate,
+) -> Result<(), ApplyError> {
+    crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, None)?;
+    Ok(())
+}
+
+/// `set_status` action. The existing tickets-table trigger handles
+/// `resolved_at` / `closed_at` stamping for terminal categories.
 fn execute_set_status(
     conn: &mut DbConnection,
     action_index: usize,
     ticket_id: i32,
     config: &Value,
 ) -> Result<i32, ApplyError> {
-    use crate::schema::tickets::dsl;
     let state_id = config
         .get("workflow_state_id")
         .and_then(|v| v.as_i64())
@@ -964,9 +975,14 @@ fn execute_set_status(
             message: crate::repository::ticket_approvals::WAITING_MESSAGE.to_string(),
         });
     }
-    diesel::update(dsl::tickets.find(ticket_id))
-        .set(dsl::workflow_state_id.eq(state_id))
-        .execute(conn)?;
+    update_ticket_fields(
+        conn,
+        ticket_id,
+        TicketUpdate {
+            workflow_state_id: Some(state_id),
+            ..Default::default()
+        },
+    )?;
     Ok(state_id)
 }
 
@@ -978,7 +994,6 @@ fn execute_assign(
     ticket_id: i32,
     config: &Value,
 ) -> Result<Uuid, ApplyError> {
-    use crate::schema::tickets::dsl;
     let method = config
         .get("method")
         .and_then(|v| v.as_str())
@@ -1014,29 +1029,30 @@ fn execute_assign(
             });
         }
     };
-    diesel::update(dsl::tickets.find(ticket_id))
-        .set(dsl::assignee_uuid.eq(Some(assignee)))
-        .execute(conn)?;
+    update_ticket_fields(
+        conn,
+        ticket_id,
+        TicketUpdate {
+            assignee_uuid: Some(Some(assignee)),
+            ..Default::default()
+        },
+    )?;
     Ok(assignee)
 }
 
 fn execute_unassign(conn: &mut DbConnection, ticket_id: i32) -> Result<(), ApplyError> {
-    use crate::schema::tickets::dsl;
-    diesel::update(dsl::tickets.find(ticket_id))
-        .set(dsl::assignee_uuid.eq::<Option<Uuid>>(None))
-        .execute(conn)?;
-    Ok(())
+    update_ticket_fields(
+        conn,
+        ticket_id,
+        TicketUpdate {
+            assignee_uuid: Some(None),
+            ..Default::default()
+        },
+    )
 }
 
-fn execute_add_tags(
-    conn: &mut DbConnection,
-    ticket_id: i32,
-    workspace_id: i32,
-    config: &Value,
-    actor: &ActorContext,
-) -> Result<Vec<i32>, ApplyError> {
-    use crate::schema::ticket_tags::dsl;
-    let tag_ids: Vec<i32> = config
+fn tag_ids_in(config: &Value) -> Vec<i32> {
+    config
         .get("tag_ids")
         .and_then(|v| v.as_array())
         .map(|a| {
@@ -1045,54 +1061,53 @@ fn execute_add_tags(
                 .map(|x| x as i32)
                 .collect()
         })
-        .unwrap_or_default();
-    if tag_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    let rows: Vec<_> = tag_ids
-        .iter()
-        .map(|tid| {
-            (
-                dsl::ticket_id.eq(ticket_id),
-                dsl::tag_id.eq(*tid),
-                dsl::created_by.eq(actor.uuid),
-                dsl::workspace_id.eq(workspace_id),
-            )
-        })
-        .collect();
-    diesel::insert_into(dsl::ticket_tags)
-        .values(&rows)
-        .on_conflict_do_nothing()
-        .execute(conn)?;
-    Ok(tag_ids)
+        .unwrap_or_default()
 }
 
+/// `add_tags` action, through `set_tags_for_ticket` so the ticket's
+/// `ticket.tags_changed` sync action goes out like a manual edit's.
+/// Returns the tags it actually added.
+fn execute_add_tags(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    config: &Value,
+    actor: &ActorContext,
+) -> Result<Vec<i32>, ApplyError> {
+    let current = crate::repository::tags::tag_ids_for_ticket(conn, ticket_id)?;
+    let added: Vec<i32> = tag_ids_in(config)
+        .into_iter()
+        .filter(|t| !current.contains(t))
+        .collect();
+    if !added.is_empty() {
+        let desired: Vec<i32> = current.iter().chain(&added).copied().collect();
+        crate::repository::tags::set_tags_for_ticket(conn, ticket_id, &desired, actor.uuid)?;
+    }
+    Ok(added)
+}
+
+/// `remove_tags` action. Returns the tags it actually removed.
 fn execute_remove_tags(
     conn: &mut DbConnection,
     ticket_id: i32,
     config: &Value,
+    actor: &ActorContext,
 ) -> Result<Vec<i32>, ApplyError> {
-    use crate::schema::ticket_tags::dsl;
-    let tag_ids: Vec<i32> = config
-        .get("tag_ids")
-        .and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_i64())
-                .map(|x| x as i32)
-                .collect()
-        })
-        .unwrap_or_default();
-    if tag_ids.is_empty() {
-        return Ok(Vec::new());
+    let current = crate::repository::tags::tag_ids_for_ticket(conn, ticket_id)?;
+    let to_remove = tag_ids_in(config);
+    let removed: Vec<i32> = current
+        .iter()
+        .filter(|t| to_remove.contains(t))
+        .copied()
+        .collect();
+    if !removed.is_empty() {
+        let desired: Vec<i32> = current
+            .iter()
+            .filter(|t| !removed.contains(t))
+            .copied()
+            .collect();
+        crate::repository::tags::set_tags_for_ticket(conn, ticket_id, &desired, actor.uuid)?;
     }
-    diesel::delete(
-        dsl::ticket_tags
-            .filter(dsl::ticket_id.eq(ticket_id))
-            .filter(dsl::tag_id.eq_any(&tag_ids)),
-    )
-    .execute(conn)?;
-    Ok(tag_ids)
+    Ok(removed)
 }
 
 fn execute_set_priority(
@@ -1101,7 +1116,6 @@ fn execute_set_priority(
     ticket_id: i32,
     config: &Value,
 ) -> Result<String, ApplyError> {
-    use crate::schema::tickets::dsl;
     let priority_str = config
         .get("priority")
         .and_then(|v| v.as_str())
@@ -1128,9 +1142,14 @@ fn execute_set_priority(
             })
         }
     };
-    diesel::update(dsl::tickets.find(ticket_id))
-        .set(dsl::priority.eq(priority))
-        .execute(conn)?;
+    update_ticket_fields(
+        conn,
+        ticket_id,
+        TicketUpdate {
+            priority: Some(priority),
+            ..Default::default()
+        },
+    )?;
     Ok(priority_str.to_string())
 }
 
