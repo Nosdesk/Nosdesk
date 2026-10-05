@@ -974,7 +974,7 @@ pub struct StarterRuleDto {
     pub actions: Value,
 }
 
-/// `GET /api/rules/starter-catalog`. Admin only. Returns the
+/// `GET /api/admin/rule-starters`. Admin only. Returns the
 /// localised catalog the rules-page "Browse starters" affordance
 /// renders. Locale comes from `Accept-Language`; falls back to
 /// English when the requested locale isn't represented.

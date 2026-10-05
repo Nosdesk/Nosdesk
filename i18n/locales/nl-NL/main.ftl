@@ -6936,7 +6936,7 @@ admin-rules-col-last-fired = Laatst uitgevoerd
 admin-rules-col-fire-count = Uitvoeringen
 admin-rules-last-fired-never = Nooit
 admin-rules-empty-title = Nog geen regels
-admin-rules-empty-hint = Maak een regel zodat agents een reeks stappen in één keer op een ticket kunnen toepassen.
+admin-rules-empty-hint = Begin met een kant-en-klare regel of maak je eigen regel. Agents passen regels toe op tickets via de knop Acties.
 admin-rules-error-load = Kan de regelslijst niet laden.
 admin-rules-error-archive = Kan deze regel niet archiveren.
 admin-rules-error-transition = Kan de regel niet bijwerken.
@@ -6947,14 +6947,14 @@ admin-rules-archive-confirm-body = { $name } staat niet meer onder Acties op tic
 admin-rules-archive-confirm-button = Archiveren
 
 admin-rules-activity-title = Regelactiviteit
-admin-rules-activity-help = Elke keer dat een regel op een ticket draait, komt er hier een rij bij. Bij een mislukte of overgeslagen uitvoering staat de reden erbij.
+admin-rules-activity-help = Elke keer dat een agent een regel toepast, komt er hier een rij bij. Open een rij om te zien wat de regel deed.
 admin-rules-activity-back = Terug naar regels
 admin-rules-activity-error-load = Kan het activiteitenlogboek niet laden.
 admin-rules-activity-empty-title = Nog geen activiteit
 admin-rules-activity-empty-hint = Uitvoeringen verschijnen hier zodra een agent een regel toepast.
 admin-rules-activity-filter-all = Alle statussen
 admin-rules-activity-limit = Laatste { $n }
-admin-rules-activity-inspector-empty = Er is verder niets vastgelegd voor deze uitvoering.
+admin-rules-activity-inspector-empty = Er is niets vastgelegd voor deze uitvoering.
 admin-rules-activity-status-succeeded = Geslaagd
 admin-rules-activity-status-dry-run = Testrun
 admin-rules-activity-status-skipped-preflight = Overgeslagen vóór uitvoering
@@ -6970,6 +6970,49 @@ admin-rules-go-live = Activeren
 admin-rules-pause = Pauzeren
 admin-rules-activity-row-by-agent = Op ticket #{ $ticket_id } toegepast door een agent
 admin-rules-activity-row-automatic = Automatisch uitgevoerd op ticket #{ $ticket_id }
+admin-rules-starters-cta = Kant-en-klare regels bekijken
+admin-rules-starters-title = Kant-en-klare regels
+admin-rules-starters-description = Kant-en-klare regels die je als concept toevoegt en aanpast voordat ze actief worden.
+admin-rules-starters-add = Toevoegen
+admin-rules-starters-added = Toegevoegd
+admin-rules-starters-toast = { $name } toegevoegd als concept.
+admin-rules-starters-error = Kan die regel niet toevoegen.
+admin-rules-starters-error-load = Kan de kant-en-klare regels niet laden.
+admin-rules-activity-rule-unknown = Verwijderde regel
+admin-rules-activity-row-by-person = Op ticket #{ $ticket_id } toegepast door { $name }
+admin-rules-activity-what-it-did = Wat de regel deed
+admin-rules-activity-open-ticket = Ticket openen
+admin-rules-activity-open-rule = Regel openen
+admin-rules-activity-skipped = Overgeslagen door de agent: { $step }
+admin-rules-activity-did-status = Status op { $status } gezet
+admin-rules-activity-did-status-unknown = Status gewijzigd
+admin-rules-activity-did-assign = Toegewezen aan { $name }
+admin-rules-activity-did-assign-unknown = Ticket toegewezen
+admin-rules-activity-did-unassign = Toewijzing verwijderd
+admin-rules-activity-did-add-tags =
+    { $count ->
+        [one] Tag { $tags } toegevoegd
+       *[other] Tags { $tags } toegevoegd
+    }
+admin-rules-activity-did-add-tags-unknown =
+    { $count ->
+        [one] Een tag toegevoegd
+       *[other] { $count } tags toegevoegd
+    }
+admin-rules-activity-did-remove-tags =
+    { $count ->
+        [one] Tag { $tags } verwijderd
+       *[other] Tags { $tags } verwijderd
+    }
+admin-rules-activity-did-remove-tags-unknown =
+    { $count ->
+        [one] Een tag verwijderd
+       *[other] { $count } tags verwijderd
+    }
+admin-rules-activity-did-priority = Prioriteit op { $priority } gezet
+admin-rules-activity-did-reply = De aanvrager geantwoord
+admin-rules-activity-did-note = Interne notitie toegevoegd
+admin-rules-activity-did-message = Antwoord of notitie geplaatst
 
 ticket-activity-phrase-rule-applied = heeft regel "{ $rule }" toegepast
 ticket-activity-phrase-rule-applied-dry-run = heeft regel "{ $rule }" als testrun bekeken

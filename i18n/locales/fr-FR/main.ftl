@@ -6945,7 +6945,7 @@ admin-rules-col-last-fired = Dernière exécution
 admin-rules-col-fire-count = Exécutions
 admin-rules-last-fired-never = Jamais
 admin-rules-empty-title = Aucune règle pour le moment
-admin-rules-empty-hint = Créez une règle pour donner aux agents un ensemble d'étapes à appliquer à un ticket en une fois.
+admin-rules-empty-hint = Partez d'une règle toute faite ou créez la vôtre. Les agents appliquent les règles aux tickets depuis le bouton Actions.
 admin-rules-error-load = Impossible de charger la liste des règles.
 admin-rules-error-archive = Impossible d'archiver cette règle.
 admin-rules-error-transition = Impossible de mettre à jour la règle.
@@ -6956,14 +6956,14 @@ admin-rules-archive-confirm-body = { $name } n'apparaîtra plus dans Actions sur
 admin-rules-archive-confirm-button = Archiver
 
 admin-rules-activity-title = Activité des règles
-admin-rules-activity-help = Chaque fois qu'une règle s'exécute sur un ticket, elle ajoute une ligne ici. Une exécution échouée ou ignorée en indique la raison.
+admin-rules-activity-help = Chaque fois qu'un agent applique une règle, une ligne s'ajoute ici. Ouvrez une ligne pour voir ce que la règle a fait.
 admin-rules-activity-back = Retour aux règles
 admin-rules-activity-error-load = Impossible de charger le journal d'activité.
 admin-rules-activity-empty-title = Aucune activité pour le moment
 admin-rules-activity-empty-hint = Les exécutions apparaissent ici dès qu'un agent applique une règle.
 admin-rules-activity-filter-all = Tous les statuts
 admin-rules-activity-limit = Dernier { $n }
-admin-rules-activity-inspector-empty = Rien d'autre n'a été enregistré pour cette exécution.
+admin-rules-activity-inspector-empty = Rien n'a été enregistré pour cette exécution.
 admin-rules-activity-status-succeeded = Réussi
 admin-rules-activity-status-dry-run = Test à vide
 admin-rules-activity-status-skipped-preflight = Ignorée avant l'exécution
@@ -6979,6 +6979,49 @@ admin-rules-go-live = Activer
 admin-rules-pause = Mettre en pause
 admin-rules-activity-row-by-agent = Appliquée au ticket #{ $ticket_id } par un agent
 admin-rules-activity-row-automatic = Exécutée automatiquement sur le ticket #{ $ticket_id }
+admin-rules-starters-cta = Parcourir les règles prêtes à l'emploi
+admin-rules-starters-title = Règles prêtes à l'emploi
+admin-rules-starters-description = Des règles toutes faites à ajouter en brouillon et à ajuster avant de les activer.
+admin-rules-starters-add = Ajouter
+admin-rules-starters-added = Ajoutée
+admin-rules-starters-toast = { $name } ajoutée en brouillon.
+admin-rules-starters-error = Impossible d'ajouter cette règle.
+admin-rules-starters-error-load = Impossible de charger les règles prêtes à l'emploi.
+admin-rules-activity-rule-unknown = Règle supprimée
+admin-rules-activity-row-by-person = Appliquée au ticket #{ $ticket_id } par { $name }
+admin-rules-activity-what-it-did = Ce qu'elle a fait
+admin-rules-activity-open-ticket = Ouvrir le ticket
+admin-rules-activity-open-rule = Ouvrir la règle
+admin-rules-activity-skipped = Ignorée par l'agent : { $step }
+admin-rules-activity-did-status = Statut passé à { $status }
+admin-rules-activity-did-status-unknown = Statut modifié
+admin-rules-activity-did-assign = Assigné à { $name }
+admin-rules-activity-did-assign-unknown = Ticket assigné
+admin-rules-activity-did-unassign = Personne assignée retirée
+admin-rules-activity-did-add-tags =
+    { $count ->
+        [one] Étiquette { $tags } ajoutée
+       *[other] Étiquettes { $tags } ajoutées
+    }
+admin-rules-activity-did-add-tags-unknown =
+    { $count ->
+        [one] Une étiquette ajoutée
+       *[other] { $count } étiquettes ajoutées
+    }
+admin-rules-activity-did-remove-tags =
+    { $count ->
+        [one] Étiquette { $tags } retirée
+       *[other] Étiquettes { $tags } retirées
+    }
+admin-rules-activity-did-remove-tags-unknown =
+    { $count ->
+        [one] Une étiquette retirée
+       *[other] { $count } étiquettes retirées
+    }
+admin-rules-activity-did-priority = Priorité passée à { $priority }
+admin-rules-activity-did-reply = Réponse envoyée au demandeur
+admin-rules-activity-did-note = Note interne ajoutée
+admin-rules-activity-did-message = Réponse ou note publiée
 
 ticket-activity-phrase-rule-applied = a appliqué la règle « { $rule } »
 ticket-activity-phrase-rule-applied-dry-run = a prévisualisé la règle « { $rule } » en test à vide

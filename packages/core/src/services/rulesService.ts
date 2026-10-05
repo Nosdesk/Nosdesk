@@ -19,6 +19,7 @@ import type {
   Rule,
   RuleApplication,
   RuleVersion,
+  StarterRule,
   StateTransitionRequest,
   UpdateRuleRequest,
 } from '../types/rule';
@@ -122,6 +123,16 @@ export const rulesService = {
   async pickableActions(ticketId: number): Promise<Rule[]> {
     const { data } = await apiClient.get<Rule[]>(
       `/tickets/${ticketId}/applicable-actions`,
+    );
+    return data;
+  },
+
+  /** GET /api/admin/rule-starters. Admin. The ready-made rules an admin
+   *  can copy as drafts. */
+  async starterCatalog(locale?: string): Promise<StarterRule[]> {
+    const { data } = await apiClient.get<StarterRule[]>(
+      '/admin/rule-starters',
+      locale ? { headers: { 'Accept-Language': locale } } : undefined,
     );
     return data;
   },
