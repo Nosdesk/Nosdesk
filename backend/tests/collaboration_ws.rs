@@ -46,6 +46,10 @@ fn install_fast_heartbeat() {
     INIT.call_once(|| {
         std::env::set_var("NOSDESK_WS_HEARTBEAT_MS", "100");
         std::env::set_var("NOSDESK_WS_CLIENT_TIMEOUT_MS", "500");
+        // Maintenance every 100ms and a 300ms quiet period, so a revision
+        // cut by quiet lands well inside a test's wait.
+        std::env::set_var("NOSDESK_COLLAB_MAINTENANCE_MS", "100");
+        std::env::set_var("NOSDESK_REVISION_QUIET_MS", "300");
         // JWT_SECRET must be stable across the test process; main.rs
         // refuses placeholder secrets in production, but tests run in
         // dev/test mode.
@@ -642,5 +646,190 @@ async fn a_requesters_updates_reach_no_one() {
     assert!(
         receives(&mut theirs, &edit, Duration::from_secs(3)).await,
         "the requester still receives staff edits"
+    );
+}
+
+/// The revisions stored for a ticket's note, oldest first.
+fn ticket_revisions(conn: &mut diesel::pg::PgConnection, ticket_uuid: uuid::Uuid) -> Vec<Vec<u8>> {
+    use backend::schema::{article_content_revisions, article_contents, tickets};
+    use diesel::prelude::*;
+    let ticket_id: i32 = tickets::table
+        .filter(tickets::uuid.eq(ticket_uuid))
+        .select(tickets::id)
+        .first(conn)
+        .expect("ticket");
+    let Some(article_id) = article_contents::table
+        .filter(article_contents::ticket_id.eq(ticket_id))
+        .select(article_contents::id)
+        .first::<i32>(conn)
+        .optional()
+        .expect("article content lookup")
+    else {
+        return Vec::new();
+    };
+    article_content_revisions::table
+        .filter(article_content_revisions::article_content_id.eq(article_id))
+        .order(article_content_revisions::revision_number.asc())
+        .select(article_content_revisions::yjs_document_content)
+        .load(conn)
+        .expect("revisions")
+}
+
+/// The `content` text a stored revision holds.
+fn revision_text(revision: &[u8]) -> String {
+    use yrs::updates::decoder::Decode;
+    use yrs::{Doc, GetString, Transact, Update};
+    let doc = Doc::new();
+    let text = doc.get_or_insert_text("content");
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(revision).expect("decode revision"))
+        .expect("apply revision");
+    let txn = doc.transact();
+    text.get_string(&txn)
+}
+
+/// Someone keeping a note open (a second tab, a colleague reading along) no
+/// longer holds back its revision: once nobody has changed it for the quiet
+/// period, the edits since the last revision become one. Revisions used to
+/// wait for the room to empty.
+#[actix_web::test]
+async fn a_quiet_note_gets_a_revision_while_someone_keeps_it_open() {
+    use yrs::sync::{Message, SyncMessage};
+    use yrs::updates::encoder::Encode;
+    use yrs::{Doc, ReadTxn, StateVector, Text, Transact};
+
+    install_fast_heartbeat();
+
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+    let user = common::insert_user(&mut pool.get().expect("conn"), "WSRevisions");
+    {
+        let mut conn = pool.get().expect("conn");
+        let actor = backend::sync::actor::ActorContext::user(user.uuid, None).with_workspace(1);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |c| {
+                backend::repository::workspaces::add_membership(
+                    c,
+                    1,
+                    user.uuid,
+                    "admin",
+                    backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                )?;
+                Ok(())
+            },
+        )
+        .expect("seed workspace membership");
+    }
+    let token = JwtUtils::create_collab_token(
+        &user.uuid.to_string(),
+        &user.platform_role,
+        Some(test_workspace().workspace_uuid),
+    )
+    .expect("mint collab token");
+    let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
+
+    let state_pool_inner = pool.clone();
+    let srv = actix_test::start(move || {
+        let (state, _tmp) = build_app_state(&state_pool_inner);
+        std::mem::forget(_tmp);
+        let ws = test_workspace();
+        App::new()
+            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(state_pool_inner.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(ws.clone());
+                srv.call(req)
+            })
+            .route("/ws/{doc}", web::get().to(ws_handler))
+    });
+    let doc_id = format!(
+        "ws-{}_ticket-{ticket_uuid}",
+        test_workspace().workspace_uuid
+    );
+    let url = srv.url(&format!("/ws/{doc_id}?token={token}"));
+    let client = awc::Client::new();
+
+    // A has the note open for the whole test.
+    let (_resp_a, mut open_tab) = client.ws(&url).connect().await.expect("A handshake");
+    // B writes the note, then leaves.
+    let (_resp_b, mut writer) = client.ws(&url).connect().await.expect("B handshake");
+    let edit: Bytes = {
+        let doc = Doc::new();
+        let text = doc.get_or_insert_text("content");
+        text.insert(&mut doc.transact_mut(), 0, "revision one");
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        Bytes::from(Message::Sync(SyncMessage::Update(update)).encode_v1())
+    };
+    writer
+        .send(ws::Message::Binary(edit.clone()))
+        .await
+        .expect("B send");
+    // The edit reaching A means the server applied it.
+    let applied = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match open_tab.next().await {
+                Some(Ok(ws::Frame::Binary(b))) if b.as_ref() == edit.as_ref() => break true,
+                Some(Ok(_)) => continue,
+                Some(Err(e)) => panic!("A stream error: {e:?}"),
+                None => break false,
+            }
+        }
+    })
+    .await
+    .expect("A never saw B's edit");
+    assert!(applied, "A's stream ended before B's edit arrived");
+    drop(writer);
+
+    // Only binary frames count as activity, so A keeps asking for the state
+    // vector (which changes nothing) to stay in the room past the stale cut.
+    async fn keep_open<S, E>(conn: &mut S, wait: Duration)
+    where
+        S: futures_util::Stream<Item = Result<ws::Frame, E>>
+            + futures_util::Sink<ws::Message>
+            + Unpin,
+        E: std::fmt::Debug,
+        <S as futures_util::Sink<ws::Message>>::Error: std::fmt::Debug,
+    {
+        let state_request =
+            Bytes::from(Message::Sync(SyncMessage::SyncStep1(StateVector::default())).encode_v1());
+        let until = tokio::time::Instant::now() + wait;
+        while tokio::time::Instant::now() < until {
+            conn.send(ws::Message::Binary(state_request.clone()))
+                .await
+                .expect("A keepalive");
+            while let Ok(Some(frame)) =
+                tokio::time::timeout(Duration::from_millis(20), conn.next()).await
+            {
+                frame.expect("A stream error");
+            }
+            tokio::time::sleep(Duration::from_millis(80)).await;
+        }
+    }
+
+    let mut revisions = Vec::new();
+    for _ in 0..20 {
+        keep_open(&mut open_tab, Duration::from_millis(100)).await;
+        revisions = ticket_revisions(&mut pool.get().expect("conn"), ticket_uuid);
+        if !revisions.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(
+        revisions.len(),
+        1,
+        "the quiet note got a revision while A kept it open"
+    );
+    assert_eq!(revision_text(&revisions[0]), "revision one");
+
+    // Quiet with nothing new to record: no further revision.
+    keep_open(&mut open_tab, Duration::from_millis(800)).await;
+    assert_eq!(
+        ticket_revisions(&mut pool.get().expect("conn"), ticket_uuid).len(),
+        1,
+        "an unchanged note gets no second revision"
     );
 }

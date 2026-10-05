@@ -341,6 +341,28 @@ static OUTBOUND_BYTE_BUDGET: once_cell::sync::Lazy<usize> = once_cell::sync::Laz
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(8 * 1024 * 1024)
 });
+// How often the maintenance loop saves documents, cuts revisions and drops
+// stale sessions. Overridable (`NOSDESK_COLLAB_MAINTENANCE_MS`) for tests,
+// like the heartbeat above.
+static MAINTENANCE_INTERVAL: once_cell::sync::Lazy<Duration> = once_cell::sync::Lazy::new(|| {
+    std::env::var("NOSDESK_COLLAB_MAINTENANCE_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::from_secs(30))
+});
+// An editing session ends when everyone leaves the document, or when nobody
+// has changed it for this long while someone still has it open (a second
+// tab, a colleague reading along). Either way its changes become a revision.
+// Overridable (`NOSDESK_REVISION_QUIET_MS`) for tests.
+static REVISION_QUIET_PERIOD: once_cell::sync::Lazy<Duration> = once_cell::sync::Lazy::new(|| {
+    std::env::var("NOSDESK_REVISION_QUIET_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::from_secs(120))
+});
 // Minimum time between saves for the same document
 const MIN_SAVE_INTERVAL: Duration = Duration::from_secs(5);
 // Maximum time a document can have pending changes before forcing a save
@@ -869,6 +891,9 @@ struct DocumentState {
     update_counter: u32,   // Total updates since document creation
     last_snapshot_at: u32, // Update count when last snapshot created
     contributors: std::collections::HashSet<Uuid>, // Contributors since last snapshot (only added on actual content changes)
+    /// When a contributor last changed the content. A revision is cut once
+    /// this is older than `REVISION_QUIET_PERIOD`.
+    last_contribution_at: Option<Instant>,
     /// `update_counter` when the last crash-recovery checkpoint was
     /// written to `yjs_snapshots`. The checkpoint loop only writes when
     /// `update_counter > last_checkpoint_at`, so an idle document never
@@ -913,6 +938,7 @@ impl DocumentState {
             update_counter: 0,
             last_snapshot_at: 0,
             contributors: std::collections::HashSet::new(),
+            last_contribution_at: None,
             last_checkpoint_at: 0,
             workspace_id,
             fence,
@@ -998,19 +1024,25 @@ impl DocumentState {
 
     // Snapshot management methods
     fn should_create_snapshot(&self) -> bool {
-        // Session-based revisions: snapshots are only created when editing sessions end
-        // (when room becomes empty), not based on update count thresholds.
-        // This provides more meaningful revision history based on actual editing sessions.
-        false
+        // Revisions follow editing sessions, not update counts. This covers
+        // a session that went quiet while the room stays occupied; an
+        // emptied room gets its revision from the final save instead.
+        self.room_empty_since.is_none()
+            && !self.contributors.is_empty()
+            && self
+                .last_contribution_at
+                .is_some_and(|at| at.elapsed() >= *REVISION_QUIET_PERIOD)
     }
 
     fn add_contributor(&mut self, user_uuid: Uuid) {
         self.contributors.insert(user_uuid);
+        self.last_contribution_at = Some(Instant::now());
     }
 
     fn reset_snapshot_tracking(&mut self) {
         self.last_snapshot_at = self.update_counter;
         self.contributors.clear();
+        self.last_contribution_at = None;
     }
 }
 
@@ -1206,7 +1238,7 @@ impl YjsAppState {
         // dependency.
         let state_clone = state.clone();
         actix_web::rt::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            let mut interval = tokio::time::interval(*MAINTENANCE_INTERVAL);
             loop {
                 interval.tick().await;
                 state_clone.cleanup_stale_sessions().await;
@@ -1374,10 +1406,11 @@ impl YjsAppState {
                 saved_count += 1;
             }
 
-            // Check for snapshot creation (every 500 updates)
+            // A session that went quiet while someone still has the
+            // document open ends here.
             if doc_state.should_create_snapshot() {
                 debug!(doc_id = %doc_id, updates_since_snapshot = doc_state.update_counter - doc_state.last_snapshot_at,
-                    "Snapshot threshold reached");
+                    "Document quiet, creating revision");
 
                 // Clone contributors before passing to async function
                 let contributors = doc_state.contributors.clone();
