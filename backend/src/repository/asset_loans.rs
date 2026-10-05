@@ -167,6 +167,24 @@ pub fn list_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<V
         .load(conn)
 }
 
+/// The loans a person has out now, each with its device: soonest due first,
+/// open-ended loans last.
+pub fn active_for_borrower(
+    conn: &mut DbConnection,
+    borrower_user_uuid: &Uuid,
+) -> QueryResult<Vec<(AssetLoan, Asset)>> {
+    asset_loans::table
+        .inner_join(assets::table.on(assets::id.eq(asset_loans::asset_id)))
+        .filter(asset_loans::borrower_user_uuid.eq(borrower_user_uuid))
+        .filter(asset_loans::returned_at.is_null())
+        .order((
+            asset_loans::due_back.asc().nulls_last(),
+            asset_loans::loaned_at.asc(),
+        ))
+        .select((asset_loans::all_columns, assets::all_columns))
+        .load(conn)
+}
+
 pub fn active_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Option<AssetLoan>> {
     asset_loans::table
         .filter(asset_loans::asset_id.eq(asset_id))
@@ -523,6 +541,31 @@ mod tests {
         assert_eq!(loan.status_before, "in_service");
         assert_eq!(get_device_by_id(&mut conn, a.id).unwrap().status, "on_loan");
         assert!(active_for_asset(&mut conn, a.id).unwrap().is_some());
+    }
+
+    #[test]
+    fn active_for_borrower_lists_open_loans_soonest_due_first() {
+        let mut conn = setup_test_connection();
+        let borrower = TestFixtures::create_user(&mut conn, "borrower", "user");
+        let today = Utc::now().date_naive();
+        let due_in = |asset_id: i32, days: Option<i64>| IssueLoan {
+            due_back: days.map(|d| today + chrono::Duration::days(d)),
+            ..issue_input(asset_id, borrower.uuid)
+        };
+        let open_ended = asset(&mut conn, "Loaner-Open");
+        let later = asset(&mut conn, "Loaner-Later");
+        let sooner = asset(&mut conn, "Loaner-Sooner");
+        let back = asset(&mut conn, "Loaner-Back");
+        issue(&mut conn, due_in(open_ended.id, None)).unwrap();
+        issue(&mut conn, due_in(later.id, Some(9))).unwrap();
+        issue(&mut conn, due_in(sooner.id, Some(2))).unwrap();
+        let returned = issue(&mut conn, due_in(back.id, Some(1))).unwrap();
+        return_loan(&mut conn, back.id, returned.id, Utc::now(), None, None).unwrap();
+
+        let rows = active_for_borrower(&mut conn, &borrower.uuid).unwrap();
+        let names: Vec<&str> = rows.iter().map(|(_, a)| a.name.as_str()).collect();
+        assert_eq!(names, ["Loaner-Sooner", "Loaner-Later", "Loaner-Open"]);
+        assert!(rows.iter().all(|(loan, a)| loan.asset_id == a.id));
     }
 
     #[test]

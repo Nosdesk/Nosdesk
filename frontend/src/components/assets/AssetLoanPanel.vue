@@ -9,7 +9,6 @@ import FormTextarea from '@/components/common/FormTextarea.vue';
 import DatePicker from '@/components/common/DatePicker.vue';
 import Icon from '@/components/common/Icon.vue';
 import StatusPill from '@/components/common/StatusPill.vue';
-import type { StatusPillTone } from '@/components/common/statusPillTone';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
@@ -19,6 +18,7 @@ import { assetLifecycleKeys } from '@nosdesk/core/services/assetLifecycleService
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { formatCompactDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
+import { loanDue } from './loanDue';
 import type { AssetLoan } from '@nosdesk/core/types/asset';
 import { numberForTicketId } from '@/composables/useTicketNumberLookup';
 import { ticketPath } from '@/utils/ticketNumbers';
@@ -103,25 +103,8 @@ function loanRange(loan: AssetLoan): string {
   });
 }
 
-interface DueInfo {
-  label: string;
-  tone: StatusPillTone;
-}
-
-/** Due-date pill for the active loan, mapped straight to a StatusPill tone.
- * `null` when the loan is open-ended (no due date). */
-const activeDue = computed<DueInfo | null>(() => {
-  const loan = activeLoan.value;
-  if (!loan?.due_back) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(`${loan.due_back}T00:00:00`);
-  const days = Math.round((due.getTime() - today.getTime()) / 86_400_000);
-  if (days < 0) return { label: t('asset-loan-due-overdue'), tone: 'critical' };
-  if (days === 0) return { label: t('asset-loan-due-today'), tone: 'caution' };
-  if (days <= 2) return { label: t('asset-loan-due-soon', { days }), tone: 'caution' };
-  return { label: t('asset-loan-due-on', { date: formatCompactDate(loan.due_back) }), tone: 'neutral' };
-});
+/** Due-date pill for the active loan. `null` when the loan is open-ended. */
+const activeDue = computed(() => (activeLoan.value ? loanDue(activeLoan.value, t) : null));
 
 const today = new Date().toISOString().slice(0, 10);
 

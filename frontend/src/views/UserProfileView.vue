@@ -6,6 +6,7 @@ import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useUserProfileBundle } from '@/composables/useUserProfileBundle';
 import { useDelayedFlag } from '@/composables/useDelayedFlag';
+import { useSyncActions } from '@/composables/useSyncActions';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from "@/stores/auth";
 import { useToastStore } from '@nosdesk/core/stores/toast';
@@ -26,7 +27,7 @@ import SectionCard from "@/components/common/SectionCard.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
 import userService from "@/services/userService";
 import { useColorFilter } from "@/composables/useColorFilter";
-import type { User } from "@/services/userService";
+import type { ProfileLoan, User } from "@/services/userService";
 import type { Asset } from "@nosdesk/core/types/asset";
 import type { Group } from "@nosdesk/core/types/group";
 
@@ -74,9 +75,19 @@ if (isCreationMode.value && isHostedDeployment()) {
 // so both pages share one cache entry and one shape.
 const profileQuery = useUserProfileBundle({
     uuid: () => userUuid.value,
-    include: ['devices', 'groups'],
+    include: ['devices', 'loans', 'groups'],
     enabled: () => !isCreationMode.value,
 });
+
+// A loan issued to or returned by this person changes their devices card.
+useSyncActions(
+    (actions) => {
+        if (actions.some((a) => (a.data as { borrower_user_uuid?: string }).borrower_user_uuid === userUuid.value)) {
+            void profileQuery.refetch();
+        }
+    },
+    { aggregates: ['asset_loan'], debounceMs: 250 },
+);
 
 const userProfile = computed<UserProfile | null>(() => {
     const user = profileQuery.bundle.value?.user;
@@ -88,6 +99,7 @@ const userProfile = computed<UserProfile | null>(() => {
 // display-only `department`/`joinedDate` placeholders `userProfile` adds.
 const pluginUser = computed(() => profileQuery.bundle.value?.user ?? undefined);
 const devices = computed<Asset[]>(() => profileQuery.bundle.value?.devices ?? []);
+const loans = computed<ProfileLoan[]>(() => profileQuery.bundle.value?.loans ?? []);
 const groups = computed<Group[]>(() => profileQuery.bundle.value?.groups ?? []);
 
 // Cold-load flag (initial fetch with no cached bundle). Exposed as a
@@ -714,7 +726,7 @@ watch(
 
                         <!-- Devices Section -->
                         <div class="break-inside-avoid md:mb-4">
-                            <UserDevicesCard :devices="devices" />
+                            <UserDevicesCard :devices="devices" :loans="loans" />
                         </div>
 
                         <!-- Groups Section -->

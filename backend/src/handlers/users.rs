@@ -3097,7 +3097,7 @@ pub async fn get_user_with_emails(
 
 #[derive(Deserialize)]
 pub struct ProfileQuery {
-    /// Comma-separated sub-resource keys to include (`devices,
+    /// Comma-separated sub-resource keys to include (`devices, loans,
     /// groups, emails, counts`). Omit to get every group; pass an
     /// empty value to get just `user`.
     pub include: Option<String>,

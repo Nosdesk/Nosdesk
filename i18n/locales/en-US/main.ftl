@@ -2641,6 +2641,7 @@ user-profile-action-create = Create User
 user-profile-action-creating = Creating...
 user-profile-assets-title = Assets
 user-profile-assets-empty = No assets
+user-profile-loans-heading = On loan
 user-profile-asset-manufacturer-unknown = Unknown
 user-profile-asset-last-updated = Last updated { $when }
 user-profile-groups-title = Groups

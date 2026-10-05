@@ -2580,6 +2580,8 @@ user-profile-action-create = Créer l'utilisateur
 user-profile-action-creating = Création...
 user-profile-assets-title = Actifs
 user-profile-assets-empty = Aucun actif
+# Appareils prêtés à la personne (machine, à relire par un locuteur natif).
+user-profile-loans-heading = En prêt
 user-profile-asset-manufacturer-unknown = Inconnu
 user-profile-asset-last-updated = Dernière mise à jour { $when }
 user-profile-groups-title = Groupes
