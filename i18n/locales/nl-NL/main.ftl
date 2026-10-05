@@ -7019,6 +7019,11 @@ ticket-actions-reply-edit = Antwoord bewerken
 ticket-actions-reply-edit-label = Antwoord
 ticket-actions-reply-edit-hint = Variabelen zoals {"{{"}customer_name{"}}"} worden ingevuld bij het verzenden.
 ticket-actions-reply-empty = Schrijf een antwoord of vink deze stap uit.
+ticket-actions-step-assign-team = Toewijzen aan het lid van { $team } met de minste open tickets
+ticket-actions-step-assign-team-unknown = Toewijzen aan iemand in een team
+ticket-actions-note-edit = Notitie bewerken
+ticket-actions-note-edit-label = Notitie
+ticket-actions-note-empty = Schrijf een notitie of vink deze stap uit.
 
 
 # Regels en het dialoogvenster Acties op tickets, herziene teksten (machine, na te kijken door een moedertaalspreker).
@@ -7058,9 +7063,20 @@ admin-rule-editor-action-stop-processing = Hier stoppen
 admin-rule-editor-reply-public = Openbaar antwoord aan de aanvrager
 admin-rule-editor-reply-internal = Interne notitie
 admin-rule-editor-reply-placeholder = Hallo {"{{"}customer_name{"}}"}, ...
-admin-rule-editor-status-id-label = Status-ID
-admin-rule-editor-user-id-label = Gebruikers-ID
-admin-rule-editor-tag-ids-label = Tag-ID's, gescheiden door komma's
+admin-rule-editor-status-placeholder = Kies een status
+admin-rule-editor-assign-to = Toewijzen aan
+admin-rule-editor-assign-person = Een persoon
+admin-rule-editor-assign-team = Een team
+admin-rule-editor-person-placeholder = Kies een persoon
+admin-rule-editor-team-placeholder = Kies een team
+admin-rule-editor-team-hint = Het ticket gaat naar het teamlid met de minste open tickets.
+admin-rule-editor-tags-placeholder = Kies tags
+admin-rule-editor-steps-incomplete = Maak de gemarkeerde stappen hieronder af en sla opnieuw op.
+admin-rule-editor-step-needs-reply = Schrijf het antwoord.
+admin-rule-editor-step-needs-status = Kies een status.
+admin-rule-editor-step-needs-person = Kies wie je wilt toewijzen.
+admin-rule-editor-step-needs-team = Kies een team.
+admin-rule-editor-step-needs-tags = Kies minstens één tag.
 asset-catalog-col-model = Model
 asset-catalog-col-type = Type
 asset-catalog-col-part-number = Onderdeelnummer

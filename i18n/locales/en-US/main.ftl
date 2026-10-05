@@ -6989,6 +6989,11 @@ ticket-actions-reply-edit = Edit reply
 ticket-actions-reply-edit-label = Reply
 ticket-actions-reply-edit-hint = Variables such as {"{{"}customer_name{"}}"} are filled in when it's sent.
 ticket-actions-reply-empty = Write a reply, or untick this step.
+ticket-actions-step-assign-team = Assign to whoever on { $team } has the fewest open tickets
+ticket-actions-step-assign-team-unknown = Assign to someone on a team
+ticket-actions-note-edit = Edit note
+ticket-actions-note-edit-label = Note
+ticket-actions-note-empty = Write a note, or untick this step.
 
 # Action summary chips (admin list + agent dialog preview).
 
@@ -7029,9 +7034,20 @@ admin-rule-editor-action-stop-processing = Stop here
 admin-rule-editor-reply-public = Public reply to the requester
 admin-rule-editor-reply-internal = Internal note
 admin-rule-editor-reply-placeholder = Hi {"{{"}customer_name{"}}"}, ...
-admin-rule-editor-status-id-label = Status ID
-admin-rule-editor-user-id-label = User ID
-admin-rule-editor-tag-ids-label = Tag IDs, separated by commas
+admin-rule-editor-status-placeholder = Pick a status
+admin-rule-editor-assign-to = Assign to
+admin-rule-editor-assign-person = A person
+admin-rule-editor-assign-team = A team
+admin-rule-editor-person-placeholder = Pick a person
+admin-rule-editor-team-placeholder = Pick a team
+admin-rule-editor-team-hint = The ticket goes to whoever on the team has the fewest open tickets.
+admin-rule-editor-tags-placeholder = Pick tags
+admin-rule-editor-steps-incomplete = Finish the steps marked below, then save again.
+admin-rule-editor-step-needs-reply = Write the reply.
+admin-rule-editor-step-needs-status = Pick a status.
+admin-rule-editor-step-needs-person = Pick who to assign.
+admin-rule-editor-step-needs-team = Pick a team.
+admin-rule-editor-step-needs-tags = Pick at least one tag.
 
 # Dashboard chrome row (docs/dashboard-and-analytics-plan.md Wave 1).
 # Time-range chip cluster, compare-to-prior toggle, audit-log

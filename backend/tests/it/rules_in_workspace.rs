@@ -78,7 +78,7 @@ async fn an_admin_saves_and_manages_rules_in_their_workspace() {
             .set_json(json!({
                 "name": "Escalate printer outages",
                 "trigger_kind": "manual",
-                "actions": [{ "kind": "set_priority", "priority": "high" }],
+                "actions": [{ "kind": "set_priority", "config": { "priority": "high" } }],
             })),
     )
     .await;
@@ -139,4 +139,119 @@ async fn an_admin_saves_and_manages_rules_in_their_workspace() {
     )
     .await;
     assert_eq!(archived.status(), StatusCode::OK);
+}
+
+/// A team of the admin and the member, where the admin already has an
+/// open ticket, plus an unassigned ticket to apply a rule to.
+fn seed_team(conn: &mut backend::db::DbConnection, ws: &WorkspaceSeed) -> (i32, i32) {
+    use backend::models::NewTicket;
+    use backend::schema::{groups, tickets, user_groups, workflow_states};
+    use diesel::prelude::*;
+
+    let actor = ActorContext::user(ws.admin_uuid, None).with_workspace(ws.workspace_id);
+    backend::sync::session::with_actor_context(conn, &actor, |c| {
+        let open_state: i32 = workflow_states::table
+            .filter(workflow_states::workspace_id.eq(ws.workspace_id))
+            .filter(workflow_states::is_default.eq(true))
+            .select(workflow_states::id)
+            .first(c)?;
+        let team: i32 = diesel::insert_into(groups::table)
+            .values(groups::name.eq("Network"))
+            .returning(groups::id)
+            .get_result(c)?;
+        for user in [ws.admin_uuid, ws.member_uuid] {
+            diesel::insert_into(user_groups::table)
+                .values((
+                    user_groups::group_id.eq(team),
+                    user_groups::user_uuid.eq(user),
+                ))
+                .execute(c)?;
+        }
+        let mut ticket = |title: &str, assignee: Option<Uuid>| {
+            diesel::insert_into(tickets::table)
+                .values(&NewTicket {
+                    title: title.to_string(),
+                    workflow_state_id: open_state,
+                    assignee_uuid: assignee,
+                    ..Default::default()
+                })
+                .returning(tickets::id)
+                .get_result::<i32>(c)
+        };
+        ticket("VPN drops hourly", Some(ws.admin_uuid))?;
+        let target = ticket("Switch port dead", None)?;
+        Ok::<_, diesel::result::Error>((team, target))
+    })
+    .expect("seed team")
+}
+
+#[actix_web::test]
+async fn a_team_step_assigns_whoever_has_the_fewest_open_tickets() {
+    use backend::schema::tickets;
+    use diesel::prelude::*;
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let a = &seeded.a;
+    let (team, target) = seed_team(&mut db.pool_with_size(1).get().expect("conn"), a);
+    let pool = db.runtime_pool(4);
+
+    // A step without its team is refused when the rule is saved.
+    let incomplete = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::post()
+            .uri("/api/rules")
+            .set_json(json!({
+                "name": "Hand to network",
+                "trigger_kind": "manual",
+                "actions": [{ "kind": "assign", "config": { "method": "group" } }],
+            })),
+    )
+    .await;
+    assert_eq!(incomplete.status(), StatusCode::BAD_REQUEST);
+
+    let created = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::post().uri("/api/rules").set_json(json!({
+            "name": "Hand to network",
+            "trigger_kind": "manual",
+            "actions": [{ "kind": "assign", "config": { "method": "group", "group_id": team } }],
+        })),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let id = http_test::read_body_json::<Value, _>(created).await["id"]
+        .as_i64()
+        .expect("rule id");
+
+    let live = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::patch()
+            .uri(&format!("/api/rules/{id}/state"))
+            .set_json(json!({ "state": "live" })),
+    )
+    .await;
+    assert_eq!(live.status(), StatusCode::OK);
+
+    let applied = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::post()
+            .uri(&format!("/api/rules/{id}/apply"))
+            .set_json(json!({ "ticket_id": target })),
+    )
+    .await;
+    assert_eq!(applied.status(), StatusCode::OK);
+
+    // The admin already has an open ticket, so the member gets this one.
+    let assignee: Option<Uuid> = tickets::table
+        .find(target)
+        .select(tickets::assignee_uuid)
+        .first(&mut db.pool_with_size(1).get().expect("conn"))
+        .expect("ticket");
+    assert_eq!(assignee, Some(a.member_uuid));
 }

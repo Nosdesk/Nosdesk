@@ -22,6 +22,9 @@ vi.mock('@nosdesk/core/stores/workflowStates', () => ({
 vi.mock('@nosdesk/core/stores/tags', () => ({
   useTagsStore: () => ({ findById: (id: number) => (id === 3 ? { id: 3, name: 'printer' } : null) }),
 }))
+vi.mock('@nosdesk/core/services/groupService', () => ({
+  groupService: { getGroups: async () => [{ id: 3, name: 'Network' }] },
+}))
 vi.mock('@nosdesk/core/stores/toast', () => ({
   useToastStore: () => ({ success: toastSuccess, error: vi.fn() }),
 }))
@@ -157,5 +160,11 @@ describe('ActionsDialog', () => {
     body().querySelector('form')!.dispatchEvent(new Event('submit'))
     await flushPromises()
     expect(apply).toHaveBeenCalledWith(2, { ticket_id: 5, overrides: { body: undefined, suppress_actions: [] } })
+  })
+
+  it('names the team a team step assigns to', async () => {
+    const team = rule(4, 'Hand to network', 1, [{ kind: 'assign', config: { method: 'group', group_id: 3 } }])
+    await open([team])
+    expect(stepLabels()).toEqual(['ticket-actions-step-assign-team'])
   })
 })

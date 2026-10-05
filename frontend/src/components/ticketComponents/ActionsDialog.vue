@@ -17,6 +17,8 @@ import Checkbox from '@/components/common/Checkbox.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import SearchInput from '@/components/common/SearchInput.vue';
 import userService from '@/services/userService';
+import { GROUPS_QUERY_KEY } from '@/composables/useAssignmentPickerQueries';
+import { groupService } from '@nosdesk/core/services/groupService';
 import { extractErrorMessage } from '@/utils/errors';
 import rulesService from '@nosdesk/core/services/rulesService';
 import { renderTemplate, type TemplateVars } from '@nosdesk/core/services/cannedResponsesService';
@@ -106,6 +108,18 @@ const assigneesQuery = useQuery({
 const assigneeName = (uuid: unknown): string | null =>
   (assigneesQuery.data.value ?? []).find((u) => u.uuid === uuid)?.name ?? null;
 
+// Names for the teams the selected rule assigns to.
+const assignsToTeam = computed(() =>
+  (selected.value?.actions ?? []).some((a) => a.kind === 'assign' && config(a).method === 'group'),
+);
+const groupsQuery = useQuery({
+  key: GROUPS_QUERY_KEY,
+  query: () => groupService.getGroups(),
+  enabled: () => props.show && assignsToTeam.value,
+});
+const teamName = (id: unknown): string | null =>
+  (groupsQuery.data.value ?? []).find((g) => g.id === Number(id))?.name ?? null;
+
 const tagNames = (ids: unknown): string[] | null => {
   if (!Array.isArray(ids)) return null;
   const names = ids.map((id) => tags.findById(Number(id))?.name);
@@ -135,6 +149,10 @@ function describe(action: RuleAction): string | null {
       return state ? t('ticket-actions-step-status', { status: state.name }) : t('ticket-actions-step-status-unknown');
     }
     case 'assign': {
+      if (c.method === 'group') {
+        const team = teamName(c.group_id);
+        return team ? t('ticket-actions-step-assign-team', { team }) : t('ticket-actions-step-assign-team-unknown');
+      }
       const name = assigneeName(c.user_uuid);
       return name ? t('ticket-actions-step-assign', { name }) : t('ticket-actions-step-assign-unknown');
     }
@@ -168,6 +186,14 @@ const steps = computed<Step[]>(() =>
 const firstReplyPosition = computed(
   () => steps.value.find((s) => s.action.kind === 'reply')?.position ?? null,
 );
+/** Message keys for editing it, worded as a note when it's internal. */
+const editKeys = computed(() => {
+  const step = steps.value.find((s) => s.position === firstReplyPosition.value);
+  const note = step ? config(step.action).visibility === 'internal' : false;
+  return note
+    ? { edit: 'ticket-actions-note-edit', label: 'ticket-actions-note-edit-label', empty: 'ticket-actions-note-empty' }
+    : { edit: 'ticket-actions-reply-edit', label: 'ticket-actions-reply-edit-label', empty: 'ticket-actions-reply-empty' };
+});
 
 function replyTemplate(step: Step): string {
   if (step.position === firstReplyPosition.value && replyDraft.value !== null) return replyDraft.value;
@@ -306,7 +332,7 @@ async function apply() {
                 <FormTextarea
                   v-if="editingReply && step.position === firstReplyPosition"
                   :model-value="replyDraft ?? ''"
-                  :label="t('ticket-actions-reply-edit-label')"
+                  :label="t(editKeys.label)"
                   :description="t('ticket-actions-reply-edit-hint')"
                   :rows="6"
                   @update:model-value="replyDraft = $event"
@@ -317,13 +343,13 @@ async function apply() {
                 </div>
                 <div v-if="step.position === firstReplyPosition && !editingReply">
                   <Button type="button" variant="ghost" size="sm" icon="rename" @click="editReply(step)">
-                    {{ t('ticket-actions-reply-edit') }}
+                    {{ t(editKeys.edit) }}
                   </Button>
                 </div>
               </div>
             </li>
           </ul>
-          <p v-if="replyIsEmpty" class="text-xs text-status-error">{{ t('ticket-actions-reply-empty') }}</p>
+          <p v-if="replyIsEmpty" class="text-xs text-status-error">{{ t(editKeys.empty) }}</p>
         </section>
       </div>
 

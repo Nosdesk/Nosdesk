@@ -7028,6 +7028,11 @@ ticket-actions-reply-edit = Modifier la réponse
 ticket-actions-reply-edit-label = Réponse
 ticket-actions-reply-edit-hint = Les variables comme {"{{"}customer_name{"}}"} sont remplies à l'envoi.
 ticket-actions-reply-empty = Écrivez une réponse ou décochez cette étape.
+ticket-actions-step-assign-team = Assigner au membre de { $team } qui a le moins de tickets ouverts
+ticket-actions-step-assign-team-unknown = Assigner à un membre d'une équipe
+ticket-actions-note-edit = Modifier la note
+ticket-actions-note-edit-label = Note
+ticket-actions-note-empty = Écrivez une note ou décochez cette étape.
 
 
 # Règles et boîte de dialogue Actions des tickets, textes revus (machine, à relire par un locuteur natif).
@@ -7067,9 +7072,20 @@ admin-rule-editor-action-stop-processing = S'arrêter ici
 admin-rule-editor-reply-public = Réponse publique au demandeur
 admin-rule-editor-reply-internal = Note interne
 admin-rule-editor-reply-placeholder = Bonjour {"{{"}customer_name{"}}"}, ...
-admin-rule-editor-status-id-label = ID du statut
-admin-rule-editor-user-id-label = ID de l'utilisateur
-admin-rule-editor-tag-ids-label = ID des étiquettes, séparés par des virgules
+admin-rule-editor-status-placeholder = Choisir un statut
+admin-rule-editor-assign-to = Assigner à
+admin-rule-editor-assign-person = Une personne
+admin-rule-editor-assign-team = Une équipe
+admin-rule-editor-person-placeholder = Choisir une personne
+admin-rule-editor-team-placeholder = Choisir une équipe
+admin-rule-editor-team-hint = Le ticket va au membre de l'équipe qui a le moins de tickets ouverts.
+admin-rule-editor-tags-placeholder = Choisir des étiquettes
+admin-rule-editor-steps-incomplete = Terminez les étapes signalées ci-dessous, puis enregistrez à nouveau.
+admin-rule-editor-step-needs-reply = Écrivez la réponse.
+admin-rule-editor-step-needs-status = Choisissez un statut.
+admin-rule-editor-step-needs-person = Choisissez la personne à assigner.
+admin-rule-editor-step-needs-team = Choisissez une équipe.
+admin-rule-editor-step-needs-tags = Choisissez au moins une étiquette.
 asset-catalog-col-model = Modèle
 asset-catalog-col-type = Type
 asset-catalog-col-part-number = Référence

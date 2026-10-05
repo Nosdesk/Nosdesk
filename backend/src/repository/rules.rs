@@ -909,6 +909,38 @@ fn execute_reply(
     Ok(Some(comment.id))
 }
 
+/// The team member with the fewest open tickets assigned. Ties go to the
+/// earlier member in the team's order, so an idle team fills up in turn.
+/// Counting is workspace-scoped through the caller's tenant connection.
+fn least_loaded_member(conn: &mut DbConnection, group_id: i32) -> QueryResult<Option<Uuid>> {
+    use crate::models::WorkflowStateCategory;
+    use crate::schema::{tickets, workflow_states};
+    let members: Vec<Uuid> = crate::repository::groups::get_users_in_group(conn, group_id)?
+        .into_iter()
+        .map(|u| u.uuid)
+        .collect();
+    if members.is_empty() {
+        return Ok(None);
+    }
+    let open: Vec<(Option<Uuid>, i64)> = tickets::table
+        .inner_join(workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)))
+        .filter(tickets::assignee_uuid.eq_any(&members))
+        .filter(workflow_states::category.ne_all(vec![
+            WorkflowStateCategory::Done,
+            WorkflowStateCategory::Cancelled,
+            WorkflowStateCategory::Merged,
+        ]))
+        .group_by(tickets::assignee_uuid)
+        .select((tickets::assignee_uuid, diesel::dsl::count_star()))
+        .load(conn)?;
+    let count = |uuid: &Uuid| {
+        open.iter()
+            .find(|(assignee, _)| assignee.as_ref() == Some(uuid))
+            .map_or(0, |(_, n)| *n)
+    };
+    Ok(members.iter().min_by_key(|u| count(u)).copied())
+}
+
 /// `set_status` action. Updates `tickets.workflow_state_id`; the
 /// existing tickets-table trigger handles `resolved_at` /
 /// `closed_at` stamping for terminal categories.
@@ -938,9 +970,8 @@ fn execute_set_status(
     Ok(state_id)
 }
 
-/// `assign` action. Direct user assignment for Phase 1; round-robin
-/// and group queue land in Phase 2 when assignment_rules absorbs
-/// here and the historical apply rows feed the stateless picker.
+/// `assign` action: a named person (`direct`), or whoever on a team
+/// (`group`) has the fewest open tickets.
 fn execute_assign(
     conn: &mut DbConnection,
     action_index: usize,
@@ -961,6 +992,19 @@ fn execute_assign(
                 index: action_index,
                 message: "assign(method=direct) missing valid user_uuid".to_string(),
             })?,
+        "group" => {
+            let group_id = config
+                .get("group_id")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| ApplyError::ActionFailed {
+                    index: action_index,
+                    message: "assign(method=group) missing group_id".to_string(),
+                })? as i32;
+            least_loaded_member(conn, group_id)?.ok_or_else(|| ApplyError::ActionFailed {
+                index: action_index,
+                message: "the team has no members to assign".to_string(),
+            })?
+        }
         other => {
             return Err(ApplyError::UnsupportedActionPhase1 {
                 index: action_index,
