@@ -20,7 +20,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
-import { useQueryCache } from '@pinia/colada';
+import { useQuery, useQueryCache } from '@pinia/colada';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
@@ -30,7 +30,14 @@ import Checkbox from '@/components/common/Checkbox.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
+import SegmentedControl from '@/components/common/SegmentedControl.vue';
+import UserPicker from '@/components/ticketComponents/UserPicker.vue';
+import { GROUPS_QUERY_KEY } from '@/composables/useAssignmentPickerQueries';
+import userService from '@/services/userService';
+import { groupService } from '@nosdesk/core/services/groupService';
 import rulesService from '@nosdesk/core/services/rulesService';
+import { useTagsStore } from '@nosdesk/core/stores/tags';
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useMobileDetection } from '@/composables/useMobileDetection';
@@ -54,6 +61,9 @@ const route = useRoute();
 const router = useRouter();
 const toast = useToastStore();
 const queryCache = useQueryCache();
+const states = useWorkflowStatesStore();
+const tags = useTagsStore();
+const groupsQuery = useQuery({ key: GROUPS_QUERY_KEY, query: () => groupService.getGroups() });
 
 const isNew = computed(() => route.name === 'admin-rules-new');
 const ruleId = computed<number | null>(() =>
@@ -83,6 +93,7 @@ function fill(rule: Rule): void {
 }
 
 onMounted(async () => {
+  void states.load();
   if (isNew.value) return;
   if (ruleId.value == null) return;
   loading.value = true;
@@ -146,9 +157,30 @@ function updateConfigField(index: number, field: string, value: unknown): void {
   actions.value[index] = { ...actions.value[index], config: next };
 }
 
+/** What a step still needs before the rule can be saved, as a message key. */
+function stepProblem(action: RuleAction): string | null {
+  const c = (action.config ?? {}) as Record<string, unknown>;
+  switch (action.kind) {
+    case 'reply':
+      return String(c.body ?? '').trim() ? null : 'admin-rule-editor-step-needs-reply';
+    case 'set_status':
+      return Number(c.workflow_state_id) > 0 ? null : 'admin-rule-editor-step-needs-status';
+    case 'assign':
+      if (c.method === 'group') return Number(c.group_id) > 0 ? null : 'admin-rule-editor-step-needs-team';
+      return c.user_uuid ? null : 'admin-rule-editor-step-needs-person';
+    case 'add_tags':
+    case 'remove_tags':
+      return Array.isArray(c.tag_ids) && c.tag_ids.length > 0 ? null : 'admin-rule-editor-step-needs-tags';
+    default:
+      return null;
+  }
+}
+
 const canSave = computed(
   () => name.value.trim().length > 0 && actions.value.length > 0 && !saving.value,
 );
+/** Set by a save attempt with unfinished steps, so their hints show. */
+const showStepProblems = ref(false);
 
 /** Unsaved edits, compared with the rule as last loaded or saved. */
 const isDirty = computed(() => {
@@ -167,6 +199,11 @@ const isDirty = computed(() => {
 async function save(options: { quiet?: boolean } = {}): Promise<boolean> {
   errorMessage.value = '';
   if (!canSave.value) return false;
+  if (actions.value.some((a) => stepProblem(a) !== null)) {
+    showStepProblems.value = true;
+    errorMessage.value = t('admin-rule-editor-steps-incomplete');
+    return false;
+  }
   saving.value = true;
   try {
     const payload: CreateRuleRequest = {
@@ -293,6 +330,43 @@ const replyVisibilityOptions = computed(() => [
   { value: 'public', label: t('admin-rule-editor-reply-public') },
   { value: 'internal', label: t('admin-rule-editor-reply-internal') },
 ]);
+// Pickers for the steps that point at workspace records.
+const statusOptions = computed(() =>
+  states.states
+    .filter((s) => !s.archived_at && s.category !== 'merged')
+    .map((s) => ({ value: s.id, label: s.name })),
+);
+const groupOptions = computed(() =>
+  (groupsQuery.data.value ?? []).map((g) => ({ value: g.id, label: g.name })),
+);
+const tagOptions = computed(() => tags.tags.map((tag) => ({ value: tag.id, label: tag.name })));
+const assignTargetOptions = computed(() => [
+  { value: 'direct', label: t('admin-rule-editor-assign-person') },
+  { value: 'group', label: t('admin-rule-editor-assign-team') },
+]);
+// Names for the people assign steps point at, so the picker shows a name
+// before it has loaded its own list.
+const assigneeUuids = computed(() =>
+  actions.value
+    .filter((a) => a.kind === 'assign' && (a.config as any)?.method !== 'group' && (a.config as any)?.user_uuid)
+    .map((a) => String((a.config as any).user_uuid)),
+);
+const assigneesQuery = useQuery({
+  key: () => ['users', 'batch', ...assigneeUuids.value],
+  query: () => userService.getUsersBatch(assigneeUuids.value),
+  enabled: () => assigneeUuids.value.length > 0,
+  staleTime: 5 * 60 * 1000,
+});
+const assigneeRow = (uuid: unknown) =>
+  (assigneesQuery.data.value ?? []).find((u) => u.uuid === uuid) ?? null;
+
+function setAssignTarget(index: number, method: string): void {
+  actions.value[index] = {
+    kind: 'assign',
+    config: method === 'group' ? { method: 'group', group_id: 0 } : { method: 'direct', user_uuid: '' },
+  };
+}
+
 const priorityOptions = computed(() =>
   ['low', 'medium', 'high', 'urgent'].map((value) => ({ value, label: t(`priority-${value}`) })),
 );
@@ -408,22 +482,44 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
           </template>
 
           <template v-else-if="action.kind === 'set_status'">
-            <FormNumber
-              :model-value="Number((action.config as any)?.workflow_state_id) || null"
-              @update:model-value="updateConfigField(i, 'workflow_state_id', $event ?? undefined)"
-              :label="t('admin-rule-editor-status-id-label')"
-              :min="1"
-              integer
+            <BaseDropdown
+              :model-value="Number((action.config as any)?.workflow_state_id) || ''"
+              :options="statusOptions"
+              :placeholder="t('admin-rule-editor-status-placeholder')"
+              size="sm"
+              @update:model-value="updateConfigField(i, 'workflow_state_id', Number($event))"
             />
           </template>
 
           <template v-else-if="action.kind === 'assign'">
-            <FormInput
-              :model-value="(action.config as any)?.user_uuid ?? ''"
-              @update:model-value="updateConfigField(i, 'user_uuid', $event)"
-              :label="t('admin-rule-editor-user-id-label')"
-              placeholder="00000000-0000-0000-0000-000000000000"
+            <div>
+              <SegmentedControl
+                :model-value="(action.config as any)?.method === 'group' ? 'group' : 'direct'"
+                :options="assignTargetOptions"
+                :aria-label="t('admin-rule-editor-assign-to')"
+                size="sm"
+                @update:model-value="setAssignTarget(i, String($event))"
+              />
+            </div>
+            <BaseDropdown
+              v-if="(action.config as any)?.method === 'group'"
+              :model-value="Number((action.config as any)?.group_id) || ''"
+              :options="groupOptions"
+              :placeholder="t('admin-rule-editor-team-placeholder')"
+              size="sm"
+              @update:model-value="updateConfigField(i, 'group_id', Number($event))"
             />
+            <UserPicker
+              v-else
+              type="assignee"
+              :model-value="(action.config as any)?.user_uuid ?? ''"
+              :current-user="assigneeRow((action.config as any)?.user_uuid)"
+              :placeholder="t('admin-rule-editor-person-placeholder')"
+              @update:model-value="updateConfigField(i, 'user_uuid', $event)"
+            />
+            <p v-if="(action.config as any)?.method === 'group'" class="text-xs text-secondary">
+              {{ t('admin-rule-editor-team-hint') }}
+            </p>
           </template>
 
           <template v-else-if="action.kind === 'set_priority'">
@@ -436,14 +532,19 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
           </template>
 
           <template v-else-if="action.kind === 'add_tags' || action.kind === 'remove_tags'">
-            <FormInput
-              :model-value="((action.config as any)?.tag_ids ?? []).join(',')"
-              @update:model-value="updateConfigField(i, 'tag_ids',
-                $event.split(',').map((x: string) => Number(x.trim())).filter((n: number) => Number.isFinite(n)))"
-              :label="t('admin-rule-editor-tag-ids-label')"
-              placeholder="1, 2, 3"
+            <BaseDropdown
+              multiple
+              :model-value="((action.config as any)?.tag_ids ?? []) as number[]"
+              :options="tagOptions"
+              :placeholder="t('admin-rule-editor-tags-placeholder')"
+              size="sm"
+              @update:model-value="updateConfigField(i, 'tag_ids', ($event as number[]).map(Number))"
             />
           </template>
+
+          <p v-if="showStepProblems && stepProblem(action)" class="text-xs text-status-warning">
+            {{ t(stepProblem(action)!) }}
+          </p>
         </li>
       </ol>
     </section>

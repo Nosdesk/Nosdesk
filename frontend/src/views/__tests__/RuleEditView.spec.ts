@@ -18,6 +18,16 @@ vi.mock('@nosdesk/core/services/rulesService', () => ({ default: rules }))
 vi.mock('@nosdesk/core/stores/toast', () => ({
   useToastStore: () => ({ success: toastSuccess, error: vi.fn() }),
 }))
+vi.mock('@nosdesk/core/stores/workflowStates', () => ({
+  useWorkflowStatesStore: () => ({ load: async () => [], states: [] }),
+}))
+vi.mock('@nosdesk/core/stores/tags', () => ({ useTagsStore: () => ({ tags: [] }) }))
+vi.mock('@nosdesk/core/services/groupService', () => ({
+  groupService: { getGroups: async () => [{ id: 3, name: 'Network' }] },
+}))
+vi.mock('@/components/ticketComponents/UserPicker.vue', () => ({
+  default: { props: ['modelValue'], template: '<input data-test="user-picker" :value="modelValue" />' },
+}))
 
 import RuleEditView from '@/views/RuleEditView.vue'
 
@@ -74,6 +84,14 @@ describe('RuleEditView', () => {
     expect(button('admin-rules-go-live')).toBeUndefined()
 
     await w.find('input').setValue('Bump priority')
+    // The new rule's reply step is empty, so saving points at it first.
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.create).not.toHaveBeenCalled()
+    expect(w.text()).toContain('admin-rule-editor-steps-incomplete')
+    expect(w.text()).toContain('admin-rule-editor-step-needs-reply')
+
+    await w.find('textarea[placeholder="admin-rule-editor-reply-placeholder"]').setValue('Thanks, we are on it.')
     button('admin-rule-editor-save')!.click()
     await flushPromises()
 
@@ -105,5 +123,24 @@ describe('RuleEditView', () => {
     const w = await mountAt('admin-rules-edit', { id: '4' })
     expect(w.text()).toContain('admin-rule-editor-trigger-other-phase')
     expect(button('admin-rules-go-live')).toBeUndefined()
+  })
+
+  it('assigns a step to a team', async () => {
+    rules.get.mockResolvedValue(rule({ actions: [{ kind: 'assign', config: { method: 'direct', user_uuid: '' } }] }))
+    rules.update.mockResolvedValue(rule())
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    expect(w.find('[data-test="user-picker"]').exists()).toBe(true)
+
+    const team = Array.from(document.body.querySelectorAll<HTMLElement>('[role="radio"], button'))
+      .find((b) => b.textContent?.trim() === 'admin-rule-editor-assign-team')
+    team!.click()
+    await flushPromises()
+    expect(w.find('[data-test="user-picker"]').exists()).toBe(false)
+    expect(w.text()).toContain('admin-rule-editor-team-hint')
+
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(w.text()).toContain('admin-rule-editor-step-needs-team')
+    expect(rules.update).not.toHaveBeenCalled()
   })
 })

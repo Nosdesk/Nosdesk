@@ -1066,6 +1066,62 @@ fn validate_actions(actions: &Value) -> Result<(), String> {
         if !KNOWN.contains(&kind) {
             return Err(format!("actions[{i}] has unknown kind: {kind}"));
         }
+        validate_step_config(kind, obj.get("config").unwrap_or(&Value::Null))
+            .map_err(|problem| format!("Step {}: {problem}", i + 1))?;
+    }
+    Ok(())
+}
+
+/// A step's settings must be complete when the rule is saved, so an agent
+/// never applies a rule that fails on a missing value.
+fn validate_step_config(kind: &str, config: &Value) -> Result<(), &'static str> {
+    let positive_int = |key: &str| {
+        config
+            .get(key)
+            .and_then(Value::as_i64)
+            .is_some_and(|n| n > 0)
+    };
+    match kind {
+        "reply" => {
+            let body = config.get("body").and_then(Value::as_str).unwrap_or("");
+            if body.trim().is_empty() {
+                return Err("write the reply");
+            }
+        }
+        "set_status" if !positive_int("workflow_state_id") => return Err("pick a status"),
+        "assign" => match config
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or("direct")
+        {
+            "direct" => {
+                let uuid = config
+                    .get("user_uuid")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if Uuid::parse_str(uuid).is_err() {
+                    return Err("pick a person to assign");
+                }
+            }
+            "group" if !positive_int("group_id") => return Err("pick a team to assign"),
+            "group" => {}
+            _ => return Err("assign to a person or a team"),
+        },
+        "add_tags" | "remove_tags" => {
+            let tags = config.get("tag_ids").and_then(Value::as_array);
+            if !tags.is_some_and(|t| {
+                !t.is_empty() && t.iter().all(|v| v.as_i64().is_some_and(|n| n > 0))
+            }) {
+                return Err("pick at least one tag");
+            }
+        }
+        "set_priority" => {
+            let priority = config.get("priority").and_then(Value::as_str).unwrap_or("");
+            if !["none", "low", "normal", "medium", "high", "urgent"].contains(&priority) {
+                return Err("pick a priority");
+            }
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -1131,6 +1187,39 @@ mod tests {
         let actions = serde_json::json!([{ "kind": "obliterate" }]);
         let err = validate_actions(&actions).unwrap_err();
         assert!(err.contains("unknown kind"));
+    }
+
+    #[test]
+    fn validate_actions_names_the_incomplete_step() {
+        let actions = serde_json::json!([
+            { "kind": "reply", "config": { "visibility": "public", "body": "hi" } },
+            { "kind": "set_status", "config": { "workflow_state_id": 0 } }
+        ]);
+        assert_eq!(
+            validate_actions(&actions).unwrap_err(),
+            "Step 2: pick a status"
+        );
+    }
+
+    #[test]
+    fn validate_actions_checks_each_step_kind() {
+        let ok = serde_json::json!([
+            { "kind": "assign", "config": { "method": "direct", "user_uuid": "7b5f2c1e-3f0a-4c55-9f1d-0d1e2f3a4b5c" } },
+            { "kind": "assign", "config": { "method": "group", "group_id": 3 } },
+            { "kind": "add_tags", "config": { "tag_ids": [1, 2] } },
+            { "kind": "set_priority", "config": { "priority": "normal" } },
+            { "kind": "unassign" }
+        ]);
+        assert!(validate_actions(&ok).is_ok());
+        for bad in [
+            serde_json::json!([{ "kind": "reply", "config": { "body": "  " } }]),
+            serde_json::json!([{ "kind": "assign", "config": { "method": "direct", "user_uuid": "nope" } }]),
+            serde_json::json!([{ "kind": "assign", "config": { "method": "round_robin" } }]),
+            serde_json::json!([{ "kind": "remove_tags", "config": { "tag_ids": [] } }]),
+            serde_json::json!([{ "kind": "set_priority", "config": { "priority": "asap" } }]),
+        ] {
+            assert!(validate_actions(&bad).is_err(), "{bad} should be refused");
+        }
     }
 
     #[test]
