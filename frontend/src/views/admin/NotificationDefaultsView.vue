@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Admin editor for the workspace's notification DEFAULTS — the middle layer of
+ * Admin editor for the workspace's notification DEFAULTS, the middle layer of
  * the system → workspace → user inheritance. Sets the default delivery
  * frequency per (type, channel) that members inherit, and lets an admin `lock`
  * a cell so members cannot override it (the ceiling pattern: a locked default
@@ -140,7 +140,7 @@ const isLocked = (row: WorkspaceNotificationDefault, channelCode: string): boole
 const cellKey = (typeCode: string, channelCode: string) => `${typeCode}-${channelCode}`;
 
 // The backend PUT sets frequency + locked together, so every cell edit sends
-// both — the unchanged one comes from local state.
+// both; the unchanged one comes from local state.
 const saveCell = async (
   row: WorkspaceNotificationDefault,
   channelCode: string,
@@ -188,7 +188,7 @@ onMounted(async () => {
 });
 
 const gridColumns = computed(
-  () => `minmax(0, 1fr) repeat(${channels.value.length}, minmax(8.5rem, 10rem))`
+  () => `minmax(0, 1fr) repeat(${channels.value.length}, minmax(8.5rem, 10.5rem))`
 );
 </script>
 
@@ -204,8 +204,10 @@ const gridColumns = computed(
       </div>
 
       <Callout severity="info">
-        <template #header>{{ t('admin-notification-defaults-lock-explainer-title') }}</template>
-        {{ t('admin-notification-defaults-lock-explainer-body') }}
+        <template #header>
+          <span class="font-medium text-primary">{{ t('admin-notification-defaults-lock-explainer-title') }}</span>
+        </template>
+        <p class="px-4 py-3 text-sm text-secondary">{{ t('admin-notification-defaults-lock-explainer-body') }}</p>
       </Callout>
 
       <!-- Push content level: detailed context vs private "tap to view". -->
