@@ -1,17 +1,9 @@
 <script setup lang="ts">
 import { numberForTicketId } from '@/composables/useTicketNumberLookup'
 /**
- * Admin activity-log view for the rules engine. Lists recent
- * rule_applications across the workspace with filters by rule,
- * status, and date range. The inspector tab on each row reveals
- * the condition_evaluation / actions_taken / actions_skipped /
- * failure_reason payloads the backend captures for non-succeeded
- * fires (succeeded rows stay tight per plan §4.3 to keep the
- * happy-path retention case cheap).
- *
- * Phase 1 is read-only; clicking a row opens the per-application
- * inspector inline. Wave 2's conflicts tab adds heuristic
- * warnings on top of this same dataset.
+ * Admin activity log for rules: each run with the rule's name, the ticket,
+ * who applied it and, opened up, what each step did in plain words (with
+ * the steps the agent skipped). Filters by status and how many runs to show.
  */
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -28,6 +20,8 @@ import Skeleton from '@/components/common/Skeleton.vue';
 import StatusPill from '@/components/common/StatusPill.vue';
 import type { StatusPillTone } from '@/components/common/statusPillTone';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
+import { useRuleStepText } from '@/composables/useRuleStepText';
+import { ticketPathForId } from '@/utils/ticketNumbers';
 import rulesService from '@nosdesk/core/services/rulesService';
 import { useMobileDetection } from '@/composables/useMobileDetection';
 
@@ -36,7 +30,7 @@ import { useMobileDetection } from '@/composables/useMobileDetection';
 // contract BackButton encodes; kept inline here because this toolbar's
 // secondary-button styling is deliberate.
 const { isMobile } = useMobileDetection('sm');
-import type { RuleApplication, RuleApplicationStatus } from '@nosdesk/core/types/rule';
+import type { RuleAction, RuleApplication, RuleApplicationStatus } from '@nosdesk/core/types/rule';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -58,6 +52,11 @@ const applicationsQuery = useQuery({
       limit: limit.value,
     }),
 });
+// Archived rules too, so older runs still show the rule's name.
+const rulesQuery = useQuery({
+  key: ['rules', 'with-archived'],
+  query: () => rulesService.list({ include_archived: true }),
+});
 
 const applications = computed<RuleApplication[]>(() =>
   Array.isArray(applicationsQuery.data.value) ? applicationsQuery.data.value : [],
@@ -70,6 +69,51 @@ const isFirstLoad = computed(
 const loadError = computed(() =>
   applicationsQuery.error.value ? t('admin-rules-activity-error-load') : '',
 );
+
+// Names for who applied each run and who its assign steps chose.
+const peopleUuids = computed(() => {
+  const uuids = new Set<string>();
+  for (const app of applications.value) {
+    if (app.actor_uuid) uuids.add(app.actor_uuid);
+    for (const entry of app.actions_taken ?? []) {
+      if (typeof entry.assigned_to_uuid === 'string') uuids.add(entry.assigned_to_uuid);
+    }
+  }
+  return [...uuids].sort();
+});
+const stepText = useRuleStepText({ enabled: () => true, userUuids: () => peopleUuids.value });
+
+const ruleFor = (app: RuleApplication) => (rulesQuery.data.value ?? []).find((r) => r.id === app.rule_id);
+const ruleName = (app: RuleApplication) =>
+  ruleFor(app)?.name ?? t('admin-rules-activity-rule-unknown', { id: app.rule_id });
+/** The rule's step at a run's 1-based position, while the rule still has it. */
+const ruleStep = (app: RuleApplication, position: unknown): RuleAction | undefined =>
+  ruleFor(app)?.actions[Number(position) - 1];
+
+function summary(app: RuleApplication): string {
+  // A string, so Fluent doesn't format the number as "1,042".
+  const ticket_id = String(numberForTicketId(app.ticket_id) ?? '');
+  if (app.actor_kind === 'system') return t('admin-rules-activity-row-automatic', { ticket_id });
+  const name = stepText.userName(app.actor_uuid);
+  return name
+    ? t('admin-rules-activity-row-by-person', { ticket_id, name })
+    : t('admin-rules-activity-row-by-agent', { ticket_id });
+}
+
+/** What the run did, then the steps the agent skipped, in plain words. */
+function outcomeLines(app: RuleApplication): string[] {
+  const lines: string[] = [];
+  for (const entry of app.actions_taken ?? []) {
+    const line = stepText.done(entry, ruleStep(app, entry.index));
+    if (line) lines.push(line);
+  }
+  for (const entry of app.actions_skipped ?? []) {
+    const step = ruleStep(app, entry.index);
+    const planned = step ? stepText.planned(step) : null;
+    if (planned) lines.push(t('admin-rules-activity-skipped', { step: planned }));
+  }
+  return lines;
+}
 
 function statusLabel(status: RuleApplicationStatus): string {
   return t(`admin-rules-activity-status-${status.replace(/_/g, '-')}`);
@@ -103,30 +147,12 @@ function statusTone(status: RuleApplicationStatus): StatusPillTone {
   return 'caution';
 }
 
-function formatTime(value: string): string {
-  return formatRelativeTime(value);
-}
-
 const expanded = ref<Set<number>>(new Set());
 function toggleExpanded(id: number): void {
-  if (expanded.value.has(id)) {
-    expanded.value.delete(id);
-  } else {
-    expanded.value.add(id);
-  }
-}
-
-function inspectorPayload(app: RuleApplication): string {
-  /** The four payloads are stored sparsely (only on non-succeeded
-   *  rows, see migration / plan). Pretty-print whichever are
-   *  present so the inspector reads correctly. */
-  const blobs: Record<string, unknown> = {};
-  if (app.condition_evaluation) blobs.condition_evaluation = app.condition_evaluation;
-  if (app.actions_taken) blobs.actions_taken = app.actions_taken;
-  if (app.actions_skipped) blobs.actions_skipped = app.actions_skipped;
-  if (app.failure_reason) blobs.failure_reason = app.failure_reason;
-  if (Object.keys(blobs).length === 0) return t('admin-rules-activity-inspector-empty');
-  return JSON.stringify(blobs, null, 2);
+  const next = new Set(expanded.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expanded.value = next;
 }
 
 function back(): void {
@@ -182,31 +208,48 @@ function back(): void {
         :key="app.id"
         class="border border-default rounded-lg bg-surface overflow-hidden"
       >
-        <div
-          class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-hover"
+        <button
+          type="button"
+          class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+          :aria-expanded="expanded.has(app.id)"
           @click="toggleExpanded(app.id)"
         >
           <StatusPill :label="statusLabel(app.status)" :tone="statusTone(app.status)" />
-          <span class="font-mono text-xs text-secondary">
-            #{{ app.rule_id }} v{{ app.rule_version }}
+          <span class="flex flex-col gap-0.5 flex-1 min-w-0">
+            <span class="text-sm font-medium text-primary truncate">{{ ruleName(app) }}</span>
+            <span class="text-xs text-secondary truncate">{{ summary(app) }}</span>
           </span>
-          <span class="text-sm flex-1 min-w-0 truncate">
-            {{ t(app.actor_kind === 'system'
-              ? 'admin-rules-activity-row-automatic'
-              : 'admin-rules-activity-row-by-agent', {
-              ticket_id: numberForTicketId(app.ticket_id) ?? '',
-            }) }}
-          </span>
-          <span class="text-xs text-secondary">{{ formatTime(app.applied_at) }}</span>
+          <span class="text-xs text-secondary flex-shrink-0">{{ formatRelativeTime(app.applied_at) }}</span>
           <Icon
             :name="expanded.has(app.id) ? 'chevronUp' : 'chevronDown'"
-            class="w-3.5 h-3.5 text-secondary"
+            class="w-3.5 h-3.5 text-secondary flex-shrink-0"
           />
-        </div>
-        <pre
+        </button>
+        <div
           v-if="expanded.has(app.id)"
-          class="text-xs px-3 py-2 border-t border-subtle bg-surface-alt overflow-x-auto"
-        >{{ inspectorPayload(app) }}</pre>
+          class="flex flex-col gap-3 border-t border-subtle bg-surface-alt px-4 py-3"
+        >
+          <div class="flex flex-col gap-1">
+            <p class="text-xs font-medium text-tertiary">{{ t('admin-rules-activity-what-it-did') }}</p>
+            <ul v-if="outcomeLines(app).length > 0" class="flex flex-col gap-1 pl-4 list-disc text-sm text-primary">
+              <li v-for="(line, i) in outcomeLines(app)" :key="i">{{ line }}</li>
+            </ul>
+            <p v-else class="text-sm text-secondary">{{ t('admin-rules-activity-inspector-empty') }}</p>
+            <p v-if="app.failure_reason" class="text-sm text-status-error">{{ app.failure_reason }}</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-4 text-sm">
+            <RouterLink :to="ticketPathForId(app.ticket_id)" class="text-accent hover:underline">
+              {{ t('admin-rules-activity-open-ticket') }}
+            </RouterLink>
+            <RouterLink
+              v-if="ruleFor(app)"
+              :to="{ name: 'admin-rules-edit', params: { id: app.rule_id } }"
+              class="text-accent hover:underline"
+            >
+              {{ t('admin-rules-activity-open-rule') }}
+            </RouterLink>
+          </div>
+        </div>
       </li>
     </ul>
   </div>

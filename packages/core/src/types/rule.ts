@@ -75,6 +75,17 @@ export interface Rule {
   archived_at: string | null;
 }
 
+/** A ready-made rule from the starter catalogue (`GET /api/admin/rule-starters`),
+ *  named and described in the request's language. */
+export interface StarterRule {
+  id: string;
+  name: string;
+  description: string;
+  trigger_kind: RuleTriggerKind;
+  conditions: RuleCondition[] | RuleCondition;
+  actions: RuleAction[];
+}
+
 export interface CreateRuleRequest {
   name: string;
   description?: string | null;

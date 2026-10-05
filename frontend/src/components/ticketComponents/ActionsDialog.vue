@@ -8,7 +8,7 @@
  */
 import { computed, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
-import { useQuery, useQueryCache } from '@pinia/colada';
+import { useQueryCache } from '@pinia/colada';
 
 import Modal from '@/components/Modal.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
@@ -16,15 +16,11 @@ import Button from '@/components/common/Button.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import SearchInput from '@/components/common/SearchInput.vue';
-import userService from '@/services/userService';
-import { GROUPS_QUERY_KEY } from '@/composables/useAssignmentPickerQueries';
-import { groupService } from '@nosdesk/core/services/groupService';
+import { useRuleStepText } from '@/composables/useRuleStepText';
 import { extractErrorMessage } from '@/utils/errors';
 import rulesService from '@nosdesk/core/services/rulesService';
 import { renderTemplate, type TemplateVars } from '@nosdesk/core/services/cannedResponsesService';
-import { useTagsStore } from '@nosdesk/core/stores/tags';
 import { useToastStore } from '@nosdesk/core/stores/toast';
-import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import { escapeHtml } from '@nosdesk/core/utils/escape';
 import type { Rule, RuleAction } from '@nosdesk/core/types/rule';
 
@@ -41,8 +37,6 @@ const emit = defineEmits<{ close: [] }>();
 const { $t: t } = useFluent();
 const toast = useToastStore();
 const queryCache = useQueryCache();
-const states = useWorkflowStatesStore();
-const tags = useTagsStore();
 
 // Matches the backend's reply_template_html: a template with tags is HTML,
 // one without is plain text whose line breaks are kept.
@@ -80,7 +74,6 @@ watch(
     search.value = '';
     error.value = '';
     selectedId.value = sortedRules.value[0]?.id ?? null;
-    void states.load();
   },
   { immediate: true },
 );
@@ -99,38 +92,7 @@ const assigneeUuids = computed(() =>
     .filter((a) => a.kind === 'assign' && typeof config(a).user_uuid === 'string')
     .map((a) => String(config(a).user_uuid)),
 );
-const assigneesQuery = useQuery({
-  key: () => ['users', 'batch', ...assigneeUuids.value],
-  query: () => userService.getUsersBatch(assigneeUuids.value),
-  enabled: () => props.show && assigneeUuids.value.length > 0,
-  staleTime: 5 * 60 * 1000,
-});
-const assigneeName = (uuid: unknown): string | null =>
-  (assigneesQuery.data.value ?? []).find((u) => u.uuid === uuid)?.name ?? null;
-
-// Names for the teams the selected rule assigns to.
-const assignsToTeam = computed(() =>
-  (selected.value?.actions ?? []).some((a) => a.kind === 'assign' && config(a).method === 'group'),
-);
-const groupsQuery = useQuery({
-  key: GROUPS_QUERY_KEY,
-  query: () => groupService.getGroups(),
-  enabled: () => props.show && assignsToTeam.value,
-});
-const teamName = (id: unknown): string | null =>
-  (groupsQuery.data.value ?? []).find((g) => g.id === Number(id))?.name ?? null;
-
-const tagNames = (ids: unknown): string[] | null => {
-  if (!Array.isArray(ids)) return null;
-  const names = ids.map((id) => tags.findById(Number(id))?.name);
-  return names.every((n): n is string => !!n) ? names : null;
-};
-
-// The backend reads `normal` as medium, so the label does too.
-const priorityLabel = (value: unknown) => {
-  const v = String(value ?? 'medium');
-  return t(`priority-${v === 'normal' ? 'medium' : v}`);
-};
+const stepText = useRuleStepText({ enabled: () => props.show, userUuids: () => assigneeUuids.value });
 
 interface Step {
   /** 1-based position in the rule's action list. */
@@ -139,45 +101,9 @@ interface Step {
   label: string;
 }
 
-function describe(action: RuleAction): string | null {
-  const c = config(action);
-  switch (action.kind) {
-    case 'reply':
-      return c.visibility === 'internal' ? t('ticket-actions-step-note') : t('ticket-actions-step-reply');
-    case 'set_status': {
-      const state = states.findById(Number(c.workflow_state_id));
-      return state ? t('ticket-actions-step-status', { status: state.name }) : t('ticket-actions-step-status-unknown');
-    }
-    case 'assign': {
-      if (c.method === 'group') {
-        const team = teamName(c.group_id);
-        return team ? t('ticket-actions-step-assign-team', { team }) : t('ticket-actions-step-assign-team-unknown');
-      }
-      const name = assigneeName(c.user_uuid);
-      return name ? t('ticket-actions-step-assign', { name }) : t('ticket-actions-step-assign-unknown');
-    }
-    case 'unassign':
-      return t('ticket-actions-step-unassign');
-    case 'add_tags':
-    case 'remove_tags': {
-      const names = tagNames(c.tag_ids);
-      const count = Array.isArray(c.tag_ids) ? c.tag_ids.length : 0;
-      const kind = action.kind === 'add_tags' ? 'add' : 'remove';
-      return names
-        ? t(`ticket-actions-step-${kind}-tags`, { tags: names.join(', '), count })
-        : t(`ticket-actions-step-${kind}-tags-unknown`, { count });
-    }
-    case 'set_priority':
-      return t('ticket-actions-step-priority', { priority: priorityLabel(c.priority) });
-    default:
-      // stop_processing does nothing when an agent applies a rule.
-      return null;
-  }
-}
-
 const steps = computed<Step[]>(() =>
   (selected.value?.actions ?? []).flatMap((action, i) => {
-    const label = describe(action);
+    const label = stepText.planned(action);
     return label ? [{ position: i + 1, action, label }] : [];
   }),
 );

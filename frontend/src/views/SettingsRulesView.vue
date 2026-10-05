@@ -22,6 +22,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import SearchInput from '@/components/common/SearchInput.vue';
 import StatusPill from '@/components/common/StatusPill.vue';
+import StarterRulesDialog from '@/components/admin/rules/StarterRulesDialog.vue';
 import type { StatusPillTone } from '@/components/common/statusPillTone';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
@@ -109,6 +110,7 @@ const stateFilterOptions = computed(() => [
 
 const errorMessage = ref('');
 const archiveTarget = ref<Rule | null>(null);
+const startersOpen = ref(false);
 
 async function openEdit(rule: Rule): Promise<void> {
   await router.push({ name: 'admin-rules-edit', params: { id: rule.id } });
@@ -160,6 +162,9 @@ async function setLive(rule: Rule, live: boolean): Promise<void> {
       <Button variant="secondary" @click="openActivity" icon="history">
         <span>{{ t('admin-rules-activity-cta') }}</span>
       </Button>
+      <Button variant="secondary" @click="startersOpen = true" icon="book">
+        <span>{{ t('admin-rules-starters-cta') }}</span>
+      </Button>
       <Button variant="primary" @click="openCreate" icon="add">
         <span>{{ t('admin-rules-new-cta') }}</span>
       </Button>
@@ -202,9 +207,14 @@ async function setLive(rule: Rule, live: boolean): Promise<void> {
       :title="t('admin-rules-empty-title')"
       :hint="t('admin-rules-empty-hint')"
     >
-      <Button variant="primary" @click="openCreate">
-        {{ t('admin-rules-new-cta') }}
-      </Button>
+      <div class="flex flex-wrap items-center justify-center gap-2">
+        <Button variant="primary" icon="book" @click="startersOpen = true">
+          {{ t('admin-rules-starters-cta') }}
+        </Button>
+        <Button variant="secondary" icon="add" @click="openCreate">
+          {{ t('admin-rules-new-cta') }}
+        </Button>
+      </div>
     </EmptyState>
 
     <table v-else class="w-full text-sm">
@@ -268,6 +278,8 @@ async function setLive(rule: Rule, live: boolean): Promise<void> {
         </tr>
       </tbody>
     </table>
+
+    <StarterRulesDialog :show="startersOpen" :rules="rules" @close="startersOpen = false" />
 
     <ConfirmModal
       :show="archiveTarget !== null"

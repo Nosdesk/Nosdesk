@@ -6902,7 +6902,7 @@ admin-rules-col-last-fired = Last run
 admin-rules-col-fire-count = Runs
 admin-rules-last-fired-never = Never
 admin-rules-empty-title = No rules yet
-admin-rules-empty-hint = Create a rule to give agents a set of steps they can apply to a ticket in one go.
+admin-rules-empty-hint = Start from a ready-made rule or build your own. Agents apply rules to tickets from the Actions button.
 admin-rules-error-load = Couldn't load the rules list.
 admin-rules-error-archive = Couldn't archive that rule.
 admin-rules-error-transition = Couldn't update the rule.
@@ -6913,14 +6913,14 @@ admin-rules-archive-confirm-body = { $name } will no longer appear under Actions
 admin-rules-archive-confirm-button = Archive
 
 admin-rules-activity-title = Rule activity
-admin-rules-activity-help = Each time a rule runs on a ticket, it adds a row here. A run that failed or was skipped says why.
+admin-rules-activity-help = Each time an agent applies a rule, it adds a row here. Open a row to see what the rule did.
 admin-rules-activity-back = Back to rules
 admin-rules-activity-error-load = Couldn't load the activity log.
 admin-rules-activity-empty-title = No activity yet
 admin-rules-activity-empty-hint = Runs show up here once an agent applies a rule.
 admin-rules-activity-filter-all = All statuses
 admin-rules-activity-limit = Last { $n }
-admin-rules-activity-inspector-empty = Nothing else was recorded for this run.
+admin-rules-activity-inspector-empty = Nothing was recorded for this run.
 admin-rules-activity-status-succeeded = Succeeded
 admin-rules-activity-status-dry-run = Dry run
 admin-rules-activity-status-skipped-preflight = Skipped before it ran
@@ -6936,6 +6936,49 @@ admin-rules-go-live = Go live
 admin-rules-pause = Pause
 admin-rules-activity-row-by-agent = Applied to ticket #{ $ticket_id } by an agent
 admin-rules-activity-row-automatic = Ran on ticket #{ $ticket_id } automatically
+admin-rules-starters-cta = Browse starter rules
+admin-rules-starters-title = Starter rules
+admin-rules-starters-description = Ready-made rules you can add as drafts and adjust before they go live.
+admin-rules-starters-add = Add
+admin-rules-starters-added = Added
+admin-rules-starters-toast = Added { $name } as a draft.
+admin-rules-starters-error = Couldn't add that rule.
+admin-rules-starters-error-load = Couldn't load the starter rules.
+admin-rules-activity-rule-unknown = Deleted rule
+admin-rules-activity-row-by-person = Applied to ticket #{ $ticket_id } by { $name }
+admin-rules-activity-what-it-did = What it did
+admin-rules-activity-open-ticket = Open the ticket
+admin-rules-activity-open-rule = Open the rule
+admin-rules-activity-skipped = Skipped by the agent: { $step }
+admin-rules-activity-did-status = Set the status to { $status }
+admin-rules-activity-did-status-unknown = Changed the status
+admin-rules-activity-did-assign = Assigned to { $name }
+admin-rules-activity-did-assign-unknown = Assigned the ticket
+admin-rules-activity-did-unassign = Removed the assignee
+admin-rules-activity-did-add-tags =
+    { $count ->
+        [one] Added the tag { $tags }
+       *[other] Added the tags { $tags }
+    }
+admin-rules-activity-did-add-tags-unknown =
+    { $count ->
+        [one] Added a tag
+       *[other] Added { $count } tags
+    }
+admin-rules-activity-did-remove-tags =
+    { $count ->
+        [one] Removed the tag { $tags }
+       *[other] Removed the tags { $tags }
+    }
+admin-rules-activity-did-remove-tags-unknown =
+    { $count ->
+        [one] Removed a tag
+       *[other] Removed { $count } tags
+    }
+admin-rules-activity-did-priority = Set the priority to { $priority }
+admin-rules-activity-did-reply = Replied to the requester
+admin-rules-activity-did-note = Added an internal note
+admin-rules-activity-did-message = Posted a reply or note
 
 # Activity-feed phrases for the rule fire event. Wave 7 wires
 # ticket.rule_applied into TicketActivity.vue; the dry-run variant
