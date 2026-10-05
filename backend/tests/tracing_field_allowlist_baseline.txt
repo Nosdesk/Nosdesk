@@ -255,10 +255,8 @@ src/handlers/search.rs users
 src/handlers/sync/push.rs reason
 src/handlers/sync/push.rs tx_id
 src/handlers/sync/push.rs user
-src/handlers/tickets.rs assignee
 src/handlers/tickets.rs device_id
 src/handlers/tickets.rs name
-src/handlers/tickets.rs rule
 src/handlers/users.rs admin
 src/handlers/users.rs avatar_url
 src/handlers/users.rs banner_url

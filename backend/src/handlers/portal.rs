@@ -1575,6 +1575,7 @@ pub async fn create_my_ticket(
     let has_files = !attachment_ids.is_empty();
     let user_uuid = portal.user_uuid;
     let search = Arc::clone(search_service.get_ref());
+    let search_for_rules = Arc::clone(search_service.get_ref());
 
     let requested_type = body.category_id;
     let result = tc.run(move |conn| {
@@ -1641,6 +1642,19 @@ pub async fn create_my_ticket(
         )
         .await;
     }
+
+    // The assignment rules pick an assignee for the new request, as they do
+    // for a ticket opened in the app.
+    let result = result.map(|(ticket, comment)| {
+        (
+            crate::services::ticket_updates::assign_new_ticket(
+                &mut tc,
+                Some(&search_for_rules),
+                ticket,
+            ),
+            comment,
+        )
+    });
 
     match result {
         Ok((ticket, _)) => HttpResponse::Created().json(CustomerTicket::new(

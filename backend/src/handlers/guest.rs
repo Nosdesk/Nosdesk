@@ -737,6 +737,23 @@ pub async fn submit_guest_ticket(
         }
     }
 
+    // A ticket that doesn't wait on the email confirmation goes through the
+    // assignment rules now. A held one does when it's released.
+    let ticket = if ticket.verification_state.as_deref()
+        == Some(crate::sync::groups::PENDING_VERIFICATION)
+    {
+        ticket
+    } else {
+        crate::services::ticket_updates::assign_new_ticket(
+            &mut crate::services::ticket_updates::ActorConn {
+                conn: &mut conn,
+                actor: &actor,
+            },
+            Some(search_service.get_ref()),
+            ticket,
+        )
+    };
+
     let _ = session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
         log_guest_event(
             c,

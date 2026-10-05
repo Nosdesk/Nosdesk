@@ -16,6 +16,8 @@
 //! pins the request's workspace (a pooled connection starts with none,
 //! and row security then shows and accepts nothing).
 
+use std::sync::Arc;
+
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -31,6 +33,9 @@ use crate::models::{
     WorkspaceRole,
 };
 use crate::repository::rules;
+use crate::repository::tickets::TicketUpdatedObserver;
+use crate::services::search::SearchService;
+use crate::services::ticket_updates::{after_update, ActorConn, InWorkspace};
 use crate::utils::rbac::require_workspace_role;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -808,19 +813,21 @@ pub struct ApplyRuleResponse {
     pub actions_suppressed: usize,
 }
 
+// tenant-read-exempt: the post-apply ticket reload runs through ActorConn::run, which pins via with_actor_context (invisible to the scanner).
 /// `POST /api/rules/{id}/apply`. Agent role minimum. The route is
 /// registered before the wildcard `/rules/{id}` PUT/DELETE in
 /// main.rs to dodge actix's route-shadowing footgun.
 ///
-/// Post-commit side-effects (channel relay for public replies,
-/// SSE field broadcasts) live in this handler, not in the apply
-/// lifecycle, so a slow downstream cannot roll back a committed
+/// Post-commit side-effects (channel relay for public replies, search
+/// reindex, recurring-ticket follow-up) live in this handler, not in the
+/// apply lifecycle, so a slow downstream cannot roll back a committed
 /// rule fire. Errors here are logged and swallowed.
 pub async fn apply_rule(
     req: HttpRequest,
     path: web::Path<i32>,
     body: web::Json<ApplyRuleRequest>,
     pool: web::Data<Pool>,
+    search: Option<web::Data<Arc<SearchService>>>,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
     let Some(actor) = req
@@ -863,9 +870,34 @@ pub async fn apply_rule(
     }
 
     // Rule-applied field changes (status / assignee / priority / tags)
-    // reach clients through the sync pool: each change emits its own
-    // ticket.* sync action, and ticket.rule_applied drives the activity
-    // feed. No discrete SSE broadcast.
+    // reach clients through the sync pool: each step goes through the
+    // tickets or tags repository and emits its own ticket.* sync action,
+    // and ticket.rule_applied drives the activity feed. What a manual edit
+    // does once it commits follows here: the ticket is reindexed for
+    // search, and a recurring ticket a step closed gets its next occurrence.
+    if outcome.actions_executed > 0 {
+        let search = search.as_ref().map(|s| s.get_ref());
+        let mut db = ActorConn {
+            conn: &mut conn,
+            actor: &actor,
+        };
+        match db.run(|c| crate::repository::tickets::get_ticket_by_id(c, ticket_id)) {
+            Ok(ticket) => {
+                if let Some(search) = search {
+                    let article = db
+                        .run(|c| {
+                            crate::repository::article_content::get_article_content_by_ticket_id(
+                                c, ticket_id,
+                            )
+                        })
+                        .ok();
+                    search.ticket_updated(&ticket, article.as_ref());
+                }
+                after_update(&mut db, search, &ticket, false);
+            }
+            Err(e) => tracing::warn!(error = %e, ticket_id, "rule apply: post-save reload failed"),
+        }
+    }
 
     Ok(HttpResponse::Ok().json(ApplyRuleResponse {
         rule: RuleDto::from(outcome.rule),
