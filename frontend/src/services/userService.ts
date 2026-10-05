@@ -4,7 +4,7 @@ import { logger } from '@nosdesk/core/utils/logger';
 import { RequestManager } from '@nosdesk/core/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';
 import type { User, UserRole, UserSecurityInfo } from '@nosdesk/core/types/user';
-import type { Asset } from '@nosdesk/core/types/asset';
+import type { Asset, AssetLoan } from '@nosdesk/core/types/asset';
 import type { Group } from '@nosdesk/core/types/group';
 import { extractErrorMessage } from '@/utils/errors';
 
@@ -43,7 +43,12 @@ export interface UserEmail {
 /** Sub-resource keys the `/users/{uuid}/profile` endpoint
  *  understands. Keep in sync with `ProfileGroup` in
  *  `backend/src/repository/user_profile.rs`. */
-export type ProfileBundleGroup = 'devices' | 'groups' | 'emails' | 'counts'
+export type ProfileBundleGroup = 'devices' | 'loans' | 'groups' | 'emails' | 'counts'
+
+/** A device on loan to the person: the loan, with the device itself. */
+export interface ProfileLoan extends AssetLoan {
+  asset: Asset
+}
 
 export interface UserProfileCounts {
   assignedTickets: number
@@ -55,6 +60,7 @@ export interface UserProfileCounts {
 export interface UserProfileBundle {
   user: User
   devices?: Asset[]
+  loans?: ProfileLoan[]
   groups?: Group[]
   emails?: UserEmail[]
   counts?: UserProfileCounts

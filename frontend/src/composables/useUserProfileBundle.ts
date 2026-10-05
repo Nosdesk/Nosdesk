@@ -30,6 +30,7 @@ export interface UseUserProfileBundleOptions {
 
 const ALL_GROUPS: readonly ProfileBundleGroup[] = [
   'devices',
+  'loans',
   'groups',
   'emails',
   'counts',

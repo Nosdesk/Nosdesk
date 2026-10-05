@@ -21,10 +21,10 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{Asset, Group, UserEmail, UserResponse};
+use crate::models::{Asset, AssetLoan, Group, UserEmail, UserResponse};
 use crate::repository::{
-    assets as assets_repo, groups as groups_repo, user_emails as user_emails_repo, user_helpers,
-    users as users_repo,
+    asset_loans as asset_loans_repo, assets as assets_repo, groups as groups_repo,
+    user_emails as user_emails_repo, user_helpers, users as users_repo,
 };
 use crate::schema::tickets;
 
@@ -32,6 +32,8 @@ use crate::schema::tickets;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProfileGroup {
     Devices,
+    /// Devices on loan to the person right now.
+    Loans,
     Groups,
     Emails,
     Counts,
@@ -41,6 +43,7 @@ impl ProfileGroup {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "devices" => Some(Self::Devices),
+            "loans" => Some(Self::Loans),
             "groups" => Some(Self::Groups),
             "emails" => Some(Self::Emails),
             "counts" => Some(Self::Counts),
@@ -49,13 +52,19 @@ impl ProfileGroup {
     }
 
     pub fn all() -> HashSet<Self> {
-        [Self::Devices, Self::Groups, Self::Emails, Self::Counts]
-            .into_iter()
-            .collect()
+        [
+            Self::Devices,
+            Self::Loans,
+            Self::Groups,
+            Self::Emails,
+            Self::Counts,
+        ]
+        .into_iter()
+        .collect()
     }
 
     pub fn all_keys() -> &'static [&'static str] {
-        &["devices", "groups", "emails", "counts"]
+        &["devices", "loans", "groups", "emails", "counts"]
     }
 }
 
@@ -67,11 +76,22 @@ pub struct ProfileBundle {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub devices: Option<Vec<Asset>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub loans: Option<Vec<ProfileLoan>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub groups: Option<Vec<Group>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emails: Option<Vec<UserEmail>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub counts: Option<ProfileCounts>,
+}
+
+/// A device on loan to the person: the loan, with the device itself, so the
+/// page can name it without the device being in the viewer's sync pool.
+#[derive(Serialize)]
+pub struct ProfileLoan {
+    #[serde(flatten)]
+    pub loan: AssetLoan,
+    pub asset: Asset,
 }
 
 /// Ticket counts scoped to this user, used to render badges
@@ -104,6 +124,17 @@ pub fn compute(
         None
     };
 
+    let loans = if groups.contains(&ProfileGroup::Loans) {
+        Some(
+            asset_loans_repo::active_for_borrower(conn, user_uuid)?
+                .into_iter()
+                .map(|(loan, asset)| ProfileLoan { loan, asset })
+                .collect(),
+        )
+    } else {
+        None
+    };
+
     let groups_field = if groups.contains(&ProfileGroup::Groups) {
         Some(groups_repo::get_groups_for_user(conn, user_uuid)?)
     } else {
@@ -125,6 +156,7 @@ pub fn compute(
     Ok(Some(ProfileBundle {
         user: user_response,
         devices,
+        loans,
         groups: groups_field,
         emails,
         counts,
@@ -159,6 +191,7 @@ mod tests {
     #[test]
     fn parse_known_keys() {
         assert_eq!(ProfileGroup::parse("devices"), Some(ProfileGroup::Devices));
+        assert_eq!(ProfileGroup::parse("loans"), Some(ProfileGroup::Loans));
         assert_eq!(ProfileGroup::parse("groups"), Some(ProfileGroup::Groups));
         assert_eq!(ProfileGroup::parse("emails"), Some(ProfileGroup::Emails));
         assert_eq!(ProfileGroup::parse("counts"), Some(ProfileGroup::Counts));

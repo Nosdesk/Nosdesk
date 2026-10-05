@@ -2576,6 +2576,8 @@ user-profile-action-create = Gebruiker aanmaken
 user-profile-action-creating = Aanmaken...
 user-profile-assets-title = Activa
 user-profile-assets-empty = Geen activa
+# Apparaten die aan de persoon zijn uitgeleend (machine, na te kijken door moedertaalspreker).
+user-profile-loans-heading = Uitgeleend
 user-profile-asset-manufacturer-unknown = Onbekend
 user-profile-asset-last-updated = Laatst bijgewerkt { $when }
 user-profile-groups-title = Groepen

@@ -90,7 +90,7 @@ const activeTab = ref(routeSection && validTabs.includes(routeSection) ? routeSe
 // surfaced as `targetUser.uuid === undefined` on SPA navigation.
 const userProfileBundle = useUserProfileBundle({
   uuid: () => targetUserUuid.value,
-  include: ['devices', 'groups'],
+  include: ['devices', 'loans', 'groups'],
   enabled: () => isAdminMode.value,
 });
 const userGroupsQuery = useQuery({
