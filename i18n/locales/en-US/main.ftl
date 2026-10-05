@@ -6880,7 +6880,7 @@ route-title-admin-rules-new = New rule
 route-title-admin-rules-edit = Edit rule
 
 admin-rules-title = Rules
-admin-rules-help-intro = One rule entity covers manual quick-actions, on-event automations, and time-based escalations. Manual rules show up in the agent toolbar; everything else fires from the engine.
+admin-rules-help-intro = A rule is a set of steps, such as a reply and a priority change, that agents apply to a ticket in one go from its Actions button.
 admin-rules-new-cta = New rule
 admin-rules-activity-cta = Recent activity
 admin-rules-search-placeholder = Search rules by name
@@ -6892,48 +6892,50 @@ admin-rules-trigger-ticket-updated = On ticket updated
 admin-rules-trigger-ticket-replied = On reply
 admin-rules-trigger-time-elapsed = Time elapsed
 admin-rules-state-draft = Draft
-admin-rules-state-dry-run = Dry run
+admin-rules-state-dry-run = Paused
 admin-rules-state-live = Live
 admin-rules-state-archived = Archived
 admin-rules-col-name = Name
 admin-rules-col-trigger = Trigger
 admin-rules-col-state = State
-admin-rules-col-last-fired = Last fired
-admin-rules-col-fire-count = Fires (total)
+admin-rules-col-last-fired = Last run
+admin-rules-col-fire-count = Runs
 admin-rules-last-fired-never = Never
 admin-rules-empty-title = No rules yet
-admin-rules-empty-hint = Create your first rule or browse the starter catalog (coming soon).
+admin-rules-empty-hint = Create a rule to give agents a set of steps they can apply to a ticket in one go.
 admin-rules-error-load = Couldn't load the rules list.
 admin-rules-error-archive = Couldn't archive that rule.
-admin-rules-error-transition = Couldn't change the state.
+admin-rules-error-transition = Couldn't update the rule.
 admin-rules-toast-archived = Archived { $name }.
-admin-rules-toast-state-changed = State changed to { $state }.
-admin-rules-action-pause-tooltip = Pause (move to dry run)
-admin-rules-action-resume-tooltip = Resume (back to live)
 admin-rules-action-archive-tooltip = Archive
 admin-rules-archive-confirm-title = Archive rule?
-admin-rules-archive-confirm-body = { $name } will stop firing and be hidden from the picker. The audit history stays. You can permanently delete it later from the archived view.
+admin-rules-archive-confirm-body = { $name } will no longer appear under Actions on tickets. Its activity stays in the log.
 admin-rules-archive-confirm-button = Archive
 
 admin-rules-activity-title = Rule activity
-admin-rules-activity-help = Every fire writes one row, whether successful, skipped, suppressed, or failed. Click a row to see the condition evaluation and the actions that ran.
+admin-rules-activity-help = Each time a rule runs on a ticket, it adds a row here. A run that failed or was skipped says why.
 admin-rules-activity-back = Back to rules
 admin-rules-activity-error-load = Couldn't load the activity log.
 admin-rules-activity-empty-title = No activity yet
-admin-rules-activity-empty-hint = Rules write here as soon as they fire.
+admin-rules-activity-empty-hint = Runs show up here once an agent applies a rule.
 admin-rules-activity-filter-all = All statuses
 admin-rules-activity-limit = Last { $n }
-admin-rules-activity-actor-system = engine
-admin-rules-activity-actor-user = agent
-admin-rules-activity-row-summary = on ticket #{ $ticket_id } by { $actor }
-admin-rules-activity-inspector-empty = No inspector payload (successful fire keeps the audit row tight).
+admin-rules-activity-inspector-empty = Nothing else was recorded for this run.
 admin-rules-activity-status-succeeded = Succeeded
 admin-rules-activity-status-dry-run = Dry run
-admin-rules-activity-status-skipped-preflight = Skipped (preflight)
-admin-rules-activity-status-skipped-condition-unmet = Skipped (no match)
-admin-rules-activity-status-suppressed-recursion-budget = Suppressed (recursion)
-admin-rules-activity-status-suppressed-loop-guard = Suppressed (loop guard)
+admin-rules-activity-status-skipped-preflight = Skipped before it ran
+admin-rules-activity-status-skipped-condition-unmet = Skipped: conditions not met
+admin-rules-activity-status-suppressed-recursion-budget = Stopped: too many rules ran in a row
+admin-rules-activity-status-suppressed-loop-guard = Stopped: it would have run in a loop
 admin-rules-activity-status-failed = Failed
+admin-rules-toast-created = Created { $name }.
+admin-rules-toast-saved = Saved { $name }.
+admin-rules-toast-live = { $name } is live.
+admin-rules-toast-paused = { $name } is paused.
+admin-rules-go-live = Go live
+admin-rules-pause = Pause
+admin-rules-activity-row-by-agent = Applied to ticket #{ $ticket_id } by an agent
+admin-rules-activity-row-automatic = Ran on ticket #{ $ticket_id } automatically
 
 # Activity-feed phrases for the rule fire event. Wave 7 wires
 # ticket.rule_applied into TicketActivity.vue; the dry-run variant
@@ -6945,39 +6947,56 @@ ticket-activity-phrase-rule-applied-dry-run = previewed rule "{ $rule }" in dry-
 # "Actions" even though the backend entity is Rule).
 ticket-actions-button = Actions
 ticket-actions-dialog-title = Apply an action
-ticket-actions-dialog-picker-placeholder = Find an action...
-ticket-actions-dialog-empty = No live manual rules in this workspace.
-ticket-actions-dialog-action-list-label = This action will:
+ticket-actions-dialog-empty = No actions are available yet.
 ticket-actions-dialog-cancel = Cancel
 ticket-actions-dialog-apply = Apply
-ticket-actions-dialog-applying = Applying...
 ticket-actions-success-toast = Applied "{ $rule }".
-ticket-actions-error-toast = Couldn't apply the action.
+ticket-actions-dialog-description = See what an action does to this ticket before you apply it.
+ticket-actions-dialog-list-label = Actions you can apply
+ticket-actions-dialog-search-placeholder = Find an action
+ticket-actions-dialog-no-match = No actions match your search.
+ticket-actions-dialog-steps-label = This action will:
+ticket-actions-error = Couldn't apply this action.
+ticket-actions-step-reply = Reply to the requester
+ticket-actions-step-note = Add an internal note
+ticket-actions-step-status = Set the status to { $status }
+ticket-actions-step-status-unknown = Change the status
+ticket-actions-step-assign = Assign to { $name }
+ticket-actions-step-assign-unknown = Assign to a specific person
+ticket-actions-step-unassign = Remove the assignee
+ticket-actions-step-add-tags =
+    { $count ->
+        [one] Add the tag { $tags }
+       *[other] Add the tags { $tags }
+    }
+ticket-actions-step-add-tags-unknown =
+    { $count ->
+        [one] Add a tag
+       *[other] Add { $count } tags
+    }
+ticket-actions-step-remove-tags =
+    { $count ->
+        [one] Remove the tag { $tags }
+       *[other] Remove the tags { $tags }
+    }
+ticket-actions-step-remove-tags-unknown =
+    { $count ->
+        [one] Remove a tag
+       *[other] Remove { $count } tags
+    }
+ticket-actions-step-priority = Set the priority to { $priority }
+ticket-actions-reply-edit = Edit reply
+ticket-actions-reply-edit-label = Reply
+ticket-actions-reply-edit-hint = Variables such as {"{{"}customer_name{"}}"} are filled in when it's sent.
+ticket-actions-reply-empty = Write a reply, or untick this step.
 
 # Action summary chips (admin list + agent dialog preview).
-admin-rules-action-chip-reply-public = Reply to customer
-admin-rules-action-chip-reply-internal = Add internal note
-admin-rules-action-chip-set-status = Move to state #{ $state_id }
-admin-rules-action-chip-assign = Assign to user
-admin-rules-action-chip-unassign = Clear assignee
-admin-rules-action-chip-add-tags = Add { $count ->
-    [one] 1 tag
-   *[other] { $count } tags
-  }
-admin-rules-action-chip-remove-tags = Remove { $count ->
-    [one] 1 tag
-   *[other] { $count } tags
-  }
-admin-rules-action-chip-set-priority = Set priority to { $priority }
-admin-rules-action-chip-notify = Send notification
-admin-rules-action-chip-stop-processing = Stop here
 
 # Rule editor (Wave 7).
 admin-rule-editor-title-new = New rule
 admin-rule-editor-title-edit = Edit "{ $name }"
 admin-rule-editor-back = Back to rules
 admin-rule-editor-save = Save
-admin-rule-editor-saving = Saving...
 admin-rule-editor-section-name = What
 admin-rule-editor-section-trigger = When
 admin-rule-editor-section-actions = Then do
@@ -6985,17 +7004,34 @@ admin-rule-editor-section-state = State
 admin-rule-editor-name-label = Name
 admin-rule-editor-name-placeholder = Acknowledge and escalate to network team
 admin-rule-editor-description-label = Description (optional)
-admin-rule-editor-description-placeholder = Short note about when an agent should reach for this.
+admin-rule-editor-description-placeholder = A short note on when to use this rule.
 admin-rule-editor-trigger-label = Trigger
-admin-rule-editor-trigger-manual-note = Manual rules show up in the agent Actions toolbar. There's no per-ticket condition; the picker is filtered by category.
-admin-rule-editor-trigger-other-phase = Event triggers and time-elapsed triggers land in Phase 2 of the rules engine; for now they save as Draft but won't fire until the engine subscribes.
-admin-rule-editor-actions-add = Add an action
-admin-rule-editor-actions-empty = This rule needs at least one action.
-admin-rule-editor-action-remove = Remove
+admin-rule-editor-trigger-other-phase = This trigger doesn't run yet, so the rule never does anything. Switch it to Manual so agents can apply it.
+admin-rule-editor-actions-add = Add a step
+admin-rule-editor-actions-empty = This rule needs at least one step.
+admin-rule-editor-action-remove = Remove step
 admin-rule-editor-error-save = Couldn't save the rule.
-admin-rule-editor-error-conflict = This rule reads and writes the same fields. Save anyway to override.
-admin-rule-editor-override-self-ref = I understand this rule may loop
-admin-rule-editor-priority-label = Priority (lower runs first)
+admin-rule-editor-override-self-ref = Save even though this rule changes a field it also checks
+admin-rule-editor-priority-label = Run order (lower runs first)
+admin-rule-editor-trigger-manual-summary = When an agent applies it from a ticket's Actions button.
+admin-rule-editor-state-new = New rules start as drafts. Save this one, then press Go live.
+admin-rule-editor-state-draft = Draft. Agents can't see it yet.
+admin-rule-editor-state-paused = Paused. Agents can't see it.
+admin-rule-editor-state-live = Live. Agents can apply it from the Actions button on any ticket.
+admin-rule-editor-action-reply = Reply
+admin-rule-editor-action-set-status = Set status
+admin-rule-editor-action-assign = Assign
+admin-rule-editor-action-unassign = Remove assignee
+admin-rule-editor-action-add-tags = Add tags
+admin-rule-editor-action-remove-tags = Remove tags
+admin-rule-editor-action-set-priority = Set priority
+admin-rule-editor-action-stop-processing = Stop here
+admin-rule-editor-reply-public = Public reply to the requester
+admin-rule-editor-reply-internal = Internal note
+admin-rule-editor-reply-placeholder = Hi {"{{"}customer_name{"}}"}, ...
+admin-rule-editor-status-id-label = Status ID
+admin-rule-editor-user-id-label = User ID
+admin-rule-editor-tag-ids-label = Tag IDs, separated by commas
 
 # Dashboard chrome row (docs/dashboard-and-analytics-plan.md Wave 1).
 # Time-range chip cluster, compare-to-prior toggle, audit-log

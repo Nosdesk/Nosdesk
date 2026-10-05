@@ -6912,8 +6912,9 @@ route-title-admin-rules-activity = Regelactiviteit
 route-title-admin-rules-new = Nieuwe regel
 route-title-admin-rules-edit = Regel bewerken
 
+# Regels en het dialoogvenster Acties op tickets, herziene teksten (machine, na te kijken door een moedertaalspreker).
 admin-rules-title = Regels
-admin-rules-help-intro = Eén entiteit dekt handmatige snelacties, automatiseringen op events en escalaties op tijd. Handmatige regels verschijnen in de werkbalk van de agent; de rest wordt door de engine geactiveerd.
+admin-rules-help-intro = Een regel is een reeks stappen, zoals een antwoord en een prioriteitswijziging, die agents in één keer op een ticket toepassen via de knop Acties.
 admin-rules-new-cta = Nieuwe regel
 admin-rules-activity-cta = Recente activiteit
 admin-rules-search-placeholder = Zoek regels op naam
@@ -6925,85 +6926,106 @@ admin-rules-trigger-ticket-updated = Bij wijzigen ticket
 admin-rules-trigger-ticket-replied = Bij antwoord
 admin-rules-trigger-time-elapsed = Tijd verstreken
 admin-rules-state-draft = Concept
-admin-rules-state-dry-run = Testrun
+admin-rules-state-dry-run = Gepauzeerd
 admin-rules-state-live = Actief
 admin-rules-state-archived = Gearchiveerd
 admin-rules-col-name = Naam
 admin-rules-col-trigger = Trigger
 admin-rules-col-state = Status
-admin-rules-col-last-fired = Laatst geactiveerd
-admin-rules-col-fire-count = Activeringen (totaal)
+admin-rules-col-last-fired = Laatst uitgevoerd
+admin-rules-col-fire-count = Uitvoeringen
 admin-rules-last-fired-never = Nooit
 admin-rules-empty-title = Nog geen regels
-admin-rules-empty-hint = Maak je eerste regel of blader door de starterscatalogus (binnenkort).
+admin-rules-empty-hint = Maak een regel zodat agents een reeks stappen in één keer op een ticket kunnen toepassen.
 admin-rules-error-load = Kan de regelslijst niet laden.
 admin-rules-error-archive = Kan deze regel niet archiveren.
-admin-rules-error-transition = Kan de status niet wijzigen.
+admin-rules-error-transition = Kan de regel niet bijwerken.
 admin-rules-toast-archived = { $name } gearchiveerd.
-admin-rules-toast-state-changed = Status gewijzigd naar { $state }.
-admin-rules-action-pause-tooltip = Pauzeren (naar testrun)
-admin-rules-action-resume-tooltip = Hervatten
 admin-rules-action-archive-tooltip = Archiveren
 admin-rules-archive-confirm-title = Regel archiveren?
-admin-rules-archive-confirm-body = { $name } stopt met activeren en wordt verborgen uit de keuzelijst. De auditgeschiedenis blijft bestaan. Je kunt hem later permanent verwijderen via de gearchiveerde weergave.
+admin-rules-archive-confirm-body = { $name } staat niet meer onder Acties op tickets. De activiteit blijft in het logboek.
 admin-rules-archive-confirm-button = Archiveren
 
 admin-rules-activity-title = Regelactiviteit
-admin-rules-activity-help = Elke activering schrijft één regel, ongeacht of die succesvol, overgeslagen, onderdrukt of mislukt is. Klik op een regel om de voorwaardenevaluatie en de uitgevoerde acties te zien.
+admin-rules-activity-help = Elke keer dat een regel op een ticket draait, komt er hier een rij bij. Bij een mislukte of overgeslagen uitvoering staat de reden erbij.
 admin-rules-activity-back = Terug naar regels
 admin-rules-activity-error-load = Kan het activiteitenlogboek niet laden.
 admin-rules-activity-empty-title = Nog geen activiteit
-admin-rules-activity-empty-hint = Regels schrijven hier zodra ze worden geactiveerd.
+admin-rules-activity-empty-hint = Uitvoeringen verschijnen hier zodra een agent een regel toepast.
 admin-rules-activity-filter-all = Alle statussen
 admin-rules-activity-limit = Laatste { $n }
-admin-rules-activity-actor-system = engine
-admin-rules-activity-actor-user = agent
-admin-rules-activity-row-summary = op ticket #{ $ticket_id } door { $actor }
-admin-rules-activity-inspector-empty = Geen inspectorgegevens (geslaagde activering blijft compact).
+admin-rules-activity-inspector-empty = Er is verder niets vastgelegd voor deze uitvoering.
 admin-rules-activity-status-succeeded = Geslaagd
 admin-rules-activity-status-dry-run = Testrun
-admin-rules-activity-status-skipped-preflight = Overgeslagen (preflight)
-admin-rules-activity-status-skipped-condition-unmet = Overgeslagen (geen match)
-admin-rules-activity-status-suppressed-recursion-budget = Onderdrukt (recursie)
-admin-rules-activity-status-suppressed-loop-guard = Onderdrukt (lus-guard)
+admin-rules-activity-status-skipped-preflight = Overgeslagen vóór uitvoering
+admin-rules-activity-status-skipped-condition-unmet = Overgeslagen: niet aan de voorwaarden voldaan
+admin-rules-activity-status-suppressed-recursion-budget = Gestopt: te veel regels achter elkaar
+admin-rules-activity-status-suppressed-loop-guard = Gestopt: zou in een lus draaien
 admin-rules-activity-status-failed = Mislukt
+admin-rules-toast-created = { $name } aangemaakt.
+admin-rules-toast-saved = { $name } opgeslagen.
+admin-rules-toast-live = { $name } is actief.
+admin-rules-toast-paused = { $name } is gepauzeerd.
+admin-rules-go-live = Activeren
+admin-rules-pause = Pauzeren
+admin-rules-activity-row-by-agent = Op ticket #{ $ticket_id } toegepast door een agent
+admin-rules-activity-row-automatic = Automatisch uitgevoerd op ticket #{ $ticket_id }
 
 ticket-activity-phrase-rule-applied = heeft regel "{ $rule }" toegepast
 ticket-activity-phrase-rule-applied-dry-run = heeft regel "{ $rule }" als testrun bekeken
 
+# Regels en het dialoogvenster Acties op tickets, herziene teksten (machine, na te kijken door een moedertaalspreker).
 ticket-actions-button = Acties
 ticket-actions-dialog-title = Een actie toepassen
-ticket-actions-dialog-picker-placeholder = Zoek een actie...
-ticket-actions-dialog-empty = Geen actieve handmatige regels in deze werkruimte.
-ticket-actions-dialog-action-list-label = Deze actie gaat:
+ticket-actions-dialog-empty = Er zijn nog geen acties beschikbaar.
 ticket-actions-dialog-cancel = Annuleren
 ticket-actions-dialog-apply = Toepassen
-ticket-actions-dialog-applying = Bezig met toepassen...
 ticket-actions-success-toast = "{ $rule }" toegepast.
-ticket-actions-error-toast = Kon de actie niet toepassen.
+ticket-actions-dialog-description = Bekijk wat een actie met dit ticket doet voordat je hem toepast.
+ticket-actions-dialog-list-label = Beschikbare acties
+ticket-actions-dialog-search-placeholder = Zoek een actie
+ticket-actions-dialog-no-match = Geen acties gevonden.
+ticket-actions-dialog-steps-label = Deze actie gaat:
+ticket-actions-error = Kan deze actie niet toepassen.
+ticket-actions-step-reply = De aanvrager antwoorden
+ticket-actions-step-note = Een interne notitie toevoegen
+ticket-actions-step-status = De status op { $status } zetten
+ticket-actions-step-status-unknown = De status wijzigen
+ticket-actions-step-assign = Toewijzen aan { $name }
+ticket-actions-step-assign-unknown = Toewijzen aan een bepaalde persoon
+ticket-actions-step-unassign = De toegewezen persoon verwijderen
+ticket-actions-step-add-tags =
+    { $count ->
+        [one] De tag { $tags } toevoegen
+       *[other] De tags { $tags } toevoegen
+    }
+ticket-actions-step-add-tags-unknown =
+    { $count ->
+        [one] Een tag toevoegen
+       *[other] { $count } tags toevoegen
+    }
+ticket-actions-step-remove-tags =
+    { $count ->
+        [one] De tag { $tags } verwijderen
+       *[other] De tags { $tags } verwijderen
+    }
+ticket-actions-step-remove-tags-unknown =
+    { $count ->
+        [one] Een tag verwijderen
+       *[other] { $count } tags verwijderen
+    }
+ticket-actions-step-priority = De prioriteit op { $priority } zetten
+ticket-actions-reply-edit = Antwoord bewerken
+ticket-actions-reply-edit-label = Antwoord
+ticket-actions-reply-edit-hint = Variabelen zoals {"{{"}customer_name{"}}"} worden ingevuld bij het verzenden.
+ticket-actions-reply-empty = Schrijf een antwoord of vink deze stap uit.
 
-admin-rules-action-chip-reply-public = Antwoord aan klant
-admin-rules-action-chip-reply-internal = Interne notitie toevoegen
-admin-rules-action-chip-set-status = Verplaats naar status #{ $state_id }
-admin-rules-action-chip-assign = Toewijzen aan gebruiker
-admin-rules-action-chip-unassign = Toewijzing wissen
-admin-rules-action-chip-add-tags = Voeg { $count ->
-    [one] 1 tag
-   *[other] { $count } tags
-  } toe
-admin-rules-action-chip-remove-tags = Verwijder { $count ->
-    [one] 1 tag
-   *[other] { $count } tags
-  }
-admin-rules-action-chip-set-priority = Stel prioriteit in op { $priority }
-admin-rules-action-chip-notify = Verstuur melding
-admin-rules-action-chip-stop-processing = Hier stoppen
 
+# Regels en het dialoogvenster Acties op tickets, herziene teksten (machine, na te kijken door een moedertaalspreker).
 admin-rule-editor-title-new = Nieuwe regel
 admin-rule-editor-title-edit = "{ $name }" bewerken
 admin-rule-editor-back = Terug naar regels
 admin-rule-editor-save = Opslaan
-admin-rule-editor-saving = Bezig met opslaan...
 admin-rule-editor-section-name = Wat
 admin-rule-editor-section-trigger = Wanneer
 admin-rule-editor-section-actions = Dan doe je
@@ -7011,17 +7033,34 @@ admin-rule-editor-section-state = Status
 admin-rule-editor-name-label = Naam
 admin-rule-editor-name-placeholder = Bevestigen en escaleren naar het netwerkteam
 admin-rule-editor-description-label = Beschrijving (optioneel)
-admin-rule-editor-description-placeholder = Korte notitie waarvoor een agent deze zou gebruiken.
+admin-rule-editor-description-placeholder = Een korte notitie over wanneer je deze regel gebruikt.
 admin-rule-editor-trigger-label = Trigger
-admin-rule-editor-trigger-manual-note = Handmatige regels verschijnen in de Actie-werkbalk van de agent. Er is geen voorwaarde per ticket; de selectielijst filtert op categorie.
-admin-rule-editor-trigger-other-phase = Event-getriggerde en tijd-getriggerde regels komen in fase 2 van de regelsengine; ze worden nu opgeslagen als Concept maar activeren pas wanneer de engine zich abonneert.
-admin-rule-editor-actions-add = Een actie toevoegen
-admin-rule-editor-actions-empty = Deze regel heeft minstens één actie nodig.
-admin-rule-editor-action-remove = Verwijderen
+admin-rule-editor-trigger-other-phase = Deze trigger draait nog niet, dus de regel doet nooit iets. Zet hem op Handmatig zodat agents hem kunnen toepassen.
+admin-rule-editor-actions-add = Stap toevoegen
+admin-rule-editor-actions-empty = Deze regel heeft minstens één stap nodig.
+admin-rule-editor-action-remove = Stap verwijderen
 admin-rule-editor-error-save = Kan de regel niet opslaan.
-admin-rule-editor-error-conflict = Deze regel leest en schrijft naar dezelfde velden. Sla toch op om te negeren.
-admin-rule-editor-override-self-ref = Ik begrijp dat deze regel in een lus kan terechtkomen
-admin-rule-editor-priority-label = Prioriteit (lagere waarden eerst)
+admin-rule-editor-override-self-ref = Opslaan, ook al wijzigt deze regel een veld dat hij ook controleert
+admin-rule-editor-priority-label = Uitvoeringsvolgorde (laagste eerst)
+admin-rule-editor-trigger-manual-summary = Wanneer een agent hem toepast via de knop Acties op een ticket.
+admin-rule-editor-state-new = Nieuwe regels beginnen als concept. Sla deze op en klik dan op Activeren.
+admin-rule-editor-state-draft = Concept. Agents zien hem nog niet.
+admin-rule-editor-state-paused = Gepauzeerd. Agents zien hem niet.
+admin-rule-editor-state-live = Actief. Agents kunnen hem op elk ticket toepassen via de knop Acties.
+admin-rule-editor-action-reply = Antwoorden
+admin-rule-editor-action-set-status = Status instellen
+admin-rule-editor-action-assign = Toewijzen
+admin-rule-editor-action-unassign = Toewijzing verwijderen
+admin-rule-editor-action-add-tags = Tags toevoegen
+admin-rule-editor-action-remove-tags = Tags verwijderen
+admin-rule-editor-action-set-priority = Prioriteit instellen
+admin-rule-editor-action-stop-processing = Hier stoppen
+admin-rule-editor-reply-public = Openbaar antwoord aan de aanvrager
+admin-rule-editor-reply-internal = Interne notitie
+admin-rule-editor-reply-placeholder = Hallo {"{{"}customer_name{"}}"}, ...
+admin-rule-editor-status-id-label = Status-ID
+admin-rule-editor-user-id-label = Gebruikers-ID
+admin-rule-editor-tag-ids-label = Tag-ID's, gescheiden door komma's
 asset-catalog-col-model = Model
 asset-catalog-col-type = Type
 asset-catalog-col-part-number = Onderdeelnummer

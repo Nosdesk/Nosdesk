@@ -1,0 +1,109 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { PiniaColada } from '@pinia/colada'
+import { flushPromises, type VueWrapper } from '@vue/test-utils'
+import { mountWithProviders } from '@/test/mountWithProviders'
+import type { Rule } from '@nosdesk/core/types/rule'
+
+const route = vi.hoisted(() => ({ name: 'admin-rules-new' as string, params: {} as Record<string, string> }))
+const push = vi.hoisted(() => vi.fn())
+const rules = vi.hoisted(() => ({
+  get: vi.fn(),
+  create: vi.fn(),
+  update: vi.fn(),
+  transitionState: vi.fn(),
+}))
+const toastSuccess = vi.hoisted(() => vi.fn())
+vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push }) }))
+vi.mock('@nosdesk/core/services/rulesService', () => ({ default: rules }))
+vi.mock('@nosdesk/core/stores/toast', () => ({
+  useToastStore: () => ({ success: toastSuccess, error: vi.fn() }),
+}))
+
+import RuleEditView from '@/views/RuleEditView.vue'
+
+function rule(overrides: Partial<Rule> = {}): Rule {
+  return {
+    id: 4,
+    workspace_id: 1,
+    name: 'Bump priority',
+    description: null,
+    trigger_kind: 'manual',
+    trigger_config: {},
+    conditions: [],
+    actions: [{ kind: 'set_priority', config: { priority: 'high' } }],
+    reads_set: [],
+    writes_set: [],
+    state: 'draft',
+    priority: 100,
+    last_fired_at: null,
+    fire_count: 0,
+    created_by: null,
+    created_at: '2026-10-01T00:00:00Z',
+    updated_at: '2026-10-01T00:00:00Z',
+    archived_at: null,
+    ...overrides,
+  }
+}
+
+let wrapper: VueWrapper | null = null
+afterEach(() => {
+  wrapper?.unmount()
+  wrapper = null
+  document.body.innerHTML = ''
+  vi.clearAllMocks()
+})
+
+async function mountAt(name: string, params: Record<string, string> = {}) {
+  route.name = name
+  route.params = params
+  wrapper = mountWithProviders(RuleEditView, {}, {}, [[PiniaColada, {}] as never])
+  await flushPromises()
+  return wrapper
+}
+
+const button = (label: string) =>
+  Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent?.includes(label))
+
+describe('RuleEditView', () => {
+  it('creates a manual rule, says so, and offers Go live', async () => {
+    rules.create.mockResolvedValue(rule())
+    const w = await mountAt('admin-rules-new')
+    // A new rule has no trigger to choose: it's always manual.
+    expect(w.text()).toContain('admin-rule-editor-trigger-manual-summary')
+    expect(w.text()).toContain('admin-rule-editor-state-new')
+    expect(button('admin-rules-go-live')).toBeUndefined()
+
+    await w.find('input').setValue('Bump priority')
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+
+    expect(toastSuccess).toHaveBeenCalledWith('admin-rules-toast-created')
+    expect(push).toHaveBeenCalledWith({ name: 'admin-rules-edit', params: { id: 4 } })
+    expect(w.text()).toContain('admin-rule-editor-state-draft')
+    expect(button('admin-rules-go-live')).toBeDefined()
+  })
+
+  it('saves pending edits before going live, then confirms once', async () => {
+    rules.get.mockResolvedValue(rule())
+    rules.update.mockResolvedValue(rule({ name: 'Bump to high' }))
+    rules.transitionState.mockResolvedValue(rule({ name: 'Bump to high', state: 'live' }))
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+
+    await w.find('input').setValue('Bump to high')
+    button('admin-rules-go-live')!.click()
+    await flushPromises()
+
+    expect(rules.update).toHaveBeenCalledWith(4, expect.objectContaining({ name: 'Bump to high' }))
+    expect(rules.transitionState).toHaveBeenCalledWith(4, { state: 'live' })
+    expect(toastSuccess.mock.calls.map((c) => c[0])).toEqual(['admin-rules-toast-live'])
+    expect(w.text()).toContain('admin-rule-editor-state-live')
+    expect(button('admin-rules-pause')).toBeDefined()
+  })
+
+  it("warns that an older event rule won't run and doesn't offer Go live", async () => {
+    rules.get.mockResolvedValue(rule({ trigger_kind: 'ticket_created' }))
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    expect(w.text()).toContain('admin-rule-editor-trigger-other-phase')
+    expect(button('admin-rules-go-live')).toBeUndefined()
+  })
+})

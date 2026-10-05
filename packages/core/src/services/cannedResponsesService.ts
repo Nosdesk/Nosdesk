@@ -160,6 +160,9 @@ export function renderTemplate(template: string, vars: TemplateVars): string {
     customer_first_name: firstWord(vars.customer_name),
     tech_name: vars.tech_name ?? '',
     tech_first_name: firstWord(vars.tech_name),
+    // Rule replies also accept the agent_ spellings, as the backend does.
+    agent_name: vars.tech_name ?? '',
+    agent_first_name: firstWord(vars.tech_name),
     app_name: vars.app_name ?? '',
   };
   // Whitespace-tolerant token match so `{{ ticket_id }}` and

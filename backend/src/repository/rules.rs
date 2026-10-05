@@ -471,9 +471,9 @@ fn advisory_key(workspace_id: i32, ticket_id: i32) -> i64 {
 /// list length at the API boundary.
 #[derive(Debug, Clone, Default)]
 pub struct ApplyOverrides {
-    /// Replaces the first `reply` action's body verbatim if Some.
-    /// The agent edited it in the dialog after seeing the rendered
-    /// preview; the engine substitutes no further template tokens.
+    /// Replaces the first `reply` action's body if Some. It is the
+    /// template the agent edited in the dialog, so its variable tokens
+    /// are filled in like the rule's own body.
     pub body: Option<String>,
     /// Action positions to skip (1-indexed per decision 33).
     pub suppress_actions: Vec<usize>,
@@ -879,8 +879,9 @@ fn execute_reply(
     let app_name = crate::repository::site_settings::get_site_settings(conn)
         .map(|s| s.app_name)
         .unwrap_or_else(|_| "Nosdesk".to_string());
+    // A plain-text template keeps its line breaks in the HTML comment.
     let rendered = crate::services::template_vars::render(
-        &raw_body,
+        &crate::utils::content::reply_template_html(&raw_body),
         &crate::services::template_vars::TemplateContext {
             ticket,
             requester: requester.as_ref(),
