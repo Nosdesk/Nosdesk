@@ -255,7 +255,7 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   linked_ticket: 1,
   workflow_state: 1,
   comment: 1,
-  attachment: 1,
+  attachment: 2,
   assignment: 1,
   group_membership: 1,
   plugin: 1,

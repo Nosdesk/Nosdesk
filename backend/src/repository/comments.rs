@@ -482,22 +482,7 @@ pub fn create_attachment(
         let attachment: Attachment = diesel::insert_into(attachments::table)
             .values(&new_attachment)
             .get_result(conn)?;
-        // Resolve groups via the parent comment's ticket so the
-        // attachment lands on the same fan-out as its sibling
-        // comment events. Attachments may be orphan (comment_id NULL,
-        // for guest temp uploads); fall back to the workspace group
-        // in that case.
-        let groups = match attachment.comment_id {
-            Some(cid) => {
-                let tid: i32 = comments::table
-                    .find(cid)
-                    .select(comments::ticket_id)
-                    .first(conn)?;
-                let parent: Ticket = tickets::table.find(tid).first(conn)?;
-                groups::for_ticket(conn, &parent)?
-            }
-            None => groups::workspace(),
-        };
+        let groups = attachment_groups(conn, &attachment)?;
         emit::record(
             conn,
             SyncEmit {
@@ -505,22 +490,46 @@ pub fn create_attachment(
                 aggregate_id: attachment.id.to_string(),
                 op: SyncOp::Insert,
                 event_type: "attachment.created",
-                data: json!({
-                    "id": attachment.id,
-                    "comment_id": attachment.comment_id,
-                    "name": attachment.name,
-                    "mime_type": attachment.mime_type,
-                    "file_size": attachment.file_size,
-                    // url is needed to render/download the attachment from
-                    // the pool (Phase 2). thumbnail_url stays derived
-                    // client-side by convention.
-                    "url": attachment.url,
-                }),
+                data: attachment_sync_data(&attachment),
                 groups,
                 causation_id: None,
             },
         )?;
         Ok(attachment)
+    })
+}
+
+/// Who receives an attachment's sync events. On a comment, the comment's
+/// ticket audience, so it fans out with its sibling comment events (the sync
+/// visibility layer then keeps an internal note's files from requesters). A
+/// draft upload not yet on a comment is private to its uploader; one with no
+/// uploader falls back to the workspace.
+fn attachment_groups(conn: &mut DbConnection, attachment: &Attachment) -> QueryResult<Vec<String>> {
+    match (attachment.comment_id, attachment.uploaded_by) {
+        (Some(cid), _) => {
+            let tid: i32 = comments::table
+                .find(cid)
+                .select(comments::ticket_id)
+                .first(conn)?;
+            let parent: Ticket = tickets::table.find(tid).first(conn)?;
+            groups::for_ticket(conn, &parent)
+        }
+        (None, Some(uploader)) => Ok(groups::private_to_user(uploader)),
+        (None, None) => Ok(groups::workspace()),
+    }
+}
+
+/// The row an attachment's sync events carry.
+fn attachment_sync_data(attachment: &Attachment) -> serde_json::Value {
+    json!({
+        "id": attachment.id,
+        "comment_id": attachment.comment_id,
+        "name": attachment.name,
+        "mime_type": attachment.mime_type,
+        "file_size": attachment.file_size,
+        // url is needed to render/download the attachment from the pool
+        // (Phase 2). thumbnail_url stays derived client-side by convention.
+        "url": attachment.url,
     })
 }
 
@@ -556,11 +565,12 @@ pub fn claimable_uploads(
         .load(conn)
 }
 
-// sync-pending-wire: attachments carry a sync aggregate (see create_attachment), but the temp->comment reparent isn't broadcast yet; the parent comment event covers the promoted set today
 /// Reparent a temp attachment onto a comment: point it at its
-/// permanent URL and set `comment_id` / `uploaded_by`. Used when a
-/// guest or ticket submission promotes temp uploads after the comment
-/// row lands.
+/// permanent URL and set `comment_id` / `uploaded_by`. Used when a reply,
+/// a portal request or a guest submission claims its uploads after the
+/// comment row lands. Emits `attachment.attached`, which links the file to
+/// its comment in every client and reports it added to webhooks; the
+/// upload's own `attachment.created` predates the comment.
 pub fn reparent_attachment(
     conn: &mut DbConnection,
     attachment_id: i32,
@@ -568,13 +578,29 @@ pub fn reparent_attachment(
     comment_id: i32,
     uploaded_by: uuid::Uuid,
 ) -> QueryResult<usize> {
-    diesel::update(attachments::table.find(attachment_id))
-        .set((
-            attachments::url.eq(url),
-            attachments::comment_id.eq(Some(comment_id)),
-            attachments::uploaded_by.eq(Some(uploaded_by)),
-        ))
-        .execute(conn)
+    conn.transaction(|conn| {
+        let attachment: Attachment = diesel::update(attachments::table.find(attachment_id))
+            .set((
+                attachments::url.eq(url),
+                attachments::comment_id.eq(Some(comment_id)),
+                attachments::uploaded_by.eq(Some(uploaded_by)),
+            ))
+            .get_result(conn)?;
+        let groups = attachment_groups(conn, &attachment)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Attachment,
+                aggregate_id: attachment.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "attachment.attached",
+                data: attachment_sync_data(&attachment),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(1)
+    })
 }
 
 // sync-pending-wire: attachments carry a sync aggregate (see create_attachment), but this metadata refresh on an existing row isn't broadcast yet; the parent comment event covers it today
