@@ -38,6 +38,9 @@ import apiClient from '@nosdesk/core/apiClient'
 import { projectService } from '@nosdesk/core/services/projectService'
 import { stashPreview } from '@/services/attachmentPreviewCache'
 import { registerOptimisticCreate, clearOptimisticCreate, isEchoSuppressed } from '@/sync/optimisticCreates'
+import { replyStarted, replyFinished } from '@/sync/repliesInFlight'
+import { useToastStore } from '@nosdesk/core/stores/toast'
+import { translate } from '@/i18n'
 import { isNotFoundError } from '@/utils/errors'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import type { CardWorkflowState } from '@nosdesk/core/sync/views/types'
@@ -511,6 +514,8 @@ export function useTicketDetail(
     // attachments) is suppressed from the view until the REST reply below swaps
     // the temp for the complete row. See sync/optimisticCreates.
     registerOptimisticCreate(clientId)
+    // Until the reply is created, leaving the page asks first (see repliesInFlight).
+    replyStarted()
 
     try {
       let attachments: UploadedFile[] = []
@@ -588,6 +593,10 @@ export function useTicketDetail(
         pool.remove('attachment', tempId - i - 1)
         URL.revokeObjectURL(url)
       })
+      // The bubble goes, so say why rather than letting the reply vanish.
+      useToastStore().error(translate('ticket-comments-send-failed', undefined, "Your reply wasn't sent. Try again."))
+    } finally {
+      replyFinished()
     }
   }
 
