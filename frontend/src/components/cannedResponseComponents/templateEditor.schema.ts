@@ -15,9 +15,9 @@
 
 import { Schema, type Node as PMNode } from 'prosemirror-model';
 import { InputRule } from 'prosemirror-inputrules';
-import { CANNED_RESPONSE_VARIABLES } from '@nosdesk/core/services/cannedResponsesService';
+import { ACCEPTED_CANNED_RESPONSE_VARIABLES } from '@nosdesk/core/services/cannedResponsesService';
 
-const ALLOWED: ReadonlyArray<string> = CANNED_RESPONSE_VARIABLES;
+const ALLOWED: ReadonlyArray<string> = ACCEPTED_CANNED_RESPONSE_VARIABLES;
 
 /** Literal wire-format token shape. Centralised so the delimiter
  * (currently `{{...}}`) lives in one place. */
