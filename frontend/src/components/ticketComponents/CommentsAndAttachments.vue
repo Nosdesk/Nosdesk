@@ -377,6 +377,13 @@ const formattedDate = (dateString: string): string => {
     return formatDateTime(dateString);
 };
 
+// A reply the server hasn't confirmed yet still has its temporary negative id.
+// It shows "Sending…" in place of its time, so nobody takes it as saved.
+const commentTime = (comment: { id: number; createdAt?: string; created_at: string }): string =>
+    comment.id < 0
+        ? t("ticket-comments-sending")
+        : formattedDate(comment.createdAt ?? comment.created_at);
+
 // Check if comment has real text content (not just empty HTML or placeholder)
 const hasRealContent = (comment: CommentWithAttachments): boolean => {
     if (!hasTextContent(comment.content)) return false;
@@ -895,7 +902,7 @@ const handlePastedFiles = async (files: File[]) => {
                                         </span>
                                     </div>
                                     <span class="text-xs text-tertiary block leading-tight">
-                                        {{ formattedDate(comment.createdAt ?? comment.created_at) }}
+                                        {{ commentTime(comment) }}
                                     </span>
                                 </div>
                                 <!-- Mobile action buttons (hidden on print) -->
@@ -997,7 +1004,7 @@ const handlePastedFiles = async (files: File[]) => {
                                                 {{ $t('ticket-comments-badge-internal') }}
                                             </span>
                                             <span class="text-xs text-tertiary whitespace-nowrap flex-shrink-0">
-                                                {{ formattedDate(comment.createdAt ?? comment.created_at) }}
+                                                {{ commentTime(comment) }}
                                             </span>
                                         </div>
                                         <div class="print:hidden flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
@@ -1097,7 +1104,7 @@ const handlePastedFiles = async (files: File[]) => {
                                 <AttachmentPreview
                                     :attachment="attachment"
                                     :author="comment.user?.name || comment.user_uuid"
-                                    :timestamp="formattedDate(comment.createdAt ?? comment.created_at)"
+                                    :timestamp="commentTime(comment)"
                                     :show-delete="!isAudioOnlyComment(comment)"
                                     :hide-header="isAudioOnlyComment(comment)"
                                     :compact="!isAudioOnlyComment(comment)"
