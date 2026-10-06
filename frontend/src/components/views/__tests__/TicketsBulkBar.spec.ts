@@ -7,9 +7,12 @@ const STATES = [
   { id: 1, name: 'Open', color: 'blue', category: 'active' },
   { id: 2, name: 'Done', color: 'green', category: 'done' },
 ]
-const TICKETS: Record<number, { id: number; title: string; workflow_state_id: number; priority: string }> = {
-  10: { id: 10, title: 'A', workflow_state_id: 1, priority: 'high' },
-  11: { id: 11, title: 'B', workflow_state_id: 1, priority: 'low' },
+const TICKETS: Record<
+  number,
+  { id: number; number: number; title: string; workflow_state_id: number; priority: string }
+> = {
+  10: { id: 10, number: 7, title: 'A', workflow_state_id: 1, priority: 'high' },
+  11: { id: 11, number: 8, title: 'B', workflow_state_id: 1, priority: 'low' },
 }
 
 vi.mock('@nosdesk/core/stores/workflowStates', () => ({
@@ -24,7 +27,12 @@ vi.mock('@/sync/stores/tickets', () => ({
 vi.mock('@/plugins/loader', () => ({ getSlotRegistrations: () => [] }))
 vi.mock('@/plugins/usePluginModal', () => ({ openPluginModal: () => {} }))
 vi.mock('@/components/UserSelectionModal.vue', () => ({ default: { template: '<div />' } }))
-vi.mock('@/components/ticketComponents/MergeTicketsDialog.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('@/components/ticketComponents/MergeTicketsDialog.vue', () => ({
+  default: {
+    props: ['open', 'selectedTickets'],
+    template: '<div data-merge-dialog :data-tickets="JSON.stringify(selectedTickets)" />',
+  },
+}))
 
 import TicketsBulkBar from '@/components/views/TicketsBulkBar.vue'
 
@@ -74,6 +82,16 @@ describe('TicketsBulkBar', () => {
     wrapper = mountWithProviders(TicketsBulkBar, { selectedIds: ['10'] })
     await nextTick()
     expect(wrapper.text()).not.toContain('ticket-list-bulk-merge')
+  })
+
+  it('hands the merge dialog each ticket with its number', async () => {
+    wrapper = mountWithProviders(TicketsBulkBar, { selectedIds: ['10', '11'] })
+    await nextTick()
+    const tickets = JSON.parse(wrapper.find('[data-merge-dialog]').attributes('data-tickets') ?? '[]')
+    expect(tickets.map((t: { id: number; number: number }) => [t.id, t.number])).toEqual([
+      [10, 7],
+      [11, 8],
+    ])
   })
 
   it('opens status as a grouped listbox focused on the shared state, and picks with Enter', async () => {
