@@ -196,3 +196,89 @@ async fn a_restricted_viewer_does_not_see_internal_notes_or_references() {
         "references are staff-only: {restricted:?}"
     );
 }
+
+#[actix_web::test]
+async fn the_feed_leaves_out_file_events_and_merge_moves() {
+    crate::common::ensure_test_keyring();
+    let test_db = crate::common::TestDb::new();
+    let pool = test_db.pool_with_size(4);
+
+    let (agent, ticket) = {
+        let mut conn = pool.get().expect("conn");
+        let agent = member(&mut conn, "Agent", "agent");
+        let state = backend::repository::workflow_states::default_state(&mut conn)
+            .expect("default state")
+            .id;
+        let ticket: Ticket = diesel::insert_into(backend::schema::tickets::table)
+            .values(&NewTicket {
+                title: "Printer".to_string(),
+                workflow_state_id: state,
+                ..Default::default()
+            })
+            .get_result(&mut conn)
+            .expect("insert ticket");
+        (agent, ticket)
+    };
+
+    // A reply with a file created on it, a draft claimed onto it, and the
+    // event a merge records for each reply it moves.
+    run_in_workspace(&pool, "test:seed", WS, |conn| {
+        let reply = backend::repository::comments::create_comment(
+            conn,
+            NewComment {
+                content: "<p>log attached</p>".to_string(),
+                ticket_id: ticket.id,
+                user_uuid: agent.uuid,
+                ..Default::default()
+            },
+            None,
+        )?;
+        let file = |comment_id: Option<i32>, name: &str| backend::models::NewAttachment {
+            url: format!("/uploads/temp/{name}"),
+            name: name.to_string(),
+            file_size: Some(1),
+            mime_type: Some("text/plain".to_string()),
+            checksum: None,
+            comment_id,
+            uploaded_by: Some(agent.uuid),
+            transcription: None,
+        };
+        backend::repository::comments::create_attachment(conn, file(Some(reply.id), "a.txt"))?;
+        let draft =
+            backend::repository::comments::create_attachment(conn, file(None, "b.txt"))?;
+        backend::repository::comments::reparent_attachment(
+            conn,
+            draft.id,
+            &format!("/uploads/tickets/{}/b.txt", ticket.id),
+            reply.id,
+            agent.uuid,
+        )?;
+        let groups = backend::sync::groups::for_ticket(conn, &ticket)?;
+        backend::sync::emit::record(
+            conn,
+            backend::sync::emit::SyncEmit {
+                aggregate: backend::models::SyncAggregate::Comment,
+                aggregate_id: reply.id.to_string(),
+                op: backend::models::SyncOp::Update,
+                event_type: "comment.moved",
+                data: serde_json::json!({ "id": reply.id, "ticket_id": ticket.id, "is_internal": false }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(())
+    })
+    .expect("seed reply, files and a move");
+
+    let events = event_types(&spawn(&pool, &agent), ticket.id).await;
+    assert!(
+        events.contains(&"comment.created".to_string()),
+        "{events:?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|t| t.starts_with("attachment.") || t == "comment.moved"),
+        "{events:?}"
+    );
+}
