@@ -24,7 +24,8 @@ use std::collections::BTreeSet;
 /// on the frontend; the backend validation rejects any `{{...}}`
 /// not on this list at save time so an admin typo like
 /// `{{custmer_name}}` fails fast rather than landing in a customer
-/// reply verbatim.
+/// reply verbatim. `agent_name` / `agent_first_name` are the spellings
+/// rule replies use for the `tech_*` pair.
 pub const CANNED_RESPONSE_VARIABLES: &[&str] = &[
     "ticket_id",
     "ticket_title",
@@ -32,6 +33,8 @@ pub const CANNED_RESPONSE_VARIABLES: &[&str] = &[
     "customer_first_name",
     "tech_name",
     "tech_first_name",
+    "agent_name",
+    "agent_first_name",
     "app_name",
 ];
 
@@ -64,25 +67,12 @@ pub const AUTO_ACK_VARIABLES: &[&str] = &[
 pub const SECURITY_NOTE_VARIABLES: &[&str] = &["brand_name", "domain"];
 
 /// Variables the rules engine substitutes in a `reply` action's body
-/// when a rule is applied. Mirrors `CANNED_RESPONSE_VARIABLES` plus
-/// `agent_name` as an alias for `tech_name`: the synthesis (Phase 1
-/// decision 34) standardised on "Actions" / "agent" for the rules
-/// surface while keeping the legacy `tech_*` tokens for parity with
-/// canned responses, so admins copying a body between the two
-/// surfaces never see a save rejected for a typo'd token. Phase 2
-/// extends this list with event- and reply-scoped tokens; for v1
-/// the manual-trigger surface alone is in scope.
-pub const RULE_REPLY_VARIABLES: &[&str] = &[
-    "ticket_id",
-    "ticket_title",
-    "customer_name",
-    "customer_first_name",
-    "tech_name",
-    "tech_first_name",
-    "agent_name",
-    "agent_first_name",
-    "app_name",
-];
+/// when a rule is applied: the canned-response set, so a body copied
+/// between a saved reply and a rule reply is never rejected. The rules
+/// surface standardised on "agent" (Phase 1 decision 34), hence the
+/// `agent_*` spellings beside the `tech_*` ones. Phase 2 extends this
+/// list with event- and reply-scoped tokens.
+pub const RULE_REPLY_VARIABLES: &[&str] = CANNED_RESPONSE_VARIABLES;
 
 /// Take the first whitespace-separated token of a full name.
 /// "Mary Jane Smith" → "Mary"; "Alex" → "Alex"; "" → "". Empty
@@ -175,6 +165,13 @@ mod tests {
     fn unknown_variables_tolerates_whitespace_inside_braces() {
         let body = "Ticket #{{ ticket_id }} opened.";
         assert!(unknown_variables(body, CANNED_RESPONSE_VARIABLES).is_empty());
+    }
+
+    #[test]
+    fn saved_and_rule_replies_accept_the_agent_spellings() {
+        let body = "Thanks, {{agent_first_name}}. {{agent_name}} and {{tech_name}} are on it.";
+        assert!(unknown_variables(body, CANNED_RESPONSE_VARIABLES).is_empty());
+        assert!(unknown_variables(body, RULE_REPLY_VARIABLES).is_empty());
     }
 
     #[test]

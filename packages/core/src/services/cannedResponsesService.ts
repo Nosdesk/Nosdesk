@@ -113,12 +113,10 @@ export interface TemplateVars {
 }
 
 /**
- * The variable allow-list mirrored on the frontend. Keep in sync
- * with `CANNED_RESPONSE_VARIABLES` in `backend/src/utils/template_variables.rs`.
- * The admin editor's `{{` autocomplete reads this; the unknown-
- * variable validator below uses it; the picker's compose-time
- * warning surfaces a hint when a body references one of these
- * with no value bound in the current ticket context.
+ * The variables the admin editor offers as insert buttons. With
+ * `CANNED_RESPONSE_VARIABLE_ALIASES` this mirrors
+ * `CANNED_RESPONSE_VARIABLES` in `backend/src/utils/template_variables.rs`;
+ * the validator and the picker's compose-time warning read both.
  */
 export const CANNED_RESPONSE_VARIABLES = [
   'ticket_id',
@@ -131,6 +129,19 @@ export const CANNED_RESPONSE_VARIABLES = [
 ] as const;
 
 export type CannedResponseVariable = (typeof CANNED_RESPONSE_VARIABLES)[number];
+
+/**
+ * Spellings a saved reply also accepts: `agent_*` for the `tech_*`
+ * pair, as rule replies do, so a body copied between the two is never
+ * rejected. Rendered like the offered pair, but not offered again.
+ */
+export const CANNED_RESPONSE_VARIABLE_ALIASES = ['agent_name', 'agent_first_name'] as const;
+
+/** Every variable a saved reply may contain: the offered ones and the aliases. */
+export const ACCEPTED_CANNED_RESPONSE_VARIABLES: readonly string[] = [
+  ...CANNED_RESPONSE_VARIABLES,
+  ...CANNED_RESPONSE_VARIABLE_ALIASES,
+];
 
 /**
  * Take the first whitespace-separated token of a full name.
@@ -160,7 +171,7 @@ export function renderTemplate(template: string, vars: TemplateVars): string {
     customer_first_name: firstWord(vars.customer_name),
     tech_name: vars.tech_name ?? '',
     tech_first_name: firstWord(vars.tech_name),
-    // Rule replies also accept the agent_ spellings, as the backend does.
+    // Saved and rule replies also accept the agent_ spellings, as the backend does.
     agent_name: vars.tech_name ?? '',
     agent_first_name: firstWord(vars.tech_name),
     app_name: vars.app_name ?? '',
@@ -185,7 +196,7 @@ export function renderTemplate(template: string, vars: TemplateVars): string {
  * the save round-trip can't introduce a typo'd template.
  */
 export function findUnknownVariables(body: string): string[] {
-  const allowed: Set<string> = new Set<string>(CANNED_RESPONSE_VARIABLES);
+  const allowed: Set<string> = new Set<string>(ACCEPTED_CANNED_RESPONSE_VARIABLES);
   const seen: Set<string> = new Set<string>();
   const re = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
   let match: RegExpExecArray | null;
@@ -205,8 +216,8 @@ export function findUnknownVariables(body: string): string[] {
  * string because the current ticket has no customer, the picker
  * surfaces a one-line hint above the composer.
  */
-export function variablesUsed(body: string): CannedResponseVariable[] {
-  const allowed: Set<string> = new Set<string>(CANNED_RESPONSE_VARIABLES);
+export function variablesUsed(body: string): string[] {
+  const allowed: Set<string> = new Set<string>(ACCEPTED_CANNED_RESPONSE_VARIABLES);
   const seen: Set<string> = new Set<string>();
   const re = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
   let match: RegExpExecArray | null;
@@ -216,7 +227,7 @@ export function variablesUsed(body: string): CannedResponseVariable[] {
       seen.add(name);
     }
   }
-  return Array.from(seen).sort() as CannedResponseVariable[];
+  return Array.from(seen).sort();
 }
 
 /**
@@ -230,7 +241,7 @@ export function variablesUsed(body: string): CannedResponseVariable[] {
 export function unboundVariables(
   body: string,
   vars: TemplateVars,
-): CannedResponseVariable[] {
+): string[] {
   return variablesUsed(body).filter((name) => {
     const resolved = renderTemplate(`{{${name}}}`, vars);
     return resolved.trim() === '';
