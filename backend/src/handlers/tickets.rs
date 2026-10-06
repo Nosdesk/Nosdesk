@@ -431,6 +431,11 @@ pub async fn get_ticket_activity(
             .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
                 "EXISTS (SELECT 1 FROM unnest(sync_actions.groups) g WHERE g LIKE 'workspace:%')",
             ))
+            // The feed says what happened to the ticket. A file shows with its
+            // reply and a merge has its own row, so attachment events and the
+            // per-reply moves of a merge stay out of it.
+            .filter(sync_actions::aggregate.ne(crate::models::SyncAggregate::Attachment))
+            .filter(sync_actions::event_type.ne("comment.moved"))
             .order((
                 sync_actions::occurred_at.desc(),
                 sync_actions::sync_id.desc(),
