@@ -1,6 +1,6 @@
 {
   "name": "attachment",
-  "schema_version": 1,
+  "schema_version": 2,
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
     "comment_id": { "rust": "Option<i32>", "ts": "number | null" },
@@ -11,9 +11,11 @@
   },
   "events": [
     { "type": "attachment.created", "op": "I" },
+    { "type": "attachment.attached", "op": "U" },
     { "type": "attachment.deleted", "op": "D" }
   ],
   "groups": [
+    "user:<uploader> only, for a draft upload not yet on a comment",
     "workspace:1",
     "ticket:<parent_ticket_id> via the parent comment",
     "project:<project_id> for each project the parent ticket belongs to"

@@ -278,12 +278,46 @@ pub fn execute_merge(
             .values(&merge_rows)
             .execute(conn)?;
 
-        // Step 5: move comments (attachments ride along via comment_id).
-        let comments_moved =
-            diesel::sql_query("UPDATE comments SET ticket_id = $1 WHERE ticket_id = ANY($2)")
-                .bind::<Integer, _>(target_id)
-                .bind::<Array<Integer>, _>(&source_array)
-                .execute(conn)?;
+        // Step 5: move comments (attachments ride along via comment_id),
+        // and tell every client: a moved comment's row now names the
+        // destination, so the destination shows it without a reload. A
+        // soft-deleted comment moves too but stays out of the pool.
+        let moved: Vec<Comment> = {
+            use crate::schema::comments::dsl as c;
+            diesel::update(c::comments.filter(c::ticket_id.eq_any(&source_array)))
+                .set(c::ticket_id.eq(target_id))
+                .get_results(conn)?
+        };
+        let comments_moved = moved.len();
+        let destination_groups = groups::for_ticket(conn, &destination)?;
+        for comment in moved.iter().filter(|c| c.deleted_at.is_none()) {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::Comment,
+                    aggregate_id: comment.id.to_string(),
+                    op: SyncOp::Update,
+                    event_type: "comment.moved",
+                    // The row as the bootstrap sends it, so a client that
+                    // never had it gets it whole, and `is_internal` keeps
+                    // an internal note from requesters.
+                    data: json!({
+                        "id": comment.id,
+                        "ticket_id": comment.ticket_id,
+                        "user_uuid": comment.user_uuid,
+                        "content": comment.content,
+                        "new_content": comment.new_content,
+                        "quoted_content": comment.quoted_content,
+                        "is_internal": comment.is_internal,
+                        "content_format": comment.content_format,
+                        "render_kind": comment.render_kind,
+                        "created_at": comment.created_at,
+                    }),
+                    groups: destination_groups.clone(),
+                    causation_id: None,
+                },
+            )?;
+        }
 
         // Step 6: reroute channel messages so future inbound replies
         // thread onto the destination.
@@ -951,7 +985,8 @@ mod tests {
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
         let src = TestFixtures::renumber_ticket(&mut conn, src);
-        TestFixtures::create_comment(&mut conn, src.id, user.uuid, "from source");
+        let moved_comment =
+            TestFixtures::create_comment(&mut conn, src.id, user.uuid, "from source");
 
         let outcome = execute_merge(
             &mut conn,
@@ -1007,6 +1042,21 @@ mod tests {
         // First-class events emitted.
         assert_eq!(count_sync(&mut conn, "ticket.merged", dest.id), 1);
         assert_eq!(count_sync(&mut conn, "ticket.merged_into", src.id), 1);
+
+        // The moved comment's row names the destination for every client,
+        // with the internal flag the sync filter needs.
+        assert_eq!(count_sync(&mut conn, "comment.moved", moved_comment.id), 1);
+        let data: serde_json::Value = {
+            use crate::schema::sync_actions::dsl as s;
+            s::sync_actions
+                .filter(s::event_type.eq("comment.moved"))
+                .filter(s::aggregate_id.eq(moved_comment.id.to_string()))
+                .select(s::data)
+                .first(&mut conn)
+                .unwrap()
+        };
+        assert_eq!(data["ticket_id"], serde_json::json!(dest.id));
+        assert_eq!(data["is_internal"], serde_json::json!(false));
     }
 
     #[test]

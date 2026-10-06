@@ -153,7 +153,10 @@ impl WebhookEventType {
             "ticket.deleted" => Self::TicketDeleted,
             "comment.created" => Self::CommentAdded,
             "comment.deleted" => Self::CommentDeleted,
-            "attachment.created" => Self::AttachmentAdded,
+            // Added means on a ticket: created on a comment, or a draft
+            // upload attached to one. A draft alone is private to its
+            // uploader and raises nothing.
+            "attachment.created" | "attachment.attached" => Self::AttachmentAdded,
             "attachment.deleted" => Self::AttachmentDeleted,
             "asset.created" => Self::AssetCreated,
             "asset.updated" => Self::AssetUpdated,
@@ -252,6 +255,7 @@ mod tests {
             ("ticket.deleted", Some(TicketDeleted)),
             ("comment.created", Some(CommentAdded)),
             ("attachment.created", Some(AttachmentAdded)),
+            ("attachment.attached", Some(AttachmentAdded)),
             ("asset.created", Some(AssetCreated)),
             ("project_ticket.added", Some(ProjectAssigned)),
             ("project_ticket.removed", Some(ProjectUnassigned)),

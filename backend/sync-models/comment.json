@@ -13,6 +13,7 @@
   },
   "events": [
     { "type": "comment.created", "op": "I" },
+    { "type": "comment.moved", "op": "U" },
     { "type": "comment.deleted", "op": "D" }
   ],
   "groups": [

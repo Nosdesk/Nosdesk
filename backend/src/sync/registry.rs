@@ -21,7 +21,7 @@ pub fn schema_version_for(aggregate: SyncAggregate) -> i16 {
         SyncAggregate::ProjectTicket => 1,
         SyncAggregate::WorkflowState => 1,
         SyncAggregate::Comment => 1,
-        SyncAggregate::Attachment => 1,
+        SyncAggregate::Attachment => 2,
         SyncAggregate::Assignment => 1,
         SyncAggregate::GroupMembership => 1,
         SyncAggregate::Plugin => 1,

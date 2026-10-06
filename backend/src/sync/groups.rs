@@ -99,6 +99,13 @@ pub fn for_user(user_uuid: Uuid) -> Vec<String> {
     vec![WORKSPACE_GROUP.to_string(), format!("user:{}", user_uuid)]
 }
 
+/// Groups for a row only one user may receive, such as a draft upload not
+/// yet on a comment: their own group, with no workspace audience (so it
+/// raises no webhook either).
+pub fn private_to_user(user_uuid: Uuid) -> Vec<String> {
+    vec![format!("user:{}", user_uuid)]
+}
+
 /// Read-side: every group the user can see. The sync engine's delta
 /// handler computes this once per request and folds it into the
 /// `groups && $allowed` filter.

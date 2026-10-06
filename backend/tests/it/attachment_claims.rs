@@ -46,6 +46,29 @@ fn attachment(pool: &TestPool, ws: i32, row: NewAttachment) -> Attachment {
     .expect("insert attachment")
 }
 
+/// The sync events recorded for one attachment, oldest first:
+/// `(event_type, data, groups)`.
+fn attachment_events(
+    pool: &TestPool,
+    ws: i32,
+    id: i32,
+) -> Vec<(String, serde_json::Value, Vec<Option<String>>)> {
+    use backend::schema::sync_actions;
+    run_in_workspace(pool, REF, ws, |c| {
+        sync_actions::table
+            .filter(sync_actions::aggregate_id.eq(id.to_string()))
+            .filter(sync_actions::event_type.like("attachment.%"))
+            .order(sync_actions::sync_id.asc())
+            .select((
+                sync_actions::event_type,
+                sync_actions::data,
+                sync_actions::groups,
+            ))
+            .load(c)
+    })
+    .expect("load attachment events")
+}
+
 fn reload(pool: &TestPool, ws: i32, id: i32) -> Attachment {
     run_in_workspace(pool, REF, ws, |c| {
         backend::repository::comments::get_attachment_by_id(c, id)
@@ -228,6 +251,12 @@ async fn a_comment_attaches_only_its_authors_waiting_uploads() {
         .file_exists(&format!("temp/{draft_name}"))
         .await
         .expect("check draft"));
+    // A draft is private to its uploader: its one event goes only to them,
+    // and the refused attempt to attach it recorded nothing.
+    let events = attachment_events(&pool, ws, draft.id);
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].0, "attachment.created");
+    assert_eq!(events[0].2, vec![Some(format!("user:{uploader}"))]);
 
     // The uploader attaches their own draft: it moves under the ticket.
     assert_eq!(comment_as(uploader, vec![draft.id]).await, 1);
@@ -241,4 +270,20 @@ async fn a_comment_attaches_only_its_authors_waiting_uploads() {
         .file_exists(&format!("tickets/{}/{draft_name}", ticket.id))
         .await
         .expect("check moved file"));
+    // Attaching it tells every client which comment it's on, so the file
+    // still shows under the reply after a reload; the upload's own event
+    // predates the comment.
+    let events = attachment_events(&pool, ws, draft.id);
+    let (kind, data, groups) = events.last().expect("an event for the claim");
+    assert_eq!(kind, "attachment.attached");
+    assert_eq!(data["comment_id"], json!(draft_now.comment_id));
+    assert_eq!(data["url"], json!(draft_now.url));
+    assert!(
+        groups.contains(&Some(format!("workspace:{ws}"))),
+        "{groups:?}"
+    );
+    assert!(
+        groups.contains(&Some(format!("ticket:{}", ticket.id))),
+        "{groups:?}"
+    );
 }
