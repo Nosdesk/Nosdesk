@@ -94,7 +94,7 @@ function seedDescription() {
   const lines: string[] = []
   if (dest) lines.push(dest.title)
   lines.push('')
-  lines.push('Incoming from:')
+  lines.push(fluent.$t('ticket-merge-marker-incoming-from'))
   for (const s of sources.value) {
     lines.push(`- #${ticketNumber(s)}: ${s.title}`)
   }
@@ -150,8 +150,9 @@ async function submit() {
     })
     const destination = props.selectedTickets.find((t) => t.id === target)
     toast.success(
+      // Counts the tickets merged in, not the one they were merged into.
       fluent.$t('ticket-merge-success-toast', {
-        count: count.value,
+        count: sources.value.length,
         target_id: destination ? ticketNumber(destination) : target,
       }),
     )
@@ -208,7 +209,7 @@ async function submit() {
       <!-- Description preview (becomes the merge-marker comment body) -->
       <FormTextarea
         v-model="description"
-        :label="$t('ticket-merge-marker-comment-header', { count })"
+        :label="$t('ticket-merge-marker-comment-header', { count: sources.length })"
         :rows="5"
       />
 

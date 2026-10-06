@@ -455,6 +455,7 @@ const mergeSelectedTickets = computed<MergeDialogTicket[]>(() =>
     .filter((t): t is NonNullable<typeof t> => !!t)
     .map((t) => ({
       id: t.id,
+      number: t.number,
       title: t.title,
       workflow_state_id: t.workflow_state_id,
     })),
@@ -476,6 +477,7 @@ const mergeCandidateTickets = computed<MergeDialogTicket[]>(() => {
     ...selected,
     {
       id: ticket.id,
+      number: ticket.number,
       title: ticket.title,
       workflow_state_id: ticket.workflow_state_id,
     },

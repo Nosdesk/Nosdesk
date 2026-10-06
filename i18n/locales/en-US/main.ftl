@@ -538,10 +538,19 @@ ticket-merge-submit-button = Merge { $count } tickets
 ticket-merge-cancel-button = Cancel
 ticket-merge-conflict-toast = Some of these tickets changed since you opened this dialog. Refresh and retry.
 ticket-merge-error-toast = Could not merge the tickets. Please try again.
-ticket-merge-success-toast = Merged { $count } tickets into #{ $target_id }
-ticket-merge-marker-comment-header = Merged { $count } tickets into this one
+ticket-merge-success-toast = Merged { $count ->
+    [one] 1 ticket
+   *[other] { $count } tickets
+  } into #{ $target_id }
+ticket-merge-marker-comment-header = Merged { $count ->
+    [one] 1 ticket
+   *[other] { $count } tickets
+  } into this one
+ticket-merge-marker-incoming-from = Incoming from:
 ticket-merge-banner-merged-into = This ticket was merged into #{ $target_id } by { $actor } on { $when }.
 ticket-merge-banner-merged-into-another = This ticket was merged into another ticket by { $actor } on { $when }.
+ticket-merge-banner-merged-into-no-actor = This ticket was merged into #{ $target_id } on { $when }.
+ticket-merge-banner-merged-into-another-no-actor = This ticket was merged into another ticket on { $when }.
 ticket-merge-banner-open-destination = Open destination
 ticket-merge-sidebar-merged-in = Merged in
 ticket-merge-toast-just-merged = This ticket was just merged into #{ $target_id }.

@@ -6895,8 +6895,18 @@ ticket-merge-submit-button = { $count } tickets samenvoegen
 ticket-merge-cancel-button = Annuleren
 ticket-merge-conflict-toast = Sommige van deze tickets zijn gewijzigd sinds u dit venster opende. Vernieuw en probeer opnieuw.
 ticket-merge-error-toast = Kan de tickets niet samenvoegen. Probeer het opnieuw.
-ticket-merge-success-toast = { $count } tickets samengevoegd in #{ $target_id }
-ticket-merge-marker-comment-header = { $count } tickets samengevoegd in dit ticket
+# Toast, samenvoegnotitie en banner (machine, na te kijken door moedertaalspreker).
+ticket-merge-success-toast = { $count ->
+    [one] 1 ticket
+   *[other] { $count } tickets
+  } samengevoegd in #{ $target_id }
+ticket-merge-marker-comment-header = { $count ->
+    [one] 1 ticket
+   *[other] { $count } tickets
+  } samengevoegd in dit ticket
+ticket-merge-marker-incoming-from = Afkomstig van:
+ticket-merge-banner-merged-into-no-actor = Dit ticket is op { $when } samengevoegd in #{ $target_id }.
+ticket-merge-banner-merged-into-another-no-actor = Dit ticket is op { $when } samengevoegd met een ander ticket.
 ticket-merge-banner-merged-into = Dit ticket is samengevoegd in #{ $target_id } door { $actor } op { $when }.
 # MACHINE TRANSLATION, pending native review
 ticket-merge-banner-merged-into-another = Dit ticket is door { $actor } op { $when } samengevoegd met een ander ticket.

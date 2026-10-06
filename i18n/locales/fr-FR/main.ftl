@@ -6904,8 +6904,18 @@ ticket-merge-submit-button = Fusionner { $count } tickets
 ticket-merge-cancel-button = Annuler
 ticket-merge-conflict-toast = Certains de ces tickets ont changé depuis l'ouverture de cette fenêtre. Actualisez et réessayez.
 ticket-merge-error-toast = Impossible de fusionner les tickets. Veuillez réessayer.
-ticket-merge-success-toast = { $count } tickets fusionnés dans le #{ $target_id }
-ticket-merge-marker-comment-header = { $count } tickets fusionnés dans celui-ci
+# Toast, note de fusion et bannière (machine, à relire par un locuteur natif).
+ticket-merge-success-toast = { $count ->
+    [one] 1 ticket fusionné
+   *[other] { $count } tickets fusionnés
+  } dans le #{ $target_id }
+ticket-merge-marker-comment-header = { $count ->
+    [one] 1 ticket fusionné
+   *[other] { $count } tickets fusionnés
+  } dans celui-ci
+ticket-merge-marker-incoming-from = Provenant de :
+ticket-merge-banner-merged-into-no-actor = Ce ticket a été fusionné dans le #{ $target_id } le { $when }.
+ticket-merge-banner-merged-into-another-no-actor = Ce ticket a été fusionné dans un autre ticket le { $when }.
 ticket-merge-banner-merged-into = Ce ticket a été fusionné dans le #{ $target_id } par { $actor } le { $when }.
 # MACHINE TRANSLATION, pending native review
 ticket-merge-banner-merged-into-another = Ce ticket a été fusionné dans un autre ticket par { $actor } le { $when }.

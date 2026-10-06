@@ -200,7 +200,7 @@ const selectedTickets = computed<MergeDialogTicket[]>(() =>
   ids.value
     .map((id) => ticketsStore.byId(id).value)
     .filter((t): t is NonNullable<typeof t> => !!t)
-    .map((t) => ({ id: t.id, title: t.title, workflow_state_id: t.workflow_state_id })),
+    .map((t) => ({ id: t.id, number: t.number, title: t.title, workflow_state_id: t.workflow_state_id })),
 )
 const canMerge = computed(() => selectedTickets.value.length >= 2)
 function onMerged(): void {
