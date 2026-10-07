@@ -149,7 +149,11 @@ impl WebhookEventType {
             | "ticket.priority_changed"
             | "ticket.title_changed"
             | "ticket.category_changed"
-            | "ticket.verification_changed" => Self::TicketUpdated,
+            | "ticket.verification_changed"
+            // A merge source's row, in its merged state, with the merge
+            // fields. The destination's `ticket.merged` carries counts, not
+            // a ticket, and raises nothing.
+            | "ticket.merged_into" => Self::TicketUpdated,
             "ticket.deleted" => Self::TicketDeleted,
             "comment.created" => Self::CommentAdded,
             "comment.deleted" => Self::CommentDeleted,
@@ -253,6 +257,8 @@ mod tests {
             ("ticket.created", Some(TicketCreated)),
             ("ticket.workflow_state_changed", Some(TicketUpdated)),
             ("ticket.assignee_changed", Some(TicketUpdated)),
+            ("ticket.merged_into", Some(TicketUpdated)),
+            ("ticket.merged", None),
             ("ticket.deleted", Some(TicketDeleted)),
             ("comment.created", Some(CommentAdded)),
             ("attachment.created", Some(AttachmentAdded)),
