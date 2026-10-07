@@ -338,10 +338,21 @@ fn push_takes_only_the_ticket_columns_a_client_owns() {
             "{patch}"
         );
     }
+    // "Not spam" is the one server column a client may set, and it lands.
+    diesel::update(tickets::table.find(ticket.id))
+        .set(tickets::spam_suspected.eq(true))
+        .execute(&mut conn)
+        .expect("flag it");
     assert_eq!(
         push(&mut conn, json!({ "spam_suspected": false })),
         "applied"
     );
+    let flagged: bool = tickets::table
+        .find(ticket.id)
+        .select(tickets::spam_suspected)
+        .first(&mut conn)
+        .expect("reload ticket");
+    assert!(!flagged, "not spam clears the flag");
     assert_eq!(
         push(
             &mut conn,

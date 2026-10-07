@@ -150,6 +150,7 @@ impl WebhookEventType {
             | "ticket.title_changed"
             | "ticket.category_changed"
             | "ticket.verification_changed"
+            | "ticket.resolution_notes_changed"
             // A merge source's row, in its merged state, with the merge
             // fields. The destination's `ticket.merged` carries counts, not
             // a ticket, and raises nothing.
@@ -257,6 +258,7 @@ mod tests {
             ("ticket.created", Some(TicketCreated)),
             ("ticket.workflow_state_changed", Some(TicketUpdated)),
             ("ticket.assignee_changed", Some(TicketUpdated)),
+            ("ticket.resolution_notes_changed", Some(TicketUpdated)),
             ("ticket.merged_into", Some(TicketUpdated)),
             ("ticket.merged", None),
             ("ticket.deleted", Some(TicketDeleted)),

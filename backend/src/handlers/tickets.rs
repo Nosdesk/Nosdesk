@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
 use crate::middleware::request_context::record_canonical;
-use crate::models::{Claims, NewTicket, TicketUpdate, TicketsJson};
+use crate::models::{Claims, NewTicket, Ticket, TicketUpdate, TicketsJson};
 use crate::repository;
 use crate::repository::ticket_query::TicketQuery;
 use crate::services::search::indexing_tasks;
@@ -707,14 +707,11 @@ pub async fn create_ticket(
 }
 
 /// Refuse a move into a category the caller cannot see.
-///
-/// Shared by PUT and PATCH. It was only on PATCH, which is how PUT came to
-/// accept a category move that PATCH refused for the same caller.
 fn refuse_unseeable_category(
     tc: &mut TenantConn,
     auth: &AuthContext,
     category_id: i32,
-) -> Option<HttpResponse> {
+) -> Result<(), ApiError> {
     let user_uuid = auth.user_uuid;
     let is_admin = auth.is_workspace_admin();
     match tc.run(|conn| {
@@ -725,66 +722,109 @@ fn refuse_unseeable_category(
             is_admin,
         )
     }) {
-        Ok(true) => None,
-        Ok(false) => Some(errors::forbidden(
-            "Forbidden: You do not have access to the specified category",
+        Ok(true) => Ok(()),
+        Ok(false) => Err(ApiError::Forbidden(
+            "Forbidden: You do not have access to the specified category".into(),
         )),
-        Err(_) => Some(errors::internal("Failed to check category visibility")),
+        Err(_) => Err(ApiError::Internal(
+            "Failed to check category visibility".into(),
+        )),
     }
 }
 
-// Update a ticket. `TicketAccess` gates visibility only, so the body decides
-// which of the submitted columns this caller may actually set.
-pub async fn update_ticket(
-    mut tc: TenantConn,
-    access: TicketAccess,
-    auth: AuthContext,
-    ticket: web::Json<NewTicket>,
-    req: HttpRequest,
-) -> Result<HttpResponse, ApiError> {
-    let ticket_id = access.ticket_id;
-    let submitted = ticket.into_inner();
+/// `TicketAccess` is a read gate: a requester or watcher who can see the
+/// ticket reaches the update routes. The only thing they may change is its
+/// title.
+fn refuse_staff_columns(auth: &AuthContext, update: &TicketUpdate) -> Result<(), ApiError> {
+    if auth.can_handle_tickets() || update.changes_only_title() {
+        Ok(())
+    } else {
+        Err(ApiError::Forbidden(
+            "Only the helpdesk team can change this".into(),
+        ))
+    }
+}
 
-    // A whole-row overwrite behind a read-only gate. Take the staff-controlled
-    // columns from the row as it stands unless the caller is staff, so a
-    // requester who can see the ticket cannot close it, reassign it, or hand it
-    // to somebody else.
-    let existing = match tc.run(|conn| repository::get_ticket_by_id(conn, ticket_id)) {
-        Ok(t) => t,
-        Err(_) => return Err(ApiError::NotFoundMsg("Ticket not found".into())),
-    };
-    let new_ticket = submitted.redact_for(auth.can_handle_tickets(), &existing);
+/// Save a ticket update made over REST, PATCH or PUT: the checks both routes
+/// share, the write (which emits the matching `ticket.*` sync action and
+/// reindexes the ticket), and what follows it. Returns the row as written.
+fn save_ticket_update(
+    tc: &mut TenantConn,
+    search: &Arc<SearchService>,
+    auth: &AuthContext,
+    ticket_id: i32,
+    update: TicketUpdate,
+) -> Result<Ticket, ApiError> {
+    let update = update
+        .client_columns()
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    refuse_staff_columns(auth, &update)?;
 
-    // A category move needs a visibility lookup rather than a comparison, so it
-    // is checked here rather than in `redact_for`, with the same helper PATCH
-    // uses. Only reached when the value actually changed, so an unchanged
-    // category on a ticket whose category the caller cannot see still saves.
-    if let Some(category_id) = new_ticket.category_id {
-        if existing.category_id != Some(category_id) {
-            if let Some(resp) = refuse_unseeable_category(&mut tc, &auth, category_id) {
-                return Ok(resp);
-            }
+    // Workflow state is set by id, and must be one of this workspace's.
+    // closed_at and closed_by follow it in the database
+    // (ticket_closed_follows_state).
+    if let Some(state_id) = update.workflow_state_id {
+        tc.run(|conn| repository::workflow_states::category_of(conn, state_id))
+            .map_err(|_| ApiError::Internal("Failed to validate workflow state".into()))?
+            .ok_or_else(|| ApiError::BadRequest("Unknown workflow state".into()))?;
+        if tc
+            .run(|conn| {
+                crate::repository::ticket_approvals::blocks_resolution(conn, ticket_id, state_id)
+            })
+            .unwrap_or(false)
+        {
+            return Err(ApiError::Conflict(
+                crate::repository::ticket_approvals::WAITING_MESSAGE.into(),
+            ));
         }
     }
 
-    if new_ticket.workflow_state_id != existing.workflow_state_id
-        && tc
-            .run(|conn| {
-                crate::repository::ticket_approvals::blocks_resolution(
-                    conn,
-                    ticket_id,
-                    new_ticket.workflow_state_id,
-                )
-            })
-            .unwrap_or(false)
-    {
-        return Err(ApiError::Conflict(
-            crate::repository::ticket_approvals::WAITING_MESSAGE.into(),
-        ));
+    if let Some(Some(category_id)) = update.category_id {
+        refuse_unseeable_category(tc, auth, category_id)?;
     }
 
-    // Validate assignee role if assignee is set
-    if let Some(assignee_uuid) = new_ticket.assignee_uuid {
+    // An unassigned ticket whose category changed goes through assignment.
+    let category_changed = update.category_id.is_some();
+    let update = TicketUpdate {
+        updated_at: Some(chrono::Utc::now().naive_utc()),
+        ..update
+    };
+    let updated = tc
+        .run(|conn| repository::update_ticket_partial(conn, ticket_id, update, Some(search)))
+        .map_err(ApiError::Database)?;
+    crate::services::ticket_updates::after_update(tc, Some(search), &updated, category_changed);
+    Ok(updated)
+}
+
+// Replace a ticket's fields. The body is the whole row, as for POST. The
+// columns the server owns are dropped and the rest compared with the ticket as
+// it stands (`NewTicket::changes_from`); what changed is saved through the
+// same path as PATCH. The response is the ticket row.
+pub async fn update_ticket(
+    mut tc: TenantConn,
+    search_service: web::Data<Arc<SearchService>>,
+    access: TicketAccess,
+    ticket: web::Json<NewTicket>,
+    req: HttpRequest,
+) -> Result<HttpResponse, ApiError> {
+    let TicketAccess { ticket_id, auth } = access;
+    let existing = tc
+        .run(|conn| repository::get_ticket_by_id(conn, ticket_id))
+        .map_err(|_| ApiError::NotFoundMsg("Ticket not found".into()))?;
+    record_canonical(&req, "ticket_id", ticket_id);
+
+    let update = ticket.into_inner().changes_from(&existing);
+    if update.changed_columns().next().is_none() {
+        record_canonical(&req, "outcome", "unchanged");
+        return Ok(HttpResponse::Ok().json(existing));
+    }
+
+    // Refused before the assignee lookup, as in the shared path.
+    refuse_staff_columns(&auth, &update)?;
+    // Checked here until assignment eligibility moves into the shared path.
+    // Only a change of assignee is checked: echoing the current one isn't an
+    // assignment.
+    if let Some(Some(assignee_uuid)) = update.assignee_uuid {
         let validation: Result<Result<(), ApiError>, diesel::result::Error> =
             tc.run(|conn| Ok(validate_assignee_role(&assignee_uuid, conn)));
         match validation {
@@ -794,14 +834,14 @@ pub async fn update_ticket(
         }
     }
 
-    match tc.run(|conn| repository::update_ticket(conn, ticket_id, new_ticket)) {
-        Ok(ticket) => {
-            record_canonical(&req, "ticket_id", ticket_id);
-            record_canonical(&req, "outcome", "updated");
-            Ok(HttpResponse::Ok().json(ticket))
-        }
-        Err(e) => Err(ApiError::Database(e)),
-    }
+    let saved = save_ticket_update(&mut tc, search_service.get_ref(), &auth, ticket_id, update)?;
+    // What follows the save can assign the ticket; answer with it as it now
+    // stands.
+    let ticket = tc
+        .run(|conn| repository::get_ticket_by_id(conn, ticket_id))
+        .unwrap_or(saved);
+    record_canonical(&req, "outcome", "updated");
+    Ok(HttpResponse::Ok().json(ticket))
 }
 
 // Delete a ticket with comprehensive cleanup
@@ -979,8 +1019,8 @@ pub async fn update_ticket_partial(
     let ticket_id = access.ticket_id;
 
     // `TicketAccess` is a read gate: a requester or watcher who can see the
-    // ticket reaches this handler. Like `NewTicket::redact_for` on PUT, the
-    // only field they may change is the title of a ticket they can see.
+    // ticket reaches this handler, and may send only a title. The shared save
+    // checks the update the body makes the same way.
     if !auth.can_handle_tickets() && !only_requester_fields(&body) {
         return Err(ApiError::Forbidden(
             "Only the helpdesk team can change this".into(),
@@ -988,25 +1028,18 @@ pub async fn update_ticket_partial(
     }
 
     // Parse JSON and build TicketUpdate with user lookups
-    let mut ticket_update = TicketUpdate {
-        updated_at: Some(chrono::Utc::now().naive_utc()),
-        ..Default::default()
-    };
+    let mut ticket_update = TicketUpdate::default();
 
     // Handle simple string fields
     if let Some(title) = body.get("title").and_then(|v| v.as_str()) {
         ticket_update.title = Some(title.to_string());
     }
 
-    // Workflow state is set by id, and must be one of this workspace's.
-    // closed_at and closed_by follow it in the database
-    // (ticket_closed_follows_state).
+    // Workflow state is set by id; the shared save checks it is one of this
+    // workspace's.
     if let Some(ws_id) = body.get("workflow_state_id").and_then(|v| v.as_i64()) {
-        let unknown = || ApiError::BadRequest("Unknown workflow state".into());
-        let id = i32::try_from(ws_id).map_err(|_| unknown())?;
-        tc.run(|conn| repository::workflow_states::category_of(conn, id))
-            .map_err(|_| ApiError::Internal("Failed to validate workflow state".into()))?
-            .ok_or_else(unknown)?;
+        let id = i32::try_from(ws_id)
+            .map_err(|_| ApiError::BadRequest("Unknown workflow state".into()))?;
         ticket_update.workflow_state_id = Some(id);
     }
 
@@ -1153,82 +1186,28 @@ pub async fn update_ticket_partial(
         }
     }
 
-    // Validate category visibility if category_id is being changed
-    if let Some(Some(new_category_id)) = ticket_update.category_id {
-        if let Some(resp) = refuse_unseeable_category(&mut tc, &auth, new_category_id) {
-            return Ok(resp);
-        }
-    }
+    // Field changes reach clients through the sync pool (the repository
+    // write emits the matching ticket.* sync action, from which assignment
+    // and status-change notifications derive); no discrete SSE broadcast.
+    save_ticket_update(
+        &mut tc,
+        search_service.get_ref(),
+        &auth,
+        ticket_id,
+        ticket_update,
+    )?;
 
-    if let Some(state_id) = ticket_update.workflow_state_id {
-        if tc
-            .run(|conn| {
-                crate::repository::ticket_approvals::blocks_resolution(conn, ticket_id, state_id)
-            })
-            .unwrap_or(false)
-        {
-            return Err(ApiError::Conflict(
-                crate::repository::ticket_approvals::WAITING_MESSAGE.into(),
-            ));
-        }
-    }
-
-    // Track if category was changed for auto-assignment
-    let category_changed = body.get("category_id").is_some();
-
-    // Update the ticket
-    match tc.run(|conn| {
-        repository::update_ticket_partial(
-            conn,
-            ticket_id,
-            ticket_update,
-            Some(search_service.get_ref()),
-        )
-    }) {
-        Ok(updated_ticket) => {
-            crate::services::ticket_updates::after_update(
-                &mut tc,
-                Some(search_service.get_ref()),
-                &updated_ticket,
-                category_changed,
-            );
-
-            // Field changes reach clients through the sync pool (the
-            // repository write emits the matching ticket.* sync action);
-            // no discrete SSE broadcast.
-
-            // Now fetch the complete ticket for the response
-            // This happens after SSE broadcast so it doesn't delay real-time updates
-            let updated_ticket = match tc.run(|conn| {
-                repository::get_complete_ticket(
-                    conn,
-                    ticket_id,
-                    crate::repository::ticket_visibility::CommentAudience::from_auth(&auth),
-                )
-            }) {
-                Ok(ticket) => ticket,
-                Err(_) => return Err(ApiError::Internal("Failed to fetch updated ticket".into())),
-            };
-
-            // Assignment and status-change notifications derive from the
-            // sync actions the repository write emitted.
-
-            // Re-index the updated ticket in search
-            // Fetch the article content if it exists for indexing
-            let article_content = tc
-                .run(|conn| repository::get_article_content_by_ticket_id(conn, ticket_id))
-                .ok();
-            indexing_tasks::spawn_index_ticket(
-                search_service.get_ref().clone(),
-                updated_ticket.ticket.clone(),
-                article_content,
-            );
-
-            // Return the updated complete ticket
-            Ok(HttpResponse::Ok().json(updated_ticket))
-        }
-        Err(e) => Err(ApiError::Database(e)),
-    }
+    // Answer with the complete ticket as it now stands.
+    let updated_ticket = tc
+        .run(|conn| {
+            repository::get_complete_ticket(
+                conn,
+                ticket_id,
+                crate::repository::ticket_visibility::CommentAudience::from_auth(&auth),
+            )
+        })
+        .map_err(|_| ApiError::Internal("Failed to fetch updated ticket".into()))?;
+    Ok(HttpResponse::Ok().json(updated_ticket))
 }
 
 // Link tickets. The repository write emits the `linked_ticket.added`
