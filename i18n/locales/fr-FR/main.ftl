@@ -7461,6 +7461,8 @@ admin-license-connect-done = Connecté. La licence est installée.
 admin-license-connect-error-unreachable = Ce serveur n'a pas pu joindre Nosdesk Cloud. Vérifiez le HTTPS sortant vers api.nosdesk.com, ou collez plutôt une clé.
 admin-license-connect-error-unavailable = Nosdesk Cloud est occupé. Réessayez dans une minute.
 admin-license-connect-error-unexpected = La connexion a échoué. Réessayez, ou collez plutôt une clé.
+# Connexion pas encore proposée (machine, à relire par un locuteur natif).
+admin-license-connect-not-available = La connexion à Nosdesk Cloud n'est pas encore disponible. Collez plutôt une clé de licence.
 admin-license-sync-now = Synchroniser
 admin-license-sync-last = Renouvellements vérifiés { $when }
 admin-license-sync-rejected = Nosdesk Cloud n'a pas renouvelé cette licence. Elle reste valable jusqu'à son expiration.

@@ -141,6 +141,9 @@ async function install() {
     apply(await licenseService.install(pastedKey.value.trim()));
     pastedKey.value = '';
     showPaste.value = false;
+    // A key is in: what connecting said no longer applies.
+    connectError.value = '';
+    connectNotAvailable.value = false;
     notice.value = t('admin-license-installed');
   } catch (e) {
     const key = INSTALL_ERRORS[errorCode(e) ?? ''];
@@ -182,6 +185,8 @@ watch(
 );
 const connecting = ref(false);
 const connectError = ref('');
+// Nosdesk Cloud doesn't offer connecting yet: said plainly, not as an error.
+const connectNotAvailable = ref(false);
 const now = ref(Date.now());
 let pollTimer: ReturnType<typeof setInterval> | undefined;
 let clockTimer: ReturnType<typeof setInterval> | undefined;
@@ -233,6 +238,7 @@ const CONNECT_ERRORS: Record<string, string> = {
 
 async function connect() {
   connectError.value = '';
+  connectNotAvailable.value = false;
   notice.value = '';
   connecting.value = true;
   try {
@@ -240,7 +246,12 @@ async function connect() {
     apply(next);
     link.value = next.link;
   } catch (e) {
-    const key = CONNECT_ERRORS[errorCode(e) ?? ''];
+    const code = errorCode(e) ?? '';
+    if (code === 'cloud_not_available') {
+      connectNotAvailable.value = true;
+      return;
+    }
+    const key = CONNECT_ERRORS[code];
     connectError.value = key ? t(key) : t('admin-license-connect-error-unexpected');
   } finally {
     connecting.value = false;
@@ -434,6 +445,9 @@ const relayLastSuccess = computed(() => {
           </div>
 
           <AlertMessage v-if="connectError" type="error" :message="connectError" />
+          <Callout v-if="connectNotAvailable && !isLicensed && !details && !envManaged" severity="info">
+            <p class="px-4 py-3 text-sm text-secondary">{{ $t('admin-license-connect-not-available') }}</p>
+          </Callout>
 
           <!-- Connecting: the code to type on the dashboard, and what became of it. -->
           <div

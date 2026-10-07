@@ -113,6 +113,16 @@ async fn the_poll_follows_the_clouds_answer() {
     assert_eq!(err, CloudError::Unreachable);
     assert!(license_cloud::current_link().is_none());
 
+    // A control plane without the connect route (one from before connecting
+    // existed): reported as not available yet, not as a failure.
+    let srv = actix_test::start(App::new);
+    std::env::set_var("NOSDESK_RELAY_URL", srv.url(""));
+    let err = license_cloud::start_link(pool.clone(), None, "inst-1".into(), None, None)
+        .await
+        .expect_err("no connect route");
+    assert_eq!(err.kind(), "not_available");
+    assert!(license_cloud::current_link().is_none());
+
     // With no stored licence there is nothing to renew, and nothing is asked.
     assert_eq!(
         license_cloud::refresh(pool.clone(), None).await,
