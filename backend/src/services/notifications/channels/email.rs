@@ -329,53 +329,40 @@ impl NotificationDeliveryChannel for EmailChannel {
                     // the per-tenant portal (`<slug>.<NOSDESK_TENANT_DOMAIN>` or a
                     // custom domain). Self-host has one origin for everyone.
                     let mut requester_link = None;
-                    let base_url =
-                        match crate::repository::workspaces::find_by_id(conn, workspace_id) {
-                            Ok(Some(ws)) => {
-                                let recipient_is_agent =
-                                    crate::repository::users::find_active_by_uuid(
-                                        &recipient_uuid,
-                                        conn,
-                                    )
-                                    .map(|u| {
-                                        crate::repository::user_helpers::user_can_handle_tickets(
-                                            conn, &u,
+                    let base_url = match recipient_link_base(
+                        conn,
+                        workspace_id,
+                        recipient_uuid,
+                        &fallback_base,
+                    ) {
+                        Some((base_url, recipient_is_agent)) => {
+                            // A requester's link opens the ticket already signed in,
+                            // so an email-only requester never meets a sign-in wall.
+                            // An approver outside the team gets the approval page
+                            // (they may not be able to view the request itself).
+                            if !recipient_is_agent {
+                                requester_link = ticket_id.and_then(|id| {
+                                    if is_approval_request {
+                                        crate::utils::portal_ticket_link::approval_url(
+                                            conn,
+                                            workspace_id,
+                                            recipient_uuid,
+                                            id,
                                         )
-                                    })
-                                    .unwrap_or(false);
-                                // A requester's link opens the ticket already signed in,
-                                // so an email-only requester never meets a sign-in wall.
-                                // An approver outside the team gets the approval page
-                                // (they may not be able to view the request itself).
-                                if !recipient_is_agent {
-                                    requester_link = ticket_id.and_then(|id| {
-                                        if is_approval_request {
-                                            crate::utils::portal_ticket_link::approval_url(
-                                                conn,
-                                                workspace_id,
-                                                recipient_uuid,
-                                                id,
-                                            )
-                                        } else {
-                                            crate::utils::portal_ticket_link::view_request_url(
-                                                conn,
-                                                workspace_id,
-                                                recipient_uuid,
-                                                id,
-                                            )
-                                        }
-                                    });
-                                }
-                                notification_link_base(
-                            crate::middleware::workspace_context::selection_resolution_enabled(),
-                            recipient_is_agent,
-                            &ws.slug,
-                            crate::utils::tenant_origin::workspace_origin(&ws).as_deref(),
-                            &fallback_base,
-                        )
+                                    } else {
+                                        crate::utils::portal_ticket_link::view_request_url(
+                                            conn,
+                                            workspace_id,
+                                            recipient_uuid,
+                                            id,
+                                        )
+                                    }
+                                });
                             }
-                            _ => fallback_base.clone(),
-                        };
+                            base_url
+                        }
+                        None => fallback_base.clone(),
+                    };
                     let branding = get_email_branding(conn, &base_url, SentFrom::Workspace);
                     let locale = crate::repository::user_locale::resolve_effective_locale(
                         conn,
@@ -571,6 +558,29 @@ impl NotificationDeliveryChannel for EmailChannel {
         // Return true if NOT rate limited (no recent notification found)
         recent.is_none()
     }
+}
+
+/// Base URL for links in `workspace_id`'s email to `recipient`, chosen by the
+/// recipient's surface (see [`notification_link_base`]), and whether they work
+/// tickets. `None` when the workspace can't be read.
+pub(crate) fn recipient_link_base(
+    conn: &mut crate::db::DbConnection,
+    workspace_id: i32,
+    recipient: Uuid,
+    fallback_base: &str,
+) -> Option<(String, bool)> {
+    let ws = crate::repository::workspaces::find_by_id(conn, workspace_id).ok()??;
+    let recipient_is_agent = crate::repository::users::find_active_by_uuid(&recipient, conn)
+        .map(|u| crate::repository::user_helpers::user_can_handle_tickets(conn, &u))
+        .unwrap_or(false);
+    let base = notification_link_base(
+        crate::middleware::workspace_context::selection_resolution_enabled(),
+        recipient_is_agent,
+        &ws.slug,
+        crate::utils::tenant_origin::workspace_origin(&ws).as_deref(),
+        fallback_base,
+    );
+    Some((base, recipient_is_agent))
 }
 
 /// Base URL for a notification deep link, chosen by the recipient's surface.

@@ -470,7 +470,10 @@ pub async fn explain_for_ticket(
         Ok(Some(SlaExplain {
             policy: explain_policy,
             state: SlaExplainState {
-                // Agrees with the pill: a finished ticket's clock is held too.
+                // The state's own effect: its pause flag, or held for a
+                // finished ticket. A created-clock policy ignores the pause
+                // flag, so in a pausing state this says paused while that
+                // policy's pill keeps counting.
                 paused: crate::services::sla::StateClock::of(&state)
                     != crate::services::sla::StateClock::Running,
                 state_name: state.name,

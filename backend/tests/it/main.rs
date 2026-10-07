@@ -45,6 +45,7 @@ mod directory_sync_workspace_scope;
 mod documentation_export_acl;
 mod documentation_hidden_pages;
 mod dsn_corpus;
+mod email_locale_per_workspace;
 mod email_logo_copies;
 mod email_quote_corpus;
 mod email_suppression_scoping;

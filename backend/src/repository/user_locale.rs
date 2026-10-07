@@ -18,14 +18,18 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::utils::locale::effective_locale;
 
-/// Look up the effective locale for `user_uuid`. See module doc.
+/// Look up the effective locale for `user_uuid`: their own choice, else the
+/// default of the workspace the connection is pinned to. See module doc.
 pub fn resolve_effective_locale(conn: &mut DbConnection, user_uuid: Uuid) -> LanguageIdentifier {
     use crate::schema::site_settings;
 
     let user_pref = user_locale_preference(conn, user_uuid);
 
+    // Filtered on the pin rather than left to row security, so an elevated
+    // caller reads the same row; an unpinned connection reads none and falls
+    // through to the default.
     let site_default: String = site_settings::table
-        .find(1)
+        .filter(site_settings::workspace_id.eq(crate::repository::pinned_workspace()))
         .select(site_settings::default_locale)
         .first::<String>(conn)
         .unwrap_or_default();
