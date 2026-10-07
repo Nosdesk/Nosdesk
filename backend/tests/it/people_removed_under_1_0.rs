@@ -1,13 +1,14 @@
 //! People removed from a workspace before membership rows outlived the
-//! membership are still that workspace's people.
+//! membership are still that workspace's people, and a membership row still
+//! means membership.
 //!
 //! Before 2026-09-09 removing a member deleted their `workspace_members` row,
-//! so someone removed under 1.0.x is named by nothing the people definition
-//! reads (membership, profiles, tickets, watchers, comments) unless they
-//! touched a ticket. Their documentation revisions, activity and assets would
-//! then name an unknown user. The migration gives them a removed membership
-//! row back. Runs the migration set against a 1.0-style database seeded just
-//! before it.
+//! so someone removed under 1.0.x has no row, only the work that names them.
+//! The people definition reads that work (here, a documentation revision), so
+//! their name keeps rendering. No membership row is made up for them: a
+//! removed row would keep them out when they next sign in through SSO or
+//! directory sync, which grants a membership only where there is none. Runs
+//! the migration set against a 1.0-style database seeded part way through.
 
 use diesel::prelude::*;
 use diesel::sql_types::Integer;
@@ -38,6 +39,9 @@ fn existing(conn: &mut PgConnection, table: &str, sql: &str) {
         .expect("enable triggers");
 }
 
+/// The former colleague's sign-in address.
+const FORMER_EMAIL: &str = "former.colleague@example.com";
+
 struct Seeded {
     workspace: i32,
     colleague: Uuid,
@@ -67,6 +71,14 @@ fn seed(conn: &mut PgConnection) -> Seeded {
             &format!("INSERT INTO users (uuid, name) VALUES ('{uuid}', '{name}')"),
         );
     }
+    existing(
+        conn,
+        "user_emails",
+        &format!(
+            "INSERT INTO user_emails (user_uuid, email, email_type, is_primary, is_verified) \
+             VALUES ('{former}', '{FORMER_EMAIL}', 'work', true, true)"
+        ),
+    );
     existing(
         conn,
         "workspace_members",
@@ -102,7 +114,7 @@ fn seed(conn: &mut PgConnection) -> Seeded {
 }
 
 #[test]
-fn a_member_removed_under_1_0_is_still_one_of_the_workspaces_people() {
+fn a_member_removed_under_1_0_stays_a_person_and_can_sign_in_again() {
     let db = FreshDb::new();
     let mut conn = PgConnection::establish(&db.url).expect("connect fresh db");
     diesel::sql_query(
@@ -118,11 +130,12 @@ fn a_member_removed_under_1_0_is_still_one_of_the_workspaces_people() {
         .expect("list pending migrations");
     pending.sort_by_key(|m| m.name().to_string());
 
-    // Seed just before the backfill, or after everything when there is none.
+    // Seed before the people migration, or after everything when there is
+    // none: the database as 1.0 left it.
     let mut seeded = None;
     for m in &pending {
         let name = m.name().to_string();
-        if name.contains("_former_members") && seeded.is_none() {
+        if name.contains("_people_indexes") && seeded.is_none() {
             seeded = Some(seed(&mut conn));
         }
         conn.run_migration(&**m)
@@ -135,9 +148,9 @@ fn a_member_removed_under_1_0_is_still_one_of_the_workspaces_people() {
         .max_size(1)
         .build(backend::db::ResettingManager::new(db.url.clone()))
         .expect("pool on the fresh db");
-    let people =
-        backend::repository::directory::people(&mut pool.get().expect("conn"), seeded.workspace)
-            .expect("the workspace's people");
+    let mut conn = pool.get().expect("conn");
+    let people = backend::repository::directory::people(&mut conn, seeded.workspace)
+        .expect("the workspace's people");
     assert!(
         people.contains(&seeded.colleague),
         "a current member is one of the workspace's people"
@@ -145,5 +158,40 @@ fn a_member_removed_under_1_0_is_still_one_of_the_workspaces_people() {
     assert!(
         people.contains(&seeded.former),
         "someone removed under 1.0 who wrote a revision here is too"
+    );
+
+    // Their next SSO sign-in grants a membership, as it did under 1.0.
+    let actor = backend::sync::actor::ActorContext::system("test:people_removed_under_1_0")
+        .with_workspace(seeded.workspace);
+    let member = backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &actor,
+        |c| {
+            backend::services::oauth_provisioning::find_or_create_projected_user(
+                c,
+                backend::services::oauth_provisioning::ProjectedUserInput {
+                    iss: "https://idp.example.com".to_string(),
+                    sub: "former-colleague".to_string(),
+                    identity_workspace_id: None,
+                    email: FORMER_EMAIL.to_string(),
+                    email_verified: true,
+                    name: None,
+                    username: None,
+                    avatar_url: None,
+                    verified_email_set: None,
+                    role: "member".to_string(),
+                    workspace_id: seeded.workspace,
+                    password_hash: None,
+                    metadata: None,
+                },
+            )
+            .unwrap_or_else(|e| panic!("sign-in provisioning: {e}"));
+            backend::repository::workspaces::membership(c, seeded.workspace, seeded.former)
+        },
+    )
+    .expect("read membership");
+    assert!(
+        member.is_some(),
+        "a sign-in makes them an active member again"
     );
 }

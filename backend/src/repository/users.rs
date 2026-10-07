@@ -732,10 +732,9 @@ pub fn purge_user(
             .execute(conn)?;
 
         // === Phase 4: Delete the user ===
-        // Capture the row before delete so the sync emit carries
-        // the projection (name / role / avatar) for clients that
-        // want to display "Foo Bar (deleted)" in historical
-        // contexts. After the row is gone we'd only have the uuid.
+        // The emit below names only the uuid (see `emit_user_event`):
+        // every session drops the row, and nothing about the person
+        // outlives the purge in a client's cache.
         let user_row: User = users::table.find(user_uuid).first(conn)?;
         let deleted_count = diesel::delete(users::table.find(user_uuid)).execute(conn)?;
 
