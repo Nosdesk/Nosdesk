@@ -64,6 +64,7 @@ mod knowledge_gap_lifecycle;
 mod logging_pii_guardrail;
 mod migration_backfill_existing_workspace;
 mod migration_ticket_numbers;
+mod migration_version_lint;
 mod migration_workspace_scoped_keys;
 mod notification_deliveries;
 mod notification_inbox_filters;
