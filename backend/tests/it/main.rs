@@ -90,6 +90,7 @@ mod sync_ticket_group_auth;
 mod sync_visibility;
 mod tenant_table_grants_lint;
 mod tenant_table_rls_lint;
+mod test_db_template;
 mod ticket_activity_visibility;
 mod ticket_by_number;
 mod ticket_create_columns;
