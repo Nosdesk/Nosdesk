@@ -728,17 +728,6 @@ pub fn attachment_workspace_id_by_urls(
         .optional()
 }
 
-/// The ticket an attachment belongs to, through its comment. `None` for an
-/// unknown URL or a file not attached to a comment yet.
-pub fn attachment_ticket_id_by_url(conn: &mut DbConnection, url: &str) -> QueryResult<Option<i32>> {
-    attachments::table
-        .inner_join(comments::table)
-        .filter(attachments::url.eq(url))
-        .select(comments::ticket_id)
-        .first::<i32>(conn)
-        .optional()
-}
-
 /// The workspace that owns a comment. Same contract as
 /// [`attachment_workspace_id_by_urls`].
 pub fn comment_workspace_id(conn: &mut DbConnection, comment_id: i32) -> QueryResult<Option<i32>> {

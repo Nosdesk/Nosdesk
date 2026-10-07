@@ -244,7 +244,7 @@ fn authorize_collab_file_access(
                 )
             }
         },
-        |c, _| {
+        |c, _, _| {
             // Membership (None = non-member) plus the caller's role there drives
             // the document gate.
             let Some(accessor) =

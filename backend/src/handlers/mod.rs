@@ -649,9 +649,8 @@ pub async fn delete_comment(
 /// headers. 404 on comments that have no archived source (UI-
 /// authored, chat-relayed, or pre-archive history).
 ///
-/// Visibility is gated by the parent ticket's `can_view_ticket`
-/// predicate, applied indirectly because the route is keyed by
-/// comment id, not ticket id. The link opens in a new tab without
+/// Visibility is the comment's own (`repository::file_access`): not
+/// removed, internal only for staff, on a ticket the caller can see. The link opens in a new tab without
 /// the workspace selection header, so the workspace comes from the
 /// comment (see `authorize_at_owning_workspace`). Deny maps to 404
 /// (not 403) per the AUD-001 IDOR pattern so the response shape
@@ -675,15 +674,12 @@ pub async fn get_comment_raw_eml(
         &pool,
         &auth,
         |c| crate::repository::comments::comment_workspace_id(c, comment_id),
-        |c, _| {
-            let comment = match crate::repository::comments::get_comment_by_id(c, comment_id) {
-                Ok(comment) => comment,
-                Err(diesel::result::Error::NotFound) => return Ok(None),
-                Err(e) => return Err(e),
-            };
-            let visible =
-                crate::handlers::files::member_can_view_ticket(c, &auth, comment.ticket_id)?;
-            Ok(visible.then_some(comment.raw_source_uri))
+        |c, _, role| {
+            let vis = crate::handlers::files::viewer_in_workspace(&auth, role);
+            Ok(
+                crate::repository::file_access::comment_for_viewer(c, &vis, comment_id)?
+                    .map(|comment| comment.raw_source_uri),
+            )
         },
     );
     let (workspace_id, raw_source_uri) = match authorized {

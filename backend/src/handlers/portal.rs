@@ -1246,8 +1246,9 @@ fn my_ticket(mut tc: TenantConn, portal: PortalContext, ticket_id: i32) -> HttpR
 }
 
 /// `GET /api/portal/tickets/{id}/attachments/{attachment_id}`: a file on a
-/// public comment of a ticket the requester can see. The agent file routes
-/// authenticate agent sessions only, so the portal serves its own.
+/// public reply of a ticket the requester can see. The agent file routes
+/// authenticate agent sessions only, so the portal serves its own; whether the
+/// file may load is the same decision (`repository::file_access`).
 pub async fn download_attachment(
     mut tc: TenantConn,
     portal: PortalContext,
@@ -1260,34 +1261,33 @@ pub async fn download_attachment(
     let url = tc
         .run(move |conn| {
             let vis = portal_visibility(conn, viewer)?;
-            if !can_view_ticket(conn, &vis, ticket_id)? {
-                return Ok(None);
-            }
-            let attachment =
-                match crate::repository::comments::get_attachment_by_id(conn, attachment_id) {
-                    Ok(a) => a,
-                    Err(diesel::result::Error::NotFound) => return Ok(None),
-                    Err(e) => return Err(e),
-                };
-            let Some(comment_id) = attachment.comment_id else {
+            let Some(attachment) =
+                crate::repository::file_access::attachment_for_viewer(conn, &vis, attachment_id)?
+            else {
                 return Ok(None);
             };
-            let comment = crate::repository::comments::get_comment_by_id(conn, comment_id)?;
-            let visible = comment.ticket_id == ticket_id
-                && !comment.is_internal
-                && comment.deleted_at.is_none();
-            Ok::<_, diesel::result::Error>(visible.then_some(attachment.url))
+            // The link names the ticket the reply is on now. A merge moves the
+            // reply, not the file, so the ticket is the reply's, not the folder's.
+            let on_this_ticket = match attachment.comment_id {
+                Some(comment_id) => {
+                    crate::repository::comments::get_comment_by_id(conn, comment_id)?.ticket_id
+                        == ticket_id
+                }
+                None => false,
+            };
+            Ok::<_, diesel::result::Error>(on_this_ticket.then_some(attachment.url))
         })
         .map_err(|e| {
             tracing::error!(error = ?e, ticket_id, "portal: attachment lookup failed");
             actix_web::error::ErrorInternalServerError("Attachment lookup failed")
         })?;
-    // Ticket attachments are stored under `tickets/{ticket_id}/...` and linked
-    // as `/uploads/tickets/...`; anything else isn't a ticket file.
+    // A reply's files are stored under `tickets/` and linked as
+    // `/uploads/tickets/...`; anything else (a draft still in `temp/`) isn't a
+    // ticket file. The folder may be another ticket's after a merge.
     let Some(file_path) = url
         .as_deref()
         .and_then(|u| u.strip_prefix("/uploads/"))
-        .filter(|p| p.starts_with(&format!("tickets/{ticket_id}/")))
+        .filter(|p| p.starts_with("tickets/"))
     else {
         return Err(actix_web::error::ErrorNotFound("File not found"));
     };

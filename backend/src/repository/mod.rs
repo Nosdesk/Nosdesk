@@ -28,6 +28,7 @@ pub mod documentation_starred_pages;
 pub mod documentation_subscriptions;
 pub mod email_suppressions;
 pub mod feature_flags;
+pub mod file_access;
 pub mod groups;
 pub mod idempotency_keys;
 pub mod imports;
