@@ -217,6 +217,31 @@ pub enum BackupError {
     EncryptionError(String),
     InvalidPassword,
     CorruptedBackup(String),
+    /// `MIGRATION_DATABASE_URL` is set and no connection to it opened.
+    /// Carries the cause, which names the host and user, so it stays out of
+    /// the message: see [`BackupError::connection_cause`].
+    MigrationRoleUnreachable(String),
+    /// No database connection to restore on. Carries the cause, as above.
+    ConnectionUnavailable(String),
+}
+
+impl BackupError {
+    /// No connection to restore on: the database is out of reach, not the
+    /// archive at fault.
+    pub fn is_connection(&self) -> bool {
+        self.connection_cause().is_some()
+    }
+
+    /// Why no connection opened, for the operator's own terminal (the CLI)
+    /// and the log. Never in a response or a stored message: it names the
+    /// database host and user.
+    pub fn connection_cause(&self) -> Option<&str> {
+        match self {
+            BackupError::MigrationRoleUnreachable(cause)
+            | BackupError::ConnectionUnavailable(cause) => Some(cause),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for BackupError {
@@ -229,6 +254,10 @@ impl std::fmt::Display for BackupError {
             BackupError::EncryptionError(e) => write!(f, "Encryption error: {e}"),
             BackupError::InvalidPassword => write!(f, "Invalid password"),
             BackupError::CorruptedBackup(e) => write!(f, "Corrupted backup: {e}"),
+            BackupError::MigrationRoleUnreachable(_) => {
+                write!(f, "MIGRATION_DATABASE_URL is set but couldn't connect")
+            }
+            BackupError::ConnectionUnavailable(_) => write!(f, "Database connection unavailable"),
         }
     }
 }
@@ -820,7 +849,41 @@ pub struct RestoreOptions {
     pub ignore_schema_mismatch: bool,
 }
 
-/// Restore tables from a backup archive into the live database.
+/// Restore an instance's database from a backup archive. The CLI and the
+/// admin restore both come here, so neither picks the database role itself.
+///
+/// The restore truncates and reloads every table with triggers off
+/// (`session_replication_role`), which needs a superuser role, not the app
+/// role (`nosdesk_app`). It runs as the migration role when one is configured
+/// (`MIGRATION_DATABASE_URL`), and fails if that role can't be reached rather
+/// than falling back to `DATABASE_URL`, which would only fail later. Without
+/// one it runs on `runtime`, as a single-role install's `DATABASE_URL` is a
+/// superuser already. Returns the connection it ran on, for the work that
+/// follows (the thumbnail backfill).
+pub fn restore_instance(
+    runtime: &crate::db::Pool,
+    backup_path: &Path,
+    password: Option<&str>,
+    options: RestoreOptions,
+) -> Result<(RestoreStats, DbConnection), BackupError> {
+    let migration_role = crate::db::migration_role_pool().map_err(|e| {
+        tracing::error!(error = %e, "restore: MIGRATION_DATABASE_URL is set but couldn't connect");
+        BackupError::MigrationRoleUnreachable(e.to_string())
+    })?;
+    let mut conn = match migration_role {
+        Some(pool) => pool.get(),
+        None => runtime.get(),
+    }
+    .map_err(|e| {
+        tracing::error!(error = %e, "restore: no database connection");
+        BackupError::ConnectionUnavailable(e.to_string())
+    })?;
+    let stats = restore_database(&mut conn, backup_path, password, options)?;
+    Ok((stats, conn))
+}
+
+/// Restore tables from a backup archive into the database `conn` points at.
+/// Outside tests, call [`restore_instance`], which picks the connection.
 ///
 /// Runs inside a single transaction with
 /// `session_replication_role = 'replica'`, so:

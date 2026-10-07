@@ -916,9 +916,10 @@ fn db_restore(
         return Ok(());
     }
 
-    let mut conn = connect_db()?;
-    let stats = backup_service::restore_database(
-        &mut conn,
+    // Runs as the migration role when MIGRATION_DATABASE_URL is set, like
+    // the admin restore: the app role can't truncate and reload tables.
+    let (stats, mut conn) = backup_service::restore_instance(
+        &db::establish_connection_pool(),
         file,
         password.as_deref(),
         backup_service::RestoreOptions {
@@ -926,7 +927,11 @@ fn db_restore(
             ignore_schema_mismatch,
         },
     )
-    .map_err(|e| anyhow!("database restore failed: {e}"))?;
+    .map_err(|e| match e.connection_cause() {
+        // This is the operator's own terminal, so the cause is shown.
+        Some(cause) => anyhow!("database restore failed: {e}: {cause}"),
+        None => anyhow!("database restore failed: {e}"),
+    })?;
     let files_restored = backup_service::restore_backup_files(file, password.as_deref())
         .map_err(|e| anyhow!("file restore failed: {e}"))?;
 
