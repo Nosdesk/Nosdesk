@@ -279,7 +279,7 @@ onMounted(() => {
             </button>
             <IconButton
               :label="state.is_default ? $t('admin-workflow-states-archive-disabled-title') : $t('admin-workflow-states-archive-title')"
-              icon="trash"
+              icon="archive"
               size="xs"
               variant="ghost-danger"
               :disabled="state.is_default"
