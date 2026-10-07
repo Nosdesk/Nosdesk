@@ -331,12 +331,15 @@ pub fn execute_merge(
         // Step 7: union watchers onto the destination. Source rows stay
         // put (the source is still a real record). notify_on_internal_
         // notes ORs so the destination keeps the most permissive flag.
+        // One row per watcher: someone watching two sources would
+        // otherwise reach the upsert twice, which Postgres refuses.
         let watchers_added_to_destination = diesel::sql_query(
             "INSERT INTO ticket_watchers \
                  (ticket_id, user_uuid, auto_added, notify_on_internal_notes, workspace_id) \
-             SELECT $1, sw.user_uuid, TRUE, sw.notify_on_internal_notes, sw.workspace_id \
+             SELECT $1, sw.user_uuid, TRUE, bool_or(sw.notify_on_internal_notes), sw.workspace_id \
              FROM ticket_watchers sw \
              WHERE sw.ticket_id = ANY($2) \
+             GROUP BY sw.user_uuid, sw.workspace_id \
              ON CONFLICT (ticket_id, user_uuid) DO UPDATE SET \
                  notify_on_internal_notes = \
                      ticket_watchers.notify_on_internal_notes OR EXCLUDED.notify_on_internal_notes",
@@ -1203,6 +1206,34 @@ mod tests {
             .get_result(&mut conn)
             .unwrap();
         assert_eq!(only_src_on_dest, 1);
+    }
+
+    #[test]
+    fn a_watcher_of_several_sources_is_added_once() {
+        let mut conn = setup_test_connection();
+        let owner = TestFixtures::create_user(&mut conn, "owner2", "user");
+        let shared = TestFixtures::create_user(&mut conn, "shared2", "user");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(owner.uuid), None);
+        let s1 = TestFixtures::create_ticket(&mut conn, "S1", Some(owner.uuid), None);
+        let s2 = TestFixtures::create_ticket(&mut conn, "S2", Some(owner.uuid), None);
+        add_watcher(&mut conn, s1.id, shared.uuid, false);
+        add_watcher(&mut conn, s2.id, shared.uuid, true);
+
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![s1.id, s2.id]),
+            &actor_for(owner.uuid),
+        )
+        .unwrap();
+
+        use crate::schema::ticket_watchers::dsl as w;
+        let on_dest: Vec<bool> = w::ticket_watchers
+            .filter(w::ticket_id.eq(dest.id))
+            .filter(w::user_uuid.eq(shared.uuid))
+            .select(w::notify_on_internal_notes)
+            .load(&mut conn)
+            .unwrap();
+        assert_eq!(on_dest, vec![true], "one row, OR of false|true");
     }
 
     #[test]
