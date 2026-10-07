@@ -7452,6 +7452,8 @@ admin-license-connect-done = Verbonden. De licentie is geïnstalleerd.
 admin-license-connect-error-unreachable = Deze server kon Nosdesk Cloud niet bereiken. Controleer uitgaand HTTPS naar api.nosdesk.com, of plak in plaats daarvan een sleutel.
 admin-license-connect-error-unavailable = Nosdesk Cloud is druk. Probeer het over een minuut opnieuw.
 admin-license-connect-error-unexpected = Verbinden is mislukt. Probeer het opnieuw, of plak in plaats daarvan een sleutel.
+# Verbinden nog niet beschikbaar (machine, na te kijken door moedertaalspreker).
+admin-license-connect-not-available = Verbinden met Nosdesk Cloud is nog niet beschikbaar. Plak in plaats daarvan een licentiesleutel.
 admin-license-sync-now = Nu synchroniseren
 admin-license-sync-last = Verlengingen gecontroleerd { $when }
 admin-license-sync-rejected = Nosdesk Cloud heeft deze licentie niet verlengd. Hij blijft werken tot hij verloopt.

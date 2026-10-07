@@ -383,11 +383,17 @@ pub async fn start_link(
     .await
     {
         Ok(_) => get_license_after_write(req, pc).await,
-        // 502: this server is fine, the cloud behind it did not answer.
+        // 502: this server is fine, the cloud behind it did not answer, or
+        // doesn't offer connecting yet.
         Err(e) => Ok(errors::with_fields(
             actix_web::http::StatusCode::BAD_GATEWAY,
             &format!("cloud_{}", e.kind()),
-            "Nosdesk Cloud could not be reached",
+            match e {
+                crate::services::license_cloud::CloudError::NotAvailable => {
+                    "Connecting to Nosdesk Cloud isn't available yet"
+                }
+                _ => "Nosdesk Cloud could not be reached",
+            },
             serde_json::json!({}),
         )),
     }
