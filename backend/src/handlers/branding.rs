@@ -13,7 +13,7 @@ use crate::errors::{self, ApiError};
 use crate::extractors::{ScopedStorage, TenantConn, WorkspaceContext};
 use crate::handlers::files::serve_or_not_found;
 use crate::handlers::helpers;
-use crate::models::{SiteSettingsResponse, UpdateSiteSettings, WorkspaceRole};
+use crate::models::{PublicBranding, SiteSettingsResponse, UpdateSiteSettings, WorkspaceRole};
 use crate::repository::site_settings::{self, Logo};
 use crate::services::email_logos;
 use crate::utils;
@@ -124,10 +124,15 @@ pub struct UpdateBrandingRequest {
 }
 
 // GET /api/admin/branding/config - The workspace's branding settings, for the
-// admin forms that edit them. A failed read is an error, never the built-in
-// defaults: a form seeded from defaults shows the workspace's settings as unset,
-// and saving it writes them back that way.
-pub async fn get_branding_config(mut tc: TenantConn) -> Result<HttpResponse, ApiError> {
+// admin forms that edit them. Admins only: the email settings here aren't for
+// members. A failed read is an error, never the built-in defaults: a form
+// seeded from defaults shows the workspace's settings as unset, and saving it
+// writes them back that way.
+pub async fn get_branding_config(
+    mut tc: TenantConn,
+    req: HttpRequest,
+) -> Result<HttpResponse, ApiError> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     match tc.run(site_settings::get_site_settings) {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
@@ -145,14 +150,12 @@ pub async fn get_branding_config(mut tc: TenantConn) -> Result<HttpResponse, Api
 // GET /api/workspace/branding - The selected workspace's branding, for a
 // signed-in member. On the single-origin agent app the workspace is chosen by
 // the selection header, which only the authenticated routes resolve, so the
-// public route below can't see it there. A failed read is an error: the client
-// keeps what it has rather than repainting with the built-in branding.
+// public route below can't see it there. Only what pages display, like the
+// public route. A failed read is an error: the client keeps what it has rather
+// than repainting with the built-in branding.
 pub async fn get_workspace_branding(mut tc: TenantConn) -> Result<HttpResponse, ApiError> {
     match tc.run(site_settings::get_site_settings) {
-        Ok(settings) => {
-            let response: SiteSettingsResponse = settings.into();
-            Ok(HttpResponse::Ok().json(response))
-        }
+        Ok(settings) => Ok(HttpResponse::Ok().json(PublicBranding::from(settings))),
         Err(e) => {
             error!(error = ?e, "Error fetching workspace branding");
             Err(ApiError::Internal("Failed to load branding".into()))
@@ -161,8 +164,9 @@ pub async fn get_workspace_branding(mut tc: TenantConn) -> Result<HttpResponse, 
 }
 
 // GET /api/branding - Public endpoint for branding (no auth required), for the
-// workspace the Host names. Falls back to the built-in branding when none
-// resolves, as on the sign-in page of the single-origin agent app.
+// workspace the Host names. Only what pages display. Falls back to the built-in
+// branding when none resolves, as on the sign-in page of the single-origin
+// agent app.
 pub async fn get_public_branding(
     req: HttpRequest,
     pool: web::Data<Pool>,
@@ -179,27 +183,12 @@ pub async fn get_public_branding(
         site_settings::find_site_settings(conn)
     });
     match loaded {
-        Ok(Some(settings)) => {
-            let response: SiteSettingsResponse = settings.into();
-            Ok(HttpResponse::Ok().json(response))
-        }
+        Ok(Some(settings)) => Ok(HttpResponse::Ok().json(PublicBranding::from(settings))),
         result => {
             if let Err(e) = result {
                 warn!(error = ?e, "Error fetching site settings, returning defaults");
             }
-            Ok(HttpResponse::Ok().json(json!({
-                "app_name": "Nosdesk",
-                "logo_url": null,
-                "logo_light_url": null,
-                "favicon_url": null,
-                "primary_color": null,
-                "updated_at": null,
-                "signature_default": null,
-                "channel_auto_ack_enabled": true,
-                "channel_auto_ack_template": null,
-                "email_security_note_enabled": false,
-                "email_security_note_template": null
-            })))
+            Ok(HttpResponse::Ok().json(PublicBranding::built_in()))
         }
     }
 }

@@ -11,7 +11,7 @@ import Button from '@/components/common/Button.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue'
-import brandingService, { type BrandingConfig } from '@nosdesk/core/services/brandingService'
+import brandingService, { type AdminBrandingConfig } from '@nosdesk/core/services/brandingService'
 import uploadService from '@/services/uploadService'
 import { useBrandingStore } from '@/stores/branding'
 import { useToastStore } from '@nosdesk/core/stores/toast'
@@ -35,7 +35,7 @@ const brandingQuery = useQuery({
   key: BRANDING_KEY,
   query: () => brandingService.getAdminBrandingConfig(),
 })
-const brandingConfig = computed<BrandingConfig | null>(() => brandingQuery.data.value ?? null)
+const brandingConfig = computed<AdminBrandingConfig | null>(() => brandingQuery.data.value ?? null)
 const isFirstLoad = computed(
   () => brandingQuery.status.value === 'pending' && brandingQuery.data.value === undefined,
 )

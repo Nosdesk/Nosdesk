@@ -1,6 +1,10 @@
 import apiClient from '../apiClient'
 import { logger } from '../utils/logger'
 
+/**
+ * What a page displays: the public branding routes return only this, and the
+ * branding store and its cache hold only this.
+ */
 export interface BrandingConfig {
   app_name: string
   logo_url: string | null
@@ -8,6 +12,10 @@ export interface BrandingConfig {
   favicon_url: string | null
   primary_color: string | null
   updated_at: string | null
+}
+
+/** The workspace's branding settings, for the admin forms that edit them. */
+export interface AdminBrandingConfig extends BrandingConfig {
   /**
    * Workspace-wide default email signature. `null` = no org default
    * (the outbound pipeline sends agents' replies unsigned when they
@@ -54,15 +62,12 @@ export interface UpdateBrandingRequest {
 }
 
 class BrandingService {
-  private cachedConfig: BrandingConfig | null = null
-
   /**
    * Get branding configuration (public endpoint)
    */
   async getBrandingConfig(): Promise<BrandingConfig> {
     try {
       const response = await apiClient.get<BrandingConfig>('/branding')
-      this.cachedConfig = response.data
       return response.data
     } catch (error) {
       logger.error('Error fetching branding config:', error)
@@ -73,12 +78,7 @@ class BrandingService {
         logo_light_url: null,
         favicon_url: null,
         primary_color: null,
-        updated_at: null,
-        signature_default: null,
-        channel_auto_ack_enabled: true,
-        channel_auto_ack_template: null,
-        email_security_note_enabled: false,
-        email_security_note_template: null
+        updated_at: null
       }
     }
   }
@@ -91,7 +91,6 @@ class BrandingService {
    */
   async getWorkspaceBranding(): Promise<BrandingConfig> {
     const response = await apiClient.get<BrandingConfig>('/workspace/branding')
-    this.cachedConfig = response.data
     return response.data
   }
 
@@ -100,26 +99,17 @@ class BrandingService {
    * Unlike `getBrandingConfig`, a failure throws: a form seeded from the
    * defaults would show the workspace's settings as unset.
    */
-  async getAdminBrandingConfig(): Promise<BrandingConfig> {
-    const response = await apiClient.get<BrandingConfig>('/admin/branding/config')
-    this.cachedConfig = response.data
+  async getAdminBrandingConfig(): Promise<AdminBrandingConfig> {
+    const response = await apiClient.get<AdminBrandingConfig>('/admin/branding/config')
     return response.data
-  }
-
-  /**
-   * Get cached branding config (for synchronous access)
-   */
-  getCachedConfig(): BrandingConfig | null {
-    return this.cachedConfig
   }
 
   /**
    * Update branding configuration (admin only)
    */
-  async updateBrandingConfig(update: UpdateBrandingRequest): Promise<BrandingConfig> {
+  async updateBrandingConfig(update: UpdateBrandingRequest): Promise<AdminBrandingConfig> {
     try {
-      const response = await apiClient.patch<BrandingConfig>('/admin/branding/config', update)
-      this.cachedConfig = response.data
+      const response = await apiClient.patch<AdminBrandingConfig>('/admin/branding/config', update)
       return response.data
     } catch (error) {
       logger.error('Error updating branding config:', error)
@@ -133,12 +123,12 @@ class BrandingService {
   async uploadBrandingImage(
     file: File,
     type: 'logo' | 'logo_light' | 'favicon'
-  ): Promise<{ url: string; settings: BrandingConfig }> {
+  ): Promise<{ url: string; settings: AdminBrandingConfig }> {
     try {
       const formData = new FormData()
       formData.append('file', file)
 
-      const response = await apiClient.post<{ status: string; url: string; settings: BrandingConfig }>(
+      const response = await apiClient.post<{ status: string; url: string; settings: AdminBrandingConfig }>(
         `/admin/branding/image?type=${type}`,
         formData,
         {
@@ -147,10 +137,6 @@ class BrandingService {
           }
         }
       )
-
-      if (response.data.settings) {
-        this.cachedConfig = response.data.settings
-      }
 
       return {
         url: response.data.url,
@@ -165,15 +151,11 @@ class BrandingService {
   /**
    * Delete branding image
    */
-  async deleteBrandingImage(type: 'logo' | 'logo_light' | 'favicon'): Promise<BrandingConfig> {
+  async deleteBrandingImage(type: 'logo' | 'logo_light' | 'favicon'): Promise<AdminBrandingConfig> {
     try {
-      const response = await apiClient.delete<{ status: string; settings: BrandingConfig }>(
+      const response = await apiClient.delete<{ status: string; settings: AdminBrandingConfig }>(
         `/admin/branding/image?type=${type}`
       )
-
-      if (response.data.settings) {
-        this.cachedConfig = response.data.settings
-      }
 
       return response.data.settings
     } catch (error) {
