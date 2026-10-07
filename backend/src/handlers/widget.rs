@@ -437,7 +437,8 @@ pub async fn exchange_session(
         .clone()
         .map(|n| n.trim().chars().take(120).collect::<String>())
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| email.split('@').next().unwrap_or(&email).to_string());
+        .or_else(|| crate::utils::name_from_email(&email))
+        .unwrap_or_else(|| email.clone());
     let visitor = crate::repository::widget_visitors::Visitor {
         sub: claims.sub.trim(),
         email: &email,

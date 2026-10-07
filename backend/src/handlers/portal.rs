@@ -1829,7 +1829,7 @@ pub async fn add_participant(
         if current.len() > MAX_PARTICIPANTS {
             return Ok(Err(errors::bad_request("This request already has the most people it can")));
         }
-        let name = email.split('@').next().unwrap_or(&email).to_string();
+        let name = crate::utils::name_from_email(&email).unwrap_or_else(|| email.clone());
         let person = crate::repository::user_helpers::find_or_provision_requester(
             &email, &name, conn, None,
         )?;
