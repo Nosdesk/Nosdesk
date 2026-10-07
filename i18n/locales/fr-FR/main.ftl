@@ -4475,6 +4475,8 @@ ticket-comments-badge-internal = Interne
 # Réponse en cours d'envoi ou non envoyée (machine, à relire par un locuteur natif).
 ticket-comments-sending = Envoi…
 ticket-comments-send-failed = Votre réponse n'a pas été envoyée. Réessayez.
+# Réponse envoyée sans certains fichiers (machine, à relire par un locuteur natif).
+ticket-comments-attachments-missing = Votre réponse a été envoyée, mais certains de ses fichiers n'ont pas été joints.
 ticket-comments-badge-forwarded = Transféré
 ticket-comments-badge-forwarded-title = Un agent a transféré cet e-mail dans le helpdesk
 ticket-comments-action-download = Télécharger

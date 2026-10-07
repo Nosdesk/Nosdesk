@@ -27,6 +27,9 @@ export interface TicketDraft {
   content: string
   /** Internal note flag (tech-to-tech vs public reply). */
   isInternal: boolean
+  /** Set on a reply put back after it failed to send: the id it went out
+   *  with, so sending it again is the same reply rather than a new one. */
+  clientId?: string
 }
 
 const STORAGE_KEY = 'nosdesk:ticket-drafts'
@@ -53,7 +56,11 @@ function loadFromStorage(): Map<number, TicketDraft> {
     for (const [k, v] of Object.entries(parsed)) {
       const id = Number(k)
       if (Number.isFinite(id) && v && typeof v.content === 'string') {
-        out.set(id, { content: v.content, isInternal: !!v.isInternal })
+        out.set(id, {
+          content: v.content,
+          isInternal: !!v.isInternal,
+          ...(typeof v.clientId === 'string' ? { clientId: v.clientId } : {}),
+        })
       }
     }
     return out
@@ -110,7 +117,11 @@ export const useTicketDraftsStore = defineStore('ticketDrafts', () => {
     if (!draft.content && !draft.isInternal) {
       next.delete(ticketId)
     } else {
-      next.set(ticketId, { content: draft.content, isInternal: !!draft.isInternal })
+      next.set(ticketId, {
+        content: draft.content,
+        isInternal: !!draft.isInternal,
+        ...(draft.clientId ? { clientId: draft.clientId } : {}),
+      })
     }
     drafts.value = next
   }

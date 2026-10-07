@@ -4519,6 +4519,7 @@ ticket-comments-filter-internal = Internal ({ $count })
 ticket-comments-badge-internal = Internal
 ticket-comments-sending = Sending…
 ticket-comments-send-failed = Your reply wasn't sent. Try again.
+ticket-comments-attachments-missing = Your reply was sent, but some of its files weren't attached.
 ticket-comments-badge-forwarded = Forwarded
 ticket-comments-badge-forwarded-title = An agent forwarded this email into the helpdesk
 ticket-comments-action-download = Download

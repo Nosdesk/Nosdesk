@@ -132,6 +132,8 @@ const emit = defineEmits<{
             user_uuid: string;
             files: File[];
             is_internal: boolean;
+            /** Set when this is a reply that failed to send, put back. */
+            client_id?: string;
         },
     ): void;
     (
@@ -229,6 +231,10 @@ const addComment = () => {
         user_uuid: props.currentUser,
         files: newAttachments.value,
         is_internal: isInternal.value,
+        client_id:
+            props.ticketId !== undefined
+                ? draftsStore.getDraft(props.ticketId).clientId
+                : undefined,
     });
 
     if (props.ticketId !== undefined) {
@@ -239,7 +245,8 @@ const addComment = () => {
     }
 
     // Reset form — including the internal flag, so the next reply
-    // defaults back to public and a tech has to opt in each time.
+    // defaults back to public and a tech has to opt in each time. A reply
+    // that fails to send comes back whole (see restoreUnsentReply).
     newCommentContent.value = "";
     newAttachments.value = [];
     isInternal.value = false;

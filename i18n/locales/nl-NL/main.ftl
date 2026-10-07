@@ -4465,6 +4465,8 @@ ticket-comments-badge-internal = Intern
 # Antwoord dat nog verzonden wordt of niet verzonden is (machine, na te kijken door moedertaalspreker).
 ticket-comments-sending = Verzenden…
 ticket-comments-send-failed = Je antwoord is niet verzonden. Probeer het opnieuw.
+# Antwoord verzonden zonder enkele bestanden (machine, na te kijken door moedertaalspreker).
+ticket-comments-attachments-missing = Je antwoord is verzonden, maar enkele bestanden zijn niet bijgevoegd.
 ticket-comments-badge-forwarded = Doorgestuurd
 ticket-comments-badge-forwarded-title = Een agent heeft deze e-mail naar de helpdesk doorgestuurd
 ticket-comments-action-download = Downloaden

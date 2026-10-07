@@ -40,6 +40,10 @@ import { stashPreview } from '@/services/attachmentPreviewCache'
 import { registerOptimisticCreate, clearOptimisticCreate, isEchoSuppressed } from '@/sync/optimisticCreates'
 import { replyStarted, replyFinished } from '@/sync/repliesInFlight'
 import { useToastStore } from '@nosdesk/core/stores/toast'
+import { useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
+import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
+import { htmlHasText } from '@nosdesk/core/utils/inertHtml'
+import { activeWorkspaceSlug } from '@/services/activeWorkspace'
 import { translate } from '@/i18n'
 import { isNotFoundError } from '@/utils/errors'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
@@ -151,6 +155,30 @@ interface UploadedFile {
 
 interface FileWithTranscription extends File {
   _transcription?: string
+}
+
+/**
+ * Put a reply that failed to send back in the ticket's composer, which
+ * cleared as it went out: its text, files and internal flag together, since
+ * restoring only the text would send an internal note again in public. It
+ * keeps the id it went out with, so sending it again is the same reply. A
+ * draft typed since goes after it, and then the whole is a new reply; it
+ * stays internal if either part was.
+ */
+function restoreUnsentReply(
+  ticketId: number,
+  reply: { content: string; files: File[]; isInternal: boolean; clientId: string },
+): void {
+  const drafts = useTicketDraftsStore()
+  const ui = useTicketUiStore()
+  const current = drafts.getDraft(ticketId)
+  const typedSince = htmlHasText(current.content)
+  drafts.setDraft(ticketId, {
+    content: typedSince ? `${reply.content}${current.content}` : reply.content,
+    isInternal: reply.isInternal || current.isInternal,
+    ...(typedSince ? {} : { clientId: reply.clientId }),
+  })
+  ui.setAttachments(ticketId, [...reply.files, ...ui.getAttachments(ticketId)])
 }
 
 export function useTicketDetail(
@@ -466,16 +494,22 @@ export function useTicketDetail(
     user_uuid: string
     files: File[]
     is_internal?: boolean
+    /** The id a failed send went out with, when this is that reply again. */
+    client_id?: string
   }): Promise<void> {
     if (id.value == null) return
     if (!data.content.trim() && (!data.files || data.files.length === 0)) return
 
     const ticketId = id.value
+    // Ticket ids repeat across workspaces, so a failed reply only goes back
+    // to the composer in the workspace it was written in.
+    const workspace = activeWorkspaceSlug()
     const tempId = -Date.now()
     // Client-minted id sent on the create + echoed back as the comment.created
     // sync action's correlation_id, so the optimistic row reconciles
     // structurally (no temp-id swap heuristic). See sync/optimisticCreates.
-    const clientId = crypto.randomUUID()
+    // A reply sent again after a failure keeps the id it first went out with.
+    const clientId = data.client_id ?? crypto.randomUUID()
     const nowIso = new Date().toISOString()
     // Optimistic comment row in the pool. The real `comment.created`
     // sync action reconciles it (or the REST response below does, if
@@ -581,20 +615,41 @@ export function useTicketDetail(
       })
       // Revoke any previews without a reconciled row (count mismatch).
       for (let i = finals.length; i < previews.length; i++) URL.revokeObjectURL(previews[i])
+      if (finals.length < files.length) {
+        useToastStore().warning(
+          translate(
+            'ticket-comments-attachments-missing',
+            undefined,
+            "Your reply was sent, but some of its files weren't attached.",
+          ),
+        )
+      }
       // The REST path reconciled the temp itself; drop the registry entry so the
       // SSE echo's correlation match is a no-op (the real row is already in).
       clearOptimisticCreate(clientId)
       highlightComment(newComment.id)
     } catch (err) {
       logger.error('Error adding comment', { ticketId, error: err })
-      clearOptimisticCreate(clientId)
+      // The server's echo arrived, so the reply was created and its row now
+      // shows: it wasn't lost, and sending it again would post it twice.
+      const created = clearOptimisticCreate(clientId) != null
       pool.remove('comment', tempId)
       previews.forEach((url, i) => {
         pool.remove('attachment', tempId - i - 1)
         URL.revokeObjectURL(url)
       })
-      // The bubble goes, so say why rather than letting the reply vanish.
-      useToastStore().error(translate('ticket-comments-send-failed', undefined, "Your reply wasn't sent. Try again."))
+      if (!created) {
+        if (activeWorkspaceSlug() === workspace) {
+          restoreUnsentReply(ticketId, {
+            content: data.content,
+            files,
+            isInternal: data.is_internal === true,
+            clientId,
+          })
+        }
+        // The bubble goes, so say why rather than letting the reply vanish.
+        useToastStore().error(translate('ticket-comments-send-failed', undefined, "Your reply wasn't sent. Try again."))
+      }
     } finally {
       replyFinished()
     }
