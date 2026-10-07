@@ -10,6 +10,7 @@ use diesel::r2d2;
 use diesel::Connection;
 use diesel_migrations::MigrationHarness;
 use once_cell::sync::OnceCell;
+use std::sync::Mutex;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -17,21 +18,159 @@ use crate::db::{DbConnection, MIGRATIONS};
 use crate::models::*;
 use crate::schema::*;
 
-/// Resolve the test database URL from env. Both `setup_test_connection`
-/// and `setup_test_pool` use the same precedence: dedicated test DB
-/// preferred, fall back to the dev DB only when explicitly configured.
-fn test_database_url() -> String {
+/// The server's base test database: `TEST_DATABASE_URL`, else `DATABASE_URL`.
+/// Unit tests run in their own database next to it (`test_database_url`).
+fn base_database_url() -> String {
     dotenvy::dotenv().ok();
     std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("TEST_DATABASE_URL or DATABASE_URL must be set for tests")
 }
 
-/// Ensure the test database has all migrations applied. Runs once
-/// per process. Without this, the first fixture insert fails with
-/// `FailedToLookupTypeError(... "user_role" ...)` because Diesel
-/// can't find the OID for custom Postgres enum types that the
-/// migrations would have created.
+/// `url` with its database name swapped for `db`.
+fn with_database(url: &str, db: &str) -> String {
+    let q = url.find('?').unwrap_or(url.len());
+    let path_start = url[..q].rfind('/').expect("database URL has a path");
+    format!("{}/{}{}", &url[..path_start], db, &url[q..])
+}
+
+/// This build's unit-test database. `build.rs` hashes `migrations/` into
+/// `NOSDESK_SCHEMA_HASH`, so each migration set gets its own database and one
+/// branch's migrations never land in another branch's.
+fn unit_database_name() -> String {
+    format!("nosdesk_test_unit_{}", env!("NOSDESK_SCHEMA_HASH"))
+}
+
+/// The database `setup_test_connection` and `setup_test_pool` connect to.
+fn test_database_url() -> String {
+    with_database(&base_database_url(), &unit_database_name())
+}
+
+/// Advisory lock serialising unit-test database setup across processes.
+/// Taken on the `postgres` database (advisory locks are per database).
+const UNIT_DB_LOCK: i64 = 0x6e6f_7364_756e_6974; // "nosdunit"
+
+/// Run `f` on a fresh connection to the `postgres` database holding the
+/// unit-test database lock. The lock is session-level, so a panic in `f`
+/// releases it with the connection.
+fn with_unit_db_lock<T>(
+    f: impl FnOnce(&mut PgConnection) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut admin = PgConnection::establish(&with_database(&base_database_url(), "postgres"))
+        .map_err(|e| format!("connect to the postgres database: {e}"))?;
+    diesel::sql_query(format!("SELECT pg_advisory_lock({UNIT_DB_LOCK})"))
+        .execute(&mut admin)
+        .map_err(|e| format!("take the unit-test database lock: {e}"))?;
+    let out = f(&mut admin);
+    let _ =
+        diesel::sql_query(format!("SELECT pg_advisory_unlock({UNIT_DB_LOCK})")).execute(&mut admin);
+    out
+}
+
+#[derive(QueryableByName)]
+struct DatabaseName {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    datname: String,
+}
+
+/// Create database `name` if it's missing, then run `populate` on it; true
+/// when this call created it. Needs the unit-test database lock.
+fn ensure_database_locked(
+    admin: &mut PgConnection,
+    name: &str,
+    populate: impl FnOnce(&mut PgConnection) -> Result<(), String>,
+) -> Result<bool, String> {
+    let exists = diesel::sql_query("SELECT datname FROM pg_database WHERE datname = $1")
+        .bind::<diesel::sql_types::Text, _>(name)
+        .get_result::<DatabaseName>(admin)
+        .optional()
+        .map_err(|e| format!("look up {name}: {e}"))?
+        .is_some();
+    if !exists {
+        diesel::sql_query(format!("CREATE DATABASE \"{name}\""))
+            .execute(admin)
+            .map_err(|e| format!("CREATE DATABASE {name}: {e}"))?;
+    }
+    let mut conn = PgConnection::establish(&with_database(&base_database_url(), name))
+        .map_err(|e| format!("connect to {name}: {e}"))?;
+    populate(&mut conn)?;
+    Ok(!exists)
+}
+
+/// Create database `name` once, however many processes ask at the same
+/// time, and run `populate` on it for each. True when this call created it.
+fn ensure_database(
+    name: &str,
+    populate: impl FnOnce(&mut PgConnection) -> Result<(), String>,
+) -> Result<bool, String> {
+    with_unit_db_lock(|admin| ensure_database_locked(admin, name, populate))
+}
+
+/// Advisory-lock key for the processes using a unit-test database: its
+/// name's hash suffix, the key the integration tests hold for that schema's
+/// template too. `None` for a name without one.
+fn unit_database_key(name: &str) -> Option<i64> {
+    let hash = name.strip_prefix("nosdesk_test_unit_")?;
+    if hash.len() != 16 {
+        return None;
+    }
+    // The hash is 64 bits; reinterpreting it as a signed key is lossless.
+    u64::from_str_radix(hash, 16).ok().map(|key| key as i64)
+}
+
+/// Hold unit-test database `name`'s key shared for the rest of the process,
+/// on a connection kept open for it, so a stale pass in another process
+/// leaves the database alone between this process's connections.
+fn hold_unit_database(name: &str) -> Result<(), String> {
+    static HOLD: OnceCell<Mutex<PgConnection>> = OnceCell::new();
+    let key = unit_database_key(name).ok_or_else(|| format!("{name} carries no hash"))?;
+    let mut conn = PgConnection::establish(&with_database(&base_database_url(), "postgres"))
+        .map_err(|e| format!("connect to the postgres database: {e}"))?;
+    diesel::sql_query(format!("SELECT pg_advisory_lock_shared({key})"))
+        .execute(&mut conn)
+        .map_err(|e| format!("hold {name}: {e}"))?;
+    let _ = HOLD.set(Mutex::new(conn));
+    Ok(())
+}
+
+#[derive(QueryableByName)]
+struct Locked {
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    locked: bool,
+}
+
+/// Drop the unit-test databases of other migration sets that no process is
+/// using. Switching branches then costs one migration replay. A process
+/// using one holds its key shared (`hold_unit_database`), so a database whose
+/// key can't be taken here is in use and stays.
+fn drop_stale_unit_databases(admin: &mut PgConnection, keep: &str) {
+    let stale = diesel::sql_query(
+        "SELECT datname FROM pg_database \
+         WHERE datname ~ '^nosdesk_test_unit_[0-9a-f]{16}$' AND datname <> $1",
+    )
+    .bind::<diesel::sql_types::Text, _>(keep)
+    .load::<DatabaseName>(admin)
+    .unwrap_or_default();
+    for DatabaseName { datname } in stale {
+        let Some(key) = unit_database_key(&datname) else {
+            continue;
+        };
+        let free = diesel::sql_query(format!("SELECT pg_try_advisory_lock({key}) AS locked"))
+            .get_result::<Locked>(admin)
+            .is_ok_and(|row| row.locked);
+        if !free {
+            continue;
+        }
+        let _ = diesel::sql_query(format!("DROP DATABASE \"{datname}\"")).execute(admin);
+        let _ = diesel::sql_query(format!("SELECT pg_advisory_unlock({key})")).execute(admin);
+    }
+}
+
+/// Ensure this build's unit-test database exists with every migration
+/// applied. Runs once per process. Without this, the first fixture insert
+/// fails with `FailedToLookupTypeError(... "user_role" ...)` because Diesel
+/// can't find the OID for custom Postgres enum types that the migrations
+/// would have created.
 ///
 /// Uses `OnceCell::get_or_try_init` rather than `std::sync::Once`
 /// so an early connection failure (e.g. the dev compose stack
@@ -42,50 +181,54 @@ fn test_database_url() -> String {
 /// with an opaque "instance has been poisoned" error.
 fn ensure_test_db_migrated() {
     static INIT: OnceCell<()> = OnceCell::new();
-    if INIT
-        .get_or_try_init(|| -> Result<(), Box<dyn std::error::Error>> {
-            let url = test_database_url();
-            let mut conn = PgConnection::establish(&url).map_err(|e| {
-                format!("Failed to connect to test DB for migration bootstrap: {e}")
+    let init = INIT.get_or_try_init(|| -> Result<(), String> {
+        let name = unit_database_name();
+        with_unit_db_lock(|admin| {
+            let created = ensure_database_locked(admin, &name, |conn| {
+                conn.run_pending_migrations(MIGRATIONS)
+                    .map(|_| ())
+                    .map_err(|e| format!("Failed to apply migrations to test DB: {e}"))
             })?;
-            conn.run_pending_migrations(MIGRATIONS)
-                .map_err(|e| format!("Failed to apply migrations to test DB: {e}"))?;
-
-            // Provision the partitions the current calendar month needs, once,
-            // COMMITTED. Every pool test connection runs inside an uncommitted
-            // test transaction (see `TestTransaction`), so if a data test were
-            // the first to touch a not-yet-provisioned month it would run the
-            // partition ATTACH inside that transaction and hold
-            // `SHARE UPDATE EXCLUSIVE` on the parent for the whole test, which
-            // deadlocks parallel tests (the `sync::partitions::tests`
-            // PARTITION_TEST_LOCK only serialises its own module). Provisioning
-            // here from `Utc::now` keeps `ensure_one_partition`'s `is_attached`
-            // fast path a no-op in every other test, and survives month
-            // rollover instead of relying on the migration's fixed seed months.
-            //
-            // A fresh single-connection pool with no `TestTransaction`
-            // customizer so it commits; `ResettingManager` acquires with
-            // `RESET ROLE`, i.e. the privileged login role the partition DDL
-            // (`ALTER TABLE ... OWNER TO`/`ATTACH`) needs.
-            let provisioning_pool = r2d2::Pool::builder()
-                .max_size(1)
-                .connection_timeout(Duration::from_secs(5))
-                .build(crate::db::ResettingManager::new(url))
-                .map_err(|e| format!("Failed to build partition-provisioning pool: {e}"))?;
-            let mut provisioning_conn = provisioning_pool
-                .get()
-                .map_err(|e| format!("Failed to check out partition-provisioning conn: {e}"))?;
-            crate::sync::partitions::ensure_partitions(&mut provisioning_conn, 35)
-                .map_err(|e| format!("Failed to provision test partitions: {e}"))?;
+            // Still under the lock, so no stale pass can run between
+            // setting the database up and holding it.
+            hold_unit_database(&name)?;
+            if created {
+                drop_stale_unit_databases(admin, &name);
+            }
             Ok(())
-        })
-        .is_err()
-    {
-        // Re-derive a panic so the test's failure message reads
-        // the same as before for any tooling that parses the
-        // panic line. The retry-on-next-call semantic comes from
-        // `get_or_try_init` not memoising errors.
-        panic!("Test DB migration bootstrap failed; see the previous error");
+        })?;
+
+        // Provision the partitions the current calendar month needs, once,
+        // COMMITTED. Every pool test connection runs inside an uncommitted
+        // test transaction (see `TestTransaction`), so if a data test were
+        // the first to touch a not-yet-provisioned month it would run the
+        // partition ATTACH inside that transaction and hold
+        // `SHARE UPDATE EXCLUSIVE` on the parent for the whole test, which
+        // deadlocks parallel tests (the `sync::partitions::tests`
+        // PARTITION_TEST_LOCK only serialises its own module). Provisioning
+        // here from `Utc::now` keeps `ensure_one_partition`'s `is_attached`
+        // fast path a no-op in every other test, and survives month
+        // rollover instead of relying on the migration's fixed seed months.
+        //
+        // A fresh single-connection pool with no `TestTransaction`
+        // customizer so it commits; `ResettingManager` acquires with
+        // `RESET ROLE`, i.e. the privileged login role the partition DDL
+        // (`ALTER TABLE ... OWNER TO`/`ATTACH`) needs.
+        let provisioning_pool = r2d2::Pool::builder()
+            .max_size(1)
+            .connection_timeout(Duration::from_secs(5))
+            .build(crate::db::ResettingManager::new(test_database_url()))
+            .map_err(|e| format!("Failed to build partition-provisioning pool: {e}"))?;
+        let mut provisioning_conn = provisioning_pool
+            .get()
+            .map_err(|e| format!("Failed to check out partition-provisioning conn: {e}"))?;
+        crate::sync::partitions::ensure_partitions(&mut provisioning_conn, 35)
+            .map_err(|e| format!("Failed to provision test partitions: {e}"))?;
+        Ok(())
+    });
+    // `get_or_try_init` doesn't memoise an error, so the next test retries.
+    if let Err(e) = init {
+        panic!("Test DB migration bootstrap failed: {e}");
     }
 }
 
@@ -155,22 +298,14 @@ fn ensure_test_keyring() {
 
 /// Obtain a single pooled connection wrapped in a test transaction.
 ///
-/// Requires `TEST_DATABASE_URL` to point at a dedicated test database.
-/// We deliberately do *not* fall back to `DATABASE_URL`: PostgreSQL
-/// sequences are non-transactional, so every fixture insert would burn
-/// an id out of the dev database's `tickets_id_seq` etc., pushing
-/// ticket numbers into the thousands after a handful of `cargo test`
-/// runs. The dev compose file provisions `nosdesk_test` and wires
-/// this env var; see `init-db.sql`.
+/// Connects to this build's unit-test database (`test_database_url`), a
+/// database of its own next to `TEST_DATABASE_URL`'s, so fixture inserts
+/// never advance another database's sequences.
 pub fn setup_test_connection() -> DbConnection {
     ensure_test_db_migrated();
     ensure_test_keyring();
 
-    let database_url = std::env::var("TEST_DATABASE_URL").expect(
-        "TEST_DATABASE_URL must be set (use a dedicated DB, not DATABASE_URL — \
-         sequences advance even on rolled-back transactions and would trash \
-         dev ticket/user ids)",
-    );
+    let database_url = test_database_url();
 
     // test_on_check_out(false): keep the production GUC scrub off this
     // single held fixture connection so the role + workspace GUCs this
@@ -584,4 +719,180 @@ pub fn claims_for(pool: &crate::db::Pool, role: &str) -> crate::models::Claims {
         role,
     );
     create_test_claims(&user)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use diesel::sql_types::{Bool, Text};
+    use std::sync::{Arc, Barrier};
+
+    #[derive(QueryableByName)]
+    struct Seen {
+        #[diesel(sql_type = Text)]
+        db: String,
+        #[diesel(sql_type = Bool)]
+        foreign: bool,
+    }
+
+    /// A schema standing in for a migration only another branch has, applied
+    /// to the shared base database the way every branch's unit tests used to
+    /// apply theirs. Dropped however the test ends.
+    struct ForeignObject {
+        url: String,
+        schema: String,
+    }
+
+    impl Drop for ForeignObject {
+        fn drop(&mut self) {
+            if let Ok(mut conn) = PgConnection::establish(&self.url) {
+                let _ = diesel::sql_query(format!("DROP SCHEMA IF EXISTS \"{}\"", self.schema))
+                    .execute(&mut conn);
+            }
+        }
+    }
+
+    #[test]
+    fn another_branchs_migration_stays_out_of_unit_tests() {
+        let base = base_database_url();
+        let schema = format!("g7_foreign_{}", &Uuid::new_v4().simple().to_string()[..12]);
+        let mut base_conn = PgConnection::establish(&base).expect("connect to the base test DB");
+        diesel::sql_query(format!("CREATE SCHEMA \"{schema}\""))
+            .execute(&mut base_conn)
+            .expect("plant the foreign schema");
+        let _foreign = ForeignObject {
+            url: base,
+            schema: schema.clone(),
+        };
+
+        let mut conn = setup_test_connection();
+        let seen = diesel::sql_query(
+            "SELECT current_database()::text AS db, \
+                    EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1) AS foreign",
+        )
+        .bind::<Text, _>(&schema)
+        .get_result::<Seen>(&mut conn)
+        .expect("look at the unit-test DB");
+        assert_eq!(
+            seen.db,
+            format!("nosdesk_test_unit_{}", env!("NOSDESK_SCHEMA_HASH")),
+            "unit tests run in the database for this build's migrations"
+        );
+        assert!(
+            !seen.foreign,
+            "the unit-test DB has `{schema}`, which only the shared base DB has"
+        );
+    }
+
+    /// Drops a throwaway database however the test ends.
+    struct Throwaway(String);
+
+    impl Drop for Throwaway {
+        fn drop(&mut self) {
+            let admin_url = with_database(&base_database_url(), "postgres");
+            if let Ok(mut admin) = PgConnection::establish(&admin_url) {
+                let _ = diesel::sql_query(format!(
+                    "DROP DATABASE IF EXISTS \"{}\" WITH (FORCE)",
+                    self.0
+                ))
+                .execute(&mut admin);
+            }
+        }
+    }
+
+    /// Separate sessions racing for a database that doesn't exist yet: one
+    /// creates it and every caller gets it.
+    #[test]
+    fn concurrent_first_use_creates_the_database_once() {
+        const CALLERS: usize = 4;
+        let name = format!(
+            "nosdesk_unit_race_{}",
+            &Uuid::new_v4().simple().to_string()[..16]
+        );
+        let _cleanup = Throwaway(name.clone());
+        let start = Arc::new(Barrier::new(CALLERS));
+        let callers: Vec<_> = (0..CALLERS)
+            .map(|_| {
+                let (name, start) = (name.clone(), start.clone());
+                std::thread::spawn(move || {
+                    start.wait();
+                    ensure_database(&name, |conn| {
+                        diesel::sql_query("CREATE TABLE IF NOT EXISTS populated (id int)")
+                            .execute(conn)
+                            .map_err(|e| format!("populate: {e}"))?;
+                        // Long enough for every other caller to arrive mid-setup.
+                        std::thread::sleep(Duration::from_millis(300));
+                        Ok(())
+                    })
+                })
+            })
+            .collect();
+        let results: Vec<Result<bool, String>> = callers
+            .into_iter()
+            .map(|caller| caller.join().expect("caller thread"))
+            .collect();
+
+        assert!(
+            results.iter().all(|r| r.is_ok()),
+            "every concurrent caller gets the database: {results:?}"
+        );
+        assert_eq!(
+            results.iter().filter(|r| matches!(r, Ok(true))).count(),
+            1,
+            "exactly one caller creates it: {results:?}"
+        );
+    }
+
+    fn database_exists(conn: &mut PgConnection, name: &str) -> bool {
+        diesel::sql_query("SELECT datname FROM pg_database WHERE datname = $1")
+            .bind::<Text, _>(name)
+            .get_result::<DatabaseName>(conn)
+            .optional()
+            .expect("look up pg_database")
+            .is_some()
+    }
+
+    /// A stale pass drops a unit-test database nobody holds and keeps one
+    /// another process holds, even while it has no connection open to it.
+    #[test]
+    fn a_unit_database_in_use_survives_a_stale_pass() {
+        let fake = || {
+            let hash = Uuid::new_v4().simple().to_string()[..16].to_string();
+            let key = u64::from_str_radix(&hash, 16).expect("hex") as i64;
+            (format!("nosdesk_test_unit_{hash}"), key)
+        };
+        let (held, held_key) = fake();
+        let (unheld, _) = fake();
+        let _held_cleanup = Throwaway(held.clone());
+        let _unheld_cleanup = Throwaway(unheld.clone());
+
+        let admin_url = with_database(&base_database_url(), "postgres");
+        let mut admin = PgConnection::establish(&admin_url).expect("connect to admin DB");
+        for name in [&held, &unheld] {
+            diesel::sql_query(format!("CREATE DATABASE \"{name}\""))
+                .execute(&mut admin)
+                .expect("create database");
+        }
+        // Another process using `held` holds its key shared.
+        let mut other_process =
+            PgConnection::establish(&admin_url).expect("connect as another process");
+        diesel::sql_query(format!("SELECT pg_advisory_lock_shared({held_key})"))
+            .execute(&mut other_process)
+            .expect("hold the database");
+
+        with_unit_db_lock(|lock| {
+            drop_stale_unit_databases(lock, &unit_database_name());
+            Ok(())
+        })
+        .expect("stale pass");
+
+        assert_eq!(
+            (
+                database_exists(&mut admin, &held),
+                database_exists(&mut admin, &unheld)
+            ),
+            (true, false),
+            "(held, unheld): a held database is kept and an unheld one is dropped"
+        );
+    }
 }
