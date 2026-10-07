@@ -482,28 +482,42 @@ pub fn create_attachment(
         let attachment: Attachment = diesel::insert_into(attachments::table)
             .values(&new_attachment)
             .get_result(conn)?;
-        let groups = attachment_groups(conn, &attachment)?;
-        emit::record(
-            conn,
-            SyncEmit {
-                aggregate: SyncAggregate::Attachment,
-                aggregate_id: attachment.id.to_string(),
-                op: SyncOp::Insert,
-                event_type: "attachment.created",
-                data: attachment_sync_data(&attachment),
-                groups,
-                causation_id: None,
-            },
-        )?;
+        let event = attachment_event(conn, &attachment, SyncOp::Insert, "attachment.created")?;
+        emit::record(conn, event)?;
         Ok(attachment)
+    })
+}
+
+/// The sync event for a write to `attachment`, as the row stands (for a
+/// delete, as it stood). Every attachment event is built here, so every write
+/// reaches the same audience; `attachment_emit_lint` holds it to that.
+fn attachment_event(
+    conn: &mut DbConnection,
+    attachment: &Attachment,
+    op: SyncOp,
+    event_type: &'static str,
+) -> QueryResult<SyncEmit<'static>> {
+    let data = match op {
+        SyncOp::Delete => json!({ "id": attachment.id }),
+        _ => attachment_sync_data(attachment),
+    };
+    Ok(SyncEmit {
+        aggregate: SyncAggregate::Attachment,
+        aggregate_id: attachment.id.to_string(),
+        op,
+        event_type,
+        data,
+        groups: attachment_groups(conn, attachment)?,
+        causation_id: None,
     })
 }
 
 /// Who receives an attachment's sync events. On a comment, the comment's
 /// ticket audience, so it fans out with its sibling comment events (the sync
 /// visibility layer then keeps an internal note's files from requesters). A
-/// draft upload not yet on a comment is private to its uploader; one with no
-/// uploader falls back to the workspace.
+/// draft upload not yet on a comment is private to its uploader, and a guest's
+/// draft (no uploader) reaches no one: the claim that puts it on a comment
+/// sends the whole row to the ticket's audience.
 fn attachment_groups(conn: &mut DbConnection, attachment: &Attachment) -> QueryResult<Vec<String>> {
     match (attachment.comment_id, attachment.uploaded_by) {
         (Some(cid), _) => {
@@ -515,7 +529,7 @@ fn attachment_groups(conn: &mut DbConnection, attachment: &Attachment) -> QueryR
             groups::for_ticket(conn, &parent)
         }
         (None, Some(uploader)) => Ok(groups::private_to_user(uploader)),
-        (None, None) => Ok(groups::workspace()),
+        (None, None) => Ok(groups::nobody()),
     }
 }
 
@@ -586,35 +600,10 @@ pub fn reparent_attachment(
                 attachments::uploaded_by.eq(Some(uploaded_by)),
             ))
             .get_result(conn)?;
-        let groups = attachment_groups(conn, &attachment)?;
-        emit::record(
-            conn,
-            SyncEmit {
-                aggregate: SyncAggregate::Attachment,
-                aggregate_id: attachment.id.to_string(),
-                op: SyncOp::Update,
-                event_type: "attachment.attached",
-                data: attachment_sync_data(&attachment),
-                groups,
-                causation_id: None,
-            },
-        )?;
+        let event = attachment_event(conn, &attachment, SyncOp::Update, "attachment.attached")?;
+        emit::record(conn, event)?;
         Ok(1)
     })
-}
-
-// sync-pending-wire: attachments carry a sync aggregate (see create_attachment), but this metadata refresh on an existing row isn't broadcast yet; the parent comment event covers it today
-/// Overwrite an existing attachment row from a `NewAttachment`
-/// changeset. Used by the multipart comment path, which re-derives the
-/// full attachment record (permanent URL + comment link) after upload.
-pub fn update_attachment_record(
-    conn: &mut DbConnection,
-    attachment_id: i32,
-    changes: &NewAttachment,
-) -> QueryResult<usize> {
-    diesel::update(attachments::table.find(attachment_id))
-        .set(changes)
-        .execute(conn)
 }
 
 pub fn get_comment_by_id(conn: &mut DbConnection, comment_id: i32) -> QueryResult<Comment> {
@@ -683,9 +672,17 @@ pub fn delete_comment(
             .first(conn)
             .optional()?;
 
-        // First delete all attachments associated with this comment
+        // Its files go first, each with its own delete event while the
+        // comment, and so their audience, still resolves.
+        let files: Vec<Attachment> = attachments::table
+            .filter(attachments::comment_id.eq(comment_id))
+            .load(conn)?;
         diesel::delete(attachments::table.filter(attachments::comment_id.eq(comment_id)))
             .execute(conn)?;
+        for file in &files {
+            let event = attachment_event(conn, file, SyncOp::Delete, "attachment.deleted")?;
+            emit::record(conn, event)?;
+        }
 
         // Then delete the comment itself
         let count = diesel::delete(comments::table.find(comment_id)).execute(conn)?;
@@ -762,39 +759,19 @@ pub fn get_attachment_by_id(
 
 pub fn delete_attachment(conn: &mut DbConnection, attachment_id: i32) -> QueryResult<usize> {
     conn.transaction(|conn| {
-        // Capture parent comment before delete so groups resolve.
-        // attachments.comment_id is nullable (orphan temp uploads),
-        // hence the doubly-Option select pattern.
-        let parent_comment_id: Option<Option<i32>> = attachments::table
+        // The row decides who hears of the delete (its reply's ticket, or a
+        // draft's uploader), so read it before it goes.
+        let Some(attachment) = attachments::table
             .find(attachment_id)
-            .select(attachments::comment_id)
-            .first(conn)
-            .optional()?;
+            .first::<Attachment>(conn)
+            .optional()?
+        else {
+            return Ok(0);
+        };
         let result = diesel::delete(attachments::table.find(attachment_id)).execute(conn)?;
         if result > 0 {
-            let groups = match parent_comment_id.flatten() {
-                Some(cid) => {
-                    let tid: i32 = comments::table
-                        .find(cid)
-                        .select(comments::ticket_id)
-                        .first(conn)?;
-                    let parent: Ticket = tickets::table.find(tid).first(conn)?;
-                    groups::for_ticket(conn, &parent)?
-                }
-                None => groups::workspace(),
-            };
-            emit::record(
-                conn,
-                SyncEmit {
-                    aggregate: SyncAggregate::Attachment,
-                    aggregate_id: attachment_id.to_string(),
-                    op: SyncOp::Delete,
-                    event_type: "attachment.deleted",
-                    data: json!({ "id": attachment_id }),
-                    groups,
-                    causation_id: None,
-                },
-            )?;
+            let event = attachment_event(conn, &attachment, SyncOp::Delete, "attachment.deleted")?;
+            emit::record(conn, event)?;
         }
         Ok(result)
     })

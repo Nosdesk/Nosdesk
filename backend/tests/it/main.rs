@@ -22,6 +22,7 @@ mod asset_audits;
 mod asset_kinds_picker;
 mod assignment_on_create;
 mod attachment_claims;
+mod attachment_emit_lint;
 mod audit_context_lint;
 mod audit_redaction;
 mod audit_unified;
