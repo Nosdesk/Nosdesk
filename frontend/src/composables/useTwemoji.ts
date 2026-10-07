@@ -5,6 +5,7 @@
  * Emojis are rendered as SVG images for consistent cross-platform display.
  */
 import twemoji from '@twemoji/api'
+import { assetUrl } from '@nosdesk/core/transport'
 
 // Use CDN when VITE_TWEMOJI_CDN=true, otherwise serve locally from public/twemoji/
 const useCdn = import.meta.env.VITE_TWEMOJI_CDN === 'true'
@@ -73,7 +74,9 @@ function preloadTwemojiUrl(url: string): Promise<void> {
       preloadPromises.delete(url)
       resolve()
     }
-    img.src = url
+    // Resolved for the platform, as the <img> that shows it is.
+    // eslint-disable-next-line no-restricted-syntax
+    img.src = assetUrl(url)
   })
 
   preloadPromises.set(url, promise)

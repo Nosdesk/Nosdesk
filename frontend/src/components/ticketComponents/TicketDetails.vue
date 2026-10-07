@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue'
 import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref, watchEffect, onMounted, useId } from 'vue';
 import { useRouter } from 'vue-router';
@@ -702,7 +703,7 @@ watchEffect(async () => {
   <div class="w-full">
     <!-- Print-only branding header -->
     <div class="hidden print:block print-branding-header">
-      <img v-if="customLogoUrl" :src="customLogoUrl" :alt="t('ticket-detail-print-logo-alt')" class="print-logo-image" />
+      <AssetImg v-if="customLogoUrl" :src="customLogoUrl" :alt="t('ticket-detail-print-logo-alt')" class="print-logo-image" />
       <LogoIcon v-else class="print-logo-icon" />
     </div>
 
@@ -714,7 +715,7 @@ watchEffect(async () => {
            floats over a reserved grid cell (.print-qr-spacer) without
            inflating the header or pushing the content below it. -->
       <div v-if="qrCodeDataUrl" class="print-qr-code">
-        <img :src="qrCodeDataUrl" :alt="t('ticket-detail-print-qr-alt')" />
+        <AssetImg :src="qrCodeDataUrl" :alt="t('ticket-detail-print-qr-alt')" />
         <span class="print-qr-label">{{ t('ticket-detail-print-qr-label') }}</span>
       </div>
 

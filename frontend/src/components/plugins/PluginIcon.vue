@@ -6,6 +6,7 @@
  * the registry view for `icon_url`). Either way the component owns
  * the failure state so callers never see the 404.
  */
+import AssetImg from '@/components/common/AssetImg.vue';
 import { computed, ref, watch } from 'vue';
 
 interface Props {
@@ -51,7 +52,7 @@ const glyphSizes: Record<NonNullable<Props['size']>, string> = {
     class="flex flex-shrink-0 items-center justify-center overflow-hidden bg-accent/10"
     :class="sizeClasses[props.size]"
   >
-    <img
+    <AssetImg
       v-if="resolvedSrc && !failed"
       :src="resolvedSrc"
       :alt="alt"

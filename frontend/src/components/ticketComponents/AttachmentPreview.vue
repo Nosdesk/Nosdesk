@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue'
 import LinkButton from '@/components/common/LinkButton.vue'
 import IconButton from '@/components/common/IconButton.vue'
 import Button from '@/components/common/Button.vue'
@@ -199,6 +200,8 @@ const tryLoadServerThumbnail = async (): Promise<boolean> => {
       debugLog('Server thumbnail not found, will use client-side generation', { url: thumbUrl });
       resolve(false);
     };
+    // convertToAuthenticatedPath resolved it through assetUrl.
+    // eslint-disable-next-line no-restricted-syntax
     img.src = authenticatedUrl;
   });
 };
@@ -260,11 +263,14 @@ const checkBrowserSupport = () => {
   const testAvif = new Image();
   testAvif.onload = () => { supportedFormats.avif = true; };
   testAvif.onerror = () => { supportedFormats.avif = false; };
+  // Inline test images, nothing to resolve.
+  // eslint-disable-next-line no-restricted-syntax
   testAvif.src = 'data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADybWV0YQAAAAAAAAAoaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAGxpYmF2aWYAAAAADnBpdG0AAAAAAAEAAAAeaWxvYwAAAABEAAABAAEAAAABAAABGgAAAB0AAAAoaWluZgAAAAAAAQAAABppbmZlAgAAAAABAABhdjAxQ29sb3IAAAAAamlwcnAAAABLaXBjbwAAABRpc3BlAAAAAAAAAAIAAAACAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgQ0MAAAAABNjb2xybmNseAACAAIAAYAAAAAXaXBtYQAAAAAAAAABAAEEAQKDBAAAACVtZGF0EgAKCBgANogQEAwgMg8f8D///8WfhwB8+ErK42A=';
   
   const testJxl = new Image();
   testJxl.onload = () => { supportedFormats.jxl = true; };
   testJxl.onerror = () => { supportedFormats.jxl = false; };
+  // eslint-disable-next-line no-restricted-syntax
   testJxl.src = 'data:image/jxl;base64,/woIELASCAgQAFwASxLFgkWAHL0xqnCBCV0qDp901Te/5QM=';
   
   return supportedFormats;
@@ -384,7 +390,7 @@ const generatePdfThumbnail = async () => {
     :class="(attachmentType === 'image' || attachmentType === 'pdf') ? 'cursor-pointer' : ''"
     @click="(attachmentType === 'image' || attachmentType === 'pdf') && openImagePreview(authenticatedUrl)"
   >
-    <img
+    <AssetImg
       v-if="attachmentType === 'image' && !needsConversion(attachment.name)"
       :src="mediaSrc"
       :alt="attachment.name"
@@ -494,7 +500,7 @@ const generatePdfThumbnail = async () => {
           </div>
         </div>
         <!-- Regular image display with native lazy loading -->
-        <img
+        <AssetImg
           v-else
           :src="mediaSrc"
           :alt="attachment.name"
@@ -502,8 +508,7 @@ const generatePdfThumbnail = async () => {
           class="w-full h-full object-cover bg-transparent attachment-image"
           :class="{
             'animated-preview': isAnimatedImage(attachment.name)
-          }"
-        >
+          }" />
 
         <!-- Uploading indicator for optimistic (still-sending) rows -->
         <div
@@ -580,7 +585,7 @@ const generatePdfThumbnail = async () => {
 
         <!-- PDF Thumbnail Display -->
         <div v-if="pdfThumbnailSrc" class="w-full h-full flex items-center justify-center">
-          <img
+          <AssetImg
             :src="pdfThumbnailSrc"
             :alt="attachment.name"
             loading="lazy"
@@ -678,7 +683,7 @@ const generatePdfThumbnail = async () => {
       <div class="flex flex-col items-center gap-1">
         <!-- Image Preview -->
         <div class="relative">
-          <img
+          <AssetImg
             :src="previewImageSrc"
             :alt="attachment.name"
             class="max-w-full max-h-[70vh] object-contain bg-transparent attachment-image"

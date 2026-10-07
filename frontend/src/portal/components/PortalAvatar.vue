@@ -3,6 +3,7 @@
  * A person's avatar in the portal: their photo, or their initials on the same
  * colour the agent app gives them, so the team looks the same on both sides.
  */
+import AssetImg from '@/components/common/AssetImg.vue'
 import { computed, ref } from 'vue'
 
 import { initialsFrom } from '@/utils/monogram'
@@ -25,7 +26,7 @@ const color = computed(() => {
 </script>
 
 <template>
-  <img
+  <AssetImg
     v-if="src && !failed"
     :src="src"
     alt=""

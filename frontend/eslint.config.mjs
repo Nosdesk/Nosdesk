@@ -93,4 +93,41 @@ export default defineConfigWithVueTs(
       ],
     },
   },
+
+  // File and media URLs go through the platform's asset resolver. On web it
+  // returns the path as is; in the mobile app a relative `/api/files/...`
+  // would resolve against `tauri://localhost` and carry no bearer, so the
+  // resolver rewrites it to the scheme the app proxies (see
+  // `@nosdesk/core/transport` `assetUrl`). An image binds its src through
+  // `<AssetImg>`; a script-built element uses `assetUrl`.
+  {
+    files: ['src/**/*.vue', 'src/**/*.ts'],
+    ignores: [
+      // The component itself.
+      'src/components/common/AssetImg.vue',
+      // The video player binds a src its caller resolved through
+      // convertToAuthenticatedPath (assetUrl), and needs the element itself
+      // for its template ref.
+      'src/components/ticketComponents/VideoPlayer.vue',
+      '**/__tests__/**',
+      '**/*.spec.ts',
+    ],
+    rules: {
+      'vue/no-restricted-v-bind': [
+        'error',
+        ...['img', 'video', 'audio', 'source'].map((element) => ({
+          argument: 'src',
+          element,
+          message: `Bind an image through <AssetImg>, or resolve the URL with assetUrl, so it loads in the mobile app.`,
+        })),
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "AssignmentExpression[left.type='MemberExpression'][left.property.name='src']",
+          message: 'Resolve the URL with assetUrl (or use <AssetImg>) so it loads in the mobile app, then disable this line with the reason.',
+        },
+      ],
+    },
+  },
 )

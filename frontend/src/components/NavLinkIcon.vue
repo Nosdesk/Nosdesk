@@ -4,6 +4,7 @@ plugin nav items carry an icon URL (`iconUrl`, rendered as an <img>). Keeps the
 img-vs-svg branch in one place across the sidebar's render variants.
 -->
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue'
 defineProps<{
   /** SVG path data for a core nav link. */
   icon: string;
@@ -13,7 +14,7 @@ defineProps<{
 </script>
 
 <template>
-  <img v-if="iconUrl" :src="iconUrl" class="w-4 h-4 rounded-sm object-cover" alt="" />
+  <AssetImg v-if="iconUrl" :src="iconUrl" class="w-4 h-4 rounded-sm object-cover" alt="" />
   <svg v-else class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="icon" />
   </svg>

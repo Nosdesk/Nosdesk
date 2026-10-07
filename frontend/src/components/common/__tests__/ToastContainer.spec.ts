@@ -8,6 +8,7 @@ import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { ConfigProvider } from 'reka-ui'
 import ToastContainer from '@/components/common/ToastContainer.vue'
 import { useToastStore } from '@nosdesk/core/stores/toast'
+import { configureAssetUrl } from '@nosdesk/core/transport'
 
 let wrapper: VueWrapper | null = null
 let pinia: Pinia
@@ -139,5 +140,20 @@ describe('ToastContainer', () => {
     vi.advanceTimersByTime(300)
     await settle()
     expect(store.toasts).toHaveLength(0)
+  })
+})
+
+// In the mobile app a relative file path only loads through the app's asset
+// scheme; the resolver is the mobile one here.
+describe('a notification toast in the mobile app', () => {
+  afterEach(() => configureAssetUrl((p) => p, (u) => u))
+
+  it('loads the actor avatar through the asset resolver', async () => {
+    configureAssetUrl((p) => (p.startsWith('/') ? `nosdesk-asset://localhost${p}` : p))
+    useToastStore().notification('New comment', undefined, 'ticket', 1, 42, 'Ana', '/uploads/users/thumbs/ana.webp', 5)
+    await settle()
+
+    const img = document.querySelector<HTMLImageElement>('#overlays img, img')
+    expect(img?.getAttribute('src')).toBe('nosdesk-asset://localhost/uploads/users/thumbs/ana.webp')
   })
 })

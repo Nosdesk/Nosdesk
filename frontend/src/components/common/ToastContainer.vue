@@ -17,6 +17,7 @@ element while `data-state=closed` animates, so the queue holds the entry
 until then.
 -->
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue';
 import { computed, reactive } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -185,7 +186,7 @@ const invokeAction = (toast: Toast, event: Event) => {
 
             <!-- Actor info for notifications -->
             <div v-if="toast.notification?.actorName" class="mt-2 flex items-center gap-2">
-              <img
+              <AssetImg
                 v-if="toast.notification.actorAvatar"
                 :src="toast.notification.actorAvatar"
                 alt=""

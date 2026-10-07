@@ -6,6 +6,7 @@
  * app bar already names us and signing out isn't ours to offer, so the header
  * keeps only the sections; the widget has its own header.
  */
+import AssetImg from '@/components/common/AssetImg.vue'
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryCache } from '@pinia/colada'
@@ -121,7 +122,7 @@ async function onSignOut(): Promise<void> {
           class="flex items-center min-w-0 shrink-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           :aria-label="branding.appName"
         >
-          <img v-if="logoUrl" :src="logoUrl" :alt="branding.appName" class="h-6 max-w-[140px] object-contain" />
+          <AssetImg v-if="logoUrl" :src="logoUrl" :alt="branding.appName" class="h-6 max-w-[140px] object-contain" />
           <LogoIcon v-else class="h-6 text-accent" />
         </RouterLink>
 

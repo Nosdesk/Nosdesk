@@ -1,5 +1,6 @@
 <!-- LoginView.vue -->
 <script setup lang="ts">
+import AssetImg from "@/components/common/AssetImg.vue";
 import { ref, onMounted, nextTick, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { landAfterLogin } from "@/router";
@@ -511,7 +512,7 @@ const handleOidcLogoutClick = async () => {
 <template>
   <AuthLayout>
     <template #logo>
-      <img
+      <AssetImg
         v-if="customLogoUrl"
         :src="customLogoUrl"
         :alt="brandingStore.appName + ' Logo'"

@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import AssetImg from "@/components/common/AssetImg.vue";
 import { ref, computed, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { useFluent } from "fluent-vue";
 import { useAuthStore } from "@/stores/auth";
-import { assetUrl } from "@nosdesk/core/transport";
 import UserAvatar from "@/components/UserAvatar.vue";
 import InlineEdit from "@/components/common/InlineEdit.vue";
 import { extractErrorMessage } from "@/utils/errors";
@@ -495,10 +495,10 @@ const getRoleDisplayName = (role: string) => {
             </div>
             <!-- Actual banner image (hidden during upload) -->
             <!-- :key forces Vue to recreate element when URL changes, bypassing browser cache -->
-            <img
+            <AssetImg
                 v-else-if="formData.banner_url"
                 :key="formData.banner_url"
-                :src="assetUrl(formData.banner_url)"
+                :src="formData.banner_url"
                 :alt="$t('settings-profile-banner-alt')"
                 class="absolute inset-0 w-full h-full object-cover"
             />

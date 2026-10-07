@@ -6,6 +6,7 @@
  */
 
 import DOMPurify, { type Config } from 'dompurify';
+import { assetPath, assetUrl } from '@nosdesk/core/transport';
 
 // Configure DOMPurify defaults
 const DEFAULT_CONFIG: Config = {
@@ -82,7 +83,9 @@ export type SanitiseProfile = 'default' | 'svg' | 'markdown' | 'strict';
  * security-audit-2026-06.
  */
 export function isAllowedImageSrc(src: string): boolean {
-  const value = (src || '').trim();
+  // An image already resolved for the platform (the editor schema renders
+  // through assetUrl) is judged as the stored path it stands for.
+  const value = assetPath((src || '').trim());
   if (!value) return false;
   // Relative, same-origin URLs (/uploads/*, /api/*, ...). Exclude
   // protocol-relative `//host` which is off-origin.
@@ -96,6 +99,30 @@ export function isAllowedImageSrc(src: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * A DOMPurify `uponSanitizeAttribute` hook for `<img src>`: judge the stored
+ * path an already-resolved src stands for (DOMPurify would drop the mobile
+ * app's asset scheme as an unknown protocol), and drop off-origin images.
+ * `resolveSanitisedImage` resolves what stays.
+ */
+export function screenImageSrc(node: Element, data: { attrName: string; attrValue: string; keepAttr: boolean }): void {
+  if (node.nodeName !== 'IMG' || data.attrName !== 'src') return;
+  data.attrValue = assetPath(data.attrValue);
+  if (!isAllowedImageSrc(data.attrValue)) data.keepAttr = false;
+}
+
+/**
+ * Point a sanitised `<img>` at the platform's asset resolver, as `<AssetImg>`
+ * does for templates: on web nothing changes; in the mobile app a relative
+ * file path becomes the scheme the app proxies. For a DOMPurify
+ * `afterSanitizeAttributes` hook, so it only sees srcs the allow-list kept.
+ */
+export function resolveSanitisedImage(node: Element): void {
+  if (node.tagName !== 'IMG') return;
+  const src = node.getAttribute('src');
+  if (src && src.startsWith('/') && !src.startsWith('//')) node.setAttribute('src', assetUrl(src));
 }
 
 /**
@@ -133,14 +160,11 @@ export function useSanitise() {
           node.setAttribute('target', '_blank');
         }
       }
+      resolveSanitisedImage(node);
     });
 
     // Block off-origin image sources (tracking-pixel exfiltration).
-    DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
-      if (node.nodeName === 'IMG' && data.attrName === 'src' && !isAllowedImageSrc(data.attrValue)) {
-        data.keepAttr = false;
-      }
-    });
+    DOMPurify.addHook('uponSanitizeAttribute', screenImageSrc);
 
     const clean = DOMPurify.sanitize(dirty, { ...config, RETURN_TRUSTED_TYPE: false });
 

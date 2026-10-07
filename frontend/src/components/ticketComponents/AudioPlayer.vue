@@ -314,6 +314,8 @@ const loadAudioData = async () => {
 
     // Set the audio element src to use the blob URL (no second download!)
     if (audioRef.value) {
+      // A blob: URL made from the fetched file, nothing to resolve.
+      // eslint-disable-next-line no-restricted-syntax
       audioRef.value.src = blobUrl.value;
     }
     // Playback is possible now; the waveform below is best-effort.
@@ -603,6 +605,8 @@ onUnmounted(() => {
 
   if (audioRef.value) {
     audioRef.value.pause();
+    // Clearing the source, nothing to resolve.
+    // eslint-disable-next-line no-restricted-syntax
     audioRef.value.src = '';
   }
   if (audioContext.value) {

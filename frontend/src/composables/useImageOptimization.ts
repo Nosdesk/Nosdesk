@@ -1,5 +1,6 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { trackImagePerformance } from '@/utils/performanceMonitor'
+import { assetUrl } from '@nosdesk/core/transport'
 
 // Global image cache to prevent re-downloading the same images across components
 const globalImageCache = new Map<string, { 
@@ -270,7 +271,9 @@ export function useImageOptimization(options: UseImageOptimizationOptions = {}) 
       
       // Add crossorigin attribute for better caching
       img.crossOrigin = 'anonymous'
-      img.src = url
+      // Resolved for the platform, as the <img> that shows it is.
+      // eslint-disable-next-line no-restricted-syntax
+      img.src = assetUrl(url)
     })
   }
 
