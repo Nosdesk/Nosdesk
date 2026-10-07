@@ -30,6 +30,31 @@ function brandingCacheKey(): string {
   return slug ? `${BRANDING_CACHE_PREFIX}:${slug}` : BRANDING_CACHE_PREFIX
 }
 
+const DEFAULT_BRANDING: BrandingConfig = {
+  app_name: 'Nosdesk',
+  logo_url: null,
+  logo_light_url: null,
+  favicon_url: null,
+  primary_color: null,
+  updated_at: null,
+}
+
+/**
+ * Only the fields a page displays. Checked at run time, not just by type: a
+ * caller can hand over the admin settings (structurally a `BrandingConfig`
+ * too), and a cache written by an older version can hold more.
+ */
+function toPublicBranding(source: Partial<BrandingConfig>): BrandingConfig {
+  return {
+    app_name: source.app_name ?? DEFAULT_BRANDING.app_name,
+    logo_url: source.logo_url ?? null,
+    logo_light_url: source.logo_light_url ?? null,
+    favicon_url: source.favicon_url ?? null,
+    primary_color: source.primary_color ?? null,
+    updated_at: source.updated_at ?? null,
+  }
+}
+
 /**
  * Load cached branding from localStorage
  */
@@ -37,7 +62,15 @@ function loadCachedBranding(): BrandingConfig | null {
   try {
     const cached = localStorage.getItem(brandingCacheKey())
     if (cached) {
-      return JSON.parse(cached)
+      const parsed: unknown = JSON.parse(cached)
+      if (parsed && typeof parsed === 'object') {
+        const branding = toPublicBranding(parsed as Partial<BrandingConfig>)
+        // Rewrite a cache that held more than this.
+        if (Object.keys(parsed).length !== Object.keys(branding).length) {
+          saveBrandingCache(branding)
+        }
+        return branding
+      }
     }
   } catch {
     // Ignore parse errors
@@ -61,19 +94,7 @@ export const useBrandingStore = defineStore('branding', () => {
   const cachedBranding = loadCachedBranding()
 
   // Branding configuration - use cached values if available
-  const config = ref<BrandingConfig>(cachedBranding || {
-    app_name: 'Nosdesk',
-    logo_url: null,
-    logo_light_url: null,
-    favicon_url: null,
-    primary_color: null,
-    updated_at: null,
-    signature_default: null,
-    channel_auto_ack_enabled: true,
-    channel_auto_ack_template: null,
-    email_security_note_enabled: false,
-    email_security_note_template: null
-  })
+  const config = ref<BrandingConfig>(cachedBranding || { ...DEFAULT_BRANDING })
 
   // Loading state
   const isLoading = ref(false)
@@ -119,7 +140,8 @@ export const useBrandingStore = defineStore('branding', () => {
   const hasCustomFavicon = computed(() => !!config.value.favicon_url)
 
   /** Show `brandingConfig`, cache it for the next visit and re-apply the theme. */
-  function applyLoaded(brandingConfig: BrandingConfig): void {
+  function applyLoaded(loaded: BrandingConfig): void {
+    const brandingConfig = toPublicBranding(loaded)
     config.value = brandingConfig
     isLoaded.value = true
     saveBrandingCache(brandingConfig)
@@ -186,11 +208,13 @@ export const useBrandingStore = defineStore('branding', () => {
   }
 
   /**
-   * Update the branding configuration
+   * Update the branding configuration. Keeps only the public fields, so the
+   * admin settings view can pass its full settings.
    */
   function updateConfig(newConfig: BrandingConfig): void {
-    config.value = newConfig
-    saveBrandingCache(newConfig)
+    const branding = toPublicBranding(newConfig)
+    config.value = branding
+    saveBrandingCache(branding)
     applyBrandingToDocument()
   }
 
@@ -217,19 +241,7 @@ export const useBrandingStore = defineStore('branding', () => {
    * Reset branding to defaults
    */
   function resetBranding(): void {
-    config.value = {
-      app_name: 'Nosdesk',
-      logo_url: null,
-      logo_light_url: null,
-      favicon_url: null,
-      primary_color: null,
-      updated_at: null,
-      signature_default: null,
-      channel_auto_ack_enabled: true,
-      channel_auto_ack_template: null,
-      email_security_note_enabled: false,
-      email_security_note_template: null
-    }
+    config.value = { ...DEFAULT_BRANDING }
     // Clear the cache
     try {
       localStorage.removeItem(brandingCacheKey())
