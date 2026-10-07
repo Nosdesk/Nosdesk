@@ -1008,6 +1008,9 @@ admin-nav-categories-title = Catégories
 admin-nav-categories-description = Configurez les catégories de tickets et leur visibilité par groupe
 admin-nav-assignment-rules-title = Règles d'affectation
 admin-nav-assignment-rules-description = Configurez l'affectation automatique des tickets selon des règles
+# MACHINE TRANSLATION, pending native review
+admin-nav-rules-title = Règles
+admin-nav-rules-description = Des étapes que les agents appliquent à un ticket en une fois, depuis son bouton Actions
 admin-nav-workflow-title = Workflow
 admin-nav-workflow-description = Ajoutez des états de ticket nommés dans les catégories de workflow standard
 admin-nav-sla-title = SLA

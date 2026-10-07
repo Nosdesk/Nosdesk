@@ -61,6 +61,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         keywords: ['assignment', 'rules', 'auto-assign', 'routing', 'automation']
       },
       {
+        titleKey: 'admin-nav-rules-title',
+        descriptionKey: 'admin-nav-rules-description',
+        icon: 'lightning',
+        route: '/admin/rules',
+        keywords: ['rules', 'actions', 'quick actions', 'steps', 'apply', 'automation']
+      },
+      {
         titleKey: 'admin-nav-workflow-title',
         descriptionKey: 'admin-nav-workflow-description',
         icon: 'tag',
