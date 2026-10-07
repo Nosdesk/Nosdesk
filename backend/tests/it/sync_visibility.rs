@@ -125,6 +125,7 @@ fn av(aggregate: SyncAggregate) -> ActionView {
         is_internal: None,
         comment_id: None,
         subject_uuid: None,
+        bare_id: false,
     }
 }
 

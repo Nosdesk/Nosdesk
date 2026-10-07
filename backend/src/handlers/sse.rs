@@ -501,6 +501,7 @@ fn json_row_to_view(row: &serde_json::Value) -> crate::sync::visibility::ActionV
             .and_then(|v| v.as_i64())
             .map(|n| n as i32),
         subject_uuid: aggregate_id.and_then(|s| Uuid::parse_str(s).ok()),
+        bare_id: data.is_some_and(crate::sync::visibility::names_only_the_row),
     }
 }
 
@@ -1236,5 +1237,7 @@ mod tests {
         assert_eq!(uv.aggregate, Some(crate::models::SyncAggregate::User));
         assert_eq!(uv.subject_uuid, Some(who));
         assert_eq!(uv.aggregate_id, None);
+        assert!(!uv.bare_id, "an empty payload is not a prune");
+        assert!(dv.bare_id, "a delete naming only its id is a prune");
     }
 }

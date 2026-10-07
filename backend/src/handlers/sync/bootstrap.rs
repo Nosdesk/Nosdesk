@@ -271,8 +271,7 @@ fn stream_bootstrap_inner(
     // Email lives in `user_emails` (canonical address; the
     // `users.email` column is gone); load the primary-email lookup
     // once rather than joining per-row.
-    let primary_email_by_uuid =
-        crate::repository::user_helpers::get_primary_emails_batch(&roster, conn);
+    let primary_email_by_uuid = crate::repository::user_helpers::primary_emails(conn, &roster)?;
     // Personal dashboard layout lives in `user_preferences`; batch-load
     // it so each user's own sessions warm-start + live-sync the
     // arrangement from the pool (one query, not N+1).

@@ -33,29 +33,48 @@ pub fn purge_grace_window() -> chrono::Duration {
     chrono::Duration::days(days)
 }
 
-/// Emit a `user.updated` sync_action carrying the projection the
-/// frontend's `useReference('user', uuid)` consumes. Called from
-/// inside the same transaction as the SQL write so the event row
-/// appears atomically with the changed row. Pulls the primary
-/// email from `user_emails` since the canonical address lives
-/// outside the `users` table.
+/// Emit a `user.*` sync_action carrying the projection the frontend's
+/// `useReference('user', uuid)` consumes (a delete carries only the uuid).
+/// Called from inside the same transaction as the SQL write so the event
+/// row appears atomically with the changed row. Pulls the primary email
+/// from `user_emails` since the canonical address lives outside the
+/// `users` table.
 fn emit_user_event(
     conn: &mut DbConnection,
     user: &User,
     op: SyncOp,
     event_type: &'static str,
 ) -> QueryResult<()> {
-    let email =
-        crate::repository::user_helpers::get_primary_email(&user.uuid, conn).unwrap_or_default();
-    let workspace_role = crate::repository::user_helpers::workspace_role(conn, user.uuid)
-        .map(|r| r.as_str().to_string());
-    // Personal dashboard layout lives in `user_preferences`; carry it
-    // so a user's own sessions sync the arrangement live through the
-    // pool. Tolerant fetch — on delete the prefs row may have already
-    // cascaded, which is fine (the layout is irrelevant then).
-    let dashboard_layout = crate::repository::user_preferences::get(conn, user.uuid)
-        .ok()
-        .and_then(|p| p.dashboard_layout);
+    // A delete names only the row, like a ticket prune: it must reach every
+    // session that may hold the row, and by then the person is gone from every
+    // record that made them one of the workspace's people, so nothing else
+    // about them may ride along.
+    let data = if matches!(op, SyncOp::Delete) {
+        json!({ "uuid": user.uuid })
+    } else {
+        let email = crate::repository::user_helpers::get_primary_email(&user.uuid, conn)
+            .unwrap_or_default();
+        let workspace_role = crate::repository::user_helpers::workspace_role(conn, user.uuid)
+            .map(|r| r.as_str().to_string());
+        // Personal dashboard layout lives in `user_preferences`; carry it
+        // so a user's own sessions sync the arrangement live through the
+        // pool.
+        let dashboard_layout = crate::repository::user_preferences::get(conn, user.uuid)
+            .ok()
+            .and_then(|p| p.dashboard_layout);
+        json!({
+            "uuid": user.uuid,
+            "name": user.name,
+            "email": email,
+            "platform_role": user.platform_role,
+            "workspace_role": workspace_role,
+            "pronouns": user.pronouns,
+            "avatar_url": user.avatar_url,
+            "avatar_thumb": user.avatar_thumb,
+            "deleted_at": user.deleted_at,
+            "dashboard_layout": dashboard_layout,
+        })
+    };
     emit::record(
         conn,
         SyncEmit {
@@ -63,18 +82,7 @@ fn emit_user_event(
             aggregate_id: user.uuid.to_string(),
             op,
             event_type,
-            data: json!({
-                "uuid": user.uuid,
-                "name": user.name,
-                "email": email,
-                "platform_role": user.platform_role,
-                "workspace_role": workspace_role,
-                "pronouns": user.pronouns,
-                "avatar_url": user.avatar_url,
-                "avatar_thumb": user.avatar_thumb,
-                "deleted_at": user.deleted_at,
-                "dashboard_layout": dashboard_layout,
-            }),
+            data,
             groups: groups::workspace(),
             causation_id: None,
         },
@@ -182,10 +190,6 @@ pub fn get_paginated_users(
     workspace_id: i32,
 ) -> Result<(Vec<User>, i64), Error> {
     use crate::schema::user_emails;
-
-    let people: Vec<Uuid> = crate::repository::directory::people(conn, workspace_id)?
-        .into_iter()
-        .collect();
 
     // Resolve search UUIDs once (if search is active)
     let search_uuids: Option<Vec<Uuid>> = match search.as_deref() {
@@ -333,7 +337,7 @@ pub fn get_paginated_users(
 
     // Count query with filters
     let mut count_query = users::table
-        .filter(users::uuid.eq_any(people.clone()))
+        .filter(crate::repository::directory::listed_people(workspace_id))
         .into_boxed();
     if let Some(ref uuids) = search_uuids {
         count_query = count_query.filter(users::uuid.eq_any(uuids.clone()));
@@ -352,7 +356,9 @@ pub fn get_paginated_users(
     let total: i64 = count_query.count().get_result(conn)?;
 
     // Data query with same filters + sort + pagination
-    let mut query = users::table.filter(users::uuid.eq_any(people)).into_boxed();
+    let mut query = users::table
+        .filter(crate::repository::directory::listed_people(workspace_id))
+        .into_boxed();
     if let Some(ref uuids) = search_uuids {
         query = query.filter(users::uuid.eq_any(uuids.clone()));
     }

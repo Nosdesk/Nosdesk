@@ -3145,6 +3145,23 @@ pub async fn get_user_profile_bundle(
     // RLS-scoped reads) resolve to the caller's workspace.
     helpers::pin_request_workspace(&req, &mut conn);
 
+    // Someone else's profile only if they are one of this workspace's people:
+    // `users` has no row security, so without this an admin here could read
+    // any account in the deployment. A stranger reads as not found.
+    if user_uuid_parsed != auth.user_uuid {
+        let person = match helpers::request_workspace_id(&req) {
+            Some(ws) => repository::directory::find_member(&mut conn, ws, user_uuid_parsed)
+                .map_err(|e| {
+                    error!(user_uuid = %user_uuid_parsed, error = ?e, "Failed to resolve profile");
+                    ApiError::Internal("Failed to load profile".into())
+                })?,
+            None => None,
+        };
+        if person.is_none() {
+            return Err(ApiError::NotFoundMsg("User not found".into()));
+        }
+    }
+
     match crate::repository::user_profile::compute(&mut conn, &user_uuid_parsed, &groups) {
         Ok(Some(bundle)) => Ok(HttpResponse::Ok().json(bundle)),
         Ok(None) => Err(ApiError::NotFoundMsg("User not found".into())),

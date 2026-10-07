@@ -86,6 +86,9 @@ pub struct ActionView {
     pub comment_id: Option<i32>,
     /// `aggregate_id` parsed as a uuid: the user a `user` row is about.
     pub subject_uuid: Option<Uuid>,
+    /// `data` names only the row (`id` / `uuid`), as a delete prune does, so
+    /// it says nothing about anyone.
+    pub bare_id: bool,
 }
 
 impl ActionView {
@@ -110,8 +113,15 @@ impl ActionView {
             is_internal: data.get("is_internal").and_then(|v| v.as_bool()),
             comment_id: i32_at("comment_id"),
             subject_uuid: Uuid::parse_str(aggregate_id).ok(),
+            bare_id: names_only_the_row(data),
         }
     }
+}
+
+/// Whether a payload names only its row (`{"id": ..}` / `{"uuid": ..}`).
+pub fn names_only_the_row(data: &serde_json::Value) -> bool {
+    data.as_object()
+        .is_some_and(|o| !o.is_empty() && o.keys().all(|k| k == "id" || k == "uuid"))
 }
 
 /// True when this aggregate's visibility is governed by ticket access.
@@ -236,11 +246,14 @@ fn action_is_visible(
         // A user's change is recorded in whichever workspace the writer was
         // pinned to, so this workspace's feed can hold a change to someone
         // from another one. It reaches a session only when it is about the
-        // viewer or one of this workspace's people. Deletes too: unlike the
-        // bare-id ticket prunes, `user.deleted` carries the whole row.
-        SyncAggregate::User => v
-            .subject_uuid
-            .is_some_and(|u| u == viewer || people.contains(&u)),
+        // viewer or one of this workspace's people. A bare-id delete goes to
+        // everyone: by the time a person is purged no record names them any
+        // more, and the prune is what clears them from every pool and cache.
+        SyncAggregate::User => {
+            (v.is_delete && v.bare_id)
+                || v.subject_uuid
+                    .is_some_and(|u| u == viewer || people.contains(&u))
+        }
         // Reference data + everything else: allow. Future aggregates that
         // need gating must add an arm above (conscious opt-in).
         _ => true,
@@ -516,6 +529,7 @@ mod tests {
             is_internal: None,
             comment_id: None,
             subject_uuid: None,
+            bare_id: false,
         }
     }
 
@@ -762,17 +776,20 @@ mod tests {
     fn user_rows_only_for_self_and_the_workspaces_people() {
         let (me, colleague, stranger) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
         let people = HashSet::from([colleague]);
-        let about = |u: Uuid, is_delete: bool| {
+        // (is_delete, bare_id): a full row, a full-row delete (as recorded
+        // before deletes were trimmed), and a bare-id prune.
+        let about = |u: Uuid, (is_delete, bare_id): (bool, bool)| {
             let mut v = view(SyncAggregate::User, is_delete);
             v.subject_uuid = Some(u);
+            v.bare_id = bare_id;
             v
         };
         let empty = HashSet::new();
         for visible_tickets in [None, restricted()] {
-            for is_delete in [false, true] {
+            for shape in [(false, false), (true, false), (true, true)] {
                 let kept = |u| {
                     action_is_visible(
-                        &about(u, is_delete),
+                        &about(u, shape),
                         visible_tickets.as_ref(),
                         &empty,
                         &HashSet::new(),
@@ -783,9 +800,15 @@ mod tests {
                         &people,
                     )
                 };
-                assert!(kept(me), "the viewer's own row");
-                assert!(kept(colleague), "one of the workspace's people");
-                assert!(!kept(stranger), "someone from another workspace");
+                assert!(kept(me), "the viewer's own row: {shape:?}");
+                assert!(kept(colleague), "one of the workspace's people: {shape:?}");
+                // A prune names nobody, and must clear a purged person from
+                // every pool; anything more stays with the workspace's people.
+                assert_eq!(
+                    kept(stranger),
+                    shape == (true, true),
+                    "someone from another workspace: {shape:?}"
+                );
             }
         }
         // No subject (an unparseable aggregate id) names nobody.
@@ -842,6 +865,7 @@ mod tests {
             is_internal: None,
             comment_id: None,
             subject_uuid: None,
+            bare_id: false,
         };
         assert!(check(&v, restricted().as_ref(), &HashSet::new()));
         let _ = Uuid::nil();

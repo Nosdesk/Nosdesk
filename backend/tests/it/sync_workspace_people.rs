@@ -23,7 +23,7 @@ use backend::models::{
 use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::{run_in_workspace, with_actor_context};
-use backend::sync::visibility::{filter_actions, ActionView, SyncViewer};
+use backend::sync::visibility::{filter_actions, filter_actions_pinned, ActionView, SyncViewer};
 
 use crate::common::{self, TestPool, TwoWorkspaces, WorkspaceSeed};
 
@@ -121,7 +121,12 @@ fn seed(db: &common::TestDb) -> Fixture {
 }
 
 /// GET `uri` as `viewer`, with `seed`'s workspace resolved for the request.
-async fn get_as(pool: &TestPool, seed: &WorkspaceSeed, viewer: Uuid, uri: &str) -> String {
+async fn call_as(
+    pool: &TestPool,
+    seed: &WorkspaceSeed,
+    viewer: Uuid,
+    uri: &str,
+) -> (StatusCode, String) {
     let claims = Claims {
         sub: viewer.to_string(),
         name: "Viewer".to_string(),
@@ -160,14 +165,26 @@ async fn get_as(pool: &TestPool, seed: &WorkspaceSeed, viewer: Uuid, uri: &str) 
                     .route(
                         "/users/paginated",
                         web::get().to(backend::handlers::get_paginated_users),
+                    )
+                    .route(
+                        "/users/{uuid}/profile",
+                        web::get().to(backend::handlers::users::get_user_profile_bundle),
                     ),
             ),
     )
     .await;
     let resp =
         http_test::call_service(&app, http_test::TestRequest::get().uri(uri).to_request()).await;
-    assert_eq!(resp.status(), StatusCode::OK, "GET {uri}");
-    String::from_utf8(http_test::read_body(resp).await.to_vec()).expect("utf8 body")
+    let status = resp.status();
+    let body = String::from_utf8(http_test::read_body(resp).await.to_vec()).expect("utf8 body");
+    (status, body)
+}
+
+/// [`call_as`], expecting 200.
+async fn get_as(pool: &TestPool, seed: &WorkspaceSeed, viewer: Uuid, uri: &str) -> String {
+    let (status, body) = call_as(pool, seed, viewer, uri).await;
+    assert_eq!(status, StatusCode::OK, "GET {uri}: {body}");
+    body
 }
 
 fn uuids_in(values: &[serde_json::Value]) -> HashSet<Uuid> {
@@ -263,17 +280,82 @@ async fn people_lists_hold_only_the_workspaces_people() {
     let body = get_as(&f.pool, a, a.admin_uuid, "/api/users").await;
     let rows: Vec<serde_json::Value> = serde_json::from_str(&body).expect("json");
     assert_only_a_people(&f, &uuids_in(&rows), &body, "/users");
+
+    // The profile page an admin opens on someone: one of A's people, or not
+    // found.
+    let profile = |who: Uuid| format!("/api/users/{who}/profile?include=");
+    let (status, body) = call_as(&f.pool, a, a.admin_uuid, &profile(a.member_uuid)).await;
+    assert_eq!(status, StatusCode::OK, "a colleague's profile: {body}");
+    let (status, body) = call_as(&f.pool, a, a.admin_uuid, &profile(f.ws.b.member_uuid)).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the profile of someone only in B: {body}"
+    );
+    assert!(!body.contains(&email_of(f.ws.b.member_uuid)));
+}
+
+type UserRow = (SyncAggregate, SyncOp, String, serde_json::Value);
+
+/// The `user` rows A's feed holds, oldest first.
+fn a_user_rows(f: &Fixture) -> Vec<UserRow> {
+    let a = f.ws.a.workspace_id;
+    run_in_workspace(&f.pool, REF, a, |c| {
+        use backend::schema::sync_actions::dsl as s;
+        s::sync_actions
+            .filter(s::workspace_id.eq(a))
+            .filter(s::aggregate.eq(SyncAggregate::User))
+            .order(s::sync_id.asc())
+            .select((s::aggregate, s::op, s::aggregate_id, s::data))
+            .load(c)
+    })
+    .expect("A's user rows")
+}
+
+/// The rows `viewer`'s sessions in A receive, through the read-side filter
+/// the delta runs on its request connection and the live stream runs on a
+/// pinned pool connection. The two must agree.
+fn delivered_in_a(f: &Fixture, viewer: Uuid, rows: &[UserRow]) -> Vec<UserRow> {
+    let a = f.ws.a.workspace_id;
+    let views: Vec<ActionView> = rows
+        .iter()
+        .map(|(agg, op, id, data)| ActionView::from_row(*agg, *op, id, data))
+        .collect();
+    let mut conn = f.pool.get().expect("conn");
+    let (viewer, delta) = with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &ActorContext::user(viewer, None).with_workspace(a),
+        |c| {
+            let me = backend::repository::users::get_user_by_uuid(&viewer, c)?;
+            let viewer = SyncViewer::resolve(c, &me);
+            let keep = filter_actions(c, &viewer, &views, |v: &ActionView| v.clone());
+            Ok((viewer, keep))
+        },
+    )
+    .expect("delta filter");
+    let live = filter_actions_pinned(&f.pool, a, &viewer, &views, |v: &ActionView| v.clone());
+    assert_eq!(delta, live, "the delta and the live stream agree");
+    rows.iter()
+        .zip(delta)
+        .filter(|(_, keep)| *keep)
+        .map(|(row, _)| row.clone())
+        .collect()
+}
+
+fn about(rows: &[UserRow], who: Uuid) -> bool {
+    rows.iter().any(|r| r.2 == who.to_string())
 }
 
 /// An edit made while pinned to A (an operator working from A, say) records
 /// its `user.updated` in A's feed whoever it is about. The read-side filter
 /// the delta and the live stream share hands A's sessions only the changes to
-/// A's own people.
+/// A's own people: a colleague, and someone from B whom A's ticket names.
 #[test]
 fn user_changes_reach_only_the_workspaces_sessions() {
     let db = common::TestDb::new();
     let f = seed(&db);
-    let (a, a_member, b_member) = (f.ws.a.workspace_id, f.ws.a.member_uuid, f.ws.b.member_uuid);
+    let a = f.ws.a.workspace_id;
+    let (a_member, b_member) = (f.ws.a.member_uuid, f.ws.b.member_uuid);
     let mut conn = f.pool.get().expect("conn");
 
     let rename = |name: &str| UserUpdate {
@@ -289,58 +371,74 @@ fn user_changes_reach_only_the_workspaces_sessions() {
         &mut conn,
         &ActorContext::user(f.ws.a.admin_uuid, None).with_workspace(a),
         |c| {
-            backend::repository::users::update_user(&b_member, rename("B renamed"), c, None)?;
-            backend::repository::users::update_user(&a_member, rename("A renamed"), c, None)?;
+            for (who, name) in [
+                (b_member, "B renamed"),
+                (a_member, "A renamed"),
+                (f.requester_from_b, "Requester renamed"),
+            ] {
+                backend::repository::users::update_user(&who, rename(name), c, None)?;
+            }
             Ok(())
         },
     )
-    .expect("edit both from A");
+    .expect("edit all three from A");
 
-    let rows: Vec<(SyncAggregate, SyncOp, String, serde_json::Value)> =
-        run_in_workspace(&f.pool, REF, a, |c| {
-            use backend::schema::sync_actions::dsl as s;
-            s::sync_actions
-                .filter(s::workspace_id.eq(a))
-                .filter(s::aggregate.eq(SyncAggregate::User))
-                .select((s::aggregate, s::op, s::aggregate_id, s::data))
-                .load(c)
-        })
-        .expect("A's user rows");
-    let recorded: HashSet<&str> = rows.iter().map(|r| r.2.as_str()).collect();
+    let rows = a_user_rows(&f);
     assert!(
-        recorded.contains(b_member.to_string().as_str()),
+        about(&rows, b_member),
         "the edit to B's member is recorded in A's feed (the case under test)"
     );
 
-    let views: Vec<ActionView> = rows
-        .iter()
-        .map(|(agg, op, id, data)| ActionView::from_row(*agg, *op, id, data))
-        .collect();
-    let keep = with_actor_context::<_, diesel::result::Error>(
-        &mut conn,
-        &ActorContext::user(a_member, None).with_workspace(a),
-        |c| {
-            let me = backend::repository::users::get_user_by_uuid(&a_member, c)?;
-            let viewer = SyncViewer::resolve(c, &me);
-            Ok(filter_actions(c, &viewer, &views, |v: &ActionView| {
-                v.clone()
-            }))
-        },
-    )
-    .expect("filter as A's member");
-    let delivered: HashSet<&str> = rows
-        .iter()
-        .zip(keep)
-        .filter(|(_, k)| *k)
-        .map(|(r, _)| r.2.as_str())
-        .collect();
-
+    // A's admin: none of the rows is about them, so each goes through the
+    // workspace's people.
+    let delivered = delivered_in_a(&f, f.ws.a.admin_uuid, &rows);
     assert!(
-        delivered.contains(a_member.to_string().as_str()),
-        "a change to one of A's people reaches A's sessions"
+        about(&delivered, a_member),
+        "a change to a colleague reaches A's sessions"
     );
     assert!(
-        !delivered.contains(b_member.to_string().as_str()),
+        about(&delivered, f.requester_from_b),
+        "a change to the requester of A's ticket reaches A's sessions"
+    );
+    assert!(
+        !about(&delivered, b_member),
         "a change to someone only in B must not reach A's sessions"
+    );
+}
+
+/// A purge removes the person from every record that made them one of the
+/// workspace's people before it records `user.deleted`. The delete still has
+/// to reach every session that may hold the row, or the purged name and
+/// address stay in pools and caches; so it names only the row.
+#[test]
+fn a_purge_reaches_colleagues_sessions_as_a_bare_prune() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let (a, gone) = (f.ws.a.workspace_id, f.ws.a.member_uuid);
+
+    let mut conn = f.pool.get().expect("conn");
+    with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &ActorContext::user(f.ws.a.admin_uuid, None).with_workspace(a),
+        |c| backend::repository::users::purge_user(&gone, c, None).map(|_| ()),
+    )
+    .expect("purge A's member");
+
+    let deletes: Vec<UserRow> = a_user_rows(&f)
+        .into_iter()
+        .filter(|r| r.1 == SyncOp::Delete && r.2 == gone.to_string())
+        .collect();
+    assert_eq!(deletes.len(), 1, "the purge records one delete");
+
+    let delivered = delivered_in_a(&f, f.ws.a.admin_uuid, &deletes);
+    assert_eq!(
+        delivered.len(),
+        1,
+        "the delete reaches a colleague's sessions"
+    );
+    assert_eq!(
+        delivered[0].3,
+        serde_json::json!({ "uuid": gone }),
+        "the delete names only the row"
     );
 }

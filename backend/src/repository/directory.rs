@@ -18,13 +18,14 @@
 //! - as a watcher of one of its tickets (`ticket_watchers`);
 //! - as the author of a comment on one of its tickets (`comments`).
 //!
-//! Members cover staff and most requesters. The other sources hold people the
-//! workspace works with whose account began somewhere else: a sender whose
-//! address already had an account, or a directory-synced employee with no
-//! membership row. [`people`] and [`people_among`] are the one definition.
-//! The sync bootstrap, the read-side sync filter, the people lists and the
-//! lookups below all use it, so they cannot disagree about who is in a
-//! workspace.
+//! Members cover staff and most requesters, and everyone who has left: a
+//! membership row outlives the membership (and members removed before that
+//! was so were given one back by migration). The other sources hold people
+//! the workspace works with whose account began somewhere else: a sender
+//! whose address already had an account, or a directory-synced employee with
+//! no membership row. `PEOPLE_SOURCES` is the one definition. The sync
+//! bootstrap, the read-side sync filter, the people lists and the lookups
+//! below all use it, so they cannot disagree about who is in a workspace.
 //!
 //! **Membership status is deliberately ignored here.** These functions resolve
 //! *who someone is*, not *what they may do*: a former colleague still has to
@@ -35,20 +36,80 @@
 use std::collections::HashSet;
 
 use diesel::prelude::*;
+use diesel::sql_types::Bool;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::User;
 use crate::schema::users;
 
-/// Every one of the workspace's people (see the module docs).
-pub fn people(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<HashSet<Uuid>> {
-    named_in_workspace(conn, workspace_id, None)
+/// Where a workspace's own records name a person: `(table, user column)`, each
+/// table carrying `workspace_id`. The one definition of a workspace's people;
+/// [`listed_people`] and [`is_person_sql`] render it, so a list and a lookup
+/// can't disagree. Each pair has a `(workspace_id, column)` index, so a list reads
+/// only the workspace's own index entries and a lookup is one probe per source.
+///
+/// Membership comes first and covers almost everyone: staff, requesters the
+/// workspace provisioned, and, since membership rows outlive the membership,
+/// everyone who has left. The rest name people whose account began elsewhere.
+// members-any-status: a former member is still one of the workspace's people;
+// the tickets and comments they left behind must keep rendering their name.
+const PEOPLE_SOURCES: [(&str, &str); 6] = [
+    ("workspace_members", "user_uuid"),
+    ("user_profiles", "user_uuid"),
+    ("tickets", "requester_uuid"),
+    ("tickets", "assignee_uuid"),
+    ("ticket_watchers", "user_uuid"),
+    ("comments", "user_uuid"),
+];
+
+/// A filter on `users` keeping the workspace's people, as one subquery the
+/// planner runs once per query: for a list (the people pages, the pickers,
+/// the bootstrap roster), not a per-row check. `workspace_id` is an `i32`, so
+/// interpolating it is injection-safe.
+pub fn listed_people(workspace_id: i32) -> diesel::expression::SqlLiteral<Bool> {
+    let union = PEOPLE_SOURCES
+        .iter()
+        .map(|(table, column)| {
+            format!(
+                "SELECT {table}.{column} FROM {table} \
+                 WHERE {table}.workspace_id = {workspace_id} AND {table}.{column} IS NOT NULL"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" UNION ");
+    diesel::dsl::sql::<Bool>(&format!("users.uuid IN ({union})"))
 }
 
-/// Those of `candidates` who are the workspace's people. Each source is
-/// probed by its user column, so this stays cheap however large the
-/// workspace is.
+/// Whether the user `uuid_expr` (a SQL expression, such as `users.uuid`) is
+/// one of the workspace's people, as one probe per source rather than a scan
+/// of the workspace. For checking a few known users.
+fn is_person_sql(workspace_id: i32, uuid_expr: &str) -> String {
+    let probes = PEOPLE_SOURCES
+        .iter()
+        .map(|(table, column)| {
+            format!(
+                "EXISTS (SELECT 1 FROM {table} \
+                 WHERE {table}.workspace_id = {workspace_id} AND {table}.{column} = {uuid_expr})"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    format!("({probes})")
+}
+
+/// Every one of the workspace's people (see the module docs).
+pub fn people(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<HashSet<Uuid>> {
+    Ok(users::table
+        .filter(listed_people(workspace_id))
+        .select(users::uuid)
+        .load::<Uuid>(conn)?
+        .into_iter()
+        .collect())
+}
+
+/// Those of `candidates` who are the workspace's people. Probes each source
+/// by its index, so this stays cheap however large the workspace is.
 pub fn people_among(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -57,53 +118,22 @@ pub fn people_among(
     if candidates.is_empty() {
         return Ok(HashSet::new());
     }
-    named_in_workspace(conn, workspace_id, Some(candidates))
-}
-
-/// The one definition behind [`people`] and [`people_among`]: the users each
-/// source names in `workspace_id`, optionally only among `among`. Every source
-/// is a tenant table read with an explicit workspace predicate, so an elevated
-/// connection gets the same answer as a pinned one.
-// members-any-status: a former member is still one of the workspace's people;
-// the tickets and comments they left behind must keep rendering their name.
-fn named_in_workspace(
-    conn: &mut DbConnection,
-    workspace_id: i32,
-    among: Option<&[Uuid]>,
-) -> QueryResult<HashSet<Uuid>> {
-    use crate::schema::{comments, ticket_watchers, tickets, user_profiles, workspace_members};
-
-    let mut out = HashSet::new();
-    // One query per (table, user column). `nullable()` lets the nullable
-    // ticket columns and the NOT NULL ones share a shape; it adds nothing to
-    // the SQL, so each probe still uses that column's index.
-    macro_rules! named_by {
-        ($table:ident, $column:ident) => {{
-            let mut query = $table::table
-                .filter($table::workspace_id.eq(workspace_id))
-                .select($table::$column.nullable())
-                .distinct()
-                .into_boxed();
-            if let Some(candidates) = among {
-                query = query.filter($table::$column.nullable().eq_any(candidates));
-            }
-            out.extend(query.load::<Option<Uuid>>(conn)?.into_iter().flatten());
-        }};
-    }
-    named_by!(workspace_members, user_uuid);
-    named_by!(user_profiles, user_uuid);
-    named_by!(tickets, requester_uuid);
-    named_by!(tickets, assignee_uuid);
-    named_by!(ticket_watchers, user_uuid);
-    named_by!(comments, user_uuid);
-    Ok(out)
+    Ok(users::table
+        .filter(users::uuid.eq_any(candidates))
+        .filter(diesel::dsl::sql::<Bool>(&is_person_sql(
+            workspace_id,
+            "users.uuid",
+        )))
+        .select(users::uuid)
+        .load::<Uuid>(conn)?
+        .into_iter()
+        .collect())
 }
 
 /// The workspace's people as user rows, by name.
 pub fn list_people(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<Vec<User>> {
-    let uuids: Vec<Uuid> = people(conn, workspace_id)?.into_iter().collect();
     users::table
-        .filter(users::uuid.eq_any(uuids))
+        .filter(listed_people(workspace_id))
         .order((users::name.asc(), users::uuid.asc()))
         .load::<User>(conn)
 }
