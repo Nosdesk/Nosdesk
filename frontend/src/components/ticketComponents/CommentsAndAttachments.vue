@@ -20,7 +20,7 @@ import { sanitiseHtml } from "@/composables/useSanitise";
 import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
-import { useTicketDraftsStore } from "@nosdesk/core/stores/ticketDrafts";
+import { resendClientId, useTicketDraftsStore } from "@nosdesk/core/stores/ticketDrafts";
 import { useTicketUiStore } from "@nosdesk/core/stores/ticketUi";
 
 // Local re-export of the canonical types so this component can use
@@ -132,6 +132,8 @@ const emit = defineEmits<{
             user_uuid: string;
             files: File[];
             is_internal: boolean;
+            /** Set when this is a reply that failed to send, put back. */
+            client_id?: string;
         },
     ): void;
     (
@@ -229,6 +231,10 @@ const addComment = () => {
         user_uuid: props.currentUser,
         files: newAttachments.value,
         is_internal: isInternal.value,
+        client_id:
+            props.ticketId !== undefined
+                ? resendClientId(draftsStore.getDraft(props.ticketId), newAttachments.value)
+                : undefined,
     });
 
     if (props.ticketId !== undefined) {
@@ -239,7 +245,8 @@ const addComment = () => {
     }
 
     // Reset form — including the internal flag, so the next reply
-    // defaults back to public and a tech has to opt in each time.
+    // defaults back to public and a tech has to opt in each time. A reply
+    // that fails to send comes back whole (see restoreUnsentReply).
     newCommentContent.value = "";
     newAttachments.value = [];
     isInternal.value = false;

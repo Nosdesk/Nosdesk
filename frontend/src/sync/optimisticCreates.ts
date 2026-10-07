@@ -35,11 +35,14 @@ export function noteServerEcho(correlationId: string, realId: number): void {
   }
 }
 
-/** The REST reply reconciled the temp itself: drop the entry + un-suppress. */
-export function clearOptimisticCreate(correlationId: string): void {
-  const realId = pendingRealId.get(correlationId)
+/** The REST reply reconciled the temp itself: drop the entry + un-suppress.
+ *  Returns the server row's id when its echo had arrived, which means the
+ *  create went through even if the REST reply didn't. */
+export function clearOptimisticCreate(correlationId: string): number | null {
+  const realId = pendingRealId.get(correlationId) ?? null
   pendingRealId.delete(correlationId)
   if (realId != null) suppressed.delete(realId)
+  return realId
 }
 
 /** Is this row a suppressed server echo of a still-pending optimistic create? */
