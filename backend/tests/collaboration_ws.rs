@@ -32,7 +32,6 @@ use backend::handlers::collaboration::{ws_handler, CollabRoutingMode, YjsAppStat
 use backend::handlers::sse::SseState;
 use backend::services::search::SearchService;
 use backend::utils::jwt::JwtUtils;
-use backend::utils::redis_yjs_cache::create_redis_cache;
 
 mod common;
 
@@ -63,15 +62,10 @@ fn install_fast_heartbeat() {
     });
 }
 
-/// Build a real `YjsAppState` against the test sandbox DB, a temp
-/// Tantivy index dir, and the dev-compose Redis. The compose dev
-/// stack publishes Redis at `redis:6379` on the internal network;
-/// integration tests run inside that container so the hostname
-/// resolves.
+/// Build a real `YjsAppState` against the test sandbox DB and a temp
+/// Tantivy index dir.
 fn build_app_state(pool_inner: &backend::db::Pool) -> (YjsAppState, tempfile::TempDir) {
     let pool_data = web::Data::new(pool_inner.clone());
-    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis:6379".into());
-    let redis_cache = create_redis_cache(&redis_url).expect("connect Redis for YjsAppState");
     let sse_state = web::Data::new(SseState::new());
     let tmp_search = tempfile::tempdir().expect("temp dir for search index");
     let search =
@@ -80,7 +74,6 @@ fn build_app_state(pool_inner: &backend::db::Pool) -> (YjsAppState, tempfile::Te
     // manager and routing is inert (every doc served locally).
     let state = YjsAppState::new(
         pool_data,
-        redis_cache,
         sse_state,
         search,
         None,

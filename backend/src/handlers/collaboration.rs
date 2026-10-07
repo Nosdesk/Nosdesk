@@ -305,7 +305,6 @@ fn log_document_root_types(awareness: &Awareness, doc_id: &str) {
     trace!(doc_id = %doc_id, state_vector = ?sv, "Document state vector");
 }
 use crate::models::{NewArticleContent, NewArticleContentRevision};
-use crate::utils::redis_yjs_cache::RedisYjsCache;
 
 // How often heartbeat checks are performed (server-side connection health monitoring)
 // Note: y-websocket client maintains its own keepalive via resyncInterval (20s)
@@ -1158,7 +1157,6 @@ pub struct YjsAppState {
     documents: DocumentStore,
     sessions: RoomSessionStore,
     pool: web::Data<crate::db::Pool>,
-    redis_cache: Arc<RedisYjsCache>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     /// Search service handle so the periodic + on-disconnect Yjs
     /// saves can fire the indexing observers and keep the search
@@ -1206,7 +1204,6 @@ pub enum CollabRoute {
 impl YjsAppState {
     pub fn new(
         pool: web::Data<crate::db::Pool>,
-        redis_cache: Arc<RedisYjsCache>,
         sse_state: web::Data<crate::handlers::sse::SseState>,
         search_service: Arc<crate::services::search::SearchService>,
         ownership: Option<Arc<crate::services::collab_ownership::CollabOwnership>>,
@@ -1216,7 +1213,6 @@ impl YjsAppState {
             documents: Arc::new(RwLock::new(HashMap::new())),
             sessions: Arc::new(RwLock::new(HashMap::new())),
             pool,
-            redis_cache,
             sse_state,
             search_service,
             presence: Arc::new(
@@ -1471,7 +1467,7 @@ impl YjsAppState {
             // authoritative state), the room has been empty for the delay, and
             // the eviction loop re-checks it is still empty after dropping the
             // lock (a session may have rejoined). A reconnect reloads the doc
-            // from the DB / Redis cache, preserving history.
+            // from the DB, preserving history.
             // See: https://discuss.yjs.dev/t/correct-way-to-implement-version-history-like-google-doc/1691
             if doc_state.final_save_completed {
                 if let Some(empty_since) = doc_state.room_empty_since {
@@ -1534,7 +1530,7 @@ impl YjsAppState {
             doc_state.mark_room_active();
             Arc::clone(&doc_state.awareness)
         } else {
-            debug!(doc_id = %doc_id, "Document not in memory - checking Redis cache");
+            debug!(doc_id = %doc_id, "Document not in memory - loading it");
 
             // Build the document with the shared server conventions (GC
             // off, a deterministic 53-bit client id stable across
@@ -1543,268 +1539,210 @@ impl YjsAppState {
             let doc = new_server_doc(doc_id);
             let mut awareness = Awareness::new(doc);
 
-            let mut loaded_from_redis = false;
             let mut loaded_from_postgres = false;
 
-            // STEP 1: Try to load from Redis (hot cache - survives restarts)
-            if let Some(redis_data) = self.redis_cache.get_document(doc_id).await {
-                debug!(doc_id = %doc_id, bytes = redis_data.len(), "Attempting to load document from Redis");
+            // STEP 1: Load the saved state from PostgreSQL. The in-memory
+            // room above is the only hot copy; Postgres is the store.
+            // doc_type was resolved from the doc_id's resource UUID
+            // at the connection boundary and threaded in here.
+            {
+                match self.pool.get() {
+                    Ok(mut conn) => {
+                        // Per-doc reads run RLS-enforced under the
+                        // workspace-pinned session actor resolved
+                        // at WebSocket open. If the user's
+                        // WorkspaceContext doesn't grant access to
+                        // the doc, RLS returns NotFound and we
+                        // fall through to the "new document" path.
+                        let session_actor = yjs_session_actor(workspace_id);
+                        match doc_type {
+                            DocumentType::Ticket(ticket_id) => {
+                                // Load Yjs document snapshot from article_contents table (snapshot-based persistence)
+                                match session::with_actor_context(
+                                    &mut conn,
+                                    &session_actor,
+                                    |conn| {
+                                        repository::get_article_content_by_ticket_id(
+                                            conn, ticket_id,
+                                        )
+                                    },
+                                ) {
+                                    Ok(article_content) => {
+                                        if let Some(yjs_doc) = article_content.yjs_document {
+                                            if !yjs_doc.is_empty() {
+                                                debug!(
+                                                    ticket_id,
+                                                    bytes = yjs_doc.len(),
+                                                    "Loading snapshot from PostgreSQL"
+                                                );
 
-                if let Ok(update) = Update::decode_v1(&redis_data) {
-                    let apply_result = {
-                        let mut txn = awareness.doc_mut().transact_mut();
-                        txn.apply_update(update)
-                    };
+                                                if let Ok(update) = Update::decode_v1(&yjs_doc) {
+                                                    let apply_result = {
+                                                        let mut txn =
+                                                            awareness.doc_mut().transact_mut();
+                                                        txn.apply_update(update)
+                                                    };
 
-                    if let Err(e) = apply_result {
-                        error!(doc_id = %doc_id, error = ?e, "Error applying Redis state");
-                        // Delete corrupted entry from Redis
-                        warn!(doc_id = %doc_id, "Deleting corrupted Redis entry");
-                        self.redis_cache.delete_document(doc_id).await;
-                    } else {
-                        debug!(doc_id = %doc_id, "Successfully loaded document from Redis cache");
-                        loaded_from_redis = true;
-
-                        // Diagnostic: Verify content
-                        let preview = get_content_preview(&awareness, 50);
-                        trace!(doc_id = %doc_id, preview = %preview, "Redis content loaded");
-                        log_document_root_types(&awareness, doc_id);
-                    }
-                } else {
-                    warn!(doc_id = %doc_id, "Failed to decode Redis data - deleting corrupted entry");
-                    // Delete corrupted entry from Redis so it doesn't block future loads
-                    self.redis_cache.delete_document(doc_id).await;
-                }
-            }
-
-            // STEP 2: Fall back to PostgreSQL (cold storage) if Redis didn't have it
-            if !loaded_from_redis {
-                debug!(doc_id = %doc_id, "Redis cache miss - checking PostgreSQL");
-
-                // doc_type was resolved from the doc_id's resource UUID
-                // at the connection boundary and threaded in here.
-                {
-                    match self.pool.get() {
-                        Ok(mut conn) => {
-                            // Per-doc reads run RLS-enforced under the
-                            // workspace-pinned session actor resolved
-                            // at WebSocket open. If the user's
-                            // WorkspaceContext doesn't grant access to
-                            // the doc, RLS returns NotFound and we
-                            // fall through to the "new document" path.
-                            let session_actor = yjs_session_actor(workspace_id);
-                            match doc_type {
-                                DocumentType::Ticket(ticket_id) => {
-                                    // Load Yjs document snapshot from article_contents table (snapshot-based persistence)
-                                    match session::with_actor_context(
-                                        &mut conn,
-                                        &session_actor,
-                                        |conn| {
-                                            repository::get_article_content_by_ticket_id(
-                                                conn, ticket_id,
-                                            )
-                                        },
-                                    ) {
-                                        Ok(article_content) => {
-                                            if let Some(yjs_doc) = article_content.yjs_document {
-                                                if !yjs_doc.is_empty() {
-                                                    debug!(
-                                                        ticket_id,
-                                                        bytes = yjs_doc.len(),
-                                                        "Loading snapshot from PostgreSQL"
-                                                    );
-
-                                                    if let Ok(update) = Update::decode_v1(&yjs_doc)
-                                                    {
-                                                        let apply_result = {
-                                                            let mut txn =
-                                                                awareness.doc_mut().transact_mut();
-                                                            txn.apply_update(update)
-                                                        };
-
-                                                        if let Err(e) = apply_result {
-                                                            error!(ticket_id, error = ?e, "Error applying PostgreSQL snapshot");
-                                                        } else {
-                                                            debug!(ticket_id, "Successfully loaded snapshot from PostgreSQL");
-                                                            loaded_from_postgres = true;
-
-                                                            // Cache in Redis for future fast access
-                                                            self.redis_cache
-                                                                .set_document(doc_id, &yjs_doc)
-                                                                .await;
-
-                                                            // Diagnostic: Check content
-                                                            let preview = get_content_preview(
-                                                                &awareness, 100,
-                                                            );
-                                                            trace!(ticket_id, preview = %preview, "PostgreSQL content loaded");
-                                                            log_document_root_types(
-                                                                &awareness, doc_id,
-                                                            );
-                                                        }
+                                                    if let Err(e) = apply_result {
+                                                        error!(ticket_id, error = ?e, "Error applying PostgreSQL snapshot");
                                                     } else {
-                                                        error!(
-                                                            ticket_id,
-                                                            "Failed to decode PostgreSQL snapshot"
-                                                        );
+                                                        debug!(ticket_id, "Successfully loaded snapshot from PostgreSQL");
+                                                        loaded_from_postgres = true;
+
+                                                        // Diagnostic: Check content
+                                                        let preview =
+                                                            get_content_preview(&awareness, 100);
+                                                        trace!(ticket_id, preview = %preview, "PostgreSQL content loaded");
+                                                        log_document_root_types(&awareness, doc_id);
                                                     }
                                                 } else {
-                                                    debug!(ticket_id, "Empty Yjs document");
+                                                    error!(
+                                                        ticket_id,
+                                                        "Failed to decode PostgreSQL snapshot"
+                                                    );
                                                 }
                                             } else {
-                                                debug!(ticket_id, "No Yjs document snapshot");
+                                                debug!(ticket_id, "Empty Yjs document");
                                             }
-                                        }
-                                        Err(e) => {
-                                            debug!(ticket_id, error = ?e, "No article content found");
+                                        } else {
+                                            debug!(ticket_id, "No Yjs document snapshot");
                                         }
                                     }
+                                    Err(e) => {
+                                        debug!(ticket_id, error = ?e, "No article content found");
+                                    }
                                 }
-                                DocumentType::Documentation(doc_page_id) => {
-                                    // Load Yjs document snapshot from documentation_pages table (snapshot-based persistence)
-                                    match session::with_actor_context(
-                                        &mut conn,
-                                        &session_actor,
-                                        |conn| {
-                                            repository::get_documentation_page(doc_page_id, conn)
-                                        },
-                                    ) {
-                                        Ok(doc_page) => {
-                                            if let Some(yjs_doc) = doc_page.yjs_document {
-                                                if !yjs_doc.is_empty() {
-                                                    debug!(
-                                                        doc_page_id,
-                                                        bytes = yjs_doc.len(),
-                                                        "Loading from PostgreSQL"
-                                                    );
+                            }
+                            DocumentType::Documentation(doc_page_id) => {
+                                // Load Yjs document snapshot from documentation_pages table (snapshot-based persistence)
+                                match session::with_actor_context(
+                                    &mut conn,
+                                    &session_actor,
+                                    |conn| repository::get_documentation_page(doc_page_id, conn),
+                                ) {
+                                    Ok(doc_page) => {
+                                        if let Some(yjs_doc) = doc_page.yjs_document {
+                                            if !yjs_doc.is_empty() {
+                                                debug!(
+                                                    doc_page_id,
+                                                    bytes = yjs_doc.len(),
+                                                    "Loading from PostgreSQL"
+                                                );
 
-                                                    if let Ok(update) = Update::decode_v1(&yjs_doc)
-                                                    {
-                                                        let apply_result = {
-                                                            let mut txn =
-                                                                awareness.doc_mut().transact_mut();
-                                                            txn.apply_update(update)
-                                                        };
+                                                if let Ok(update) = Update::decode_v1(&yjs_doc) {
+                                                    let apply_result = {
+                                                        let mut txn =
+                                                            awareness.doc_mut().transact_mut();
+                                                        txn.apply_update(update)
+                                                    };
 
-                                                        if let Err(e) = apply_result {
-                                                            error!(doc_page_id, error = ?e, "Error applying PostgreSQL state");
-                                                        } else {
-                                                            debug!(doc_page_id, "Successfully loaded documentation from PostgreSQL");
-                                                            loaded_from_postgres = true;
-
-                                                            // Cache in Redis
-                                                            self.redis_cache
-                                                                .set_document(doc_id, &yjs_doc)
-                                                                .await;
-
-                                                            // Diagnostic: Check what's actually in the document
-                                                            let preview = get_content_preview(
-                                                                &awareness, 100,
-                                                            );
-                                                            trace!(doc_page_id, preview = %preview, "PostgreSQL content loaded");
-                                                        }
+                                                    if let Err(e) = apply_result {
+                                                        error!(doc_page_id, error = ?e, "Error applying PostgreSQL state");
                                                     } else {
-                                                        error!(doc_page_id, "Failed to decode Yjs update from PostgreSQL");
+                                                        debug!(doc_page_id, "Successfully loaded documentation from PostgreSQL");
+                                                        loaded_from_postgres = true;
+
+                                                        // Diagnostic: Check what's actually in the document
+                                                        let preview =
+                                                            get_content_preview(&awareness, 100);
+                                                        trace!(doc_page_id, preview = %preview, "PostgreSQL content loaded");
                                                     }
                                                 } else {
-                                                    debug!(doc_page_id, "New documentation page - no existing Yjs content");
+                                                    error!(doc_page_id, "Failed to decode Yjs update from PostgreSQL");
                                                 }
                                             } else {
                                                 debug!(doc_page_id, "New documentation page - no existing Yjs content");
                                             }
-                                        }
-                                        Err(e) => {
-                                            debug!(doc_page_id, error = ?e, "No existing documentation page in PostgreSQL");
+                                        } else {
+                                            debug!(
+                                                doc_page_id,
+                                                "New documentation page - no existing Yjs content"
+                                            );
                                         }
                                     }
+                                    Err(e) => {
+                                        debug!(doc_page_id, error = ?e, "No existing documentation page in PostgreSQL");
+                                    }
                                 }
-                                DocumentType::Collection(collection_id) => {
-                                    // Load Yjs snapshot from documentation_collections.description_yjs.
-                                    match session::with_actor_context(
-                                        &mut conn,
-                                        &session_actor,
-                                        |conn| {
-                                            repository::documentation_collections::get_collection(
-                                                conn,
-                                                collection_id,
-                                            )
-                                        },
-                                    ) {
-                                        Ok(c) => {
-                                            if let Some(yjs_doc) = c.description_yjs {
-                                                if !yjs_doc.is_empty() {
-                                                    debug!(collection_id, bytes = yjs_doc.len(), "Loading collection description from PostgreSQL");
-                                                    if let Ok(update) = Update::decode_v1(&yjs_doc)
-                                                    {
-                                                        let apply_result = {
-                                                            let mut txn =
-                                                                awareness.doc_mut().transact_mut();
-                                                            txn.apply_update(update)
-                                                        };
-                                                        if let Err(e) = apply_result {
-                                                            error!(collection_id, error = ?e, "Error applying collection description state");
-                                                        } else {
-                                                            loaded_from_postgres = true;
-                                                            self.redis_cache
-                                                                .set_document(doc_id, &yjs_doc)
-                                                                .await;
-                                                        }
+                            }
+                            DocumentType::Collection(collection_id) => {
+                                // Load Yjs snapshot from documentation_collections.description_yjs.
+                                match session::with_actor_context(
+                                    &mut conn,
+                                    &session_actor,
+                                    |conn| {
+                                        repository::documentation_collections::get_collection(
+                                            conn,
+                                            collection_id,
+                                        )
+                                    },
+                                ) {
+                                    Ok(c) => {
+                                        if let Some(yjs_doc) = c.description_yjs {
+                                            if !yjs_doc.is_empty() {
+                                                debug!(collection_id, bytes = yjs_doc.len(), "Loading collection description from PostgreSQL");
+                                                if let Ok(update) = Update::decode_v1(&yjs_doc) {
+                                                    let apply_result = {
+                                                        let mut txn =
+                                                            awareness.doc_mut().transact_mut();
+                                                        txn.apply_update(update)
+                                                    };
+                                                    if let Err(e) = apply_result {
+                                                        error!(collection_id, error = ?e, "Error applying collection description state");
                                                     } else {
-                                                        error!(collection_id, "Failed to decode Yjs update for collection");
+                                                        loaded_from_postgres = true;
                                                     }
+                                                } else {
+                                                    error!(collection_id, "Failed to decode Yjs update for collection");
                                                 }
                                             }
                                         }
-                                        Err(e) => {
-                                            debug!(collection_id, error = ?e, "No collection in PostgreSQL");
-                                        }
+                                    }
+                                    Err(e) => {
+                                        debug!(collection_id, error = ?e, "No collection in PostgreSQL");
                                     }
                                 }
                             }
                         }
-                        Err(e) => {
-                            error!(doc_id = %doc_id, error = ?e, "Database connection error");
-                        }
+                    }
+                    Err(e) => {
+                        error!(doc_id = %doc_id, error = ?e, "Database connection error");
                     }
                 }
             }
 
-            // STEP 3: Merge the latest crash-recovery checkpoint (Phase 2).
+            // STEP 2: Merge the latest crash-recovery checkpoint (Phase 2).
             // Cheap binary checkpoints land in `yjs_snapshots` between the
             // heavier article_contents saves, so a hard crash loses
             // seconds. Yjs merges are conflict-free + idempotent, so
             // applying the checkpoint on top of whatever loaded above can
             // only add missing ops, never regress (no newest-wins
-            // comparison needed). Skipped on a Redis hit: Redis is written
-            // on every save, so it is already at least as fresh as any
-            // checkpoint.
+            // comparison needed).
             let mut loaded_from_checkpoint = false;
-            if !loaded_from_redis {
-                if let Ok(mut conn) = self.pool.get() {
-                    let session_actor = yjs_session_actor(workspace_id);
-                    let latest = session::with_actor_context(&mut conn, &session_actor, |conn| {
-                        repository::yjs_snapshots::latest_for_document(conn, workspace_id, doc_id)
-                    });
-                    if let Ok(Some(bytes)) = latest {
-                        match Update::decode_v1(&bytes) {
-                            Ok(update) => {
-                                let apply_result = {
-                                    let mut txn = awareness.doc_mut().transact_mut();
-                                    txn.apply_update(update)
-                                };
-                                match apply_result {
-                                    Ok(()) => {
-                                        loaded_from_checkpoint = true;
-                                        debug!(doc_id = %doc_id, bytes = bytes.len(), "Merged crash-recovery checkpoint");
-                                    }
-                                    Err(e) => {
-                                        error!(doc_id = %doc_id, error = ?e, "Error applying crash-recovery checkpoint")
-                                    }
+            if let Ok(mut conn) = self.pool.get() {
+                let session_actor = yjs_session_actor(workspace_id);
+                let latest = session::with_actor_context(&mut conn, &session_actor, |conn| {
+                    repository::yjs_snapshots::latest_for_document(conn, workspace_id, doc_id)
+                });
+                if let Ok(Some(bytes)) = latest {
+                    match Update::decode_v1(&bytes) {
+                        Ok(update) => {
+                            let apply_result = {
+                                let mut txn = awareness.doc_mut().transact_mut();
+                                txn.apply_update(update)
+                            };
+                            match apply_result {
+                                Ok(()) => {
+                                    loaded_from_checkpoint = true;
+                                    debug!(doc_id = %doc_id, bytes = bytes.len(), "Merged crash-recovery checkpoint");
+                                }
+                                Err(e) => {
+                                    error!(doc_id = %doc_id, error = ?e, "Error applying crash-recovery checkpoint")
                                 }
                             }
-                            Err(e) => {
-                                error!(doc_id = %doc_id, error = ?e, "Failed to decode crash-recovery checkpoint")
-                            }
+                        }
+                        Err(e) => {
+                            error!(doc_id = %doc_id, error = ?e, "Failed to decode crash-recovery checkpoint")
                         }
                     }
                 }
@@ -1812,7 +1750,7 @@ impl YjsAppState {
 
             // For NEW documents only (no existing data), initialize the prosemirror XmlFragment
             // This ensures new documents have the proper root type structure for ProseMirror
-            if !loaded_from_redis && !loaded_from_postgres && !loaded_from_checkpoint {
+            if !loaded_from_postgres && !loaded_from_checkpoint {
                 let mut txn = awareness.doc_mut().transact_mut();
                 let _ = txn.get_or_insert_xml_fragment("prosemirror");
                 debug!(doc_id = %doc_id, "Initialized 'prosemirror' XmlFragment for NEW document");
@@ -1820,7 +1758,7 @@ impl YjsAppState {
 
             // Log final state after loading attempts
             let preview = get_content_preview(&awareness, 100);
-            if loaded_from_redis || loaded_from_postgres || loaded_from_checkpoint {
+            if loaded_from_postgres || loaded_from_checkpoint {
                 debug!(doc_id = %doc_id, preview = %preview, "Document loaded");
                 log_document_root_types(&awareness, doc_id);
             } else {
@@ -2384,19 +2322,6 @@ impl YjsAppState {
         };
 
         debug!(doc_id = %doc_id, bytes = binary_content.len(), "Saving document content");
-
-        // CRITICAL: Save to Redis first (hot cache - survives restarts)
-        // This ensures the latest state is always in Redis for fast recovery
-        let redis_cache = self.redis_cache.clone();
-        let doc_id_clone = doc_id.to_string();
-        let content_for_redis = binary_content.clone();
-        actix_web::rt::spawn(async move {
-            redis_cache
-                .set_document(&doc_id_clone, &content_for_redis)
-                .await;
-            // Also refresh TTL to keep active documents cached longer
-            redis_cache.refresh_ttl(&doc_id_clone).await;
-        });
 
         // Persist to the backing table via the shared awaitable writer.
         // Spawned here (fire-and-forget) so the periodic / on-disconnect
