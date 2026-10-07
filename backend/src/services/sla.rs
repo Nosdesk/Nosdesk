@@ -10,13 +10,14 @@
 //!    breach?") and elapsed-time accumulation ("how much business
 //!    time has the ticket been in active state?").
 //!
-//! 2. **Pill computation** — `compute_pill(ticket, paused, policy,
+//! 2. **Pill computation**: `compute_pill(ticket, clock, policy,
 //!    calendar, holidays, now)` returns the spec'd CardData.sla
 //!    payload `{ target_at, breached, paused, pill_color,
-//!    seconds_remaining }`. Whether a ticket pauses the clock is the
-//!    caller's responsibility, derived from the workflow state's
-//!    own `pauses_sla` flag (admin-editable, defaults from the
-//!    category at create time).
+//!    seconds_remaining }`. What the ticket's state does to the clock
+//!    is the caller's to resolve ([`StateClock`]): its category stops a
+//!    finished ticket, and the state's own `pauses_sla` flag
+//!    (admin-editable, defaults from the category at create time)
+//!    pauses the rest.
 //!
 //! This module is read-only. SLA pills are derived on every read;
 //! there's no separate `sla_application` row to maintain. If the
@@ -377,12 +378,48 @@ impl ClockStart {
     }
 }
 
+/// What a ticket's workflow state does to its SLA clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StateClock {
+    /// The state counts time.
+    Running,
+    /// The state's `pauses_sla` flag is on: an `activated` clock freezes, a
+    /// `created` clock keeps running.
+    Paused,
+    /// The ticket is finished (Done, Cancelled or Merged): every clock stops,
+    /// so nothing it does any more can breach.
+    Stopped,
+}
+
+impl StateClock {
+    /// The clock effect of `state`.
+    pub fn of(state: &crate::models::WorkflowState) -> Self {
+        if state.category.is_terminal() {
+            Self::Stopped
+        } else if state.pauses_sla {
+            Self::Paused
+        } else {
+            Self::Running
+        }
+    }
+
+    /// The clock effect of the state `workflow_state_id`. A missing row counts
+    /// as paused, so an unresolvable state never starts counting time.
+    pub fn of_state_id(conn: &mut crate::db::DbConnection, workflow_state_id: i32) -> Self {
+        use crate::schema::workflow_states;
+        use diesel::prelude::*;
+        workflow_states::table
+            .find(workflow_state_id)
+            .first::<crate::models::WorkflowState>(conn)
+            .map(|state| Self::of(&state))
+            .unwrap_or(Self::Paused)
+    }
+}
+
 /// Compute the SLA pill payload for a ticket — both response +
 /// resolution timers, gated on which policy targets are configured.
-/// `paused` is the workflow state's own `pauses_sla` flag (resolved
-/// at the caller from `WorkflowState::pauses_sla`); when true the
-/// timers stop counting (for an `activated`-clock policy; a `created`
-/// policy runs continuously and ignores it). The response timer also stops counting once
+/// `clock` is what the ticket's workflow state does to the clock (see
+/// [`StateClock`]). The response timer also stops counting once
 /// `first_response_at` is stamped, regardless of pause state — at
 /// that point the response was either met or breached, and the wall
 /// clock has nothing left to say about it.
@@ -392,7 +429,7 @@ impl ClockStart {
 /// one timer; the other is `None` when its target isn't configured.
 pub fn compute_pill(
     ticket: &Ticket,
-    paused: bool,
+    clock: StateClock,
     policy: &SlaPolicy,
     calendar: &WorkingCalendar,
     holidays: &HashSet<NaiveDate>,
@@ -414,14 +451,16 @@ pub fn compute_pill(
     }
 
     let created_utc = DateTime::<Utc>::from_naive_utc_and_offset(ticket.created_at, Utc);
+    let paused = clock != StateClock::Running;
 
     // Resolve the effective anchor (where the clock counts from) and whether it's
     // currently frozen, per the policy's clock-start mode. This is the P2 fix for
     // the created_at-anchored instant-breach.
     let (anchor, effective_paused) = match ClockStart::parse(&policy.clock_start) {
         // Runs continuously from submission; the workflow pause doesn't apply
-        // (the promise is measured from when the client contacted us).
-        ClockStart::Created => (created_utc, false),
+        // (the promise is measured from when the client contacted us). Only a
+        // finished ticket stops it.
+        ClockStart::Created => (created_utc, clock == StateClock::Stopped),
         ClockStart::Activated => match ticket.sla_clock_started_at {
             // Started: the anchor already absorbed prior paused time (pushed
             // forward on each resume). Honour the current workflow pause — it
@@ -512,7 +551,8 @@ pub fn pill_json_for_ticket(
 /// stay in lockstep with the JSON pill the frontend renders. Returns
 /// the pill JSON to slot into the `ticket.sla_updated` sync_action;
 /// `Value::Null` when no policy applies (and the materialised columns
-/// are cleared so the breach scan ignores the row).
+/// are cleared so the breach scan ignores the row). A finished ticket's
+/// clock is stopped, so its columns are cleared too.
 pub fn recompute_and_stamp_sla_for_ticket(
     conn: &mut crate::db::DbConnection,
     ticket: &Ticket,
@@ -542,7 +582,7 @@ pub fn recompute_and_stamp_sla_for_ticket(
 ///   - anchor, paused + now active    -> push the anchor past the paused business
 ///                                       time (pausing subtracts) and clear it
 fn advance_sla_clock(conn: &mut crate::db::DbConnection, ticket: &mut Ticket) {
-    use crate::schema::{sla_policies, tickets, workflow_states};
+    use crate::schema::{sla_policies, tickets};
     use diesel::prelude::*;
 
     // An overridden-off ticket has no SLA — nothing to anchor.
@@ -563,12 +603,9 @@ fn advance_sla_clock(conn: &mut crate::db::DbConnection, ticket: &mut Ticket) {
         return;
     }
 
-    // Missing state row defaults to paused (mirrors load_pill_for_ticket).
-    let now_paused = workflow_states::table
-        .find(ticket.workflow_state_id)
-        .select(workflow_states::pauses_sla)
-        .first::<bool>(conn)
-        .unwrap_or(true);
+    // A finished ticket holds the clock like a paused one, so reopening it
+    // doesn't count the time it spent closed.
+    let now_paused = StateClock::of_state_id(conn, ticket.workflow_state_id) != StateClock::Running;
     let now = Utc::now();
 
     let (new_anchor, new_paused_at): (Option<NaiveDateTime>, Option<NaiveDateTime>) =
@@ -643,9 +680,7 @@ fn push_anchor_past_pause(
 /// row gone, no configured targets) — callers either return null JSON
 /// or clear the materialised columns accordingly.
 fn load_pill_for_ticket(conn: &mut crate::db::DbConnection, ticket: &Ticket) -> Option<SlaPill> {
-    use crate::schema::{
-        sla_policies, workflow_states, working_calendar_holidays, working_calendars,
-    };
+    use crate::schema::{sla_policies, working_calendar_holidays, working_calendars};
     use diesel::prelude::*;
 
     let policies: Vec<SlaPolicy> = sla_policies::table.load(conn).ok()?;
@@ -669,16 +704,8 @@ fn load_pill_for_ticket(conn: &mut crate::db::DbConnection, ticket: &Ticket) -> 
         .iter()
         .flat_map(|h| crate::repository::sla::expand_holiday(h, current_year))
         .collect();
-    // Default to paused so a missing state row (shouldn't happen but
-    // can if a state was hard-deleted) doesn't accidentally start
-    // counting time against an unresolvable category.
-    let paused = workflow_states::table
-        .find(ticket.workflow_state_id)
-        .select(workflow_states::pauses_sla)
-        .first::<bool>(conn)
-        .unwrap_or(true);
-
-    compute_pill(ticket, paused, policy, &calendar, &holidays, Utc::now())
+    let clock = StateClock::of_state_id(conn, ticket.workflow_state_id);
+    compute_pill(ticket, clock, policy, &calendar, &holidays, Utc::now())
 }
 
 /// Derive the (response, resolution) target timestamps to materialise
@@ -839,13 +866,14 @@ pub fn scan_open_ticket_buckets(
 
     let ctx = crate::repository::sla::load_for_pill_computation(conn)?;
 
-    // Open = not in a terminal category. Two cheap queries: pick the
-    // open state ids + their pauses_sla flag, then load tickets in
-    // those states. Ticket doesn't derive Selectable so we avoid the
-    // inner-join select tuple.
+    // Open = not in a terminal category (Done, Cancelled, Merged). Two
+    // cheap queries: pick the open state ids + their pauses_sla flag, then
+    // load tickets in those states. Ticket doesn't derive Selectable so we
+    // avoid the inner-join select tuple.
     let open_states: Vec<(i32, bool)> = workflow_states::table
         .filter(workflow_states::category.ne(WorkflowStateCategory::Done))
         .filter(workflow_states::category.ne(WorkflowStateCategory::Cancelled))
+        .filter(workflow_states::category.ne(WorkflowStateCategory::Merged))
         .select((workflow_states::id, workflow_states::pauses_sla))
         .load(conn)?;
     let open_state_ids: Vec<i32> = open_states.iter().map(|(id, _)| *id).collect();
@@ -874,10 +902,10 @@ pub fn scan_open_ticket_buckets(
         // Default to paused so a state missing from the lookup
         // (race during a delete) doesn't accidentally start
         // counting a stale ticket.
-        let paused = pause_by_state
-            .get(&ticket.workflow_state_id)
-            .copied()
-            .unwrap_or(true);
+        let clock = match pause_by_state.get(&ticket.workflow_state_id) {
+            Some(false) => StateClock::Running,
+            _ => StateClock::Paused,
+        };
         let assignee_groups = ticket
             .assignee_uuid
             .and_then(|u| groups_by_assignee.get(&u))
@@ -908,7 +936,7 @@ pub fn scan_open_ticket_buckets(
                         .get(&cal_id)
                         .cloned()
                         .unwrap_or_default();
-                    compute_pill(&ticket, paused, policy, calendar, &holidays, now)
+                    compute_pill(&ticket, clock, policy, calendar, &holidays, now)
                 })
             })
             .flatten();
@@ -1052,7 +1080,7 @@ mod tests {
         }));
         let pill = compute_pill(
             &t,
-            false,
+            StateClock::Running,
             &no_sla_policy,
             &calendar,
             &HashSet::new(),
@@ -1068,7 +1096,14 @@ mod tests {
         let mut t = ticket(None);
         t.sla_override = "none".to_string();
         let p = policy(1, None, true); // has targets + a calendar
-        let pill = compute_pill(&t, false, &p, &all_hours_cal(), &HashSet::new(), Utc::now());
+        let pill = compute_pill(
+            &t,
+            StateClock::Running,
+            &p,
+            &all_hours_cal(),
+            &HashSet::new(),
+            Utc::now(),
+        );
         assert!(pill.is_none(), "sla_override=none removes the SLA");
     }
 
@@ -1125,7 +1160,7 @@ mod tests {
         let t = ticket(None); // sla_clock_started_at = None
         let pill = compute_pill(
             &t,
-            true, // paused (in a pre-active state)
+            StateClock::Paused, // paused (in a pre-active state)
             &activated_policy(),
             &all_hours_cal(),
             &HashSet::new(),
@@ -1148,7 +1183,7 @@ mod tests {
             .naive_utc();
         let pill = compute_pill(
             &t,
-            false,
+            StateClock::Running,
             &activated_policy(),
             &all_hours_cal(),
             &HashSet::new(),
@@ -1178,7 +1213,7 @@ mod tests {
         ); // activated 3 days later
         let pill = compute_pill(
             &t,
-            false,
+            StateClock::Running,
             &activated_policy(),
             &all_hours_cal(),
             &HashSet::new(),
@@ -1210,7 +1245,7 @@ mod tests {
             .naive_utc();
         let pill = compute_pill(
             &t,
-            true, // workflow says paused
+            StateClock::Paused, // workflow says paused
             &p,
             &all_hours_cal(),
             &HashSet::new(),
@@ -1221,6 +1256,33 @@ mod tests {
             !pill.response.unwrap().paused,
             "created clock ignores the workflow pause"
         );
+    }
+
+    #[test]
+    fn a_finished_ticket_stops_every_clock() {
+        // Long past both targets, but finished: neither clock mode breaches.
+        let mut t = ticket(None);
+        t.created_at = Utc
+            .with_ymd_and_hms(2026, 5, 4, 10, 0, 0)
+            .unwrap()
+            .naive_utc();
+        t.sla_clock_started_at = Some(t.created_at);
+        let later = Utc.with_ymd_and_hms(2026, 5, 9, 10, 0, 0).unwrap();
+        for clock_start in ["created", "activated"] {
+            let mut p = activated_policy();
+            p.clock_start = clock_start.to_string();
+            let pill = compute_pill(
+                &t,
+                StateClock::Stopped,
+                &p,
+                &all_hours_cal(),
+                &HashSet::new(),
+                later,
+            )
+            .expect("a pill");
+            assert!(!pill.primary.breached, "{clock_start}");
+            assert!(pill.primary.paused, "{clock_start}");
+        }
     }
 
     #[test]
@@ -1405,5 +1467,123 @@ mod tests {
         let end = add_business_minutes(start, 4 * 60, &cal, &holidays);
         // Friday 16-17 + Tuesday 9-12 = 4 hours
         assert_eq!(end, Utc.with_ymd_and_hms(2026, 5, 5, 12, 0, 0).unwrap());
+    }
+
+    /// A created-clock policy over an always-open calendar (1h response, 2h
+    /// resolution). Highest id and no filters, so it wins every ticket in the
+    /// test transaction.
+    fn created_clock_policy(conn: &mut crate::db::DbConnection) -> SlaPolicy {
+        use crate::repository::sla_admin::{
+            create_calendar, create_policy, SlaPolicyBody, WorkingCalendarBody,
+        };
+        let day = serde_json::json!([["00:00", "23:59"]]);
+        let calendar = create_calendar(
+            conn,
+            WorkingCalendarBody {
+                name: "Always open".into(),
+                timezone: None,
+                schedule: serde_json::json!({
+                    "mon": day, "tue": day, "wed": day, "thu": day,
+                    "fri": day, "sat": day, "sun": day,
+                }),
+                is_default: Some(false),
+            },
+            None,
+        )
+        .unwrap();
+        create_policy(
+            conn,
+            SlaPolicyBody {
+                name: "Created clock".into(),
+                target_response_minutes: Some(60),
+                target_resolution_minutes: Some(120),
+                working_calendar_id: Some(calendar.id),
+                priority_filter: None,
+                category_id_filter: None,
+                assignee_group_id_filter: None,
+                is_default: Some(false),
+                no_sla: Some(false),
+                clock_start: Some("created".into()),
+            },
+            None,
+        )
+        .unwrap()
+    }
+
+    fn ticket_in(
+        conn: &mut crate::db::DbConnection,
+        title: &str,
+        category: crate::models::WorkflowStateCategory,
+    ) -> Ticket {
+        use crate::schema::tickets;
+        use diesel::prelude::*;
+        let user = crate::test_helpers::TestFixtures::create_user(conn, title, "user");
+        let ticket =
+            crate::test_helpers::TestFixtures::create_ticket(conn, title, Some(user.uuid), None);
+        let state = crate::repository::workflow_states::first_in_category(conn, category).unwrap();
+        diesel::update(tickets::table.find(ticket.id))
+            .set(tickets::workflow_state_id.eq(state.id))
+            .get_result(conn)
+            .unwrap()
+    }
+
+    #[test]
+    fn closing_a_ticket_stops_a_created_clock() {
+        use crate::models::WorkflowStateCategory;
+        use crate::schema::tickets;
+        use diesel::prelude::*;
+        let mut conn = crate::test_helpers::setup_test_connection();
+        created_clock_policy(&mut conn);
+        let open = ticket_in(&mut conn, "sla_close", WorkflowStateCategory::Active);
+        // Opened three hours ago: both targets have passed.
+        diesel::update(tickets::table.find(open.id))
+            .set(tickets::created_at.eq(Utc::now().naive_utc() - Duration::hours(3)))
+            .execute(&mut conn)
+            .unwrap();
+        let done = crate::repository::workflow_states::first_in_category(
+            &mut conn,
+            WorkflowStateCategory::Done,
+        )
+        .unwrap();
+
+        let closed = crate::repository::tickets::update_ticket_partial(
+            &mut conn,
+            open.id,
+            crate::models::TicketUpdate {
+                workflow_state_id: Some(done.id),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+
+        let targets: (Option<NaiveDateTime>, Option<NaiveDateTime>) = tickets::table
+            .find(closed.id)
+            .select((
+                tickets::sla_response_target_at,
+                tickets::sla_resolution_target_at,
+            ))
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(targets, (None, None), "nothing left for the breach scan");
+        let pill = pill_json_for_ticket(&mut conn, &closed);
+        assert_eq!(pill["breached"], false, "{pill}");
+    }
+
+    #[test]
+    fn merged_tickets_are_not_counted_as_open() {
+        use crate::models::WorkflowStateCategory;
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let policy = created_clock_policy(&mut conn);
+        let counted = |conn: &mut crate::db::DbConnection| {
+            scan_open_ticket_buckets(conn, i64::MAX)
+                .unwrap()
+                .by_policy
+                .get(&policy.id)
+                .map_or(0, |c| c.total)
+        };
+        let before = counted(&mut conn);
+        ticket_in(&mut conn, "sla_merged", WorkflowStateCategory::Merged);
+        assert_eq!(counted(&mut conn), before);
     }
 }

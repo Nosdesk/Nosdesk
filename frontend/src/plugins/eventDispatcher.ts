@@ -26,7 +26,7 @@ import type { PluginEvent } from '@nosdesk/core/types/plugin';
  * generic `ticket:updated`, preserving the pre-sync dispatcher's
  * dual-fire behaviour.
  */
-function pluginEventsFor(eventType: string): PluginEvent[] {
+export function pluginEventsFor(eventType: string): PluginEvent[] {
   switch (eventType) {
     case 'ticket.created':
       return ['ticket:created'];
@@ -39,6 +39,9 @@ function pluginEventsFor(eventType: string): PluginEvent[] {
     case 'ticket.title_changed':
     case 'ticket.category_changed':
     case 'ticket.verification_changed':
+    // A merge source's whole row, now in the merged state, as the
+    // ticket.updated webhook sends it.
+    case 'ticket.merged_into':
       return ['ticket:updated'];
     case 'comment.created':
       return ['ticket:comment_added'];

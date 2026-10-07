@@ -40,8 +40,8 @@ pub enum WorkflowStateCategory {
     /// Terminal state for a ticket consumed by a merge. Distinct from
     /// `done` (resolved) and `cancelled` so list filters and the
     /// activity feed can tell "closed because merged" apart from
-    /// "closed because finished". Pauses SLA via the per-row
-    /// `pauses_sla` flag, the same as the other terminal categories.
+    /// "closed because finished". Stops the SLA clock, the same as the
+    /// other terminal categories (`services::sla::StateClock`).
     #[serde(rename = "merged")]
     Merged,
 }

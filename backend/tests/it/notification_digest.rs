@@ -108,9 +108,12 @@ async fn each_workspace_sends_its_own_digest_with_its_own_note() {
     notify(&mut conn, b, user, type_id, "VPN down");
     drop(conn);
 
-    backend::services::scheduled_jobs::send_notification_digests(pool.clone())
-        .await
-        .expect("digest run");
+    backend::services::scheduled_jobs::send_notification_digests(
+        pool.clone(),
+        "https://desk.example.com".to_string(),
+    )
+    .await
+    .expect("digest run");
 
     let mut conn = pool.get().expect("conn");
     let mut sent: Vec<(i32, String, String)> = outbound_emails::table
@@ -131,6 +134,10 @@ async fn each_workspace_sends_its_own_digest_with_its_own_note() {
 
     assert!(alpha_subject.contains("Alpha Desk"), "{alpha_subject}");
     assert!(alpha_body.contains("Printer on fire"), "{alpha_body}");
+    assert!(
+        alpha_body.contains("View them: https://desk.example.com"),
+        "{alpha_body}"
+    );
     assert!(
         alpha_body.ends_with("Mail from Alpha Desk never asks for your password."),
         "{alpha_body}"
@@ -159,9 +166,12 @@ async fn each_workspace_sends_its_own_digest_with_its_own_note() {
         .expect("count");
     assert_eq!(undelivered, 0);
     drop(conn);
-    backend::services::scheduled_jobs::send_notification_digests(pool.clone())
-        .await
-        .expect("second run");
+    backend::services::scheduled_jobs::send_notification_digests(
+        pool.clone(),
+        "https://desk.example.com".to_string(),
+    )
+    .await
+    .expect("second run");
     let mut conn = pool.get().expect("conn");
     let total: i64 = outbound_emails::table
         .filter(outbound_emails::recipient.eq("digest@example.com"))

@@ -277,6 +277,13 @@ pub fn execute_merge(
         diesel::insert_into(ticket_merges::table)
             .values(&merge_rows)
             .execute(conn)?;
+        // A merged source is finished: recompute its SLA so the targets it
+        // carried while open are cleared and the breach job has nothing left
+        // to find.
+        for &sid in &source_array {
+            let source = load_ticket(conn, sid)?;
+            crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &source);
+        }
 
         // Step 5: move comments (attachments ride along via comment_id),
         // and tell every client: a moved comment's row now names the
@@ -1171,6 +1178,38 @@ mod tests {
             assert_eq!(data["title"], merged.title);
             assert_eq!(data["requester_uuid"], serde_json::json!(user.uuid));
         }
+    }
+
+    #[test]
+    fn a_merged_source_keeps_no_sla_target() {
+        use crate::schema::tickets::dsl as t;
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merge_sla", "user");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        // Stamped while it was being worked on.
+        let later = chrono::Utc::now().naive_utc() + chrono::Duration::hours(2);
+        diesel::update(t::tickets.find(src.id))
+            .set((
+                t::sla_response_target_at.eq(Some(later)),
+                t::sla_resolution_target_at.eq(Some(later)),
+            ))
+            .execute(&mut conn)
+            .unwrap();
+
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        let targets: (Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>) = t::tickets
+            .find(src.id)
+            .select((t::sla_response_target_at, t::sla_resolution_target_at))
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(targets, (None, None), "the breach scan has nothing to find");
     }
 
     #[test]

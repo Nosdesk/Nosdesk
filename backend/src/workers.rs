@@ -25,6 +25,7 @@ pub fn spawn_scheduled_jobs(
     search_service: web::Data<Arc<SearchService>>,
     notification_service: web::Data<NotificationService>,
     scheduler_shutdown: tokio_util::sync::CancellationToken,
+    frontend_url: String,
 ) -> StatusRegistry {
     let scheduler_status = crate::services::scheduler::status_registry();
     {
@@ -65,12 +66,13 @@ pub fn spawn_scheduled_jobs(
         // Daily: send notification email digests (batches the notifications a
         // user set to email=digest into one summary). Single-machine via lock.
         let p = pool.clone();
+        let base_url = frontend_url.clone();
         spawn_periodic(
             "notifications.digest",
             Duration::from_secs(24 * 60 * 60),
             scheduler_shutdown.clone(),
             scheduler_status.clone(),
-            move || jobs::send_notification_digests(p.clone()),
+            move || jobs::send_notification_digests(p.clone(), base_url.clone()),
         );
 
         // Daily: auto-archive stale notifications so the bell/inbox self-prunes
