@@ -1,12 +1,14 @@
 //! Shared helpers for backup/restore integration tests.
 //!
-//! Strategy: per-test database cloned from a once-per-binary
-//! template. The template is created on first call, migrated
-//! once, and reused across all tests in the binary. Each
-//! `TestDb::new()` runs `CREATE DATABASE ... TEMPLATE`, which
-//! Postgres implements as a filesystem copy (~100-300ms on a
-//! warm cluster, vs ~1-2s for a full migration replay). Drop
-//! terminates open connections and drops the per-test DB.
+//! Strategy: per-test database cloned from a template. The
+//! template is named for this build's migrations, built once per
+//! migration set under an advisory lock, and reused by every test
+//! binary until the migrations change; building a new one drops
+//! the others. Each `TestDb::new()` runs `CREATE DATABASE ...
+//! TEMPLATE`, which Postgres implements as a filesystem copy
+//! (~100-300ms on a warm cluster, vs ~1-2s for a full migration
+//! replay). Drop terminates open connections and drops the
+//! per-test DB.
 //!
 //! Pattern follows `#[sqlx::test]` ([sqlx docs][1]). We hand-roll
 //! it for Diesel since Diesel ships no equivalent.
@@ -77,8 +79,6 @@ pub fn ensure_test_keyring() {
     });
 }
 
-const TEMPLATE_NAME: &str = "nosdesk_test_template";
-
 /// Resolve the base test database URL from env. Same precedence
 /// as `backend::test_helpers`: dedicated test DB preferred.
 fn base_url() -> String {
@@ -97,52 +97,126 @@ fn with_database(url: &str, db: &str) -> String {
     format!("{}/{}{}", &url[..path_start], db, &url[path_end..])
 }
 
-fn admin_url() -> String {
+pub fn admin_url() -> String {
     with_database(&base_url(), "postgres")
 }
 
-fn template_url() -> String {
-    with_database(&base_url(), TEMPLATE_NAME)
+/// This build's template. `build.rs` hashes `migrations/` into
+/// `NOSDESK_SCHEMA_HASH`, so a branch with added or edited migrations builds
+/// its own template instead of inheriting whichever branch ran first.
+fn current_template() -> String {
+    format!("nosdesk_test_template_{}", env!("NOSDESK_SCHEMA_HASH"))
 }
 
-/// Ensure the template DB exists with every migration applied.
-/// Idempotent; runs at most once per process.
+/// Advisory lock serialising template builds across every test process on
+/// the cluster. Taken on the `postgres` database (advisory locks are per
+/// database), so it can't meet the app's job locks.
+const TEMPLATE_LOCK: i64 = 0x6e6f_7364_746d_706c; // "nosdtmpl"
+
+/// Run `f` on a fresh admin connection holding the template lock. The lock
+/// is session-level, so a panic in `f` releases it with the connection.
+fn with_template_lock<T>(f: impl FnOnce(&mut PgConnection) -> T) -> T {
+    let mut admin = PgConnection::establish(&admin_url()).expect("connect to admin DB (postgres)");
+    diesel::sql_query(format!("SELECT pg_advisory_lock({TEMPLATE_LOCK})"))
+        .execute(&mut admin)
+        .expect("take the template lock");
+    let out = f(&mut admin);
+    let _ = diesel::sql_query(format!("SELECT pg_advisory_unlock({TEMPLATE_LOCK})"))
+        .execute(&mut admin);
+    out
+}
+
+#[derive(QueryableByName)]
+struct DatabaseRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    datname: String,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    datistemplate: bool,
+}
+
+/// Build template `name` with `populate` unless it's built already; true
+/// when this call built it. Needs the template lock. `datistemplate` is set
+/// only once `populate` returns, so it marks a finished build, and a
+/// database a crashed build left behind is populated again.
+fn build_template_locked(
+    admin: &mut PgConnection,
+    name: &str,
+    populate: impl FnOnce(&mut PgConnection),
+) -> bool {
+    let existing =
+        diesel::sql_query("SELECT datname, datistemplate FROM pg_database WHERE datname = $1")
+            .bind::<diesel::sql_types::Text, _>(name)
+            .get_result::<DatabaseRow>(admin)
+            .optional()
+            .expect("look up template DB");
+    match existing {
+        // Built. Don't connect: a clone fails while anything is connected.
+        Some(row) if row.datistemplate => return false,
+        Some(_) => {}
+        None => {
+            diesel::sql_query(format!("CREATE DATABASE \"{name}\""))
+                .execute(admin)
+                .expect("CREATE template DB");
+        }
+    }
+    {
+        let mut conn = PgConnection::establish(&with_database(&base_url(), name))
+            .expect("connect to template DB");
+        populate(&mut conn);
+    }
+    diesel::sql_query(format!("ALTER DATABASE \"{name}\" IS_TEMPLATE TRUE"))
+        .execute(admin)
+        .expect("mark template DB");
+    true
+}
+
+/// Build template `name` once, however many processes ask at the same time.
+/// True when this call built it.
+pub fn ensure_template(name: &str, populate: impl FnOnce(&mut PgConnection)) -> bool {
+    with_template_lock(|admin| build_template_locked(admin, name, populate))
+}
+
+/// Drop the templates of other migration sets, and the old fixed-name one.
+/// Keeping only the newest is enough: switching branches costs one migration
+/// replay, and two suites on one cluster interfere anyway (the commit horizon
+/// `sync_commit_cursor` reads is cluster-wide). A template still in use
+/// refuses the DROP and stays.
+fn drop_stale_templates(admin: &mut PgConnection, keep: &str) {
+    let stale = diesel::sql_query(
+        "SELECT datname, datistemplate FROM pg_database \
+         WHERE datname ~ '^nosdesk_test_template(_[0-9a-f]{16})?$' AND datname <> $1",
+    )
+    .bind::<diesel::sql_types::Text, _>(keep)
+    .load::<DatabaseRow>(admin)
+    .unwrap_or_default();
+    for DatabaseRow { datname, .. } in stale {
+        let _ = diesel::sql_query(format!("ALTER DATABASE \"{datname}\" IS_TEMPLATE FALSE"))
+            .execute(admin);
+        if diesel::sql_query(format!("DROP DATABASE \"{datname}\""))
+            .execute(admin)
+            .is_err()
+        {
+            let _ = diesel::sql_query(format!("ALTER DATABASE \"{datname}\" IS_TEMPLATE TRUE"))
+                .execute(admin);
+        }
+    }
+}
+
+/// Ensure this build's template exists with every migration applied, and
+/// drop older ones when it's new. Runs at most once per process.
 fn ensure_template_ready() {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
-        let mut admin =
-            PgConnection::establish(&admin_url()).expect("connect to admin DB (postgres)");
-
-        // CREATE DATABASE IF NOT EXISTS isn't a thing in PG; do it
-        // through a probe.
-        let exists = diesel::sql_query(format!(
-            "SELECT 1 AS one FROM pg_database WHERE datname = '{TEMPLATE_NAME}'"
-        ))
-        .execute(&mut admin)
-        .map(|n| n > 0)
-        .unwrap_or(false);
-
-        if !exists {
-            diesel::sql_query(format!("CREATE DATABASE \"{TEMPLATE_NAME}\""))
-                .execute(&mut admin)
-                .expect("CREATE template DB");
-        }
-
-        // Run all migrations against the template. Embedded
-        // migrations are idempotent: re-running on an
-        // already-migrated DB is a no-op.
-        let mut template =
-            PgConnection::establish(&template_url()).expect("connect to template DB");
-        template
-            .run_pending_migrations(MIGRATIONS)
-            .expect("migrate template");
-
-        // Mark the template so `CREATE DATABASE ... TEMPLATE`
-        // doesn't refuse it. Idempotent.
-        let _ = diesel::sql_query(format!(
-            "ALTER DATABASE \"{TEMPLATE_NAME}\" IS_TEMPLATE TRUE"
-        ))
-        .execute(&mut admin);
+        let name = current_template();
+        with_template_lock(|admin| {
+            let built = build_template_locked(admin, &name, |conn| {
+                conn.run_pending_migrations(MIGRATIONS)
+                    .expect("migrate template");
+            });
+            if built {
+                drop_stale_templates(admin, &name);
+            }
+        });
     });
 }
 
@@ -168,7 +242,8 @@ impl TestDb {
         let mut admin =
             PgConnection::establish(&admin_url()).expect("connect to admin DB for sandbox CREATE");
         diesel::sql_query(format!(
-            "CREATE DATABASE \"{name}\" TEMPLATE \"{TEMPLATE_NAME}\""
+            "CREATE DATABASE \"{name}\" TEMPLATE \"{}\"",
+            current_template()
         ))
         .execute(&mut admin)
         .expect("CREATE sandbox DB from template");
