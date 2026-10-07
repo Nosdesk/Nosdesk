@@ -1004,6 +1004,9 @@ admin-nav-categories-title = Categorieën
 admin-nav-categories-description = Ticketcategorieën en zichtbaarheid per groep configureren
 admin-nav-assignment-rules-title = Toewijzingsregels
 admin-nav-assignment-rules-description = Configureer automatische tickettoewijzing op basis van regels
+# MACHINE TRANSLATION, pending native review
+admin-nav-rules-title = Regels
+admin-nav-rules-description = Stappen die agents in één keer op een ticket toepassen, via de knop Acties
 admin-nav-workflow-title = Workflow
 admin-nav-workflow-description = Voeg ticketstatussen toe binnen de standaard workflowcategorieën
 admin-nav-sla-title = SLA
