@@ -19,7 +19,6 @@ use tracing_actix_web::TracingLogger;
 
 use crate::config::Config;
 use crate::db::Pool;
-use crate::utils::redis_yjs_cache::create_redis_cache;
 use crate::utils::storage::{create_storage, get_storage_config};
 use crate::workers;
 
@@ -85,36 +84,18 @@ pub fn build_state(
     let scheduler_shutdown = tokio_util::sync::CancellationToken::new();
     let mut background_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
-    // Yjs document cache (survives backend restarts) shares the single
-    // Redis URL resolved above. Used directly — no scheme rewrite — so a
-    // TLS managed Redis (`rediss://`) is honoured rather than silently
-    // falling back to localhost.
-    let yjs_redis_url = redis_url.clone();
-
-    let redis_cache = match create_redis_cache(&yjs_redis_url) {
-        Ok(cache) => {
-            // Never the URL: `rediss://:PASSWORD@host` puts the password in
-            // it. The host and the TLS flag are what the comment above is
-            // about, and they carry no credential.
-            info!(
-                redis_host = %url::Url::parse(&yjs_redis_url)
-                    .ok()
-                    .and_then(|u| u.host_str().map(str::to_owned))
-                    .unwrap_or_else(|| "?".to_string()),
-                redis_tls = yjs_redis_url.starts_with("rediss://"),
-                "Redis cache initialized for Yjs documents"
-            );
-            cache
-        }
-        Err(e) => {
-            error!(error = ?e, "Failed to initialize Redis cache for Yjs");
-            error!("CRITICAL: Yjs documents will NOT persist across server restarts");
-            error!("Please ensure Redis is running and REDIS_URL is configured correctly");
-            return Err(std::io::Error::other(format!(
-                "Redis initialization failed: {e:?}"
-            )));
-        }
-    };
+    // Never the URL: `rediss://:PASSWORD@host` puts the password in it. The
+    // host and the TLS flag show which Redis this machine uses (a managed
+    // `rediss://` one is used as given, never rewritten to localhost), and
+    // they carry no credential.
+    info!(
+        redis_host = %url::Url::parse(&redis_url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_owned))
+            .unwrap_or_else(|| "?".to_string()),
+        redis_tls = redis_url.starts_with("rediss://"),
+        "Redis configured"
+    );
 
     // Short-TTL cache for dashboard analytics payloads. Best-effort:
     // a build failure here is non-fatal (the handlers fall through to
@@ -462,7 +443,7 @@ pub fn build_state(
     let requested_mode = CollabRoutingMode::from_env_value(
         &std::env::var("NOSDESK_COLLAB_ROUTING").unwrap_or_else(|_| "single".into()),
     );
-    let collab_ownership = crate::services::collab_ownership::build(&yjs_redis_url, requested_mode);
+    let collab_ownership = crate::services::collab_ownership::build(&redis_url, requested_mode);
     let collab_routing_mode = if collab_ownership.is_some() {
         requested_mode
     } else {
@@ -472,7 +453,6 @@ pub fn build_state(
     // Initialize WebSocket app state for collaborative editing (includes SseState for broadcasting)
     let yjs_app_state = web::Data::new(crate::handlers::collaboration::YjsAppState::new(
         web::Data::new(pool.clone()),
-        redis_cache,
         sse_state.clone(),
         search_service.get_ref().clone(),
         collab_ownership,

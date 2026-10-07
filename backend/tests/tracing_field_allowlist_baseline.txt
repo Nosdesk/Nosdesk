@@ -502,8 +502,5 @@ src/utils/pdf.rs height
 src/utils/pdf.rs path
 src/utils/pdf.rs size_bytes
 src/utils/pdf.rs width
-src/utils/redis_yjs_cache.rs bytes
-src/utils/redis_yjs_cache.rs doc_id
-src/utils/redis_yjs_cache.rs ttl
 src/utils/storage.rs path
 src/utils/webauthn.rs credential_id
