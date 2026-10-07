@@ -35,6 +35,7 @@ mod backup_q_smoke;
 mod backup_sequences;
 mod backup_tamper;
 mod bearer_auth;
+mod closed_follows_state;
 mod collab_fenced_write;
 mod collab_ownership;
 mod cross_tenant_workspace_lookup;

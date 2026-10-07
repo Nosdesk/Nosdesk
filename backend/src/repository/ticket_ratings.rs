@@ -106,7 +106,6 @@ pub fn resolve_as_requester(
                 ticket_id,
                 crate::models::TicketUpdate {
                     workflow_state_id: Some(done.id),
-                    closed_at: Some(Some(now)),
                     updated_at: Some(now),
                     ..Default::default()
                 },

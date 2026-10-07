@@ -954,8 +954,8 @@ fn update_ticket_fields(
     Ok(())
 }
 
-/// `set_status` action. The existing tickets-table trigger handles
-/// `resolved_at` / `closed_at` stamping for terminal categories.
+/// `set_status` action. `closed_at` and `closed_by` follow the new state in
+/// the database (`ticket_closed_follows_state`).
 fn execute_set_status(
     conn: &mut DbConnection,
     action_index: usize,
