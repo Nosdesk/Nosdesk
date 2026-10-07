@@ -284,10 +284,11 @@ pub async fn delta(
         .unwrap_or(query.from_xid8.unwrap_or(0));
 
     // Read-side visibility, via the shared sync-visibility layer:
-    // documentation (every viewer) + the ticket family (restricted
-    // members only). `filter_actions` returns a keep-mask and never
-    // errors — a visibility-lookup failure fails closed (drops the
-    // affected family) rather than 500'ing the poll.
+    // documentation and users (every viewer: a user row only when it is
+    // about the viewer or one of this workspace's people) + the ticket
+    // family (restricted members only). `filter_actions` returns a
+    // keep-mask and never errors: a visibility-lookup failure fails
+    // closed (drops the affected family) rather than 500'ing the poll.
     let (actions, keep) = match tc.run(move |conn| {
         let keep =
             crate::sync::visibility::filter_actions(conn, &viewer, &actions, action_row_to_view);

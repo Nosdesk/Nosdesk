@@ -8,13 +8,16 @@
 //! waiting for the whole snapshot to land.
 //!
 //! The bootstrap streams the bounded, every-view-needs-it aggregates
-//! up front: `workflow_state`, `user`, and `asset` (always), plus
-//! `documentation_collection` / `documentation_page` and `project` /
-//! `project_ticket` when the workspace grant is present. Documentation
+//! up front: `workflow_state`, `user` (the workspace's people) and
+//! `asset` (always), plus `documentation_collection` /
+//! `documentation_page` and `project` / `project_ticket` when the
+//! workspace grant is present. Documentation
 //! rows are visibility-filtered per caller (they are emitted to the
 //! workspace group but readable per page/collection grant). Tickets,
 //! comments, and attachments stay lazy-loaded through `useReference`
 //! so the bootstrap stays bounded even on enterprise-scale workspaces.
+
+use std::collections::HashSet;
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use bytes::Bytes;
@@ -34,7 +37,7 @@ use crate::models::{
 };
 use crate::schema::{
     assets, attachments, comments, linked_tickets, project_tickets, projects, ticket_assets,
-    tickets, user_emails, users, workflow_states,
+    tickets, workflow_states,
 };
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
@@ -169,8 +172,8 @@ fn stream_bootstrap_inner(
     // reads), so it can't disagree with the rows the snapshot can see.
     // `granted` holding some other workspace's group must not unlock
     // workspace-wide streaming here.
-    let workspace_group: Option<String> =
-        crate::sync::session::current_workspace_id(conn)?.map(|id| format!("workspace:{}", id));
+    let pinned_workspace = crate::sync::session::current_workspace_id(conn)?;
+    let workspace_group: Option<String> = pinned_workspace.map(|id| format!("workspace:{}", id));
     let workspace_granted = workspace_group.is_some_and(|wg| granted.iter().any(|g| *g == wg));
 
     let last_sync_id: Option<i64> = crate::schema::sync_actions::table
@@ -244,39 +247,37 @@ fn stream_bootstrap_inner(
         states_by_id.insert(state.id, state);
     }
 
-    // Users: workspace-wide set, streamed once at the start of the
-    // bootstrap. Mirrors workflow_states — small finite roster, every
+    // Users: the workspace's people, streamed once at the start of the
+    // bootstrap. Mirrors workflow_states: a bounded roster, and every
     // ticket / comment / assignment carries a uuid the frontend needs
     // to resolve to a name + avatar, so shipping them up-front lets
     // the table render assignee / requester cells with no follow-up
     // round-trip.
     //
-    // The permission check happens upstream in
-    // `sync::groups::allowed_for_user`, but every member of the
-    // workspace can see the user list (it's the same set the
-    // mention picker / assignee picker already query without scope).
-    // NOTE: `users` has no workspace RLS policy, so this streams the
-    // instance-wide roster — fine for self-hosted, but a deliberate
-    // cross-tenant exposure to revisit for multi-workspace hosts.
-    //
+    // `users` and `user_emails` have no row security (an account can
+    // belong to several workspaces), so the roster is scoped here: the
+    // people this workspace's own records name, as
+    // `repository::directory::people` defines them (the same set the
+    // delta filter and the people lists use), plus the viewer, whose own
+    // row the client always needs. With no pinned workspace there are no
+    // workspace people to send, so only the viewer's row goes.
+    let mut roster: HashSet<uuid::Uuid> = match pinned_workspace {
+        Some(ws) => crate::repository::directory::people(conn, ws)?,
+        None => HashSet::new(),
+    };
+    roster.insert(user.uuid);
+    let roster: Vec<uuid::Uuid> = roster.into_iter().collect();
+    let user_rows: Vec<User> = crate::repository::users::get_users_by_uuids(&roster, conn)?;
     // Email lives in `user_emails` (canonical address; the
     // `users.email` column is gone); load the primary-email lookup
-    // table once into a HashMap rather than joining per-row, since
-    // the `User` model is `Queryable` but not `Selectable` and tuple
-    // joins would force a refactor.
-    let user_rows: Vec<User> = users::table.order(users::name.asc()).load(conn)?;
-    let primary_email_rows: Vec<(uuid::Uuid, String)> = user_emails::table
-        .filter(user_emails::is_primary.eq(true))
-        .select((user_emails::user_uuid, user_emails::email))
-        .load(conn)?;
-    let primary_email_by_uuid: std::collections::HashMap<uuid::Uuid, String> =
-        primary_email_rows.into_iter().collect();
+    // once rather than joining per-row.
+    let primary_email_by_uuid =
+        crate::repository::user_helpers::get_primary_emails_batch(&roster, conn);
     // Personal dashboard layout lives in `user_preferences`; batch-load
     // it so each user's own sessions warm-start + live-sync the
     // arrangement from the pool (one query, not N+1).
-    let all_user_uuids: Vec<uuid::Uuid> = user_rows.iter().map(|u| u.uuid).collect();
     let dashboard_layout_by_uuid: std::collections::HashMap<uuid::Uuid, serde_json::Value> =
-        crate::repository::user_preferences::get_many(conn, &all_user_uuids)
+        crate::repository::user_preferences::get_many(conn, &roster)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|p| p.dashboard_layout.map(|dl| (p.user_uuid, dl)))
@@ -346,7 +347,6 @@ fn stream_bootstrap_inner(
     //
     // Both paths land in the same set; HashSet dedupes if a request
     // ever asks for both the workspace group and `project:7` together.
-    use std::collections::HashSet;
     let want_all = workspace_granted;
 
     // Documentation: workspace-wide knowledge base. Stream every

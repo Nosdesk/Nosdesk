@@ -98,6 +98,9 @@ pub trait UserDeletedObserver: Send + Sync {
 }
 
 // User repository functions
+
+/// Every user in the deployment, across workspaces (instance maintenance
+/// only). A workspace's people are `directory::list_people`.
 pub fn get_users(conn: &mut DbConnection) -> Result<Vec<User>, Error> {
     users::table.order_by(users::name.asc()).load::<User>(conn)
 }
@@ -162,6 +165,9 @@ fn requester_sql(workspace_id: i32) -> String {
     )
 }
 
+/// One page of the workspace's people (`directory::people`), filtered and
+/// sorted. `users` has no row security, so the workspace scope is this
+/// filter, not the connection's pin.
 #[allow(clippy::too_many_arguments)]
 pub fn get_paginated_users(
     conn: &mut DbConnection,
@@ -176,6 +182,10 @@ pub fn get_paginated_users(
     workspace_id: i32,
 ) -> Result<(Vec<User>, i64), Error> {
     use crate::schema::user_emails;
+
+    let people: Vec<Uuid> = crate::repository::directory::people(conn, workspace_id)?
+        .into_iter()
+        .collect();
 
     // Resolve search UUIDs once (if search is active)
     let search_uuids: Option<Vec<Uuid>> = match search.as_deref() {
@@ -322,7 +332,9 @@ pub fn get_paginated_users(
          WHERE ue.user_uuid = users.uuid AND ue.is_primary LIMIT 1)";
 
     // Count query with filters
-    let mut count_query = users::table.into_boxed();
+    let mut count_query = users::table
+        .filter(users::uuid.eq_any(people.clone()))
+        .into_boxed();
     if let Some(ref uuids) = search_uuids {
         count_query = count_query.filter(users::uuid.eq_any(uuids.clone()));
     }
@@ -340,7 +352,7 @@ pub fn get_paginated_users(
     let total: i64 = count_query.count().get_result(conn)?;
 
     // Data query with same filters + sort + pagination
-    let mut query = users::table.into_boxed();
+    let mut query = users::table.filter(users::uuid.eq_any(people)).into_boxed();
     if let Some(ref uuids) = search_uuids {
         query = query.filter(users::uuid.eq_any(uuids.clone()));
     }

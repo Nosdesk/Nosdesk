@@ -565,11 +565,12 @@ pub async fn get_users(
     ws: WorkspaceContext,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
-    // Pin the resolved workspace so the users read and per-row workspace_role
-    // lookup are visible under RLS (both tables are workspace-isolated).
+    // Pin the resolved workspace so the people lookup and per-row
+    // workspace_role read are visible under RLS. `users` itself has no row
+    // security, so the list is the workspace's people, not every account.
     helpers::pin_workspace(&mut conn, ws.workspace_id);
 
-    match repository::get_users(&mut conn) {
+    match repository::directory::list_people(&mut conn, ws.workspace_id) {
         Ok(users) => {
             // Convert users to UserResponse with emails (batch fetch for efficiency)
             let user_responses = repository::user_helpers::get_users_with_primary_emails(
@@ -594,8 +595,9 @@ pub async fn get_paginated_users(
     ws: WorkspaceContext,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
-    // Pin the resolved workspace so the users read and per-row workspace_role
-    // lookup are visible under RLS (both tables are workspace-isolated).
+    // Pin the resolved workspace so the people lookup and per-row
+    // workspace_role read are visible under RLS. `users` itself has no row
+    // security; the repository lists only the workspace's people.
     helpers::pin_workspace(&mut conn, ws.workspace_id);
 
     // Extract and validate pagination parameters

@@ -88,6 +88,7 @@ mod sync_emit_lint;
 mod sync_model_registry;
 mod sync_ticket_group_auth;
 mod sync_visibility;
+mod sync_workspace_people;
 mod tenant_table_grants_lint;
 mod tenant_table_rls_lint;
 mod test_db_template;

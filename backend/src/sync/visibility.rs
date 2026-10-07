@@ -4,7 +4,9 @@
 //! overlap, but some aggregates need row-level visibility finer than
 //! the group grant expresses. Documentation has page/collection ACLs
 //! (restricted even among staff); tickets are restricted for
-//! `member`-role users (requester/watcher only). This module is the
+//! `member`-role users (requester/watcher only); a `user` row reaches a
+//! workspace's sessions only when it is about one of that workspace's
+//! people (`repository::directory`). This module is the
 //! single place that decides "can THIS viewer see THIS row," shared by
 //! all three read paths:
 //!
@@ -26,11 +28,12 @@
 use std::collections::{HashMap, HashSet};
 
 use diesel::pg::Pg;
+use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{PlatformRole, SyncAggregate, SyncOp, User};
 use crate::repository::ticket_visibility::{self, VisibilityContext};
-use crate::repository::{comments, documentation, user_helpers};
+use crate::repository::{comments, directory, documentation, user_helpers};
 use crate::schema::tickets;
 
 /// Per-viewer visibility identity, built once per request (delta /
@@ -81,6 +84,8 @@ pub struct ActionView {
     pub is_internal: Option<bool>,
     /// `data.comment_id` when present (attachment.created).
     pub comment_id: Option<i32>,
+    /// `aggregate_id` parsed as a uuid: the user a `user` row is about.
+    pub subject_uuid: Option<Uuid>,
 }
 
 impl ActionView {
@@ -104,6 +109,7 @@ impl ActionView {
             ticket_id: i32_at("ticket_id"),
             is_internal: data.get("is_internal").and_then(|v| v.as_bool()),
             comment_id: i32_at("comment_id"),
+            subject_uuid: Uuid::parse_str(aggregate_id).ok(),
         }
     }
 }
@@ -142,6 +148,9 @@ fn needs_ticket_resolution(agg: SyncAggregate) -> bool {
 ///   (apply to every viewer).
 /// - `doc_fail` / `ticket_fail`: fail-closed flags — on a visibility
 ///   lookup error the affected family is dropped wholesale.
+/// - `viewer` / `people`: the viewer's own uuid, and which of the batch's
+///   `user` rows are about the workspace's people (empty on a lookup
+///   failure, which leaves only the viewer's own row).
 #[allow(clippy::too_many_arguments)]
 fn action_is_visible(
     v: &ActionView,
@@ -151,6 +160,8 @@ fn action_is_visible(
     hidden_collections: &HashSet<i32>,
     doc_fail: bool,
     ticket_fail: bool,
+    viewer: Uuid,
+    people: &HashSet<Uuid>,
 ) -> bool {
     let Some(agg) = v.aggregate else {
         // Unknown/unparsed aggregate: not a gated family — allow.
@@ -222,6 +233,14 @@ fn action_is_visible(
         // restricted viewer would need to see both, and has no surface
         // that reads the row. Staff only.
         SyncAggregate::TicketReference => visible_tickets.is_none(),
+        // A user's change is recorded in whichever workspace the writer was
+        // pinned to, so this workspace's feed can hold a change to someone
+        // from another one. It reaches a session only when it is about the
+        // viewer or one of this workspace's people. Deletes too: unlike the
+        // bare-id ticket prunes, `user.deleted` carries the whole row.
+        SyncAggregate::User => v
+            .subject_uuid
+            .is_some_and(|u| u == viewer || people.contains(&u)),
         // Reference data + everything else: allow. Future aggregates that
         // need gating must add an arm above (conscious opt-in).
         _ => true,
@@ -241,6 +260,30 @@ pub fn filter_actions<T>(
 ) -> Vec<bool> {
     let views: Vec<ActionView> = items.iter().map(extract).collect();
     let sees_all = viewer.sees_all();
+    let viewer_uuid = viewer.ctx.user_uuid;
+
+    // --- Users (applies to every viewer) ---
+    // Which of the batch's `user` rows are about this workspace's people.
+    // The workspace is the connection's pin; with none, or on a lookup
+    // failure, only the viewer's own row goes through (fail-closed).
+    let subjects: Vec<Uuid> = views
+        .iter()
+        .filter(|v| v.aggregate == Some(SyncAggregate::User))
+        .filter_map(|v| v.subject_uuid)
+        .filter(|u| *u != viewer_uuid)
+        .collect();
+    let people: HashSet<Uuid> = if subjects.is_empty() {
+        HashSet::new()
+    } else {
+        let resolved = crate::sync::session::current_workspace_id(conn).and_then(|ws| match ws {
+            Some(ws) => directory::people_among(conn, ws, &subjects),
+            None => Ok(HashSet::new()),
+        });
+        resolved.unwrap_or_else(|e| {
+            tracing::error!(error = %e, "sync visibility: people lookup failed; dropping other users' rows (fail-closed)");
+            HashSet::new()
+        })
+    };
 
     // --- Documentation (applies to every viewer) ---
     let mut page_ids = Vec::new();
@@ -366,6 +409,8 @@ pub fn filter_actions<T>(
                 &hidden_collections,
                 doc_fail,
                 ticket_fail,
+                viewer_uuid,
+                &people,
             )
         })
         .collect()
@@ -381,12 +426,13 @@ pub fn bootstrap_ticket_query<'a>(viewer: &SyncViewer) -> tickets::BoxedQuery<'a
 
 /// Cheap, I/O-free gate: does an action with this wire aggregate name
 /// need a per-viewer visibility check? Documentation always (it has
-/// per-row ACLs even among staff); the ticket family only for restricted
-/// viewers. The SSE path uses this to skip the async DB hop for batches
-/// that don't need filtering for this viewer.
+/// per-row ACLs even among staff), users always (only the workspace's
+/// people), the ticket family only for restricted viewers. The SSE path
+/// uses this to skip the async DB hop for batches that don't need
+/// filtering for this viewer.
 pub fn wire_aggregate_is_gated(wire: &str, viewer: &SyncViewer) -> bool {
     match wire {
-        "documentation_page" | "documentation_collection" => true,
+        "documentation_page" | "documentation_collection" | "user" => true,
         // Ticket family + ticket-tied / staff-only inventory aggregates are
         // only gated for restricted viewers; staff (`sees_all`) see them all.
         "ticket" | "comment" | "attachment" | "ticket_asset" | "linked_ticket"
@@ -421,8 +467,9 @@ pub fn filter_actions_pinned<T>(
 }
 
 /// Fail-closed keep-mask computed with no DB access: drops every gated
-/// family (documentation for all viewers; the ticket family for
-/// restricted viewers) and keeps reference data. Used by the SSE path
+/// family (documentation for all viewers, and every user row but the
+/// viewer's own; the ticket family for restricted viewers) and keeps
+/// reference data. Used by the SSE path
 /// when the off-thread visibility lookup can't run (e.g. pool
 /// exhaustion) so a transient failure can never leak.
 pub fn fail_closed_mask<T>(
@@ -431,6 +478,7 @@ pub fn fail_closed_mask<T>(
     extract: impl Fn(&T) -> ActionView,
 ) -> Vec<bool> {
     let empty: HashSet<i32> = HashSet::new();
+    let no_people: HashSet<Uuid> = HashSet::new();
     let visible_tickets = if viewer.sees_all() {
         None
     } else {
@@ -447,6 +495,8 @@ pub fn fail_closed_mask<T>(
                 &empty,
                 true, // doc_fail
                 true, // ticket_fail
+                viewer.ctx.user_uuid,
+                &no_people,
             )
         })
         .collect()
@@ -465,6 +515,7 @@ mod tests {
             ticket_id: None,
             is_internal: None,
             comment_id: None,
+            subject_uuid: None,
         }
     }
 
@@ -482,6 +533,8 @@ mod tests {
             &HashSet::new(),
             false,
             false,
+            Uuid::nil(),
+            &HashSet::new(),
         )
     }
 
@@ -669,6 +722,8 @@ mod tests {
             &HashSet::new(),
             false,
             false,
+            Uuid::nil(),
+            &HashSet::new(),
         );
         let staff_visible = action_is_visible(
             &visible,
@@ -678,6 +733,8 @@ mod tests {
             &HashSet::new(),
             false,
             false,
+            Uuid::nil(),
+            &HashSet::new(),
         );
         assert!(!staff_hidden, "hidden doc dropped even for staff");
         assert!(staff_visible, "non-hidden doc kept");
@@ -688,7 +745,6 @@ mod tests {
         let vt = restricted();
         let empty = HashSet::new();
         for agg in [
-            SyncAggregate::User,
             SyncAggregate::Asset,
             SyncAggregate::AssetMedia,
             SyncAggregate::WorkflowState,
@@ -700,6 +756,44 @@ mod tests {
                 "{agg:?} allowed"
             );
         }
+    }
+
+    #[test]
+    fn user_rows_only_for_self_and_the_workspaces_people() {
+        let (me, colleague, stranger) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let people = HashSet::from([colleague]);
+        let about = |u: Uuid, is_delete: bool| {
+            let mut v = view(SyncAggregate::User, is_delete);
+            v.subject_uuid = Some(u);
+            v
+        };
+        let empty = HashSet::new();
+        for visible_tickets in [None, restricted()] {
+            for is_delete in [false, true] {
+                let kept = |u| {
+                    action_is_visible(
+                        &about(u, is_delete),
+                        visible_tickets.as_ref(),
+                        &empty,
+                        &HashSet::new(),
+                        &HashSet::new(),
+                        false,
+                        false,
+                        me,
+                        &people,
+                    )
+                };
+                assert!(kept(me), "the viewer's own row");
+                assert!(kept(colleague), "one of the workspace's people");
+                assert!(!kept(stranger), "someone from another workspace");
+            }
+        }
+        // No subject (an unparseable aggregate id) names nobody.
+        assert!(!check(
+            &view(SyncAggregate::User, false),
+            None,
+            &HashSet::new()
+        ));
     }
 
     #[test]
@@ -720,6 +814,8 @@ mod tests {
             &HashSet::new(),
             true,
             false,
+            Uuid::nil(),
+            &HashSet::new(),
         );
         let ticket_fail = action_is_visible(
             &t,
@@ -729,6 +825,8 @@ mod tests {
             &HashSet::new(),
             false,
             true,
+            Uuid::nil(),
+            &HashSet::new(),
         );
         assert!(!doc_fail, "doc_fail drops doc row");
         assert!(!ticket_fail, "ticket_fail drops ticket row");
@@ -743,6 +841,7 @@ mod tests {
             ticket_id: None,
             is_internal: None,
             comment_id: None,
+            subject_uuid: None,
         };
         assert!(check(&v, restricted().as_ref(), &HashSet::new()));
         let _ = Uuid::nil();

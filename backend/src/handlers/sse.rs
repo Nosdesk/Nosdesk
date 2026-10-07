@@ -484,13 +484,11 @@ fn json_row_to_view(row: &serde_json::Value) -> crate::sync::visibility::ActionV
         .cloned()
         .and_then(|v| serde_json::from_value::<crate::models::SyncAggregate>(v).ok());
     let data = row.get("data");
+    let aggregate_id = row.get("aggregate_id").and_then(|v| v.as_str());
     crate::sync::visibility::ActionView {
         aggregate,
         is_delete: row.get("op").and_then(|v| v.as_str()) == Some("D"),
-        aggregate_id: row
-            .get("aggregate_id")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse().ok()),
+        aggregate_id: aggregate_id.and_then(|s| s.parse().ok()),
         ticket_id: data
             .and_then(|d| d.get("ticket_id"))
             .and_then(|v| v.as_i64())
@@ -502,6 +500,7 @@ fn json_row_to_view(row: &serde_json::Value) -> crate::sync::visibility::ActionV
             .and_then(|d| d.get("comment_id"))
             .and_then(|v| v.as_i64())
             .map(|n| n as i32),
+        subject_uuid: aggregate_id.and_then(|s| Uuid::parse_str(s).ok()),
     }
 }
 
@@ -1153,11 +1152,22 @@ mod tests {
     #[test]
     fn needs_filtering_reference_only_skips() {
         let env = sync_actions_env(json!([
-            { "aggregate": "user", "aggregate_id": "x" },
+            { "aggregate": "workflow_state", "aggregate_id": "2" },
             { "aggregate": "asset", "aggregate_id": "1" },
         ]));
         assert!(!batch_needs_filtering(&env, &viewer(true)));
         assert!(!batch_needs_filtering(&env, &viewer(false)));
+    }
+
+    /// A user row is only for the workspace its subject belongs to, so it
+    /// is checked for every viewer, staff included.
+    #[test]
+    fn needs_filtering_user_rows_for_everyone() {
+        let env = sync_actions_env(json!([
+            { "aggregate": "user", "aggregate_id": uuid::Uuid::new_v4().to_string() },
+        ]));
+        assert!(batch_needs_filtering(&env, &viewer(true)));
+        assert!(batch_needs_filtering(&env, &viewer(false)));
     }
 
     #[test]
@@ -1217,5 +1227,14 @@ mod tests {
         let dv = json_row_to_view(&del);
         assert!(dv.is_delete);
         assert_eq!(dv.comment_id, None);
+        assert_eq!(dv.subject_uuid, None);
+
+        let who = uuid::Uuid::new_v4();
+        let user =
+            json!({ "aggregate": "user", "op": "U", "aggregate_id": who.to_string(), "data": {} });
+        let uv = json_row_to_view(&user);
+        assert_eq!(uv.aggregate, Some(crate::models::SyncAggregate::User));
+        assert_eq!(uv.subject_uuid, Some(who));
+        assert_eq!(uv.aggregate_id, None);
     }
 }
