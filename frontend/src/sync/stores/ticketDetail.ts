@@ -40,7 +40,7 @@ import { stashPreview } from '@/services/attachmentPreviewCache'
 import { registerOptimisticCreate, clearOptimisticCreate, isEchoSuppressed } from '@/sync/optimisticCreates'
 import { replyStarted, replyFinished } from '@/sync/repliesInFlight'
 import { useToastStore } from '@nosdesk/core/stores/toast'
-import { useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
+import { resendMark, useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
 import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
 import { htmlHasText } from '@nosdesk/core/utils/inertHtml'
 import { activeWorkspaceSlug } from '@/services/activeWorkspace'
@@ -160,10 +160,10 @@ interface FileWithTranscription extends File {
 /**
  * Put a reply that failed to send back in the ticket's composer, which
  * cleared as it went out: its text, files and internal flag together, since
- * restoring only the text would send an internal note again in public. It
- * keeps the id it went out with, so sending it again is the same reply. A
- * draft typed since goes after it, and then the whole is a new reply; it
- * stays internal if either part was.
+ * restoring only the text would send an internal note again in public. It is
+ * marked with the id it went out with, so sending it again unchanged is the
+ * same reply (see `resendClientId`). A draft written since goes after it, and
+ * then the whole is a new reply that stays internal if either part was.
  */
 function restoreUnsentReply(
   ticketId: number,
@@ -172,13 +172,24 @@ function restoreUnsentReply(
   const drafts = useTicketDraftsStore()
   const ui = useTicketUiStore()
   const current = drafts.getDraft(ticketId)
-  const typedSince = htmlHasText(current.content)
-  drafts.setDraft(ticketId, {
-    content: typedSince ? `${reply.content}${current.content}` : reply.content,
-    isInternal: reply.isInternal || current.isInternal,
-    ...(typedSince ? {} : { clientId: reply.clientId }),
-  })
-  ui.setAttachments(ticketId, [...reply.files, ...ui.getAttachments(ticketId)])
+  const stagedSince = ui.getAttachments(ticketId)
+  const writtenSince = htmlHasText(current.content) || stagedSince.length > 0
+  drafts.setDraft(
+    ticketId,
+    writtenSince
+      ? {
+          content: `${reply.content}${current.content}`,
+          isInternal: reply.isInternal || current.isInternal,
+        }
+      : {
+          // Exactly as sent: an Internal switched on in the emptied composer
+          // belongs to the next reply, not to this one.
+          content: reply.content,
+          isInternal: reply.isInternal,
+          resend: resendMark(reply.clientId, reply.content, reply.files),
+        },
+  )
+  ui.setAttachments(ticketId, [...reply.files, ...stagedSince])
 }
 
 export function useTicketDetail(
@@ -502,8 +513,10 @@ export function useTicketDetail(
 
     const ticketId = id.value
     // Ticket ids repeat across workspaces, so a failed reply only goes back
-    // to the composer in the workspace it was written in.
+    // to the composer in the workspace it was written in. A switch parks the
+    // drafts before it clears the slug, so both are checked.
     const workspace = activeWorkspaceSlug()
+    const draftScope = useTicketDraftsStore().getScope()
     const tempId = -Date.now()
     // Client-minted id sent on the create + echoed back as the comment.created
     // sync action's correlation_id, so the optimistic row reconciles
@@ -639,16 +652,28 @@ export function useTicketDetail(
         URL.revokeObjectURL(url)
       })
       if (!created) {
-        if (activeWorkspaceSlug() === workspace) {
+        const toast = useToastStore()
+        // The bubble goes, so say why rather than letting the reply vanish.
+        if (
+          activeWorkspaceSlug() === workspace &&
+          useTicketDraftsStore().getScope() === draftScope
+        ) {
           restoreUnsentReply(ticketId, {
             content: data.content,
             files,
             isInternal: data.is_internal === true,
             clientId,
           })
+          toast.error(translate('ticket-comments-send-failed', undefined, "Your reply wasn't sent. Try again."))
+        } else {
+          toast.error(
+            translate(
+              'ticket-comments-send-failed-not-kept',
+              undefined,
+              "Your reply wasn't sent. It couldn't be kept because you switched workspace.",
+            ),
+          )
         }
-        // The bubble goes, so say why rather than letting the reply vanish.
-        useToastStore().error(translate('ticket-comments-send-failed', undefined, "Your reply wasn't sent. Try again."))
       }
     } finally {
       replyFinished()

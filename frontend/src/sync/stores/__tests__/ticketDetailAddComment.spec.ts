@@ -29,7 +29,7 @@ vi.mock('@/i18n', () => ({ translate: (key: string) => key }))
 
 import { useTicketDetail } from '../ticketDetail'
 import { noteServerEcho } from '@/sync/optimisticCreates'
-import { useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
+import { resendClientId, useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
 import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
 
 beforeAll(() => {
@@ -142,7 +142,7 @@ describe('a reply that fails to send', () => {
     const draft = useTicketDraftsStore().getDraft(101)
     expect(draft).toMatchObject({ content: '<p>Vendor says Tuesday</p>', isInternal: true })
     const sentAs = addCommentToTicket.mock.calls[0][4]
-    expect(draft.clientId).toBe(sentAs)
+    expect(resendClientId(draft, [])).toBe(sentAs)
 
     addCommentToTicket.mockResolvedValueOnce({
       id: 127,
@@ -157,7 +157,7 @@ describe('a reply that fails to send', () => {
       user_uuid: 'agent-uuid',
       files: [],
       is_internal: draft.isInternal,
-      client_id: draft.clientId,
+      client_id: resendClientId(draft, []),
     })
     expect(addCommentToTicket.mock.calls[1][4]).toBe(sentAs)
   })
@@ -175,7 +175,54 @@ describe('a reply that fails to send', () => {
 
     expect(drafts.getDraft(101).content).toBe('<p>First</p><p>Second</p>')
     // Not the failed reply alone any more, so a send is a new reply.
-    expect(drafts.getDraft(101).clientId).toBeUndefined()
+    expect(resendClientId(drafts.getDraft(101), [])).toBeUndefined()
+  })
+
+  it('comes back public when Internal was switched on in the emptied composer', async () => {
+    let fail!: (e: unknown) => void
+    addCommentToTicket.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
+    const detail = useTicketDetail(101)
+    const drafts = useTicketDraftsStore()
+
+    const sending = detail.addComment({ content: '<p>Public answer</p>', user_uuid: 'agent-uuid', files: [] })
+    drafts.setDraft(101, { content: '', isInternal: true })
+    fail(new Error('network down'))
+    await sending
+
+    expect(drafts.getDraft(101)).toMatchObject({ content: '<p>Public answer</p>', isInternal: false })
+  })
+
+  it('is a new reply once it is edited or gains a file', async () => {
+    addCommentToTicket.mockRejectedValueOnce(new Error('network down'))
+    const detail = useTicketDetail(101)
+    await detail.addComment({ content: '<p>Here is the log</p>', user_uuid: 'agent-uuid', files: [] })
+    const draft = useTicketDraftsStore().getDraft(101)
+    const sentAs = addCommentToTicket.mock.calls[0][4]
+
+    // The editor may write the same text back with different markup.
+    expect(resendClientId({ ...draft, content: '<p>Here is the log</p><p></p>' }, [])).toBe(sentAs)
+    expect(resendClientId({ ...draft, content: '<p>Here is the new log</p>' }, [])).toBeUndefined()
+    expect(resendClientId(draft, [new File(['y'], 'more.txt')])).toBeUndefined()
+  })
+
+  it('is not put into another workspace, and says so', async () => {
+    const drafts = useTicketDraftsStore()
+    drafts.setScope('acme')
+    let fail!: (e: unknown) => void
+    addCommentToTicket.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
+    const detail = useTicketDetail(101)
+
+    const sending = detail.addComment({ content: '<p>Acme reply</p>', user_uuid: 'agent-uuid', files: [] })
+    // The switch parks this workspace's drafts before the request is refused.
+    drafts.setScope(null)
+    fail(new Error('workspace changed'))
+    await sending
+
+    expect(drafts.getDraft(101).content).toBe('')
+    drafts.setScope('acme')
+    expect(drafts.getDraft(101).content).toBe('')
+    expect(toast.error).toHaveBeenCalledWith('ticket-comments-send-failed-not-kept')
+    drafts.setScope(null)
   })
 
   it('is not restored once the server has it', async () => {

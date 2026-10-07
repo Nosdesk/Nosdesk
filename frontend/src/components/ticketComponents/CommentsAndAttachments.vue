@@ -20,7 +20,7 @@ import { sanitiseHtml } from "@/composables/useSanitise";
 import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
-import { useTicketDraftsStore } from "@nosdesk/core/stores/ticketDrafts";
+import { resendClientId, useTicketDraftsStore } from "@nosdesk/core/stores/ticketDrafts";
 import { useTicketUiStore } from "@nosdesk/core/stores/ticketUi";
 
 // Local re-export of the canonical types so this component can use
@@ -233,7 +233,7 @@ const addComment = () => {
         is_internal: isInternal.value,
         client_id:
             props.ticketId !== undefined
-                ? draftsStore.getDraft(props.ticketId).clientId
+                ? resendClientId(draftsStore.getDraft(props.ticketId), newAttachments.value)
                 : undefined,
     });
 

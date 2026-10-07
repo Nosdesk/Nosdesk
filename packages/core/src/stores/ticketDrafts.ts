@@ -20,6 +20,7 @@ import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 
 import { logger } from '../utils/logger'
+import { htmlText } from '../utils/inertHtml'
 import { storage } from '../storage'
 
 export interface TicketDraft {
@@ -27,9 +28,53 @@ export interface TicketDraft {
   content: string
   /** Internal note flag (tech-to-tech vs public reply). */
   isInternal: boolean
-  /** Set on a reply put back after it failed to send: the id it went out
-   *  with, so sending it again is the same reply rather than a new one. */
-  clientId?: string
+  /** Set on a reply put back after it failed to send. See `resendClientId`. */
+  resend?: ResendMark
+}
+
+/** A reply put back in the composer after it failed to send, as it was. */
+export interface ResendMark {
+  /** The id it went out with. */
+  clientId: string
+  /** Its text, without markup. */
+  text: string
+  /** Its files, as `name:size`. */
+  files: string[]
+}
+
+function fileMark(file: File): string {
+  return `${file.name}:${file.size}`
+}
+
+/** What a failed reply's draft records so it can be recognised unchanged. */
+export function resendMark(clientId: string, content: string, files: File[]): ResendMark {
+  return { clientId, text: htmlText(content), files: files.map(fileMark) }
+}
+
+/**
+ * The id to send a draft with: the one its reply first went out with while
+ * it is still that reply (the same text and files), so a server that already
+ * has it can tell; none once it has been edited or gained or lost a file,
+ * which makes it a new reply. The text is compared without markup, since the
+ * editor may write the same text back differently.
+ */
+export function resendClientId(draft: TicketDraft, files: File[]): string | undefined {
+  const mark = draft.resend
+  if (!mark) return undefined
+  const sameFiles =
+    files.length === mark.files.length && files.every((f, i) => fileMark(f) === mark.files[i])
+  return sameFiles && htmlText(draft.content) === mark.text ? mark.clientId : undefined
+}
+
+function isResendMark(v: unknown): v is ResendMark {
+  const m = v as ResendMark | undefined
+  return (
+    !!m &&
+    typeof m.clientId === 'string' &&
+    typeof m.text === 'string' &&
+    Array.isArray(m.files) &&
+    m.files.every((f) => typeof f === 'string')
+  )
 }
 
 const STORAGE_KEY = 'nosdesk:ticket-drafts'
@@ -59,7 +104,7 @@ function loadFromStorage(): Map<number, TicketDraft> {
         out.set(id, {
           content: v.content,
           isInternal: !!v.isInternal,
-          ...(typeof v.clientId === 'string' ? { clientId: v.clientId } : {}),
+          ...(isResendMark(v.resend) ? { resend: v.resend } : {}),
         })
       }
     }
@@ -120,7 +165,7 @@ export const useTicketDraftsStore = defineStore('ticketDrafts', () => {
       next.set(ticketId, {
         content: draft.content,
         isInternal: !!draft.isInternal,
-        ...(draft.clientId ? { clientId: draft.clientId } : {}),
+        ...(draft.resend ? { resend: draft.resend } : {}),
       })
     }
     drafts.value = next
@@ -150,10 +195,17 @@ export const useTicketDraftsStore = defineStore('ticketDrafts', () => {
     drafts.value = loadFromStorage()
   }
 
+  /** The workspace whose drafts are loaded; `null` in host mode, or while
+   *  a workspace switch is under way. */
+  function getScope(): string | null {
+    return scope
+  }
+
   return {
     getDraft,
     setDraft,
     clearDraft,
     setScope,
+    getScope,
   }
 })
