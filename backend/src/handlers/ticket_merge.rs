@@ -104,11 +104,13 @@ pub async fn merge_tickets(
     // its own transaction so a send-queue hiccup never unwinds the
     // committed merge.
     if notify_customer {
+        let base_url = crate::utils::tenant_origin::email_link_base(None).unwrap_or_default();
         if let Err(e) = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
             ticket_merge::enqueue_merge_notifications(
                 c,
                 &outcome.destination,
                 &outcome.merged_sources,
+                &base_url,
             )
         }) {
             tracing::warn!(error = %e, "merge customer notification enqueue failed");

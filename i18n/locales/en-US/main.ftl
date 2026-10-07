@@ -175,6 +175,17 @@ participant-added-body = { $adder } added you to request #{ $id }: { $title }.
 participant-added-replies = You'll get the team's replies by email, and you can reply to them.
 participant-added-cta = View request
 notif-footer-preferences = You're receiving this because of your notification preferences.
+# Notification digest: one plain-text summary per workspace of the
+# notifications someone chose to get as a digest.
+notif-digest-subject = [{ $app }] { $count ->
+    [one] { $count } new notification
+   *[other] { $count } new notifications
+}
+notif-digest-intro = { $count ->
+    [one] You have { $count } new notification in { $app }:
+   *[other] You have { $count } new notifications in { $app }:
+}
+notif-digest-view = View them: { $url }
 notif-body-text =
     { $title }
 

@@ -67,6 +67,7 @@ mod migration_ticket_numbers;
 mod migration_version_lint;
 mod migration_workspace_scoped_keys;
 mod notification_deliveries;
+mod notification_digest;
 mod notification_inbox_filters;
 mod notification_outbox;
 mod notification_workspace_scope;
