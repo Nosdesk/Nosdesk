@@ -515,6 +515,28 @@ fn held_created_via(
     Ok(data.and_then(|d| d.get("created_via").cloned()))
 }
 
+/// The event an update records: the most specific one for what it changes.
+/// Each raises the `ticket.updated` webhook (`WebhookEventType::from_sync_action`).
+fn update_event_type(update: &crate::models::TicketUpdate) -> &'static str {
+    if update.workflow_state_id.is_some() {
+        "ticket.workflow_state_changed"
+    } else if update.assignee_uuid.is_some() {
+        "ticket.assignee_changed"
+    } else if update.priority.is_some() {
+        "ticket.priority_changed"
+    } else if update.title.is_some() {
+        "ticket.title_changed"
+    } else if update.category_id.is_some() {
+        "ticket.category_changed"
+    } else if update.verification_state.is_some() {
+        "ticket.verification_changed"
+    } else if update.resolution_notes.is_some() {
+        "ticket.resolution_notes_changed"
+    } else {
+        "ticket.updated"
+    }
+}
+
 // Add a new function for partial ticket updates
 pub fn update_ticket_partial(
     conn: &mut DbConnection,
@@ -537,28 +559,10 @@ pub fn update_ticket_partial(
     // Log the cardinality of the change set, not its values. `title`
     // and `resolution_notes` carry user-typed customer text;
     // value-level reconstruction belongs in audit_log, not in
-    // tracing output.
-    let count = [
-        ticket_update.title.is_some(),
-        ticket_update.workflow_state_id.is_some(),
-        ticket_update.priority.is_some(),
-        ticket_update.requester_uuid.is_some(),
-        ticket_update.assignee_uuid.is_some(),
-        ticket_update.closed_at.is_some(),
-        ticket_update.verification_state.is_some(),
-        ticket_update.origin_channel_id.is_some(),
-        ticket_update.category_id.is_some(),
-        ticket_update.triage_state.is_some(),
-        ticket_update.due_date.is_some(),
-        ticket_update.start_date.is_some(),
-        ticket_update.recurrence_rule.is_some(),
-        ticket_update.recurrence_template_id.is_some(),
-        ticket_update.resolution_notes.is_some(),
-        ticket_update.sla_override.is_some(),
-    ]
-    .into_iter()
-    .filter(|b| *b)
-    .count();
+    // tracing output. Counted from the changeset itself, so no column can be
+    // left out of the count (`spam_suspected` once was, and "not spam" saved
+    // nothing).
+    let count = ticket_update.changed_columns().count();
     debug!(ticket_id, count, "Updating ticket");
 
     // Nothing left to change (e.g. a title-only commit that matched the
@@ -587,23 +591,7 @@ pub fn update_ticket_partial(
         // Pick the most-specific event_type that matches what changed.
         // The full updated row goes in `data` regardless so consumers
         // don't have to query back.
-        let event_type = if ticket_update.workflow_state_id.is_some() {
-            "ticket.workflow_state_changed"
-        } else if ticket_update.assignee_uuid.is_some() {
-            "ticket.assignee_changed"
-        } else if ticket_update.priority.is_some() {
-            "ticket.priority_changed"
-        } else if ticket_update.title.is_some() {
-            "ticket.title_changed"
-        } else if ticket_update.category_id.is_some() {
-            "ticket.category_changed"
-        } else if ticket_update.verification_state.is_some() {
-            "ticket.verification_changed"
-        } else if ticket_update.resolution_notes.is_some() {
-            "ticket.resolution_notes_changed"
-        } else {
-            "ticket.updated"
-        };
+        let event_type = update_event_type(&ticket_update);
         // Recompute the SLA pill when a field that feeds policy
         // matching or pause state changes — workflow_state_id drives
         // the paused flag (via the state's category), priority and
@@ -1255,6 +1243,59 @@ mod tests {
         assert_eq!(parse_ticket_priority("medium"), TicketPriority::Medium);
         assert_eq!(parse_ticket_priority("high"), TicketPriority::High);
         assert_eq!(parse_ticket_priority("urgent"), TicketPriority::Urgent);
+    }
+
+    /// Whatever an update changes, the event it records raises the
+    /// `ticket.updated` webhook.
+    #[test]
+    fn every_update_event_raises_the_ticket_updated_webhook() {
+        use crate::services::webhooks::WebhookEventType;
+        let one_column = [
+            TicketUpdate {
+                workflow_state_id: Some(1),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                assignee_uuid: Some(None),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                priority: Some(TicketPriority::High),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                title: Some("Retitled".into()),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                category_id: Some(None),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                verification_state: Some(None),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                resolution_notes: Some(Some("Fixed".into())),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                spam_suspected: Some(false),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                due_date: Some(None),
+                ..TicketUpdate::default()
+            },
+        ];
+        for update in &one_column {
+            let event = update_event_type(update);
+            assert_eq!(
+                WebhookEventType::from_sync_action(event),
+                Some(WebhookEventType::TicketUpdated),
+                "{event}"
+            );
+        }
     }
 
     #[test]

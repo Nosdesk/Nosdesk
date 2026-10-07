@@ -1,12 +1,13 @@
-//! `PUT /api/tickets/{id}` saves through the same path as PATCH. The columns
-//! the server owns stay as they are whatever the body says about them, someone
-//! who doesn't handle tickets may change only the title, a change records the
-//! event PATCH's does, and the response is still the ticket row.
+//! `PUT` and `PATCH /api/tickets/{id}` save through one path. The columns the
+//! server owns stay as they are whatever a PUT body says about them, someone
+//! who doesn't handle tickets may change only the title, a PUT records the
+//! event PATCH's does and still answers with the ticket row, "not spam" clears
+//! the spam flag, and every change raises the `ticket.updated` webhook.
 
 use std::sync::Arc;
 
 use actix_web::dev::Service;
-use actix_web::http::StatusCode;
+use actix_web::http::{Method, StatusCode};
 use actix_web::test as http_test;
 use actix_web::{web, App, HttpMessage};
 use diesel::prelude::*;
@@ -24,7 +25,7 @@ use backend::sync::session::run_in_workspace;
 
 use crate::common::{self, TestPool, WorkspaceSeed};
 
-const REF: &str = "test:ticket_put";
+const REF: &str = "test:ticket_update_routes";
 
 struct Fixture {
     _db: common::TestDb,
@@ -101,6 +102,21 @@ impl Fixture {
 
     /// PUT `body` to the ticket as `user`, a member of the workspace.
     async fn put(&self, user: Uuid, ticket_id: i32, body: Value) -> (StatusCode, Value) {
+        self.send(Method::PUT, user, ticket_id, body).await
+    }
+
+    /// PATCH `body` to the ticket as `user`, a member of the workspace.
+    async fn patch(&self, user: Uuid, ticket_id: i32, body: Value) -> (StatusCode, Value) {
+        self.send(Method::PATCH, user, ticket_id, body).await
+    }
+
+    async fn send(
+        &self,
+        method: Method,
+        user: Uuid,
+        ticket_id: i32,
+        body: Value,
+    ) -> (StatusCode, Value) {
         let row = backend::repository::users::get_user_by_uuid(
             &user,
             &mut self.pool.get().expect("conn"),
@@ -138,13 +154,21 @@ impl Fixture {
                         .insert(RequestContext::new(corr, actor.clone()));
                     srv.call(req)
                 })
-                .service(web::scope("/api").route(
-                    "/tickets/{id}",
-                    web::put().to(backend::handlers::update_ticket),
-                )),
+                .service(
+                    web::scope("/api")
+                        .route(
+                            "/tickets/{id}",
+                            web::put().to(backend::handlers::update_ticket),
+                        )
+                        .route(
+                            "/tickets/{id}",
+                            web::patch().to(backend::handlers::update_ticket_partial),
+                        ),
+                ),
         )
         .await;
-        let req = http_test::TestRequest::put()
+        let req = http_test::TestRequest::default()
+            .method(method)
             .uri(&format!("/api/tickets/{ticket_id}"))
             .set_json(body)
             .to_request();
@@ -369,5 +393,106 @@ async fn a_put_that_moves_the_state_records_the_previous_state() {
         fx.events(before.id).len(),
         events.len(),
         "a PUT that changes nothing records nothing"
+    );
+}
+
+#[actix_web::test]
+async fn not_spam_clears_the_spam_flag() {
+    let fx = Fixture::new();
+    let flagged = fx.email_ticket();
+    assert!(flagged.spam_suspected);
+
+    let (status, body) = fx
+        .patch(
+            fx.ws.admin_uuid,
+            flagged.id,
+            json!({ "spam_suspected": false }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(!fx.ticket(flagged.id).spam_suspected, "the flag is cleared");
+    assert_eq!(
+        fx.events(flagged.id)
+            .last()
+            .map(|(t, d)| (t.as_str(), d["spam_suspected"].clone())),
+        Some(("ticket.updated", json!(false))),
+        "clients hear of it"
+    );
+}
+
+/// Every change a PUT or PATCH makes raises the `ticket.updated` webhook, the
+/// resolution notes included.
+#[actix_web::test]
+async fn a_resolution_notes_change_raises_the_ticket_updated_webhook() {
+    use backend::schema::webhook_outbox;
+    use backend::services::webhooks::WebhookService;
+    use backend::sync::session::with_actor_bypass_context;
+
+    let fx = Fixture::new();
+    let webhook = run_in_workspace(&fx.pool, REF, fx.ws.workspace_id, |c| {
+        backend::repository::webhooks::create_webhook(
+            c,
+            "updates".into(),
+            "https://sink.invalid/updates".into(),
+            "secret".into(),
+            vec!["ticket.updated".into()],
+            None,
+            Some(fx.ws.admin_uuid),
+        )
+    })
+    .expect("create webhook");
+    let open = fx.open_state();
+    let ticket = fx.insert(NewTicket {
+        title: "Printer jammed".to_string(),
+        workflow_state_id: open,
+        ..Default::default()
+    });
+
+    let (status, body) = fx
+        .put(
+            fx.ws.admin_uuid,
+            ticket.id,
+            json!({
+                "title": "Printer jammed",
+                "workflow_state_id": open,
+                "priority": "medium",
+                "resolution_notes": "Cleared the paper path",
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Drain the whole outbox, as the background worker does.
+    let mut conn = fx.pool.get().expect("conn");
+    let mut tasks = Vec::new();
+    loop {
+        let (batch, _) = with_actor_bypass_context(
+            &mut conn,
+            &ActorContext::system(REF),
+            WebhookService::drain_batch_txn,
+        )
+        .expect("drain outbox");
+        let left: i64 = with_actor_bypass_context(&mut conn, &ActorContext::system(REF), |c| {
+            webhook_outbox::table.count().get_result(c)
+        })
+        .expect("count outbox");
+        tasks.extend(batch);
+        if left == 0 {
+            break;
+        }
+    }
+    let raised: Vec<_> = tasks
+        .iter()
+        .filter(|t| t.webhook_id == webhook.id && t.payload.data["id"] == json!(ticket.id))
+        .map(|t| t.payload.event_type.clone())
+        .collect();
+    assert_eq!(
+        raised,
+        ["ticket.updated"],
+        "events recorded: {:?}",
+        fx.events(ticket.id)
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect::<Vec<_>>()
     );
 }

@@ -365,25 +365,31 @@ pub struct NewTicket {
     pub spam_suspected: bool,
 }
 
+/// The columns of a ticket a client sets, split from a `NewTicket` by
+/// [`NewTicket::into_client_columns`]. POST takes them as a new ticket, PUT as
+/// changes to an existing one.
+struct ClientTicketColumns {
+    title: String,
+    workflow_state_id: i32,
+    priority: TicketPriority,
+    requester_uuid: Option<Uuid>,
+    assignee_uuid: Option<Uuid>,
+    category_id: Option<i32>,
+    due_date: Option<NaiveDateTime>,
+    start_date: Option<NaiveDateTime>,
+    recurrence_rule: Option<String>,
+    resolution_notes: Option<String>,
+}
+
 impl NewTicket {
-    /// What a whole-row `PUT /api/tickets/{id}` changes on `existing`, as the
-    /// partial update PATCH and sync push save.
-    ///
-    /// The columns the server owns are dropped first: provenance
-    /// (`submitted_via`, `origin_channel_id`), guest access and verification
-    /// (`guest_lookup_token`, `verification_state`), the inbound pipeline's
-    /// `triage_state` and `spam_suspected`, and the recurrence scheduler's
-    /// `recurrence_template_id`. A body that leaves them out or echoes them
-    /// leaves them as they are, and so does a `spam_suspected: false`, since
-    /// the body once had to carry that field whatever the caller meant; "not
-    /// spam" is PATCH's. Then a client column the body leaves out stays as it
-    /// is, as it did when PUT wrote the body as a changeset, and one that
-    /// differs from the stored value is set.
-    ///
-    /// Destructured field by field so that adding a column to `NewTicket`
-    /// fails to compile here until someone decides whether a PUT may set it.
-    #[must_use]
-    pub fn changes_from(self, existing: &Ticket) -> TicketUpdate {
+    /// The client's columns, dropping the ones the server owns: where the
+    /// ticket came from (`submitted_via`, `origin_channel_id`), guest access
+    /// and verification (`guest_lookup_token`, `verification_state`), the
+    /// inbound pipeline's `triage_state` and `spam_suspected`, and the
+    /// recurrence scheduler's `recurrence_template_id`. The one place that list
+    /// is kept. Destructured field by field so that adding a column to
+    /// `NewTicket` fails to compile here until someone decides who may set it.
+    fn into_client_columns(self) -> ClientTicketColumns {
         let Self {
             title,
             workflow_state_id,
@@ -403,6 +409,43 @@ impl NewTicket {
             resolution_notes,
             spam_suspected: _,
         } = self;
+        ClientTicketColumns {
+            title,
+            workflow_state_id,
+            priority,
+            requester_uuid,
+            assignee_uuid,
+            category_id,
+            due_date,
+            start_date,
+            recurrence_rule,
+            resolution_notes,
+        }
+    }
+
+    /// What a whole-row `PUT /api/tickets/{id}` changes on `existing`, as the
+    /// partial update PATCH and sync push save.
+    ///
+    /// The columns the server owns are dropped first, so a body that leaves
+    /// them out or echoes them leaves them as they are, and so does a
+    /// `spam_suspected: false`, since the body once had to carry that field
+    /// whatever the caller meant; "not spam" is PATCH's. Then a client column
+    /// the body leaves out stays as it is, as it did when PUT wrote the body as
+    /// a changeset, and one that differs from the stored value is set.
+    #[must_use]
+    pub fn changes_from(self, existing: &Ticket) -> TicketUpdate {
+        let ClientTicketColumns {
+            title,
+            workflow_state_id,
+            priority,
+            requester_uuid,
+            assignee_uuid,
+            category_id,
+            due_date,
+            start_date,
+            recurrence_rule,
+            resolution_notes,
+        } = self.into_client_columns();
         fn differs<T: PartialEq>(new: T, old: &T) -> Option<T> {
             (new != *old).then_some(new)
         }
@@ -424,34 +467,21 @@ impl NewTicket {
         }
     }
 
-    /// Drop the columns the server owns from a ticket a client is creating:
-    /// where it came from (`submitted_via`, `origin_channel_id`), guest access
-    /// and verification (`guest_lookup_token`, `verification_state`), the
-    /// inbound pipeline's `triage_state` and `spam_suspected`, and the
-    /// recurrence scheduler's `recurrence_template_id`. Destructured field by
-    /// field so that adding a column to `NewTicket` fails to compile here until
-    /// someone decides who may set it.
+    /// A ticket a client is creating, without the columns the server owns.
     #[must_use]
     pub fn without_server_columns(self) -> Self {
-        let Self {
+        let ClientTicketColumns {
             title,
             workflow_state_id,
             priority,
             requester_uuid,
             assignee_uuid,
             category_id,
-            submitted_via: _,
-            guest_lookup_token: _,
-            verification_state: _,
-            origin_channel_id: _,
-            triage_state: _,
             due_date,
             start_date,
             recurrence_rule,
-            recurrence_template_id: _,
             resolution_notes,
-            spam_suspected: _,
-        } = self;
+        } = self.into_client_columns();
         Self {
             title,
             workflow_state_id,
