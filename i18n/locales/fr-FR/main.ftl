@@ -3565,6 +3565,8 @@ editor-toolbar-redo = Rétablir
 editor-toolbar-revision-history = Historique des révisions
 editor-toolbar-editing-with = Modification avec :
 editor-toolbar-connection-connecting = Connexion...
+# Connexion perdue, nouvelle tentative (machine, à relire par un locuteur natif).
+editor-toolbar-connection-reconnecting = Reconnexion...
 editor-toolbar-connection-disconnected = Déconnecté
 editor-toolbar-user-title = { $name }
 editor-toolbar-user-title-uuid = { $name } (UUID : { $uuid })

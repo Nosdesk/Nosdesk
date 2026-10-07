@@ -95,19 +95,66 @@ function isLocalPersistenceEnabled(): boolean {
   }
 }
 
-/** User-facing connection state for the editor's status indicator. */
+/** A doc's connection state, from the provider's live state. */
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
 
 /**
- * Derive the connection state from the provider's live socket flags.
- * This is the single source of truth: recomputed on every `status`
- * event rather than reconstructed from a history of transitions, so it
- * can never drift (the old per-editor event juggling could latch
- * `disconnected` on a reused, actually-connected provider).
+ * What the editor shows about the connection, if anything. The note renders
+ * from its local copy straight away, so only trouble shows: a first connect
+ * that is slow, a drop that lasts, or no connection at all.
+ */
+export type ConnectionBadge = 'connecting' | 'reconnecting' | 'disconnected' | null
+
+/** A first connect shows "Connecting..." only once it takes this long. */
+const SLOW_CONNECT_MS = 2000
+/** A drop shows "Reconnecting..." only once it lasts this long; y-websocket
+ *  usually reconnects a blip sooner. */
+const RECONNECT_GRACE_MS = 1000
+
+/** What the socket flags don't say about a provider's connection. */
+interface LinkState {
+  /** A token for the next connect is being fetched (or the fetch is
+   *  backing off after a failure): connecting, not disconnected. */
+  tokenPending: boolean
+  /** The server closed the socket for good (a 44xx close). Cleared when a
+   *  connect is started again. */
+  terminal: boolean
+  /** Connected since the last deliberate disconnect, so not connecting
+   *  again means the connection dropped. */
+  everConnected: boolean
+  /** Recompute the doc's status; set by the store. */
+  changed: () => void
+}
+
+const linkStates = new WeakMap<WebsocketProvider, LinkState>()
+
+function linkState(provider: WebsocketProvider): LinkState {
+  let state = linkStates.get(provider)
+  if (!state) {
+    state = { tokenPending: false, terminal: false, everConnected: false, changed: () => {} }
+    linkStates.set(provider, state)
+  }
+  return state
+}
+
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+/**
+ * Derive the connection state from the provider's live state. This is the
+ * single source of truth: recomputed on every change rather than
+ * reconstructed from a history of transitions, so it can never drift (the
+ * old per-editor event juggling could latch `disconnected` on a reused,
+ * actually-connected provider). A token on its way, or a reconnect y-websocket
+ * has scheduled, is connecting; only a terminal close, being offline or a
+ * deliberate disconnect is disconnected.
  */
 function deriveConnectionStatus(provider: WebsocketProvider): ConnectionStatus {
+  const link = linkState(provider)
   if (provider.wsconnected) return 'connected'
-  if (provider.wsconnecting) return 'connecting'
+  if (link.terminal || isOffline()) return 'disconnected'
+  if (provider.wsconnecting || link.tokenPending || provider.shouldConnect) return 'connecting'
   return 'disconnected'
 }
 
@@ -130,12 +177,16 @@ const retiredProviders = new WeakSet<WebsocketProvider>()
  *   the old token and was refused.
  */
 async function connectWithValidToken(provider: WebsocketProvider): Promise<void> {
+  const link = linkState(provider)
+  // A connect started again: an earlier terminal close no longer stands.
+  link.terminal = false
   const cached = peekCollabToken()
   if (cached) {
     provider.params = { token: cached }
     // Inside a `connection-close` the socket is still attached, so this only
     // re-arms `shouldConnect`; y-websocket's backoff timer does the reconnect.
     provider.connect()
+    link.changed()
     return
   }
   // Park the reconnect y-websocket may have scheduled (its timer checks
@@ -149,6 +200,8 @@ async function connectWithValidToken(provider: WebsocketProvider): Promise<void>
     terminal = true
   }
   provider.on('closed', onTerminal)
+  link.tokenPending = true
+  link.changed()
   try {
     provider.params = { token: await getCollabToken() }
   } catch (err) {
@@ -156,8 +209,10 @@ async function connectWithValidToken(provider: WebsocketProvider): Promise<void>
     await new Promise((resolve) => setTimeout(resolve, TOKEN_RETRY_DELAY_MS))
   } finally {
     provider.off('closed', onTerminal)
+    link.tokenPending = false
   }
   if (!terminal && !retiredProviders.has(provider)) provider.connect()
+  link.changed()
 }
 
 /**
@@ -178,6 +233,12 @@ interface SessionEntry {
   provider: WebsocketProvider
   /** Bound `status` listener, kept so `evict` can `off()` it. */
   statusListener: () => void
+  /** Bound `closed` (terminal close) listener, likewise. */
+  closedListener: () => void
+  /** Pending timer that shows the badge once a connect or drop lasts. */
+  badgeTimer: ReturnType<typeof setTimeout> | null
+  /** The badge `badgeTimer` will show. */
+  badgeTimerFor: ConnectionBadge
   /** PermanentUserData has no destroy and registers cumulative
    *  observers per construction (Y source: `PermanentUserData.js`).
    *  Living once per `Y.Doc` lifetime here is the only safe shape;
@@ -326,6 +387,52 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
    */
   const connectionStatus = ref<Record<string, ConnectionStatus>>({})
 
+  /** Per-doc badge for the editor, timed from `connectionStatus`. */
+  const connectionBadge = ref<Record<string, ConnectionBadge>>({})
+
+  function clearBadgeTimer(entry: SessionEntry): void {
+    if (entry.badgeTimer) clearTimeout(entry.badgeTimer)
+    entry.badgeTimer = null
+    entry.badgeTimerFor = null
+  }
+
+  /** Recompute a doc's status and, from it, its badge. */
+  function refreshStatus(entry: SessionEntry): void {
+    const { docId, provider } = entry
+    const status = deriveConnectionStatus(provider)
+    const link = linkState(provider)
+    if (status === 'connected') link.everConnected = true
+    connectionStatus.value[docId] = status
+
+    if (status !== 'connecting') {
+      clearBadgeTimer(entry)
+      connectionBadge.value[docId] = status === 'disconnected' ? 'disconnected' : null
+      return
+    }
+    const due: ConnectionBadge = link.everConnected ? 'reconnecting' : 'connecting'
+    if (connectionBadge.value[docId] === due || entry.badgeTimerFor === due) return
+    clearBadgeTimer(entry)
+    connectionBadge.value[docId] = null
+    entry.badgeTimerFor = due
+    entry.badgeTimer = setTimeout(
+      () => {
+        entry.badgeTimer = null
+        entry.badgeTimerFor = null
+        connectionBadge.value[docId] = due
+      },
+      due === 'reconnecting' ? RECONNECT_GRACE_MS : SLOW_CONNECT_MS,
+    )
+  }
+
+  // Going offline or back online changes every doc's status at once.
+  if (typeof window !== 'undefined') {
+    const refreshAll = () => {
+      for (const entry of sessions.values()) refreshStatus(entry)
+    }
+    window.addEventListener('online', refreshAll)
+    window.addEventListener('offline', refreshAll)
+  }
+
   function refreshSnapshot(): void {
     sessionSnapshot.value = [...sessions.values()].map((s) => ({
       docId: s.docId,
@@ -347,6 +454,9 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       // without re-allocating the doc. LRU eviction is what
       // ultimately frees memory.
       if (entry.refCount === 0) {
+        // Deliberate: reopening the note later is a first connect again,
+        // not a reconnect.
+        linkState(entry.provider).everConnected = false
         try {
           entry.provider.disconnect()
         } catch (err) {
@@ -380,10 +490,14 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     }
     try {
       entry.provider.off('status', entry.statusListener)
+      entry.provider.off('closed', entry.closedListener)
     } catch {
       // Provider may already be torn down; nothing to do.
     }
+    linkState(entry.provider).changed = () => {}
+    clearBadgeTimer(entry)
     delete connectionStatus.value[docId]
+    delete connectionBadge.value[docId]
     try {
       retiredProviders.add(entry.provider)
       entry.provider.destroy()
@@ -446,7 +560,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       // Re-seed in case the provider settled while no listener-driven
       // event fired (the listener persists, but this guards the
       // already-connected-during-grace case).
-      connectionStatus.value[docId] = deriveConnectionStatus(existing.provider)
+      refreshStatus(existing)
       refreshSnapshot()
       return {
         ydoc: existing.ydoc,
@@ -487,27 +601,35 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       ...options.providerParams,
       connect: false,
     })
-    void attachCollabToken(provider)
     const permanentUserData = new SafePermanentUserData(ydoc)
-    // One subscription per provider. Derives status from live socket
-    // flags on every transition; seeded synchronously so a provider
-    // that's already mid-connect reads correctly.
-    const onStatus = () => {
-      connectionStatus.value[docId] = deriveConnectionStatus(provider)
+    // One subscription per provider. Derives status from live state on
+    // every transition, including the token fetch and a terminal close,
+    // which y-websocket reports after its last `status` event.
+    const onStatus = () => refreshStatus(entry)
+    const onClosed = () => {
+      linkState(provider).terminal = true
+      refreshStatus(entry)
     }
-    provider.on('status', onStatus)
-    onStatus()
     const entry: SessionEntry = {
       docId,
       ydoc,
       provider,
       statusListener: onStatus,
+      closedListener: onClosed,
+      badgeTimer: null,
+      badgeTimerFor: null,
       permanentUserData,
       idb,
       refCount: 1,
       lastReleasedAt: null,
       graceTimer: null,
     }
+    linkState(provider).changed = onStatus
+    provider.on('status', onStatus)
+    provider.on('closed', onClosed)
+    void attachCollabToken(provider)
+    // Seeded synchronously: the token fetch above has already started.
+    onStatus()
     sessions.set(docId, entry)
     enforceLruCap()
     if (idb) {
@@ -599,6 +721,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
   return {
     sessionSnapshot,
     connectionStatus,
+    connectionBadge,
     acquire,
     release,
     destroy,

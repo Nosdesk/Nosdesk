@@ -3625,6 +3625,7 @@ editor-toolbar-redo = Redo
 editor-toolbar-revision-history = Revision History
 editor-toolbar-editing-with = Editing with:
 editor-toolbar-connection-connecting = Connecting...
+editor-toolbar-connection-reconnecting = Reconnecting...
 editor-toolbar-connection-disconnected = Disconnected
 editor-toolbar-user-title = { $name }
 editor-toolbar-user-title-uuid = { $name } (UUID: { $uuid })

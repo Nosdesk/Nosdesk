@@ -234,6 +234,10 @@ async function bootstrapRuntime(
   await hydrate(userUuid, schemaHash, instanceId, workspaceSlug)
   const { attachSseBridge } = await import('@/sync/sseBridge')
   attachSseBridge()
+  // Have a collab token ready, so opening a note connects without first
+  // waiting for one.
+  const { keepCollabTokenWarm } = await import('@/services/collabToken')
+  keepCollabTokenWarm()
 }
 
 const POLL_INTERVAL_MS = 10_000

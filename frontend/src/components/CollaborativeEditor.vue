@@ -18,7 +18,7 @@ import MenuList, { type MenuItem } from "@/components/common/MenuList.vue";
 import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
 import { WebsocketProvider } from "y-websocket";
-import { useCollabSessionStore, type ConnectionStatus } from "@/stores/collabSession";
+import { useCollabSessionStore, type ConnectionBadge } from "@/stores/collabSession";
 import { SafePermanentUserData } from "@nosdesk/core/utils/safePermanentUserData";
 import { apiBaseUrl, collabWsBaseUrl } from "@nosdesk/core/transport";
 import { EditorView } from "prosemirror-view";
@@ -274,17 +274,19 @@ const syncEmbeddings = async () => {
 
 // Refs for template
 const editorElement = ref<HTMLElement | null>(null);
-// Connection status is owned by the collab session store: it lives with
-// the provider, which outlives this component's mount cycle, so the
-// editor reads it rather than reconstructing it from socket events.
-// `connectionError` is the one local override — a hard editor-construction
-// failure surfaces as disconnected even when the socket itself is fine.
+// The connection badge is owned by the collab session store: it lives with
+// the provider, which outlives this component's mount cycle, so the editor
+// reads it rather than reconstructing it from socket events. It shows only
+// trouble (a slow first connect, a lasting drop, no connection), since the
+// note renders from its local copy straight away. `connectionError` is the
+// one local override: a hard editor-construction failure surfaces as
+// disconnected even when the socket itself is fine.
 const collab = useCollabSessionStore();
 const connectionError = ref(false);
-const connectionStatus = computed<ConnectionStatus>(() =>
+const connectionBadge = computed<ConnectionBadge>(() =>
   connectionError.value
     ? 'disconnected'
-    : collab.connectionStatus[props.docId] ?? 'connecting',
+    : collab.connectionBadge[props.docId] ?? null,
 );
 
 // State for connected users
@@ -983,7 +985,7 @@ const initEditor = async () => {
         // subscribes once per provider and derives the status from the
         // live socket state, so it stays correct across this component's
         // remounts (and the reused-provider case that used to latch
-        // "disconnected"). `connectionStatus` here is just a computed
+        // "disconnected"). `connectionBadge` here is just a computed
         // over it; nothing to wire, seed, or time out.
 
         // Add error event handler for more detailed error information
@@ -1623,7 +1625,7 @@ const cleanup = () => {
     permanentUserData = null;
 
     isInitialized.value = false;
-    // connectionStatus is owned by the store and tied to the provider's
+    // connectionBadge is owned by the store and tied to the provider's
     // lifetime, so there's nothing to reset here — the computed simply
     // stops being read once this editor unmounts.
 };
@@ -2303,10 +2305,13 @@ defineExpose({
             </div>
 
             <!-- Connection status indicator - v-show prevents layout shift on initial load -->
-            <div v-show="connectionStatus === 'connecting'" class="connection-status-connecting">
+            <div v-show="connectionBadge === 'connecting'" class="connection-status-connecting">
                 {{ $t('editor-toolbar-connection-connecting') }}
             </div>
-            <div v-show="connectionStatus === 'disconnected'" class="connection-status-disconnected">
+            <div v-show="connectionBadge === 'reconnecting'" class="connection-status-connecting">
+                {{ $t('editor-toolbar-connection-reconnecting') }}
+            </div>
+            <div v-show="connectionBadge === 'disconnected'" class="connection-status-disconnected">
                 {{ $t('editor-toolbar-connection-disconnected') }}
             </div>
         </div>
