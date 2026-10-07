@@ -947,6 +947,7 @@ async fn branding_config_routes_registered() {
     assert_config_registers(
         crate::handlers::branding::config,
         &[
+            ("GET", "/workspace/branding"),
             ("GET", "/admin/branding/config"),
             ("PATCH", "/admin/branding/config"),
             ("POST", "/admin/branding/image"),

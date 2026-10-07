@@ -27,14 +27,19 @@ pub(crate) fn ensure_row(conn: &mut DbConnection) -> QueryResult<()> {
 /// request's workspace (no hardcoded id), so this no longer collapses every
 /// workspace onto a single global row.
 pub fn get_site_settings(conn: &mut DbConnection) -> QueryResult<SiteSettings> {
-    if let Some(settings) = site_settings::table
-        .first::<SiteSettings>(conn)
-        .optional()?
-    {
+    if let Some(settings) = find_site_settings(conn)? {
         return Ok(settings);
     }
     ensure_row(conn)?;
     site_settings::table.first(conn)
+}
+
+/// The current workspace's site settings, if it has a row, without creating
+/// one. For reads that may run with no workspace resolved (the public
+/// branding route on an origin that names none), where an insert would fail
+/// row-level security.
+pub fn find_site_settings(conn: &mut DbConnection) -> QueryResult<Option<SiteSettings>> {
+    site_settings::table.first::<SiteSettings>(conn).optional()
 }
 
 // sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe

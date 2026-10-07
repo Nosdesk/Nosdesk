@@ -68,7 +68,8 @@ pub(crate) fn legacy_logical_path(url: &str) -> Option<String> {
 /// Branding routes (config + image upload), mounted inside the authenticated
 /// `/api` scope in main.rs.
 pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg.route("/admin/branding/config", web::get().to(get_branding_config))
+    cfg.route("/workspace/branding", web::get().to(get_workspace_branding))
+        .route("/admin/branding/config", web::get().to(get_branding_config))
         .route(
             "/admin/branding/config",
             web::patch().to(update_branding_config),
@@ -141,9 +142,27 @@ pub async fn get_branding_config(mut tc: TenantConn) -> Result<HttpResponse, Api
     }
 }
 
-// GET /api/branding - Public endpoint for branding (no auth required). Falls
-// back to the built-in branding when no workspace resolves, as on the sign-in
-// page.
+// GET /api/workspace/branding - The selected workspace's branding, for a
+// signed-in member. On the single-origin agent app the workspace is chosen by
+// the selection header, which only the authenticated routes resolve, so the
+// public route below can't see it there. A failed read is an error: the client
+// keeps what it has rather than repainting with the built-in branding.
+pub async fn get_workspace_branding(mut tc: TenantConn) -> Result<HttpResponse, ApiError> {
+    match tc.run(site_settings::get_site_settings) {
+        Ok(settings) => {
+            let response: SiteSettingsResponse = settings.into();
+            Ok(HttpResponse::Ok().json(response))
+        }
+        Err(e) => {
+            error!(error = ?e, "Error fetching workspace branding");
+            Err(ApiError::Internal("Failed to load branding".into()))
+        }
+    }
+}
+
+// GET /api/branding - Public endpoint for branding (no auth required), for the
+// workspace the Host names. Falls back to the built-in branding when none
+// resolves, as on the sign-in page of the single-origin agent app.
 pub async fn get_public_branding(
     req: HttpRequest,
     pool: web::Data<Pool>,
@@ -154,17 +173,20 @@ pub async fn get_public_branding(
     // request's workspace (resolved from the Host on every route, public
     // included) so each workspace sees its own branding.
     let actor = helpers::actor_for(&req, "branding:read");
+    // Read only: with no workspace resolved there is no row to see, and
+    // creating one would fail row-level security.
     let loaded = crate::sync::session::with_actor_context(&mut conn, &actor, |conn| {
-        site_settings::get_site_settings(conn)
+        site_settings::find_site_settings(conn)
     });
     match loaded {
-        Ok(settings) => {
+        Ok(Some(settings)) => {
             let response: SiteSettingsResponse = settings.into();
             Ok(HttpResponse::Ok().json(response))
         }
-        Err(e) => {
-            warn!(error = ?e, "Error fetching site settings, returning defaults");
-            // Return defaults if no settings exist
+        result => {
+            if let Err(e) = result {
+                warn!(error = ?e, "Error fetching site settings, returning defaults");
+            }
             Ok(HttpResponse::Ok().json(json!({
                 "app_name": "Nosdesk",
                 "logo_url": null,

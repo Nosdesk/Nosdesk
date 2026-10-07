@@ -116,7 +116,7 @@ export async function enterWorkspace(slug: string): Promise<void> {
     import('@nosdesk/core/stores/ticketDrafts').then((m) =>
       m.useTicketDraftsStore().setScope(slug),
     ),
-    import('@/stores/branding').then((m) => m.useBrandingStore().loadBranding()),
+    import('@/stores/branding').then((m) => m.useBrandingStore().loadWorkspaceBranding()),
     import('@/plugins').then((m) => m.loadPlugins()),
   ]);
   for (const r of loads) {

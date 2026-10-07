@@ -84,6 +84,18 @@ class BrandingService {
   }
 
   /**
+   * The selected workspace's branding, for a signed-in member of the
+   * single-origin agent app, where `getBrandingConfig`'s public route has no
+   * workspace to resolve (it goes by the Host). A failure throws, so the
+   * caller keeps the branding it has instead of repainting the defaults.
+   */
+  async getWorkspaceBranding(): Promise<BrandingConfig> {
+    const response = await apiClient.get<BrandingConfig>('/workspace/branding')
+    this.cachedConfig = response.data
+    return response.data
+  }
+
+  /**
    * The workspace's branding settings, for the admin forms that edit them.
    * Unlike `getBrandingConfig`, a failure throws: a form seeded from the
    * defaults would show the workspace's settings as unset.
