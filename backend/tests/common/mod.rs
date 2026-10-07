@@ -4,7 +4,7 @@
 //! template is named for this build's migrations, built once per
 //! migration set under an advisory lock, and reused by every test
 //! binary until the migrations change; building a new one drops
-//! the others. Each `TestDb::new()` runs `CREATE DATABASE ...
+//! the others no process is using. Each `TestDb::new()` runs `CREATE DATABASE ...
 //! TEMPLATE`, which Postgres implements as a filesystem copy
 //! (~100-300ms on a warm cluster, vs ~1-2s for a full migration
 //! replay). Drop terminates open connections and drops the
@@ -21,7 +21,7 @@ use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::r2d2;
 use diesel_migrations::MigrationHarness;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 
 use backend::db::MIGRATIONS;
@@ -101,6 +101,11 @@ pub fn admin_url() -> String {
     with_database(&base_url(), "postgres")
 }
 
+/// URL of database `db` on the test server.
+pub fn database_url(db: &str) -> String {
+    with_database(&base_url(), db)
+}
+
 /// This build's template. `build.rs` hashes `migrations/` into
 /// `NOSDESK_SCHEMA_HASH`, so a branch with added or edited migrations builds
 /// its own template instead of inheriting whichever branch ran first.
@@ -176,34 +181,88 @@ pub fn ensure_template(name: &str, populate: impl FnOnce(&mut PgConnection)) -> 
     with_template_lock(|admin| build_template_locked(admin, name, populate))
 }
 
-/// Drop the templates of other migration sets, and the old fixed-name one.
+/// Advisory-lock key for the processes using a template: its name's hash
+/// suffix. `None` for a name without one.
+pub fn template_key(name: &str) -> Option<i64> {
+    let hash = name.strip_prefix("nosdesk_test_template_")?;
+    if hash.len() != 16 {
+        return None;
+    }
+    // The hash is 64 bits; reinterpreting it as a signed key is lossless.
+    u64::from_str_radix(hash, 16).ok().map(|key| key as i64)
+}
+
+/// Hold template `name`'s key shared for the rest of the process, on a
+/// connection kept open for it, so a stale-template pass in another process
+/// leaves the template alone while this one clones from it.
+fn hold_template(name: &str) {
+    static HOLD: OnceLock<Mutex<PgConnection>> = OnceLock::new();
+    let key = template_key(name).expect("the template name carries its hash");
+    let mut conn = PgConnection::establish(&admin_url()).expect("connect to admin DB (postgres)");
+    diesel::sql_query(format!("SELECT pg_advisory_lock_shared({key})"))
+        .execute(&mut conn)
+        .expect("hold the template");
+    let _ = HOLD.set(Mutex::new(conn));
+}
+
+#[derive(QueryableByName)]
+struct Locked {
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    locked: bool,
+}
+
+/// Drop the templates of other migration sets that no process is using.
 /// Keeping only the newest is enough: switching branches costs one migration
-/// replay, and two suites on one cluster interfere anyway (the commit horizon
-/// `sync_commit_cursor` reads is cluster-wide). A template still in use
-/// refuses the DROP and stays.
+/// replay. A process using a template holds its key shared (`hold_template`),
+/// so a template whose key can't be taken here is in use and stays. The old
+/// fixed-name template is left alone: processes on older code use it without
+/// holding anything, so there's no telling whether it's in use.
 fn drop_stale_templates(admin: &mut PgConnection, keep: &str) {
     let stale = diesel::sql_query(
         "SELECT datname, datistemplate FROM pg_database \
-         WHERE datname ~ '^nosdesk_test_template(_[0-9a-f]{16})?$' AND datname <> $1",
+         WHERE datname ~ '^nosdesk_test_template_[0-9a-f]{16}$' AND datname <> $1",
     )
     .bind::<diesel::sql_types::Text, _>(keep)
     .load::<DatabaseRow>(admin)
     .unwrap_or_default();
-    for DatabaseRow { datname, .. } in stale {
-        let _ = diesel::sql_query(format!("ALTER DATABASE \"{datname}\" IS_TEMPLATE FALSE"))
-            .execute(admin);
-        if diesel::sql_query(format!("DROP DATABASE \"{datname}\""))
+    for DatabaseRow {
+        datname,
+        datistemplate,
+    } in stale
+    {
+        let Some(key) = template_key(&datname) else {
+            continue;
+        };
+        let free = diesel::sql_query(format!("SELECT pg_try_advisory_lock({key}) AS locked"))
+            .get_result::<Locked>(admin)
+            .is_ok_and(|row| row.locked);
+        if !free {
+            continue;
+        }
+        if datistemplate {
+            let _ = diesel::sql_query(format!("ALTER DATABASE \"{datname}\" IS_TEMPLATE FALSE"))
+                .execute(admin);
+        }
+        let dropped = diesel::sql_query(format!("DROP DATABASE \"{datname}\""))
             .execute(admin)
-            .is_err()
-        {
+            .is_ok();
+        // Put back only what was there: a half-built one stays unfinished.
+        if !dropped && datistemplate {
             let _ = diesel::sql_query(format!("ALTER DATABASE \"{datname}\" IS_TEMPLATE TRUE"))
                 .execute(admin);
         }
+        let _ = diesel::sql_query(format!("SELECT pg_advisory_unlock({key})")).execute(admin);
     }
 }
 
-/// Ensure this build's template exists with every migration applied, and
-/// drop older ones when it's new. Runs at most once per process.
+/// One stale-template pass now, as a new build runs it.
+pub fn drop_stale_templates_now() {
+    with_template_lock(|admin| drop_stale_templates(admin, &current_template()));
+}
+
+/// Ensure this build's template exists with every migration applied, hold
+/// it for the rest of the process, and drop unused older ones when it's new.
+/// Runs at most once per process.
 fn ensure_template_ready() {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
@@ -213,6 +272,9 @@ fn ensure_template_ready() {
                 conn.run_pending_migrations(MIGRATIONS)
                     .expect("migrate template");
             });
+            // Still under the template lock, so no stale pass can run
+            // between finding the template and holding it.
+            hold_template(&name);
             if built {
                 drop_stale_templates(admin, &name);
             }

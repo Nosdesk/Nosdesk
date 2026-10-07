@@ -1,14 +1,19 @@
 //! Integration tests clone their databases from a template built for this
-//! build's migrations, and concurrent first use builds it once.
+//! build's migrations, concurrent first use builds it once, and a template
+//! another process is using is never dropped as stale.
 
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::Duration;
 
+use diesel::migration::MigrationSource;
+use diesel::pg::Pg;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Text};
+use diesel_migrations::MigrationHarness;
 use uuid::Uuid;
 
 use crate::common::{self, TestDb};
@@ -29,7 +34,8 @@ fn is_template(conn: &mut PgConnection, name: &str) -> Option<bool> {
 }
 
 /// A branch whose migrations differ gets its own template: the name carries
-/// the hash `build.rs` takes over `migrations/`.
+/// the hash `build.rs` takes over `migrations/`, and a sandbox holds exactly
+/// this build's migrations, none another branch added and none missing.
 #[test]
 fn sandboxes_clone_the_template_for_this_builds_migrations() {
     let db = TestDb::new();
@@ -39,6 +45,22 @@ fn sandboxes_clone_the_template_for_this_builds_migrations() {
         is_template(&mut conn, &name),
         Some(true),
         "no template `{name}` for this build's migrations"
+    );
+
+    let embedded: BTreeSet<String> = MigrationSource::<Pg>::migrations(&backend::db::MIGRATIONS)
+        .expect("list embedded migrations")
+        .iter()
+        .map(|m| m.name().version().to_string())
+        .collect();
+    let applied: BTreeSet<String> = conn
+        .applied_migrations()
+        .expect("read the sandbox's applied migrations")
+        .into_iter()
+        .map(|v| v.to_string())
+        .collect();
+    assert_eq!(
+        applied, embedded,
+        "the sandbox's migrations differ from this build's"
     );
 }
 
@@ -109,4 +131,62 @@ fn concurrent_first_use_builds_the_template_once() {
     diesel::sql_query(format!("CREATE DATABASE \"{clone}\" TEMPLATE \"{name}\""))
         .execute(&mut admin)
         .expect("clone the template straight away: nothing is left connected to it");
+}
+
+fn create_database(admin: &mut PgConnection, name: &str, template: bool) {
+    diesel::sql_query(format!("CREATE DATABASE \"{name}\""))
+        .execute(admin)
+        .expect("create database");
+    if template {
+        diesel::sql_query(format!("ALTER DATABASE \"{name}\" IS_TEMPLATE TRUE"))
+            .execute(admin)
+            .expect("mark template");
+    }
+}
+
+/// A stale-template pass drops a template nobody holds, keeps one another
+/// process holds while it clones from it, and never marks a half-built one
+/// finished when its DROP fails.
+#[test]
+fn a_template_in_use_survives_a_stale_pass() {
+    let fake = || {
+        let hash = &Uuid::new_v4().simple().to_string()[..16];
+        (
+            format!("nosdesk_test_template_{hash}"),
+            u64::from_str_radix(hash, 16).expect("hex") as i64,
+        )
+    };
+    let (held, held_key) = fake();
+    let (unheld, _) = fake();
+    let (half_built, _) = fake();
+    let _cleanup = Throwaway(vec![held.clone(), unheld.clone(), half_built.clone()]);
+
+    let mut admin = PgConnection::establish(&common::admin_url()).expect("connect to admin DB");
+    create_database(&mut admin, &held, true);
+    create_database(&mut admin, &unheld, true);
+    create_database(&mut admin, &half_built, false);
+
+    // Another process cloning from `held` holds its key shared.
+    let mut other_process =
+        PgConnection::establish(&common::admin_url()).expect("connect as another process");
+    diesel::sql_query(format!("SELECT pg_advisory_lock_shared({held_key})"))
+        .execute(&mut other_process)
+        .expect("hold the template");
+    // A stray session in a half-built template makes its DROP fail.
+    let _stray = PgConnection::establish(&common::database_url(&half_built))
+        .expect("connect to half-built DB");
+
+    common::drop_stale_templates_now();
+
+    let after = (
+        is_template(&mut admin, &held),
+        is_template(&mut admin, &unheld),
+        is_template(&mut admin, &half_built),
+    );
+    assert_eq!(
+        after,
+        (Some(true), None, Some(false)),
+        "(held, unheld, half-built): a held template is kept, an unheld one is dropped, \
+         and a half-built one whose DROP failed stays unfinished"
+    );
 }
