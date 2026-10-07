@@ -629,8 +629,11 @@ fn stream_bootstrap_inner(
                 // a state was hard-deleted) defaults to paused so we
                 // don't silently start counting on an unresolvable
                 // category.
-                let paused = ws.map(|s| s.pauses_sla).unwrap_or(true);
-                crate::services::sla::compute_pill(&t, paused, policy, calendar, &holidays, now)
+                let clock = ws.map_or(
+                    crate::services::sla::StateClock::Paused,
+                    crate::services::sla::StateClock::of,
+                );
+                crate::services::sla::compute_pill(&t, clock, policy, calendar, &holidays, now)
             })
             .and_then(|pill| serde_json::to_value(pill).ok())
             .unwrap_or(serde_json::Value::Null);

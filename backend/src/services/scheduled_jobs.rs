@@ -121,7 +121,9 @@ pub async fn cleanup_expired_refresh_tokens(pool: Pool) -> Result<()> {
 /// via the advisory lock. Idempotent: it marks the source rows
 /// `email`-delivered, so a re-run never re-sends. v1 covers explicit per-user
 /// `email=digest` prefs; a workspace-default of `digest` (rare) is a follow-up.
-pub async fn send_notification_digests(pool: Pool) -> Result<()> {
+/// `base_url` is the instance's configured `FRONTEND_URL`: the digest links
+/// to it, and the security note falls back to its host for the domain.
+pub async fn send_notification_digests(pool: Pool, base_url: String) -> Result<()> {
     let _lock = match try_job_lock(&pool, NOTIFICATION_DIGEST_LOCK, "notifications.digest")? {
         Some(lock) => lock,
         None => {
@@ -179,8 +181,6 @@ pub async fn send_notification_digests(pool: Pool) -> Result<()> {
         batch.1.push(r.id);
     }
 
-    let base_url =
-        std::env::var("FRONTEND_URL").unwrap_or_else(|_| "https://app.nosdesk.com".to_string());
     let mut recipients: HashMap<uuid::Uuid, Option<String>> = HashMap::new();
     let mut sent = 0usize;
 
@@ -228,7 +228,12 @@ pub async fn send_notification_digests(pool: Pool) -> Result<()> {
         );
         match result {
             Ok(_) => sent += 1,
-            Err(e) => warn!(error = %e, "digest: failed to send for a user"),
+            Err(e) => warn!(
+                error = %e,
+                workspace_id,
+                user_uuid = %user,
+                "digest: failed to send"
+            ),
         }
     }
 
@@ -1092,9 +1097,9 @@ struct BreachContext {
 /// Atomically stamp the breach + emit a pill-refresh sync_action +
 /// gather the bits the orchestrator needs for the async fanout. Runs
 /// in the ticket's workspace context so the audited stamp and the
-/// emit attribute to the correct workspace. Returns `Ok(None)` when
-/// the idempotency guard caught a duplicate (another tick won the
-/// race) — a normal no-op, not an error.
+/// emit attribute to the correct workspace. Returns `Ok(None)`, a
+/// normal no-op rather than an error, when the idempotency guard caught
+/// a duplicate (another tick won the race) or the ticket is finished.
 fn process_one_breach(
     conn: &mut crate::db::DbConnection,
     ticket_id: i32,
@@ -1113,6 +1118,23 @@ fn process_one_breach(
 
     let actor = ActorContext::system(SLA_BREACH_ACTOR_REF).with_workspace(workspace_id);
     with_actor_context(conn, &actor, |conn| {
+        // A finished ticket (Done, Cancelled, Merged) can't breach. A target
+        // it still carries is left from before it finished; recomputing
+        // clears it, and nothing is stamped, emitted or sent.
+        let Some(ticket) = tickets::table
+            .find(ticket_id)
+            .first::<Ticket>(conn)
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        if crate::services::sla::StateClock::of_state_id(conn, ticket.workflow_state_id)
+            == crate::services::sla::StateClock::Stopped
+        {
+            crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &ticket);
+            return Ok(None);
+        }
+
         // Atomic idempotency stamp — the `WHERE breached_at IS NULL`
         // predicate makes a concurrent tick a no-op rather than a
         // duplicate emit.
@@ -1701,6 +1723,55 @@ pub async fn knowledge_gap_detection(pool: Pool) -> Result<()> {
 mod tests {
     use super::*;
     use diesel::r2d2;
+
+    #[test]
+    fn a_finished_ticket_never_breaches() {
+        use crate::models::WorkflowStateCategory;
+        use crate::schema::{sync_actions, tickets};
+        use crate::test_helpers::TestFixtures;
+        use diesel::prelude::*;
+
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "sla_finished", "user");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Merged away", Some(user.uuid), None);
+        let merged = crate::repository::workflow_states::first_in_category(
+            &mut conn,
+            WorkflowStateCategory::Merged,
+        )
+        .unwrap();
+        // A target left over from before the merge, already past.
+        let past = chrono::Utc::now().naive_utc() - chrono::Duration::hours(1);
+        diesel::update(tickets::table.find(ticket.id))
+            .set((
+                tickets::workflow_state_id.eq(merged.id),
+                tickets::assignee_uuid.eq(Some(user.uuid)),
+                tickets::sla_resolution_target_at.eq(Some(past)),
+            ))
+            .execute(&mut conn)
+            .unwrap();
+
+        let outcome =
+            process_one_breach(&mut conn, ticket.id, SlaBreachKind::Resolution, 1).unwrap();
+        assert!(outcome.is_none(), "nobody is told a merged ticket breached");
+
+        let (breached, target): (Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>) =
+            tickets::table
+                .find(ticket.id)
+                .select((
+                    tickets::sla_resolution_breached_at,
+                    tickets::sla_resolution_target_at,
+                ))
+                .first(&mut conn)
+                .unwrap();
+        assert_eq!((breached, target), (None, None));
+        let emitted: i64 = sync_actions::table
+            .filter(sync_actions::event_type.eq("ticket.sla_breached"))
+            .filter(sync_actions::aggregate_id.eq(ticket.id.to_string()))
+            .count()
+            .get_result(&mut conn)
+            .unwrap();
+        assert_eq!(emitted, 0, "no breach event, so no webhook");
+    }
 
     fn breach(
         ticket_id: i32,

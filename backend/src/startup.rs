@@ -531,6 +531,7 @@ pub fn build_state(
         search_service.clone(),
         notification_service.clone(),
         scheduler_shutdown.clone(),
+        frontend_url.clone(),
     );
     let scheduler_status_data = web::Data::new(scheduler_status);
 
