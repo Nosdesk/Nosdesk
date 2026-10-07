@@ -139,12 +139,12 @@ async fn write_yjs_state(
     // Collaborative saves are otherwise off the sync stream, so without
     // this a finished edit is only searchable on the owning machine.
     emit_saved: bool,
-) {
+) -> SaveOutcome {
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(e) => {
             error!(?doc_type, error = ?e, "DB connection error saving Yjs state");
-            return;
+            return SaveOutcome::Failed;
         }
     };
     let actor = yjs_session_actor(workspace_id);
@@ -195,10 +195,62 @@ async fn write_yjs_state(
             })
         }
     };
+    // Hand the connection back before a failure check takes another.
+    drop(conn);
     match result {
-        Ok(()) => debug!(?doc_type, "Saved Yjs state"),
-        Err(e) => error!(?doc_type, error = ?e, "Failed to save Yjs state"),
+        Ok(()) => {
+            debug!(?doc_type, "Saved Yjs state");
+            SaveOutcome::Saved
+        }
+        Err(_) if document_exists(&pool, doc_type, workspace_id) == Some(false) => {
+            info!(
+                ?doc_type,
+                "Not saved: the document's ticket or page was deleted"
+            );
+            SaveOutcome::ResourceGone
+        }
+        Err(e) => {
+            error!(?doc_type, error = ?e, "Failed to save Yjs state");
+            SaveOutcome::Failed
+        }
     }
+}
+
+/// What became of a save of a room's document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaveOutcome {
+    Saved,
+    /// The ticket, page or collection was deleted while its room was open,
+    /// so there is nothing left to save to.
+    ResourceGone,
+    Failed,
+}
+
+/// Whether the ticket, page or collection behind `doc_type` still exists in
+/// the room's workspace. Asked only after a write failed, to tell a document
+/// deleted under an open room (nothing to save) from a real failure. `None`
+/// when it can't be checked.
+fn document_exists(
+    pool: &crate::db::Pool,
+    doc_type: DocumentType,
+    workspace_id: i32,
+) -> Option<bool> {
+    let mut conn = pool.get().ok()?;
+    let actor = yjs_session_actor(workspace_id);
+    session::with_actor_context(&mut conn, &actor, |conn| match doc_type {
+        DocumentType::Ticket(id) => repository::tickets::uuid_by_id(conn, id).map(|u| u.is_some()),
+        DocumentType::Documentation(id) => {
+            repository::documentation::page_uuid_by_id(conn, id).map(|u| u.is_some())
+        }
+        DocumentType::Collection(id) => {
+            match repository::documentation_collections::get_collection(conn, id) {
+                Ok(_) => Ok(true),
+                Err(diesel::result::Error::NotFound) => Ok(false),
+                Err(e) => Err(e),
+            }
+        }
+    })
+    .ok()
 }
 
 /// Emit a search-only `*.content_saved` sync_action for a finished
@@ -1372,6 +1424,17 @@ impl YjsAppState {
         }
     }
 
+    /// Drop the room of a document whose ticket or page was deleted while
+    /// it was open: release this machine's claim and tear the room down, so
+    /// it stops trying to save. Its clients already left through the
+    /// deletion's sync event; any that reconnect find no document.
+    async fn drop_deleted_document(&self, doc_id: &str) {
+        if let Some(ownership) = &self.ownership {
+            ownership.release(doc_id).await;
+        }
+        self.evict_document(doc_id).await;
+    }
+
     // Save all active documents
     async fn save_all_active_documents(&self) {
         let mut documents = self.documents.write().await;
@@ -2328,15 +2391,23 @@ impl YjsAppState {
         // save never blocks the maintenance loop; `flush_all_dirty` awaits
         // the same writer on shutdown. One write path, one fence + RLS
         // contract (DRY).
-        actix_web::rt::spawn(write_yjs_state(
-            self.pool.clone(),
-            self.search_service.clone(),
-            doc_type,
-            binary_content,
-            workspace_id,
-            fence,
-            emit_saved,
-        ));
+        let state = self.clone();
+        let doc_id = doc_id.to_string();
+        actix_web::rt::spawn(async move {
+            let outcome = write_yjs_state(
+                state.pool.clone(),
+                state.search_service.clone(),
+                doc_type,
+                binary_content,
+                workspace_id,
+                fence,
+                emit_saved,
+            )
+            .await;
+            if outcome == SaveOutcome::ResourceGone {
+                state.drop_deleted_document(&doc_id).await;
+            }
+        });
     }
 
     // Create a snapshot revision for version history using native Yrs encoding
@@ -2452,6 +2523,9 @@ impl YjsAppState {
                             "Snapshot created for ticket"
                         ),
                         Ok(None) => {} // Skip already logged inside the closure.
+                        Err(_) if document_exists(&pool, doc_type, workspace_id) == Some(false) => {
+                            info!(ticket_id, "No snapshot: the ticket was deleted")
+                        }
                         Err(e) => {
                             error!(ticket_id, error = %e, "Snapshot creation failed for ticket")
                         }
@@ -2503,6 +2577,9 @@ impl YjsAppState {
                             "Snapshot created for documentation page"
                         ),
                         Ok(None) => {}
+                        Err(_) if document_exists(&pool, doc_type, workspace_id) == Some(false) => {
+                            info!(doc_page_id, "No snapshot: the page was deleted")
+                        }
                         Err(e) => {
                             error!(doc_page_id, error = %e, "Snapshot creation failed for documentation page")
                         }
@@ -3104,7 +3181,9 @@ async fn session_task(
                     break reason;
                 }
                 Some(Err(e)) => {
-                    error!(session_id = %session_id, error = ?e, "WebSocket protocol error");
+                    // Usually a client that vanished mid-frame (a closed tab,
+                    // a reload, lost network), not a fault here.
+                    debug!(session_id = %session_id, error = ?e, "WebSocket protocol error");
                     break None;
                 }
                 None => {
@@ -3697,6 +3776,53 @@ mod read_only_frame_tests {
         // Awareness (message type 1) and an empty frame.
         assert!(!is_document_update(&[1, 0]));
         assert!(!is_document_update(&[]));
+    }
+}
+
+#[cfg(test)]
+mod deleted_document_save_tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_pool, TestFixtures};
+
+    // A ticket deleted while its note's room is open leaves the room's next
+    // save nowhere to go. It reports the ticket gone, so the room is dropped,
+    // rather than failing the same way on every save.
+    #[actix_web::test]
+    async fn a_save_for_a_deleted_ticket_reports_it_gone() {
+        let pool = setup_test_pool();
+        let ticket = {
+            let mut conn = pool.get().expect("conn");
+            let user = TestFixtures::create_user(&mut conn, "collab-gone", "user");
+            TestFixtures::create_ticket(&mut conn, "Gone", Some(user.uuid), None)
+        };
+        let search_dir = tempfile::tempdir().expect("search dir");
+        let search = Arc::new(
+            crate::services::search::SearchService::new(search_dir.path(), &pool)
+                .expect("search service"),
+        );
+        let pool = web::Data::new(pool);
+        let content = new_server_doc("ticket-note")
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let save = |ticket_id| {
+            write_yjs_state(
+                pool.clone(),
+                search.clone(),
+                DocumentType::Ticket(ticket_id),
+                content.clone(),
+                1,
+                None,
+                false,
+            )
+        };
+
+        assert_eq!(save(ticket.id).await, SaveOutcome::Saved);
+        {
+            let mut conn = pool.get().expect("conn");
+            crate::repository::tickets::delete_ticket_with_cleanup(&mut conn, ticket.id)
+                .expect("delete ticket");
+        }
+        assert_eq!(save(ticket.id).await, SaveOutcome::ResourceGone);
     }
 }
 
