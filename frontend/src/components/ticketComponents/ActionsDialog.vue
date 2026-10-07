@@ -19,9 +19,13 @@ import SearchInput from '@/components/common/SearchInput.vue';
 import { useRuleStepText } from '@/composables/useRuleStepText';
 import { extractErrorMessage } from '@/utils/errors';
 import rulesService from '@nosdesk/core/services/rulesService';
-import { renderTemplate, type TemplateVars } from '@nosdesk/core/services/cannedResponsesService';
+import {
+  isHtmlTemplate,
+  renderTemplate,
+  renderTemplateHtml,
+  type TemplateVars,
+} from '@nosdesk/core/services/cannedResponsesService';
 import { useToastStore } from '@nosdesk/core/stores/toast';
-import { escapeHtml } from '@nosdesk/core/utils/escape';
 import type { Rule, RuleAction } from '@nosdesk/core/types/rule';
 
 const props = defineProps<{
@@ -38,9 +42,6 @@ const { $t: t } = useFluent();
 const toast = useToastStore();
 const queryCache = useQueryCache();
 
-// Matches the backend's reply_template_html: a template with tags is HTML,
-// one without is plain text whose line breaks are kept.
-const HTML_TAG_RE = /<\/?[A-Za-z][A-Za-z0-9]*(\s[^<>]*)?\/?>/;
 // Searching only helps once the list is longer than a glance.
 const SEARCH_FROM = 6;
 
@@ -126,15 +127,13 @@ function replyTemplate(step: Step): string {
   return String(config(step.action).body ?? '');
 }
 
-/** A reply as it will read on this ticket. HTML templates get escaped
- *  values, as the backend does; the preview renders through v-safe-html. */
+/** A reply as it will read on this ticket. A template with tags is HTML,
+ *  as the backend's reply_template_html has it, and gets escaped values;
+ *  the preview renders through v-safe-html. One without is plain text. */
 function replyPreview(step: Step): { html: boolean; text: string } {
   const template = replyTemplate(step);
-  if (!HTML_TAG_RE.test(template)) return { html: false, text: renderTemplate(template, props.vars) };
-  const escaped = Object.fromEntries(
-    Object.entries(props.vars).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v]),
-  ) as TemplateVars;
-  return { html: true, text: renderTemplate(template, escaped) };
+  if (!isHtmlTemplate(template)) return { html: false, text: renderTemplate(template, props.vars) };
+  return { html: true, text: renderTemplateHtml(template, props.vars) };
 }
 
 function toggleStep(position: number, run: boolean) {

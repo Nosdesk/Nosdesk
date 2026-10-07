@@ -159,6 +159,7 @@ import { RouterLink } from 'vue-router';
 import {
   cannedResponsesService,
   renderTemplate,
+  renderTemplateHtml,
   unboundVariables,
   type CannedResponseListItem,
   type TemplateVars,
@@ -316,9 +317,10 @@ function onPick(value: unknown) {
 
 function choose(r: CannedResponseListItem) {
   // Render variables now so the tech sees the final text in the
-  // composer before sending. Unknown tokens are preserved so they
-  // can edit if they want to.
-  emit('insert', renderTemplate(r.body, props.vars));
+  // composer before sending. The composer holds HTML, so the values
+  // land escaped, as text. Unknown tokens are preserved so they can
+  // edit if they want to.
+  emit('insert', renderTemplateHtml(r.body, props.vars));
   // Fire-and-forget usage log so the admin page's "Inserts (30d)"
   // column tracks this use. The service swallows transport errors
   // and the backend treats every failure path as 200, so this never

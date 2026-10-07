@@ -5,11 +5,12 @@
  * the admin endpoints.
  *
  * Template variable substitution ({{ticket_id}}, {{customer_name}},
- * etc.) happens client-side at insert time, see `renderTemplate`.
+ * etc.) happens client-side at insert time, see `renderTemplateHtml`.
  * That keeps the backend free of ticket-specific lookups for the
  * common case, and lets the tech see the final text before sending.
  */
 import apiClient from '../apiClient';
+import { escapeHtml } from '../utils/escape';
 
 export interface CannedResponse {
   id: number;
@@ -154,16 +155,54 @@ function firstWord(value: string | undefined): string {
 }
 
 /**
- * Plain `{{variable}}` substitution, no Handlebars, no HTML
- * escaping (the composer is plain-text / markdown). Unknown tokens
- * are left intact so a tech editing the template spots their own
- * typos in the result they're about to send.
+ * Plain `{{variable}}` substitution, no Handlebars, no HTML escaping:
+ * the result is text, for previews that render it as text. What goes
+ * into the composer, which holds HTML, comes from `renderTemplateHtml`.
+ * Unknown tokens are left intact so a tech editing the template spots
+ * their own typos in the result they're about to send.
  *
  * `customer_first_name` and `tech_first_name` are derived from
  * the matching `*_name` field rather than separately passed; the
  * caller only needs to supply the full names once.
  */
 export function renderTemplate(template: string, vars: TemplateVars): string {
+  return substitute(template, vars, (value) => value);
+}
+
+/**
+ * An opening or closing tag: `<b>`, `</p>`, `<br/>`, `<a href="...">`.
+ * Text such as "a < b" or "<jane@example.com>" doesn't match. The same
+ * test as the backend's `reply_template_html`.
+ */
+const HTML_TAG_RE = /<\/?[A-Za-z][A-Za-z0-9]*(\s[^<>]*)?\/?>/;
+
+/** Whether a template is HTML: it carries at least one tag. */
+export function isHtmlTemplate(template: string): boolean {
+  return HTML_TAG_RE.test(template);
+}
+
+/**
+ * The HTML a template renders to against `vars`. Values are always
+ * escaped: ticket titles and customer names come from requesters, so
+ * they land as text. A template with tags is HTML and keeps them, as a
+ * rule reply does on the server; one without is plain text, escaped as
+ * a whole, its blank lines becoming paragraphs and its single line
+ * breaks `<br>`.
+ */
+export function renderTemplateHtml(template: string, vars: TemplateVars): string {
+  if (isHtmlTemplate(template)) return substitute(template, vars, escapeHtml);
+  return escapeHtml(renderTemplate(template, vars))
+    .split(/\n\n+/)
+    .map((para) => `<p>${para.replace(/\n/g, '<br>')}</p>`)
+    .join('');
+}
+
+/** `{{variable}}` substitution, each value passed through `encode`. */
+function substitute(
+  template: string,
+  vars: TemplateVars,
+  encode: (value: string) => string,
+): string {
   const lookup: Record<string, string> = {
     ticket_id: vars.ticket_id != null ? String(vars.ticket_id) : '',
     ticket_title: vars.ticket_title ?? '',
@@ -185,7 +224,7 @@ export function renderTemplate(template: string, vars: TemplateVars): string {
   return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => {
     // `match` is the whole `{{key}}` token; fall back to leaving it
     // in place when the key isn't recognised (not `""`).
-    return Object.prototype.hasOwnProperty.call(lookup, key) ? lookup[key] : match;
+    return Object.prototype.hasOwnProperty.call(lookup, key) ? encode(lookup[key]) : match;
   });
 }
 
