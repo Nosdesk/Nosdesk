@@ -154,8 +154,9 @@ impl WebhookEventType {
             "comment.created" => Self::CommentAdded,
             "comment.deleted" => Self::CommentDeleted,
             // Added means on a ticket: created on a comment, or a draft
-            // upload attached to one. A draft alone is private to its
-            // uploader and raises nothing.
+            // upload attached to one. A draft alone has no workspace
+            // audience (its uploader's, or none for a guest's), so its
+            // events raise nothing.
             "attachment.created" | "attachment.attached" => Self::AttachmentAdded,
             "attachment.deleted" => Self::AttachmentDeleted,
             "asset.created" => Self::AssetCreated,

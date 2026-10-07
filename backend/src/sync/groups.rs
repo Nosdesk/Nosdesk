@@ -106,6 +106,14 @@ pub fn private_to_user(user_uuid: Uuid) -> Vec<String> {
     vec![format!("user:{}", user_uuid)]
 }
 
+/// Groups for a row no client may receive, such as a guest's draft upload:
+/// the action stays in the ledger, but no client's allowed set overlaps an
+/// empty one, and with no workspace audience it raises no webhook,
+/// notification or activity row either.
+pub fn nobody() -> Vec<String> {
+    Vec::new()
+}
+
 /// Read-side: every group the user can see. The sync engine's delta
 /// handler computes this once per request and folds it into the
 /// `groups && $allowed` filter.

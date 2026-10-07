@@ -287,3 +287,154 @@ async fn a_comment_attaches_only_its_authors_waiting_uploads() {
         "{groups:?}"
     );
 }
+
+fn comment(pool: &TestPool, ws: i32, ticket_id: i32, author: Uuid) -> backend::models::Comment {
+    run_in_workspace(pool, REF, ws, |c| {
+        backend::repository::comments::create_comment(
+            c,
+            NewComment {
+                content: "<p>see attached</p>".to_string(),
+                ticket_id,
+                user_uuid: author,
+                ..Default::default()
+            },
+            None,
+        )
+    })
+    .expect("insert comment")
+}
+
+fn file(name: &str, comment_id: Option<i32>, uploaded_by: Option<Uuid>) -> NewAttachment {
+    NewAttachment {
+        url: format!("/uploads/temp/{}_{name}", Uuid::now_v7()),
+        name: name.to_string(),
+        file_size: Some(4),
+        mime_type: Some("application/pdf".to_string()),
+        checksum: None,
+        comment_id,
+        uploaded_by,
+        transcription: None,
+    }
+}
+
+fn ticket_audience(ws: i32, ticket_id: i32) -> Vec<Option<String>> {
+    vec![
+        Some(format!("workspace:{ws}")),
+        Some(format!("ticket:{ticket_id}")),
+    ]
+}
+
+#[test]
+fn a_guest_draft_reaches_no_one_until_its_submission_claims_it() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let ws = seeded.a.workspace_id;
+    let requester = seeded.a.admin_uuid;
+    let ticket = new_ticket(&pool, ws, "Laptop won't boot");
+
+    // A guest uploads before submitting: there is no uploader, so no client
+    // receives the draft and, with no workspace audience, no webhook fires.
+    let draft = attachment(&pool, ws, file("photo.pdf", None, None));
+    let events = attachment_events(&pool, ws, draft.id);
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].0, "attachment.created");
+    assert!(events[0].2.is_empty(), "{events:?}");
+    assert!(!backend::sync::groups::has_workspace_audience(&events[0].2));
+
+    // The submission claims it: the whole row goes to the ticket's audience.
+    let reply = comment(&pool, ws, ticket.id, requester);
+    let url = format!("/uploads/tickets/{}/photo.pdf", ticket.id);
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::comments::reparent_attachment(c, draft.id, &url, reply.id, requester)
+    })
+    .expect("claim draft");
+    let events = attachment_events(&pool, ws, draft.id);
+    assert_eq!(events.len(), 2, "{events:?}");
+    let (kind, data, groups) = &events[1];
+    assert_eq!(kind, "attachment.attached");
+    assert_eq!(data["comment_id"], json!(reply.id));
+    assert_eq!(data["name"], json!("photo.pdf"));
+    assert_eq!(groups, &ticket_audience(ws, ticket.id));
+}
+
+#[test]
+fn a_deleted_file_is_announced_to_whoever_had_it() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let ws = seeded.a.workspace_id;
+    let agent = seeded.a.admin_uuid;
+    let ticket = new_ticket(&pool, ws, "VPN drops hourly");
+    let delete = |id: i32| {
+        run_in_workspace(&pool, REF, ws, |c| {
+            backend::repository::comments::delete_attachment(c, id)
+        })
+        .expect("delete attachment")
+    };
+    let last_event = |id: i32| {
+        attachment_events(&pool, ws, id)
+            .pop()
+            .expect("an attachment event")
+    };
+
+    // A signed-in draft: only its uploader had it.
+    let own_draft = attachment(&pool, ws, file("draft.pdf", None, Some(agent)));
+    assert_eq!(delete(own_draft.id), 1);
+    let (kind, data, groups) = last_event(own_draft.id);
+    assert_eq!(kind, "attachment.deleted");
+    assert_eq!(data, json!({ "id": own_draft.id }));
+    assert_eq!(groups, vec![Some(format!("user:{agent}"))]);
+
+    // A guest's draft: no one had it, so no one hears of it going, and the
+    // nightly cleanup of abandoned uploads raises no webhook.
+    let guest_draft = attachment(&pool, ws, file("guest.pdf", None, None));
+    assert_eq!(delete(guest_draft.id), 1);
+    let (kind, _, groups) = last_event(guest_draft.id);
+    assert_eq!(kind, "attachment.deleted");
+    assert!(groups.is_empty(), "{groups:?}");
+
+    // A file on a reply: the ticket's audience.
+    let reply = comment(&pool, ws, ticket.id, agent);
+    let on_reply = attachment(&pool, ws, file("log.pdf", Some(reply.id), Some(agent)));
+    assert_eq!(delete(on_reply.id), 1);
+    let (kind, _, groups) = last_event(on_reply.id);
+    assert_eq!(kind, "attachment.deleted");
+    assert_eq!(groups, ticket_audience(ws, ticket.id));
+
+    // Deleting a reply deletes its files, each announced to the ticket's
+    // audience before the reply itself goes.
+    let reply = comment(&pool, ws, ticket.id, agent);
+    let files: Vec<Attachment> = ["a.pdf", "b.pdf"]
+        .iter()
+        .map(|name| attachment(&pool, ws, file(name, Some(reply.id), Some(agent))))
+        .collect();
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::comments::delete_comment(c, reply.id, None)
+    })
+    .expect("delete comment");
+    let comment_deleted: i64 = run_in_workspace(&pool, REF, ws, |c| {
+        use backend::schema::sync_actions;
+        sync_actions::table
+            .filter(sync_actions::aggregate_id.eq(reply.id.to_string()))
+            .filter(sync_actions::event_type.eq("comment.deleted"))
+            .select(sync_actions::sync_id)
+            .first(c)
+    })
+    .expect("comment.deleted event");
+    for f in &files {
+        let sync_id: i64 = run_in_workspace(&pool, REF, ws, |c| {
+            use backend::schema::sync_actions;
+            sync_actions::table
+                .filter(sync_actions::aggregate_id.eq(f.id.to_string()))
+                .filter(sync_actions::event_type.eq("attachment.deleted"))
+                .select(sync_actions::sync_id)
+                .first(c)
+        })
+        .expect("attachment.deleted event");
+        assert!(sync_id < comment_deleted);
+        let (_, data, groups) = last_event(f.id);
+        assert_eq!(data, json!({ "id": f.id }));
+        assert_eq!(groups, ticket_audience(ws, ticket.id));
+    }
+}
