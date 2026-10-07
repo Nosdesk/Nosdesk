@@ -244,14 +244,10 @@ fn authorize_collab_file_access(
                 )
             }
         },
-        |c, _, _| {
-            // Membership (None = non-member) plus the caller's role there drives
+        |c, _, role| {
+            // The caller's role there (the funnel read their membership) drives
             // the document gate.
-            let Some(accessor) =
-                DocAccessor::at_pinned_workspace(c, auth.user_uuid, auth.platform_role)
-            else {
-                return Ok(None);
-            };
+            let accessor = DocAccessor::with_role(auth.user_uuid, auth.platform_role, role);
 
             // Re-resolve the UUID under the pin. Not redundant with the lookup
             // above: it re-proves under RLS that the resource really is in the

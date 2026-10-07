@@ -3,7 +3,8 @@
 //! A file under `tickets/{id}/` sits in the folder of the ticket it was first
 //! stored for. That is not proof of the ticket it belongs to now (a merge moves
 //! the reply and leaves the file where it was), nor of whether the reader may
-//! see the reply it hangs off (an internal note, or one that was removed). The
+//! see the reply it hangs off (an internal note). Nor is its URL unique: a
+//! workspace cloned within the same database keeps its files' URLs. The
 //! agent file route, the raw-mail route and the portal download all go through
 //! the attachment's row to its comment, and from the comment to its ticket.
 //!
@@ -38,8 +39,12 @@ struct Fixture {
     pool: TestPool,
     storage: Arc<dyn Storage>,
     ws: WorkspaceSeed,
+    /// A second workspace, holding a copy of one of `ws`'s file URLs.
+    other_ws: WorkspaceSeed,
     /// An agent of the workspace.
     agent: Uuid,
+    /// A requester of the workspace who is on neither ticket.
+    bystander: Uuid,
     /// Requester of `ticket` (not of `source`).
     requester: Uuid,
     /// The ticket the requester asked for.
@@ -61,13 +66,16 @@ impl Fixture {
         common::ensure_test_keyring();
         let db = common::TestDb::new();
         let pool = db.pool_with_size(4);
-        let ws = common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+        let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+        let (ws, other_ws) = (seeded.a, seeded.b);
         let a = ws.workspace_id;
         let agent = common::insert_plain_user(&mut pool.get().expect("conn"), "File Agent");
         let other = common::insert_plain_user(&mut pool.get().expect("conn"), "Other Requester");
+        let bystander = common::insert_plain_user(&mut pool.get().expect("conn"), "Bystander");
         run_in_workspace(&pool, REF, a, |c| {
             add_membership(c, a, agent, "agent", SeatWriteAuthority::ControlPlane)?;
-            add_membership(c, a, other, "member", SeatWriteAuthority::ControlPlane)
+            add_membership(c, a, other, "member", SeatWriteAuthority::ControlPlane)?;
+            add_membership(c, a, bystander, "member", SeatWriteAuthority::ControlPlane)
         })
         .expect("members");
 
@@ -99,7 +107,9 @@ impl Fixture {
             storage,
             requester: ws.member_uuid,
             ws,
+            other_ws,
             agent,
+            bystander,
             ticket,
             source,
         }
@@ -121,38 +131,59 @@ impl Fixture {
         is_internal: bool,
         name: &str,
     ) -> File {
-        let stored = format!("{}_{name}", Uuid::now_v7());
-        let path = format!("{ticket_id}/{stored}");
+        let path = format!("{ticket_id}/{}_{name}", Uuid::now_v7());
+        self.reply_with_stored(
+            self.ws.workspace_id,
+            ticket_id,
+            author,
+            is_internal,
+            name,
+            &path,
+        )
+        .await
+    }
+
+    /// [`reply_with_file`](Self::reply_with_file) in `workspace`, at `path`
+    /// under `tickets/`; the bytes go to `ws`'s storage either way.
+    async fn reply_with_stored(
+        &self,
+        workspace: i32,
+        ticket_id: i32,
+        author: Uuid,
+        is_internal: bool,
+        name: &str,
+        path: &str,
+    ) -> File {
+        let path = path.to_string();
         let url = format!("/uploads/tickets/{path}");
-        let (comment_id, attachment_id) =
-            run_in_workspace(&self.pool, REF, self.ws.workspace_id, |c| {
-                let comment = backend::repository::comments::create_comment(
-                    c,
-                    NewComment {
-                        content: format!("<p>{name}</p>"),
-                        ticket_id,
-                        user_uuid: author,
-                        is_internal,
-                        ..Default::default()
-                    },
-                    None,
-                )?;
-                let attachment = backend::repository::comments::create_attachment(
-                    c,
-                    NewAttachment {
-                        url: url.clone(),
-                        name: name.to_string(),
-                        file_size: Some(4),
-                        mime_type: None,
-                        checksum: None,
-                        comment_id: Some(comment.id),
-                        uploaded_by: Some(author),
-                        transcription: None,
-                    },
-                )?;
-                Ok((comment.id, attachment.id))
-            })
-            .expect("reply with file");
+        let (comment_id, attachment_id) = run_in_workspace(&self.pool, REF, workspace, |c| {
+            let comment = backend::repository::comments::create_comment(
+                c,
+                NewComment {
+                    content: format!("<p>{name}</p>"),
+                    ticket_id,
+                    user_uuid: author,
+                    is_internal,
+                    ..Default::default()
+                },
+                None,
+            )?;
+            let attachment = backend::repository::comments::create_attachment(
+                c,
+                NewAttachment {
+                    url: url.clone(),
+                    name: name.to_string(),
+                    file_size: Some(4),
+                    mime_type: None,
+                    checksum: None,
+                    comment_id: Some(comment.id),
+                    uploaded_by: Some(author),
+                    transcription: None,
+                },
+            )?;
+            Ok((comment.id, attachment.id))
+        })
+        .expect("reply with file");
         self.put(&format!("tickets/{path}"), name.as_bytes()).await;
         File {
             path,
@@ -254,12 +285,40 @@ async fn a_ticket_file_follows_its_reply() {
         .reply_with_file(tid, fx.agent, false, "invoice.pdf")
         .await;
     let internal = fx.reply_with_file(tid, fx.agent, true, "notes.txt").await;
-    let removed = fx.reply_with_file(tid, fx.agent, false, "draft.txt").await;
-    fx.in_workspace(|c| {
-        diesel::update(backend::schema::comments::table.find(removed.comment_id))
-            .set(backend::schema::comments::deleted_at.eq(Some(chrono::Utc::now().naive_utc())))
-            .execute(c)
-    });
+    // The other workspace holds a row at the same URL as one of ours, written
+    // first (a clone within the database keeps URLs).
+    let cloned_path = format!("{tid}/{}_cloned.png", Uuid::now_v7());
+    let b_ticket = run_in_workspace(&fx.pool, REF, fx.other_ws.workspace_id, |c| {
+        let state = backend::repository::workflow_states::default_state(c)?;
+        diesel::insert_into(backend::schema::tickets::table)
+            .values(&NewTicket {
+                title: "Their copy".to_string(),
+                workflow_state_id: state.id,
+                ..Default::default()
+            })
+            .returning(backend::schema::tickets::id)
+            .get_result::<i32>(c)
+    })
+    .expect("ticket in the other workspace");
+    fx.reply_with_stored(
+        fx.other_ws.workspace_id,
+        b_ticket,
+        fx.other_ws.admin_uuid,
+        false,
+        "cloned.png",
+        &cloned_path,
+    )
+    .await;
+    let cloned = fx
+        .reply_with_stored(
+            fx.ws.workspace_id,
+            tid,
+            fx.agent,
+            false,
+            "cloned.png",
+            &cloned_path,
+        )
+        .await;
     // A reply on the other requester's ticket, then that ticket merged into
     // this one: the merge moves the reply (`comments.ticket_id`) and leaves
     // the file in the source ticket's folder.
@@ -302,7 +361,7 @@ async fn a_ticket_file_follows_its_reply() {
     let raw = |f: &File| format!("/api/comments/{}/raw.eml", f.comment_id);
 
     // The requester: their ticket's public replies, merged-in ones included,
-    // and nothing internal, removed or unaccounted for.
+    // and nothing internal or unaccounted for.
     let app = app_as!(fx, fx.requester);
     for (uri, want, what) in [
         (file(&public), StatusCode::OK, "a public reply's file"),
@@ -315,11 +374,6 @@ async fn a_ticket_file_follows_its_reply() {
             file(&internal),
             StatusCode::NOT_FOUND,
             "an internal note's file",
-        ),
-        (
-            file(&removed),
-            StatusCode::NOT_FOUND,
-            "a removed reply's file",
         ),
         (
             format!("/api/files/tickets/{orphan}"),
@@ -352,16 +406,33 @@ async fn a_ticket_file_follows_its_reply() {
             "portal: an internal note's file",
         ),
         (
-            portal(&removed),
-            StatusCode::NOT_FOUND,
-            "portal: a removed reply's file",
+            file(&cloned),
+            StatusCode::OK,
+            "a file whose URL another workspace also holds",
         ),
     ] {
         assert_eq!(status!(&app, &uri), want, "requester, {what}: {uri}");
     }
 
-    // An agent: every live reply's file, internal notes included, wherever
-    // the file is stored; still nothing removed or unaccounted for.
+    // A requester who is on neither ticket: the ticket's visibility decides.
+    let app = app_as!(fx, fx.bystander);
+    for (uri, what) in [
+        (file(&public), "a public reply's file"),
+        (portal(&public), "portal: a public reply's file"),
+        (
+            format!("/api/files/tickets/{tid}/notes/{note}"),
+            "a notes image",
+        ),
+    ] {
+        assert_eq!(
+            status!(&app, &uri),
+            StatusCode::NOT_FOUND,
+            "a requester not on the ticket, {what}: {uri}"
+        );
+    }
+
+    // An agent: every reply's file, internal notes included, wherever the
+    // file is stored; still nothing unaccounted for.
     let app = app_as!(fx, fx.agent);
     for (uri, want, what) in [
         (file(&public), StatusCode::OK, "a public reply's file"),
@@ -370,11 +441,6 @@ async fn a_ticket_file_follows_its_reply() {
             file(&merged_in),
             StatusCode::OK,
             "a file on a reply merged in from another ticket",
-        ),
-        (
-            file(&removed),
-            StatusCode::NOT_FOUND,
-            "a removed reply's file",
         ),
         (
             format!("/api/files/tickets/{orphan}"),
@@ -395,6 +461,11 @@ async fn a_ticket_file_follows_its_reply() {
             raw(&internal),
             StatusCode::OK,
             "an internal note's raw mail",
+        ),
+        (
+            file(&cloned),
+            StatusCode::OK,
+            "a file whose URL another workspace also holds",
         ),
     ] {
         assert_eq!(status!(&app, &uri), want, "agent, {what}: {uri}");

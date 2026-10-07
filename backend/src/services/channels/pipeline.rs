@@ -994,8 +994,8 @@ async fn persist_attachments(
         return;
     };
     // Scope to the channel's workspace, and file under the ticket the way an
-    // attached upload is: the serve route authorizes a ticket file by the
-    // ticket id that leads its path.
+    // attached upload is. The folder only groups a ticket's files: the serve
+    // route authorizes each one through its attachment row's reply.
     let storage = WorkspaceScopedStorage::arc(base_storage.clone(), workspace_id);
     let folder = format!("tickets/{ticket_id}");
 

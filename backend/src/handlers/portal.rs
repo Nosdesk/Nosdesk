@@ -1261,21 +1261,14 @@ pub async fn download_attachment(
     let url = tc
         .run(move |conn| {
             let vis = portal_visibility(conn, viewer)?;
-            let Some(attachment) =
+            let Some((attachment, reply)) =
                 crate::repository::file_access::attachment_for_viewer(conn, &vis, attachment_id)?
             else {
                 return Ok(None);
             };
             // The link names the ticket the reply is on now. A merge moves the
             // reply, not the file, so the ticket is the reply's, not the folder's.
-            let on_this_ticket = match attachment.comment_id {
-                Some(comment_id) => {
-                    crate::repository::comments::get_comment_by_id(conn, comment_id)?.ticket_id
-                        == ticket_id
-                }
-                None => false,
-            };
-            Ok::<_, diesel::result::Error>(on_this_ticket.then_some(attachment.url))
+            Ok::<_, diesel::result::Error>((reply.ticket_id == ticket_id).then_some(attachment.url))
         })
         .map_err(|e| {
             tracing::error!(error = ?e, ticket_id, "portal: attachment lookup failed");

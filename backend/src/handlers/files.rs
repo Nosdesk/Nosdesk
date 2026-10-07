@@ -224,16 +224,7 @@ pub async fn serve_ticket_file(
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
-    let file = TicketFile::from_path(&filename);
-    let (workspace_id, ()) = authorize_at_owning_workspace(
-        &pool,
-        &auth,
-        |c| file_access::owning_workspace(c, &file),
-        |c, _, role| {
-            let vis = viewer_in_workspace(&auth, role);
-            Ok(file_access::can_load(c, &vis, &file)?.then_some(()))
-        },
-    )?;
+    let (workspace_id, ()) = authorize_ticket_file(&pool, &auth, TicketFile::from_path(&filename))?;
     let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     let file_path = format!("tickets/{filename}");
@@ -306,17 +297,34 @@ pub(crate) fn authorize_at_owning_workspace<T>(
     owner: impl FnOnce(&mut DbConnection) -> QueryResult<Option<i32>>,
     check: impl FnOnce(&mut DbConnection, i32, WorkspaceRole) -> QueryResult<Option<T>>,
 ) -> Result<(i32, T), actix_web::Error> {
+    authorize_located(
+        pool,
+        auth,
+        |c| Ok(owner(c)?.map(|workspace_id| (workspace_id, ()))),
+        |c, workspace_id, role, ()| check(c, workspace_id, role),
+    )
+}
+
+/// [`authorize_at_owning_workspace`] for a resource whose elevated lookup finds
+/// more than its workspace: `owner` returns the workspace and what it found
+/// there, and `check` gets that back, so the resource is looked up once.
+pub(crate) fn authorize_located<L, T>(
+    pool: &Pool,
+    auth: &AuthContext,
+    owner: impl FnOnce(&mut DbConnection) -> QueryResult<Option<(i32, L)>>,
+    check: impl FnOnce(&mut DbConnection, i32, WorkspaceRole, L) -> QueryResult<Option<T>>,
+) -> Result<(i32, T), actix_web::Error> {
     let mut conn = pool.get().map_err(|e| {
         error!(error = ?e, "file access: pool acquire failed");
         actix_web::error::ErrorInternalServerError("Database error")
     })?;
 
     let lookup_actor = ActorContext::system("file_access");
-    let workspace_id = session::with_actor_bypass_context(
+    let (workspace_id, located) = session::with_actor_bypass_context(
         &mut conn,
         &lookup_actor,
-        |c| -> QueryResult<Option<i32>> {
-            let Some(workspace_id) = owner(c)? else {
+        |c| -> QueryResult<Option<(i32, L)>> {
+            let Some((workspace_id, located)) = owner(c)? else {
                 return Ok(None);
             };
             if let Some(bound) = auth.workspace_binding {
@@ -324,7 +332,7 @@ pub(crate) fn authorize_at_owning_workspace<T>(
                     return Ok(None);
                 }
             }
-            Ok(Some(workspace_id))
+            Ok(Some((workspace_id, located)))
         },
     )
     .map_err(|e| {
@@ -342,7 +350,12 @@ pub(crate) fn authorize_at_owning_workspace<T>(
         if !repository::workspaces::admits_agent_surface(&member.role) {
             return Ok(None);
         }
-        check(c, workspace_id, WorkspaceRole::from_db(&member.role))
+        check(
+            c,
+            workspace_id,
+            WorkspaceRole::from_db(&member.role),
+            located,
+        )
     })
     .map_err(|e| {
         error!(error = ?e, workspace_id, "file access: authorization lookup failed");
@@ -359,6 +372,26 @@ pub(crate) fn viewer_in_workspace(auth: &AuthContext, role: WorkspaceRole) -> Vi
     VisibilityContext::new(auth.user_uuid, auth.platform_role, Some(role))
 }
 
+/// Authorize a file under `tickets/` (see `repository::file_access`): found
+/// once, elevated and among the caller's workspaces, then decided under that
+/// workspace's pin.
+fn authorize_ticket_file(
+    pool: &Pool,
+    auth: &AuthContext,
+    file: TicketFile,
+) -> Result<(i32, ()), actix_web::Error> {
+    let caller = auth.user_uuid;
+    authorize_located(
+        pool,
+        auth,
+        |c| file_access::locate(c, &file, caller),
+        |c, _, role, located| {
+            let vis = viewer_in_workspace(auth, role);
+            Ok(file_access::can_load(c, &vis, &located)?.then_some(()))
+        },
+    )
+}
+
 /// Authorize access to a staging (temp) file: a draft that only its uploader may
 /// load until a comment attaches it and it moves under its ticket. The owning
 /// workspace comes from its `attachments` row. A PDF's server-rendered
@@ -372,12 +405,13 @@ fn authorize_temp_file_access(
         .chain(crate::utils::pdf::pdf_paths_for_thumbnail(filename))
         .map(|name| format!("/uploads/temp/{name}"))
         .collect();
-    let (workspace_id, ()) = authorize_at_owning_workspace(
+    let caller = auth.user_uuid;
+    let (workspace_id, ()) = authorize_located(
         pool,
         auth,
-        |c| repository::comments::attachment_workspace_id_by_urls(c, &urls),
-        |c, _, _| {
-            let own = repository::comments::is_own_draft_upload(c, &urls, auth.user_uuid)?;
+        |c| repository::comments::attachment_locations(c, &urls, caller),
+        |c, _, _, ids| {
+            let own = repository::comments::is_own_draft_upload(c, &ids, caller)?;
             Ok(own.then_some(()))
         },
     )?;
@@ -531,16 +565,7 @@ pub async fn serve_ticket_note_image(
     // A notes image follows its ticket (see `repository::file_access`). The
     // workspace comes from the ticket so the direct image load works without a
     // selection header (see `authorize_at_owning_workspace`).
-    let file = TicketFile::Note { ticket_id };
-    let (workspace_id, ()) = authorize_at_owning_workspace(
-        &pool,
-        &auth,
-        |c| file_access::owning_workspace(c, &file),
-        |c, _, role| {
-            let vis = viewer_in_workspace(&auth, role);
-            Ok(file_access::can_load(c, &vis, &file)?.then_some(()))
-        },
-    )?;
+    let (workspace_id, ()) = authorize_ticket_file(&pool, &auth, TicketFile::Note { ticket_id })?;
     let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     // Serve from tickets/{ticket_id}/notes/ folder

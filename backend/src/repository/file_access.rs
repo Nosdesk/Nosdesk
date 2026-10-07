@@ -5,16 +5,17 @@
 //! `tickets/{id}/` folder of the ticket it was first stored for, which proves
 //! nothing about the ticket it belongs to now: a merge moves the reply and
 //! leaves the file where it was. So an attachment is resolved through its
-//! `attachments` row to its reply, and the reply decides. It must not be
-//! removed, it may be an internal note only for a viewer who sees internal
-//! notes, and its ticket must be one the viewer can see. A file under
-//! `tickets/` that no row accounts for is refused. A notes image has no row
-//! and follows the ticket in its path.
+//! `attachments` row to its reply, and the reply decides: it may be an
+//! internal note only for a viewer who sees internal notes, and its ticket
+//! must be one the viewer can see. A file under `tickets/` that no row
+//! accounts for is refused. A notes image has no row and follows the ticket in
+//! its path.
 //!
 //! The agent file route, the raw-mail route and the portal download all decide
 //! here, so they cannot disagree about a file.
 
 use diesel::prelude::*;
+use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{Attachment, Comment};
@@ -49,33 +50,61 @@ impl TicketFile {
     }
 }
 
-/// The workspace that owns `file`. Run elevated: it reveals a workspace id and
-/// decides nothing else; [`can_load`] decides access under that workspace's pin.
-pub fn owning_workspace(conn: &mut DbConnection, file: &TicketFile) -> QueryResult<Option<i32>> {
+/// A ticket file as [`locate`] found it in its workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocatedFile {
+    /// A notes image, which follows its ticket.
+    Note { ticket_id: i32 },
+    /// The `attachments` rows the file's URL names in that workspace.
+    Attachment { ids: Vec<i32> },
+}
+
+/// The workspace that holds `file`, and where in it, among the workspaces
+/// `caller` is an active member of. Run elevated: it reveals a workspace and
+/// row ids and decides nothing; [`can_load`] decides under that workspace's
+/// pin. Only the caller's own workspaces are searched because a URL is not
+/// unique across workspaces: one cloned within the same database keeps its
+/// files' URLs.
+pub fn locate(
+    conn: &mut DbConnection,
+    file: &TicketFile,
+    caller: Uuid,
+) -> QueryResult<Option<(i32, LocatedFile)>> {
     match file {
-        TicketFile::Note { ticket_id } => {
-            crate::repository::tickets::workspace_id_by_id(conn, *ticket_id)
-        }
-        TicketFile::Attachment { urls } => {
-            crate::repository::comments::attachment_workspace_id_by_urls(conn, urls)
-        }
+        TicketFile::Note { ticket_id } => Ok(crate::repository::tickets::workspace_id_by_id(
+            conn, *ticket_id,
+        )?
+        .map(|ws| {
+            (
+                ws,
+                LocatedFile::Note {
+                    ticket_id: *ticket_id,
+                },
+            )
+        })),
+        TicketFile::Attachment { urls } => Ok(crate::repository::comments::attachment_locations(
+            conn, urls, caller,
+        )?
+        .map(|(workspace_id, ids)| (workspace_id, LocatedFile::Attachment { ids }))),
     }
 }
 
-/// Whether `vis` may load `file`, on a connection pinned to its workspace.
+/// Whether `vis` may load the located file, on a connection pinned to its
+/// workspace. Attachment rows are read again by id, under row security, so
+/// the elevated lookup decided nothing but where to look.
 pub fn can_load(
     conn: &mut DbConnection,
     vis: &VisibilityContext,
-    file: &TicketFile,
+    file: &LocatedFile,
 ) -> QueryResult<bool> {
     match file {
-        TicketFile::Note { ticket_id } => can_view_ticket(conn, vis, *ticket_id),
-        TicketFile::Attachment { urls } => {
+        LocatedFile::Note { ticket_id } => can_view_ticket(conn, vis, *ticket_id),
+        LocatedFile::Attachment { ids } => {
             let rows: Vec<Attachment> = attachments::table
-                .filter(attachments::url.eq_any(urls))
+                .filter(attachments::id.eq_any(ids))
                 .load(conn)?;
             for row in &rows {
-                if attachment_admits(conn, vis, row)? {
+                if reply_for_viewer(conn, vis, row)?.is_some() {
                     return Ok(true);
                 }
             }
@@ -84,13 +113,13 @@ pub fn can_load(
     }
 }
 
-/// The attachment `attachment_id`, if `vis` may load it. `None` for an unknown
-/// id and for one the viewer can't see alike.
+/// The attachment `attachment_id` and the reply it is on, if `vis` may load
+/// it. `None` for an unknown id and for one the viewer can't see alike.
 pub fn attachment_for_viewer(
     conn: &mut DbConnection,
     vis: &VisibilityContext,
     attachment_id: i32,
-) -> QueryResult<Option<Attachment>> {
+) -> QueryResult<Option<(Attachment, Comment)>> {
     let Some(row) = attachments::table
         .find(attachment_id)
         .first::<Attachment>(conn)
@@ -98,7 +127,7 @@ pub fn attachment_for_viewer(
     else {
         return Ok(None);
     };
-    Ok(attachment_admits(conn, vis, &row)?.then_some(row))
+    Ok(reply_for_viewer(conn, vis, &row)?.map(|comment| (row, comment)))
 }
 
 /// The reply `comment_id`, if `vis` may read it. `None` for an unknown id and
@@ -118,33 +147,32 @@ pub fn comment_for_viewer(
     Ok(comment_admits(conn, vis, &comment)?.then_some(comment))
 }
 
-/// An attachment is loadable when it is on a reply the viewer may read. One
-/// not on a reply (a draft) is never a ticket file.
-fn attachment_admits(
+/// The reply an attachment is on, if `vis` may read it. One not on a reply
+/// (a draft) is never a ticket file.
+fn reply_for_viewer(
     conn: &mut DbConnection,
     vis: &VisibilityContext,
     row: &Attachment,
-) -> QueryResult<bool> {
-    let Some(comment_id) = row.comment_id else {
-        return Ok(false);
-    };
-    Ok(comment_for_viewer(conn, vis, comment_id)?.is_some())
+) -> QueryResult<Option<Comment>> {
+    match row.comment_id {
+        Some(comment_id) => comment_for_viewer(conn, vis, comment_id),
+        None => Ok(None),
+    }
 }
 
-/// A reply is readable when it is not removed, is an internal note only for a
-/// viewer who sees internal notes (staff, the same line as
-/// `CommentAudience::from_auth`), and is on a ticket the viewer can see.
+/// A reply is readable when it is an internal note only for a viewer who sees
+/// internal notes (staff, the same line as `CommentAudience::from_auth`), and
+/// is on a ticket the viewer can see.
 fn comment_admits(
     conn: &mut DbConnection,
     vis: &VisibilityContext,
     comment: &Comment,
 ) -> QueryResult<bool> {
-    if comment.deleted_at.is_some() || (comment.is_internal && !vis.sees_all()) {
+    if comment.is_internal && !vis.sees_all() {
         return Ok(false);
     }
     can_view_ticket(conn, vis, comment.ticket_id)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -662,30 +662,21 @@ impl DocAccessor {
         }
     }
 
-    /// Build from a connection ALREADY PINNED to the resource's workspace.
+    /// Build for the resource-derived file routes, from the role the
+    /// direct-load funnel (`files::authorize_at_owning_workspace`) read under
+    /// the resource's workspace pin.
     ///
     /// [`DocAccessor::from_auth`] reads the request-resolved workspace role,
-    /// which is wrong on the resource-derived file routes: a browser `<img>`
-    /// load carries no `X-Nosdesk-Workspace`, so the request resolved to no
-    /// workspace (or a different one). This resolves the role under the pin
-    /// instead, so the membership check and the document gate agree on one
-    /// workspace.
-    ///
-    /// `None` means "not a member of the pinned workspace", which callers
-    /// MUST turn into a 404, never a 403. That differs from
-    /// [`DocAccessor::from_claims`], which returns `Some` with a `None` role
-    /// because the WebSocket handshake gates membership separately. Do not
-    /// unify the two.
-    ///
-    /// Must be called inside `with_actor_context`: `workspace_members` is
-    /// RLS scoped, so on an unpinned connection a real member reads as a
-    /// non-member and this fails closed.
-    pub(crate) fn at_pinned_workspace(
-        conn: &mut crate::db::DbConnection,
+    /// which is wrong there: a browser `<img>` load carries no
+    /// `X-Nosdesk-Workspace`, so the request resolved to no workspace (or a
+    /// different one). Taking the funnel's role keeps the membership check and
+    /// the document gate on one workspace; a non-member never gets here, the
+    /// funnel answers them 404.
+    pub(crate) fn with_role(
         user_uuid: Uuid,
         platform_role: crate::models::PlatformRole,
-    ) -> Option<Self> {
-        let workspace_role = crate::repository::user_helpers::workspace_role(conn, user_uuid)?;
+        workspace_role: crate::models::WorkspaceRole,
+    ) -> Self {
         let vis = crate::repository::ticket_visibility::VisibilityContext::new(
             user_uuid,
             platform_role,
@@ -693,10 +684,10 @@ impl DocAccessor {
         );
         let is_workspace_admin = platform_role.is_platform_admin()
             || workspace_role.meets(crate::models::WorkspaceRole::Admin);
-        Some(Self {
+        Self {
             vis,
             is_workspace_admin,
-        })
+        }
     }
 
     /// Staff (agents and up, and platform admins) edit collaborative
