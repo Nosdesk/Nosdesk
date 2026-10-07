@@ -226,49 +226,83 @@ fn workflow_state_payload(
         .unwrap_or(serde_json::Value::Null))
 }
 
-/// Bare create — UI handlers, the import binary, and any caller
-/// without specific channel/portal context land here.
-/// The `ticket.created` payload: the ticket as a card, plus how it was created.
-/// Shared by creation and by the release of a guest ticket on email
+/// A ticket as its sync row: the ticket columns the bootstrap sends, the nested
+/// workflow state and the SLA pill as it stands. Creation, field updates and
+/// merges send it, so a client's pool row stays whole whichever of them
+/// changed it. Reads only.
+///
+/// It carries no `previous_*` keys: the notification deriver treats their
+/// presence as "this write changed the field", so they belong to the writes
+/// that do.
+pub fn ticket_sync_row(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<serde_json::Value> {
+    let sla = crate::services::sla::pill_json_for_ticket(conn, ticket);
+    ticket_sync_row_with_sla(conn, ticket, sla)
+}
+
+/// `ticket_sync_row` with a pill the caller has just recomputed and stamped.
+fn ticket_sync_row_with_sla(
+    conn: &mut DbConnection,
+    ticket: &Ticket,
+    sla: serde_json::Value,
+) -> QueryResult<serde_json::Value> {
+    Ok(json!({
+        "id": ticket.id,
+        "number": ticket.number,
+        "uuid": ticket.uuid,
+        "title": ticket.title,
+        // Nested state so a move relocates the card on every client: the
+        // pool shallow-merges, and the kanban groups by
+        // `workflow_state.category`. The flat id stays the write source of
+        // truth.
+        "workflow_state": workflow_state_payload(conn, ticket.workflow_state_id)?,
+        "workflow_state_id": ticket.workflow_state_id,
+        "priority": ticket.priority.as_str(),
+        "requester_uuid": ticket.requester_uuid,
+        "assignee_uuid": ticket.assignee_uuid,
+        "category_id": ticket.category_id,
+        "triage_state": ticket.triage_state,
+        "spam_suspected": ticket.spam_suspected,
+        "verification_state": ticket.verification_state,
+        "approval_state": ticket.approval_state,
+        "due_date": ticket.due_date,
+        "start_date": ticket.start_date,
+        "resolution_notes": ticket.resolution_notes,
+        "created_by": ticket.created_by,
+        "closed_by": ticket.closed_by,
+        "closed_at": ticket.closed_at,
+        "submitted_via": ticket.submitted_via,
+        "origin_channel_id": ticket.origin_channel_id,
+        "sla": sla,
+        "sla_override": ticket.sla_override,
+        "recurrence_rule": ticket.recurrence_rule,
+        "recurrence_template_id": ticket.recurrence_template_id,
+        "created_at": ticket.created_at,
+        "updated_at": ticket.updated_at,
+        "last_activity_at": ticket.updated_at,
+    }))
+}
+
+/// The `ticket.created` payload: the ticket's sync row, plus how it was
+/// created. Shared by creation and by the release of a guest ticket on email
 /// confirmation, so the two can't drift.
 fn ticket_created_data(
     conn: &mut DbConnection,
     ticket: &Ticket,
     created_via: serde_json::Value,
 ) -> QueryResult<serde_json::Value> {
-    let workflow_state = workflow_state_payload(conn, ticket.workflow_state_id)?;
-    Ok(json!({
-        "id": ticket.id,
-        "number": ticket.number,
-        "uuid": ticket.uuid,
-        "title": ticket.title,
-        // Nested state so the kanban can place the card; the
-        // flat id stays the write source of truth.
-        "workflow_state": workflow_state,
-        "workflow_state_id": ticket.workflow_state_id,
-        "priority": ticket.priority.as_str(),
-        "requester_uuid": ticket.requester_uuid,
-        "assignee_uuid": ticket.assignee_uuid,
-        // A ticket created with an assignee is an assignment;
-        // the null previous value is what lets the deriver
-        // see it without a special case. Status is not: a
-        // fresh ticket's state is nobody's change.
-        "previous_assignee_uuid": null,
-        "category_id": ticket.category_id,
-        "triage_state": ticket.triage_state,
-        "spam_suspected": ticket.spam_suspected,
-        "approval_state": ticket.approval_state,
-        "due_date": ticket.due_date,
-        "start_date": ticket.start_date,
-        "created_at": ticket.created_at,
-        "updated_at": ticket.updated_at,
-        "last_activity_at": ticket.updated_at,
-        "submitted_via": ticket.submitted_via,
-        "origin_channel_id": ticket.origin_channel_id,
-        "created_via": created_via,
-    }))
+    let mut data = ticket_sync_row(conn, ticket)?;
+    if let Some(obj) = data.as_object_mut() {
+        // A ticket created with an assignee is an assignment; the null
+        // previous value is what lets the deriver see it without a special
+        // case. Status is not: a fresh ticket's state is nobody's change.
+        obj.insert("previous_assignee_uuid".into(), serde_json::Value::Null);
+        obj.insert("created_via".into(), created_via);
+    }
+    Ok(data)
 }
 
+/// Bare create — UI handlers, the import binary, and any caller
+/// without specific channel/portal context land here.
 pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryResult<Ticket> {
     create_ticket_with_annotation(conn, new_ticket, TicketCreationAnnotation::default(), None)
 }
@@ -580,44 +614,18 @@ pub fn update_ticket_partial(
         // refresh required" architectural claim true for collaborative
         // sessions, not just first-load. `Value::Null` is a valid pill
         // payload (no policy matches the new shape), and merging it
-        // correctly clears a stale pill from the card.
+        // correctly clears a stale pill from the card. Any other change
+        // sends the pill as it stands.
         let pill_affecting = ticket_update.workflow_state_id.is_some()
             || ticket_update.priority.is_some()
             || ticket_update.category_id.is_some()
             || ticket_update.sla_override.is_some();
-        let mut data = json!({
-            "id": result.id,
-            "number": result.number,
-            "title": result.title,
-            // Nested state so a move relocates the card on every
-            // client: the pool shallow-merges, and the kanban groups
-            // by `workflow_state.category` — without this, a remote
-            // viewer's card stays in its old column until refresh.
-            "workflow_state": workflow_state_payload(conn, result.workflow_state_id)?,
-            "workflow_state_id": result.workflow_state_id,
-            "priority": result.priority.as_str(),
-            "requester_uuid": result.requester_uuid,
-            "assignee_uuid": result.assignee_uuid,
-            "category_id": result.category_id,
-            "spam_suspected": result.spam_suspected,
-            "verification_state": result.verification_state,
-            "due_date": result.due_date,
-            "start_date": result.start_date,
-            "resolution_notes": result.resolution_notes,
-            // Detail-view scalars carried so the pool-native ticket
-            // detail surface stays complete after a live update (the
-            // pool shallow-merges, so closing the ticket elsewhere
-            // flips the audit byline without a refetch). created_by /
-            // submitted_via / origin_channel_id are immutable but kept
-            // here too so a partial-row warm-start can't drop them.
-            "created_by": result.created_by,
-            "closed_by": result.closed_by,
-            "closed_at": result.closed_at,
-            "submitted_via": result.submitted_via,
-            "origin_channel_id": result.origin_channel_id,
-            "sla_override": result.sla_override,
-            "approval_state": result.approval_state,
-        });
+        let sla = if pill_affecting {
+            crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &result)
+        } else {
+            crate::services::sla::pill_json_for_ticket(conn, &result)
+        };
+        let mut data = ticket_sync_row_with_sla(conn, &result, sla)?;
         if let (Some(previous), Some(obj)) = (previous, data.as_object_mut()) {
             obj.insert(
                 "previous_assignee_uuid".into(),
@@ -627,14 +635,6 @@ pub fn update_ticket_partial(
                 "previous_workflow_state_id".into(),
                 json!(previous.workflow_state_id),
             );
-        }
-        if pill_affecting {
-            if let Some(obj) = data.as_object_mut() {
-                obj.insert(
-                    "sla".into(),
-                    crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &result),
-                );
-            }
         }
         emit::record(
             conn,

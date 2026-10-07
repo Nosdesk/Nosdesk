@@ -13,7 +13,7 @@ import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import Button from '@/components/common/Button.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
-import brandingService, { type BrandingConfig } from '@nosdesk/core/services/brandingService';
+import brandingService, { type AdminBrandingConfig } from '@nosdesk/core/services/brandingService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 
@@ -28,7 +28,7 @@ const brandingQuery = useQuery({
   key: BRANDING_KEY,
   query: () => brandingService.getAdminBrandingConfig(),
 });
-const brandingConfig = computed<BrandingConfig | null>(() => brandingQuery.data.value ?? null);
+const brandingConfig = computed<AdminBrandingConfig | null>(() => brandingQuery.data.value ?? null);
 // The form never shows values it couldn't load.
 const loadFailed = computed(() => !!brandingQuery.error.value && !brandingQuery.data.value);
 

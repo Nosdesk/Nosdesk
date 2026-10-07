@@ -188,6 +188,47 @@ impl From<SiteSettings> for SiteSettingsResponse {
     }
 }
 
+/// What the branding routes for pages (`/api/branding`, `/api/workspace/branding`)
+/// return: only what a page displays. Its own type, so a new `site_settings`
+/// column stays off those routes unless it is added here.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PublicBranding {
+    pub app_name: String,
+    pub logo_url: Option<String>,
+    pub logo_light_url: Option<String>,
+    pub favicon_url: Option<String>,
+    pub primary_color: Option<String>,
+    /// `None` for the built-in branding.
+    pub updated_at: Option<NaiveDateTime>,
+}
+
+impl PublicBranding {
+    /// The built-in branding, for a request that resolves no workspace.
+    pub fn built_in() -> Self {
+        PublicBranding {
+            app_name: "Nosdesk".to_string(),
+            logo_url: None,
+            logo_light_url: None,
+            favicon_url: None,
+            primary_color: None,
+            updated_at: None,
+        }
+    }
+}
+
+impl From<SiteSettings> for PublicBranding {
+    fn from(settings: SiteSettings) -> Self {
+        PublicBranding {
+            app_name: settings.app_name,
+            logo_url: settings.logo_url,
+            logo_light_url: settings.logo_light_url,
+            favicon_url: settings.favicon_url,
+            primary_color: settings.primary_color,
+            updated_at: Some(settings.updated_at),
+        }
+    }
+}
+
 // Public subset — safe to expose on /api/public/settings (no auth required)
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PublicSiteSettings {

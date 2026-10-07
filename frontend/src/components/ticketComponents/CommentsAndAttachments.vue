@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatDate, formatDateTime } from '@nosdesk/core/utils/dateUtils';
+import { htmlHasText, htmlText } from '@nosdesk/core/utils/inertHtml';
 import { computed, ref, watch } from "vue";
 import { useFluent } from 'fluent-vue';
 import UserAvatar from "@/components/UserAvatar.vue";
@@ -142,17 +143,6 @@ const emit = defineEmits<{
     (e: "linkTicket", value: number): void;
 }>();
 
-/**
- * Check if HTML content has any actual text (not just empty tags)
- */
-const hasTextContent = (html: string): boolean => {
-    if (!html) return false;
-    // Create a temporary element to extract text content
-    const temp = document.createElement('div');
-    temp.innerHTML = html;
-    return temp.textContent?.trim().length > 0;
-};
-
 // Template vars for the canned-response picker. `templateVars` prop
 // is optional; default to an empty object so tokens like
 // `{{customer_name}}` render as-is rather than erroring.
@@ -183,14 +173,9 @@ const filteredComments = computed(() => {
     return props.comments;
 });
 
-// Inserts rendered canned-response text into the composer. SimpleEditor's
-// v-model is HTML; plain text with newlines is rendered by wrapping in
-// paragraphs — `\n\n` becomes a paragraph break, single `\n` a `<br>`.
-function insertCannedResponse(text: string) {
-    const html = text
-        .split(/\n\n+/)
-        .map((para) => `<p>${para.replace(/\n/g, "<br>")}</p>`)
-        .join("");
+// Inserts a rendered saved reply into the composer. The picker hands over
+// HTML (`renderTemplateHtml`), the same as SimpleEditor's v-model.
+function insertCannedResponse(html: string) {
     // Append rather than replace — the tech may have started typing
     // context before pulling a template.
     newCommentContent.value = newCommentContent.value
@@ -201,7 +186,7 @@ function insertCannedResponse(text: string) {
 // There is something to send: real text or at least one staged attachment.
 // Greys out + disables the send button otherwise (mirrors the addComment guard).
 const canSubmit = computed<boolean>(
-    () => hasTextContent(newCommentContent.value) || newAttachments.value.length > 0,
+    () => htmlHasText(newCommentContent.value) || newAttachments.value.length > 0,
 );
 
 // Link suggestions: tickets the last posted comment mentioned that are
@@ -236,7 +221,7 @@ watch(
 );
 
 const addComment = () => {
-    if (!hasTextContent(newCommentContent.value) && newAttachments.value.length === 0)
+    if (!htmlHasText(newCommentContent.value) && newAttachments.value.length === 0)
         return;
 
     emit("addComment", {
@@ -386,12 +371,9 @@ const commentTime = (comment: { id: number; createdAt?: string; created_at: stri
 
 // Check if comment has real text content (not just empty HTML or placeholder)
 const hasRealContent = (comment: CommentWithAttachments): boolean => {
-    if (!hasTextContent(comment.content)) return false;
+    const text = htmlText(comment.content || '').toLowerCase();
     // Also check for placeholder text
-    const temp = document.createElement('div');
-    temp.innerHTML = comment.content || '';
-    const text = temp.textContent?.trim().toLowerCase() || '';
-    return text !== 'attachment added';
+    return text !== '' && text !== 'attachment added';
 };
 
 // Check if comment is audio-only (no text, single audio attachment)

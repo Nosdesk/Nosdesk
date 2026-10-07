@@ -32,11 +32,6 @@ const branding = (primary_color: string | null) => ({
   favicon_url: null,
   primary_color,
   updated_at: null,
-  signature_default: null,
-  channel_auto_ack_enabled: true,
-  channel_auto_ack_template: null,
-  email_security_note_enabled: false,
-  email_security_note_template: null,
 })
 
 beforeEach(() => {
@@ -114,5 +109,49 @@ describe('branding on the single-origin agent app', () => {
     await store.loadBranding()
     expect(store.primaryColor).toBe('#c32222')
     expect(brandingService.getWorkspaceBranding).not.toHaveBeenCalled()
+  })
+})
+
+// The store and its cache hold only what pages display, whatever it is
+// handed: the admin settings view passes it the full admin settings.
+describe('branding store holds only public fields', () => {
+  const PUBLIC_KEYS = [
+    'app_name',
+    'favicon_url',
+    'logo_light_url',
+    'logo_url',
+    'primary_color',
+    'updated_at',
+  ]
+  const adminShaped = {
+    ...branding('#2563eb'),
+    signature_default: 'Jane Doe, IT, 555 0100',
+    channel_auto_ack_enabled: true,
+    channel_auto_ack_template: 'We have your message.',
+    email_security_note_enabled: true,
+    email_security_note_template: 'We never ask for your password.',
+    guest_ticket_rate_limit_per_hour: 5,
+    portal_share_by_domain: true,
+  }
+
+  it('stores only public fields when given admin settings', () => {
+    const store = useBrandingStore()
+    store.updateConfig(adminShaped)
+
+    expect(Object.keys(store.config).sort()).toEqual(PUBLIC_KEYS)
+    expect(store.primaryColor).toBe('#2563eb')
+    const cached = JSON.parse(localStorage.getItem('nosdesk_branding_cache') ?? '{}')
+    expect(Object.keys(cached).sort()).toEqual(PUBLIC_KEYS)
+  })
+
+  it('reads back only public fields from a cache holding more', () => {
+    localStorage.setItem('nosdesk_branding_cache', JSON.stringify(adminShaped))
+    const store = useBrandingStore()
+
+    expect(Object.keys(store.config).sort()).toEqual(PUBLIC_KEYS)
+    expect(store.primaryColor).toBe('#2563eb')
+    // And the cache is rewritten without the rest.
+    const cached = JSON.parse(localStorage.getItem('nosdesk_branding_cache') ?? '{}')
+    expect(Object.keys(cached).sort()).toEqual(PUBLIC_KEYS)
   })
 })
