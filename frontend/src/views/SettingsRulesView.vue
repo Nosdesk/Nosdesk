@@ -269,7 +269,7 @@ async function setLive(rule: Rule, live: boolean): Promise<void> {
               </Button>
               <IconButton
                 size="sm"
-                icon="trash"
+                icon="archive"
                 :label="t('admin-rules-action-archive-tooltip')"
                 @click="archiveTarget = rule"
               />
