@@ -3281,6 +3281,26 @@ async fn session_task(
     let _ = session.close(close_reason).await;
 }
 
+/// Whether any message in a frame carries document content: SyncStep2 or
+/// SyncUpdate. y-sync packs several messages into one payload and
+/// `Protocol::handle` applies every one, so the first message alone doesn't
+/// decide it. A frame that doesn't decode counts as content, so it can't slip
+/// past a read-only session either.
+fn carries_document_update(frame: &[u8]) -> bool {
+    use yrs::encoding::read::Cursor;
+    use yrs::sync::{Message, MessageReader, SyncMessage};
+    use yrs::updates::decoder::DecoderV1;
+    let mut decoder = DecoderV1::new(Cursor::new(frame));
+    MessageReader::new(&mut decoder).any(|message| {
+        matches!(
+            message,
+            Ok(Message::Sync(
+                SyncMessage::SyncStep2(_) | SyncMessage::Update(_)
+            )) | Err(_)
+        )
+    })
+}
+
 /// Process a single inbound binary frame from a client. Runs in a
 /// spawned task so the per-session loop stays responsive to
 /// heartbeat ticks and outbound broadcasts while this DB / protocol
@@ -3288,12 +3308,6 @@ async fn session_task(
 /// requests) flow back through `tx` rather than directly through
 /// the `Session`, so the session_task's outbound arm orders them
 /// against other broadcasts the same way it always did.
-/// A y-protocols sync frame that carries document content: SyncStep2 or
-/// SyncUpdate (message type 0, subtype 1 or 2).
-fn is_document_update(frame: &[u8]) -> bool {
-    frame.first() == Some(&0) && matches!(frame.get(1), Some(1) | Some(2))
-}
-
 async fn process_inbound_binary(
     bin: Bytes,
     app_state: YjsAppState,
@@ -3306,11 +3320,11 @@ async fn process_inbound_binary(
     if bin.is_empty() {
         return;
     }
-    // A read-only session's document changes (SyncStep2 and SyncUpdate) are
-    // dropped before they reach the document or the room. Its state-vector
-    // requests and awareness still go through, so it keeps receiving the
-    // document and others' presence.
-    if read_only && is_document_update(&bin) {
+    // A read-only session's frames that carry document changes (SyncStep2 or
+    // SyncUpdate, in any of their messages) are dropped before they reach the
+    // document or the room. Its state-vector requests and awareness still go
+    // through, so it keeps receiving the document and others' presence.
+    if read_only && carries_document_update(&bin) {
         debug!(doc_id = %doc_id, session_id = %session_id, "Dropping a read-only session's update");
         return;
     }
@@ -3758,24 +3772,60 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 
 #[cfg(test)]
 mod read_only_frame_tests {
-    use super::is_document_update;
-    use yrs::sync::{Message, SyncMessage};
-    use yrs::updates::encoder::Encode;
-    use yrs::StateVector;
+    use super::carries_document_update;
+    use yrs::sync::{Awareness, Message, SyncMessage};
+    use yrs::updates::encoder::{Encode, Encoder, EncoderV1};
+    use yrs::{Doc, StateVector};
+
+    fn packed(messages: &[Message]) -> Vec<u8> {
+        let mut encoder = EncoderV1::new();
+        for message in messages {
+            message.encode(&mut encoder);
+        }
+        encoder.to_vec()
+    }
+
+    fn awareness() -> Message {
+        let awareness = Awareness::new(Doc::new());
+        awareness.set_local_state("{}").expect("set local state");
+        Message::Awareness(awareness.update().expect("awareness update"))
+    }
 
     #[test]
     fn only_document_content_counts_as_an_update() {
         let sync = |m: SyncMessage| Message::Sync(m).encode_v1();
-        assert!(is_document_update(&sync(SyncMessage::SyncStep2(vec![
+        assert!(carries_document_update(&sync(SyncMessage::SyncStep2(
+            vec![0, 0]
+        ))));
+        assert!(carries_document_update(&sync(SyncMessage::Update(vec![
             0, 0
         ]))));
-        assert!(is_document_update(&sync(SyncMessage::Update(vec![0, 0]))));
-        assert!(!is_document_update(&sync(SyncMessage::SyncStep1(
+        assert!(!carries_document_update(&sync(SyncMessage::SyncStep1(
             StateVector::default()
         ))));
-        // Awareness (message type 1) and an empty frame.
-        assert!(!is_document_update(&[1, 0]));
-        assert!(!is_document_update(&[]));
+        assert!(!carries_document_update(&awareness().encode_v1()));
+        assert!(!carries_document_update(&[]));
+    }
+
+    #[test]
+    fn content_after_the_first_message_counts() {
+        let step1 = Message::Sync(SyncMessage::SyncStep1(StateVector::default()));
+        let update = Message::Sync(SyncMessage::Update(vec![0, 0]));
+        assert!(carries_document_update(&packed(&[awareness(), update])));
+        assert!(carries_document_update(&packed(&[
+            step1,
+            Message::Sync(SyncMessage::SyncStep2(vec![0, 0])),
+        ])));
+        assert!(!carries_document_update(&packed(&[
+            awareness(),
+            Message::Sync(SyncMessage::SyncStep1(StateVector::default())),
+        ])));
+    }
+
+    #[test]
+    fn a_frame_that_doesnt_decode_counts_as_content() {
+        // A sync message (0) with no such subtype (7).
+        assert!(carries_document_update(&[0, 7, 0, 0]));
     }
 }
 

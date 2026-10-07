@@ -631,6 +631,27 @@ async fn a_requesters_updates_reach_no_one() {
         "a requester's update must not reach the room"
     );
 
+    // y-sync allows several messages in one frame: presence first, then an
+    // edit. The edit still mustn't reach anyone.
+    let packed = {
+        use yrs::sync::{Awareness, Message};
+        use yrs::updates::encoder::Encode;
+        let awareness = Awareness::new(yrs::Doc::new());
+        awareness.set_local_state("{}").expect("local state");
+        let mut frame =
+            Message::Awareness(awareness.update().expect("awareness update")).encode_v1();
+        frame.extend_from_slice(&update("packed after presence"));
+        Bytes::from(frame)
+    };
+    theirs
+        .send(ws::Message::Binary(packed.clone()))
+        .await
+        .expect("requester send");
+    assert!(
+        !receives(&mut staff, &packed, Duration::from_millis(800)).await,
+        "an edit packed after presence must not reach the room"
+    );
+
     let edit = update("from the agent");
     staff
         .send(ws::Message::Binary(edit.clone()))
