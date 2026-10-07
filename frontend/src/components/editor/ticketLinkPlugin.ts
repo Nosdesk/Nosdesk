@@ -4,6 +4,7 @@ import type { NodeView } from 'prosemirror-view'
 import { Node as ProseMirrorNode } from 'prosemirror-model'
 import { InputRule } from 'prosemirror-inputrules'
 import { getTicketById } from '@nosdesk/core/services/ticketService'
+import { parseInertHtml } from '@nosdesk/core/utils/inertHtml'
 import { translate } from '@/i18n'
 import { shareableTicketUrl } from '@/utils/shareUrl'
 import {
@@ -207,8 +208,7 @@ export function createTicketNumberInputRule(schema: any): InputRule {
  * it to know what a just-posted comment mentioned.
  */
 export function referencedTicketIds(html: string): number[] {
-  const container = document.createElement('div')
-  container.innerHTML = html
+  const container = parseInertHtml(html)
   const ids = new Set<number>()
   container.querySelectorAll('[data-ticket-link][data-ticket-id]').forEach((el) => {
     const id = parseInt(el.getAttribute('data-ticket-id') ?? '', 10)

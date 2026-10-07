@@ -53,10 +53,10 @@ async function key(el: Element, key: string) {
   await nextTick()
 }
 
-async function openPicker(inserts: string[] = []) {
+async function openPicker(inserts: string[] = [], vars: Record<string, string> = { customer_name: 'Ada' }) {
   wrapper = mountWithProviders(
     CannedResponsePicker,
-    { vars: { customer_name: 'Ada' }, onInsert: (t: string) => inserts.push(t) },
+    { vars, onInsert: (t: string) => inserts.push(t) },
     {},
     [[PiniaColada, {}] as never],
   )
@@ -92,7 +92,7 @@ describe('CannedResponsePicker', () => {
     expect(options()[0].hasAttribute('data-highlighted')).toBe(true)
     expect(document.body.querySelector('[role="status"]')?.textContent).toContain('ticket-picker-canned-missing-vars')
     await key(input, 'Enter')
-    expect(inserts).toEqual(['Use the reset link,  has sent it.'])
+    expect(inserts).toEqual(['<p>Use the reset link,  has sent it.</p>'])
     expect(recorded).toEqual([2])
     await settle()
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
@@ -107,6 +107,13 @@ describe('CannedResponsePicker', () => {
     expect(input.getAttribute('aria-activedescendant')).toBe(options()[2].id)
     options()[2].click()
     await nextTick()
-    expect(inserts).toEqual(['Glad that is sorted.'])
+    expect(inserts).toEqual(['<p>Glad that is sorted.</p>'])
+  })
+
+  it('inserts ticket values as text', async () => {
+    const inserts: string[] = []
+    const input = await openPicker(inserts, { customer_name: '<b>Ada</b>' })
+    await key(input, 'Enter')
+    expect(inserts).toEqual(['<p>Hi &lt;b&gt;Ada&lt;/b&gt;, thanks for writing in.</p>'])
   })
 })

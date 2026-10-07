@@ -47,6 +47,7 @@ import {
   ellipsis,
 } from 'prosemirror-inputrules';
 import { DOMSerializer, DOMParser } from 'prosemirror-model';
+import { parseInertHtml } from '@nosdesk/core/utils/inertHtml';
 import { useUserMentionSearch } from '@/composables/useUserMentionSearch';
 import { useTicketReferenceSearch } from '@/composables/useTicketReferenceSearch';
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
@@ -280,14 +281,14 @@ function buildInputRules() {
   return inputRules({ rules });
 }
 
-// Convert HTML to ProseMirror doc
+// Convert HTML to ProseMirror doc. Parsed off the page: the value can hold
+// text a requester wrote, and elements built in the page's document would
+// start loading.
 function htmlToDoc(html: string) {
   if (!html) {
     return schema.node('doc', null, [schema.node('paragraph')]);
   }
-  const container = document.createElement('div');
-  container.innerHTML = html;
-  return DOMParser.fromSchema(schema).parse(container);
+  return DOMParser.fromSchema(schema).parse(parseInertHtml(html));
 }
 
 // Convert ProseMirror doc to HTML
