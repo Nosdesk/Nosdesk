@@ -987,6 +987,7 @@ fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
         // 500.
         AgentRevoked(_) => errors::unauthorized_with_code(message, "ACTOR_REVOKED"),
         MissingWorkspace => errors::internal("missing workspace context"),
+        IneligibleAssignee(_) => errors::bad_request_with_code(message, "INVALID_ASSIGNEE"),
         Db(e) => errors::db_error(&e),
     }
 }

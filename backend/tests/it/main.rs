@@ -20,6 +20,7 @@ mod admin_workspace_members;
 mod analytics_kpi_summary;
 mod asset_audits;
 mod asset_kinds_picker;
+mod assignee_eligibility;
 mod assignment_on_create;
 mod attachment_claims;
 mod attachment_emit_lint;

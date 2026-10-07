@@ -537,13 +537,47 @@ fn update_event_type(update: &crate::models::TicketUpdate) -> &'static str {
     }
 }
 
-// Add a new function for partial ticket updates
+/// Why `update_ticket_partial` didn't save.
+#[derive(Debug, thiserror::Error)]
+pub enum TicketWriteError {
+    /// The new assignee can't work tickets in the ticket's workspace (see
+    /// `repository::assignees`).
+    #[error("{INELIGIBLE_ASSIGNEE}")]
+    IneligibleAssignee(Uuid),
+    #[error(transparent)]
+    Database(#[from] diesel::result::Error),
+}
+
+/// What a caller is told when an assignee is refused.
+pub const INELIGIBLE_ASSIGNEE: &str = "Only agents and admins can be assigned tickets";
+
+/// For a caller in a `QueryResult` context. A refused assignee reads as a
+/// check violation, so it still surfaces as the caller's mistake rather than a
+/// server fault; callers that assign match `TicketWriteError` instead.
+impl From<TicketWriteError> for diesel::result::Error {
+    fn from(err: TicketWriteError) -> Self {
+        match err {
+            TicketWriteError::IneligibleAssignee(_) => diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::CheckViolation,
+                Box::new(INELIGIBLE_ASSIGNEE.to_string()),
+            ),
+            TicketWriteError::Database(e) => e,
+        }
+    }
+}
+
+/// Save a change to a ticket: the one write path for ticket edits. Records
+/// the matching `ticket.*` sync action (with the previous assignee and state
+/// when they can change), recomputes the SLA pill, starts an approval round on
+/// a move into a request type that needs one, and reindexes through
+/// `observer`. A new assignee must be able to work tickets in the ticket's
+/// workspace; keeping the current one is never refused.
 pub fn update_ticket_partial(
     conn: &mut DbConnection,
     ticket_id: i32,
     mut ticket_update: crate::models::TicketUpdate,
     observer: Option<&dyn TicketUpdatedObserver>,
-) -> QueryResult<Ticket> {
+) -> Result<Ticket, TicketWriteError> {
     // Defense in depth against no-op title commits. The InlineEdit header
     // now commits once per edit session rather than per keystroke, but a
     // blur with the value unchanged (or a stale client) can still PATCH the
@@ -570,10 +604,10 @@ pub fn update_ticket_partial(
     // no UPDATE, no sync_action, no audit event. Also avoids Diesel's
     // empty-changeset error on a `.set()` with all-None fields.
     if count == 0 {
-        return get_ticket_by_id(conn, ticket_id);
+        return Ok(get_ticket_by_id(conn, ticket_id)?);
     }
 
-    let result = conn.transaction::<Ticket, diesel::result::Error, _>(|conn| {
+    let result = conn.transaction::<Ticket, TicketWriteError, _>(|conn| {
         // The notification deriver decides "actually changed" from the
         // before/after pair in `data`, so a write that can change the
         // assignee or workflow state records what it was. Reading the row
@@ -584,6 +618,15 @@ pub fn update_ticket_partial(
             } else {
                 None
             };
+        if let (Some(Some(assignee)), Some(previous)) = (ticket_update.assignee_uuid, &previous) {
+            if previous.assignee_uuid != Some(assignee) {
+                crate::repository::assignees::ensure_assignable(
+                    conn,
+                    previous.workspace_id,
+                    assignee,
+                )?;
+            }
+        }
         let result: Ticket = diesel::update(tickets::table.find(ticket_id))
             .set(&ticket_update)
             .get_result(conn)?;
@@ -966,11 +1009,12 @@ pub fn get_complete_ticket(
     })
 }
 
-// Import from JSON
+// Import from JSON. The assignee is checked like a CSV import's: one who
+// can't work tickets in this workspace fails the ticket's import.
 pub fn import_ticket_from_json(
     conn: &mut DbConnection,
     ticket_json: &TicketJson,
-) -> Result<Ticket, Error> {
+) -> Result<Ticket, TicketWriteError> {
     // The import format carries a coarse status string from the source
     // system. Map it to a workflow-state category and pick that category's
     // lowest-position state; unknown strings fall back to the workspace
@@ -985,6 +1029,14 @@ pub fn import_ticket_from_json(
         _ => default_state(conn)?,
     };
     let priority = parse_ticket_priority(&ticket_json.priority);
+    let assignee_uuid = if ticket_json.assignee.is_empty() {
+        None
+    } else {
+        Uuid::parse_str(&ticket_json.assignee).ok()
+    };
+    if let Some(assignee) = assignee_uuid {
+        crate::repository::assignees::ensure_assignable_here(conn, assignee)?;
+    }
 
     // Create the ticket
     let new_ticket = NewTicket {
@@ -994,11 +1046,7 @@ pub fn import_ticket_from_json(
         requester_uuid: Some(
             Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7()),
         ),
-        assignee_uuid: if ticket_json.assignee.is_empty() {
-            None
-        } else {
-            Uuid::parse_str(&ticket_json.assignee).ok()
-        },
+        assignee_uuid,
         ..Default::default()
     };
 

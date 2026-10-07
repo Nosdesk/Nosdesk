@@ -574,6 +574,23 @@ pub enum ApiError {
     Actix(#[from] actix_web::Error),
 }
 
+/// A ticket write's refusal is the caller's mistake: 400 `INVALID_ASSIGNEE`.
+impl From<crate::repository::tickets::TicketWriteError> for ApiError {
+    fn from(err: crate::repository::tickets::TicketWriteError) -> Self {
+        use crate::repository::tickets::TicketWriteError;
+        match err {
+            TicketWriteError::IneligibleAssignee(_) => ApiError::Actix(from_response(
+                "ineligible assignee",
+                bad_request_with_code(
+                    crate::repository::tickets::INELIGIBLE_ASSIGNEE,
+                    "INVALID_ASSIGNEE",
+                ),
+            )),
+            TicketWriteError::Database(e) => ApiError::Database(e),
+        }
+    }
+}
+
 impl ResponseError for ApiError {
     fn status_code(&self) -> StatusCode {
         match self {

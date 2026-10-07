@@ -139,6 +139,8 @@ struct ImportContext {
     categories: HashMap<String, i32>,
     /// user_emails (lower-cased) -> user_uuid (primary emails only)
     emails: HashMap<String, Uuid>,
+    /// Of those users, the ones who can be assigned tickets here.
+    assignable: HashSet<Uuid>,
 }
 
 impl ImportContext {
@@ -157,7 +159,11 @@ impl ImportContext {
             .select((user_emails::email, user_emails::user_uuid))
             .load(conn)?;
 
+        let users: Vec<Uuid> = ems.iter().map(|(_, u)| *u).collect();
+        let assignable = crate::repository::assignees::assignable_among(conn, &users)?;
+
         Ok(Self {
+            assignable,
             workflow_states: ws
                 .into_iter()
                 .map(|(id, n)| (n.to_lowercase(), id))
@@ -255,6 +261,15 @@ fn validate_row(
 
     let requester_uuid = resolve_email(row, "requester_email", ctx, &mut errors);
     let assignee_uuid = resolve_email(row, "assignee_email", ctx, &mut errors);
+    if assignee_uuid.is_some_and(|u| !ctx.assignable.contains(&u)) {
+        errors.push((
+            Some("assignee_email".into()),
+            format!(
+                "'{}' can't be assigned tickets; only agents and admins can",
+                trimmed(row, "assignee_email")
+            ),
+        ));
+    }
 
     let category_id = {
         let raw = trimmed(row, "category");

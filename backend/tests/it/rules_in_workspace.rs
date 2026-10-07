@@ -141,8 +141,9 @@ async fn an_admin_saves_and_manages_rules_in_their_workspace() {
     assert_eq!(archived.status(), StatusCode::OK);
 }
 
-/// A team of the admin and the member, where the admin already has an
-/// open ticket, plus an unassigned ticket to apply a rule to.
+/// A team of the admin and the member (a requester, who can't work tickets),
+/// where the admin already has an open ticket, plus an unassigned ticket to
+/// apply a rule to.
 fn seed_team(conn: &mut backend::db::DbConnection, ws: &WorkspaceSeed) -> (i32, i32) {
     use backend::models::NewTicket;
     use backend::schema::{groups, tickets, user_groups, workflow_states};
@@ -186,7 +187,7 @@ fn seed_team(conn: &mut backend::db::DbConnection, ws: &WorkspaceSeed) -> (i32, 
 }
 
 #[actix_web::test]
-async fn a_team_step_assigns_whoever_has_the_fewest_open_tickets() {
+async fn a_team_step_assigns_whoever_can_work_tickets_and_has_the_fewest_open() {
     use backend::schema::tickets;
     use diesel::prelude::*;
 
@@ -252,14 +253,15 @@ async fn a_team_step_assigns_whoever_has_the_fewest_open_tickets() {
     .await;
     assert_eq!(applied.status(), StatusCode::OK);
 
-    // The admin already has an open ticket, so the member gets this one.
+    // The member has no open tickets but can't work them, so the admin gets
+    // this one too.
     let mut conn = db.pool_with_size(1).get().expect("conn");
     let assignee: Option<Uuid> = tickets::table
         .find(target)
         .select(tickets::assignee_uuid)
         .first(&mut conn)
         .expect("ticket");
-    assert_eq!(assignee, Some(a.member_uuid));
+    assert_eq!(assignee, Some(a.admin_uuid));
 
     // Each change reached the sync stream the way a manual edit does, so
     // clients update and the new assignee can be notified.
@@ -279,7 +281,7 @@ async fn a_team_step_assigns_whoever_has_the_fewest_open_tickets() {
         events
             .iter()
             .any(|(kind, data)| kind == "ticket.assignee_changed"
-                && data["assignee_uuid"] == json!(a.member_uuid)
+                && data["assignee_uuid"] == json!(a.admin_uuid)
                 && data.get("previous_assignee_uuid").is_some()),
         "assignment emitted with the previous assignee: {events:?}"
     );

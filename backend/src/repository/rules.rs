@@ -535,6 +535,9 @@ pub enum ApplyError {
     AgentRevoked(Uuid),
     #[error("actor has no workspace context")]
     MissingWorkspace,
+    /// A direct assign step names someone who can't work tickets.
+    #[error("{}", crate::repository::tickets::INELIGIBLE_ASSIGNEE)]
+    IneligibleAssignee(Uuid),
     #[error("database error: {0}")]
     Db(#[from] diesel::result::Error),
 }
@@ -909,16 +912,14 @@ fn execute_reply(
     Ok(Some(comment.id))
 }
 
-/// The team member with the fewest open tickets assigned. Ties go to the
-/// earlier member in the team's order, so an idle team fills up in turn.
-/// Counting is workspace-scoped through the caller's tenant connection.
+/// The team member with the fewest open tickets assigned, among those who can
+/// work tickets. Ties go to the earlier member in the team's order, so an idle
+/// team fills up in turn. Counting is workspace-scoped through the caller's
+/// tenant connection.
 fn least_loaded_member(conn: &mut DbConnection, group_id: i32) -> QueryResult<Option<Uuid>> {
     use crate::models::WorkflowStateCategory;
     use crate::schema::{tickets, workflow_states};
-    let members: Vec<Uuid> = crate::repository::groups::get_users_in_group(conn, group_id)?
-        .into_iter()
-        .map(|u| u.uuid)
-        .collect();
+    let members: Vec<Uuid> = crate::repository::assignees::eligible_members(conn, group_id)?;
     if members.is_empty() {
         return Ok(None);
     }
@@ -950,7 +951,13 @@ fn update_ticket_fields(
     ticket_id: i32,
     update: TicketUpdate,
 ) -> Result<(), ApplyError> {
-    crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, None)?;
+    use crate::repository::tickets::TicketWriteError;
+    crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, None).map_err(
+        |e| match e {
+            TicketWriteError::IneligibleAssignee(user) => ApplyError::IneligibleAssignee(user),
+            TicketWriteError::Database(e) => ApplyError::Db(e),
+        },
+    )?;
     Ok(())
 }
 
@@ -1017,7 +1024,7 @@ fn execute_assign(
                 })? as i32;
             least_loaded_member(conn, group_id)?.ok_or_else(|| ApplyError::ActionFailed {
                 index: action_index,
-                message: "the team has no members to assign".to_string(),
+                message: "the team has no one who can work tickets".to_string(),
             })?
         }
         other => {

@@ -1,4 +1,4 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -184,60 +184,20 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         );
 }
 
-// Helper function to validate assignee role
-fn validate_assignee_role(
-    assignee_uuid: &Uuid,
-    conn: &mut crate::db::DbConnection,
-) -> Result<(), ApiError> {
-    match crate::repository::users::get_user_by_uuid(assignee_uuid, conn) {
-        Ok(user) => {
-            if !crate::repository::user_helpers::user_can_handle_tickets(conn, &user) {
-                Err(ApiError::BadRequest("Invalid assignee: Only technicians and administrators can be assigned to tickets".into()))
-            } else {
-                Ok(())
-            }
-        }
-        Err(_) => Err(ApiError::BadRequest(
-            "User not found: The specified assignee does not exist".into(),
-        )),
-    }
-}
-
-// Helper function to parse and validate assignee from string (for update operations)
-fn parse_and_validate_assignee_string(
+/// The assignee a PATCH names, by uuid or by name. Whether they can be
+/// assigned is the ticket write's call (`repository::assignees`).
+fn resolve_assignee(
     assignee_str: &str,
     conn: &mut crate::db::DbConnection,
 ) -> Result<Uuid, ApiError> {
-    // Try to parse as UUID first
     if let Ok(uuid) = Uuid::parse_str(assignee_str) {
-        // Use the same validation logic but adapted for the update context
-        match crate::repository::users::get_user_by_uuid(&uuid, conn) {
-            Ok(user) => {
-                if !crate::repository::user_helpers::user_can_handle_tickets(conn, &user) {
-                    Err(ApiError::BadRequest("Invalid assignee: Only technicians and administrators can be assigned to tickets".into()))
-                } else {
-                    Ok(uuid)
-                }
-            }
-            Err(_) => Err(ApiError::BadRequest(
-                "User not found: The specified assignee does not exist".into(),
-            )),
-        }
-    } else {
-        // Try to look up by name
-        match crate::repository::users::get_user_by_name(assignee_str, conn) {
-            Ok(user) => {
-                if !crate::repository::user_helpers::user_can_handle_tickets(conn, &user) {
-                    Err(ApiError::BadRequest("Invalid assignee: Only technicians and administrators can be assigned to tickets".into()))
-                } else {
-                    Ok(user.uuid)
-                }
-            }
-            Err(_) => Err(ApiError::BadRequest(
-                "User not found: The specified assignee does not exist".into(),
-            )),
-        }
+        return Ok(uuid);
     }
+    crate::repository::users::get_user_by_name(assignee_str, conn)
+        .map(|user| user.uuid)
+        .map_err(|_| {
+            ApiError::BadRequest("User not found: The specified assignee does not exist".into())
+        })
 }
 
 /// Extract the SSE client ID from the request header (for echo suppression).
@@ -672,15 +632,11 @@ pub async fn create_ticket(
         }
     }
 
-    // Validate assignee role if assignee is set
+    // Only someone who can work tickets here may be assigned one.
     if let Some(assignee_uuid) = new_ticket.assignee_uuid {
-        let validation: Result<Result<(), ApiError>, diesel::result::Error> =
-            tc.run(|conn| Ok(validate_assignee_role(&assignee_uuid, conn)));
-        match validation {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e),
-            Err(_) => return Err(ApiError::Internal("Failed to validate assignee".into())),
-        }
+        tc.run_result(|conn| {
+            crate::repository::assignees::ensure_assignable_here(conn, assignee_uuid)
+        })?;
     }
 
     match tc.run(|conn| repository::create_ticket(conn, new_ticket)) {
@@ -746,8 +702,9 @@ fn refuse_staff_columns(auth: &AuthContext, update: &TicketUpdate) -> Result<(),
 }
 
 /// Save a ticket update made over REST, PATCH or PUT: the checks both routes
-/// share, the write (which emits the matching `ticket.*` sync action and
-/// reindexes the ticket), and what follows it. Returns the row as written.
+/// share, the write (which refuses an assignee who can't work tickets, emits
+/// the matching `ticket.*` sync action and reindexes the ticket), and what
+/// follows it. Returns the row as written.
 fn save_ticket_update(
     tc: &mut TenantConn,
     search: &Arc<SearchService>,
@@ -789,9 +746,9 @@ fn save_ticket_update(
         updated_at: Some(chrono::Utc::now().naive_utc()),
         ..update
     };
-    let updated = tc
-        .run(|conn| repository::update_ticket_partial(conn, ticket_id, update, Some(search)))
-        .map_err(ApiError::Database)?;
+    let updated = tc.run_result(|conn| {
+        repository::update_ticket_partial(conn, ticket_id, update, Some(search))
+    })?;
     crate::services::ticket_updates::after_update(tc, Some(search), &updated, category_changed);
     Ok(updated)
 }
@@ -817,21 +774,6 @@ pub async fn update_ticket(
     if update.changed_columns().next().is_none() {
         record_canonical(&req, "outcome", "unchanged");
         return Ok(HttpResponse::Ok().json(existing));
-    }
-
-    // Refused before the assignee lookup, as in the shared path.
-    refuse_staff_columns(&auth, &update)?;
-    // Checked here until assignment eligibility moves into the shared path.
-    // Only a change of assignee is checked: echoing the current one isn't an
-    // assignment.
-    if let Some(Some(assignee_uuid)) = update.assignee_uuid {
-        let validation: Result<Result<(), ApiError>, diesel::result::Error> =
-            tc.run(|conn| Ok(validate_assignee_role(&assignee_uuid, conn)));
-        match validation {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e),
-            Err(_) => return Err(ApiError::Internal("Failed to validate assignee".into())),
-        }
     }
 
     let saved = save_ticket_update(&mut tc, search_service.get_ref(), &auth, ticket_id, update)?;
@@ -904,7 +846,7 @@ pub async fn import_tickets_from_json_string(
     let mut failed_count = 0;
 
     for ticket_json in tickets_json.tickets.iter() {
-        match tc.run(|conn| repository::import_ticket_from_json(conn, ticket_json)) {
+        match tc.run_result(|conn| repository::import_ticket_from_json(conn, ticket_json)) {
             Ok(_) => imported_count += 1,
             Err(_) => failed_count += 1,
         }
@@ -1085,9 +1027,8 @@ pub async fn update_ticket_partial(
             // Empty string means unassign
             ticket_update.assignee_uuid = Some(None);
         } else {
-            // Parse and validate assignee
             let resolved: Result<Result<Uuid, ApiError>, diesel::result::Error> =
-                tc.run(|conn| Ok(parse_and_validate_assignee_string(assignee_str, conn)));
+                tc.run(|conn| Ok(resolve_assignee(assignee_str, conn)));
             match resolved {
                 Ok(Ok(uuid)) => ticket_update.assignee_uuid = Some(Some(uuid)),
                 Ok(Err(e)) => return Err(e),
@@ -1544,6 +1485,15 @@ pub async fn bulk_tickets(
                     Err(_) => return errors::bad_request("Bad Request: Invalid assignee UUID"),
                 }
             };
+            // Whether someone can be assigned is theirs, not the ticket's, so
+            // the batch is refused whole rather than ticket by ticket.
+            if let Some(assignee) = assignee_uuid {
+                if let Err(e) = tc.run_result(|conn| {
+                    crate::repository::assignees::ensure_assignable_here(conn, assignee)
+                }) {
+                    return ApiError::from(e).error_response();
+                }
+            }
 
             // One connection/transaction for the batch, each id in its own
             // savepoint. update_ticket_partial emits ticket.assignee_changed,
