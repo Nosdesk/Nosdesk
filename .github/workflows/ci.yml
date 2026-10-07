@@ -166,8 +166,8 @@ jobs:
         run: cargo deny check
 
   # Clippy in its own job so its check build runs beside the test build
-  # instead of before it. It warns but does not gate (no -D warnings), so it
-  # is not a required check.
+  # instead of before it. Clippy warns but does not gate (no -D warnings);
+  # the shipped-binaries check below does, and this job is a required check.
   backend-clippy:
     name: Backend clippy
     runs-on: ubuntu-latest
@@ -188,6 +188,13 @@ jobs:
       - name: cargo clippy
         working-directory: backend
         run: cargo clippy --all-targets --all-features
+
+      # The two binaries the Docker image ships, built as the image builds
+      # them: without dev-dependencies. --all-targets lets a dev-dependency
+      # switch on a feature the release build then lacks (#521).
+      - name: cargo check (shipped binaries)
+        working-directory: backend
+        run: cargo check --locked --bin backend --bin nosdesk-cli
 
   frontend:
     name: Frontend (Vue)
