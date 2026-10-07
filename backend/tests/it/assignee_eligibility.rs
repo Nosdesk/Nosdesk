@@ -364,6 +364,46 @@ async fn the_rest_routes_refuse_an_assignee_who_cant_work_tickets() {
     assert_eq!(fx.assignee_of(ticket.id), None);
 }
 
+/// Only a change of assignee is checked: a ticket whose assignee has since
+/// become a requester can still be retitled and moved.
+#[actix_web::test]
+async fn a_ticket_whose_assignee_was_demoted_can_still_be_edited() {
+    let fx = Fixture::new();
+    let ticket = fx.ticket("Printer jammed", Some(fx.ws.member_uuid));
+    let open = ticket.workflow_state_id;
+    let done = fx
+        .run(|c| workflow_states::first_in_category(c, WorkflowStateCategory::Done))
+        .id;
+
+    let (status, body) = fx
+        .call(
+            http_test::TestRequest::patch()
+                .uri(&format!("/api/tickets/{}", ticket.id))
+                .set_json(json!({ "title": "Printer still jammed", "workflow_state_id": done })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "PATCH: {body}");
+
+    let (status, body) = fx
+        .call(
+            http_test::TestRequest::put()
+                .uri(&format!("/api/tickets/{}", ticket.id))
+                .set_json(json!({
+                    "title": "Printer jammed again",
+                    "workflow_state_id": open,
+                    "priority": "medium",
+                    "assignee_uuid": fx.ws.member_uuid,
+                })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "PUT echoing the assignee: {body}");
+
+    let after: Ticket = fx.run(|c| ticket_repo::get_ticket_by_id(c, ticket.id));
+    assert_eq!(after.title, "Printer jammed again");
+    assert_eq!(after.workflow_state_id, open);
+    assert_eq!(after.assignee_uuid, Some(fx.ws.member_uuid));
+}
+
 /// A new occurrence is a future ticket, not history: it doesn't carry an
 /// assignee who can no longer work tickets.
 #[test]

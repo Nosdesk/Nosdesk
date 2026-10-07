@@ -538,6 +538,9 @@ pub enum ApplyError {
     /// A direct assign step names someone who can't work tickets.
     #[error("{}", crate::repository::tickets::INELIGIBLE_ASSIGNEE)]
     IneligibleAssignee(Uuid),
+    /// A team assign step's team has no one who can work tickets.
+    #[error("Step {index}: the team has no one who can work tickets")]
+    NoAssignableTeamMember { index: usize },
     #[error("database error: {0}")]
     Db(#[from] diesel::result::Error),
 }
@@ -1022,9 +1025,8 @@ fn execute_assign(
                     index: action_index,
                     message: "assign(method=group) missing group_id".to_string(),
                 })? as i32;
-            least_loaded_member(conn, group_id)?.ok_or_else(|| ApplyError::ActionFailed {
+            least_loaded_member(conn, group_id)?.ok_or(ApplyError::NoAssignableTeamMember {
                 index: action_index,
-                message: "the team has no one who can work tickets".to_string(),
             })?
         }
         other => {

@@ -391,6 +391,62 @@ fn push_takes_only_the_ticket_columns_a_client_owns() {
     assert!(closed_at(&mut conn).is_none(), "reopening clears it");
 }
 
+/// Only a change of assignee is checked: a ticket whose assignee has since
+/// become a requester can still be retitled and moved through push.
+#[test]
+fn push_edits_a_ticket_whose_assignee_was_demoted() {
+    use super::push::PushTransaction;
+    use crate::models::WorkflowStateCategory;
+    use crate::schema::{tickets, workflow_states};
+
+    let mut conn = setup_test_connection();
+    let admin = TestFixtures::create_user(&mut conn, "sync_push_demoted_admin", "admin");
+    let former = TestFixtures::create_user(&mut conn, "sync_push_demoted_agent", "user");
+    let ticket = TestFixtures::create_ticket(&mut conn, "Printer jammed", Some(admin.uuid), None);
+    diesel::update(tickets::table.find(ticket.id))
+        .set(tickets::assignee_uuid.eq(former.uuid))
+        .execute(&mut conn)
+        .expect("assigned before they were demoted");
+    let done: i32 = workflow_states::table
+        .filter(workflow_states::workspace_id.eq(1))
+        .filter(workflow_states::category.eq(WorkflowStateCategory::Done))
+        .select(workflow_states::id)
+        .first(&mut conn)
+        .expect("a done state");
+
+    let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
+    for patch in [
+        json!({ "title": "Printer still jammed" }),
+        json!({ "workflow_state_id": done }),
+        json!({ "assignee_uuid": former.uuid.to_string(), "title": "Printer fixed" }),
+    ] {
+        let tx = PushTransaction {
+            tx_id: Uuid::now_v7().to_string(),
+            aggregate: SyncAggregate::Ticket,
+            model_id: ticket.id.to_string(),
+            op: SyncOp::Update,
+            patch: patch.clone(),
+            base_sync_id: None,
+        };
+        assert!(
+            super::push::apply_transaction_for_test(&mut conn, &tx, &actor).is_ok(),
+            "{patch}"
+        );
+    }
+    let (title, state, assignee): (String, i32, Option<Uuid>) = tickets::table
+        .find(ticket.id)
+        .select((
+            tickets::title,
+            tickets::workflow_state_id,
+            tickets::assignee_uuid,
+        ))
+        .first(&mut conn)
+        .expect("reload ticket");
+    assert_eq!(title, "Printer fixed");
+    assert_eq!(state, done);
+    assert_eq!(assignee, Some(former.uuid));
+}
+
 /// Closing a recurring ticket through push creates its next occurrence, as the
 /// REST PATCH does.
 #[test]

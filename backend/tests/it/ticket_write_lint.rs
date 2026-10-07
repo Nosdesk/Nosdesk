@@ -4,13 +4,25 @@
 //! deleted: `update_ticket_partial` checks the assignee, records the event
 //! clients, notifications and webhooks read, and keeps the SLA pill current.
 //! A raw write anywhere else skips all of that, which is how a team step came
-//! to assign tickets to requesters. This finds Diesel writes to `tickets` in
-//! every spelling (`tickets::table`, `schema::tickets::table`,
-//! `crate::schema::tickets::table`, across line breaks) and SQL that writes
-//! the table, outside the repository.
+//! to assign tickets to requesters. This finds, outside the repository:
+//!
+//! - Diesel writes whose target is a path ending in `tickets` (`tickets::table`,
+//!   `t::tickets` through a `dsl as t` alias, `super::schema::tickets::table`,
+//!   `crate::schema::tickets::table`), across line breaks;
+//! - writes through a reference to a ticket (`update(&ticket)`) and through a
+//!   query or row bound from `tickets` first (`let q = tickets::table...;`
+//!   then `delete(q)`);
+//! - SQL that inserts into, updates or deletes from `tickets`, in any case,
+//!   with `ONLY`, a schema or an alias (`UPDATE tickets t SET`).
 //!
 //! Test code doesn't count: `#[cfg(test)]` items and modules, including a
 //! module declared `#[cfg(test)] mod name;` in its own file.
+//!
+//! Out of its reach: the restores that copy every table generically, with the
+//! table name in a variable (`services/workspace_import.rs` and
+//! `services/backup.rs` build `INSERT INTO "{table}"`). They put back rows as
+//! they were saved, history rather than edits, so the ticket write path's
+//! checks and events don't apply to them.
 //!
 //! ## Escape hatch
 //!
@@ -124,6 +136,15 @@ fn the_lint_sees_every_spelling_and_skips_test_code() {
         r#"diesel::sql_query("UPDATE tickets SET title = $1")"#,
         r#"diesel::sql_query("insert into public.tickets (title) values ($1)")"#,
         r#"sql_query("DELETE FROM tickets WHERE id = $1")"#,
+        "diesel::update(t::tickets.find(id))",
+        "diesel::update(super::schema::tickets::table.find(id))",
+        "diesel::update(&ticket).set(x)",
+        "diesel::delete(&self.ticket)",
+        "let q = tickets::table.filter(f);\n    diesel::delete(q).execute(c)",
+        "let mut doomed: Q = t::tickets.filter(f).into_boxed();\n    diesel::update(doomed)",
+        r#"sql_query("UPDATE tickets t SET title = $1")"#,
+        r#"sql_query("UPDATE ONLY tickets SET title = $1")"#,
+        r#"sql_query("update public.tickets as t set title = $1")"#,
     ];
     for code in caught {
         assert_eq!(ticket_writes(code).len(), 1, "should catch: {code}");
@@ -132,6 +153,9 @@ fn the_lint_sees_every_spelling_and_skips_test_code() {
         "tickets::table.find(id).first(conn)",
         "diesel::update(ticket_assets::table)",
         "diesel::update(linked_tickets::table)",
+        "diesel::update(t::ticket_assets.find(id))",
+        "diesel::update(&ticket_asset)",
+        "let q = ticket_assets::table.filter(f);\n    diesel::delete(q)",
         "// diesel::update(tickets::table) in a comment",
         "/* UPDATE tickets SET x */ let a = 1;",
         r#"warn!("failed to update tickets for {id}")"#,
@@ -151,16 +175,33 @@ fn ticket_writes(src: &str) -> Vec<(usize, String)> {
     let code = mask(src, true);
     let sql = mask(src, false);
     let skipped = test_regions(&code);
-    let diesel = Regex::new(
-        r"\b(insert_into|update|delete)\s*\(\s*(?:(?:crate|backend)\s*::\s*)?(?:schema\s*::\s*)?tickets\b",
-    )
-    .expect("diesel write pattern");
+    // A write whose target is a path ending in `tickets`.
+    let diesel = Regex::new(r"\b(?:insert_into|update|delete)\s*\(\s*(?:\w+\s*::\s*)*tickets\b")
+        .expect("diesel write pattern");
+    // A write through a reference to a ticket row.
+    let by_ref = Regex::new(r"\b(?:update|delete)\s*\(\s*&\s*(?:\w+\s*\.\s*)*\w*ticket\b")
+        .expect("reference write pattern");
+    // A query or row bound from `tickets`, written through later.
+    let bound = Regex::new(r"\blet\s+(?:mut\s+)?(\w+)\s*(?::[^=;]*)?=\s*(?:\w+\s*::\s*)*tickets\b")
+        .expect("binding pattern");
+    let through: Vec<Regex> = bound
+        .captures_iter(&code)
+        .map(|caps| {
+            Regex::new(&format!(
+                r"\b(?:update|delete)\s*\(\s*&?\s*{}\b",
+                regex::escape(&caps[1])
+            ))
+            .expect("bound write pattern")
+        })
+        .collect();
     let raw = Regex::new(
-        r"(?i)\b(?:update\s+(?:public\.)?tickets\s+set|insert\s+into\s+(?:public\.)?tickets\b|delete\s+from\s+(?:public\.)?tickets\b)",
+        r#"(?i)\b(?:update\s+(?:only\s+)?(?:public\.)?"?tickets"?(?:\s+(?:as\s+)?\w+)?\s+set|insert\s+into\s+(?:public\.)?"?tickets"?\b|delete\s+from\s+(?:only\s+)?(?:public\.)?"?tickets"?\b)"#,
     )
     .expect("sql write pattern");
     let mut found: Vec<(usize, String)> = diesel
         .find_iter(&code)
+        .chain(by_ref.find_iter(&code))
+        .chain(through.iter().flat_map(|re| re.find_iter(&code)))
         .chain(raw.find_iter(&sql))
         .filter(|m| !skipped.iter().any(|r| r.contains(&m.start())))
         .map(|m| {
