@@ -281,7 +281,6 @@ onMounted(() => {
               :label="state.is_default ? $t('admin-workflow-states-archive-disabled-title') : $t('admin-workflow-states-archive-title')"
               icon="archive"
               size="xs"
-              variant="ghost-danger"
               :disabled="state.is_default"
               @click="requestArchive(state)"
             />
