@@ -334,7 +334,7 @@ fn apply_ticket(
                 }
             }
             let has_scalar = !obj.is_empty();
-            let mut patch = client_columns(decode_ticket_patch(&Value::Object(obj))?)?;
+            let patch = client_columns(decode_ticket_patch(&Value::Object(obj))?)?;
             let actor_uuid = actor.uuid;
             if let Some(state_id) = patch.workflow_state_id {
                 if crate::repository::ticket_approvals::blocks_resolution(conn, ticket_id, state_id)
@@ -345,17 +345,13 @@ fn apply_ticket(
                         crate::repository::ticket_approvals::WAITING_MESSAGE.into(),
                     ));
                 }
-                // closed_at follows the state, as on the REST PATCH.
-                let category = crate::repository::workflow_states::category_of(conn, state_id)
+                // One of this workspace's states. closed_at and closed_by
+                // follow it in the database (ticket_closed_follows_state).
+                crate::repository::workflow_states::category_of(conn, state_id)
                     .map_err(reject_diesel)?
                     .ok_or_else(|| {
                         TxReject("invalid_reference", "unknown workflow state".into())
                     })?;
-                patch.closed_at = Some(
-                    category
-                        .closes_ticket()
-                        .then(|| chrono::Utc::now().naive_utc()),
-                );
             }
             if let Some(Some(assignee)) = patch.assignee_uuid {
                 if !assignable(conn, assignee) {

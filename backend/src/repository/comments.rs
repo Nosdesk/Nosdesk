@@ -180,7 +180,6 @@ fn reopen_on_requester_reply(
         parent.id,
         crate::models::TicketUpdate {
             workflow_state_id: Some(open.id),
-            closed_at: Some(None),
             updated_at: Some(chrono::Utc::now().naive_utc()),
             ..Default::default()
         },

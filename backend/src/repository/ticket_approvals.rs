@@ -426,7 +426,6 @@ fn conclude(
                 ticket.id,
                 TicketUpdate {
                     workflow_state_id: Some(cancelled.id),
-                    closed_at: Some(Some(now)),
                     updated_at: Some(now),
                     ..Default::default()
                 },
