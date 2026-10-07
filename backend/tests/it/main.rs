@@ -98,6 +98,7 @@ mod user_contact_gate;
 mod webhook_delivery_in_workspace;
 mod webhook_outbox_durability;
 mod workflow_states_per_workspace;
+mod workspace_branding;
 mod workspace_file_purge;
 mod workspace_fk_cascade_lint;
 mod workspace_fk_scope_lint;

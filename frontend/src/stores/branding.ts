@@ -118,39 +118,70 @@ export const useBrandingStore = defineStore('branding', () => {
    */
   const hasCustomFavicon = computed(() => !!config.value.favicon_url)
 
+  /** Show `brandingConfig`, cache it for the next visit and re-apply the theme. */
+  function applyLoaded(brandingConfig: BrandingConfig): void {
+    config.value = brandingConfig
+    isLoaded.value = true
+    saveBrandingCache(brandingConfig)
+    applyBrandingToDocument()
+    reapplyTheme()
+    logger.debug('Branding loaded:', brandingConfig)
+  }
+
+  /** Re-apply the theme so it picks up the branding colour. Imported lazily to
+   *  avoid a circular dependency. */
+  function reapplyTheme(): void {
+    import('@/stores/theme').then(({ useThemeStore }) => {
+      const themeStore = useThemeStore()
+      themeStore.setTheme(themeStore.currentTheme)
+    })
+  }
+
   /**
-   * Load branding configuration from the backend
+   * Load branding from the public route, which resolves the workspace from the
+   * Host: self-hosted, host mode, the portal and sign-in pages. While a
+   * workspace is selected on the single-origin agent app it does nothing, since
+   * the Host names no workspace there; `loadWorkspaceBranding` owns it, and a
+   * result that lands after a workspace was selected is dropped.
    */
   async function loadBranding(): Promise<void> {
-    if (isLoading.value) return
+    if (isLoading.value || activeWorkspaceSlugRef.value) return
 
     try {
       isLoading.value = true
       const brandingConfig = await brandingService.getBrandingConfig()
-      config.value = brandingConfig
-      isLoaded.value = true
-
-      // Cache branding to localStorage for instant load on next visit
-      saveBrandingCache(brandingConfig)
-
-      // Apply branding to the document
-      applyBrandingToDocument()
-
-      // Re-apply theme to pick up branding color changes
-      // Import dynamically to avoid circular dependency
-      import('@/stores/theme').then(({ useThemeStore }) => {
-        const themeStore = useThemeStore()
-        // Trigger theme reapplication by calling setTheme with current theme
-        const currentTheme = themeStore.currentTheme
-        themeStore.setTheme(currentTheme)
-      })
-
-      logger.debug('Branding loaded:', brandingConfig)
+      if (activeWorkspaceSlugRef.value) return
+      applyLoaded(brandingConfig)
     } catch (error) {
       logger.error('Failed to load branding:', error)
       // Keep defaults/cached values on error
     } finally {
       isLoading.value = false
+    }
+  }
+
+  /**
+   * Load the selected workspace's branding through the authenticated route.
+   * Only for a signed-in member with a workspace selected (the workspace guard
+   * calls it on entering one): a 401 there would end the session. Paints the
+   * workspace's cached branding first, so a reload or a switch doesn't flash
+   * the defaults, and drops a result for a workspace no longer selected.
+   */
+  async function loadWorkspaceBranding(): Promise<void> {
+    const slug = activeWorkspaceSlugRef.value
+    if (!slug) return loadBranding()
+
+    const cached = loadCachedBranding()
+    if (cached) {
+      config.value = cached
+      reapplyTheme()
+    }
+    try {
+      const brandingConfig = await brandingService.getWorkspaceBranding()
+      if (activeWorkspaceSlugRef.value !== slug) return
+      applyLoaded(brandingConfig)
+    } catch (error) {
+      logger.error('Failed to load workspace branding:', error)
     }
   }
 
@@ -225,6 +256,7 @@ export const useBrandingStore = defineStore('branding', () => {
     // Actions
     getLogoUrl,
     loadBranding,
+    loadWorkspaceBranding,
     updateConfig,
     getPageTitle,
     resetBranding,
