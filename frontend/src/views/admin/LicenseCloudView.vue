@@ -141,6 +141,9 @@ async function install() {
     apply(await licenseService.install(pastedKey.value.trim()));
     pastedKey.value = '';
     showPaste.value = false;
+    // A key is in: what connecting said no longer applies.
+    connectError.value = '';
+    connectNotAvailable.value = false;
     notice.value = t('admin-license-installed');
   } catch (e) {
     const key = INSTALL_ERRORS[errorCode(e) ?? ''];
@@ -442,7 +445,7 @@ const relayLastSuccess = computed(() => {
           </div>
 
           <AlertMessage v-if="connectError" type="error" :message="connectError" />
-          <Callout v-if="connectNotAvailable" severity="info">
+          <Callout v-if="connectNotAvailable && !isLicensed && !details && !envManaged" severity="info">
             <p class="px-4 py-3 text-sm text-secondary">{{ $t('admin-license-connect-not-available') }}</p>
           </Callout>
 

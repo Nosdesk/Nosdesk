@@ -29,8 +29,9 @@ const overview: LicenseOverview = {
 }
 
 const startLink = vi.hoisted(() => vi.fn())
+const install = vi.hoisted(() => vi.fn())
 vi.mock('@nosdesk/core/services/licenseService', () => ({
-  default: { getOverview: async () => overview, startLink },
+  default: { getOverview: async () => overview, startLink, install },
 }))
 vi.mock('@nosdesk/core/services/instanceConfig', () => ({ getControlPlaneUrl: () => null }))
 
@@ -72,6 +73,40 @@ describe('connecting to Nosdesk Cloud', () => {
     const page = await connect()
 
     expect(page.text()).toContain('admin-license-connect-error-unreachable')
+    expect(page.text()).not.toContain('admin-license-connect-not-available')
+  })
+})
+
+describe('pasting a key after connecting was not available', () => {
+  it('drops the note once the key is installed', async () => {
+    startLink.mockRejectedValueOnce(cloudError('cloud_not_available'))
+    install.mockResolvedValueOnce({
+      ...overview,
+      edition: 'enterprise',
+      license: {
+        ...overview.license,
+        source: 'pasted',
+        installed_at: '2026-10-08T00:00:00Z',
+        details: {
+          customer_id: 'cus_1',
+          licensee: 'Acme IT',
+          license_id: 'lic_1',
+          max_workspaces: 5,
+          expires_at: Math.floor(Date.now() / 1000) + 365 * 86_400,
+          features: [],
+        },
+      },
+    })
+    const page = await connect()
+    expect(page.text()).toContain('admin-license-connect-not-available')
+
+    const paste = page.findAll('button').find((b) => b.text() === 'admin-license-paste-instead')
+    await paste!.trigger('click')
+    await page.find('textarea').setValue('nosdesk-license-key')
+    await page.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(install).toHaveBeenCalledWith('nosdesk-license-key')
     expect(page.text()).not.toContain('admin-license-connect-not-available')
   })
 })

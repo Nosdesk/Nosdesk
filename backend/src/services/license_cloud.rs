@@ -162,7 +162,13 @@ pub async fn start_link(
         }),
     )
     .await?;
-    match res.status().as_u16() {
+    let status = res.status().as_u16();
+    if status != 200 {
+        // Lets an operator tell a control plane without the route (404) from
+        // a NOSDESK_RELAY_URL that points at something else.
+        tracing::info!(status, "license cloud: link start not accepted");
+    }
+    match status {
         200 => {}
         // No such route: a control plane from before connecting existed.
         404 => return Err(CloudError::NotAvailable),
