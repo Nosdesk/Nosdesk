@@ -210,16 +210,8 @@ fn migrate_on_boot_value(raw: Option<String>) -> bool {
 /// elevated pool open for the process lifetime keeps the privileged
 /// credentials in use only while DDL is actually running.
 pub fn privileged_ddl_pool() -> Option<Pool> {
-    let url = env::var("MIGRATION_DATABASE_URL").ok()?;
-    let url = url.trim().to_string();
-    if url.is_empty() {
-        return None;
-    }
-    match r2d2::Pool::builder()
-        .max_size(1)
-        .build(ResettingManager::new(url))
-    {
-        Ok(pool) => Some(pool),
+    match migration_role_pool() {
+        Ok(pool) => pool,
         Err(e) => {
             warn!(
                 error = %e,
@@ -229,6 +221,36 @@ pub fn privileged_ddl_pool() -> Option<Pool> {
             None
         }
     }
+}
+
+/// Like [`privileged_ddl_pool`], without the fallback: `Ok(None)` when
+/// `MIGRATION_DATABASE_URL` is unset, an error when it is set and no
+/// connection opens within `DB_CONNECTION_TIMEOUT`. For the instance restore,
+/// where running on `DATABASE_URL` instead would only fail later with a
+/// permission error.
+pub fn migration_role_pool() -> Result<Option<Pool>, r2d2::PoolError> {
+    let Some(url) = env::var("MIGRATION_DATABASE_URL")
+        .ok()
+        .map(|u| u.trim().to_string())
+        .filter(|u| !u.is_empty())
+    else {
+        return Ok(None);
+    };
+    r2d2::Pool::builder()
+        .max_size(1)
+        .connection_timeout(Duration::from_secs(connection_timeout_secs()))
+        .build(ResettingManager::new(url))
+        .map(Some)
+}
+
+/// How long a checkout (or a pool's first connect) waits before erroring:
+/// `DB_CONNECTION_TIMEOUT`, default r2d2's 30s, clamped to a sane band.
+fn connection_timeout_secs() -> u64 {
+    env::var("DB_CONNECTION_TIMEOUT")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(30)
+        .clamp(1, 120)
 }
 
 /// Refuse to start if the database has applied migrations this binary does not
@@ -528,11 +550,7 @@ pub fn establish_connection_pool() -> Pool {
     );
     // How long a checkout waits for a free connection before erroring (pool
     // exhausted). Defaults to r2d2's 30s; clamped to a sane band.
-    let connection_timeout = env::var("DB_CONNECTION_TIMEOUT")
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .unwrap_or(30)
-        .clamp(1, 120);
+    let connection_timeout = connection_timeout_secs();
 
     // Dedicated (non-pool) LISTEN connections each machine also holds, so
     // the logged budget reflects the true peak. Keep in sync with the

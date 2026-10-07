@@ -556,7 +556,14 @@ pub async fn execute_restore(
                     },
                 )
             });
-            return Err(ApiError::Internal(format!("Database restore failed: {e}")));
+            // Fixed text for a connection failure: its cause, which names
+            // the database host and user, is in the log.
+            let message = format!("Database restore failed: {e}");
+            return Err(if e.is_connection() {
+                ApiError::ServiceUnavailable(message)
+            } else {
+                ApiError::Internal(message)
+            });
         }
     };
 
