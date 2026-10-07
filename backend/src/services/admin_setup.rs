@@ -223,8 +223,8 @@ pub fn create_initial_admin(
 ///
 /// Optional:
 ///   - `INITIAL_ADMIN_NAME` — display name. Defaults to the
-///     email's local-part when unset (operator can change it
-///     from the UI after login).
+///     email's local part, without a `+tag`, when unset (operator
+///     can change it from the UI after login).
 pub fn seed_from_env(conn: &mut DbConnection) -> Result<bool, EnvSeedError> {
     let email = match std::env::var("INITIAL_ADMIN_EMAIL") {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
@@ -249,14 +249,8 @@ pub fn seed_from_env(conn: &mut DbConnection) -> Result<bool, EnvSeedError> {
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| {
-            email
-                .split('@')
-                .next()
-                .filter(|s| !s.is_empty())
-                .unwrap_or("admin")
-                .to_string()
-        });
+        .or_else(|| crate::utils::name_from_email(&email))
+        .unwrap_or_else(|| "admin".to_string());
 
     match create_initial_admin(
         conn,

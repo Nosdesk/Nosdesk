@@ -306,16 +306,12 @@ pub fn find_or_create_projected_user(
             }
         }
         None => {
-            let display_name = name.clone().unwrap_or_else(|| {
-                // Fallback for callers that didn't send a name. Email
-                // local-part is a reasonable best-guess; the operator can
-                // rename later.
-                email
-                    .split('@')
-                    .next()
-                    .unwrap_or(email.as_str())
-                    .to_string()
-            });
+            // Fallback for callers that didn't send a name: a best guess
+            // from the address, which the operator can rename later.
+            let display_name = name
+                .clone()
+                .or_else(|| crate::utils::name_from_email(&email))
+                .unwrap_or_else(|| email.clone());
             // A brand-new OIDC user has no platform privileges; their
             // workspace role comes from the projection's requested `role`,
             // set explicitly below.

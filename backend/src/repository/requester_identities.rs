@@ -101,7 +101,8 @@ pub fn resolve(
                 .map(str::trim)
                 .filter(|n| !n.is_empty())
                 .map(str::to_string)
-                .unwrap_or_else(|| email.split('@').next().unwrap_or(email).to_string());
+                .or_else(|| crate::utils::name_from_email(email))
+                .unwrap_or_else(|| email.to_string());
             crate::repository::user_helpers::find_or_provision_requester(email, &name, conn, None)?
                 .uuid
         }

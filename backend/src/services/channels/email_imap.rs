@@ -1266,20 +1266,21 @@ fn header_all(headers: &[mailparse::MailHeader], name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Split `Name <email@host>` into (name, email). If the input is just
-/// an address, name is the localpart.
+/// Split `Name <email@host>` into (name, email). Without a name, the name
+/// comes from the address (its local part, without a `+tag`).
 fn parse_mailbox(raw: &str) -> (String, String) {
     let trimmed = raw.trim();
-    if let (Some(lt), Some(gt)) = (trimmed.rfind('<'), trimmed.rfind('>')) {
-        if lt < gt {
-            let email = trimmed[lt + 1..gt].trim().to_string();
-            let name = trimmed[..lt].trim().trim_matches('"').trim().to_string();
-            let display = if name.is_empty() { email.clone() } else { name };
-            return (display, email);
-        }
+    let (name, email) = match (trimmed.rfind('<'), trimmed.rfind('>')) {
+        (Some(lt), Some(gt)) if lt < gt => (
+            trimmed[..lt].trim().trim_matches('"').trim().to_string(),
+            trimmed[lt + 1..gt].trim().to_string(),
+        ),
+        _ => (String::new(), trimmed.to_string()),
+    };
+    if !name.is_empty() {
+        return (name, email);
     }
-    let email = trimmed.to_string();
-    let name = email.split('@').next().unwrap_or(&email).to_string();
+    let name = crate::utils::name_from_email(&email).unwrap_or_else(|| email.clone());
     (name, email)
 }
 
@@ -1793,6 +1794,19 @@ mod tests {
         let (name, email) = parse_mailbox("bob@example.com");
         assert_eq!(name, "bob");
         assert_eq!(email, "bob@example.com");
+    }
+
+    #[test]
+    fn parse_mailbox_without_a_name_drops_the_tag() {
+        for raw in [
+            "bob+news@example.com",
+            "<bob+news@example.com>",
+            "\"\" <bob+news@example.com>",
+        ] {
+            let (name, email) = parse_mailbox(raw);
+            assert_eq!(name, "bob", "{raw}");
+            assert_eq!(email, "bob+news@example.com", "{raw}");
+        }
     }
 
     // ---------- tokenize_message_ids ----------

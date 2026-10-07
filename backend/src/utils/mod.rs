@@ -122,6 +122,16 @@ pub fn normalize_email(email: &str) -> String {
     email.trim().to_lowercase()
 }
 
+/// The name to give someone known only by their address: the part before the
+/// `@`, without a `+tag`, so `jo.smith+billing@example.com` is `jo.smith`. A
+/// local part that is all tag keeps it. `None` when there is no local part.
+pub fn name_from_email(email: &str) -> Option<String> {
+    let local = email.trim().split('@').next().unwrap_or_default();
+    let untagged = local.split('+').next().unwrap_or_default();
+    let name = if untagged.is_empty() { local } else { untagged };
+    (!name.is_empty()).then(|| name.to_string())
+}
+
 pub use image::*;
 pub use user::*;
 
@@ -138,6 +148,24 @@ mod tests {
     #[test]
     fn parse_uuid_invalid() {
         assert!(parse_uuid("not-a-uuid").is_err());
+    }
+
+    #[test]
+    fn name_from_email_drops_the_tag() {
+        let name = |e: &str| name_from_email(e);
+        assert_eq!(name("bob@example.com").as_deref(), Some("bob"));
+        assert_eq!(
+            name(" jo.smith+billing@example.com ").as_deref(),
+            Some("jo.smith")
+        );
+        assert_eq!(
+            name("nosbot+req1005@example.com").as_deref(),
+            Some("nosbot")
+        );
+        assert_eq!(name("a+b+c@example.com").as_deref(), Some("a"));
+        assert_eq!(name("+news@example.com").as_deref(), Some("+news"));
+        assert_eq!(name("@example.com"), None);
+        assert_eq!(name(""), None);
     }
 
     #[test]
