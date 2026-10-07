@@ -502,12 +502,26 @@ pub fn execute_merge(
             },
         )?;
 
-        for source in &sources {
+        // Re-read the now-merged sources: their sync rows and the response
+        // both carry the merged state.
+        let mut merged_sources = Vec::with_capacity(source_ids.len());
+        for &sid in &source_ids {
+            merged_sources.push(load_ticket(conn, sid)?);
+        }
+        for source in &merged_sources {
             let source_groups = groups::for_ticket(conn, source)?;
-            // Emit a partial op-U carrying the merge fields (and an `id`, so the
-            // pool applies it on the source ticket row) — drives the
-            // merged-into banner + read-only composer pool-native. The values
-            // are the ones we just wrote to `ticket_merges`, so no re-read.
+            // The whole row moves the source out of every client's open
+            // lists and kanban column; the merge fields drive the merged-into
+            // banner and read-only composer. No `previous_*` keys, so the
+            // merge raises no status-change or assignment notification; the
+            // requester hears of it through the merge notice.
+            let mut data = crate::repository::tickets::ticket_sync_row(conn, source)?;
+            if let Some(obj) = data.as_object_mut() {
+                obj.insert("merged_into_ticket_id".into(), json!(target_id));
+                obj.insert("merged_at".into(), json!(merged_at));
+                obj.insert("merged_by_user_uuid".into(), json!(actor.uuid));
+                obj.insert("actor_uuid".into(), json!(actor.uuid));
+            }
             emit::record(
                 conn,
                 SyncEmit {
@@ -515,25 +529,14 @@ pub fn execute_merge(
                     aggregate_id: source.id.to_string(),
                     op: SyncOp::Update,
                     event_type: "ticket.merged_into",
-                    data: json!({
-                        "id": source.id,
-                        "merged_into_ticket_id": target_id,
-                        "merged_at": merged_at,
-                        "merged_by_user_uuid": actor.uuid,
-                        "actor_uuid": actor.uuid,
-                    }),
+                    data,
                     groups: source_groups,
                     causation_id: None,
                 },
             )?;
         }
 
-        // Re-read the now-merged rows for the response DTO.
         let destination = load_ticket(conn, target_id)?;
-        let mut merged_sources = Vec::with_capacity(source_ids.len());
-        for &sid in &source_ids {
-            merged_sources.push(load_ticket(conn, sid)?);
-        }
 
         Ok(MergeOutcome {
             merge_event_id,
@@ -1085,6 +1088,123 @@ mod tests {
             .iter()
             .all(|id| merges.get(id).map(|r| r.merged_into_ticket_id) == Some(dest.id)));
         assert_eq!(count_sync(&mut conn, "ticket.merged_into", s2.id), 1);
+    }
+
+    /// The one `sync_actions` row of `event_type` for `aggregate_id`, as the
+    /// notification outbox hands it to the deriver.
+    fn sync_row(
+        conn: &mut DbConnection,
+        event_type: &str,
+        aggregate_id: i32,
+    ) -> crate::services::notifications::deriver::SyncActionRow {
+        use crate::schema::sync_actions::dsl as s;
+        let (sync_id, workspace_id, event_type, data, actor_uuid, actor_kind, occurred_at) =
+            s::sync_actions
+                .filter(s::event_type.eq(event_type))
+                .filter(s::aggregate_id.eq(aggregate_id.to_string()))
+                .select((
+                    s::sync_id,
+                    s::workspace_id,
+                    s::event_type,
+                    s::data,
+                    s::actor_uuid,
+                    s::actor_kind,
+                    s::occurred_at,
+                ))
+                .first::<(
+                    i64,
+                    i32,
+                    String,
+                    serde_json::Value,
+                    Option<Uuid>,
+                    String,
+                    chrono::DateTime<chrono::Utc>,
+                )>(conn)
+                .unwrap();
+        crate::services::notifications::deriver::SyncActionRow {
+            sync_id,
+            workspace_id,
+            event_type,
+            data,
+            actor_uuid,
+            actor_kind,
+            occurred_at,
+        }
+    }
+
+    #[test]
+    fn merged_into_carries_each_sources_merged_state() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merge_state", "user");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let s1 = TestFixtures::create_ticket(&mut conn, "S1", Some(user.uuid), None);
+        let s2 = TestFixtures::create_ticket(&mut conn, "S2", Some(user.uuid), None);
+
+        let outcome = execute_merge(
+            &mut conn,
+            input(dest.id, vec![s1.id, s2.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        // Every client moves each source out of its open lists and kanban
+        // column from this row alone: the pool shallow-merges it, and the
+        // board groups by the nested state's category.
+        for merged in &outcome.merged_sources {
+            let data = sync_row(&mut conn, "ticket.merged_into", merged.id).data;
+            assert_eq!(data["workflow_state"]["category"], "merged", "{data}");
+            assert_eq!(data["workflow_state_id"], merged.workflow_state_id);
+            assert_eq!(data["merged_into_ticket_id"], dest.id);
+            assert_eq!(data["title"], merged.title);
+            assert_eq!(data["requester_uuid"], serde_json::json!(user.uuid));
+        }
+    }
+
+    #[test]
+    fn merge_rows_derive_no_notifications() {
+        let mut conn = setup_test_connection();
+        let agent = TestFixtures::create_user(&mut conn, "merge_agent", "user");
+        let requester = TestFixtures::create_user(&mut conn, "merge_requester", "user");
+        let assignee = TestFixtures::create_user(&mut conn, "merge_assignee", "user");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(requester.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(requester.uuid), None);
+        {
+            use crate::schema::tickets::dsl as t;
+            diesel::update(t::tickets.find(src.id))
+                .set(t::assignee_uuid.eq(Some(assignee.uuid)))
+                .execute(&mut conn)
+                .unwrap();
+        }
+
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(agent.uuid),
+        )
+        .unwrap();
+
+        // The merge notice email is the customer's only word of a merge: the
+        // source's assignee isn't newly assigned and the requester's status
+        // didn't change by anyone's edit, so the ticket rows derive nothing.
+        for row in [
+            sync_row(&mut conn, "ticket.merged_into", src.id),
+            sync_row(&mut conn, "ticket.merged", dest.id),
+        ] {
+            let intents = crate::services::notifications::deriver::derive(&row);
+            assert!(
+                intents.is_empty(),
+                "{}: {intents:?} from {}",
+                row.event_type,
+                row.data
+            );
+            use crate::schema::notification_outbox::dsl as o;
+            let enqueued: i64 = o::notification_outbox
+                .filter(o::sync_id.eq(row.sync_id))
+                .count()
+                .get_result(&mut conn)
+                .unwrap();
+            assert_eq!(enqueued, 0, "{} enqueued for notifications", row.event_type);
+        }
     }
 
     #[test]

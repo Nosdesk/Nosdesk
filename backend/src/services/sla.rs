@@ -491,20 +491,19 @@ pub fn compute_pill(
     })
 }
 
-/// Load the SLA context for one ticket and return its pill payload.
-///
-/// The bootstrap path loads policies / calendars / holidays once for
-/// the whole workspace and reuses them across every ticket. Mutation
-/// handlers (status change, priority change, etc.) only need to
-/// recompute one ticket at a time, so this helper does a per-ticket
-/// load instead of dragging the full context through every caller.
-///
-/// Used by `repository::tickets::update_ticket_partial` so the
-/// `sync_action` it broadcasts on a pill-affecting field change carries
-/// an up-to-date pill — without this, open clients keep showing the
-/// previous (now stale) pill until the next bootstrap. Returns
-/// `Value::Null` when no policy matches; the frontend treats that as
-/// "no SLA on this ticket" and hides the pill.
+/// One ticket's SLA pill as it stands, for a sync row. Reads only: the
+/// clock anchor and the materialised targets are left to
+/// `recompute_and_stamp_sla_for_ticket`. `Value::Null` when no policy
+/// matches, which the frontend reads as "no SLA" and hides the pill.
+pub fn pill_json_for_ticket(
+    conn: &mut crate::db::DbConnection,
+    ticket: &Ticket,
+) -> serde_json::Value {
+    load_pill_for_ticket(conn, ticket)
+        .and_then(|p| serde_json::to_value(p).ok())
+        .unwrap_or(serde_json::Value::Null)
+}
+
 /// Recompute one ticket's SLA pill and persist the materialised
 /// target timestamps in the same call. Used by mutation paths
 /// (status / priority / category change, first-response stamp, the
