@@ -1074,7 +1074,9 @@ fn validate_actions(actions: &Value) -> Result<(), String> {
     if arr.is_empty() {
         return Err("actions must contain at least one entry".to_string());
     }
-    const KNOWN: &[&str] = &[
+    // The steps `repository::rules::apply_manual` runs. A rule is saved only
+    // with these, so applying it never fails on a step it can't run.
+    const RUNNABLE: &[&str] = &[
         "reply",
         "set_status",
         "assign",
@@ -1082,11 +1084,10 @@ fn validate_actions(actions: &Value) -> Result<(), String> {
         "add_tags",
         "remove_tags",
         "set_priority",
-        "notify",
-        "apply_macro_template",
-        "webhook",
         "stop_processing",
     ];
+    // Named in the rule model but not run yet.
+    const NOT_YET: &[&str] = &["notify", "apply_macro_template", "webhook"];
     for (i, action) in arr.iter().enumerate() {
         let Some(obj) = action.as_object() else {
             return Err(format!("actions[{i}] must be a JSON object"));
@@ -1095,7 +1096,13 @@ fn validate_actions(actions: &Value) -> Result<(), String> {
             .get("kind")
             .and_then(|k| k.as_str())
             .ok_or_else(|| format!("actions[{i}] missing kind"))?;
-        if !KNOWN.contains(&kind) {
+        if NOT_YET.contains(&kind) {
+            return Err(format!(
+                "Step {}: this kind of step can't run yet, so remove it",
+                i + 1
+            ));
+        }
+        if !RUNNABLE.contains(&kind) {
             return Err(format!("actions[{i}] has unknown kind: {kind}"));
         }
         validate_step_config(kind, obj.get("config").unwrap_or(&Value::Null))
@@ -1219,6 +1226,21 @@ mod tests {
         let actions = serde_json::json!([{ "kind": "obliterate" }]);
         let err = validate_actions(&actions).unwrap_err();
         assert!(err.contains("unknown kind"));
+    }
+
+    /// A rule saves only with steps applying it can run: notify, macro
+    /// templates and webhooks don't run yet, so a rule carrying one would fail
+    /// every time an agent applied it.
+    #[test]
+    fn validate_actions_refuses_steps_that_dont_run_yet() {
+        for kind in ["notify", "apply_macro_template", "webhook"] {
+            let actions = serde_json::json!([
+                { "kind": "set_priority", "config": { "priority": "high" } },
+                { "kind": kind, "config": {} }
+            ]);
+            let err = validate_actions(&actions).expect_err(kind);
+            assert!(err.starts_with("Step 2: "), "{kind}: {err}");
+        }
     }
 
     #[test]
