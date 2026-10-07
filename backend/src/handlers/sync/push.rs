@@ -334,7 +334,15 @@ fn apply_ticket(
                 }
             }
             let has_scalar = !obj.is_empty();
-            let patch = client_columns(decode_ticket_patch(&Value::Object(obj))?)?;
+            // The columns the server owns are refused, as on the REST routes.
+            let patch = decode_ticket_patch(&Value::Object(obj))?
+                .client_columns()
+                .map_err(|_| {
+                    TxReject(
+                        "unsupported_field",
+                        "the patch sets a field only the server sets".into(),
+                    )
+                })?;
             let actor_uuid = actor.uuid;
             if let Some(state_id) = patch.workflow_state_id {
                 if crate::repository::ticket_approvals::blocks_resolution(conn, ticket_id, state_id)
@@ -418,63 +426,6 @@ fn apply_ticket(
             "tickets don't support soft-archive yet".into(),
         )),
     }
-}
-
-/// The columns a client may set on a ticket, as on the REST PATCH. The server
-/// sets `closed_at` (from the workflow state) and `updated_at`, and the inbound
-/// pipeline and recurrence scheduler own provenance, triage and the spam flag,
-/// so a patch naming them is refused; clearing the spam flag is the one
-/// exception, as on the REST PATCH. Destructured field by field so that adding
-/// a column to `TicketUpdate` fails to compile here until someone decides
-/// whether clients may set it.
-fn client_columns(patch: TicketUpdate) -> Result<TicketUpdate, TxReject> {
-    let TicketUpdate {
-        title,
-        workflow_state_id,
-        priority,
-        requester_uuid,
-        assignee_uuid,
-        updated_at: _,
-        closed_at,
-        verification_state,
-        origin_channel_id,
-        category_id,
-        triage_state,
-        due_date,
-        start_date,
-        recurrence_rule,
-        recurrence_template_id,
-        resolution_notes,
-        spam_suspected,
-        sla_override,
-    } = patch;
-    if closed_at.is_some()
-        || verification_state.is_some()
-        || origin_channel_id.is_some()
-        || triage_state.is_some()
-        || recurrence_template_id.is_some()
-        || spam_suspected == Some(true)
-    {
-        return Err(TxReject(
-            "unsupported_field",
-            "the patch sets a field only the server sets".into(),
-        ));
-    }
-    Ok(TicketUpdate {
-        title,
-        workflow_state_id,
-        priority,
-        requester_uuid,
-        assignee_uuid,
-        category_id,
-        due_date,
-        start_date,
-        recurrence_rule,
-        resolution_notes,
-        spam_suspected,
-        sla_override,
-        ..TicketUpdate::default()
-    })
 }
 
 /// Whether `user` can be assigned tickets in the pinned workspace, as the REST

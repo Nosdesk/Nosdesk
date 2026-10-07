@@ -3,6 +3,8 @@
 //! the workspace), and the handler answers 400 for an id in the body and 404
 //! for one in the path.
 
+use std::sync::Arc;
+
 use actix_web::dev::Service;
 use actix_web::http::StatusCode;
 use actix_web::test as http_test;
@@ -16,6 +18,7 @@ use backend::extractors::WorkspaceContext;
 use backend::middleware::RequestContext;
 use backend::models::{Claims, NewTicket};
 use backend::repository::workflow_states;
+use backend::services::search::SearchService;
 use backend::sync::actor::ActorContext;
 use backend::sync::session::run_in_workspace;
 
@@ -127,9 +130,12 @@ async fn another_workspaces_ids_get_a_client_error() {
     };
     let corr = Uuid::now_v7();
     let actor = ActorContext::user(admin.uuid, Some(corr)).with_workspace(a);
+    let search_dir = tempfile::tempdir().expect("search dir");
+    let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
     let app = http_test::init_service(
         App::new()
             .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(search))
             .wrap_fn(move |req, srv| {
                 req.extensions_mut().insert(workspace.clone());
                 req.extensions_mut().insert(claims.clone());

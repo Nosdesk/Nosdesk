@@ -336,7 +336,10 @@ pub struct NewTicketMerge {
 /// ..Default::default() }` without spelling out every nullable
 /// field. Adding a new optional column on `tickets` then becomes a
 /// one-line model change instead of a sweep across every caller.
-#[derive(Debug, Default, Serialize, Deserialize, Insertable, AsChangeset)]
+///
+/// Not a changeset: an update goes through `TicketUpdate` (a PUT body becomes
+/// one through [`NewTicket::changes_from`]), so there is one ticket write path.
+#[derive(Debug, Default, Serialize, Deserialize, Insertable)]
 #[diesel(table_name = crate::schema::tickets)]
 pub struct NewTicket {
     pub title: String,
@@ -356,59 +359,68 @@ pub struct NewTicket {
     pub recurrence_template_id: Option<i32>,
     pub resolution_notes: Option<String>,
     /// Defaults false; set true by the inbound pipeline when the source
-    /// message was flagged as spam.
+    /// message was flagged as spam. A request body may leave it out: the
+    /// server owns it, so POST and PUT ignore it.
+    #[serde(default)]
     pub spam_suspected: bool,
 }
 
 impl NewTicket {
-    /// Keep only what a non-staff caller is allowed to set, taking every other
-    /// column from the ticket as it stands.
+    /// What a whole-row `PUT /api/tickets/{id}` changes on `existing`, as the
+    /// partial update PATCH and sync push save.
     ///
-    /// `PUT /api/tickets/{id}` overwrites the whole row: `NewTicket` is an
-    /// `AsChangeset`, so every field in the body lands. Its only gate is
-    /// `TicketAccess`, which is a *read* gate by its own module doc, so a
-    /// requester or watcher who can merely see a ticket could set the columns
-    /// that belong to staff — close or reopen it via `workflow_state_id`,
-    /// assign it, change its priority or category, flip `triage_state`,
-    /// `verification_state` or `spam_suspected`, hand it to someone else via
-    /// `requester_uuid`, or mint a `guest_lookup_token`.
+    /// The columns the server owns are dropped first: provenance
+    /// (`submitted_via`, `origin_channel_id`), guest access and verification
+    /// (`guest_lookup_token`, `verification_state`), the inbound pipeline's
+    /// `triage_state` and `spam_suspected`, and the recurrence scheduler's
+    /// `recurrence_template_id`. A body that leaves them out or echoes them
+    /// leaves them as they are, and so does a `spam_suspected: false`, since
+    /// the body once had to carry that field whatever the caller meant; "not
+    /// spam" is PATCH's. Then a client column the body leaves out stays as it
+    /// is, as it did when PUT wrote the body as a changeset, and one that
+    /// differs from the stored value is set.
     ///
-    /// Staff are unaffected. For everyone else the answer is "you may retitle
-    /// your own ticket", which is deliberately narrow: this endpoint has no
-    /// client (the apps use PATCH), so the cost of being strict is close to
-    /// zero, and widening it later is a decision someone can make on purpose.
-    ///
-    /// Category is not handled here even though it is staff-controlled, because
-    /// it needs a visibility lookup rather than a comparison; the handler runs
-    /// the same `can_user_see_category` check its PATCH sibling already does.
+    /// Destructured field by field so that adding a column to `NewTicket`
+    /// fails to compile here until someone decides whether a PUT may set it.
     #[must_use]
-    pub fn redact_for(self, can_handle_tickets: bool, existing: &Ticket) -> Self {
-        if can_handle_tickets {
-            return self;
+    pub fn changes_from(self, existing: &Ticket) -> TicketUpdate {
+        let Self {
+            title,
+            workflow_state_id,
+            priority,
+            requester_uuid,
+            assignee_uuid,
+            category_id,
+            submitted_via: _,
+            guest_lookup_token: _,
+            verification_state: _,
+            origin_channel_id: _,
+            triage_state: _,
+            due_date,
+            start_date,
+            recurrence_rule,
+            recurrence_template_id: _,
+            resolution_notes,
+            spam_suspected: _,
+        } = self;
+        fn differs<T: PartialEq>(new: T, old: &T) -> Option<T> {
+            (new != *old).then_some(new)
         }
-        Self {
-            // The one field a requester owns.
-            title: self.title,
-            // Everything else is whatever it already was. Written field by
-            // field rather than with `..existing` so that adding a column to
-            // `NewTicket` fails to compile here, forcing a decision about who
-            // may set it instead of defaulting it open.
-            workflow_state_id: existing.workflow_state_id,
-            priority: existing.priority,
-            requester_uuid: existing.requester_uuid,
-            assignee_uuid: existing.assignee_uuid,
-            category_id: existing.category_id,
-            submitted_via: existing.submitted_via.clone(),
-            guest_lookup_token: existing.guest_lookup_token,
-            verification_state: existing.verification_state.clone(),
-            origin_channel_id: existing.origin_channel_id,
-            triage_state: existing.triage_state.clone(),
-            due_date: existing.due_date,
-            start_date: existing.start_date,
-            recurrence_rule: existing.recurrence_rule.clone(),
-            recurrence_template_id: existing.recurrence_template_id,
-            resolution_notes: existing.resolution_notes.clone(),
-            spam_suspected: existing.spam_suspected,
+        fn given_and_differs<T: PartialEq>(new: Option<T>, old: &Option<T>) -> Option<Option<T>> {
+            new.filter(|v| old.as_ref() != Some(v)).map(Some)
+        }
+        TicketUpdate {
+            title: differs(title, &existing.title),
+            workflow_state_id: differs(workflow_state_id, &existing.workflow_state_id),
+            priority: differs(priority, &existing.priority),
+            requester_uuid: given_and_differs(requester_uuid, &existing.requester_uuid),
+            assignee_uuid: given_and_differs(assignee_uuid, &existing.assignee_uuid),
+            category_id: given_and_differs(category_id, &existing.category_id),
+            due_date: given_and_differs(due_date, &existing.due_date),
+            start_date: given_and_differs(start_date, &existing.start_date),
+            recurrence_rule: given_and_differs(recurrence_rule, &existing.recurrence_rule),
+            resolution_notes: given_and_differs(resolution_notes, &existing.resolution_notes),
+            ..TicketUpdate::default()
         }
     }
 
@@ -501,6 +513,126 @@ pub struct TicketUpdate {
     /// unchanged; `Some(_)` sets it. A change recomputes the pill (see
     /// `pill_affecting` in `update_ticket_partial`).
     pub sla_override: Option<String>,
+}
+
+/// A ticket update sets a column only the server sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServerOwnedColumn;
+
+impl std::fmt::Display for ServerOwnedColumn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the change sets a field only the server sets")
+    }
+}
+
+impl std::error::Error for ServerOwnedColumn {}
+
+impl TicketUpdate {
+    /// The update as a client may make it: REST PATCH and PUT, and sync push.
+    /// The server sets `closed_at` (from the workflow state) and `updated_at`,
+    /// and the inbound pipeline and recurrence scheduler own provenance,
+    /// verification, triage and the spam flag, so an update naming them is
+    /// refused; clearing the spam flag ("not spam") is the one exception.
+    /// Destructured field by field so that adding a column to `TicketUpdate`
+    /// fails to compile here until someone decides whether clients may set it.
+    pub fn client_columns(self) -> Result<Self, ServerOwnedColumn> {
+        let Self {
+            title,
+            workflow_state_id,
+            priority,
+            requester_uuid,
+            assignee_uuid,
+            updated_at: _,
+            closed_at,
+            verification_state,
+            origin_channel_id,
+            category_id,
+            triage_state,
+            due_date,
+            start_date,
+            recurrence_rule,
+            recurrence_template_id,
+            resolution_notes,
+            spam_suspected,
+            sla_override,
+        } = self;
+        if closed_at.is_some()
+            || verification_state.is_some()
+            || origin_channel_id.is_some()
+            || triage_state.is_some()
+            || recurrence_template_id.is_some()
+            || spam_suspected == Some(true)
+        {
+            return Err(ServerOwnedColumn);
+        }
+        Ok(Self {
+            title,
+            workflow_state_id,
+            priority,
+            requester_uuid,
+            assignee_uuid,
+            category_id,
+            due_date,
+            start_date,
+            recurrence_rule,
+            resolution_notes,
+            spam_suspected,
+            sla_override,
+            ..Self::default()
+        })
+    }
+
+    /// The columns the update sets. `updated_at` is the server's stamp, not a
+    /// change, so it isn't listed.
+    pub fn changed_columns(&self) -> impl Iterator<Item = &'static str> {
+        let Self {
+            title,
+            workflow_state_id,
+            priority,
+            requester_uuid,
+            assignee_uuid,
+            updated_at: _,
+            closed_at,
+            verification_state,
+            origin_channel_id,
+            category_id,
+            triage_state,
+            due_date,
+            start_date,
+            recurrence_rule,
+            recurrence_template_id,
+            resolution_notes,
+            spam_suspected,
+            sla_override,
+        } = self;
+        [
+            ("title", title.is_some()),
+            ("workflow_state_id", workflow_state_id.is_some()),
+            ("priority", priority.is_some()),
+            ("requester_uuid", requester_uuid.is_some()),
+            ("assignee_uuid", assignee_uuid.is_some()),
+            ("closed_at", closed_at.is_some()),
+            ("verification_state", verification_state.is_some()),
+            ("origin_channel_id", origin_channel_id.is_some()),
+            ("category_id", category_id.is_some()),
+            ("triage_state", triage_state.is_some()),
+            ("due_date", due_date.is_some()),
+            ("start_date", start_date.is_some()),
+            ("recurrence_rule", recurrence_rule.is_some()),
+            ("recurrence_template_id", recurrence_template_id.is_some()),
+            ("resolution_notes", resolution_notes.is_some()),
+            ("spam_suspected", spam_suspected.is_some()),
+            ("sla_override", sla_override.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(column, set)| set.then_some(column))
+    }
+
+    /// Whether the update changes nothing but the title: all that someone who
+    /// doesn't handle tickets may change on a ticket they can see.
+    pub fn changes_only_title(&self) -> bool {
+        self.changed_columns().all(|column| column == "title")
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
@@ -704,14 +836,14 @@ pub struct CompleteTicketResponse {
 impl CompleteTicketResponse {}
 
 #[cfg(test)]
-mod new_ticket_redaction_tests {
+mod new_ticket_write_tests {
     use super::*;
 
     /// A ticket with every staff-controlled column set to a recognisable
-    /// value, so a field that leaks through redaction shows up as the
-    /// attacker's value rather than this one.
+    /// value, so a column a body changes shows up as the body's value rather
+    /// than this one.
     fn existing_ticket() -> Ticket {
-        let now = chrono::NaiveDateTime::UNIX_EPOCH;
+        let now = chrono::DateTime::UNIX_EPOCH.naive_utc();
         Ticket {
             id: 1,
             title: "As filed".into(),
@@ -775,79 +907,9 @@ mod new_ticket_redaction_tests {
         }
     }
 
-    #[test]
-    fn a_requester_may_retitle_and_nothing_else() {
-        let existing = existing_ticket();
-        let out = hostile_body().redact_for(false, &existing);
-
-        assert_eq!(
-            out.title, "Retitled by the requester",
-            "the one field a requester owns"
-        );
-
-        // Everything a requester could otherwise have seized. Listed one by one
-        // rather than compared structurally, so a failure names the column.
-        assert_eq!(
-            out.workflow_state_id, existing.workflow_state_id,
-            "cannot close or reopen"
-        );
-        assert_eq!(out.priority, existing.priority, "cannot re-prioritise");
-        assert_eq!(
-            out.requester_uuid, existing.requester_uuid,
-            "cannot hand the ticket away"
-        );
-        assert_eq!(out.assignee_uuid, existing.assignee_uuid, "cannot assign");
-        assert_eq!(
-            out.category_id, existing.category_id,
-            "cannot move category"
-        );
-        assert_eq!(out.submitted_via, existing.submitted_via);
-        assert_eq!(
-            out.guest_lookup_token, existing.guest_lookup_token,
-            "cannot mint an unauthenticated lookup handle"
-        );
-        assert_eq!(out.verification_state, existing.verification_state);
-        assert_eq!(out.origin_channel_id, existing.origin_channel_id);
-        assert_eq!(
-            out.triage_state, existing.triage_state,
-            "cannot self-triage"
-        );
-        assert_eq!(out.due_date, existing.due_date);
-        assert_eq!(out.start_date, existing.start_date);
-        assert_eq!(out.recurrence_rule, existing.recurrence_rule);
-        assert_eq!(out.recurrence_template_id, existing.recurrence_template_id);
-        assert_eq!(out.resolution_notes, existing.resolution_notes);
-        assert_eq!(
-            out.spam_suspected, existing.spam_suspected,
-            "cannot clear a spam flag"
-        );
-    }
-
-    #[test]
-    fn staff_are_unaffected() {
-        let existing = existing_ticket();
-        let submitted = hostile_body();
-        let expected = hostile_body();
-        let out = submitted.redact_for(true, &existing);
-
-        // Staff get exactly what they sent; this is the ordinary edit path and
-        // redaction must not narrow it.
-        assert_eq!(out.title, expected.title);
-        assert_eq!(out.workflow_state_id, expected.workflow_state_id);
-        assert_eq!(out.assignee_uuid, expected.assignee_uuid);
-        assert_eq!(out.requester_uuid, expected.requester_uuid);
-        assert_eq!(out.priority, expected.priority);
-        assert_eq!(out.spam_suspected, expected.spam_suspected);
-        assert_eq!(out.guest_lookup_token, expected.guest_lookup_token);
-    }
-
-    /// A requester resubmitting the row they were shown must not be refused;
-    /// redaction has to be idempotent on an unchanged body, or the endpoint
-    /// silently rejects legitimate retitles.
-    #[test]
-    fn resubmitting_the_current_values_changes_nothing() {
-        let existing = existing_ticket();
-        let faithful = NewTicket {
+    /// The body of a client that read the ticket and sent it back.
+    fn faithful_body(existing: &Ticket) -> NewTicket {
+        NewTicket {
             title: existing.title.clone(),
             workflow_state_id: existing.workflow_state_id,
             priority: existing.priority,
@@ -865,11 +927,98 @@ mod new_ticket_redaction_tests {
             recurrence_template_id: existing.recurrence_template_id,
             resolution_notes: existing.resolution_notes.clone(),
             spam_suspected: existing.spam_suspected,
+        }
+    }
+
+    #[test]
+    fn a_put_changes_none_of_the_server_columns() {
+        let existing = Ticket {
+            spam_suspected: true,
+            ..existing_ticket()
         };
-        let out = faithful.redact_for(false, &existing);
-        assert_eq!(out.title, existing.title);
-        assert_eq!(out.workflow_state_id, existing.workflow_state_id);
-        assert_eq!(out.category_id, existing.category_id);
+        let body = NewTicket {
+            spam_suspected: false,
+            ..hostile_body()
+        };
+        let out = body
+            .changes_from(&existing)
+            .client_columns()
+            .expect("only client columns");
+
+        assert_eq!(out.verification_state, None);
+        assert_eq!(out.origin_channel_id, None);
+        assert_eq!(out.triage_state, None, "cannot self-triage");
+        assert_eq!(out.recurrence_template_id, None);
+        assert_eq!(out.closed_at, None);
+        assert_eq!(out.spam_suspected, None, "a false spam flag clears nothing");
+        // The client columns that differ are set.
+        assert_eq!(out.title.as_deref(), Some("Retitled by the requester"));
+        assert_eq!(out.workflow_state_id, Some(99));
+        assert_eq!(out.priority, Some(TicketPriority::High));
+        assert_eq!(out.assignee_uuid, Some(Some(Uuid::from_u128(998))));
+        assert_eq!(out.category_id, Some(Some(997)));
+        assert!(!out.changes_only_title(), "more than the title");
+    }
+
+    /// A requester resubmitting the row they were shown changes nothing, so
+    /// the endpoint doesn't refuse a retitle that echoes the rest.
+    #[test]
+    fn resubmitting_the_current_values_changes_nothing() {
+        let existing = existing_ticket();
+        let out = faithful_body(&existing).changes_from(&existing);
+        assert_eq!(out.changed_columns().count(), 0);
+
+        let retitled = NewTicket {
+            title: "Retitled".into(),
+            ..faithful_body(&existing)
+        };
+        let out = retitled.changes_from(&existing);
+        assert_eq!(out.changed_columns().collect::<Vec<_>>(), ["title"]);
+        assert!(out.changes_only_title());
+    }
+
+    /// A body that leaves a column out leaves it as it is, as PUT did when it
+    /// wrote the body as a changeset.
+    #[test]
+    fn a_column_left_out_stays_as_it_is() {
+        let existing = existing_ticket();
+        let body = NewTicket {
+            title: existing.title.clone(),
+            workflow_state_id: existing.workflow_state_id,
+            priority: existing.priority,
+            ..NewTicket::default()
+        };
+        let out = body.changes_from(&existing);
+        assert_eq!(out.changed_columns().count(), 0);
+    }
+
+    #[test]
+    fn a_client_may_clear_the_spam_flag_and_set_no_other_server_column() {
+        let not_spam = TicketUpdate {
+            spam_suspected: Some(false),
+            ..TicketUpdate::default()
+        };
+        assert!(not_spam.client_columns().is_ok());
+        for refused in [
+            TicketUpdate {
+                spam_suspected: Some(true),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                triage_state: Some(Some("triaged".into())),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                verification_state: Some(None),
+                ..TicketUpdate::default()
+            },
+            TicketUpdate {
+                closed_at: Some(None),
+                ..TicketUpdate::default()
+            },
+        ] {
+            assert_eq!(refused.client_columns().unwrap_err(), ServerOwnedColumn);
+        }
     }
 
     #[test]

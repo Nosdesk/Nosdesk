@@ -93,6 +93,7 @@ mod ticket_by_number;
 mod ticket_create_columns;
 mod ticket_merge;
 mod ticket_numbers;
+mod ticket_put;
 mod tracing_field_allowlist_lint;
 mod two_workspace_fixture;
 mod user_contact_gate;

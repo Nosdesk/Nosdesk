@@ -481,44 +481,6 @@ fn held_created_via(
     Ok(data.and_then(|d| d.get("created_via").cloned()))
 }
 
-pub fn update_ticket(
-    conn: &mut DbConnection,
-    ticket_id: i32,
-    ticket: NewTicket,
-) -> QueryResult<Ticket> {
-    conn.transaction(|conn| {
-        let updated: Ticket = diesel::update(tickets::table.find(ticket_id))
-            .set(&ticket)
-            .get_result(conn)?;
-        let groups = groups::for_ticket(conn, &updated)?;
-        let workflow_state = workflow_state_payload(conn, updated.workflow_state_id)?;
-        emit::record(
-            conn,
-            SyncEmit {
-                aggregate: SyncAggregate::Ticket,
-                aggregate_id: updated.id.to_string(),
-                op: SyncOp::Update,
-                event_type: "ticket.updated",
-                data: json!({
-                    "id": updated.id,
-                    "number": updated.number,
-                    "title": updated.title,
-                    "workflow_state": workflow_state,
-                    "workflow_state_id": updated.workflow_state_id,
-                    "priority": updated.priority.as_str(),
-                    "requester_uuid": updated.requester_uuid,
-                    "assignee_uuid": updated.assignee_uuid,
-                    "category_id": updated.category_id,
-                    "spam_suspected": updated.spam_suspected,
-                }),
-                groups,
-                causation_id: None,
-            },
-        )?;
-        Ok(updated)
-    })
-}
-
 // Add a new function for partial ticket updates
 pub fn update_ticket_partial(
     conn: &mut DbConnection,
