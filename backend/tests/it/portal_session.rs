@@ -566,6 +566,31 @@ struct RoleRow {
     role: String,
 }
 
+/// A ticket in `workspace`, numbered within it.
+fn seed_ticket(
+    conn: &mut backend::db::DbConnection,
+    workspace: i32,
+    title: &str,
+) -> backend::models::Ticket {
+    use diesel::RunQueryDsl as _;
+    with_actor_context(
+        conn,
+        &ActorContext::system("test:seed").with_workspace(workspace),
+        |c| {
+            backend::services::seed::seed_workspace_defaults(c, None)?;
+            let state = backend::repository::workflow_states::default_state(c)?;
+            diesel::insert_into(backend::schema::tickets::table)
+                .values(&backend::models::NewTicket {
+                    title: title.to_string(),
+                    workflow_state_id: state.id,
+                    ..Default::default()
+                })
+                .get_result(c)
+        },
+    )
+    .expect("ticket")
+}
+
 fn link_server(pool: &crate::common::TestPool, ctx: WorkspaceContext) -> actix_test::TestServer {
     use actix_web::dev::Service;
     use actix_web::{web, App};
@@ -586,8 +611,9 @@ fn link_server(pool: &crate::common::TestPool, ctx: WorkspaceContext) -> actix_t
 }
 
 /// The "View request" link in a requester email signs its requester in and
-/// opens the ticket; a forged link, or one for someone no longer a member,
-/// lands on sign-in instead.
+/// opens the ticket by its number (the link signs its id); a forged link, or
+/// one for someone no longer a member, lands on sign-in instead, and one for a
+/// ticket since deleted opens the request list.
 #[actix_web::test]
 async fn a_view_request_link_signs_the_requester_in_and_opens_the_ticket() {
     crate::common::ensure_test_keyring();
@@ -611,6 +637,12 @@ async fn a_view_request_link_signs_the_requester_in_and_opens_the_ticket() {
         },
     )
     .expect("membership");
+    // A ticket elsewhere first, so this workspace's ticket has an id that
+    // differs from its number.
+    let other = crate::common::mint_workspace(&mut conn, "linkother", "Other WS");
+    seed_ticket(&mut conn, other, "Elsewhere");
+    let ticket = seed_ticket(&mut conn, ws, "Printer jammed");
+    assert_ne!(ticket.id, ticket.number);
     let ctx = context_of(&mut conn, ws);
     let srv = link_server(&pool, ctx);
     let client = awc::Client::builder().disable_redirects().finish();
@@ -620,12 +652,13 @@ async fn a_view_request_link_signs_the_requester_in_and_opens_the_ticket() {
             .send()
     };
 
-    let good = backend::utils::portal_ticket_link::sign(ws, customer.uuid, 42).expect("sign");
+    let good =
+        backend::utils::portal_ticket_link::sign(ws, customer.uuid, ticket.id).expect("sign");
     let resp = open(good.clone()).await.expect("send");
     assert_eq!(resp.status(), 302);
     assert_eq!(
         resp.headers().get("location").unwrap(),
-        backend::handlers::portal::portal_path("/tickets/42").as_str()
+        backend::handlers::portal::portal_path(&format!("/tickets/{}", ticket.number)).as_str()
     );
     assert!(
         resp.cookies()
@@ -635,18 +668,31 @@ async fn a_view_request_link_signs_the_requester_in_and_opens_the_ticket() {
         "signed in"
     );
 
-    let forged = good.replacen(".42.", ".43.", 1);
+    let forged = good.replacen(
+        &format!(".{}.", ticket.id),
+        &format!(".{}.", ticket.id + 1),
+        1,
+    );
+    assert_ne!(forged, good);
     let resp = open(forged).await.expect("send");
     assert_eq!(
         resp.headers().get("location").unwrap(),
         backend::handlers::portal::portal_path("/login?signin_error=1").as_str()
     );
 
-    let not_member = backend::utils::portal_ticket_link::sign(ws, stranger.uuid, 42).expect("sign");
+    let not_member =
+        backend::utils::portal_ticket_link::sign(ws, stranger.uuid, ticket.id).expect("sign");
     let resp = open(not_member).await.expect("send");
     assert_eq!(
         resp.headers().get("location").unwrap(),
         backend::handlers::portal::portal_path("/login?signin_error=1").as_str()
+    );
+
+    let gone = backend::utils::portal_ticket_link::sign(ws, customer.uuid, i32::MAX).expect("sign");
+    let resp = open(gone).await.expect("send");
+    assert_eq!(
+        resp.headers().get("location").unwrap(),
+        backend::handlers::portal::portal_path("/tickets").as_str()
     );
 }
 

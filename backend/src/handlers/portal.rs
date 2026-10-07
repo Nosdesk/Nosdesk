@@ -599,24 +599,33 @@ pub async fn ticket_link_callback(
         tracing::warn!(user_uuid = %user.uuid, error = ?e, "ticket link: could not mark email verified");
     }
     let session = mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn)?;
+    // The link signs the ticket's id; the portal route takes its number.
+    let number = crate::sync::session::run_in_workspace(
+        &pool,
+        "portal:ticket_link",
+        ctx.workspace_id,
+        |c| crate::repository::tickets::number_of(c, ticket_id),
+    )
+    .ok()
+    .flatten();
     Ok(HttpResponse::Found()
         .cookie(session.access)
         .cookie(session.refresh)
         .cookie(session.csrf)
-        .append_header((
-            "Location",
-            ticket_location(ticket_id, query.answer.as_deref()),
-        ))
+        .append_header(("Location", ticket_location(number, query.answer.as_deref())))
         .finish())
 }
 
-/// Where a View request link lands, with a recognised answer carried along.
-fn ticket_location(ticket_id: i32, answer: Option<&str>) -> String {
-    match answer {
-        Some(a @ ("fixed" | "not_fixed")) => {
-            portal_path(&format!("/tickets/{ticket_id}?answer={a}"))
+/// Where a View request link lands: the ticket by its number, with a
+/// recognised answer carried along, or the request list once the ticket is
+/// gone.
+fn ticket_location(number: Option<i32>, answer: Option<&str>) -> String {
+    match (number, answer) {
+        (None, _) => portal_path("/tickets"),
+        (Some(n), Some(a @ ("fixed" | "not_fixed"))) => {
+            portal_path(&format!("/tickets/{n}?answer={a}"))
         }
-        _ => portal_path(&format!("/tickets/{ticket_id}")),
+        (Some(n), _) => portal_path(&format!("/tickets/{n}")),
     }
 }
 
