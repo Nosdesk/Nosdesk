@@ -361,7 +361,8 @@ pub async fn confirm_guest_submission(
         .get::<crate::extractors::WorkspaceContext>()
         .cloned()
         .filter(|_| crate::middleware::workspace_context::is_hosted());
-    if let (Some(ctx), Some(ticket_id)) = (portal_ctx, released.iter().max().copied()) {
+    let newest = released.iter().max_by_key(|t| t.id).map(|t| t.number);
+    if let (Some(ctx), Some(number)) = (portal_ctx, newest) {
         match crate::handlers::portal::mint_portal_session(
             &user,
             ctx.workspace_uuid,
@@ -376,7 +377,7 @@ pub async fn confirm_guest_submission(
                     .json(json!({
                         "success": true,
                         "message": "Your request has been confirmed.",
-                        "redirect_to": format!("/tickets/{ticket_id}"),
+                        "redirect_to": format!("/tickets/{number}"),
                     })));
             }
             Err(e) => {
@@ -401,8 +402,8 @@ enum Completion {
     GuestConfirmed,
 }
 
-/// Steps shared by every token-verified acceptance, returning the ids of any
-/// guest tickets released: stamp the membership
+/// Steps shared by every token-verified acceptance, returning any guest
+/// tickets released: stamp the membership
 /// accepted, mark the primary email verified, and release any guest tickets
 /// held on this confirmation.
 fn complete_verification(
@@ -411,7 +412,7 @@ fn complete_verification(
     search_service: &web::Data<Arc<SearchService>>,
     user: &crate::models::User,
     completion: Completion,
-) -> Result<Vec<i32>, ApiError> {
+) -> Result<Vec<ReleasedTicket>, ApiError> {
     // Pre-session (token-verified) flow: resolve the audit workspace once
     // from the user's primary membership, then thread it through the audited
     // writes below (users.password_changed_at and the ticket release). The
@@ -470,12 +471,18 @@ fn complete_verification(
     // stream and the search index so techs pick it up immediately — the
     // same side-effects that would have fired at submit time for a
     // non-gated ticket.
-    let mut released_ids = Vec::new();
+    let mut released_tickets = Vec::new();
     match crate::sync::session::with_actor_context(conn, &actor, |c| {
         repository::tickets::verify_pending_tickets_for_user(c, user.uuid)
     }) {
         Ok(released) if !released.is_empty() => {
-            released_ids = released.iter().map(|t| t.id).collect();
+            released_tickets = released
+                .iter()
+                .map(|t| ReleasedTicket {
+                    id: t.id,
+                    number: t.number,
+                })
+                .collect();
             info!(
                 user_uuid = %user.uuid,
                 count = released.len(),
@@ -510,7 +517,14 @@ fn complete_verification(
         }
     }
 
-    Ok(released_ids)
+    Ok(released_tickets)
+}
+
+/// A guest ticket a verification released: its id, and the number the
+/// portal's links use.
+struct ReleasedTicket {
+    id: i32,
+    number: i32,
 }
 
 /// Record a token-verified acceptance as a security event.
