@@ -121,8 +121,8 @@ pub async fn cleanup_expired_refresh_tokens(pool: Pool) -> Result<()> {
 /// via the advisory lock. Idempotent: it marks the source rows
 /// `email`-delivered, so a re-run never re-sends. v1 covers explicit per-user
 /// `email=digest` prefs; a workspace-default of `digest` (rare) is a follow-up.
-/// `base_url` is the instance's configured `FRONTEND_URL`: the digest links
-/// to it, and the security note falls back to its host for the domain.
+/// `base_url` is the instance's configured `FRONTEND_URL`, the fallback for
+/// the digest's link and for the domain its security note names.
 pub async fn send_notification_digests(pool: Pool, base_url: String) -> Result<()> {
     let _lock = match try_job_lock(&pool, NOTIFICATION_DIGEST_LOCK, "notifications.digest")? {
         Some(lock) => lock,
@@ -224,7 +224,17 @@ pub async fn send_notification_digests(pool: Pool, base_url: String) -> Result<(
             &pool,
             "scheduler:notification_digest",
             workspace_id,
-            |conn| enqueue_workspace_digest(conn, user, &recipient, &base_url, &titles, &ids),
+            |conn| {
+                enqueue_workspace_digest(
+                    conn,
+                    workspace_id,
+                    user,
+                    &recipient,
+                    &base_url,
+                    &titles,
+                    &ids,
+                )
+            },
         );
         match result {
             Ok(_) => sent += 1,
@@ -247,19 +257,31 @@ pub async fn send_notification_digests(pool: Pool, base_url: String) -> Result<(
 /// email-delivered. Runs pinned to that workspace (`run_in_workspace`), never
 /// under the bypass role: `get_site_settings` takes the first row it can see,
 /// which under bypass is any workspace's.
+///
+/// The digest links where the workspace's other email to `user` does: the
+/// agent app for an agent, the portal for anyone else, `base_url` (the
+/// instance's `FRONTEND_URL`) when the workspace has neither.
 fn enqueue_workspace_digest(
     conn: &mut crate::db::DbConnection,
+    workspace_id: i32,
     user: uuid::Uuid,
     recipient: &str,
     base_url: &str,
     titles: &[String],
     ids: &[i32],
 ) -> diesel::QueryResult<()> {
+    let link_base = crate::services::notifications::channels::email::recipient_link_base(
+        conn,
+        workspace_id,
+        user,
+        base_url,
+    )
+    .map_or_else(|| base_url.to_string(), |(base, _)| base);
     let settings = crate::repository::site_settings::get_site_settings(conn)?;
     let note = crate::utils::email_branding::security_note(
         conn,
         &settings,
-        base_url,
+        &link_base,
         crate::utils::email_branding::SentFrom::Workspace,
     );
     let locale = crate::utils::locale::effective_locale(
@@ -270,7 +292,7 @@ fn enqueue_workspace_digest(
         recipient,
         &settings.app_name,
         &locale,
-        base_url,
+        &link_base,
         titles,
         note.as_deref(),
     );

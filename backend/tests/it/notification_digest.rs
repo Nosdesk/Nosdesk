@@ -104,6 +104,14 @@ async fn each_workspace_sends_its_own_digest_with_its_own_note() {
 
     brand(&mut conn, a, "Alpha Desk");
     brand(&mut conn, b, "Beta Desk");
+    // B's people use its own domain; A has none, so its links use FRONTEND_URL.
+    {
+        use backend::schema::workspaces;
+        diesel::update(workspaces::table.find(b))
+            .set(workspaces::custom_domain.eq(Some("help.beta.example")))
+            .execute(&mut conn)
+            .expect("custom domain");
+    }
     notify(&mut conn, a, user, type_id, "Printer on fire");
     notify(&mut conn, b, user, type_id, "VPN down");
     drop(conn);
@@ -144,6 +152,10 @@ async fn each_workspace_sends_its_own_digest_with_its_own_note() {
     );
     assert!(beta_subject.contains("Beta Desk"), "{beta_subject}");
     assert!(beta_body.contains("VPN down"), "{beta_body}");
+    assert!(
+        beta_body.contains("View them: https://help.beta.example"),
+        "the link where B's other email to them points: {beta_body}"
+    );
     assert!(
         beta_body.ends_with("Mail from Beta Desk never asks for your password."),
         "{beta_body}"
