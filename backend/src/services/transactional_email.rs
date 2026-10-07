@@ -357,34 +357,49 @@ pub fn enqueue_bug_report_alert(
     outbound_emails::enqueue_idempotent(conn, row)
 }
 
-/// Build the notification-DIGEST email: a plain summary of the notifications a
-/// user set to `email` = `digest`, sent once per digest run. WORKSPACE sender
-/// identity, NOTIFICATION mail class (opt-out-able, unlike transactional mail).
-/// `titles` is one line per batched notification. No idempotency key — the
-/// digest is time-windowed and de-duplicated by marking the source rows
+/// Build the notification-DIGEST email: a plain summary of one workspace's
+/// notifications that a user set to `email` = `digest`, sent once per digest
+/// run. WORKSPACE sender identity, NOTIFICATION mail class (opt-out-able,
+/// unlike transactional mail). `titles` is one line per batched notification;
+/// `app_name` and `security_note` are the workspace's own. No idempotency key:
+/// the digest is time-windowed and de-duplicated by marking the source rows
 /// email-delivered, so it's enqueued via `enqueue_or_suppress`.
 pub fn prepare_notification_digest(
     recipient: &str,
     app_name: &str,
+    locale: &unic_langid::LanguageIdentifier,
     base_url: &str,
     titles: &[String],
+    security_note: Option<&str>,
 ) -> NewOutboundEmail {
+    use crate::utils::i18n::tr_with;
+
     let from_domain = std::env::var("SMTP_FROM_EMAIL")
         .ok()
         .and_then(|e| e.rsplit_once('@').map(|(_, d)| d.to_string()))
         .unwrap_or_else(|| "nosdesk.local".to_string());
     let message_id = make_message_id("digest", &from_domain);
 
-    let count = titles.len();
-    let plural = if count == 1 { "" } else { "s" };
-    let subject = format!("{app_name}: {count} new notification{plural}");
+    let args = [
+        ("app", app_name.to_string().into()),
+        ("count", (titles.len() as i64).into()),
+    ];
+    let subject = tr_with(locale, "notif-digest-subject", &args);
+    let intro = tr_with(locale, "notif-digest-intro", &args);
+    let view = tr_with(
+        locale,
+        "notif-digest-view",
+        &[("url", base_url.to_string().into())],
+    );
     let list = titles
         .iter()
         .map(|t| format!("  • {t}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let body_text =
-        format!("You have {count} new notification{plural}:\n\n{list}\n\nView them: {base_url}\n");
+    let mut body_text = format!("{intro}\n\n{list}\n\n{view}");
+    if let Some(note) = security_note {
+        body_text = format!("{body_text}\n\n{note}");
+    }
 
     NewOutboundEmail {
         channel_id: None,
@@ -721,6 +736,40 @@ mod tests {
             Some("#2563eb".to_string()),
             "https://desk.example.com".to_string(),
         )
+    }
+
+    #[test]
+    fn digest_counts_its_notifications_and_ends_with_the_note() {
+        let one = prepare_notification_digest(
+            "a@example.com",
+            "Acme IT",
+            &en_us(),
+            "https://desk.example.com",
+            &["Printer on fire".to_string()],
+            None,
+        );
+        assert_eq!(one.subject, "[Acme IT] 1 new notification");
+        assert_eq!(
+            one.body_text,
+            "You have 1 new notification in Acme IT:\n\n  • Printer on fire\n\n\
+             View them: https://desk.example.com"
+        );
+
+        let two = prepare_notification_digest(
+            "a@example.com",
+            "Acme IT",
+            &LanguageIdentifier::from_str("fr-FR").unwrap(),
+            "https://desk.example.com",
+            &["Printer on fire".to_string(), "VPN down".to_string()],
+            Some("Acme IT only emails you from desk.example.com."),
+        );
+        assert_eq!(two.subject, "[Acme IT] 2 nouvelles notifications");
+        assert!(
+            two.body_text
+                .ends_with("\n\nAcme IT only emails you from desk.example.com."),
+            "{}",
+            two.body_text
+        );
     }
 
     #[test]

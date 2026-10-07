@@ -20,16 +20,9 @@ use crate::utils::locale::effective_locale;
 
 /// Look up the effective locale for `user_uuid`. See module doc.
 pub fn resolve_effective_locale(conn: &mut DbConnection, user_uuid: Uuid) -> LanguageIdentifier {
-    use crate::schema::{site_settings, user_preferences};
+    use crate::schema::site_settings;
 
-    let user_pref: Option<String> = user_preferences::table
-        .find(user_uuid)
-        .select(user_preferences::locale)
-        .first::<Option<String>>(conn)
-        .optional()
-        .ok()
-        .flatten()
-        .flatten();
+    let user_pref = user_locale_preference(conn, user_uuid);
 
     let site_default: String = site_settings::table
         .find(1)
@@ -38,4 +31,20 @@ pub fn resolve_effective_locale(conn: &mut DbConnection, user_uuid: Uuid) -> Lan
         .unwrap_or_default();
 
     effective_locale(user_pref.as_deref(), &site_default)
+}
+
+/// The locale `user_uuid` chose for themselves, if any. Callers that already
+/// hold their workspace's settings pair it with `default_locale` through
+/// `utils::locale::effective_locale`.
+pub fn user_locale_preference(conn: &mut DbConnection, user_uuid: Uuid) -> Option<String> {
+    use crate::schema::user_preferences;
+
+    user_preferences::table
+        .find(user_uuid)
+        .select(user_preferences::locale)
+        .first::<Option<String>>(conn)
+        .optional()
+        .ok()
+        .flatten()
+        .flatten()
 }

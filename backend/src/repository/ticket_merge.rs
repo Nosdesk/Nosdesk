@@ -850,10 +850,15 @@ pub fn merge_history_for_ticket(
 /// target rather than reopening the source. Sources without an email
 /// channel or a requester email are skipped. Returns the number
 /// enqueued.
+///
+/// The notice ends with the workspace's security note when it's on, like a
+/// reply. `base_url` is the note's last fallback for the domain it names,
+/// used only when no sending address resolves.
 pub fn enqueue_merge_notifications(
     conn: &mut DbConnection,
     destination: &Ticket,
     sources: &[Ticket],
+    base_url: &str,
 ) -> QueryResult<usize> {
     use crate::repository::{
         channels as channels_repo, outbound_emails, site_settings as site_settings_repo,
@@ -866,7 +871,15 @@ pub fn enqueue_merge_notifications(
 
     let settings = site_settings_repo::get_site_settings(conn)?;
     let locale = crate::utils::locale::effective_locale(None, &settings.default_locale);
-    let body = crate::utils::i18n::tr(&locale, "merge-notification-customer-template");
+    let mut body = crate::utils::i18n::tr(&locale, "merge-notification-customer-template");
+    if let Some(note) = crate::utils::email_branding::security_note(
+        conn,
+        &settings,
+        base_url,
+        crate::utils::email_branding::SentFrom::Workspace,
+    ) {
+        body = format!("{body}\n\n{note}");
+    }
 
     let mut enqueued = 0usize;
     for source in sources {
@@ -1584,7 +1597,7 @@ mod tests {
             .unwrap();
         let src: Ticket = tickets::table.find(src.id).first(&mut conn).unwrap();
 
-        let n = enqueue_merge_notifications(&mut conn, &dest, &[src]).unwrap();
+        let n = enqueue_merge_notifications(&mut conn, &dest, &[src], "").unwrap();
         assert_eq!(n, 1);
 
         let queued: i64 = outbound_emails::table
@@ -1596,13 +1609,74 @@ mod tests {
     }
 
     #[test]
+    fn merge_notice_ends_with_the_security_note() {
+        use crate::schema::{channels, outbound_emails, tickets};
+        let mut conn = setup_test_connection();
+        crate::repository::site_settings::update_site_settings(
+            &mut conn,
+            crate::models::UpdateSiteSettings {
+                app_name: Some("Acme IT".into()),
+                email_security_note_enabled: Some(true),
+                email_security_note_template: Some(Some(
+                    "{{brand_name}} only emails you from {{domain}}.".into(),
+                )),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let user = TestFixtures::create_user(&mut conn, "noted", "user");
+        TestFixtures::create_user_email(&mut conn, user.uuid, "noted@example.com", true);
+        let channel: crate::models::Channel = diesel::insert_into(channels::table)
+            .values(&crate::models::NewChannel {
+                provider: "email_imap".to_string(),
+                name: "mail".to_string(),
+                enabled: true,
+                config: serde_json::json!({
+                    "host": "mail.example.com",
+                    "username": "support@example.com",
+                    "reply_domain": "example.com",
+                }),
+            })
+            .get_result(&mut conn)
+            .unwrap();
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        let src: Ticket = diesel::update(tickets::table.find(src.id))
+            .set(tickets::origin_channel_id.eq(channel.id))
+            .get_result(&mut conn)
+            .unwrap();
+
+        let n = enqueue_merge_notifications(&mut conn, &dest, &[src], "https://desk.example.com")
+            .unwrap();
+        assert_eq!(n, 1);
+
+        let body: String = outbound_emails::table
+            .filter(outbound_emails::ticket_id.eq(dest.id))
+            .select(outbound_emails::body_text)
+            .first(&mut conn)
+            .unwrap();
+        // No sending identity resolves in a test, so the note names the
+        // base URL's host, the last fallback.
+        let settings = crate::repository::site_settings::get_site_settings(&mut conn).unwrap();
+        let note = crate::utils::email_branding::security_note(
+            &mut conn,
+            &settings,
+            "https://desk.example.com",
+            crate::utils::email_branding::SentFrom::Workspace,
+        )
+        .expect("the note is on");
+        assert!(note.starts_with("Acme IT only emails you from "), "{note}");
+        assert!(body.ends_with(&format!("\n\n{note}")), "{body}");
+    }
+
+    #[test]
     fn merge_notifications_skip_sources_without_channel() {
         let mut conn = setup_test_connection();
         let user = TestFixtures::create_user(&mut conn, "nochan", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
 
-        let n = enqueue_merge_notifications(&mut conn, &dest, &[src]).unwrap();
+        let n = enqueue_merge_notifications(&mut conn, &dest, &[src], "").unwrap();
         assert_eq!(n, 0);
     }
 }

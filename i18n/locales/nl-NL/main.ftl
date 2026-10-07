@@ -131,6 +131,16 @@ participant-added-body = { $adder } heeft je toegevoegd aan aanvraag #{ $id }: {
 participant-added-replies = Je ontvangt de antwoorden van het team per e-mail en kunt erop reageren.
 participant-added-cta = Aanvraag bekijken
 notif-footer-preferences = U ontvangt deze e-mail vanwege uw meldingsvoorkeuren.
+# Notification digest (machine, pending native review)
+notif-digest-subject = [{ $app }] { $count ->
+    [one] { $count } nieuwe melding
+   *[other] { $count } nieuwe meldingen
+}
+notif-digest-intro = { $count ->
+    [one] U hebt { $count } nieuwe melding in { $app }:
+   *[other] U hebt { $count } nieuwe meldingen in { $app }:
+}
+notif-digest-view = Bekijk ze: { $url }
 notif-body-text =
     { $title }
 

@@ -117,10 +117,10 @@ pub async fn cleanup_expired_refresh_tokens(pool: Pool) -> Result<()> {
 }
 
 /// Send email digests: batch the notifications a user set to `email` = `digest`
-/// into one summary email per user. Runs daily, single-machine via the advisory
-/// lock. Idempotent — it marks the source rows `email`-delivered, so a re-run
-/// never re-sends. v1 covers explicit per-user `email=digest` prefs; a
-/// workspace-default of `digest` (rare) is a follow-up.
+/// into one summary email per user and workspace. Runs daily, single-machine
+/// via the advisory lock. Idempotent: it marks the source rows
+/// `email`-delivered, so a re-run never re-sends. v1 covers explicit per-user
+/// `email=digest` prefs; a workspace-default of `digest` (rare) is a follow-up.
 pub async fn send_notification_digests(pool: Pool) -> Result<()> {
     let _lock = match try_job_lock(&pool, NOTIFICATION_DIGEST_LOCK, "notifications.digest")? {
         Some(lock) => lock,
@@ -168,66 +168,64 @@ pub async fn send_notification_digests(pool: Pool) -> Result<()> {
         return Ok(());
     }
 
-    // Group by user: (workspace_id, titles, source notification ids).
-    let mut by_user: HashMap<uuid::Uuid, (i32, Vec<String>, Vec<i32>)> = HashMap::new();
+    // One digest per user and workspace: each goes out under its own
+    // workspace's name, sending identity and security note, and lists only
+    // that workspace's notifications.
+    let mut batches: std::collections::BTreeMap<(uuid::Uuid, i32), (Vec<String>, Vec<i32>)> =
+        std::collections::BTreeMap::new();
     for r in pending {
-        let e = by_user
-            .entry(r.user_uuid)
-            .or_insert_with(|| (r.workspace_id, Vec::new(), Vec::new()));
-        e.1.push(r.title);
-        e.2.push(r.id);
+        let batch = batches.entry((r.user_uuid, r.workspace_id)).or_default();
+        batch.0.push(r.title);
+        batch.1.push(r.id);
     }
 
     let base_url =
         std::env::var("FRONTEND_URL").unwrap_or_else(|_| "https://app.nosdesk.com".to_string());
-    let mut conn = pool.get().context("db pool")?;
+    let mut recipients: HashMap<uuid::Uuid, Option<String>> = HashMap::new();
     let mut sent = 0usize;
 
-    for (user, (workspace_id, titles, ids)) in by_user {
+    for ((user, workspace_id), (titles, ids)) in batches {
         #[derive(QueryableByName)]
         struct EmailRow {
             #[diesel(sql_type = Text)]
             email: String,
         }
-        // cross-tenant: user_emails is a global identity table (no workspace to pin to).
-        let recipient: Option<String> = crate::sync::session::background_run(
-            &pool,
-            "background:notification_digest_email",
-            |conn| {
-                let row: Option<EmailRow> = sql_query(
-                    "SELECT email FROM user_emails \
-                     WHERE user_uuid = $1 AND is_primary = true LIMIT 1",
+        let recipient = match recipients.get(&user) {
+            Some(known) => known.clone(),
+            None => {
+                // cross-tenant: user_emails is a global identity table (no workspace to pin to).
+                let found: Option<String> = crate::sync::session::background_run(
+                    &pool,
+                    "background:notification_digest_email",
+                    |conn| {
+                        let row: Option<EmailRow> = sql_query(
+                            "SELECT email FROM user_emails \
+                             WHERE user_uuid = $1 AND is_primary = true LIMIT 1",
+                        )
+                        .bind::<SqlUuid, _>(user)
+                        .get_result(conn)
+                        .optional()?;
+                        Ok(row.map(|e| e.email))
+                    },
                 )
-                .bind::<SqlUuid, _>(user)
-                .get_result(conn)
-                .optional()?;
-                Ok(row.map(|e| e.email))
-            },
-        )
-        .map_err(|e| anyhow::anyhow!("digest email lookup: {e}"))?;
+                .map_err(|e| anyhow::anyhow!("digest email lookup: {e}"))?;
+                recipients.insert(user, found.clone());
+                found
+            }
+        };
         let Some(recipient) = recipient else {
             continue;
         };
 
-        // Enqueue + mark delivered under the user's workspace (outbound_emails +
-        // notifications are RLS + audited).
-        let ws_actor = crate::sync::actor::ActorContext::system("scheduler:notification_digest")
-            .with_workspace(workspace_id);
-        let result =
-            crate::sync::session::with_actor_bypass_context(&mut conn, &ws_actor, |conn| {
-                let row = crate::services::transactional_email::prepare_notification_digest(
-                    &recipient, "Nosdesk", &base_url, &titles,
-                );
-                crate::repository::outbound_emails::enqueue_or_suppress(conn, row)?;
-                sql_query(
-                    "UPDATE notifications \
-                 SET channels_delivered = channels_delivered || '[\"email\"]'::jsonb \
-                 WHERE id = ANY($1)",
-                )
-                .bind::<Array<Integer>, _>(&ids)
-                .execute(conn)?;
-                Ok::<_, diesel::result::Error>(())
-            });
+        // Built, enqueued and marked delivered pinned to the workspace, under
+        // row security: the settings read is this workspace's row and no
+        // other, and outbound_emails + notifications are RLS + audited.
+        let result = crate::sync::session::run_in_workspace(
+            &pool,
+            "scheduler:notification_digest",
+            workspace_id,
+            |conn| enqueue_workspace_digest(conn, user, &recipient, &base_url, &titles, &ids),
+        );
         match result {
             Ok(_) => sent += 1,
             Err(e) => warn!(error = %e, "digest: failed to send for a user"),
@@ -237,6 +235,48 @@ pub async fn send_notification_digests(pool: Pool) -> Result<()> {
     if sent > 0 {
         info!(count = sent, "scheduler: notification digests sent");
     }
+    Ok(())
+}
+
+/// Queue one workspace's digest for `user` and mark its notifications
+/// email-delivered. Runs pinned to that workspace (`run_in_workspace`), never
+/// under the bypass role: `get_site_settings` takes the first row it can see,
+/// which under bypass is any workspace's.
+fn enqueue_workspace_digest(
+    conn: &mut crate::db::DbConnection,
+    user: uuid::Uuid,
+    recipient: &str,
+    base_url: &str,
+    titles: &[String],
+    ids: &[i32],
+) -> diesel::QueryResult<()> {
+    let settings = crate::repository::site_settings::get_site_settings(conn)?;
+    let note = crate::utils::email_branding::security_note(
+        conn,
+        &settings,
+        base_url,
+        crate::utils::email_branding::SentFrom::Workspace,
+    );
+    let locale = crate::utils::locale::effective_locale(
+        crate::repository::user_locale::user_locale_preference(conn, user).as_deref(),
+        &settings.default_locale,
+    );
+    let row = crate::services::transactional_email::prepare_notification_digest(
+        recipient,
+        &settings.app_name,
+        &locale,
+        base_url,
+        titles,
+        note.as_deref(),
+    );
+    crate::repository::outbound_emails::enqueue_or_suppress(conn, row)?;
+    sql_query(
+        "UPDATE notifications \
+         SET channels_delivered = channels_delivered || '[\"email\"]'::jsonb \
+         WHERE id = ANY($1)",
+    )
+    .bind::<Array<Integer>, _>(ids)
+    .execute(conn)?;
     Ok(())
 }
 

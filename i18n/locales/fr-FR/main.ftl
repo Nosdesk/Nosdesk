@@ -134,6 +134,16 @@ participant-added-body = { $adder } vous a ajouté à la demande n° { $id } : {
 participant-added-replies = Vous recevrez les réponses de l'équipe par e-mail et pourrez y répondre.
 participant-added-cta = Voir la demande
 notif-footer-preferences = Vous recevez cet e-mail en raison de vos préférences de notification.
+# Notification digest (machine, pending native review)
+notif-digest-subject = [{ $app }] { $count ->
+    [one] { $count } nouvelle notification
+   *[other] { $count } nouvelles notifications
+}
+notif-digest-intro = { $count ->
+    [one] Vous avez { $count } nouvelle notification dans { $app } :
+   *[other] Vous avez { $count } nouvelles notifications dans { $app } :
+}
+notif-digest-view = Les consulter : { $url }
 notif-body-text =
     { $title }
 
