@@ -217,6 +217,8 @@ pub enum BackupError {
     EncryptionError(String),
     InvalidPassword,
     CorruptedBackup(String),
+    /// No database connection to restore on.
+    ConnectionError(String),
 }
 
 impl std::fmt::Display for BackupError {
@@ -229,6 +231,7 @@ impl std::fmt::Display for BackupError {
             BackupError::EncryptionError(e) => write!(f, "Encryption error: {e}"),
             BackupError::InvalidPassword => write!(f, "Invalid password"),
             BackupError::CorruptedBackup(e) => write!(f, "Corrupted backup: {e}"),
+            BackupError::ConnectionError(e) => write!(f, "Database connection error: {e}"),
         }
     }
 }
@@ -820,7 +823,32 @@ pub struct RestoreOptions {
     pub ignore_schema_mismatch: bool,
 }
 
-/// Restore tables from a backup archive into the live database.
+/// Restore an instance's database from a backup archive. The CLI and the
+/// admin restore both come here, so neither picks the database role itself.
+///
+/// The restore truncates and reloads every table with triggers off, which the
+/// app role (`nosdesk_app`) can't do, so it runs as the migration role when
+/// one is configured (`MIGRATION_DATABASE_URL`). A single-role install's
+/// `DATABASE_URL` owns the schema already, so without one it runs on
+/// `runtime`. Returns the connection it ran on, for the work that follows
+/// (the thumbnail backfill).
+pub fn restore_instance(
+    runtime: &crate::db::Pool,
+    backup_path: &Path,
+    password: Option<&str>,
+    options: RestoreOptions,
+) -> Result<(RestoreStats, DbConnection), BackupError> {
+    let mut conn = match crate::db::privileged_ddl_pool() {
+        Some(owner) => owner.get(),
+        None => runtime.get(),
+    }
+    .map_err(|e| BackupError::ConnectionError(e.to_string()))?;
+    let stats = restore_database(&mut conn, backup_path, password, options)?;
+    Ok((stats, conn))
+}
+
+/// Restore tables from a backup archive into the database `conn` points at.
+/// Outside tests, call [`restore_instance`], which picks the connection.
 ///
 /// Runs inside a single transaction with
 /// `session_replication_role = 'replica'`, so:

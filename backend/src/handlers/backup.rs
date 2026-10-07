@@ -1,6 +1,5 @@
 use crate::errors::{self, ApiError};
 use crate::extractors::{PlatformConn, TenantConn};
-use crate::handlers::helpers;
 use actix_multipart::Multipart;
 use actix_web::{web, HttpMessage, HttpResponse, Responder};
 use futures::StreamExt;
@@ -529,19 +528,10 @@ pub async fn execute_restore(
         )
     });
 
-    // The restore truncates and reloads every table and turns off
-    // triggers for the load, which the app role can't do. Run it as the
-    // migration role when one is configured (MIGRATION_DATABASE_URL); a
-    // single-role install's DATABASE_URL owns the schema already.
-    let privileged = crate::db::privileged_ddl_pool();
-    let mut conn = match &privileged {
-        Some(owner) => owner.get()?,
-        None => helpers::db_conn(&pool)?,
-    };
-
-    // Restore database first, then files.
-    let stats = match backup_service::restore_database(
-        &mut conn,
+    // Restore database first, then files. `restore_instance` runs it as
+    // the migration role when one is configured.
+    let (stats, mut conn) = match backup_service::restore_instance(
+        &pool,
         &file_path,
         body.password.as_deref(),
         // Admin auth is the upstream gate for this endpoint; the

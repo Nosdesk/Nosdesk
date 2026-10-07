@@ -916,9 +916,10 @@ fn db_restore(
         return Ok(());
     }
 
-    let mut conn = connect_db()?;
-    let stats = backup_service::restore_database(
-        &mut conn,
+    // Runs as the migration role when MIGRATION_DATABASE_URL is set, like
+    // the admin restore: the app role can't truncate and reload tables.
+    let (stats, mut conn) = backup_service::restore_instance(
+        &db::establish_connection_pool(),
         file,
         password.as_deref(),
         backup_service::RestoreOptions {

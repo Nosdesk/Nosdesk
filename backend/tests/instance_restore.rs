@@ -129,3 +129,40 @@ async fn restore_runs_as_the_migration_role_and_hosted_refuses_it() {
         StatusCode::FORBIDDEN
     );
 }
+
+/// `nosdesk-cli db restore` is the recovery path for when the app can't
+/// serve. Where the app connects as `nosdesk_app`, the CLI restores as the
+/// migration role, like the admin restore.
+#[test]
+fn the_cli_restores_as_the_migration_role() {
+    common::ensure_test_keyring();
+    common::with_upload_dir();
+    let db = common::TestDb::new();
+    let archive = {
+        let mut conn = db.conn();
+        let export_job = common::seed_backup_job(&mut conn);
+        backup_service::create_backup(&mut conn, export_job, None).expect("create backup")
+    };
+    let sep = if db.url().contains('?') { '&' } else { '?' };
+    let app_url = format!("{}{sep}options=-c%20role%3Dnosdesk_app", db.url());
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nosdesk-cli"))
+        .args(["db", "restore", "--yes", "--force"])
+        .arg(&archive)
+        .env("DATABASE_URL", &app_url)
+        .env("MIGRATION_DATABASE_URL", db.url())
+        .env(
+            "UPLOAD_DIR",
+            std::env::var("UPLOAD_DIR").expect("UPLOAD_DIR"),
+        )
+        .env_remove("NOSDESK_DEPLOYMENT_MODE")
+        .output()
+        .expect("run nosdesk-cli");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "nosdesk-cli db restore failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("Restore complete"), "{stdout}");
+}
