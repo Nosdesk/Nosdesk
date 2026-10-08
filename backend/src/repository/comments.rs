@@ -546,16 +546,16 @@ fn attachment_sync_data(attachment: &Attachment) -> serde_json::Value {
     })
 }
 
-/// Whether `user` uploaded the draft (not yet attached to a comment) stored at
-/// any of `urls`. Drafts are private to their uploader.
+/// Whether any of the attachments `ids` is a draft (not yet attached to a
+/// comment) that `user` uploaded. Drafts are private to their uploader.
 pub fn is_own_draft_upload(
     conn: &mut DbConnection,
-    urls: &[String],
+    ids: &[i32],
     user: uuid::Uuid,
 ) -> QueryResult<bool> {
     diesel::select(diesel::dsl::exists(
         attachments::table
-            .filter(attachments::url.eq_any(urls))
+            .filter(attachments::id.eq_any(ids))
             .filter(attachments::uploaded_by.eq(user))
             .filter(attachments::comment_id.is_null()),
     ))
@@ -713,34 +713,44 @@ pub fn delete_comment(
     Ok(count)
 }
 
-/// The workspace that owns the attachment stored at any of `urls`. The file
-/// routes derive the workspace from the resource, since a direct browser load
-/// carries no selection header. Call it elevated (BYPASSRLS): it reveals only a
-/// workspace id, and the caller gates on membership under that workspace's pin.
-pub fn attachment_workspace_id_by_urls(
+/// The first of the workspaces `caller` is an active member of that holds an
+/// attachment stored at any of `urls`, with those attachments' ids. The file
+/// routes derive the workspace from the resource, since a direct
+/// browser load carries no selection header. A URL is not unique across
+/// workspaces (a workspace cloned within the same database keeps its files'
+/// URLs), so only the caller's own workspaces are searched. Call it elevated
+/// (BYPASSRLS): it reveals only workspaces and row ids, and the caller gates
+/// on membership and visibility under that workspace's pin.
+pub fn attachment_locations(
     conn: &mut DbConnection,
     urls: &[String],
-) -> QueryResult<Option<i32>> {
-    attachments::table
+    caller: uuid::Uuid,
+) -> QueryResult<Option<(i32, Vec<i32>)>> {
+    use crate::schema::workspace_members;
+    let found: Vec<(i32, i32)> = attachments::table
+        .inner_join(
+            workspace_members::table.on(workspace_members::workspace_id
+                .eq(attachments::workspace_id)
+                .and(workspace_members::user_uuid.eq(caller))
+                .and(workspace_members::removed_at.is_null())),
+        )
         .filter(attachments::url.eq_any(urls))
-        .select(attachments::workspace_id)
-        .first::<i32>(conn)
-        .optional()
+        .select((attachments::workspace_id, attachments::id))
+        .order((attachments::workspace_id, attachments::id))
+        .load(conn)?;
+    let Some(&(workspace_id, _)) = found.first() else {
+        return Ok(None);
+    };
+    let ids = found
+        .into_iter()
+        .filter(|(ws, _)| *ws == workspace_id)
+        .map(|(_, id)| id)
+        .collect();
+    Ok(Some((workspace_id, ids)))
 }
 
-/// The ticket an attachment belongs to, through its comment. `None` for an
-/// unknown URL or a file not attached to a comment yet.
-pub fn attachment_ticket_id_by_url(conn: &mut DbConnection, url: &str) -> QueryResult<Option<i32>> {
-    attachments::table
-        .inner_join(comments::table)
-        .filter(attachments::url.eq(url))
-        .select(comments::ticket_id)
-        .first::<i32>(conn)
-        .optional()
-}
-
-/// The workspace that owns a comment. Same contract as
-/// [`attachment_workspace_id_by_urls`].
+/// The workspace that owns a comment. Run elevated, like
+/// [`attachment_locations`].
 pub fn comment_workspace_id(conn: &mut DbConnection, comment_id: i32) -> QueryResult<Option<i32>> {
     comments::table
         .filter(comments::id.eq(comment_id))

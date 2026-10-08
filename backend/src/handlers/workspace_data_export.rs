@@ -26,7 +26,7 @@ use crate::handlers::files::authorize_at_owning_workspace;
 use crate::models::{
     Claims, NewWorkspaceExportJob, WorkspaceExportJob, WorkspaceExportJobUpdate, WorkspaceRole,
 };
-use crate::repository::{user_helpers, workspace_export_jobs as export_repo};
+use crate::repository::workspace_export_jobs as export_repo;
 use crate::services::workspace_export::{assemble_workspace_archive, collect_workspace_rows};
 use crate::sync::actor::ActorContext;
 use crate::sync::session::with_actor_bypass_context;
@@ -182,10 +182,8 @@ pub async fn download_export(
         &pool,
         &auth,
         |c| export_repo::workspace_id_by_id(c, id),
-        |c, workspace_id| {
-            let is_owner = user_helpers::workspace_role(c, auth.user_uuid)
-                .is_some_and(|role| role.meets(WorkspaceRole::Owner));
-            if !is_owner {
+        |c, workspace_id, role| {
+            if !role.meets(WorkspaceRole::Owner) {
                 return Ok(None);
             }
             export_repo::get_owned(c, id, workspace_id)

@@ -99,6 +99,11 @@ macro_rules! app {
                             web::get().to(backend::handlers::serve_ticket_file),
                         )
                         .route(
+                            "/collab/{kind}/{resource_uuid}/{filename:.*}",
+                            web::get()
+                                .to(backend::handlers::collab_images::serve_collab_document_image),
+                        )
+                        .route(
                             "/assets/{asset_id}/media/{filename:.*}",
                             web::get().to(backend::handlers::asset_media::serve_asset_media_file),
                         )
@@ -338,10 +343,13 @@ async fn ticket_files_load_without_the_selection_header() {
             StatusCode::NOT_FOUND,
             "staff of another workspace: {uri}"
         );
+        // On hosted a requester seat never reaches the agent routes, so this
+        // is the staff-seat gate, not the ticket's visibility (the self-hosted
+        // `ticket_file_access` test covers that).
         assert_eq!(
             status!(&app, &uri, &fx.requester_a),
             StatusCode::NOT_FOUND,
-            "a member who can't see the ticket: {uri}"
+            "a requester seat: {uri}"
         );
     }
 
@@ -671,5 +679,145 @@ async fn exports_and_backups_download_without_the_selection_header() {
         ),
         StatusCode::NOT_FOUND,
         "unknown backup"
+    );
+}
+
+/// The agent file routes admit staff seats only, as every other agent-app
+/// request does on hosted. Someone who is staff in another workspace and a
+/// requester here signs in centrally with an agent session, but a requester's
+/// view of this workspace is its portal: the agent routes refuse them its
+/// ticket files, raw mail and asset media, even on a ticket they requested.
+#[actix_web::test]
+async fn a_requester_seat_reaches_no_agent_file_route() {
+    let fx = Fixture::new();
+    let a = fx.ws_a;
+
+    // Staff in B, requester in A, and the requester of a ticket in A.
+    let both = common::insert_plain_user(&mut fx.pool.get().expect("conn"), "Staff in B");
+    run_in_workspace(&fx.pool, "test:seed", fx.ws_b, |c| {
+        add_membership(c, fx.ws_b, both, "agent", SeatWriteAuthority::ControlPlane)
+    })
+    .expect("staff seat in B");
+    run_in_workspace(&fx.pool, "test:seed", a, |c| {
+        add_membership(c, a, both, "member", SeatWriteAuthority::ControlPlane)
+    })
+    .expect("requester in A");
+    let eml = format!("email_raw/{}", stored_name("theirs.eml"));
+    let (ticket_id, ticket_uuid, comment_id) = run_in_workspace(&fx.pool, "test:seed", a, |c| {
+        use backend::schema::{tickets, workflow_states};
+        let state = workflow_states::table
+            .filter(workflow_states::is_default.eq(true))
+            .select(workflow_states::id)
+            .first::<i32>(c)?;
+        let ticket: Ticket = diesel::insert_into(tickets::table)
+            .values(&NewTicket {
+                title: "My monitor flickers".to_string(),
+                workflow_state_id: state,
+                requester_uuid: Some(both),
+                ..Default::default()
+            })
+            .get_result(c)?;
+        let comment = backend::repository::comments::create_comment(
+            c,
+            NewComment {
+                content: "<p>video attached</p>".to_string(),
+                ticket_id: ticket.id,
+                user_uuid: both,
+                raw_source_uri: Some(eml.clone()),
+                ..Default::default()
+            },
+            None,
+        )?;
+        Ok((ticket.id, ticket.uuid, comment.id))
+    })
+    .expect("seed their ticket");
+    let video = stored_name("flicker.mp4");
+    fx.attach(
+        &format!("/uploads/tickets/{ticket_id}/{video}"),
+        Some(comment_id),
+        b"video",
+    )
+    .await;
+    fx.put(&eml, b"From: them@example.com").await;
+    let asset_id = run_in_workspace(&fx.pool, "test:seed", a, |c| {
+        Ok(common::insert_stock_asset(c, "Monitor"))
+    })
+    .expect("seed asset");
+    let photo = stored_name("monitor.png");
+    fx.put(&format!("assets/{asset_id}/media/{photo}"), b"photo")
+        .await;
+    // An image in their ticket's notes, and the workspace's plugin icon.
+    let pasted = stored_name("pasted.png");
+    fx.put(&format!("collab/ticket/{ticket_uuid}/{pasted}"), b"pasted")
+        .await;
+    run_in_workspace(&fx.pool, "test:seed", a, |c| {
+        use backend::schema::plugins;
+        diesel::update(plugins::table.filter(plugins::uuid.eq(fx.a_plugin_uuid)))
+            .set(plugins::icon_svg.eq(Some(b"<svg/>".to_vec())))
+            .execute(c)
+    })
+    .expect("seed plugin icon");
+    // A finished export of the workspace.
+    let artifact = format!("exports/{}.nosdesk", Uuid::new_v4());
+    let export_id = run_in_workspace(&fx.pool, "test:seed", a, |c| {
+        let job = backend::repository::workspace_export_jobs::create(
+            c,
+            NewWorkspaceExportJob {
+                workspace_id: a,
+                requested_by: Some(fx.a_admin_uuid),
+                status: "completed".to_string(),
+            },
+        )?;
+        let now = Utc::now().naive_utc();
+        backend::repository::workspace_export_jobs::update(
+            c,
+            job.id,
+            WorkspaceExportJobUpdate {
+                file_path: Some(artifact.clone()),
+                completed_at: Some(now),
+                expires_at: Some(now + Duration::days(1)),
+                ..Default::default()
+            },
+        )
+        .map(|job| job.id)
+    })
+    .expect("seed export");
+    fx.put(&artifact, b"archive").await;
+
+    let app = app!(fx.pool);
+    let their_session = session_token(&fx.pool, both);
+    let uris = [
+        format!("/api/files/tickets/{ticket_id}/{video}"),
+        format!("/api/comments/{comment_id}/raw.eml"),
+        format!("/api/files/assets/{asset_id}/media/{photo}"),
+        format!("/api/files/collab/ticket/{ticket_uuid}/{pasted}"),
+        format!("/api/plugins/{}/icon", fx.a_plugin_uuid),
+    ];
+    for uri in &uris {
+        assert_eq!(
+            status!(&app, uri, &their_session),
+            StatusCode::NOT_FOUND,
+            "a requester seat in the file's workspace: {uri}"
+        );
+        assert_eq!(
+            status!(&app, uri, &fx.staff_a),
+            StatusCode::OK,
+            "staff of the file's workspace: {uri}"
+        );
+    }
+    assert_eq!(
+        status!(&app, &uris[2], &fx.requester_a),
+        StatusCode::NOT_FOUND,
+        "asset media for a requester of the workspace"
+    );
+    // Exports are the owner's; a requester seat never gets one.
+    assert_eq!(
+        status!(
+            &app,
+            &format!("/api/workspace/export/{export_id}/download"),
+            &their_session
+        ),
+        StatusCode::NOT_FOUND,
+        "a requester seat: the workspace export"
     );
 }

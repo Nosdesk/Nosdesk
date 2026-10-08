@@ -22,7 +22,6 @@ use crate::models::{
 };
 use crate::repository::plugin_publishers;
 use crate::repository::plugins as plugin_repo;
-use crate::repository::user_helpers;
 use crate::services::plugins::{install, registry, signing, trust};
 use crate::sync::actor::ActorContext;
 use crate::sync::session as actor_session;
@@ -1359,15 +1358,10 @@ pub async fn serve_plugin_icon(
         &pool,
         &auth,
         |c| plugin_repo::workspace_id_by_uuid(c, plugin_uuid),
-        |c, _| {
-            if user_helpers::workspace_role(c, auth.user_uuid).is_none() {
-                return Ok(None);
-            }
-            match plugin_repo::get_plugin_icon(c, plugin_uuid) {
-                Ok(icon) => Ok(Some(icon)),
-                Err(DieselError::NotFound) => Ok(None),
-                Err(e) => Err(e),
-            }
+        |c, _, _| match plugin_repo::get_plugin_icon(c, plugin_uuid) {
+            Ok(icon) => Ok(Some(icon)),
+            Err(DieselError::NotFound) => Ok(None),
+            Err(e) => Err(e),
         },
     );
     match icon {

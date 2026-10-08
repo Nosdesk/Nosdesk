@@ -20,7 +20,7 @@ use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::handlers::files::{authorize_at_owning_workspace, serve_or_not_found};
 use crate::models::{AssetMediaUpdate, NewAssetMedia};
-use crate::repository::{asset_media as repo, assets as assets_repo, user_helpers};
+use crate::repository::{asset_media as repo, assets as assets_repo};
 use crate::utils::file_validation::FileValidator;
 use crate::utils::image::generate_asset_media_thumbnail;
 use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
@@ -280,8 +280,8 @@ pub async fn delete_media(
 
 /// `GET /api/files/assets/{asset_id}/media/{filename}`. An `<img>` loads it
 /// without the workspace selection header, so the workspace comes from the
-/// asset (see `authorize_at_owning_workspace`). Any member of that workspace may
-/// see an asset's media, as with the media list.
+/// asset (see `authorize_at_owning_workspace`, which also admits only agent-app
+/// members). Any such member may see an asset's media, as with the media list.
 pub async fn serve_asset_media_file(
     path: web::Path<(i32, String)>,
     req: HttpRequest,
@@ -294,10 +294,7 @@ pub async fn serve_asset_media_file(
         &pool,
         &auth,
         |c| assets_repo::asset_workspace_id(c, asset_id),
-        |c, _| {
-            if user_helpers::workspace_role(c, auth.user_uuid).is_none() {
-                return Ok(None);
-            }
+        |c, _, _| {
             // Read again under the pin: the asset must be in this workspace.
             Ok(assets_repo::get_device_by_id(c, asset_id)
                 .optional()?
