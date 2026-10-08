@@ -35,7 +35,7 @@ import { useTicketActivitySSE } from '@/composables/useTicketActivitySSE'
 import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import * as pool from '@nosdesk/core/sync/pool'
 import type { SyncTicket } from '@/sync/stores/tickets'
-import { ticketNumber } from '@/utils/ticketNumbers'
+import { ticketNumber, ticketRoute } from '@/utils/ticketNumbers'
 import { numberForTicketId } from '@/composables/useTicketNumberLookup'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Spinner from '@/components/common/Spinner.vue'
@@ -696,7 +696,7 @@ const hiddenRowCount = computed(() =>
               </span>
               <RouterLink
                 v-if="sourceTicketFor(ev)"
-                :to="`/tickets/${sourceTicketFor(ev)!.number}`"
+                :to="ticketRoute(sourceTicketFor(ev)!.number)"
                 class="font-medium text-accent hover:underline"
               >{{ sourceTicketLabel(sourceTicketFor(ev)!) }}</RouterLink>
               <span class="text-tertiary tabular-nums">
@@ -757,7 +757,7 @@ const hiddenRowCount = computed(() =>
             </span>
             <RouterLink
               v-if="sourceTicketFor(item.events[0])"
-              :to="`/tickets/${sourceTicketFor(item.events[0])!.number}`"
+              :to="ticketRoute(sourceTicketFor(item.events[0])!.number)"
               class="font-medium text-accent hover:underline"
             >{{ sourceTicketLabel(sourceTicketFor(item.events[0])!) }}</RouterLink>
             <span class="text-tertiary tabular-nums">

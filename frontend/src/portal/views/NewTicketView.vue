@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ticketRoute } from '@nosdesk/core/utils/ticketRoutes'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuery, useQueryCache } from '@pinia/colada'
@@ -38,7 +39,7 @@ async function submit(): Promise<void> {
       requestType.value,
     )
     void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
-    void router.push(`/tickets/${ticket.number}`)
+    void router.push(ticketRoute(ticket.number))
   } catch {
     failed.value = true
     submitting.value = false

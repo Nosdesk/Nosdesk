@@ -10,6 +10,7 @@
  */
 import { invoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
+import { ticketRoute, ticketRouteById } from '@nosdesk/core/utils/ticketRoutes'
 import {
   registerPushDevice,
   unregisterPushDevice,
@@ -144,9 +145,9 @@ interface NotificationOpenedPayload {
  *  their own screens. */
 function routeFromPayload(p: NotificationOpenedPayload | null | undefined): string | null {
   if (!p) return null
-  if (typeof p.ticketNumber === 'number' && p.ticketNumber > 0) return `/tickets/${p.ticketNumber}`
+  if (typeof p.ticketNumber === 'number' && p.ticketNumber > 0) return ticketRoute(p.ticketNumber)
   // Without a number, the by-id route looks it up.
-  if (typeof p.ticketId === 'number' && p.ticketId > 0) return `/tickets/id/${p.ticketId}`
+  if (typeof p.ticketId === 'number' && p.ticketId > 0) return ticketRouteById(p.ticketId)
   if (p.entityType === 'asset' && typeof p.entityId === 'number' && p.entityId > 0) {
     return `/assets/${p.entityId}`
   }

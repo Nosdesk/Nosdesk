@@ -77,8 +77,9 @@ export interface NotificationReceivedEventData {
     entity_type: string
     entity_id: number
     ticket_id: number
-    /** The ticket's number; absent from a server older than ticket numbers. */
-    ticket_number?: number
+    /** The ticket's number; absent from a server older than ticket numbers,
+     *  null on a notification queued before them. Route by `ticket_id` then. */
+    ticket_number?: number | null
     actor: NotificationActor
     metadata?: Record<string, unknown>
     timestamp: string

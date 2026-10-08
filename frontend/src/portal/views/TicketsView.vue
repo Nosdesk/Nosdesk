@@ -14,6 +14,7 @@ import SearchInput from '@/components/common/SearchInput.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import TicketStatusIcon from '@/components/TicketStatusIcon.vue'
 import { formatCompactRelativeTime, formatDateTime } from '@nosdesk/core/utils/dateUtils'
+import { ticketRoute } from '@nosdesk/core/utils/ticketRoutes'
 
 import PortalLayout from '../components/PortalLayout.vue'
 import { isClosed, listMyTickets, type PortalTicket } from '../service'
@@ -77,7 +78,7 @@ function lastMove(ticket: PortalTicket): string {
     >
       <li v-for="ticket in visible" :key="ticket.id">
         <RouterLink
-          :to="`/tickets/${ticket.number}`"
+          :to="ticketRoute(ticket.number)"
           class="group flex items-start gap-3 px-4 py-3.5 hover:bg-surface-hover focus-visible:outline-none focus-visible:bg-surface-hover transition-colors"
         >
           <TicketStatusIcon

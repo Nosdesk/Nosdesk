@@ -248,7 +248,7 @@ async function navigateToNotification(notification: Notification) {
   } else if (notification.entity_type === 'ticket' || notification.entity_type === 'comment') {
     const ticketId = (notification.metadata?.ticket_id as number | undefined) ?? notification.entity_id
     // Notifications stored before tickets had numbers carry only the id.
-    const number = notification.metadata?.ticket_number as number | undefined
+    const number = notification.metadata?.ticket_number as number | null | undefined
     router.push(ticketPath({ id: ticketId, number }))
   }
 }

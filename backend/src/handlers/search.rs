@@ -22,7 +22,7 @@ use crate::utils::rbac::is_platform_admin;
 fn hit_ticket_id(r: &crate::services::search::types::SearchResult) -> Option<i32> {
     match r.entity_type.as_str() {
         "ticket" => i32::try_from(r.entity_id).ok(),
-        "comment" | "attachment" => r.url.strip_prefix("/tickets/").and_then(|s| s.parse().ok()),
+        "comment" | "attachment" => crate::utils::ticket_link::ticket_id_in_index_route(&r.url),
         _ => None,
     }
 }
@@ -73,7 +73,7 @@ fn ticket_number_hit(
             title: t.title,
             preview: String::new(),
             // Rewritten to the number with the other hits below.
-            url: format!("/tickets/{}", t.id),
+            url: crate::utils::ticket_link::ticket_route_by_id(t.id),
             score: f32::MAX,
             updated_at: Some(t.updated_at.and_utc().to_rfc3339()),
             is_internal: None,
@@ -262,9 +262,14 @@ pub async fn search(
                     error!(error = ?e, "search ticket numbers failed");
                     ApiError::Internal("Search failed".into())
                 })?;
+                // A ticket the lookup misses (deleted, still indexed) links
+                // by id, through the route that looks its number up.
                 for r in &mut response.results {
-                    if let Some(number) = hit_ticket_id(r).and_then(|id| numbers.get(&id)) {
-                        r.url = format!("/tickets/{number}");
+                    if let Some(id) = hit_ticket_id(r) {
+                        r.url = crate::utils::ticket_link::ticket_route_for(
+                            id,
+                            numbers.get(&id).copied(),
+                        );
                     }
                 }
             }

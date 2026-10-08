@@ -622,10 +622,11 @@ pub async fn ticket_link_callback(
 fn ticket_location(number: Option<i32>, answer: Option<&str>) -> String {
     match (number, answer) {
         (None, _) => portal_path("/tickets"),
-        (Some(n), Some(a @ ("fixed" | "not_fixed"))) => {
-            portal_path(&format!("/tickets/{n}?answer={a}"))
-        }
-        (Some(n), _) => portal_path(&format!("/tickets/{n}")),
+        (Some(n), Some(a @ ("fixed" | "not_fixed"))) => portal_path(&format!(
+            "{}?answer={a}",
+            crate::utils::ticket_link::ticket_route(n)
+        )),
+        (Some(n), _) => portal_path(&crate::utils::ticket_link::ticket_route(n)),
     }
 }
 
