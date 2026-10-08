@@ -83,3 +83,128 @@ fn a_new_ticket_is_assigned_by_the_rules_and_the_assignee_is_told() {
         "{events:?}"
     );
 }
+
+/// A ticket added from a board's column (the kanban quick-add) goes through
+/// the assignment rules like any other new ticket.
+#[actix_web::test]
+async fn a_ticket_added_from_a_board_is_assigned_by_the_rules() {
+    use std::sync::Arc;
+
+    use actix_web::dev::Service;
+    use actix_web::http::StatusCode;
+    use actix_web::test as http_test;
+    use actix_web::{web, App, HttpMessage};
+    use diesel::sql_types::Integer;
+
+    use backend::extractors::WorkspaceContext;
+    use backend::middleware::RequestContext;
+    use backend::models::Claims;
+    use backend::services::search::SearchService;
+
+    #[derive(QueryableByName)]
+    struct Id {
+        #[diesel(sql_type = Integer)]
+        id: i32,
+    }
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let a = &seeded.a;
+    let admin = ActorContext::user(a.admin_uuid, None).with_workspace(a.workspace_id);
+    let (project, open_state) = with_actor_context(&mut pool.get().expect("conn"), &admin, |c| {
+        diesel::insert_into(assignment_rules::table)
+            .values(&NewAssignmentRule {
+                name: "Everything to the admin".into(),
+                description: None,
+                priority: 1,
+                is_active: true,
+                method: AssignmentMethod::DirectUser,
+                target_user_uuid: Some(a.admin_uuid),
+                target_group_id: None,
+                trigger_on_create: true,
+                trigger_on_category_change: false,
+                category_id: None,
+                conditions: None,
+                created_by: Some(a.admin_uuid),
+            })
+            .execute(c)?;
+        let project =
+            diesel::sql_query("INSERT INTO projects (name) VALUES ('Office move') RETURNING id")
+                .get_result::<Id>(c)?
+                .id;
+        let open_state: i32 = workflow_states::table
+            .filter(workflow_states::workspace_id.eq(a.workspace_id))
+            .filter(workflow_states::is_default.eq(true))
+            .select(workflow_states::id)
+            .first(c)?;
+        Ok::<_, diesel::result::Error>((project, open_state))
+    })
+    .expect("seed rule and project");
+
+    let now = chrono::Utc::now().timestamp();
+    let claims = Claims {
+        sub: a.admin_uuid.to_string(),
+        name: "Admin".to_string(),
+        email: "admin@example.com".to_string(),
+        platform_role: "user".to_string(),
+        scope: "full".to_string(),
+        sid: None,
+        workspace_uuid: None,
+        exp: (now + 3600) as usize,
+        iat: now as usize,
+    };
+    let workspace = WorkspaceContext {
+        workspace_id: a.workspace_id,
+        workspace_uuid: a.workspace_uuid,
+        slug: a.slug.clone(),
+        name: "A".to_string(),
+        organisation_id: None,
+        custom_domain: None,
+    };
+    let corr = uuid::Uuid::now_v7();
+    let actor = ActorContext::user(a.admin_uuid, Some(corr)).with_workspace(a.workspace_id);
+    let search_dir = tempfile::tempdir().expect("search dir");
+    let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(search))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(workspace.clone());
+                req.extensions_mut().insert(claims.clone());
+                req.extensions_mut()
+                    .insert(RequestContext::new(corr, actor.clone()));
+                srv.call(req)
+            })
+            .service(web::scope("/api").configure(backend::handlers::projects::config)),
+    )
+    .await;
+    let resp = http_test::call_service(
+        &app,
+        http_test::TestRequest::post()
+            .uri(&format!("/api/projects/{project}/tickets/new"))
+            .set_json(json!({ "title": "Move the printers", "workflow_state_id": open_state }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let created: Value = http_test::read_body_json(resp).await;
+    let id = created["id"].as_i64().expect("ticket id") as i32;
+
+    let assignee: Option<uuid::Uuid> =
+        with_actor_context(&mut pool.get().expect("conn"), &admin, |c| {
+            tickets::table
+                .find(id)
+                .select(tickets::assignee_uuid)
+                .first(c)
+        })
+        .expect("ticket");
+    assert_eq!(assignee, Some(a.admin_uuid), "the rule assigned it");
+    assert_eq!(
+        created["assignee"],
+        json!(a.admin_uuid.to_string()),
+        "and the response says so"
+    );
+}

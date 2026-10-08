@@ -269,10 +269,12 @@ pub struct QuickAddTicket {
 /// Create a ticket directly in a project (kanban column quick-add).
 /// The create and the project link happen in one transaction so the
 /// new card streams to the board's `project:<id>` sync group
-/// immediately (technician or admin only).
+/// immediately (technician or admin only). Like every other new ticket, it
+/// then goes through the assignment rules and into the search index.
 pub async fn create_ticket_in_project(
     req: HttpRequest,
     mut tc: TenantConn,
+    search_service: web::Data<Arc<SearchService>>,
     path: web::Path<i32>,
     body: web::Json<QuickAddTicket>,
 ) -> Result<HttpResponse, ApiError> {
@@ -298,7 +300,19 @@ pub async fn create_ticket_in_project(
     };
 
     match tc.run(|conn| repository::create_ticket_in_project(conn, new_ticket, project_id)) {
-        Ok(ticket) => Ok(HttpResponse::Created().json(ticket)),
+        Ok(ticket) => {
+            let ticket = crate::services::ticket_updates::assign_new_ticket(
+                &mut tc,
+                Some(search_service.get_ref()),
+                ticket,
+            );
+            crate::services::search::indexing_tasks::spawn_index_ticket(
+                search_service.get_ref().clone(),
+                ticket.clone(),
+                None,
+            );
+            Ok(HttpResponse::Created().json(ticket))
+        }
         Err(Error::NotFound) => Err(ApiError::NotFoundMsg("Project not found".into())),
         Err(e) => Err(ApiError::Database(e)),
     }
