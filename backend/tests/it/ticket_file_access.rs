@@ -471,3 +471,41 @@ async fn a_ticket_file_follows_its_reply() {
         assert_eq!(status!(&app, &uri), want, "agent, {what}: {uri}");
     }
 }
+
+/// A plain file on a reply (a `.txt`, which the thread offers as a download
+/// rather than a preview) is served whole through the agent route to an agent
+/// and through the portal to the ticket's requester.
+#[actix_web::test]
+async fn a_reply_text_file_downloads_for_agent_and_requester() {
+    let fx = Fixture::new();
+    let tid = fx.ticket.id;
+    let txt = fx.reply_with_file(tid, fx.agent, false, "notes.txt").await;
+
+    let body = |resp: actix_web::dev::ServiceResponse| async move {
+        assert_eq!(resp.status(), StatusCode::OK);
+        http_test::read_body(resp).await
+    };
+
+    let app = app_as!(fx, fx.agent);
+    let resp = http_test::call_service(
+        &app,
+        http_test::TestRequest::get()
+            .uri(&format!("/api/files/tickets/{}", txt.path))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(body(resp).await.as_ref(), b"notes.txt", "agent route");
+
+    let app = app_as!(fx, fx.requester);
+    let resp = http_test::call_service(
+        &app,
+        http_test::TestRequest::get()
+            .uri(&format!(
+                "/api/portal/tickets/{tid}/attachments/{}",
+                txt.attachment_id
+            ))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(body(resp).await.as_ref(), b"notes.txt", "portal route");
+}
