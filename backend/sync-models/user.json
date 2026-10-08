@@ -1,15 +1,20 @@
 {
   "name": "user",
-  "schema_version": 1,
+  "schema_version": 2,
+  "audience": "all",
   "fields": {
     "uuid": { "rust": "Uuid", "ts": "string", "primary": true },
     "name": { "rust": "String", "ts": "string" },
-    "email": { "rust": "String", "ts": "string" },
-    "role": { "rust": "UserRole", "ts": "UserRole" },
+    "email": { "rust": "Option<String>", "ts": "string | undefined" },
+    "platform_role": { "rust": "Option<String>", "ts": "PlatformRole | undefined" },
+    "workspace_role": { "rust": "Option<String>", "ts": "WorkspaceRole | null | undefined" },
     "pronouns": { "rust": "Option<String>", "ts": "string | null" },
     "avatar_url": { "rust": "Option<String>", "ts": "string | null" },
-    "avatar_thumb": { "rust": "Option<String>", "ts": "string | null" }
+    "avatar_thumb": { "rust": "Option<String>", "ts": "string | null" },
+    "deleted_at": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
+    "dashboard_layout": { "rust": "Option<serde_json::Value>", "ts": "DashboardLayout | null | undefined" }
   },
+  "notes": "Fields a viewer may not see are left out (sync::user_projection): of someone else, everyone gets the name, pronouns and avatar, staff also the email and workspace role, and only the person their platform role and dashboard layout.",
   "events": [
     { "type": "user.created", "op": "I" },
     { "type": "user.updated", "op": "U" },

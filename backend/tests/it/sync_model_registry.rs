@@ -1,6 +1,6 @@
 //! Validate that the JSON manifests in `backend/sync-models/` agree
-//! with the Rust source of truth (`models::SyncAggregate` and
-//! `sync::registry::schema_version_for`).
+//! with the Rust source of truth (`models::SyncAggregate`,
+//! `sync::registry::schema_version_for` and `sync::audience::audience`).
 //!
 //! This is the SOT-drift guardrail until the full build.rs / Vite
 //! plugin codegen lands. Adding a SyncAggregate enum variant without
@@ -13,12 +13,14 @@ use std::fs;
 use std::path::PathBuf;
 
 use backend::models::SyncAggregate;
+use backend::sync::audience::audience;
 use backend::sync::registry::schema_version_for;
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
     name: String,
     schema_version: i16,
+    audience: String,
     #[serde(default)]
     events: Vec<EventEntry>,
 }
@@ -101,6 +103,21 @@ fn manifest_schema_version_matches_registry() {
             agg.as_str(),
             m.schema_version,
             registry_version
+        );
+    }
+}
+
+/// Who receives each kind of record is stated once, in `sync::audience`; a
+/// manifest says the same.
+#[test]
+fn manifest_audience_matches_the_code() {
+    for agg in all_aggregates() {
+        let m = load_manifest(agg.as_str());
+        assert_eq!(
+            m.audience,
+            audience(agg).as_str(),
+            "audience mismatch for `{}`",
+            agg.as_str()
         );
     }
 }

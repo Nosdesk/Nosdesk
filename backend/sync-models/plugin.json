@@ -1,6 +1,7 @@
 {
   "name": "plugin",
   "schema_version": 1,
+  "audience": "all",
   "fields": {
     "uuid": { "rust": "Uuid", "ts": "string", "primary": true },
     "name": { "rust": "String", "ts": "string" },

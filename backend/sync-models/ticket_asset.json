@@ -1,6 +1,7 @@
 {
   "name": "ticket_asset",
   "schema_version": 1,
+  "audience": "ticket",
   "fields": {
     "ticket_id": { "rust": "i32", "ts": "number", "primary": true },
     "asset_id": { "rust": "i32", "ts": "number", "primary": true }

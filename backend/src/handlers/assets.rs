@@ -476,6 +476,35 @@ fn resolve_asset_user(u: &User, conn: &mut crate::db::DbConnection) -> UserInfo 
     asset_user_info(u, role, email)
 }
 
+/// Assets as `auth` may see them. Staff get them whole. For anyone else the
+/// embedded primary user goes through `sync::user_projection`, as the user
+/// routes do: of someone else, the name and avatar. `body` is one asset, a
+/// list of them, or a page (`data`).
+fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Value {
+    let mut body = serde_json::to_value(body).unwrap_or(serde_json::Value::Null);
+    if auth.can_handle_tickets() {
+        return body;
+    }
+    let viewer = crate::sync::user_projection::Viewer {
+        uuid: auth.user_uuid,
+        is_staff: false,
+    };
+    let assets: Vec<&mut serde_json::Value> =
+        if body.get("data").is_some_and(serde_json::Value::is_array) {
+            body["data"].as_array_mut().into_iter().flatten().collect()
+        } else if body.is_array() {
+            body.as_array_mut().into_iter().flatten().collect()
+        } else {
+            vec![&mut body]
+        };
+    for asset in assets {
+        if let Some(user) = asset.get_mut("primary_user") {
+            crate::sync::user_projection::value_for_viewer(user, viewer);
+        }
+    }
+    body
+}
+
 // Helper function to get user by UUID
 fn get_user_by_uuid(conn: &mut crate::db::DbConnection, uuid: &Uuid) -> Option<User> {
     use crate::repository;
@@ -799,14 +828,14 @@ pub async fn create_rollout(
 }
 
 /// Get all devices
-pub async fn get_all_devices(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
+pub async fn get_all_devices(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     let result = tc.run(|conn| {
         let devices = repository::get_all_devices(conn)?;
         Ok(devices_to_responses(conn, devices))
     });
 
     match result {
-        Ok(device_responses) => HttpResponse::Ok().json(device_responses),
+        Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(device_responses, &auth)),
         Err(e) => {
             error!(error = ?e, "Database error getting all devices");
             errors::internal("Failed to get devices")
@@ -987,7 +1016,7 @@ pub async fn get_asset_locations(mut tc: TenantConn, _auth: AuthContext) -> impl
 // Get paginated devices
 pub async fn get_paginated_devices(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     query: web::Query<PaginationParams>,
 ) -> impl Responder {
     let page = query.page.unwrap_or(1).max(1);
@@ -1029,7 +1058,7 @@ pub async fn get_paginated_devices(
                 page_size,
                 total_pages,
             };
-            HttpResponse::Ok().json(response)
+            HttpResponse::Ok().json(assets_for_viewer(response, &auth))
         }
         Err(e) => {
             error!(error = ?e, "Database error getting paginated devices");
@@ -1041,7 +1070,7 @@ pub async fn get_paginated_devices(
 /// Get a single device by ID
 pub async fn get_device_by_id(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let device_id = path.into_inner();
@@ -1068,7 +1097,7 @@ pub async fn get_device_by_id(
     });
 
     match result {
-        Ok(device_response) => HttpResponse::Ok().json(device_response),
+        Ok(device_response) => HttpResponse::Ok().json(assets_for_viewer(device_response, &auth)),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
             _ => {
@@ -1082,7 +1111,7 @@ pub async fn get_device_by_id(
 /// Get devices for a specific user
 pub async fn get_user_devices(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<String>,
 ) -> impl Responder {
     let user_uuid_str = path.into_inner();
@@ -1099,7 +1128,7 @@ pub async fn get_user_devices(
     });
 
     match result {
-        Ok(device_responses) => HttpResponse::Ok().json(device_responses),
+        Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(device_responses, &auth)),
         Err(e) => {
             error!(user_uuid = %user_uuid_str, error = ?e, "Error getting devices for user");
             errors::internal(format!("Failed to get devices for user {user_uuid_str}"))
@@ -1515,7 +1544,7 @@ pub async fn unmanage_device(
 /// Get paginated devices excluding specific IDs
 pub async fn get_paginated_devices_excluding(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     query: web::Query<PaginationParams>,
     exclude_query: web::Query<HashMap<String, String>>,
 ) -> impl Responder {
@@ -1558,7 +1587,7 @@ pub async fn get_paginated_devices_excluding(
                 total: total_count,
                 total_pages,
             };
-            HttpResponse::Ok().json(response)
+            HttpResponse::Ok().json(assets_for_viewer(response, &auth))
         }
         Err(e) => {
             error!(error = ?e, "Error getting paginated devices");

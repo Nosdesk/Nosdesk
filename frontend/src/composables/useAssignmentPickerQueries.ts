@@ -10,7 +10,8 @@ export const GROUPS_QUERY_KEY = ['groups'] as const
 export interface AssignmentPickerUser {
   uuid: string
   name: string
-  email: string
+  /** Absent for someone else when the viewer is a requester-role member. */
+  email?: string
   avatar_url?: string | null
 }
 

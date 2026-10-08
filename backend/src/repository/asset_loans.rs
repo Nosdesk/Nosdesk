@@ -78,7 +78,10 @@ fn loan_sync_payload(row: &AssetLoan) -> serde_json::Value {
 
 /// Groups a loan event routes to: workspace, the asset, the borrower's
 /// private group (so their own loans resolve, and the portal can surface
-/// them later), and the linked ticket when set.
+/// them later), and the linked ticket when set. The `user:<borrower>` group
+/// is also how the sync read paths know the borrower is the record's
+/// addressee (`sync::audience::Audience::StaffAndAddressee`): no other
+/// `user:` group may go on a loan.
 fn loan_groups(loan: &AssetLoan) -> Vec<String> {
     let mut g = groups::workspace();
     g.push(format!("asset:{}", loan.asset_id));

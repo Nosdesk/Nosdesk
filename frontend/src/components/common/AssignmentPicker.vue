@@ -195,7 +195,7 @@ const rowClass =
                   />
                   <div class="flex-1 min-w-0">
                     <div class="text-sm text-primary truncate">{{ user.name }}</div>
-                    <div class="text-2xs text-tertiary truncate">{{ user.email }}</div>
+                    <div v-if="user.email" class="text-2xs text-tertiary truncate">{{ user.email }}</div>
                   </div>
                 </ComboboxItem>
               </ComboboxGroup>

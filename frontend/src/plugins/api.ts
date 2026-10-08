@@ -136,13 +136,15 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
   };
 
   // Identity-only projection: never expose more of a user than name/email/avatar/
-  // role, whatever the underlying record carries.
+  // role, whatever the underlying record carries. A requester-role member gets
+  // only other people's name and avatar, so their email and role come through
+  // empty.
   const toPluginUser = (u: User): PluginUser => ({
     uuid: u.uuid,
     name: u.name,
-    email: u.email,
+    email: u.email ?? '',
     avatarUrl: u.avatar_url ?? null,
-    role: (u.workspace_role ?? u.platform_role) as string,
+    role: u.workspace_role ?? u.platform_role ?? '',
   });
 
   const api: PluginAPI = {

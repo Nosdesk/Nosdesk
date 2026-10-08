@@ -14,6 +14,7 @@
 //! neither emit-wired nor in the allowlist.
 
 pub mod actor;
+pub mod audience;
 pub mod emit;
 pub mod feed;
 pub mod groups;
@@ -22,6 +23,7 @@ pub mod partitions;
 pub mod registry;
 pub mod session;
 pub mod system_meta;
+pub mod user_projection;
 pub mod visibility;
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 {
   "name": "asset_media",
   "schema_version": 2,
+  "audience": "staff",
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
     "asset_id": { "rust": "i32", "ts": "number" },

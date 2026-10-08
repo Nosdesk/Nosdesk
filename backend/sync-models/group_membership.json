@@ -1,6 +1,7 @@
 {
   "name": "group_membership",
   "schema_version": 1,
+  "audience": "staff",
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
     "name": { "rust": "String", "ts": "string", "note": "for group lifecycle events" },

@@ -67,8 +67,9 @@ export interface Asset {
   primary_user?: {
     uuid: string;
     name: string;
-    email: string;
-    role: string;
+    /** Absent for someone else when the viewer is a requester-role member. */
+    email?: string;
+    role?: string;
     avatar_url?: string | null;
     avatar_thumb?: string | null;
   } | null;

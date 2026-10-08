@@ -228,7 +228,7 @@ watch(
         if (!bundle?.user) return;
         editValues.value = {
             name: bundle.user.name,
-            email: bundle.user.email,
+            email: bundle.user.email ?? "",
             role: effectiveRole(bundle.user),
             pronouns: bundle.user.pronouns || "",
         };

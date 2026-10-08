@@ -266,7 +266,7 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   assignment: 1,
   group_membership: 1,
   plugin: 1,
-  user: 1,
+  user: 2,
   asset: 1,
   asset_media: 2,
   asset_lifecycle_event: 1,

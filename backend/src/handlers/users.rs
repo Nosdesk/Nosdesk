@@ -560,9 +560,35 @@ pub struct PaginatedResponse<T> {
 }
 
 // User handlers
+/// The people a user route returns, as the caller may see them. Staff get
+/// the full rows, which the People list and the pickers work from. Anyone
+/// else gets each row through `sync::user_projection`, the rule the sync
+/// feed follows: their own whole, of others the name and avatar.
+fn as_seen_by(
+    users: Vec<UserResponse>,
+    auth: &crate::extractors::AuthContext,
+) -> Result<Vec<serde_json::Value>, ApiError> {
+    let viewer = crate::sync::user_projection::Viewer {
+        uuid: auth.user_uuid,
+        is_staff: auth.can_handle_tickets(),
+    };
+    users
+        .into_iter()
+        .map(|user| {
+            let mut row = serde_json::to_value(user)
+                .map_err(|_| ApiError::Internal("Failed to encode user".into()))?;
+            if !viewer.is_staff {
+                crate::sync::user_projection::value_for_viewer(&mut row, viewer);
+            }
+            Ok(row)
+        })
+        .collect()
+}
+
 pub async fn get_users(
     pool: web::Data<crate::db::Pool>,
     ws: WorkspaceContext,
+    auth: crate::extractors::AuthContext,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
     // Pin the resolved workspace so the people lookup and per-row
@@ -578,7 +604,7 @@ pub async fn get_users(
                 &mut conn,
                 ws.workspace_id,
             );
-            Ok(HttpResponse::Ok().json(user_responses))
+            Ok(HttpResponse::Ok().json(as_seen_by(user_responses, &auth)?))
         }
         Err(e) => {
             error!(error = ?e, "Error fetching users");
@@ -593,6 +619,7 @@ pub async fn get_paginated_users(
     query: web::Query<PaginationParams>,
     req: HttpRequest,
     ws: WorkspaceContext,
+    auth: crate::extractors::AuthContext,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
     // Pin the resolved workspace so the people lookup and per-row
@@ -676,6 +703,24 @@ pub async fn get_paginated_users(
     // combined directory when absent.
     let population = repository::users::Population::from_query(query.population.as_deref());
 
+    // A caller who isn't shown others' addresses or roles can't search, sort
+    // or filter by them either: by name only.
+    let (search_by, sort_field, role, population) = if auth.can_handle_tickets() {
+        (
+            repository::users::SearchBy::NameOrEmail,
+            sort_field,
+            role,
+            population,
+        )
+    } else {
+        (
+            repository::users::SearchBy::Name,
+            sort_field.filter(|f| matches!(f.as_str(), "name" | "first_name" | "last_name")),
+            None,
+            None,
+        )
+    };
+
     match repository::get_paginated_users(
         &mut conn,
         page,
@@ -683,6 +728,7 @@ pub async fn get_paginated_users(
         sort_field,
         sort_direction,
         search,
+        search_by,
         role,
         population,
         deleted,
@@ -712,7 +758,7 @@ pub async fn get_paginated_users(
 
             // Create paginated response
             let response = PaginatedResponse {
-                data: user_responses,
+                data: as_seen_by(user_responses, &auth)?,
                 total,
                 page,
                 page_size,
@@ -807,8 +853,9 @@ pub async fn get_user_by_uuid(
             let user_response =
                 repository::user_helpers::get_user_with_primary_email(user, &mut conn);
             let editable = editable_fields(&auth, &user_response);
-            let mut body = serde_json::to_value(&user_response)
-                .map_err(|_| ApiError::Internal("Failed to encode user".into()))?;
+            let mut body = as_seen_by(vec![user_response], &auth)?
+                .pop()
+                .ok_or_else(|| ApiError::Internal("Failed to encode user".into()))?;
             body["editable"] = serde_json::to_value(editable)
                 .map_err(|_| ApiError::Internal("Failed to encode user".into()))?;
             Ok(HttpResponse::Ok().json(body))
@@ -830,6 +877,7 @@ pub async fn get_users_batch(
     batch_request: web::Json<BatchUsersRequest>,
     pool: web::Data<crate::db::Pool>,
     ws: WorkspaceContext,
+    auth: crate::extractors::AuthContext,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
     // Pin the resolved workspace so the users read and per-row workspace_role
@@ -862,7 +910,7 @@ pub async fn get_users_batch(
                 &mut conn,
                 ws.workspace_id,
             );
-            Ok(HttpResponse::Ok().json(user_responses))
+            Ok(HttpResponse::Ok().json(as_seen_by(user_responses, &auth)?))
         }
         Err(e) => {
             error!(error = ?e, "Error fetching users batch");
