@@ -40,14 +40,13 @@ import { useTagsStore } from '@nosdesk/core/stores/tags';
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import { errorCode, extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
-import { useMobileDetection } from '@/composables/useMobileDetection';
+import BackButton from '@/components/common/BackButton.vue';
 import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions';
 
 // Desktop only: on mobile the leading back-arrow in SiteHeader is the single
 // back affordance, so this inline control hides to avoid two per screen. Same
 // contract BackButton encodes; kept inline here because this toolbar's
 // secondary-button styling is deliberate.
-const { isMobile } = useMobileDetection('sm');
 import type {
   CreateRuleRequest,
   Rule,
@@ -305,9 +304,6 @@ const stateNote = computed(() => {
   }
 });
 
-function back(): void {
-  router.push({ name: 'admin-rules' });
-}
 
 function triggerLabel(kind: RuleTriggerKind): string {
   return t(`admin-rules-trigger-${kind.replace(/_/g, '-')}`);
@@ -406,223 +402,225 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 max-w-3xl">
-    <div class="flex items-center gap-3">
-      <Button v-if="!isMobile" variant="secondary" size="sm" @click="back" icon="chevronLeft">
-        <span>{{ t('admin-rule-editor-back') }}</span>
-      </Button>
-      <h1 class="text-2xl font-semibold flex-1 min-w-0 truncate">
-        {{ headerTitle }}
-      </h1>
-      <Button variant="primary" :disabled="!canSave" :loading="saving" @click="save()">
-        {{ t('admin-rule-editor-save') }}
-      </Button>
-    </div>
-
-    <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
-
-    <!-- An archived rule is read-only; disabling the fieldset disables every
-         control in it. -->
-    <fieldset :disabled="isArchived" class="flex flex-col gap-6 min-w-0">
-      <section class="flex flex-col gap-3">
-        <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
-          {{ t('admin-rule-editor-section-name') }}
-        </h2>
-        <FormInput
-          v-model="name"
-          :label="t('admin-rule-editor-name-label')"
-          :placeholder="t('admin-rule-editor-name-placeholder')"
-          required
-        />
-        <FormTextarea
-          v-model="description"
-          :label="t('admin-rule-editor-description-label')"
-          :placeholder="t('admin-rule-editor-description-placeholder')"
-          :rows="2"
-        />
-      </section>
-
-      <section class="flex flex-col gap-3">
-        <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
-          {{ t('admin-rule-editor-section-trigger') }}
-        </h2>
-        <BaseDropdown
-          v-if="triggerOptions.length > 0"
-          :model-value="triggerKind"
-          :options="triggerOptions"
-          :label="t('admin-rule-editor-trigger-label')"
-          size="sm"
-          @update:model-value="triggerKind = String($event) as RuleTriggerKind"
-        />
-        <p v-if="isManual" class="text-sm text-secondary">
-          {{ t('admin-rule-editor-trigger-manual-summary') }}
-        </p>
-        <p v-else class="text-sm text-status-warning">
-          {{ t('admin-rule-editor-trigger-other-phase') }}
-        </p>
-      </section>
-
-      <section class="flex flex-col gap-3">
-        <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
-            {{ t('admin-rule-editor-section-actions') }}
-          </h2>
-          <Button variant="ghost" size="sm" @click="addAction" icon="add">
-            <span>{{ t('admin-rule-editor-actions-add') }}</span>
+  <div class="flex-1">
+    <div class="flex flex-col gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-3xl">
+      <div class="flex flex-col gap-1">
+        <BackButton fallback-route="/admin/rules" :label="t('admin-rule-editor-back')" compact />
+        <div class="flex items-center gap-3">
+          <h1 class="text-xl sm:text-2xl font-bold text-primary flex-1 min-w-0 truncate">
+            {{ headerTitle }}
+          </h1>
+          <Button variant="primary" size="sm" :disabled="!canSave" :loading="saving" @click="save()">
+            {{ t('admin-rule-editor-save') }}
           </Button>
         </div>
-
-        <p v-if="actions.length === 0" class="text-sm text-status-warning">
-          {{ t('admin-rule-editor-actions-empty') }}
-        </p>
-
-        <ol class="flex flex-col gap-2">
-          <li
-            v-for="(action, i) in actions"
-            :key="i"
-            class="border border-default rounded-lg p-3 flex flex-col gap-2 bg-surface"
-          >
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-secondary font-mono">#{{ i + 1 }}</span>
-              <BaseDropdown
-                :model-value="action.kind"
-                :options="actionOptions"
-                size="sm"
-                class="flex-1"
-                @update:model-value="setActionKind(i, String($event) as RuleAction['kind'])"
-              />
-              <IconButton size="sm" icon="trash" :label="t('admin-rule-editor-action-remove')" @click="removeAction(i)" />
-            </div>
-
-            <!-- Per-kind config form. Kept inline so the editor stays
-                 a single component; if it grows past a screen each
-                 kind gets its own card. -->
-            <template v-if="action.kind === 'reply'">
-              <BaseDropdown
-                :model-value="(action.config as any)?.visibility ?? 'public'"
-                :options="replyVisibilityOptions"
-                size="sm"
-                @update:model-value="updateConfigField(i, 'visibility', String($event))"
-              />
-              <FormTextarea
-                :model-value="(action.config as any)?.body ?? ''"
-                @update:model-value="updateConfigField(i, 'body', $event)"
-                :rows="3"
-                :placeholder="t('admin-rule-editor-reply-placeholder')"
-              />
-            </template>
-
-            <template v-else-if="action.kind === 'set_status'">
-              <BaseDropdown
-                :model-value="Number((action.config as any)?.workflow_state_id) || ''"
-                :options="statusOptions"
-                :placeholder="t('admin-rule-editor-status-placeholder')"
-                size="sm"
-                @update:model-value="updateConfigField(i, 'workflow_state_id', Number($event))"
-              />
-            </template>
-
-            <template v-else-if="action.kind === 'assign'">
-              <div>
-                <SegmentedControl
-                  :model-value="(action.config as any)?.method === 'group' ? 'group' : 'direct'"
-                  :options="assignTargetOptions"
-                  :aria-label="t('admin-rule-editor-assign-to')"
-                  size="sm"
-                  @update:model-value="setAssignTarget(i, String($event))"
-                />
-              </div>
-              <BaseDropdown
-                v-if="(action.config as any)?.method === 'group'"
-                :model-value="Number((action.config as any)?.group_id) || ''"
-                :options="groupOptions"
-                :placeholder="t('admin-rule-editor-team-placeholder')"
-                size="sm"
-                @update:model-value="updateConfigField(i, 'group_id', Number($event))"
-              />
-              <UserPicker
-                v-else
-                type="assignee"
-                :model-value="(action.config as any)?.user_uuid ?? ''"
-                :current-user="assigneeRow((action.config as any)?.user_uuid)"
-                :placeholder="t('admin-rule-editor-person-placeholder')"
-                @update:model-value="updateConfigField(i, 'user_uuid', $event)"
-              />
-              <p v-if="(action.config as any)?.method === 'group'" class="text-xs text-secondary">
-                {{ t('admin-rule-editor-team-hint') }}
-              </p>
-            </template>
-
-            <template v-else-if="action.kind === 'set_priority'">
-              <BaseDropdown
-                :model-value="priorityValue(action.config)"
-                :options="priorityOptions"
-                size="sm"
-                @update:model-value="updateConfigField(i, 'priority', String($event))"
-              />
-            </template>
-
-            <template v-else-if="action.kind === 'add_tags' || action.kind === 'remove_tags'">
-              <BaseDropdown
-                multiple
-                :model-value="((action.config as any)?.tag_ids ?? []) as number[]"
-                :options="tagOptions"
-                :placeholder="t('admin-rule-editor-tags-placeholder')"
-                size="sm"
-                @update:model-value="updateConfigField(i, 'tag_ids', ($event as number[]).map(Number))"
-              />
-            </template>
-
-            <p v-if="showStepProblems && stepProblem(action)" class="text-xs text-status-warning">
-              {{ t(stepProblem(action)!) }}
-            </p>
-          </li>
-        </ol>
-      </section>
-    </fieldset>
-
-    <section class="flex flex-col gap-3">
-      <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
-        {{ t('admin-rule-editor-section-state') }}
-      </h2>
-      <div class="flex flex-col gap-3 rounded-lg border border-default bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <p class="text-sm text-secondary">{{ stateNote }}</p>
-        <Button
-          v-if="original?.state === 'live' && !isArchived"
-          variant="secondary"
-          size="sm"
-          icon="pause"
-          :loading="transitioning"
-          @click="setLive(false)"
-        >
-          {{ t('admin-rules-pause') }}
-        </Button>
-        <Button
-          v-else-if="original && isManual && !isArchived"
-          variant="secondary"
-          size="sm"
-          icon="play"
-          :loading="transitioning"
-          :disabled="!canSave"
-          @click="setLive(true)"
-        >
-          {{ t('admin-rules-go-live') }}
-        </Button>
       </div>
-      <!-- Run order and the loop override only matter to rules that run
-           on their own. -->
-      <fieldset v-if="!isManual" :disabled="isArchived" class="flex flex-col gap-3 min-w-0">
-        <FormNumber
-          :model-value="priority"
-          @update:model-value="priority = $event ?? 100"
-          :label="t('admin-rule-editor-priority-label')"
-          integer
-        />
-        <Checkbox
-          v-model="overrideSelfRef"
-          :label="t('admin-rule-editor-override-self-ref')"
-        />
+
+      <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
+
+      <!-- An archived rule is read-only; disabling the fieldset disables every
+           control in it. -->
+      <fieldset :disabled="isArchived" class="flex flex-col gap-6 min-w-0">
+        <section class="flex flex-col gap-3">
+          <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
+            {{ t('admin-rule-editor-section-name') }}
+          </h2>
+          <FormInput
+            v-model="name"
+            :label="t('admin-rule-editor-name-label')"
+            :placeholder="t('admin-rule-editor-name-placeholder')"
+            required
+          />
+          <FormTextarea
+            v-model="description"
+            :label="t('admin-rule-editor-description-label')"
+            :placeholder="t('admin-rule-editor-description-placeholder')"
+            :rows="2"
+          />
+        </section>
+
+        <section class="flex flex-col gap-3">
+          <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
+            {{ t('admin-rule-editor-section-trigger') }}
+          </h2>
+          <BaseDropdown
+            v-if="triggerOptions.length > 0"
+            :model-value="triggerKind"
+            :options="triggerOptions"
+            :label="t('admin-rule-editor-trigger-label')"
+            size="sm"
+            @update:model-value="triggerKind = String($event) as RuleTriggerKind"
+          />
+          <p v-if="isManual" class="text-sm text-secondary">
+            {{ t('admin-rule-editor-trigger-manual-summary') }}
+          </p>
+          <p v-else class="text-sm text-status-warning">
+            {{ t('admin-rule-editor-trigger-other-phase') }}
+          </p>
+        </section>
+
+        <section class="flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
+              {{ t('admin-rule-editor-section-actions') }}
+            </h2>
+            <Button variant="ghost" size="sm" @click="addAction" icon="add">
+              <span>{{ t('admin-rule-editor-actions-add') }}</span>
+            </Button>
+          </div>
+
+          <p v-if="actions.length === 0" class="text-sm text-status-warning">
+            {{ t('admin-rule-editor-actions-empty') }}
+          </p>
+
+          <ol class="flex flex-col gap-2">
+            <li
+              v-for="(action, i) in actions"
+              :key="i"
+              class="border border-default rounded-lg p-3 flex flex-col gap-2 bg-surface"
+            >
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-secondary font-mono">#{{ i + 1 }}</span>
+                <BaseDropdown
+                  :model-value="action.kind"
+                  :options="actionOptions"
+                  size="sm"
+                  class="flex-1"
+                  @update:model-value="setActionKind(i, String($event) as RuleAction['kind'])"
+                />
+                <IconButton size="sm" icon="trash" :label="t('admin-rule-editor-action-remove')" @click="removeAction(i)" />
+              </div>
+
+              <!-- Per-kind config form. Kept inline so the editor stays
+                   a single component; if it grows past a screen each
+                   kind gets its own card. -->
+              <template v-if="action.kind === 'reply'">
+                <BaseDropdown
+                  :model-value="(action.config as any)?.visibility ?? 'public'"
+                  :options="replyVisibilityOptions"
+                  size="sm"
+                  @update:model-value="updateConfigField(i, 'visibility', String($event))"
+                />
+                <FormTextarea
+                  :model-value="(action.config as any)?.body ?? ''"
+                  @update:model-value="updateConfigField(i, 'body', $event)"
+                  :rows="3"
+                  :placeholder="t('admin-rule-editor-reply-placeholder')"
+                />
+              </template>
+
+              <template v-else-if="action.kind === 'set_status'">
+                <BaseDropdown
+                  :model-value="Number((action.config as any)?.workflow_state_id) || ''"
+                  :options="statusOptions"
+                  :placeholder="t('admin-rule-editor-status-placeholder')"
+                  size="sm"
+                  @update:model-value="updateConfigField(i, 'workflow_state_id', Number($event))"
+                />
+              </template>
+
+              <template v-else-if="action.kind === 'assign'">
+                <div>
+                  <SegmentedControl
+                    :model-value="(action.config as any)?.method === 'group' ? 'group' : 'direct'"
+                    :options="assignTargetOptions"
+                    :aria-label="t('admin-rule-editor-assign-to')"
+                    size="sm"
+                    @update:model-value="setAssignTarget(i, String($event))"
+                  />
+                </div>
+                <BaseDropdown
+                  v-if="(action.config as any)?.method === 'group'"
+                  :model-value="Number((action.config as any)?.group_id) || ''"
+                  :options="groupOptions"
+                  :placeholder="t('admin-rule-editor-team-placeholder')"
+                  size="sm"
+                  @update:model-value="updateConfigField(i, 'group_id', Number($event))"
+                />
+                <UserPicker
+                  v-else
+                  type="assignee"
+                  :model-value="(action.config as any)?.user_uuid ?? ''"
+                  :current-user="assigneeRow((action.config as any)?.user_uuid)"
+                  :placeholder="t('admin-rule-editor-person-placeholder')"
+                  @update:model-value="updateConfigField(i, 'user_uuid', $event)"
+                />
+                <p v-if="(action.config as any)?.method === 'group'" class="text-xs text-secondary">
+                  {{ t('admin-rule-editor-team-hint') }}
+                </p>
+              </template>
+
+              <template v-else-if="action.kind === 'set_priority'">
+                <BaseDropdown
+                  :model-value="priorityValue(action.config)"
+                  :options="priorityOptions"
+                  size="sm"
+                  @update:model-value="updateConfigField(i, 'priority', String($event))"
+                />
+              </template>
+
+              <template v-else-if="action.kind === 'add_tags' || action.kind === 'remove_tags'">
+                <BaseDropdown
+                  multiple
+                  :model-value="((action.config as any)?.tag_ids ?? []) as number[]"
+                  :options="tagOptions"
+                  :placeholder="t('admin-rule-editor-tags-placeholder')"
+                  size="sm"
+                  @update:model-value="updateConfigField(i, 'tag_ids', ($event as number[]).map(Number))"
+                />
+              </template>
+
+              <p v-if="showStepProblems && stepProblem(action)" class="text-xs text-status-warning">
+                {{ t(stepProblem(action)!) }}
+              </p>
+            </li>
+          </ol>
+        </section>
       </fieldset>
-    </section>
+
+      <section class="flex flex-col gap-3">
+        <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
+          {{ t('admin-rule-editor-section-state') }}
+        </h2>
+        <div class="flex flex-col gap-3 rounded-lg border border-default bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-secondary">{{ stateNote }}</p>
+          <Button
+            v-if="original?.state === 'live' && !isArchived"
+            variant="secondary"
+            size="sm"
+            icon="pause"
+            :loading="transitioning"
+            @click="setLive(false)"
+          >
+            {{ t('admin-rules-pause') }}
+          </Button>
+          <Button
+            v-else-if="original && isManual && !isArchived"
+            variant="secondary"
+            size="sm"
+            icon="play"
+            :loading="transitioning"
+            :disabled="!canSave"
+            @click="setLive(true)"
+          >
+            {{ t('admin-rules-go-live') }}
+          </Button>
+        </div>
+        <!-- Run order and the loop override only matter to rules that run
+             on their own. -->
+        <fieldset v-if="!isManual" :disabled="isArchived" class="flex flex-col gap-3 min-w-0">
+          <FormNumber
+            :model-value="priority"
+            @update:model-value="priority = $event ?? 100"
+            :label="t('admin-rule-editor-priority-label')"
+            integer
+          />
+          <Checkbox
+            v-model="overrideSelfRef"
+            :label="t('admin-rule-editor-override-self-ref')"
+          />
+        </fieldset>
+      </section>
+    </div>
   </div>
 </template>
