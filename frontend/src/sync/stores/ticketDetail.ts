@@ -605,7 +605,9 @@ export function useTicketDetail(
         ticket_id: newComment.ticket_id,
         user_uuid: newComment.user_uuid,
         content: newComment.content,
-        is_internal: data.is_internal === true,
+        // The saved flag: a resend may be answered with the reply as it was
+        // first sent, whatever the toggle says now.
+        is_internal: newComment.is_internal ?? data.is_internal === true,
         content_format: newComment.content_format,
         render_kind: newComment.render_kind,
         created_at: newComment.created_at,

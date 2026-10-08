@@ -106,6 +106,30 @@ describe('a reply with a file', () => {
   })
 })
 
+describe('a resend answered with the saved reply', () => {
+  it('shows the reply as it was saved, not as the toggle stands now', async () => {
+    const pool = await import('@nosdesk/core/sync/pool')
+    addCommentToTicket.mockResolvedValueOnce({
+      id: 130,
+      ticket_id: 101,
+      user_uuid: 'agent-uuid',
+      content: '<p>Here is the log</p>',
+      is_internal: false,
+      created_at: '2026-10-06T01:53:25Z',
+      attachments: [],
+    })
+    const detail = useTicketDetail(101)
+
+    await detail.addComment({ ...reply(), files: [], is_internal: true, client_id: 'sent-before' })
+
+    expect(pool.upsert).toHaveBeenCalledWith(
+      'comment',
+      130,
+      expect.objectContaining({ id: 130, is_internal: false }),
+    )
+  })
+})
+
 // The composer clears as the reply goes out. A reply that doesn't make it
 // comes back to the composer whole: its text, its files and whether it was
 // an internal note, since restoring only the text would retry a note in public.

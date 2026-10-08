@@ -1518,6 +1518,40 @@ mod tests {
     }
 
     #[test]
+    fn a_merge_moves_replies_that_share_a_client_id() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merge_client_id", "user");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        // One author sent a reply with the same client id to both tickets
+        // (the API takes any id).
+        let shared = Some(Uuid::new_v4());
+        for ticket_id in [dest.id, src.id] {
+            crate::repository::comments::create_comment(
+                &mut conn,
+                NewComment {
+                    content: "<p>same id</p>".into(),
+                    ticket_id,
+                    user_uuid: user.uuid,
+                    client_id: shared,
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        }
+
+        let outcome = execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        assert_eq!(outcome.comments_moved, 1);
+    }
+
+    #[test]
     fn channel_messages_rerouted() {
         use crate::models::NewChannelMessage;
         let mut conn = setup_test_connection();

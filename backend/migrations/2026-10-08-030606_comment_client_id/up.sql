@@ -2,6 +2,9 @@
 -- a failed send keeps it) is answered with the comment already saved instead
 -- of a second one. Scoped to the ticket and the author; NULL for replies from
 -- anywhere else. No backfill.
+--
+-- The index is built inside the migration's transaction, so writes to
+-- comments wait until it commits: seconds at self-hosted sizes.
 ALTER TABLE public.comments ADD COLUMN client_id uuid;
 
 CREATE UNIQUE INDEX comments_ticket_author_client_id_key

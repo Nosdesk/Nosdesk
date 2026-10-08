@@ -595,6 +595,9 @@ fn reply_body(
         "created_at": created_at,
         "createdAt": created_at,
         "ticket_id": comment.ticket_id,
+        // As saved: a resend answered with an earlier reply carries that
+        // reply's flag, whatever the composer's toggle says now.
+        "is_internal": comment.is_internal,
         // Render-determining fields, so the value the client upserts into
         // the pool from this response renders identically to the same row
         // rehydrated on refresh (GET /comments serializes the full row).

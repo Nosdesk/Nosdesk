@@ -197,10 +197,11 @@ pub struct NewCommentWithAttachments {
     /// public, leaking internal notes to requester-facing views + outbound.
     #[serde(default)]
     pub is_internal: bool,
-    /// Client-minted id (UUID) for optimistic-create reconciliation: echoed
-    /// into the comment.created sync action's `correlation_id` so the client
-    /// matches the server echo to its pending optimistic row structurally,
-    /// instead of a temp-id swap + an author/time/content dedup heuristic.
+    /// Client-minted id (UUID) for the reply. Echoed into the comment.created
+    /// sync action's `correlation_id`, so the client matches the server echo
+    /// to its pending optimistic row structurally, and stored on the comment,
+    /// so a resend of the same reply (same ticket and author) is answered
+    /// with the comment already saved instead of a second one.
     #[serde(default)]
     pub client_id: Option<Uuid>,
 }
