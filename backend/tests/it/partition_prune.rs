@@ -1,6 +1,7 @@
 //! The scheduled prune drops monthly partitions that lie entirely before the
 //! retention cutoff, and nothing else: not the partition the cutoff falls
-//! in, not later ones, never the default partition. `sync_actions` and
+//! in, not later ones, never the default partition. `sync_actions` has no
+//! cutoff unless `SYNC_ACTIONS_RETENTION_DAYS` is set. `sync_actions` and
 //! `audit_log` both have a default partition, which rules out DETACH ...
 //! CONCURRENTLY (Postgres refuses it while one exists).
 
@@ -121,14 +122,39 @@ where
     assert!(table_exists(&mut conn, &default), "{default} stays");
 }
 
+/// With a retention set (`SYNC_ACTIONS_RETENTION_DAYS`), the months before it
+/// go.
 #[actix_web::test]
-async fn the_scheduled_prune_drops_expired_sync_actions_months() {
-    prunes_only_expired_months(
-        "sync_actions",
-        90,
-        backend::services::scheduled_jobs::prune_sync_actions_partitions,
-    )
+async fn the_scheduled_prune_drops_expired_sync_actions_months_when_a_retention_is_set() {
+    prunes_only_expired_months("sync_actions", 90, |pool| {
+        backend::services::scheduled_jobs::prune_sync_actions_partitions_older_than(pool, Some(90))
+    })
     .await;
+}
+
+/// Ticket activity is kept by default: with `SYNC_ACTIONS_RETENTION_DAYS`
+/// unset, the scheduled prune drops no `sync_actions` month, however old.
+#[actix_web::test]
+async fn sync_actions_are_kept_when_no_retention_is_set() {
+    assert!(
+        std::env::var("SYNC_ACTIONS_RETENTION_DAYS").is_err(),
+        "the test runs with the variable unset"
+    );
+    let db = TestDb::new();
+    let mut conn = PgConnection::establish(db.url()).expect("connect");
+    let expired = month_partition(
+        &mut conn,
+        "sync_actions",
+        NaiveDate::from_ymd_opt(2020, 1, 1).expect("date"),
+    );
+    let before = range_partitions(&mut conn, "sync_actions");
+
+    backend::services::scheduled_jobs::prune_sync_actions_partitions(db.pool_with_size(2))
+        .await
+        .unwrap_or_else(|e| panic!("prune sync_actions partitions: {e:#}"));
+
+    assert_eq!(range_partitions(&mut conn, "sync_actions"), before);
+    assert!(table_exists(&mut conn, &expired), "{expired} is kept");
 }
 
 #[actix_web::test]

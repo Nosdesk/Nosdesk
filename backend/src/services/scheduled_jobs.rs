@@ -662,12 +662,26 @@ pub async fn prune_audit_log_partitions(pool: Pool) -> Result<()> {
     .await
 }
 
-/// Drop monthly partitions of `sync_actions` whose upper bound is older
-/// than the retention window. sync_actions are change events for client
-/// cache hydration; a 90-day window is generous since clients re-bootstrap
-/// from snapshots when they lag. Override via `SYNC_ACTIONS_RETENTION_DAYS`.
+/// Drop monthly partitions of `sync_actions` that lie entirely before the
+/// retention window. `sync_actions` is the ticket activity history, so it is
+/// kept unless `SYNC_ACTIONS_RETENTION_DAYS` is set.
 pub async fn prune_sync_actions_partitions(pool: Pool) -> Result<()> {
-    let days = retention_days("SYNC_ACTIONS_RETENTION_DAYS", 90);
+    prune_sync_actions_partitions_older_than(
+        pool,
+        optional_retention_days("SYNC_ACTIONS_RETENTION_DAYS"),
+    )
+    .await
+}
+
+/// [`prune_sync_actions_partitions`] with the retention given: `None` keeps
+/// every partition.
+pub async fn prune_sync_actions_partitions_older_than(
+    pool: Pool,
+    retention_days: Option<i32>,
+) -> Result<()> {
+    let Some(days) = retention_days else {
+        return Ok(());
+    };
     drop_old_event_partitions(
         pool,
         "sync_actions",
@@ -676,6 +690,18 @@ pub async fn prune_sync_actions_partitions(pool: Pool) -> Result<()> {
         days as i64,
     )
     .await
+}
+
+/// A positive day-count from `env_var`, or `None` when it's unset. A value
+/// that doesn't parse or isn't positive is also `None`, with a warning: for a
+/// retention that is off by default, ignoring a bad value keeps the data.
+fn optional_retention_days(env_var: &str) -> Option<i32> {
+    let raw = std::env::var(env_var).ok()?;
+    let days = raw.trim().parse::<i32>().ok().filter(|d| *d > 0);
+    if days.is_none() {
+        warn!("scheduler: {env_var} isn't a positive number of days; ignoring it");
+    }
+    days
 }
 
 /// Read a positive day-count from `env_var`, falling back to `default`.
