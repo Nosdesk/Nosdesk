@@ -60,6 +60,7 @@ import WeekScheduleEditor, {
 } from '@/components/admin/WeekScheduleEditor.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
 import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions'
+import { withSavedRow } from '@/utils/defaultRows'
 import {
   HOLIDAY_TEMPLATE_LIST,
   HOLIDAY_TEMPLATES,
@@ -250,13 +251,10 @@ async function saveCalendar(): Promise<void> {
     if (editingCalendar.value) {
       const target = editingCalendar.value
       const updated = await slaService.updateCalendar(target.id, calendarDraft.value)
-      queryCache.setQueryData(
-        CALENDARS_KEY,
-        calendars.value.map((c) => (c.id === target.id ? updated : c)),
-      )
+      queryCache.setQueryData(CALENDARS_KEY, withSavedRow(calendars.value, updated))
     } else {
       const created = await slaService.createCalendar(calendarDraft.value)
-      queryCache.setQueryData(CALENDARS_KEY, [...calendars.value, created])
+      queryCache.setQueryData(CALENDARS_KEY, withSavedRow(calendars.value, created))
     }
     closeCalendarModal()
     error.value = null
@@ -289,10 +287,7 @@ async function toggleCalendarDefault(cal: WorkingCalendar): Promise<void> {
       schedule: cal.schedule,
       is_default: !cal.is_default,
     })
-    queryCache.setQueryData(
-      CALENDARS_KEY,
-      calendars.value.map((c) => (c.id === cal.id ? updated : c)),
-    )
+    queryCache.setQueryData(CALENDARS_KEY, withSavedRow(calendars.value, updated))
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('admin-sla-error-update')
   }
@@ -456,13 +451,10 @@ async function savePolicy(): Promise<void> {
     if (editingPolicy.value) {
       const target = editingPolicy.value
       const updated = await slaService.updatePolicy(target.id, policyDraft.value)
-      queryCache.setQueryData(
-        POLICIES_KEY,
-        policies.value.map((p) => (p.id === target.id ? updated : p)),
-      )
+      queryCache.setQueryData(POLICIES_KEY, withSavedRow(policies.value, updated))
     } else {
       const created = await slaService.createPolicy(policyDraft.value)
-      queryCache.setQueryData(POLICIES_KEY, [...policies.value, created])
+      queryCache.setQueryData(POLICIES_KEY, withSavedRow(policies.value, created))
     }
     closePolicyModal()
     error.value = null
@@ -511,10 +503,7 @@ async function togglePolicyDefault(p: SlaPolicy): Promise<void> {
       no_sla: p.no_sla,
       clock_start: p.clock_start,
     })
-    queryCache.setQueryData(
-      POLICIES_KEY,
-      policies.value.map((x) => (x.id === p.id ? updated : x)),
-    )
+    queryCache.setQueryData(POLICIES_KEY, withSavedRow(policies.value, updated))
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('admin-sla-error-update')
   }
