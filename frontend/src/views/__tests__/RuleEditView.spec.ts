@@ -11,6 +11,7 @@ const rules = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   transitionState: vi.fn(),
+  restore: vi.fn(),
 }))
 const toastSuccess = vi.hoisted(() => vi.fn())
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push }) }))
@@ -143,6 +144,22 @@ describe('RuleEditView', () => {
       wrapper = null
       document.body.innerHTML = ''
     }
+  })
+
+  it('restores an archived rule as an editable draft', async () => {
+    rules.get.mockResolvedValue(rule({ state: 'live', archived_at: '2026-10-02T00:00:00Z' }))
+    rules.restore.mockResolvedValue(rule())
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+
+    button('admin-rules-restore')!.click()
+    await flushPromises()
+
+    expect(rules.restore).toHaveBeenCalledWith(4)
+    expect(toastSuccess.mock.calls.map((c) => c[0])).toEqual(['admin-rules-toast-restored'])
+    expect(w.text()).toContain('admin-rule-editor-state-draft')
+    expect(button('admin-rules-restore')).toBeUndefined()
+    expect(button('admin-rules-go-live')).toBeDefined()
+    expect(w.find('input').element.matches(':disabled')).toBe(false)
   })
 
   it('shows the rule as archived when a save finds it was archived elsewhere', async () => {

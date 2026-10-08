@@ -36,18 +36,24 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const router = useRouter();
 const toast = useToastStore();
 
-/** Pinia Colada key shared by the editor (Wave 7) so saves
- *  invalidate the list automatically. */
-const RULES_KEY = ['rules'] as const;
+/** Pinia Colada key, under the `['rules']` prefix the editor invalidates on
+ *  save. Archived rules are included so the Archived filter can list them;
+ *  the activity view reads the same list. */
+const RULES_KEY = ['rules', 'with-archived'] as const;
 const queryCache = useQueryCache();
 const rulesQuery = useQuery({
   key: RULES_KEY,
-  query: () => rulesService.list({ include_archived: false }),
+  query: () => rulesService.list({ include_archived: true }),
 });
 
-const rules = computed<Rule[]>(() =>
+/** Archiving from this list stamps only archived_at, so either marks it. */
+const isArchived = (r: Rule) => r.archived_at != null || r.state === 'archived';
+
+const allRules = computed<Rule[]>(() =>
   Array.isArray(rulesQuery.data.value) ? rulesQuery.data.value : [],
 );
+/** The rules in use: everything except archived ones. */
+const rules = computed<Rule[]>(() => allRules.value.filter((r) => !isArchived(r)));
 const isFirstLoad = computed(
   () => rulesQuery.status.value === 'pending' && rulesQuery.data.value === undefined,
 );
@@ -59,13 +65,18 @@ const search = ref('');
 const triggerFilter = ref<RuleTriggerKind | 'all'>('all');
 const stateFilter = ref<RuleState | 'all'>('all');
 
+// Archived rules show only under the Archived filter.
 const filtered = computed<Rule[]>(() => {
   const term = search.value.trim().toLowerCase();
-  return rules.value.filter((r) => {
+  const showArchived = stateFilter.value === 'archived';
+  return allRules.value.filter((r) => {
+    if (isArchived(r) !== showArchived) {
+      return false;
+    }
     if (triggerFilter.value !== 'all' && r.trigger_kind !== triggerFilter.value) {
       return false;
     }
-    if (stateFilter.value !== 'all' && r.state !== stateFilter.value) {
+    if (!showArchived && stateFilter.value !== 'all' && r.state !== stateFilter.value) {
       return false;
     }
     if (term && !r.name.toLowerCase().includes(term)) {
@@ -106,6 +117,7 @@ const stateFilterOptions = computed(() => [
   { value: 'draft', label: stateLabel('draft') },
   { value: 'dry_run', label: stateLabel('dry_run') },
   { value: 'live', label: stateLabel('live') },
+  { value: 'archived', label: stateLabel('archived') },
 ]);
 
 const errorMessage = ref('');
@@ -140,6 +152,18 @@ async function archive(rule: Rule): Promise<void> {
 // state) takes it out of their Actions list. Only manual rules can go
 // live: no other trigger runs yet.
 const canGoLive = (rule: Rule) => rule.trigger_kind === 'manual' && rule.state !== 'live';
+
+// A restored rule comes back as a draft.
+async function restore(rule: Rule): Promise<void> {
+  errorMessage.value = '';
+  try {
+    await rulesService.restore(rule.id);
+    await queryCache.invalidateQueries({ key: RULES_KEY });
+    toast.success(t('admin-rules-toast-restored', { name: rule.name }));
+  } catch (err) {
+    errorMessage.value = extractErrorMessage(err, t('admin-rules-error-restore'));
+  }
+}
 
 async function setLive(rule: Rule, live: boolean): Promise<void> {
   errorMessage.value = '';
@@ -207,6 +231,11 @@ async function setLive(rule: Rule, live: boolean): Promise<void> {
       </Skeleton>
 
       <EmptyState
+        v-else-if="filtered.length === 0 && stateFilter === 'archived'"
+        :title="t('admin-rules-empty-archived')"
+      />
+
+      <EmptyState
         v-else-if="filtered.length === 0"
         :title="t('admin-rules-empty-title')"
         :hint="t('admin-rules-empty-hint')"
@@ -247,36 +276,50 @@ async function setLive(rule: Rule, live: boolean): Promise<void> {
             </td>
             <td class="py-2 text-secondary">{{ triggerLabel(rule.trigger_kind) }}</td>
             <td class="py-2">
-              <StatusPill :label="stateLabel(rule.state)" :tone="stateTone(rule.state)" />
+              <StatusPill
+                :label="stateLabel(isArchived(rule) ? 'archived' : rule.state)"
+                :tone="isArchived(rule) ? 'neutral' : stateTone(rule.state)"
+              />
             </td>
             <td class="py-2 text-secondary">{{ formatLastFired(rule.last_fired_at) }}</td>
             <td class="py-2 text-right tabular-nums">{{ rule.fire_count }}</td>
             <td class="py-2 text-right" @click.stop>
               <div class="flex items-center justify-end gap-2">
                 <Button
-                  v-if="rule.state === 'live'"
+                  v-if="isArchived(rule)"
                   variant="secondary"
                   size="sm"
-                  icon="pause"
-                  @click="setLive(rule, false)"
+                  icon="restore"
+                  @click="restore(rule)"
                 >
-                  {{ t('admin-rules-pause') }}
+                  {{ t('admin-rules-restore') }}
                 </Button>
-                <Button
-                  v-else-if="canGoLive(rule)"
-                  variant="secondary"
-                  size="sm"
-                  icon="play"
-                  @click="setLive(rule, true)"
-                >
-                  {{ t('admin-rules-go-live') }}
-                </Button>
-                <IconButton
-                  size="sm"
-                  icon="archive"
-                  :label="t('admin-rules-action-archive-tooltip')"
-                  @click="archiveTarget = rule"
-                />
+                <template v-else>
+                  <Button
+                    v-if="rule.state === 'live'"
+                    variant="secondary"
+                    size="sm"
+                    icon="pause"
+                    @click="setLive(rule, false)"
+                  >
+                    {{ t('admin-rules-pause') }}
+                  </Button>
+                  <Button
+                    v-else-if="canGoLive(rule)"
+                    variant="secondary"
+                    size="sm"
+                    icon="play"
+                    @click="setLive(rule, true)"
+                  >
+                    {{ t('admin-rules-go-live') }}
+                  </Button>
+                  <IconButton
+                    size="sm"
+                    icon="archive"
+                    :label="t('admin-rules-action-archive-tooltip')"
+                    @click="archiveTarget = rule"
+                  />
+                </template>
               </div>
             </td>
           </tr>

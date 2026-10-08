@@ -322,6 +322,28 @@ pub fn archive(
         })
 }
 
+// sync-pending-wire: needs sync aggregate wiring (rules.restored on Update)
+/// Bring an archived rule back as a draft: clears `archived_at` and sets the
+/// state to draft, so it can be edited and has to go live again before
+/// agents see it. A rule that isn't archived comes back unchanged.
+pub fn restore(conn: &mut DbConnection, id: i32) -> Result<Rule, WriteError> {
+    use crate::schema::rules::dsl;
+    let existing: Rule = dsl::rules.find(id).first(conn).map_err(|e| match e {
+        diesel::result::Error::NotFound => WriteError::NotFound(id),
+        other => WriteError::Db(other),
+    })?;
+    if !existing.is_archived() {
+        return Ok(existing);
+    }
+    diesel::update(dsl::rules.find(id))
+        .set((
+            dsl::archived_at.eq(None::<chrono::DateTime<chrono::Utc>>),
+            dsl::state.eq(RuleState::Draft),
+        ))
+        .get_result::<Rule>(conn)
+        .map_err(WriteError::Db)
+}
+
 // sync-pending-wire: needs sync aggregate wiring (rules.deleted on Delete)
 /// Permanently delete a rule. The caller must have already
 /// archived it; we return `NotArchived` rather than implicitly
