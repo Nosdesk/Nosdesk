@@ -119,7 +119,7 @@ const toDraggableTicket = (ticket: RecentTicket): DraggableTicket => {
     title: ticket.title,
     category,
     assigneeUuid: ticket.assignee ?? pooled?.assignee_uuid ?? null,
-    priority: priority === 'urgent' ? 'high' : priority,
+    priority,
   }
 }
 

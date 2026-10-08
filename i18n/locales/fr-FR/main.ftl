@@ -1835,9 +1835,6 @@ date-range-end-segment = { $segment } de fin
 admin-sla-priority-any = Toutes
 admin-sla-category-any = Toutes
 admin-sla-assignee-group-any = Tous
-admin-sla-priority-low = basse
-admin-sla-priority-medium = moyenne
-admin-sla-priority-high = haute
 admin-sla-workspace-default = Défaut de l'espace de travail
 # MACHINE TRANSLATION, pending native review
 admin-sla-field-no-sla = Aucun SLA

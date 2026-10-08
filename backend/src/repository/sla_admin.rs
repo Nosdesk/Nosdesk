@@ -158,6 +158,17 @@ impl SlaPolicyBody {
     }
 }
 
+/// A policy's stored priority filter; `None` when it has none or no such
+/// policy exists.
+pub fn stored_priority_filter(conn: &mut DbConnection, id: i32) -> QueryResult<Option<String>> {
+    Ok(sla_policies::table
+        .find(id)
+        .select(sla_policies::priority_filter)
+        .first::<Option<String>>(conn)
+        .optional()?
+        .flatten())
+}
+
 pub fn list_policies(conn: &mut DbConnection) -> QueryResult<Vec<SlaPolicy>> {
     sla_policies::table
         .order(sla_policies::name.asc())

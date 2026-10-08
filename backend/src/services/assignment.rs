@@ -182,10 +182,11 @@ impl AssignmentEngine {
         };
 
         // Check priority condition
+        // A priority named any way the parser reads ("normal", "High"); one
+        // naming no priority matches no ticket.
         if let Some(priority_val) = obj.get("priority") {
             if let Some(priority_str) = priority_val.as_str() {
-                let ticket_priority = ticket.priority.as_str();
-                if ticket_priority != priority_str {
+                if TicketPriority::parse(priority_str) != Some(ticket.priority) {
                     return false;
                 }
             }

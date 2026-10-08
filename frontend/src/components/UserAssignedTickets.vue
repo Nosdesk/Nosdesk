@@ -5,6 +5,7 @@ import { useQuery } from "@pinia/colada";
 import { useAuthStore } from "@/stores/auth";
 import { useWorkflowStatesStore } from "@nosdesk/core/stores/workflowStates";
 import { TERMINAL_CATEGORIES } from "@nosdesk/core/types/workflow";
+import { comparePriority, PRIORITY_RANK, priorityRank } from "@nosdesk/core/constants/ticketOptions";
 import { useSyncActions } from "@/composables/useSyncActions";
 import { useWidgetConfigState } from "@/composables/useWidgetConfigState";
 import TicketRow from "@/components/TicketRow.vue";
@@ -108,12 +109,6 @@ const sortOptions = computed<DropdownOption[]>(() => [
     { value: "oldest", label: fluent.$t('user-assigned-tickets-sort-oldest'), description: fluent.$t('user-assigned-tickets-sort-oldest-desc') },
 ]);
 
-const PRIORITY_ORDER: Record<string, number> = {
-    'critical': 0,
-    'high': 1,
-    'medium': 2,
-    'low': 3,
-};
 
 // -- New-activity cross-reference -------------------------------------
 
@@ -142,8 +137,7 @@ function hasNewActivity(ticket: Ticket): boolean {
 }
 
 function isHighPriority(ticket: Ticket): boolean {
-    const p = ticket.priority as string;
-    return p === 'high' || p === 'critical';
+    return priorityRank(ticket.priority) >= PRIORITY_RANK.high;
 }
 
 // -- Query --------------------------------------------------------------
@@ -219,9 +213,9 @@ const { data, isPending, isLoading, error, refetch } = useQuery({
         }
         if (config.sort === "priority-date") {
             rows = rows.slice().sort((a, b) => {
-                const priorityA = PRIORITY_ORDER[a.priority] ?? 4;
-                const priorityB = PRIORITY_ORDER[b.priority] ?? 4;
-                if (priorityA !== priorityB) return priorityA - priorityB;
+                // Most severe first.
+                const bySeverity = comparePriority(b.priority, a.priority);
+                if (bySeverity !== 0) return bySeverity;
                 return new Date(b.modified).getTime() - new Date(a.modified).getTime();
             });
         }

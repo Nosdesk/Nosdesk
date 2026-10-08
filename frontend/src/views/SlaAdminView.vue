@@ -59,6 +59,7 @@ import WeekScheduleEditor, {
   type WeekSchedule,
 } from '@/components/admin/WeekScheduleEditor.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
+import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions'
 import {
   HOLIDAY_TEMPLATE_LIST,
   HOLIDAY_TEMPLATES,
@@ -602,11 +603,10 @@ const calendarModel = computed<string>({
   },
 })
 
+// '' is "any priority", saved as no filter (null).
 const priorityFilterDropdownOptions = computed(() => [
   { value: '', label: t('admin-sla-priority-any') },
-  { value: 'low', label: t('admin-sla-priority-low') },
-  { value: 'medium', label: t('admin-sla-priority-medium') },
-  { value: 'high', label: t('admin-sla-priority-high') },
+  ...PRIORITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
 ])
 const categoryDropdownOptions = computed(() => [
   { value: '', label: t('admin-sla-category-any') },

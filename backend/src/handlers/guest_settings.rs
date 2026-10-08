@@ -126,7 +126,10 @@ pub async fn update_guest_settings(
         }
     }
     if let Some(Some(ref p)) = body.guest_ticket_default_priority {
-        if !["low", "medium", "high"].contains(&p.as_str()) {
+        if !crate::models::TicketPriority::ALL
+            .iter()
+            .any(|known| known.as_str() == p)
+        {
             return Err(ApiError::BadRequest("Invalid default priority".into()));
         }
     }

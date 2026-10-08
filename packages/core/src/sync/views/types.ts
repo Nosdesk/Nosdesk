@@ -14,6 +14,7 @@
  */
 
 import type { WorkflowStateCategory } from '../../types/workflow'
+import type { TicketPriority } from '../../constants/ticketOptions'
 
 // ===================== CardData =====================
 //
@@ -22,7 +23,8 @@ import type { WorkflowStateCategory } from '../../types/workflow'
 // render thousands of cards without joins. Foreign keys are carried
 // as ids; useReference() in the consumer resolves them.
 
-export type Priority = 'low' | 'medium' | 'high' | 'urgent' | 'none'
+/** The ticket priorities, as `PRIORITY_OPTIONS` lists them. */
+export type Priority = TicketPriority
 
 export interface CardWorkflowState {
   id: number

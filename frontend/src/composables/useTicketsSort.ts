@@ -10,6 +10,7 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import type { ResolvedView } from '@/composables/useTicketsViewResolution'
 import type { CardData } from '@nosdesk/core/sync/views/types'
+import { comparePriority } from '@nosdesk/core/constants/ticketOptions'
 
 function readSortField(card: CardData, field: string): string | number | null {
   const parts = field.split('.')
@@ -56,6 +57,8 @@ export function useTicketsSort(activeView: ComputedRef<ResolvedView>): UseTicket
       const field = sortField.value
       const dir = sortDir.value === 'asc' ? 1 : -1
       return [...cards.value].sort((a, b) => {
+        // Priority sorts by severity, not by its name.
+        if (field === 'priority') return comparePriority(a.priority, b.priority) * dir
         const av = readSortField(a, field)
         const bv = readSortField(b, field)
         if (av === bv) return 0

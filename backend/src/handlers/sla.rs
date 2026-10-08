@@ -141,10 +141,19 @@ pub async fn update_policy(
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    let body = body
-        .into_inner()
-        .with_checked_priority()
-        .map_err(|m| ApiError::BadRequest(m.into()))?;
+    let body = body.into_inner();
+    // A filter saved before saving checked it may come back unchanged (the app
+    // resends the whole policy to toggle its default): keep it as it is.
+    // Reading it leniently already makes it match nothing.
+    let stored = tc
+        .run(|conn| sla_admin::stored_priority_filter(conn, id))
+        .map_err(|_| ApiError::Internal("Failed to load SLA policy".into()))?;
+    let body = if stored.is_some() && body.priority_filter == stored {
+        body
+    } else {
+        body.with_checked_priority()
+            .map_err(|m| ApiError::BadRequest(m.into()))?
+    };
     match tc.run(|conn| sla_admin::update_policy(conn, id, body)) {
         Ok(policy) => Ok(HttpResponse::Ok().json(policy)),
         Err(e) => {
@@ -443,7 +452,9 @@ pub async fn explain_for_ticket(
                 // copy + links rather than parsing strings.
                 let mut matched_filters: Vec<SlaExplainFilter> = Vec::new();
                 if let Some(ref p) = policy.priority_filter {
-                    matched_filters.push(SlaExplainFilter::Priority { value: p.clone() });
+                    matched_filters.push(SlaExplainFilter::Priority {
+                        value: explain_priority(p),
+                    });
                 }
                 if let Some(cid) = policy.category_id_filter {
                     let name = ticket_categories::table
@@ -499,6 +510,13 @@ pub async fn explain_for_ticket(
     }
 }
 
+/// A stored priority filter as the explain view names it: by the priority it
+/// means ("normal" is medium), or as stored when it names none.
+fn explain_priority(filter: &str) -> String {
+    crate::models::TicketPriority::parse(filter)
+        .map_or_else(|| filter.to_string(), |p| p.as_str().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     //! Permission-boundary tests. Unlike most admin handlers, SLA
@@ -510,6 +528,13 @@ mod tests {
     use crate::test_helpers::{claims_for, setup_test_pool};
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
+
+    #[test]
+    fn explain_names_a_filter_by_the_priority_it_means() {
+        assert_eq!(explain_priority("normal"), "medium");
+        assert_eq!(explain_priority("High"), "high");
+        assert_eq!(explain_priority("critical"), "critical");
+    }
 
     fn test_app(
         pool: crate::db::Pool,

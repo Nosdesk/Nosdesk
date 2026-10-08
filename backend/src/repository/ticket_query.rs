@@ -473,8 +473,14 @@ impl TicketQuery {
             // / closed" relative ordering at the bucket level.
             (Some("status"), Some("asc")) => query = query.order(tickets::workflow_state_id.asc()),
             (Some("status"), _) => query = query.order(tickets::workflow_state_id.desc()),
-            (Some("priority"), Some("asc")) => query = query.order(priority_rank().asc()),
-            (Some("priority"), _) => query = query.order(priority_rank().desc()),
+            // Ties break on id, so pages of one priority neither repeat nor
+            // skip a ticket.
+            (Some("priority"), Some("asc")) => {
+                query = query.order((priority_rank().asc(), tickets::id.asc()))
+            }
+            (Some("priority"), _) => {
+                query = query.order((priority_rank().desc(), tickets::id.desc()))
+            }
             (Some("created_at"), Some("asc")) => query = query.order(tickets::created_at.asc()),
             (Some("created_at"), _) => query = query.order(tickets::created_at.desc()),
             _ => query = query.order(tickets::id.desc()),
@@ -783,6 +789,40 @@ mod tests {
         };
         assert_eq!(sorted("desc"), ["urgent", "high", "medium", "low", "none"]);
         assert_eq!(sorted("asc"), ["none", "low", "medium", "high", "urgent"]);
+    }
+
+    /// Tickets of one priority come in a fixed order (newest first when
+    /// descending), so paging through them neither repeats nor skips one.
+    #[test]
+    fn tickets_of_one_priority_page_in_a_fixed_order() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "prio_page_user", "admin");
+        let tag = format!("prio-page-{}", uuid::Uuid::new_v4().simple());
+        let mut ids: Vec<i32> = (0..5)
+            .map(|n| {
+                TestFixtures::create_ticket(&mut conn, &format!("{tag} {n}"), Some(user.uuid), None)
+                    .id
+            })
+            .collect();
+        let auth = AuthContext::test_context(user.uuid, "admin", vec![]);
+        let mut page = |n: i64, direction: &str| -> Vec<i32> {
+            TicketQuery::new()
+                .visible_to(&auth)
+                .search(Some(tag.clone()))
+                .sort(Some("priority".into()), Some(direction.into()))
+                .paginate(n, 2)
+                .execute_with_users(&mut conn)
+                .unwrap()
+                .data
+                .iter()
+                .map(|item| item.ticket.id)
+                .collect()
+        };
+        let descending: Vec<i32> = (1..=3).flat_map(|n| page(n, "desc")).collect();
+        let ascending: Vec<i32> = (1..=3).flat_map(|n| page(n, "asc")).collect();
+        assert_eq!(ascending, ids);
+        ids.reverse();
+        assert_eq!(descending, ids);
     }
 
     #[test]

@@ -1831,9 +1831,6 @@ date-range-end-segment = { $segment } einde
 admin-sla-priority-any = Alle
 admin-sla-category-any = Alle
 admin-sla-assignee-group-any = Alle
-admin-sla-priority-low = laag
-admin-sla-priority-medium = gemiddeld
-admin-sla-priority-high = hoog
 admin-sla-workspace-default = Werkruimtestandaard
 # MACHINE TRANSLATION, pending native review
 admin-sla-field-no-sla = Geen SLA
