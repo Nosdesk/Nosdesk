@@ -273,6 +273,7 @@ pub fn decide(
     approve: bool,
     comment: Option<&str>,
     channel: &str,
+    observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> Result<String, DecideError> {
     let comment = comment.map(str::trim).filter(|c| !c.is_empty());
     if !approve && comment.is_none() {
@@ -311,6 +312,7 @@ pub fn decide(
             Some(approver),
             comment,
             channel,
+            observer,
         )?;
         Ok(state.to_string())
     })
@@ -366,6 +368,7 @@ pub fn skip(
             Some(actor),
             comment,
             "skip",
+            None,
         )?;
         Ok(())
     })
@@ -391,6 +394,7 @@ fn conclude(
     actor: Option<Uuid>,
     comment: Option<&str>,
     channel: &str,
+    observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> QueryResult<()> {
     let mut ticket = if state != PENDING {
         set_state(conn, ticket.id, state)?
@@ -429,7 +433,7 @@ fn conclude(
                     updated_at: Some(now),
                     ..Default::default()
                 },
-                None,
+                observer,
             )?;
         }
     }
@@ -494,7 +498,9 @@ pub fn auto_approve(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<bool
                 ticket_approvals::decided_at.eq(Utc::now()),
             ))
             .execute(conn)?;
-        conclude(conn, &ticket, APPROVED, APPROVED, None, None, "timeout")?;
+        conclude(
+            conn, &ticket, APPROVED, APPROVED, None, None, "timeout", None,
+        )?;
         Ok(true)
     })
 }
@@ -647,18 +653,34 @@ mod tests {
         );
         // Someone else can't decide it.
         assert_eq!(
-            decide(&mut conn, ticket.id, requester.uuid, true, None, "portal"),
+            decide(
+                &mut conn,
+                ticket.id,
+                requester.uuid,
+                true,
+                None,
+                "portal",
+                None
+            ),
             Err(DecideError::NotWaiting)
         );
         assert_eq!(
-            decide(&mut conn, ticket.id, boss.uuid, true, None, "portal").unwrap(),
+            decide(&mut conn, ticket.id, boss.uuid, true, None, "portal", None).unwrap(),
             APPROVED
         );
         let t: Ticket = tickets::table.find(ticket.id).first(&mut conn).unwrap();
         assert_eq!(t.approval_state.as_deref(), Some(APPROVED));
         // Once decided, nothing more to decide.
         assert_eq!(
-            decide(&mut conn, ticket.id, boss.uuid, false, Some("no"), "portal"),
+            decide(
+                &mut conn,
+                ticket.id,
+                boss.uuid,
+                false,
+                Some("no"),
+                "portal",
+                None
+            ),
             Err(DecideError::NotWaiting)
         );
     }
@@ -674,11 +696,19 @@ mod tests {
         start_if_required(&mut conn, &ticket).unwrap();
 
         assert_eq!(
-            decide(&mut conn, ticket.id, a.uuid, true, None, "email").unwrap(),
+            decide(&mut conn, ticket.id, a.uuid, true, None, "email", None).unwrap(),
             PENDING
         );
         assert_eq!(
-            decide(&mut conn, ticket.id, b.uuid, false, Some("  "), "email"),
+            decide(
+                &mut conn,
+                ticket.id,
+                b.uuid,
+                false,
+                Some("  "),
+                "email",
+                None
+            ),
             Err(DecideError::CommentRequired)
         );
         assert_eq!(
@@ -688,7 +718,8 @@ mod tests {
                 b.uuid,
                 false,
                 Some("Over budget"),
-                "email"
+                "email",
+                None
             )
             .unwrap(),
             DECLINED
@@ -783,6 +814,7 @@ mod tests {
             false,
             Some("Not now"),
             "portal",
+            None,
         )
         .unwrap();
         assert!(

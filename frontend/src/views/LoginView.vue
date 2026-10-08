@@ -22,6 +22,7 @@ import Button from "@/components/common/Button.vue";
 import FormInput from "@/components/common/FormInput.vue";
 import PasswordInput from "@/components/common/PasswordInput.vue";
 import { extractErrorMessage } from "@/utils/errors";
+import { isInAppPath } from "@/utils/inAppPath";
 import { isTauriRuntime } from "@/platform";
 import { useFluent } from "fluent-vue";
 
@@ -448,8 +449,11 @@ const handleOidcLoginClick = async () => {
         'Content-Type': 'application/json',
       },
       credentials: 'include',
+      // Come back to the page the sign-in guard was sent from; the callback
+      // redirects there once the session is set.
       body: JSON.stringify({
         provider_type: 'oidc',
+        redirect_uri: isInAppPath(route.query.redirect) ? route.query.redirect : undefined,
       }),
     });
 

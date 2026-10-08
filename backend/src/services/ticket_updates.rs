@@ -4,11 +4,11 @@
 
 use std::sync::Arc;
 
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::db::DbConnection;
 use crate::extractors::TenantConn;
-use crate::models::{AssignmentTrigger, NewTicket, Ticket, TicketUpdate};
+use crate::models::{AssignmentTrigger, Ticket, TicketUpdate};
 use crate::repository;
 use crate::repository::tickets::TicketUpdatedObserver;
 use crate::services::assignment::AssignmentEngine;
@@ -48,105 +48,18 @@ impl InWorkspace for ActorConn<'_> {
     }
 }
 
-/// After `updated` was saved: a recurring ticket that just closed gets its
-/// next occurrence, and an unassigned ticket whose category changed goes
-/// through the assignment rules. Each step logs and carries on if it fails,
-/// since the update itself has committed.
+/// After `updated` was saved: an unassigned ticket whose category changed goes
+/// through the assignment rules. It logs and carries on if that fails, since
+/// the update itself has committed. (A recurring ticket's next occurrence comes
+/// from the write that closes it, in `update_ticket_partial`.)
 pub fn after_update(
     db: &mut impl InWorkspace,
     search: Option<&Arc<SearchService>>,
     updated: &Ticket,
     category_changed: bool,
 ) {
-    materialise_next_occurrence(db, search, updated);
     if category_changed && updated.assignee_uuid.is_none() {
         assign_on_category_change(db, search, updated);
-    }
-}
-
-/// RRULE materialise-on-close: if the ticket is in a closed category and
-/// carries a recurrence_rule, generate the next occurrence so the user sees it
-/// land immediately. A malformed rule is logged and skipped rather than
-/// failing the close. The occurrence is a future ticket, not history, so an
-/// assignee who can no longer work tickets isn't carried over; it starts
-/// unassigned and goes through the assignment rules.
-fn materialise_next_occurrence(
-    db: &mut impl InWorkspace,
-    search: Option<&Arc<SearchService>>,
-    updated: &Ticket,
-) {
-    let Some(rule) = updated.recurrence_rule.as_ref() else {
-        return;
-    };
-    let closed = db
-        .run(|conn| repository::workflow_states::category_of(conn, updated.workflow_state_id))
-        .ok()
-        .flatten()
-        .is_some_and(|c| c.closes_ticket());
-    if !closed {
-        return;
-    }
-    let after = updated
-        .due_date
-        .or(updated.closed_at)
-        .unwrap_or(updated.created_at);
-    match crate::services::recurrence::next_occurrence_naive(rule, updated.created_at, after) {
-        Ok(Some(next_due)) => {
-            // The new occurrence is a clean copy of the template, same title /
-            // priority / category / assignee, with a fresh due_date and an
-            // open workflow state. Carry the rule forward so the chain
-            // continues; record the template id to keep audit lineage.
-            let template_id = updated.recurrence_template_id.unwrap_or(updated.id);
-            let open_state = match db.run(repository::workflow_states::default_state) {
-                Ok(s) => s.id,
-                Err(_) => updated.workflow_state_id,
-            };
-            let assignee_uuid = updated.assignee_uuid.filter(|&assignee| {
-                db.run(|conn| {
-                    repository::assignees::is_assignable(conn, updated.workspace_id, assignee)
-                })
-                .unwrap_or(false)
-            });
-            let new_ticket = NewTicket {
-                title: updated.title.clone(),
-                workflow_state_id: open_state,
-                priority: updated.priority,
-                requester_uuid: updated.requester_uuid,
-                assignee_uuid,
-                category_id: updated.category_id,
-                due_date: Some(next_due),
-                recurrence_rule: Some(rule.clone()),
-                recurrence_template_id: Some(template_id),
-                ..Default::default()
-            };
-            match db.run(|conn| repository::create_ticket(conn, new_ticket)) {
-                Ok(next) => {
-                    info!(
-                        ticket_id = updated.id,
-                        template_id,
-                        next_due = %next_due,
-                        "Materialised next recurring occurrence"
-                    );
-                    assign_new_ticket(db, search, next);
-                }
-                Err(e) => warn!(
-                    ticket_id = updated.id,
-                    error = ?e,
-                    "Failed to materialise next recurring occurrence"
-                ),
-            }
-        }
-        Ok(None) => {
-            // Series ran out (UNTIL passed). Nothing to do.
-        }
-        Err(e) => {
-            warn!(
-                ticket_id = updated.id,
-                rule = %rule,
-                error = ?e,
-                "Recurrence rule failed to parse on close",
-            );
-        }
     }
 }
 

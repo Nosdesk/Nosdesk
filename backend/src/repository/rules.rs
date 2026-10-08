@@ -551,11 +551,13 @@ pub enum ApplyError {
 /// or merge can't slip past. On any executor error the whole apply
 /// rolls back and the `rule_applications` row is never written
 /// (which is the audit-correct behaviour: the failed apply didn't
-/// happen).
+/// happen). Only a live rule applies: a draft, a paused (`dry_run`) or an
+/// archived one is refused before anything runs, whoever calls.
 pub fn apply_manual(
     conn: &mut DbConnection,
     input: ApplyInput,
     actor: &ActorContext,
+    observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> Result<ApplyOutcome, ApplyError> {
     use crate::schema::rules::dsl as r;
     use crate::schema::tickets::dsl as t;
@@ -577,7 +579,7 @@ pub fn apply_manual(
         if rule.archived_at.is_some() {
             return Err(ApplyError::NotLive(rule.id, rule.state.as_str()));
         }
-        if rule.state != RuleState::Live && rule.state != RuleState::DryRun {
+        if rule.state != RuleState::Live {
             return Err(ApplyError::NotLive(rule.id, rule.state.as_str()));
         }
         if rule.trigger_kind != RuleTriggerKind::Manual {
@@ -664,7 +666,7 @@ pub fn apply_manual(
                         })
                         .unwrap_or_else(|| json!({ "index": one_based, "kind": kind }))
                 }
-                "set_status" => execute_set_status(conn, one_based, ticket.id, &config)
+                "set_status" => execute_set_status(conn, one_based, ticket.id, &config, observer)
                     .map(|state_id| {
                         json!({ "index": one_based, "kind": kind, "workflow_state_id": state_id })
                     })?,
@@ -717,17 +719,8 @@ pub fn apply_manual(
             ))
             .get_result(conn)?;
 
-        // dry_run state writes a shadow rule_applications row so the
-        // admin can preview without touching production data. The
-        // action writes above still hit the DB in the txn, but the
-        // outer transaction will be COMMITTED — dry-run rows live in
-        // the audit log alongside successful ones, distinguished by
-        // status. That matches the plan §4.3 contract.
-        let status = if updated_rule.state == RuleState::DryRun {
-            RuleApplicationStatus::DryRun
-        } else {
-            RuleApplicationStatus::Succeeded
-        };
+        // Only a live rule gets here, so the application succeeded.
+        let status = RuleApplicationStatus::Succeeded;
 
         let actions_taken_value = if actions_taken.is_empty() {
             None
@@ -791,7 +784,8 @@ pub fn apply_manual(
                     "actor_uuid": actor.uuid,
                     "comment_id": comment_id,
                     "actions_taken": actions_taken_value,
-                    "was_dry_run": status == RuleApplicationStatus::DryRun,
+                    // Always false now; kept for readers of older events.
+                    "was_dry_run": false,
                 }),
                 groups: sync_groups,
                 causation_id: None,
@@ -952,9 +946,10 @@ fn update_ticket_fields(
     conn: &mut DbConnection,
     ticket_id: i32,
     update: TicketUpdate,
+    observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> Result<(), ApplyError> {
     use crate::repository::tickets::TicketWriteError;
-    crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, None).map_err(
+    crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, observer).map_err(
         |e| match e {
             TicketWriteError::IneligibleAssignee(user) => ApplyError::IneligibleAssignee(user),
             TicketWriteError::Database(e) => ApplyError::Db(e),
@@ -965,11 +960,14 @@ fn update_ticket_fields(
 
 /// `set_status` action. `closed_at` and `closed_by` follow the new state in
 /// the database (`ticket_closed_follows_state`).
+/// `observer` indexes the ticket and, when this closes a recurring one, its
+/// next occurrence.
 fn execute_set_status(
     conn: &mut DbConnection,
     action_index: usize,
     ticket_id: i32,
     config: &Value,
+    observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> Result<i32, ApplyError> {
     let state_id = config
         .get("workflow_state_id")
@@ -991,6 +989,7 @@ fn execute_set_status(
             workflow_state_id: Some(state_id),
             ..Default::default()
         },
+        observer,
     )?;
     Ok(state_id)
 }
@@ -1044,6 +1043,7 @@ fn execute_assign(
             assignee_uuid: Some(Some(assignee)),
             ..Default::default()
         },
+        None,
     )?;
     Ok(assignee)
 }
@@ -1056,6 +1056,7 @@ fn execute_unassign(conn: &mut DbConnection, ticket_id: i32) -> Result<(), Apply
             assignee_uuid: Some(None),
             ..Default::default()
         },
+        None,
     )
 }
 
@@ -1157,6 +1158,7 @@ fn execute_set_priority(
             priority: Some(priority),
             ..Default::default()
         },
+        None,
     )?;
     Ok(priority_str.to_string())
 }

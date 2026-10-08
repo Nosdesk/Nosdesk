@@ -301,7 +301,10 @@ src/repository/linked_tickets.rs title
 src/repository/linked_tickets.rs to
 src/repository/projects.rs display_order
 src/repository/projects.rs project_id
+src/repository/tickets.rs next_due
 src/repository/tickets.rs path
+src/repository/tickets.rs rule
+src/repository/tickets.rs template_id
 src/repository/tickets.rs title
 src/services/avatar_thumbnails.rs user
 src/services/channels/auto_ack.rs provider
@@ -453,9 +456,7 @@ src/services/sync_outbox.rs to_sync_id
 src/services/sync_outbox.rs to_xid8
 src/services/sync_outbox.rs workspaces
 src/services/ticket_updates.rs assignee
-src/services/ticket_updates.rs next_due
 src/services/ticket_updates.rs rule
-src/services/ticket_updates.rs template_id
 src/services/webhooks/delivery.rs duration_ms
 src/services/webhooks/delivery.rs failures
 src/services/webhooks/delivery.rs next_retry

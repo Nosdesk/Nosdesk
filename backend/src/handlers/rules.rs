@@ -35,7 +35,7 @@ use crate::models::{
 use crate::repository::rules;
 use crate::repository::tickets::TicketUpdatedObserver;
 use crate::services::search::SearchService;
-use crate::services::ticket_updates::{after_update, ActorConn, InWorkspace};
+use crate::services::ticket_updates::{ActorConn, InWorkspace};
 use crate::utils::rbac::require_workspace_role;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -878,7 +878,11 @@ pub async fn apply_rule(
         },
     };
 
-    let outcome = match rules::apply_manual(&mut conn, input, &actor) {
+    // A step that closes a recurring ticket indexes its next occurrence.
+    let observer = search
+        .as_ref()
+        .map(|s| s.get_ref() as &dyn crate::repository::tickets::TicketUpdatedObserver);
+    let outcome = match rules::apply_manual(&mut conn, input, &actor, observer) {
         Ok(o) => o,
         Err(e) => return Ok(map_apply_error(e)),
     };
@@ -900,9 +904,9 @@ pub async fn apply_rule(
     // Rule-applied field changes (status / assignee / priority / tags)
     // reach clients through the sync pool: each step goes through the
     // tickets or tags repository and emits its own ticket.* sync action,
-    // and ticket.rule_applied drives the activity feed. What a manual edit
-    // does once it commits follows here: the ticket is reindexed for
-    // search, and a recurring ticket a step closed gets its next occurrence.
+    // and ticket.rule_applied drives the activity feed. The ticket is
+    // reindexed for search here, once for all the steps. (A recurring ticket
+    // a step closed got its next occurrence in that step's write.)
     if outcome.actions_executed > 0 {
         let search = search.as_ref().map(|s| s.get_ref());
         let mut db = ActorConn {
@@ -921,7 +925,6 @@ pub async fn apply_rule(
                         .ok();
                     search.ticket_updated(&ticket, article.as_ref());
                 }
-                after_update(&mut db, search, &ticket, false);
             }
             Err(e) => tracing::warn!(error = %e, ticket_id, "rule apply: post-save reload failed"),
         }
