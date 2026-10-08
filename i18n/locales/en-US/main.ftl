@@ -1219,6 +1219,7 @@ email-default-env-vars = Environment variables
 email-default-auth-label = Sign-in
 email-default-auth-password = Username and password
 email-default-auth-none = No authentication
+email-default-auth-ignored = Credentials ignored on a plaintext connection
 email-default-config-error = The server's SMTP settings can't be used: { $error }
 email-default-use-button = Use the server default
 email-default-now-active = This workspace now sends with the server default.

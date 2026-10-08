@@ -46,9 +46,15 @@ describe('ServerDefaultPanel', () => {
   })
 
   it('shows a relay with credentials as signing in with them', () => {
-    expect(render({ ...relay, smtp_password_configured: true })).toContain(
-      'Username and password',
-    )
+    expect(
+      render({ ...relay, smtp_password_configured: true, smtp_signs_in: true }),
+    ).toContain('Username and password')
+  })
+
+  it('says credentials on a plaintext connection go unused', () => {
+    expect(
+      render({ ...relay, smtp_password_configured: true, smtp_signs_in: false }),
+    ).toContain('Credentials ignored on a plaintext connection')
   })
 
   it('names what is wrong with settings that cannot be used', () => {

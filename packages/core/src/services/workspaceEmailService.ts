@@ -18,6 +18,8 @@ export interface ServerEmailConfig {
   smtp_host?: string;
   smtp_port?: number;
   smtp_password_configured?: boolean;
+  /** Whether sends sign in: credentials are set and the connection isn't plaintext. */
+  smtp_signs_in?: boolean;
   from_name: string;
   from_email: string;
   enabled: boolean;

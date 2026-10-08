@@ -1103,6 +1103,7 @@ email-default-env-vars = Omgevingsvariabelen
 email-default-auth-label = Aanmelden
 email-default-auth-password = Gebruikersnaam en wachtwoord
 email-default-auth-none = Geen authenticatie
+email-default-auth-ignored = Inloggegevens genegeerd op een onversleutelde verbinding
 email-default-config-error = De SMTP-instellingen van de server zijn niet bruikbaar: { $error }
 email-default-use-button = Serverstandaard gebruiken
 email-default-now-active = Deze werkruimte verzendt nu met de serverstandaard.

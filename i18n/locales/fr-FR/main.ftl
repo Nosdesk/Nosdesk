@@ -1107,6 +1107,7 @@ email-default-env-vars = Variables d'environnement
 email-default-auth-label = Connexion
 email-default-auth-password = Nom d'utilisateur et mot de passe
 email-default-auth-none = Sans authentification
+email-default-auth-ignored = Identifiants ignorés sur une connexion non chiffrée
 email-default-config-error = Les réglages SMTP du serveur ne sont pas utilisables : { $error }
 email-default-use-button = Utiliser le réglage du serveur
 email-default-now-active = Cet espace de travail envoie désormais avec le réglage du serveur.

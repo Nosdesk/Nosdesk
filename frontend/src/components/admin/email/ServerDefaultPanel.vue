@@ -86,11 +86,19 @@ const from = (c: ServerEmailConfig) =>
         <dd>
           <StatusPill
             :label="
-              config.smtp_password_configured
-                ? t('email-default-auth-password')
-                : t('email-default-auth-none')
+              !config.smtp_password_configured
+                ? t('email-default-auth-none')
+                : config.smtp_signs_in === false
+                  ? t('email-default-auth-ignored')
+                  : t('email-default-auth-password')
             "
-            :tone="config.smtp_password_configured ? 'positive' : 'neutral'"
+            :tone="
+              !config.smtp_password_configured
+                ? 'neutral'
+                : config.smtp_signs_in === false
+                  ? 'caution'
+                  : 'positive'
+            "
             size="xs"
           />
         </dd>

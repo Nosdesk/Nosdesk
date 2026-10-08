@@ -773,11 +773,10 @@ pub struct EmailConfig {
     pub from_name: String,
     pub from_email: String,
     pub enabled: bool,
-    /// Connection security. Defaults to [`SmtpSecurity::StartTls`] —
-    /// the production path. [`SmtpSecurity::Plaintext`] exists for local
-    /// integration tests against Greenmail (port 3025 is plaintext).
-    /// NEVER set to `None` in production; credentials ride the wire
-    /// in the clear.
+    /// Connection security. Defaults to [`SmtpSecurity::StartTls`].
+    /// [`SmtpSecurity::Plaintext`] sends unencrypted: for a relay on a
+    /// trusted local network that offers no STARTTLS, or a local test
+    /// server, and never across the internet. It never signs in.
     pub security: SmtpSecurity,
 }
 
@@ -791,10 +790,10 @@ pub enum SmtpSecurity {
     /// STARTTLS upgrade on port 587 (`starttls_relay()`). Default for
     /// all env-loaded configs.
     StartTls,
-    /// No TLS. Intended only for local test servers (Greenmail, Mailpit).
-    /// Named `Plaintext` rather than `None` so the variant is impossible
-    /// to mistake for "I don't care"; production configs that land on
-    /// this value are bugs.
+    /// No TLS. Only for a relay on a trusted local network that offers no
+    /// STARTTLS, or a local test server (Greenmail, Mailpit); never across
+    /// the internet. Named `Plaintext` rather than `None` so the variant is
+    /// impossible to mistake for "I don't care".
     Plaintext,
 }
 
@@ -925,12 +924,9 @@ impl EmailConfig {
                 "SMTP_FROM_EMAIL not configured: set the address mail is sent from".to_string()
             })?;
 
-        // Optional explicit security selector. Defaults to StartTLS
-        // for backward compatibility — every legitimate production
-        // SMTP relay supports it. `plaintext` exists for local
-        // testing against Mailpit / Greenmail; never set this in
-        // production, the doc on `SmtpSecurity::Plaintext` flags it
-        // as a misconfiguration.
+        // Optional explicit security selector. Defaults to StartTLS for
+        // backward compatibility. `plaintext` is for a relay on a trusted
+        // local network that offers no STARTTLS, or a local test server.
         let security = match var("SMTP_SECURITY")
             .as_deref()
             .map(|s| s.trim().to_ascii_lowercase())
@@ -955,10 +951,19 @@ impl EmailConfig {
                     "SMTP_PORT {smtp_port} / SMTP_SECURITY mismatch: {msg}"
                 ));
             }
+            // Port 25 is where a relay that takes this server by its address
+            // listens; the advice to submit on 587 or 465 is for a relay we
+            // sign in to.
+            SmtpCoherence::Warn(_) if smtp_port == 25 && smtp_username.is_empty() => {}
             SmtpCoherence::Warn(msg) => {
                 tracing::warn!(port = smtp_port, "SMTP config warning: {msg}");
             }
             SmtpCoherence::Ok => {}
+        }
+        if security == SmtpSecurity::Plaintext && !smtp_username.is_empty() {
+            tracing::warn!(
+                "SMTP_USERNAME and SMTP_PASSWORD are ignored: a plaintext connection never signs in"
+            );
         }
 
         Ok(Self {
@@ -986,21 +991,17 @@ impl EmailConfig {
     pub fn is_configured(&self) -> bool {
         self.enabled && !self.smtp_host.trim().is_empty() && !self.from_email.trim().is_empty()
     }
-}
 
-/// Whether a send signs in to the relay (SMTP AUTH).
-///
-/// Only when the connection can actually carry credentials. lettre refuses
-/// PLAIN/LOGIN over an unencrypted link, and attaching credentials to a server
-/// that offers no AUTH (the dev Mailpit sidecar, where SMTP_SECURITY=plaintext
-/// but the .env username/password are still present) makes the send fail with
-/// "No compatible authentication mechanism was found". Plaintext is local-test
-/// only, so skip auth there; also skip when no credentials are configured
-/// (open / IP-allowlisted relay).
-fn signs_in(config: &EmailConfig) -> bool {
-    config.security != SmtpSecurity::Plaintext
-        && !config.smtp_username.is_empty()
-        && !config.smtp_password.is_empty()
+    /// Whether a send signs in to the relay (SMTP AUTH): only with
+    /// credentials, over a connection that can carry them. lettre refuses
+    /// PLAIN/LOGIN over an unencrypted link, so a plaintext connection never
+    /// signs in, and a relay without credentials (one that accepts this server
+    /// by its address) isn't asked to.
+    pub fn signs_in(&self) -> bool {
+        self.security != SmtpSecurity::Plaintext
+            && !self.smtp_username.is_empty()
+            && !self.smtp_password.is_empty()
+    }
 }
 
 /// Build a lettre SMTP mailer that TCP-connects to `connect_host` while
@@ -1040,7 +1041,7 @@ fn build_smtp_mailer_for(
         None => builder,
     };
 
-    let builder = if signs_in(config) {
+    let builder = if config.signs_in() {
         builder.credentials(Credentials::new(
             config.smtp_username.clone(),
             config.smtp_password.clone(),
@@ -3150,7 +3151,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         .expect("a relay without credentials is a valid configuration");
         assert!(config.is_configured());
         assert!(EmailService::new(config.clone()).is_configured());
-        assert!(!signs_in(&config), "nothing to sign in with");
+        assert!(!config.signs_in(), "nothing to sign in with");
 
         // And it sends: no AUTH, though the server offers it.
         let (port, sink) = smtp_sink();
@@ -3206,7 +3207,11 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         pairs.push(("SMTP_USERNAME", "help@example.com"));
         pairs.push(("SMTP_PASSWORD", "secret"));
         let config = EmailConfig::from_lookup(smtp_vars(&pairs)).unwrap();
-        assert!(signs_in(&config));
+        assert!(config.signs_in());
+        // Not over a plaintext connection, which can't carry them.
+        pairs.push(("SMTP_SECURITY", "plaintext"));
+        let config = EmailConfig::from_lookup(smtp_vars(&pairs)).unwrap();
+        assert!(!config.signs_in());
     }
 
     #[test]
