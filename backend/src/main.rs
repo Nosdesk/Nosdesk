@@ -1080,8 +1080,23 @@ async fn main() -> std::io::Result<()> {
         collab_routing_mode,
     ));
 
-    // Initialize system state for tracking uptime
-    let system_state = web::Data::new(handlers::system::SystemState::new());
+    // Initialize system state for tracking uptime, and say so once at
+    // startup if the database is older than the next release needs.
+    let postgres_major = pool
+        .get()
+        .ok()
+        .and_then(|mut conn| handlers::system::postgres_major(&mut conn));
+    if handlers::system::postgres_upgrade_needed(postgres_major) {
+        warn!(
+            "This server runs PostgreSQL {}. Nosdesk 1.1 needs PostgreSQL {}: read the upgrade notes before upgrading: {}",
+            postgres_major.unwrap_or_default(),
+            handlers::system::NEXT_RELEASE_POSTGRES_MAJOR,
+            handlers::system::UPGRADE_GUIDE_URL,
+        );
+    }
+    let system_state = web::Data::new(handlers::system::SystemState::with_postgres_major(
+        postgres_major,
+    ));
 
     // Share the limiters across all app instances
     let public_limiter_data = web::Data::new(public_limiter);

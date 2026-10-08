@@ -813,6 +813,10 @@ admin-nav-asset-kinds-description = Définissez les types d'actifs suivis et les
 # Habillage de l'administration.
 admin-back-to-dashboard = Retour au tableau de bord
 admin-heading = Administration
+# PostgreSQL upgrade notice (machine, pending native review)
+admin-postgres-upgrade-notice = Nosdesk 1.1 nécessite PostgreSQL 18. Lisez les notes de mise à niveau avant de mettre à jour.
+admin-postgres-upgrade-notice-link = Notes de mise à niveau
+admin-postgres-upgrade-notice-dismiss = Ignorer
 admin-search-placeholder = Rechercher dans les paramètres...
 admin-search-empty = Aucun paramètre ne correspond à « { $query } »
 admin-clear-search = Effacer la recherche
