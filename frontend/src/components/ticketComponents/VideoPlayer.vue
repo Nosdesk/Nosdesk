@@ -235,7 +235,10 @@ onUnmounted(() => {
     @mousemove.passive="showControlsTemporarily"
     @mouseleave="showControls = false"
   >
-    <!-- Video element -->
+    <!-- Video element. Its caller resolves the src through
+         convertToAuthenticatedPath (assetUrl); the element itself is needed
+         for the ref. -->
+    <!-- eslint-disable vue/no-restricted-v-bind -->
     <video
       ref="videoRef"
       :src="props.src"
@@ -243,6 +246,7 @@ onUnmounted(() => {
       preload="metadata"
       controlsList="nodownload"
     ></video>
+    <!-- eslint-enable vue/no-restricted-v-bind -->
 
     <!-- Video Controls -->
     <div

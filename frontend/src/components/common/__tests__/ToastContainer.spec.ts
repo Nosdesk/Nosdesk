@@ -8,7 +8,7 @@ import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { ConfigProvider } from 'reka-ui'
 import ToastContainer from '@/components/common/ToastContainer.vue'
 import { useToastStore } from '@nosdesk/core/stores/toast'
-import { configureAssetUrl } from '@nosdesk/core/transport'
+import { configureAssetUrl, proxiedAssetResolver } from '@nosdesk/core/transport'
 
 let wrapper: VueWrapper | null = null
 let pinia: Pinia
@@ -149,7 +149,7 @@ describe('a notification toast in the mobile app', () => {
   afterEach(() => configureAssetUrl((p) => p, (u) => u))
 
   it('loads the actor avatar through the asset resolver', async () => {
-    configureAssetUrl((p) => (p.startsWith('/') ? `nosdesk-asset://localhost${p}` : p))
+    configureAssetUrl(proxiedAssetResolver('nosdesk-asset://localhost'))
     useToastStore().notification('New comment', undefined, 'ticket', 1, 42, 'Ana', '/uploads/users/thumbs/ana.webp', 5)
     await settle()
 

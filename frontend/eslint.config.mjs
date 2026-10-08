@@ -105,10 +105,6 @@ export default defineConfigWithVueTs(
     ignores: [
       // The component itself.
       'src/components/common/AssetImg.vue',
-      // The video player binds a src its caller resolved through
-      // convertToAuthenticatedPath (assetUrl), and needs the element itself
-      // for its template ref.
-      'src/components/ticketComponents/VideoPlayer.vue',
       '**/__tests__/**',
       '**/*.spec.ts',
     ],

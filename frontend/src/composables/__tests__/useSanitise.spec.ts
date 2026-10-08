@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { configureAssetUrl } from '@nosdesk/core/transport'
+import { configureAssetUrl, proxiedAssetResolver } from '@nosdesk/core/transport'
 import { useSanitise } from '@/composables/useSanitise'
 
 // Images inside sanitised HTML (comments, articles) go through the platform's
 // asset resolver like any other image, so they load in the mobile app.
 
-const mobile = (p: string) => (p.startsWith('/') ? `nosdesk-asset://localhost${p}` : p)
+const mobile = proxiedAssetResolver('nosdesk-asset://localhost')
 const mobilePath = (u: string) => u.replace(/^nosdesk-asset:\/\/localhost/, '')
 
 afterEach(() => configureAssetUrl((p) => p, (u) => u))
