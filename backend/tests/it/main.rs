@@ -102,6 +102,7 @@ mod ticket_activity_visibility;
 mod ticket_by_number;
 mod ticket_create_columns;
 mod ticket_file_access;
+mod ticket_join_write_lint;
 mod ticket_merge;
 mod ticket_numbers;
 mod ticket_update_routes;

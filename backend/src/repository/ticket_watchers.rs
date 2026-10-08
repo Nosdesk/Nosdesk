@@ -150,6 +150,34 @@ pub fn add_watcher(
     user_uuid: Uuid,
     auto_added: bool,
 ) -> QueryResult<bool> {
+    insert_watcher(conn, ticket_id, user_uuid, auto_added, None)
+}
+
+/// [`add_watcher`] with the internal-notes setting given rather than the
+/// column's default, as a merge carries it over from the sources.
+pub fn add_watcher_with_notify(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    user_uuid: Uuid,
+    auto_added: bool,
+    notify_on_internal_notes: bool,
+) -> QueryResult<bool> {
+    insert_watcher(
+        conn,
+        ticket_id,
+        user_uuid,
+        auto_added,
+        Some(notify_on_internal_notes),
+    )
+}
+
+fn insert_watcher(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    user_uuid: Uuid,
+    auto_added: bool,
+    notify_on_internal_notes: Option<bool>,
+) -> QueryResult<bool> {
     conn.transaction::<bool, diesel::result::Error, _>(|conn| {
         // Resolve the parent ticket up front for the sync emit's
         // group computation. Surfaces a clear "no such ticket"
@@ -166,9 +194,14 @@ pub fn add_watcher(
             user_uuid,
             auto_added,
         };
-        diesel::insert_into(ticket_watchers::table)
-            .values(&row)
-            .execute(conn)?;
+        match notify_on_internal_notes {
+            None => diesel::insert_into(ticket_watchers::table)
+                .values(&row)
+                .execute(conn)?,
+            Some(notify) => diesel::insert_into(ticket_watchers::table)
+                .values((&row, ticket_watchers::notify_on_internal_notes.eq(notify)))
+                .execute(conn)?,
+        };
         let groups = groups::for_ticket(conn, &ticket)?;
         emit::record(
             conn,

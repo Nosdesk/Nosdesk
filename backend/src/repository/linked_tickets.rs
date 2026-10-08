@@ -175,13 +175,13 @@ pub fn link_tickets(conn: &mut DbConnection, ticket1_id: i32, ticket2_id: i32) -
     })
 }
 
-// sync-pending-wire: merge service emits ticket.merged with the edge in its data blob
 /// Insert a single directed `linked_tickets` edge `ticket_id ->
 /// linked_ticket_id` with an explicit relation_type. Unlike
 /// `link_tickets`, this does NOT mirror the reverse direction:
 /// `duplicate_of` is asymmetric (the source is a duplicate of the
 /// target, not the other way round). Idempotent via
-/// `on_conflict_do_nothing`. The merge service is the first caller.
+/// `on_conflict_do_nothing`; a new edge emits `linked_ticket.added`. The
+/// merge service is the caller.
 pub fn link_tickets_directional(
     conn: &mut DbConnection,
     ticket_id: i32,
@@ -200,10 +200,32 @@ pub fn link_tickets_directional(
         created_by,
     };
 
-    diesel::insert_into(linked_tickets::table)
-        .values(&row)
-        .on_conflict_do_nothing()
-        .execute(conn)
+    conn.transaction(|conn| {
+        let inserted = diesel::insert_into(linked_tickets::table)
+            .values(&row)
+            .on_conflict_do_nothing()
+            .execute(conn)?;
+        if inserted > 0 {
+            // The bootstrap's row shape; the subject's audience plus the
+            // other ticket's viewers.
+            let subject = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
+            let mut link_groups = crate::sync::groups::for_ticket(conn, &subject)?;
+            link_groups.push(format!("ticket:{linked_ticket_id}"));
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::LinkedTicket,
+                    aggregate_id: format!("{ticket_id}:{linked_ticket_id}"),
+                    op: SyncOp::Insert,
+                    event_type: "linked_ticket.added",
+                    data: json!({ "ticket_id": ticket_id, "linked_ticket_id": linked_ticket_id }),
+                    groups: link_groups,
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(inserted)
+    })
 }
 
 pub fn unlink_tickets(
@@ -272,36 +294,33 @@ pub fn unlink_tickets(
             "Deleted links"
         );
 
-        // Junction aggregate removals, both directions (Phase 2). The
-        // webhook outbox maps `linked_ticket.removed` to the
+        // Junction aggregate removals, one per edge actually deleted (a
+        // directed edge such as a merge's `duplicate_of` has no reverse).
+        // The webhook outbox maps `linked_ticket.removed` to the
         // ticket.unlinked webhook.
         let mut link_groups = crate::sync::groups::workspace();
         link_groups.push(format!("ticket:{ticket1_id}"));
         link_groups.push(format!("ticket:{ticket2_id}"));
-        emit::record(
-            conn,
-            SyncEmit {
-                aggregate: SyncAggregate::LinkedTicket,
-                aggregate_id: format!("{}:{}", ticket1_id, ticket2_id),
-                op: SyncOp::Delete,
-                event_type: "linked_ticket.removed",
-                data: json!({ "ticket_id": ticket1_id, "linked_ticket_id": ticket2_id }),
-                groups: link_groups.clone(),
-                causation_id: None,
-            },
-        )?;
-        emit::record(
-            conn,
-            SyncEmit {
-                aggregate: SyncAggregate::LinkedTicket,
-                aggregate_id: format!("{}:{}", ticket2_id, ticket1_id),
-                op: SyncOp::Delete,
-                event_type: "linked_ticket.removed",
-                data: json!({ "ticket_id": ticket2_id, "linked_ticket_id": ticket1_id }),
-                groups: link_groups,
-                causation_id: None,
-            },
-        )?;
+        for (deleted, from, to) in [
+            (deleted_1_to_2, ticket1_id, ticket2_id),
+            (deleted_2_to_1, ticket2_id, ticket1_id),
+        ] {
+            if deleted == 0 {
+                continue;
+            }
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::LinkedTicket,
+                    aggregate_id: format!("{from}:{to}"),
+                    op: SyncOp::Delete,
+                    event_type: "linked_ticket.removed",
+                    data: json!({ "ticket_id": from, "linked_ticket_id": to }),
+                    groups: link_groups.clone(),
+                    causation_id: None,
+                },
+            )?;
+        }
 
         Ok(())
     })
@@ -311,6 +330,33 @@ pub fn unlink_tickets(
 mod tests {
     use super::*;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    #[test]
+    fn unlinking_a_one_way_edge_reports_only_that_edge() {
+        use crate::schema::sync_actions::dsl as sa;
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "unlinker", "user");
+        let from = TestFixtures::create_ticket(&mut conn, "From", Some(user.uuid), None);
+        let to = TestFixtures::create_ticket(&mut conn, "To", Some(user.uuid), None);
+        link_tickets_directional(&mut conn, from.id, to.id, "duplicate_of", None, None).unwrap();
+
+        unlink_tickets(&mut conn, from.id, to.id).unwrap();
+
+        let mut removed = |key: String| -> i64 {
+            sa::sync_actions
+                .filter(sa::event_type.eq("linked_ticket.removed"))
+                .filter(sa::aggregate_id.eq(key))
+                .count()
+                .get_result(&mut conn)
+                .unwrap()
+        };
+        assert_eq!(removed(format!("{}:{}", from.id, to.id)), 1);
+        assert_eq!(
+            removed(format!("{}:{}", to.id, from.id)),
+            0,
+            "no reverse edge existed"
+        );
+    }
 
     #[test]
     fn link_creates_bidirectional_links() {
