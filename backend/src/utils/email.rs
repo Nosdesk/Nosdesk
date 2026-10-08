@@ -3545,6 +3545,28 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         }
     }
 
+    /// `every_letter_text` builds every `compose_` letter, so the security
+    /// note test above covers each one a new builder adds.
+    #[test]
+    fn every_letter_text_builds_every_compose_letter() {
+        let src = include_str!("email.rs");
+        let start = src
+            .find("fn every_letter_text(")
+            .expect("every_letter_text");
+        let end = start + src[start..].find("\n    }\n").expect("its end");
+        let listed = &src[start..end];
+        let builder = regex::Regex::new(r"(?m)^\s*pub fn (compose_\w+)\(").unwrap();
+        let missing: Vec<&str> = builder
+            .captures_iter(src)
+            .map(|c| c.get(1).expect("name").as_str())
+            .filter(|name| !listed.contains(&format!("{name}(")))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "add these letters to every_letter_text: {missing:?}"
+        );
+    }
+
     // ---------- email design preview harness ----------
     //
     // Renders each compose_* with representative sample data + default
