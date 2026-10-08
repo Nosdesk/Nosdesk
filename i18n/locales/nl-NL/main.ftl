@@ -6963,7 +6963,7 @@ ticket-activity-phrase-merged = heeft { $count ->
   } samengevoegd in dit ticket
 ticket-activity-phrase-merged-into = heeft dit ticket samengevoegd in #{ $target_id }
 # Merge notice sent (machine, pending native review)
-ticket-activity-phrase-merge-notice-sent = heeft de aanvrager gemaild dat dit ticket is samengevoegd
+ticket-activity-phrase-merge-notice-sent = heeft een samenvoegingsmelding verstuurd
 
 # Regels-engine (docs/rules-and-actions-plan.md).
 

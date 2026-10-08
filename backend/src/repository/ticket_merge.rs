@@ -385,10 +385,12 @@ pub fn execute_merge(
                 aggregate_id: target_id.to_string(),
                 op: SyncOp::Update,
                 event_type: "ticket.merged",
+                // No `reason`: the destination's requester receives this row,
+                // and the agent's reason is for the team. Merge history reads
+                // it from `ticket_merges`.
                 data: json!({
                     "source_ticket_ids": source_ids,
                     "actor_uuid": actor.uuid,
-                    "reason": reason,
                     "comments_moved": comments_moved,
                     "channel_messages_rerouted": channel_messages_rerouted,
                     "watchers_added": watchers_added_to_destination,
@@ -836,10 +838,15 @@ pub fn merge_history_for_ticket(
         actor_uuid: Option<Uuid>,
         #[diesel(sql_type = Nullable<Text>)]
         actor_name: Option<String>,
+        #[diesel(sql_type = Nullable<Text>)]
+        reason: Option<String>,
     }
 
+    // Every source of one merge records the same reason.
     let rows: Vec<EventRow> = diesel::sql_query(
-        "SELECT s.sync_id, s.occurred_at, s.data, s.actor_uuid, u.name AS actor_name \
+        "SELECT s.sync_id, s.occurred_at, s.data, s.actor_uuid, u.name AS actor_name, \
+                (SELECT m.merge_reason FROM ticket_merges m \
+                  WHERE m.ticket_id = (s.data->'source_ticket_ids'->>0)::int) AS reason \
          FROM sync_actions s \
          LEFT JOIN users u ON u.uuid = s.actor_uuid \
          WHERE s.event_type = 'ticket.merged' AND s.aggregate_id = $1::text \
@@ -865,7 +872,7 @@ pub fn merge_history_for_ticket(
                 merged_by_user_uuid: r.actor_uuid,
                 merged_by_name: r.actor_name,
                 source_ticket_ids,
-                reason: r.data["reason"].as_str().map(str::to_string),
+                reason: r.reason,
                 comments_moved: r.data["comments_moved"].as_i64().unwrap_or(0),
                 merge_marker_comment_id: r.data["merge_marker_comment_id"]
                     .as_i64()
@@ -2161,5 +2168,52 @@ mod tests {
 
         let n = enqueue_merge_notifications(&mut conn, &dest, &[src], "").unwrap();
         assert_eq!(n, 0);
+    }
+
+    /// A chat source has no email to send: it's skipped, and its ticket
+    /// records no notice.
+    #[test]
+    fn merge_notifications_skip_chat_sources() {
+        use crate::schema::tickets;
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "chatter", "user");
+        TestFixtures::create_user_email(&mut conn, user.uuid, "chatter@example.com", true);
+        let channel = TestFixtures::create_channel(&mut conn, "slack");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        let src: Ticket = diesel::update(tickets::table.find(src.id))
+            .set(tickets::origin_channel_id.eq(channel.id))
+            .get_result(&mut conn)
+            .unwrap();
+
+        let n =
+            enqueue_merge_notifications(&mut conn, &dest, std::slice::from_ref(&src), "").unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(count_sync(&mut conn, "ticket.merge_notice_sent", src.id), 0);
+    }
+
+    /// The agent's reason reaches merge history, not the sync row the
+    /// destination's requester receives.
+    #[test]
+    fn the_merge_reason_stays_with_the_team() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "agent", "user");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        let row = sync_row(&mut conn, "ticket.merged", dest.id);
+        assert_eq!(row.data.get("reason"), None, "{}", row.data);
+        let history = merge_history_for_ticket(&mut conn, dest.id).unwrap();
+        assert_eq!(history.merge_events.len(), 1);
+        assert_eq!(
+            history.merge_events[0].reason.as_deref(),
+            Some("same outage")
+        );
     }
 }
