@@ -38,7 +38,7 @@ import { groupService } from '@nosdesk/core/services/groupService';
 import rulesService from '@nosdesk/core/services/rulesService';
 import { useTagsStore } from '@nosdesk/core/stores/tags';
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
-import { extractErrorMessage } from '@/utils/errors';
+import { errorCode, extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useMobileDetection } from '@/composables/useMobileDetection';
 
@@ -201,6 +201,22 @@ const isDirty = computed(() => {
   );
 });
 
+/**
+ * The server refuses any change to a rule archived since this page loaded it
+ * (RULE_ARCHIVED). Reload it so the page shows it archived and read-only, in
+ * place of an error. False for any other error.
+ */
+async function reloadIfArchived(err: unknown): Promise<boolean> {
+  if (errorCode(err) !== 'RULE_ARCHIVED' || ruleId.value == null) return false;
+  try {
+    fill(await rulesService.get(ruleId.value));
+  } catch {
+    return false;
+  }
+  await queryCache.invalidateQueries({ key: ['rules'] });
+  return true;
+}
+
 /** Saves the form; `quiet` skips the toast when going live follows. */
 async function save(options: { quiet?: boolean } = {}): Promise<boolean> {
   errorMessage.value = '';
@@ -244,7 +260,9 @@ async function save(options: { quiet?: boolean } = {}): Promise<boolean> {
     }
     return true;
   } catch (err) {
-    errorMessage.value = extractErrorMessage(err, t('admin-rule-editor-error-save'));
+    if (!(await reloadIfArchived(err))) {
+      errorMessage.value = extractErrorMessage(err, t('admin-rule-editor-error-save'));
+    }
     return false;
   } finally {
     saving.value = false;
@@ -264,7 +282,9 @@ async function setLive(live: boolean): Promise<void> {
     await queryCache.invalidateQueries({ key: ['rules'] });
     toast.success(t(live ? 'admin-rules-toast-live' : 'admin-rules-toast-paused', { name: rule.name }));
   } catch (err) {
-    errorMessage.value = extractErrorMessage(err, t('admin-rules-error-transition'));
+    if (!(await reloadIfArchived(err))) {
+      errorMessage.value = extractErrorMessage(err, t('admin-rules-error-transition'));
+    }
   } finally {
     transitioning.value = false;
   }
@@ -400,161 +420,165 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
 
     <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-    <section class="flex flex-col gap-3">
-      <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
-        {{ t('admin-rule-editor-section-name') }}
-      </h2>
-      <FormInput
-        v-model="name"
-        :label="t('admin-rule-editor-name-label')"
-        :placeholder="t('admin-rule-editor-name-placeholder')"
-        required
-      />
-      <FormTextarea
-        v-model="description"
-        :label="t('admin-rule-editor-description-label')"
-        :placeholder="t('admin-rule-editor-description-placeholder')"
-        :rows="2"
-      />
-    </section>
-
-    <section class="flex flex-col gap-3">
-      <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
-        {{ t('admin-rule-editor-section-trigger') }}
-      </h2>
-      <BaseDropdown
-        v-if="triggerOptions.length > 0"
-        :model-value="triggerKind"
-        :options="triggerOptions"
-        :label="t('admin-rule-editor-trigger-label')"
-        size="sm"
-        @update:model-value="triggerKind = String($event) as RuleTriggerKind"
-      />
-      <p v-if="isManual" class="text-sm text-secondary">
-        {{ t('admin-rule-editor-trigger-manual-summary') }}
-      </p>
-      <p v-else class="text-sm text-status-warning">
-        {{ t('admin-rule-editor-trigger-other-phase') }}
-      </p>
-    </section>
-
-    <section class="flex flex-col gap-3">
-      <div class="flex items-center justify-between">
+    <!-- An archived rule is read-only; disabling the fieldset disables every
+         control in it. -->
+    <fieldset :disabled="isArchived" class="flex flex-col gap-6 min-w-0">
+      <section class="flex flex-col gap-3">
         <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
-          {{ t('admin-rule-editor-section-actions') }}
+          {{ t('admin-rule-editor-section-name') }}
         </h2>
-        <Button variant="ghost" size="sm" @click="addAction" icon="add">
-          <span>{{ t('admin-rule-editor-actions-add') }}</span>
-        </Button>
-      </div>
+        <FormInput
+          v-model="name"
+          :label="t('admin-rule-editor-name-label')"
+          :placeholder="t('admin-rule-editor-name-placeholder')"
+          required
+        />
+        <FormTextarea
+          v-model="description"
+          :label="t('admin-rule-editor-description-label')"
+          :placeholder="t('admin-rule-editor-description-placeholder')"
+          :rows="2"
+        />
+      </section>
 
-      <p v-if="actions.length === 0" class="text-sm text-status-warning">
-        {{ t('admin-rule-editor-actions-empty') }}
-      </p>
+      <section class="flex flex-col gap-3">
+        <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
+          {{ t('admin-rule-editor-section-trigger') }}
+        </h2>
+        <BaseDropdown
+          v-if="triggerOptions.length > 0"
+          :model-value="triggerKind"
+          :options="triggerOptions"
+          :label="t('admin-rule-editor-trigger-label')"
+          size="sm"
+          @update:model-value="triggerKind = String($event) as RuleTriggerKind"
+        />
+        <p v-if="isManual" class="text-sm text-secondary">
+          {{ t('admin-rule-editor-trigger-manual-summary') }}
+        </p>
+        <p v-else class="text-sm text-status-warning">
+          {{ t('admin-rule-editor-trigger-other-phase') }}
+        </p>
+      </section>
 
-      <ol class="flex flex-col gap-2">
-        <li
-          v-for="(action, i) in actions"
-          :key="i"
-          class="border border-default rounded-lg p-3 flex flex-col gap-2 bg-surface"
-        >
-          <div class="flex items-center gap-2">
-            <span class="text-xs text-secondary font-mono">#{{ i + 1 }}</span>
-            <BaseDropdown
-              :model-value="action.kind"
-              :options="actionOptions"
-              size="sm"
-              class="flex-1"
-              @update:model-value="setActionKind(i, String($event) as RuleAction['kind'])"
-            />
-            <IconButton size="sm" icon="trash" :label="t('admin-rule-editor-action-remove')" @click="removeAction(i)" />
-          </div>
+      <section class="flex flex-col gap-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
+            {{ t('admin-rule-editor-section-actions') }}
+          </h2>
+          <Button variant="ghost" size="sm" @click="addAction" icon="add">
+            <span>{{ t('admin-rule-editor-actions-add') }}</span>
+          </Button>
+        </div>
 
-          <!-- Per-kind config form. Kept inline so the editor stays
-               a single component; if it grows past a screen each
-               kind gets its own card. -->
-          <template v-if="action.kind === 'reply'">
-            <BaseDropdown
-              :model-value="(action.config as any)?.visibility ?? 'public'"
-              :options="replyVisibilityOptions"
-              size="sm"
-              @update:model-value="updateConfigField(i, 'visibility', String($event))"
-            />
-            <FormTextarea
-              :model-value="(action.config as any)?.body ?? ''"
-              @update:model-value="updateConfigField(i, 'body', $event)"
-              :rows="3"
-              :placeholder="t('admin-rule-editor-reply-placeholder')"
-            />
-          </template>
+        <p v-if="actions.length === 0" class="text-sm text-status-warning">
+          {{ t('admin-rule-editor-actions-empty') }}
+        </p>
 
-          <template v-else-if="action.kind === 'set_status'">
-            <BaseDropdown
-              :model-value="Number((action.config as any)?.workflow_state_id) || ''"
-              :options="statusOptions"
-              :placeholder="t('admin-rule-editor-status-placeholder')"
-              size="sm"
-              @update:model-value="updateConfigField(i, 'workflow_state_id', Number($event))"
-            />
-          </template>
-
-          <template v-else-if="action.kind === 'assign'">
-            <div>
-              <SegmentedControl
-                :model-value="(action.config as any)?.method === 'group' ? 'group' : 'direct'"
-                :options="assignTargetOptions"
-                :aria-label="t('admin-rule-editor-assign-to')"
+        <ol class="flex flex-col gap-2">
+          <li
+            v-for="(action, i) in actions"
+            :key="i"
+            class="border border-default rounded-lg p-3 flex flex-col gap-2 bg-surface"
+          >
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-secondary font-mono">#{{ i + 1 }}</span>
+              <BaseDropdown
+                :model-value="action.kind"
+                :options="actionOptions"
                 size="sm"
-                @update:model-value="setAssignTarget(i, String($event))"
+                class="flex-1"
+                @update:model-value="setActionKind(i, String($event) as RuleAction['kind'])"
               />
+              <IconButton size="sm" icon="trash" :label="t('admin-rule-editor-action-remove')" @click="removeAction(i)" />
             </div>
-            <BaseDropdown
-              v-if="(action.config as any)?.method === 'group'"
-              :model-value="Number((action.config as any)?.group_id) || ''"
-              :options="groupOptions"
-              :placeholder="t('admin-rule-editor-team-placeholder')"
-              size="sm"
-              @update:model-value="updateConfigField(i, 'group_id', Number($event))"
-            />
-            <UserPicker
-              v-else
-              type="assignee"
-              :model-value="(action.config as any)?.user_uuid ?? ''"
-              :current-user="assigneeRow((action.config as any)?.user_uuid)"
-              :placeholder="t('admin-rule-editor-person-placeholder')"
-              @update:model-value="updateConfigField(i, 'user_uuid', $event)"
-            />
-            <p v-if="(action.config as any)?.method === 'group'" class="text-xs text-secondary">
-              {{ t('admin-rule-editor-team-hint') }}
+
+            <!-- Per-kind config form. Kept inline so the editor stays
+                 a single component; if it grows past a screen each
+                 kind gets its own card. -->
+            <template v-if="action.kind === 'reply'">
+              <BaseDropdown
+                :model-value="(action.config as any)?.visibility ?? 'public'"
+                :options="replyVisibilityOptions"
+                size="sm"
+                @update:model-value="updateConfigField(i, 'visibility', String($event))"
+              />
+              <FormTextarea
+                :model-value="(action.config as any)?.body ?? ''"
+                @update:model-value="updateConfigField(i, 'body', $event)"
+                :rows="3"
+                :placeholder="t('admin-rule-editor-reply-placeholder')"
+              />
+            </template>
+
+            <template v-else-if="action.kind === 'set_status'">
+              <BaseDropdown
+                :model-value="Number((action.config as any)?.workflow_state_id) || ''"
+                :options="statusOptions"
+                :placeholder="t('admin-rule-editor-status-placeholder')"
+                size="sm"
+                @update:model-value="updateConfigField(i, 'workflow_state_id', Number($event))"
+              />
+            </template>
+
+            <template v-else-if="action.kind === 'assign'">
+              <div>
+                <SegmentedControl
+                  :model-value="(action.config as any)?.method === 'group' ? 'group' : 'direct'"
+                  :options="assignTargetOptions"
+                  :aria-label="t('admin-rule-editor-assign-to')"
+                  size="sm"
+                  @update:model-value="setAssignTarget(i, String($event))"
+                />
+              </div>
+              <BaseDropdown
+                v-if="(action.config as any)?.method === 'group'"
+                :model-value="Number((action.config as any)?.group_id) || ''"
+                :options="groupOptions"
+                :placeholder="t('admin-rule-editor-team-placeholder')"
+                size="sm"
+                @update:model-value="updateConfigField(i, 'group_id', Number($event))"
+              />
+              <UserPicker
+                v-else
+                type="assignee"
+                :model-value="(action.config as any)?.user_uuid ?? ''"
+                :current-user="assigneeRow((action.config as any)?.user_uuid)"
+                :placeholder="t('admin-rule-editor-person-placeholder')"
+                @update:model-value="updateConfigField(i, 'user_uuid', $event)"
+              />
+              <p v-if="(action.config as any)?.method === 'group'" class="text-xs text-secondary">
+                {{ t('admin-rule-editor-team-hint') }}
+              </p>
+            </template>
+
+            <template v-else-if="action.kind === 'set_priority'">
+              <BaseDropdown
+                :model-value="priorityValue(action.config)"
+                :options="priorityOptions"
+                size="sm"
+                @update:model-value="updateConfigField(i, 'priority', String($event))"
+              />
+            </template>
+
+            <template v-else-if="action.kind === 'add_tags' || action.kind === 'remove_tags'">
+              <BaseDropdown
+                multiple
+                :model-value="((action.config as any)?.tag_ids ?? []) as number[]"
+                :options="tagOptions"
+                :placeholder="t('admin-rule-editor-tags-placeholder')"
+                size="sm"
+                @update:model-value="updateConfigField(i, 'tag_ids', ($event as number[]).map(Number))"
+              />
+            </template>
+
+            <p v-if="showStepProblems && stepProblem(action)" class="text-xs text-status-warning">
+              {{ t(stepProblem(action)!) }}
             </p>
-          </template>
-
-          <template v-else-if="action.kind === 'set_priority'">
-            <BaseDropdown
-              :model-value="priorityValue(action.config)"
-              :options="priorityOptions"
-              size="sm"
-              @update:model-value="updateConfigField(i, 'priority', String($event))"
-            />
-          </template>
-
-          <template v-else-if="action.kind === 'add_tags' || action.kind === 'remove_tags'">
-            <BaseDropdown
-              multiple
-              :model-value="((action.config as any)?.tag_ids ?? []) as number[]"
-              :options="tagOptions"
-              :placeholder="t('admin-rule-editor-tags-placeholder')"
-              size="sm"
-              @update:model-value="updateConfigField(i, 'tag_ids', ($event as number[]).map(Number))"
-            />
-          </template>
-
-          <p v-if="showStepProblems && stepProblem(action)" class="text-xs text-status-warning">
-            {{ t(stepProblem(action)!) }}
-          </p>
-        </li>
-      </ol>
-    </section>
+          </li>
+        </ol>
+      </section>
+    </fieldset>
 
     <section class="flex flex-col gap-3">
       <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
@@ -586,7 +610,7 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
       </div>
       <!-- Run order and the loop override only matter to rules that run
            on their own. -->
-      <template v-if="!isManual">
+      <fieldset v-if="!isManual" :disabled="isArchived" class="flex flex-col gap-3 min-w-0">
         <FormNumber
           :model-value="priority"
           @update:model-value="priority = $event ?? 100"
@@ -597,7 +621,7 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
           v-model="overrideSelfRef"
           :label="t('admin-rule-editor-override-self-ref')"
         />
-      </template>
+      </fieldset>
     </section>
   </div>
 </template>

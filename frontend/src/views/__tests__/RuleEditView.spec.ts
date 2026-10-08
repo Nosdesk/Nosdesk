@@ -136,10 +136,31 @@ describe('RuleEditView', () => {
       expect(button('admin-rules-go-live')).toBeUndefined()
       expect(button('admin-rules-pause')).toBeUndefined()
       expect(button('admin-rule-editor-save')!.disabled).toBe(true)
+      // The form itself is read-only too.
+      expect(w.find('input').element.matches(':disabled')).toBe(true)
+      expect(w.find('textarea').element.matches(':disabled')).toBe(true)
       w.unmount()
       wrapper = null
       document.body.innerHTML = ''
     }
+  })
+
+  it('shows the rule as archived when a save finds it was archived elsewhere', async () => {
+    rules.get
+      .mockResolvedValueOnce(rule())
+      .mockResolvedValueOnce(rule({ archived_at: '2026-10-02T00:00:00Z' }))
+    rules.update.mockRejectedValue({
+      response: { status: 409, data: { code: 'RULE_ARCHIVED', message: 'rule 4 is archived' } },
+    })
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+
+    await w.find('input').setValue('Bump to high')
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+
+    expect(rules.get).toHaveBeenCalledTimes(2)
+    expect(w.text()).toContain('admin-rule-editor-state-archived')
+    expect(button('admin-rules-go-live')).toBeUndefined()
   })
 
   it('assigns a step to a team', async () => {

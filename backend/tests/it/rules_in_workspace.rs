@@ -404,6 +404,36 @@ async fn an_archived_rule_cannot_go_live() {
     )
     .await;
     assert_eq!(archived.status(), StatusCode::OK);
+    let first: Value = http_test::read_body_json(archived).await;
+
+    // Deleting it again from the list changes nothing: same archived_at, no
+    // new version.
+    let versions = |id: i64| {
+        let pool = pool.clone();
+        async move {
+            let listed: Value = http_test::read_body_json(
+                as_admin(
+                    &pool,
+                    a,
+                    http_test::TestRequest::get().uri(&format!("/api/rules/{id}/versions")),
+                )
+                .await,
+            )
+            .await;
+            listed.as_array().map(Vec::len).expect("versions")
+        }
+    };
+    let before = versions(deleted).await;
+    let again = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::delete().uri(&format!("/api/rules/{deleted}")),
+    )
+    .await;
+    assert_eq!(again.status(), StatusCode::OK);
+    let second: Value = http_test::read_body_json(again).await;
+    assert_eq!(second["archived_at"], first["archived_at"], "{second}");
+    assert_eq!(versions(deleted).await, before, "no new version");
 
     // Archived by its state.
     let moved = create("Archived by state").await;

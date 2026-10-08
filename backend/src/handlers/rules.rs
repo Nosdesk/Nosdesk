@@ -339,13 +339,7 @@ fn actor_workspace_id(req: &HttpRequest) -> Option<i32> {
         .unwrap_or(None)
 }
 
-/// An archived rule is read-only: no edits and no state changes. The list's
-/// Delete stamps only `archived_at`, moving the state to archived sets both,
-/// so either marks it.
-fn is_archived(rule: &Rule) -> bool {
-    rule.archived_at.is_some() || rule.state == RuleState::Archived
-}
-
+/// 409 `RULE_ARCHIVED`: see [`Rule::is_archived`].
 fn archived_conflict(id: i32) -> HttpResponse {
     errors::conflict_with_code(format!("rule {id} is archived"), "RULE_ARCHIVED")
 }
@@ -521,6 +515,18 @@ pub async fn update_rule(
         override_self_reference,
     } = body.into_inner();
 
+    // An archived rule takes no edits, valid or not. The self-ref check
+    // below also needs the post-update conditions / actions, which means
+    // the existing row when either is omitted.
+    let existing = match tc.run(|conn| rules::find(conn, id)) {
+        Ok(Some(r)) => r,
+        Ok(None) => return Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
+        Err(e) => return Err(ApiError::Database(e)),
+    };
+    if existing.is_archived() {
+        return Ok(archived_conflict(id));
+    }
+
     if let Some(ref n) = name {
         if n.trim().is_empty() {
             return Ok(errors::bad_request_with_code(
@@ -533,18 +539,6 @@ pub async fn update_rule(
         if let Err(msg) = validate_actions(a) {
             return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION"));
         }
-    }
-
-    // Self-ref check needs the post-update conditions / actions, which
-    // means reading the existing row first if either is omitted. Same
-    // pattern the merge handler uses for optimistic-lock fetches.
-    let existing = match tc.run(|conn| rules::find(conn, id)) {
-        Ok(Some(r)) => r,
-        Ok(None) => return Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
-        Err(e) => return Err(ApiError::Database(e)),
-    };
-    if is_archived(&existing) {
-        return Ok(archived_conflict(id));
     }
     let effective_conditions = conditions.clone().unwrap_or(existing.conditions);
     let effective_actions = actions.clone().unwrap_or(existing.actions);
@@ -620,7 +614,7 @@ pub async fn transition_state(
         Ok(None) => return Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
         Err(e) => return Err(ApiError::Database(e)),
     };
-    if is_archived(&existing) {
+    if existing.is_archived() {
         // Archiving again changes nothing; anything else would bring it back.
         return Ok(if target == RuleState::Archived {
             HttpResponse::Ok().json(RuleDto::from(existing))
@@ -669,7 +663,7 @@ pub async fn transition_state(
 /// `DELETE /api/rules/{id}` (admin). Soft-archive by default;
 /// `?hard=true` permanently deletes but only if `archived_at` is
 /// already set. Returns 204 on hard delete, 200 with the archived
-/// rule on soft.
+/// rule on soft (unchanged if it was already archived).
 pub async fn delete_rule(
     req: HttpRequest,
     path: web::Path<i32>,
@@ -691,6 +685,16 @@ pub async fn delete_rule(
             Err(rules::WriteError::Db(e)) => Err(ApiError::Database(e)),
         }
     } else {
+        // Archiving an archived rule changes nothing: no new archived_at, no
+        // new version.
+        match tc.run(|conn| rules::find(conn, id)) {
+            Ok(Some(existing)) if existing.is_archived() => {
+                return Ok(HttpResponse::Ok().json(RuleDto::from(existing)));
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => return Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
+            Err(e) => return Err(ApiError::Database(e)),
+        }
         match tc.run_result(|conn| rules::archive(conn, id, Utc::now())) {
             Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
             Err(rules::WriteError::NotFound(_)) => {
