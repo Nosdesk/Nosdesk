@@ -4477,11 +4477,23 @@ ticket-comments-filter-internal = Internes ({ $count })
 ticket-comments-badge-internal = Interne
 # Réponse en cours d'envoi ou non envoyée (machine, à relire par un locuteur natif).
 ticket-comments-sending = Envoi…
-ticket-comments-send-failed = Votre réponse n'a pas été envoyée. Réessayez.
+ticket-comments-send-failed =
+    { $kind ->
+        [note] Votre note n'a pas été envoyée. Réessayez.
+       *[reply] Votre réponse n'a pas été envoyée. Réessayez.
+    }
 # Réponse envoyée sans certains fichiers (machine, à relire par un locuteur natif).
-ticket-comments-attachments-missing = Votre réponse a été envoyée, mais certains de ses fichiers n'ont pas été joints.
+ticket-comments-attachments-missing =
+    { $kind ->
+        [note] Votre note a été envoyée, mais certains de ses fichiers n'ont pas été joints.
+       *[reply] Votre réponse a été envoyée, mais certains de ses fichiers n'ont pas été joints.
+    }
 # Réponse non envoyée et non conservée après un changement d'espace (machine, à relire par un locuteur natif).
-ticket-comments-send-failed-not-kept = Votre réponse n'a pas été envoyée. Elle n'a pas pu être conservée, car vous avez changé d'espace de travail.
+ticket-comments-send-failed-not-kept =
+    { $kind ->
+        [note] Votre note n'a pas été envoyée. Elle n'a pas pu être conservée, car vous avez changé d'espace de travail.
+       *[reply] Votre réponse n'a pas été envoyée. Elle n'a pas pu être conservée, car vous avez changé d'espace de travail.
+    }
 ticket-comments-badge-forwarded = Transféré
 ticket-comments-badge-forwarded-title = Un agent a transféré cet e-mail dans le helpdesk
 ticket-comments-action-download = Télécharger

@@ -192,6 +192,11 @@ function restoreUnsentReply(
   ui.setAttachments(ticketId, [...reply.files, ...stagedSince])
 }
 
+/** The failure toast of the last reply on each ticket that wasn't sent, so the
+ *  next reply sent from that ticket closes it. Keyed by workspace and ticket
+ *  id, since ticket ids repeat across workspaces. */
+const failedReplyToasts = new Map<string, string>()
+
 export function useTicketDetail(
   ticketIdRef: MaybeRefOrGetter<number | undefined>,
   /** Workspace ticket categories (reference data loaded by the view),
@@ -563,7 +568,18 @@ export function useTicketDetail(
     registerOptimisticCreate(clientId)
     // Until the reply is created, leaving the page asks first (see repliesInFlight).
     replyStarted()
+    // A reply that failed here before goes back to the composer, so whatever
+    // goes out next carries it: its failure toast (errors stay until closed)
+    // has done its job.
+    const replyKey = `${workspace ?? ''}/${ticketId}`
+    const failedToast = failedReplyToasts.get(replyKey)
+    if (failedToast) {
+      failedReplyToasts.delete(replyKey)
+      useToastStore().removeToast(failedToast)
+    }
+    const kind = data.is_internal === true ? 'note' : 'reply'
 
+    let newComment: Awaited<ReturnType<typeof ticketService.addCommentToTicket>> | undefined
     try {
       let attachments: UploadedFile[] = []
       if (data.files?.length > 0) {
@@ -586,20 +602,68 @@ export function useTicketDetail(
         }))
       }
 
-      const newComment = await ticketService.addCommentToTicket(
+      newComment = await ticketService.addCommentToTicket(
         ticketId,
         data.content,
         attachments,
         data.is_internal === true,
         clientId,
       )
-
-      // Drop the optimistic temp rows; upsert the authoritative comment
-      // (idempotent with the incoming sync action) and its attachments. Hand
-      // each image's local blob to its reconciled row (keyed by server URL) so
-      // it shows with no reload flash; revoke the rest.
+    } catch (err) {
+      logger.error('Error adding comment', { ticketId, error: err })
+      // The server's echo arrived, so the reply was created and its row now
+      // shows: it wasn't lost, and sending it again would post it twice.
+      const created = clearOptimisticCreate(clientId) != null
+      previews.forEach((url) => URL.revokeObjectURL(url))
+      if (!created) {
+        const toast = useToastStore()
+        // The bubble goes, so say why rather than letting the reply vanish.
+        if (
+          activeWorkspaceSlug() === workspace &&
+          useTicketDraftsStore().getScope() === draftScope
+        ) {
+          restoreUnsentReply(ticketId, {
+            content: data.content,
+            files,
+            isInternal: data.is_internal === true,
+            clientId,
+          })
+          failedReplyToasts.set(
+            replyKey,
+            toast.error(
+              translate(
+                'ticket-comments-send-failed',
+                { kind },
+                kind === 'note' ? "Your note wasn't sent. Try again." : "Your reply wasn't sent. Try again.",
+              ),
+            ),
+          )
+        } else {
+          toast.error(
+            translate(
+              'ticket-comments-send-failed-not-kept',
+              { kind },
+              kind === 'note'
+                ? "Your note wasn't sent. It couldn't be kept because you switched workspace."
+                : "Your reply wasn't sent. It couldn't be kept because you switched workspace.",
+            ),
+          )
+        }
+      }
+    } finally {
+      // Sent or not, the reply is no longer sending: its temp rows go here,
+      // so nothing after the request can leave a Sending bubble behind.
       pool.remove('comment', tempId)
       previews.forEach((_, i) => pool.remove('attachment', tempId - i - 1))
+      replyFinished()
+    }
+    if (!newComment) return
+
+    // The reply is created. Upsert the authoritative comment (idempotent with
+    // the incoming sync action) and its attachments, in the same tick the temp
+    // rows went. Hand each image's local blob to its reconciled row (keyed by
+    // server URL) so it shows with no reload flash; revoke the rest.
+    try {
       pool.upsert<PoolComment>('comment', newComment.id, {
         id: newComment.id,
         ticket_id: newComment.ticket_id,
@@ -634,51 +698,22 @@ export function useTicketDetail(
         useToastStore().warning(
           translate(
             'ticket-comments-attachments-missing',
-            undefined,
-            "Your reply was sent, but some of its files weren't attached.",
+            { kind },
+            kind === 'note'
+              ? "Your note was sent, but some of its files weren't attached."
+              : "Your reply was sent, but some of its files weren't attached.",
           ),
         )
       }
-      // The REST path reconciled the temp itself; drop the registry entry so the
-      // SSE echo's correlation match is a no-op (the real row is already in).
-      clearOptimisticCreate(clientId)
       highlightComment(newComment.id)
     } catch (err) {
-      logger.error('Error adding comment', { ticketId, error: err })
-      // The server's echo arrived, so the reply was created and its row now
-      // shows: it wasn't lost, and sending it again would post it twice.
-      const created = clearOptimisticCreate(clientId) != null
-      pool.remove('comment', tempId)
-      previews.forEach((url, i) => {
-        pool.remove('attachment', tempId - i - 1)
-        URL.revokeObjectURL(url)
-      })
-      if (!created) {
-        const toast = useToastStore()
-        // The bubble goes, so say why rather than letting the reply vanish.
-        if (
-          activeWorkspaceSlug() === workspace &&
-          useTicketDraftsStore().getScope() === draftScope
-        ) {
-          restoreUnsentReply(ticketId, {
-            content: data.content,
-            files,
-            isInternal: data.is_internal === true,
-            clientId,
-          })
-          toast.error(translate('ticket-comments-send-failed', undefined, "Your reply wasn't sent. Try again."))
-        } else {
-          toast.error(
-            translate(
-              'ticket-comments-send-failed-not-kept',
-              undefined,
-              "Your reply wasn't sent. It couldn't be kept because you switched workspace.",
-            ),
-          )
-        }
-      }
+      // The reply is saved; only showing it here went wrong. The sync stream
+      // brings the row, so it isn't treated as unsent.
+      logger.error('Error showing a sent comment', { ticketId, error: err })
     } finally {
-      replyFinished()
+      // Un-suppress the server's echo: with the row upserted above, or if that
+      // failed, so the echo stands in for it.
+      clearOptimisticCreate(clientId)
     }
   }
 

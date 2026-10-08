@@ -4467,11 +4467,23 @@ ticket-comments-filter-internal = Intern ({ $count })
 ticket-comments-badge-internal = Intern
 # Antwoord dat nog verzonden wordt of niet verzonden is (machine, na te kijken door moedertaalspreker).
 ticket-comments-sending = Verzenden…
-ticket-comments-send-failed = Je antwoord is niet verzonden. Probeer het opnieuw.
+ticket-comments-send-failed =
+    { $kind ->
+        [note] Je notitie is niet verzonden. Probeer het opnieuw.
+       *[reply] Je antwoord is niet verzonden. Probeer het opnieuw.
+    }
 # Antwoord verzonden zonder enkele bestanden (machine, na te kijken door moedertaalspreker).
-ticket-comments-attachments-missing = Je antwoord is verzonden, maar enkele bestanden zijn niet bijgevoegd.
+ticket-comments-attachments-missing =
+    { $kind ->
+        [note] Je notitie is verzonden, maar enkele bestanden zijn niet bijgevoegd.
+       *[reply] Je antwoord is verzonden, maar enkele bestanden zijn niet bijgevoegd.
+    }
 # Antwoord niet verzonden en niet bewaard na wisselen van werkruimte (machine, na te kijken door moedertaalspreker).
-ticket-comments-send-failed-not-kept = Je antwoord is niet verzonden. Het kon niet worden bewaard, omdat je van werkruimte bent gewisseld.
+ticket-comments-send-failed-not-kept =
+    { $kind ->
+        [note] Je notitie is niet verzonden. Ze kon niet worden bewaard, omdat je van werkruimte bent gewisseld.
+       *[reply] Je antwoord is niet verzonden. Het kon niet worden bewaard, omdat je van werkruimte bent gewisseld.
+    }
 ticket-comments-badge-forwarded = Doorgestuurd
 ticket-comments-badge-forwarded-title = Een agent heeft deze e-mail naar de helpdesk doorgestuurd
 ticket-comments-action-download = Downloaden
