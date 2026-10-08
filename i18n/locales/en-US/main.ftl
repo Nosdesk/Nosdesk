@@ -4521,9 +4521,21 @@ ticket-comments-filter-public = Public ({ $count })
 ticket-comments-filter-internal = Internal ({ $count })
 ticket-comments-badge-internal = Internal
 ticket-comments-sending = Sending…
-ticket-comments-send-failed = Your reply wasn't sent. Try again.
-ticket-comments-attachments-missing = Your reply was sent, but some of its files weren't attached.
-ticket-comments-send-failed-not-kept = Your reply wasn't sent. It couldn't be kept because you switched workspace.
+ticket-comments-send-failed =
+    { $kind ->
+        [note] Your note wasn't sent. Try again.
+       *[reply] Your reply wasn't sent. Try again.
+    }
+ticket-comments-attachments-missing =
+    { $kind ->
+        [note] Your note was sent, but some of its files weren't attached.
+       *[reply] Your reply was sent, but some of its files weren't attached.
+    }
+ticket-comments-send-failed-not-kept =
+    { $kind ->
+        [note] Your note wasn't sent. It couldn't be kept because you switched workspace.
+       *[reply] Your reply wasn't sent. It couldn't be kept because you switched workspace.
+    }
 ticket-comments-badge-forwarded = Forwarded
 ticket-comments-badge-forwarded-title = An agent forwarded this email into the helpdesk
 ticket-comments-action-download = Download

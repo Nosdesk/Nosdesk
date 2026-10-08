@@ -22,10 +22,16 @@ vi.mock('@nosdesk/core/services/ticketService', () => ({
 const post = vi.fn()
 vi.mock('@nosdesk/core/apiClient', () => ({ default: { post: (...args: unknown[]) => post(...args) } }))
 vi.mock('@nosdesk/core/services/projectService', () => ({ projectService: {} }))
-vi.mock('@/services/attachmentPreviewCache', () => ({ stashPreview: vi.fn() }))
-const toast = { error: vi.fn(), warning: vi.fn() }
+const stashPreview = vi.fn()
+vi.mock('@/services/attachmentPreviewCache', () => ({
+  stashPreview: (...args: unknown[]) => stashPreview(...args),
+}))
+const toast = { error: vi.fn(() => 'failure-toast'), warning: vi.fn(), removeToast: vi.fn() }
 vi.mock('@nosdesk/core/stores/toast', () => ({ useToastStore: () => toast }))
-vi.mock('@/i18n', () => ({ translate: (key: string) => key }))
+const translate = vi.fn((key: string, _args?: unknown, _fallback?: string) => key)
+vi.mock('@/i18n', () => ({
+  translate: (key: string, args?: unknown, fallback?: string) => translate(key, args, fallback),
+}))
 
 import { useTicketDetail } from '../ticketDetail'
 import { noteServerEcho } from '@/sync/optimisticCreates'
@@ -286,5 +292,96 @@ describe('a reply that lost files on the way', () => {
     })
 
     expect(toast.warning).toHaveBeenCalledWith('ticket-comments-attachments-missing')
+  })
+})
+
+// A failed reply goes back to the composer, so the next one sent from the
+// ticket carries it; the failure toast (errors stay until closed) goes then.
+describe('the failure toast', () => {
+  it('closes when the reply is sent again', async () => {
+    addCommentToTicket.mockRejectedValueOnce(new Error('network down'))
+    const detail = useTicketDetail(101)
+    await detail.addComment({ content: '<p>Here is the log</p>', user_uuid: 'agent-uuid', files: [] })
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    const draft = useTicketDraftsStore().getDraft(101)
+
+    addCommentToTicket.mockResolvedValueOnce({
+      id: 131,
+      ticket_id: 101,
+      user_uuid: 'agent-uuid',
+      content: draft.content,
+      created_at: '2026-10-08T01:00:00Z',
+      attachments: [],
+    })
+    await detail.addComment({
+      content: draft.content,
+      user_uuid: 'agent-uuid',
+      files: [],
+      client_id: resendClientId(draft, []),
+    })
+    expect(toast.removeToast).toHaveBeenCalledWith('failure-toast')
+  })
+
+  it('says note for an internal note', async () => {
+    addCommentToTicket.mockRejectedValueOnce(new Error('network down'))
+    const detail = useTicketDetail(101)
+    await detail.addComment({
+      content: '<p>Vendor says Tuesday</p>',
+      user_uuid: 'agent-uuid',
+      files: [],
+      is_internal: true,
+    })
+    expect(translate).toHaveBeenCalledWith(
+      'ticket-comments-send-failed',
+      { kind: 'note' },
+      "Your note wasn't sent. Try again.",
+    )
+  })
+})
+
+// The Sending bubble is the temp row; once the request is answered it goes,
+// whatever happens after.
+describe('a sent reply', () => {
+  const sent = {
+    id: 132,
+    ticket_id: 101,
+    user_uuid: 'agent-uuid',
+    content: '<p>Here is the log</p>',
+    created_at: '2026-10-08T01:00:00Z',
+    attachments: [{ id: 7, url: '/uploads/attach.txt', name: 'attach.txt' }],
+  }
+
+  it('leaves no Sending row and is not offered again when showing it fails', async () => {
+    const pool = await import('@nosdesk/core/sync/pool')
+    post.mockResolvedValueOnce({ data: [{ id: 7, url: '/uploads/temp/attach.txt', name: 'attach.txt' }] })
+    addCommentToTicket.mockResolvedValueOnce(sent)
+    stashPreview.mockImplementationOnce(() => {
+      throw new Error('preview cache full')
+    })
+    const detail = useTicketDetail(101)
+
+    await detail.addComment(reply())
+
+    const tempId = (pool.upsert as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([kind, id]) => kind === 'comment' && (id as number) < 0,
+    )![1]
+    expect(pool.remove).toHaveBeenCalledWith('comment', tempId)
+    expect(pool.remove).toHaveBeenCalledWith('attachment', (tempId as number) - 1)
+    expect(useTicketDraftsStore().getDraft(101).content).toBe('')
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(leavingAsks()).toBe(false)
+  })
+
+  it('leaves no Sending row when the send fails', async () => {
+    const pool = await import('@nosdesk/core/sync/pool')
+    addCommentToTicket.mockRejectedValueOnce(new Error('network down'))
+    const detail = useTicketDetail(101)
+
+    await detail.addComment({ ...reply(), files: [] })
+
+    const tempId = (pool.upsert as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([kind, id]) => kind === 'comment' && (id as number) < 0,
+    )![1]
+    expect(pool.remove).toHaveBeenCalledWith('comment', tempId)
   })
 })
