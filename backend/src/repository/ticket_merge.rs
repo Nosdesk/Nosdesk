@@ -540,7 +540,9 @@ fn move_watchers(
     target_id: i32,
     sources: &[i32],
 ) -> Result<usize, MergeError> {
-    use crate::repository::ticket_watchers::{add_watcher, set_notify_on_internal_notes};
+    use crate::repository::ticket_watchers::{
+        add_watcher_with_notify, set_notify_on_internal_notes,
+    };
     use crate::schema::ticket_watchers::dsl as w;
     let mut wanted: std::collections::BTreeMap<Uuid, bool> = std::collections::BTreeMap::new();
     let rows: Vec<(Uuid, bool)> = w::ticket_watchers
@@ -558,11 +560,18 @@ fn move_watchers(
         .collect();
     let mut added = 0usize;
     for (user, notify) in wanted {
-        if add_watcher(conn, target_id, user, true)? {
-            added += 1;
-        }
-        if notify && !current.get(&user).copied().unwrap_or(false) {
-            set_notify_on_internal_notes(conn, target_id, &user, true)?;
+        match current.get(&user) {
+            None => {
+                if add_watcher_with_notify(conn, target_id, user, true, notify)? {
+                    added += 1;
+                }
+            }
+            // Already watching: only a setting the sources widen changes.
+            Some(&on_target) => {
+                if notify && !on_target {
+                    set_notify_on_internal_notes(conn, target_id, &user, true)?;
+                }
+            }
         }
     }
     Ok(added)
@@ -1403,13 +1412,17 @@ mod tests {
             .unwrap();
         assert!(shared_notify, "OR of false|true must be true");
 
-        let only_src_on_dest: i64 = w::ticket_watchers
+        let only_src_on_dest: Vec<bool> = w::ticket_watchers
             .filter(w::ticket_id.eq(dest.id))
             .filter(w::user_uuid.eq(only_src.uuid))
-            .count()
-            .get_result(&mut conn)
+            .select(w::notify_on_internal_notes)
+            .load(&mut conn)
             .unwrap();
-        assert_eq!(only_src_on_dest, 1);
+        assert_eq!(
+            only_src_on_dest,
+            vec![false],
+            "added with their setting, off"
+        );
     }
 
     #[test]
@@ -1708,6 +1721,7 @@ mod tests {
         let mut conn = setup_test_connection();
         let user = TestFixtures::create_user(&mut conn, "merge_tags", "user");
         let watcher = TestFixtures::create_user(&mut conn, "merge_watcher", "user");
+        let newcomer = TestFixtures::create_user(&mut conn, "merge_newcomer", "user");
         let tag = crate::repository::tags::create_tag(
             &mut conn,
             crate::models::NewTag {
@@ -1726,7 +1740,11 @@ mod tests {
                 .execute(&mut conn)
                 .unwrap();
         }
+        // Watching both: off on the destination, on on the source.
+        add_watcher(&mut conn, dest.id, watcher.uuid, false);
         add_watcher(&mut conn, src.id, watcher.uuid, true);
+        // Watching only the source, with internal notes off.
+        add_watcher(&mut conn, src.id, newcomer.uuid, false);
 
         execute_merge(
             &mut conn,
@@ -1736,12 +1754,22 @@ mod tests {
         .unwrap();
 
         assert_eq!(count_sync(&mut conn, "ticket.tags_changed", dest.id), 1);
+        // The newcomer joins with their setting; the shared watcher's widens.
         assert_eq!(count_sync(&mut conn, "ticket.watcher_added", dest.id), 1);
         assert_eq!(
             count_sync(&mut conn, "ticket.watcher_pref_changed", dest.id),
-            1,
-            "the source's internal-notes setting comes with them"
+            1
         );
+        use crate::schema::ticket_watchers::dsl as w;
+        let mut on_dest: Vec<(Uuid, bool)> = w::ticket_watchers
+            .filter(w::ticket_id.eq(dest.id))
+            .select((w::user_uuid, w::notify_on_internal_notes))
+            .load(&mut conn)
+            .unwrap();
+        on_dest.sort();
+        let mut expected = vec![(watcher.uuid, true), (newcomer.uuid, false)];
+        expected.sort();
+        assert_eq!(on_dest, expected);
     }
 
     #[test]
@@ -1751,6 +1779,8 @@ mod tests {
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
         let other = TestFixtures::create_ticket(&mut conn, "Other", Some(user.uuid), None);
+        // An earlier merge's source: its one-way edge points at this source.
+        let earlier = TestFixtures::create_ticket(&mut conn, "Earlier", Some(user.uuid), None);
         {
             use crate::schema::linked_tickets as l;
             diesel::insert_into(l::table)
@@ -1764,6 +1794,11 @@ mod tests {
                         l::ticket_id.eq(other.id),
                         l::linked_ticket_id.eq(src.id),
                         l::relation_type.eq("related"),
+                    ),
+                    (
+                        l::ticket_id.eq(earlier.id),
+                        l::linked_ticket_id.eq(src.id),
+                        l::relation_type.eq("duplicate_of"),
                     ),
                 ])
                 .execute(&mut conn)
@@ -1798,6 +1833,20 @@ mod tests {
         assert_eq!(
             count_sync_key(&mut conn, "linked_ticket.added", &format!("{s}:{d}")),
             1
+        );
+        // The one-way edge moves one way, and only it is reported removed.
+        let e = earlier.id;
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.added", &format!("{e}:{d}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.removed", &format!("{e}:{s}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.removed", &format!("{s}:{e}")),
+            0
         );
     }
 

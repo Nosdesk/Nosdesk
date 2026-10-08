@@ -35,7 +35,8 @@ const OWNERS: &[(&str, &str)] = &[
 /// Writes outside the owner, by (file, table). `"*"` is a placeholder table.
 const ALLOWLIST: &[(&str, &str)] = &[
     // Creating a ticket in a project links it before the `ticket.created`
-    // emit, so that event's groups carry the project.
+    // emit, so that event's groups carry the project; deleting a ticket
+    // takes it off its projects with it.
     ("repository/tickets.rs", "project_tickets"),
     // Deleting a ticket deletes its links with it.
     ("repository/tickets.rs", "linked_tickets"),
@@ -52,19 +53,6 @@ const ALLOWLIST: &[(&str, &str)] = &[
 #[test]
 fn ticket_join_tables_are_written_by_their_owners() {
     let src_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
-    let placeholder_re =
-        Regex::new(r#"(?i)\b(insert\s+into|delete\s+from|update)\s+\\?"?\{"#).unwrap();
-    let table_res: Vec<(&str, &str, Regex)> = OWNERS
-        .iter()
-        .map(|&(table, owner)| {
-            let re = Regex::new(&format!(
-                r"(?i)(insert_into|update|delete)\s*\(\s*(crate::schema::)?{table}(::table|\.|\s*\))|(insert\s+into|update|delete\s+from)\s+(public\.)?{table}\b"
-            ))
-            .unwrap();
-            (table, owner, re)
-        })
-        .collect();
-
     let mut stray = Vec::new();
     for entry in WalkDir::new(&src_root)
         .into_iter()
@@ -80,22 +68,8 @@ fn ticket_join_tables_are_written_by_their_owners() {
         if relpath == "schema.rs" || relpath == "test_helpers.rs" {
             continue;
         }
-        let src = code_only(&fs::read_to_string(entry.path()).expect("read source"));
-        let allowed = |table: &str| ALLOWLIST.contains(&(relpath.as_str(), table));
-
-        for (table, owner, re) in &table_res {
-            if relpath == *owner || allowed(table) || allowed("*") {
-                continue;
-            }
-            for m in re.find_iter(&src) {
-                stray.push(format!("{relpath}: {table}: {}", m.as_str()));
-            }
-        }
-        if !allowed("*") {
-            for m in placeholder_re.find_iter(&src) {
-                stray.push(format!("{relpath}: unknown table: {}", m.as_str()));
-            }
-        }
+        let src = fs::read_to_string(entry.path()).expect("read source");
+        stray.extend(stray_writes(&relpath, &src));
     }
 
     assert!(
@@ -104,6 +78,76 @@ fn ticket_join_tables_are_written_by_their_owners() {
          functions, which emit, or add an ALLOWLIST entry with a reason:\n  {}",
         stray.join("\n  ")
     );
+}
+
+#[test]
+fn every_spelling_of_a_write_is_caught() {
+    let caught = |src: &str| stray_writes("repository/elsewhere.rs", src).len();
+    for write in [
+        "diesel::insert_into(crate::schema::ticket_watchers::table).values(&row)",
+        "diesel::delete(schema::ticket_watchers::table.filter(x))",
+        "diesel::insert_into(w::ticket_watchers).values(&row)",
+        "diesel::delete(ticket_watchers.filter(x))",
+        r#"sql_query("INSERT INTO ticket_watchers (ticket_id) VALUES ($1)")"#,
+        r#"format!("DELETE FROM {table} WHERE ticket_id = ANY($1)")"#,
+    ] {
+        assert_eq!(caught(write), 1, "{write}");
+    }
+    let aliased = "use crate::schema::project_tickets as p;\n\
+                   diesel::insert_into(p::table).values(&row)";
+    assert_eq!(caught(aliased), 1);
+    let dsl = "use crate::schema::cycle_tickets::dsl as c;\n\
+               diesel::update(c::cycle_tickets.filter(x))";
+    assert!(caught(dsl) >= 1);
+    // Reads and the owner's own writes are fine.
+    assert_eq!(caught("ticket_watchers::table.filter(x).load(conn)"), 0);
+    assert!(stray_writes(
+        "repository/ticket_watchers.rs",
+        "diesel::insert_into(ticket_watchers::table).values(&row)"
+    )
+    .is_empty());
+}
+
+/// Writes in `src` (from the file at `relpath` under `src/`) to a ticket join
+/// table it doesn't own and isn't allowed.
+fn stray_writes(relpath: &str, src: &str) -> Vec<String> {
+    let src = code_only(src);
+    let allowed = |table: &str| ALLOWLIST.contains(&(relpath, table));
+    let mut stray = Vec::new();
+    for &(table, owner) in OWNERS {
+        if relpath == owner || allowed(table) || allowed("*") {
+            continue;
+        }
+        // Any path to the table (`crate::schema::T::table`, `schema::T`, a
+        // dsl's `w::T`), or a raw statement naming it.
+        let direct = Regex::new(&format!(
+            r"(?i)(insert_into|update|delete)\s*\(\s*(\w+::)*{table}(::table|\.|\s*\))|(insert\s+into|update|delete\s+from)\s+(public\.)?{table}\b"
+        ))
+        .unwrap();
+        for m in direct.find_iter(&src) {
+            stray.push(format!("{relpath}: {table}: {}", m.as_str()));
+        }
+        // A module alias (`use crate::schema::T as p;`, `T::dsl as w`) names
+        // the table only at its `use`.
+        let alias = Regex::new(&format!(r"\b{table}(?:::dsl)?\s+as\s+(\w+)\b")).unwrap();
+        for name in alias.captures_iter(&src).map(|c| c[1].to_string()) {
+            let aliased = Regex::new(&format!(
+                r"(insert_into|update|delete)\s*\(\s*{name}::(table|{table})\b"
+            ))
+            .unwrap();
+            for m in aliased.find_iter(&src) {
+                stray.push(format!("{relpath}: {table} as {name}: {}", m.as_str()));
+            }
+        }
+    }
+    if !allowed("*") {
+        let placeholder =
+            Regex::new(r#"(?i)\b(insert\s+into|delete\s+from|update)\s+\\?"?\{"#).unwrap();
+        for m in placeholder.find_iter(&src) {
+            stray.push(format!("{relpath}: unknown table: {}", m.as_str()));
+        }
+    }
+    stray
 }
 
 /// The source without `#[cfg(test)]` modules, block comments or `//` comment
