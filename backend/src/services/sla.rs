@@ -762,20 +762,23 @@ pub fn pick_policy<'a>(
     ticket: &Ticket,
     assignee_group_ids: &[i32],
 ) -> Option<&'a SlaPolicy> {
-    let priority_str = match ticket.priority {
-        crate::models::TicketPriority::None => "none",
-        crate::models::TicketPriority::Low => "low",
-        crate::models::TicketPriority::Medium => "medium",
-        crate::models::TicketPriority::High => "high",
-        crate::models::TicketPriority::Urgent => "urgent",
-    };
     let mut best: Option<&SlaPolicy> = None;
     for policy in policies {
-        let priority_ok = policy
-            .priority_filter
-            .as_deref()
-            .map(|p| p == priority_str)
-            .unwrap_or(true);
+        // Saving checks the filter names a priority. One stored before that
+        // which names none matches no ticket, as it always did, and is logged.
+        let priority_ok = match policy.priority_filter.as_deref() {
+            None => true,
+            Some(filter) => match crate::models::TicketPriority::parse(filter) {
+                Some(wanted) => wanted == ticket.priority,
+                None => {
+                    tracing::debug!(
+                        policy_id = policy.id,
+                        "SLA policy's priority filter names no priority; it matches no ticket"
+                    );
+                    false
+                }
+            },
+        };
         let category_ok = policy
             .category_id_filter
             .map(|c| Some(c) == ticket.category_id)
@@ -1404,6 +1407,23 @@ mod tests {
         t.priority = crate::models::TicketPriority::High;
         let picked = pick_policy(&policies, &t, &[]).expect("a policy");
         assert_eq!(picked.id, 2);
+    }
+
+    /// A filter stored before saving checked it is read by the one parser: a
+    /// legacy name matches the priority it means, and one naming no priority
+    /// matches no ticket.
+    #[test]
+    fn pick_policy_reads_a_stored_priority_filter_leniently() {
+        let mut legacy = policy(2, None, false);
+        legacy.priority_filter = Some("normal".into());
+        let mut stray = policy(3, None, false);
+        stray.priority_filter = Some("critical".into());
+        let policies = vec![policy(1, None, true), legacy, stray];
+        let mut t = ticket(None);
+        t.priority = crate::models::TicketPriority::Medium;
+        assert_eq!(pick_policy(&policies, &t, &[]).expect("a policy").id, 2);
+        t.priority = crate::models::TicketPriority::Urgent;
+        assert_eq!(pick_policy(&policies, &t, &[]).expect("a policy").id, 1);
     }
 
     #[test]

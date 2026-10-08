@@ -1162,7 +1162,7 @@ fn validate_step_config(kind: &str, config: &Value) -> Result<(), &'static str> 
         }
         "set_priority" => {
             let priority = config.get("priority").and_then(Value::as_str).unwrap_or("");
-            if !["none", "low", "normal", "medium", "high", "urgent"].contains(&priority) {
+            if crate::models::TicketPriority::parse(priority).is_none() {
                 return Err("pick a priority");
             }
         }

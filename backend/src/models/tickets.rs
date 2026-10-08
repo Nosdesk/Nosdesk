@@ -74,6 +74,38 @@ pub enum TicketPriority {
 }
 
 impl TicketPriority {
+    /// Every priority, least severe first.
+    pub const ALL: [TicketPriority; 5] = [
+        TicketPriority::None,
+        TicketPriority::Low,
+        TicketPriority::Medium,
+        TicketPriority::High,
+        TicketPriority::Urgent,
+    ];
+
+    /// Severity, 0 (none) to 4 (urgent). Sort by this, not by the database
+    /// enum, whose order puts urgent below high.
+    pub fn rank(self) -> i32 {
+        match self {
+            TicketPriority::None => 0,
+            TicketPriority::Low => 1,
+            TicketPriority::Medium => 2,
+            TicketPriority::High => 3,
+            TicketPriority::Urgent => 4,
+        }
+    }
+
+    /// The priority a piece of text names, ignoring case and surrounding
+    /// space, with the legacy "normal" read as medium. `None` for anything
+    /// else; each caller decides what an unknown value means for it.
+    pub fn parse(text: &str) -> Option<TicketPriority> {
+        let text = text.trim().to_ascii_lowercase();
+        if text == "normal" {
+            return Some(TicketPriority::Medium);
+        }
+        TicketPriority::ALL.into_iter().find(|p| p.as_str() == text)
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             TicketPriority::None => "none",
@@ -864,6 +896,35 @@ pub struct CompleteTicketResponse {
 }
 
 impl CompleteTicketResponse {}
+
+#[cfg(test)]
+mod priority_tests {
+    use super::TicketPriority;
+
+    #[test]
+    fn priorities_rank_by_severity() {
+        let ranks: Vec<i32> = TicketPriority::ALL.iter().map(|p| p.rank()).collect();
+        assert_eq!(ranks, [0, 1, 2, 3, 4]);
+        assert!(TicketPriority::Urgent.rank() > TicketPriority::High.rank());
+    }
+
+    #[test]
+    fn one_parser_reads_every_spelling() {
+        for p in TicketPriority::ALL {
+            assert_eq!(TicketPriority::parse(p.as_str()), Some(p));
+        }
+        assert_eq!(
+            TicketPriority::parse(" Urgent "),
+            Some(TicketPriority::Urgent)
+        );
+        assert_eq!(
+            TicketPriority::parse("normal"),
+            Some(TicketPriority::Medium)
+        );
+        assert_eq!(TicketPriority::parse("critical"), None);
+        assert_eq!(TicketPriority::parse(""), None);
+    }
+}
 
 #[cfg(test)]
 mod new_ticket_write_tests {

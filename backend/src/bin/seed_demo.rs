@@ -922,13 +922,7 @@ fn backdate_cycle_membership(
 }
 
 fn parse_priority(s: &str) -> TicketPriority {
-    match s {
-        "none" => TicketPriority::None,
-        "low" => TicketPriority::Low,
-        "high" => TicketPriority::High,
-        "urgent" => TicketPriority::Urgent,
-        _ => TicketPriority::Medium,
-    }
+    TicketPriority::parse(s).unwrap_or_default()
 }
 
 fn parse_state_category(s: &str) -> WorkflowStateCategory {
