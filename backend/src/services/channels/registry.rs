@@ -400,6 +400,8 @@ pub async fn run_one_poll(
     // batch and explicitly reset before returning it to the pool.
     let actor = crate::sync::actor::ActorContext::system("channels:inbound")
         .with_workspace(channel.workspace_id);
+    // elevated-in-workspace: the poll loop holds this connection across awaits, so it pins and
+    // elevates the session for one workspace's writes, and resets it before release.
     if let Err(e) = crate::sync::session::elevate_session_role(&mut conn, &actor) {
         warn!(channel = channel.id, error = %e, "failed to elevate session for poll loop");
         return PollOutcome::Transient;

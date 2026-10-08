@@ -126,6 +126,7 @@ pub async fn start_export(
         // the zip is plaintext and sensitive fields are stripped.
         let _ = include_sensitive;
         let bypass_actor = crate::sync::actor::ActorContext::system("background:backup_export");
+        // cross-tenant: a full backup reads every workspace's rows.
         let result =
             crate::sync::session::with_actor_bypass_context(&mut conn, &bypass_actor, |conn| {
                 backup_service::create_backup(conn, job_id, password.as_deref()).map_err(|e| {
@@ -145,6 +146,8 @@ pub async fn start_export(
                 log::error!("Backup failed: {e}");
                 // Update job with error, also under bypass so the
                 // backup_jobs UPDATE passes the policy WITH CHECK.
+                // cross-tenant: records the failed instance-wide backup on its job row, outside any
+                // workspace.
                 let _ = crate::sync::session::with_actor_bypass_context(
                     &mut conn,
                     &bypass_actor,

@@ -320,6 +320,8 @@ pub(crate) fn authorize_located<L, T>(
     })?;
 
     let lookup_actor = ActorContext::system("file_access");
+    // cross-tenant: finds which workspace owns the file before any is known; the access check below
+    // runs pinned to it.
     let (workspace_id, located) = session::with_actor_bypass_context(
         &mut conn,
         &lookup_actor,

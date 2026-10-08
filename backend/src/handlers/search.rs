@@ -311,6 +311,8 @@ pub async fn search(
                     let bypass_actor =
                         crate::sync::actor::ActorContext::system("background:search_query_log")
                             .with_workspace(workspace_id);
+                    // elevated-in-workspace: a spawned task writes the request workspace's search
+                    // log row; the actor pins that workspace.
                     let result = crate::sync::session::with_actor_bypass_context(
                         &mut conn,
                         &bypass_actor,

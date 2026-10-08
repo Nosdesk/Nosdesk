@@ -98,6 +98,8 @@ pub fn try_bearer_auth(
     let token_hash = hash_token(&token);
     let bypass_actor = ActorContext::system("middleware:api_token");
 
+    // cross-tenant: looks the bearer token up before any workspace is pinned, so a token from
+    // another workspace gets the same 401 as an unknown one.
     let lookup_result = session::with_actor_bypass_context(&mut conn, &bypass_actor, |conn| {
         let api_token = get_valid_api_token(conn, &token_hash)?;
         // Active-only — soft-deleted users can't authenticate via

@@ -121,6 +121,7 @@ pub fn target_is_externally_managed_staff(
     if !crate::middleware::workspace_context::is_hosted() {
         return false;
     }
+    // cross-tenant: whether the target holds a staff seat in any workspace.
     crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(conn, actor, |c| {
         repository::workspaces::user_is_staff_anywhere(c, target_uuid)
     })
@@ -259,6 +260,7 @@ fn target_action_decision(
     if require_sole_workspace {
         // Fail closed: a failed cross-workspace count denies recovery rather
         // than falling through to allow.
+        // cross-tenant: counts the target's memberships in every workspace.
         let count = crate::sync::session::with_actor_bypass_context(conn, actor, |c| {
             Ok::<usize, diesel::result::Error>(
                 repository::workspaces::list_memberships_for_user(c, target_uuid)?.len(),

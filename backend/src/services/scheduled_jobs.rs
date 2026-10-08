@@ -811,6 +811,7 @@ pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) ->
     let mut purged = 0usize;
     let mut failed = 0usize;
     for user in pending {
+        // cross-tenant: purging a user reaches every workspace they belong to.
         let result = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
             &mut conn,
             &actor,
@@ -873,6 +874,7 @@ pub async fn purge_archived_workspaces(pool: Pool) -> Result<()> {
     let mut purged = 0usize;
     let mut failed = 0usize;
     for ws in pending {
+        // cross-tenant: a workspace hard delete cascades through every tenant table.
         let result = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
             &mut conn,
             &actor,
@@ -1076,6 +1078,7 @@ fn scan_breach_candidates(
 
     let actor = ActorContext::system(SLA_BREACH_ACTOR_REF);
     let now = chrono::Utc::now().naive_utc();
+    // cross-tenant: the SLA breach scan covers every workspace's tickets.
     let candidates = with_actor_bypass_context::<_, diesel::result::Error>(conn, &actor, |conn| {
         // Order by the target time so the most-overdue breaches fire first,
         // fairly across tenants (an unordered LIMIT let one workspace's large
@@ -1459,6 +1462,7 @@ pub async fn loan_due_reminders(
     // Cross-workspace scan under BYPASSRLS.
     let mut conn = pool.get().context("db pool")?;
     let actor = crate::sync::actor::ActorContext::system("scheduler:loan_reminders");
+    // cross-tenant: loan reminders are found across every workspace.
     let (overdue, due_soon) = crate::sync::session::with_actor_bypass_context::<
         _,
         diesel::result::Error,
@@ -1704,6 +1708,7 @@ pub async fn guest_residue_sweep(pool: &Pool, search: Option<&Arc<SearchService>
     let mut conn = pool.get().context("db pool")?;
     let actor = crate::sync::actor::ActorContext::system("scheduler:guest_residue_purge");
     for uuid in accounts {
+        // cross-tenant: purges never-confirmed guest accounts, which span workspaces.
         match crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
             &mut conn,
             &actor,

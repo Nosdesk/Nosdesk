@@ -1456,6 +1456,7 @@ pub async fn purge_user_now(
     // FK violation. with_actor_bypass_context (nosdesk_admin,
     // BYPASSRLS) is the correct shape — same as the scheduler-
     // driven purge_soft_deleted_users path.
+    // cross-tenant: purging a user reaches every workspace they belong to.
     let result = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
         &mut conn,
         &actor,
