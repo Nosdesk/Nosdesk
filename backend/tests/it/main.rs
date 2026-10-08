@@ -85,6 +85,7 @@ mod notification_digest;
 mod notification_inbox_filters;
 mod notification_outbox;
 mod notification_workspace_scope;
+mod partition_prune;
 mod people_removed_under_1_0;
 mod plugin_bundle_isolation;
 mod plugin_collection_row_scoping;

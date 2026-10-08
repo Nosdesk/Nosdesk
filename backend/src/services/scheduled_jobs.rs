@@ -40,10 +40,9 @@ const KNOWLEDGE_GAP_DETECT_LOCK: i64 = 0x004e_6f73_4b47_4450;
 const APPROVAL_TIMEOUT_LOCK: i64 = 0x004e_6f73_4150_544f;
 const GUEST_RESIDUE_LOCK: i64 = 0x004e_6f73_4752_4553;
 const EMAIL_LOGO_COPIES_LOCK: i64 = 0x004e_6f73_454d_4c47;
-// Partition drops (DETACH CONCURRENTLY + DROP) can't run in a transaction,
-// so they can't use the provisioner's transaction-scoped lock; a session
-// try-lock skips the tick when a peer machine is already pruning. Per-parent
-// keys so audit_log and sync_actions prune independently.
+// Partition drops take a session try-lock that skips the tick when a peer
+// machine is already pruning. Per-parent keys so audit_log and sync_actions
+// prune independently.
 const AUDIT_LOG_PARTITION_PRUNE_LOCK: i64 = 0x004e_6f73_414c_4450;
 const SYNC_ACTIONS_PARTITION_PRUNE_LOCK: i64 = 0x004e_6f73_5341_4450;
 
@@ -643,9 +642,9 @@ pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
     Ok(())
 }
 
-/// Drop monthly partitions of `audit_log` whose upper bound is older than
-/// the retention window. Lock-friendly via DETACH CONCURRENTLY +
-/// DROP TABLE — see `sync::partitions::drop_partitions_older_than`.
+/// Drop monthly partitions of `audit_log` that lie entirely before the
+/// retention window, each in a short `DROP TABLE` under a lock timeout; see
+/// `sync::partitions::drop_partitions_older_than`.
 ///
 /// Retention defaults to 540 days (~18 months) — long enough for typical
 /// "what happened a year ago?" investigations, bounded enough that a
@@ -663,12 +662,26 @@ pub async fn prune_audit_log_partitions(pool: Pool) -> Result<()> {
     .await
 }
 
-/// Drop monthly partitions of `sync_actions` whose upper bound is older
-/// than the retention window. sync_actions are change events for client
-/// cache hydration; a 90-day window is generous since clients re-bootstrap
-/// from snapshots when they lag. Override via `SYNC_ACTIONS_RETENTION_DAYS`.
+/// Drop monthly partitions of `sync_actions` that lie entirely before the
+/// retention window. `sync_actions` is the ticket activity history, so it is
+/// kept unless `SYNC_ACTIONS_RETENTION_DAYS` is set.
 pub async fn prune_sync_actions_partitions(pool: Pool) -> Result<()> {
-    let days = retention_days("SYNC_ACTIONS_RETENTION_DAYS", 90);
+    prune_sync_actions_partitions_older_than(
+        pool,
+        optional_retention_days("SYNC_ACTIONS_RETENTION_DAYS"),
+    )
+    .await
+}
+
+/// [`prune_sync_actions_partitions`] with the retention given: `None` keeps
+/// every partition.
+pub async fn prune_sync_actions_partitions_older_than(
+    pool: Pool,
+    retention_days: Option<i32>,
+) -> Result<()> {
+    let Some(days) = retention_days else {
+        return Ok(());
+    };
     drop_old_event_partitions(
         pool,
         "sync_actions",
@@ -677,6 +690,18 @@ pub async fn prune_sync_actions_partitions(pool: Pool) -> Result<()> {
         days as i64,
     )
     .await
+}
+
+/// A positive day-count from `env_var`, or `None` when it's unset. A value
+/// that doesn't parse or isn't positive is also `None`, with a warning: for a
+/// retention that is off by default, ignoring a bad value keeps the data.
+fn optional_retention_days(env_var: &str) -> Option<i32> {
+    let raw = std::env::var(env_var).ok()?;
+    let days = raw.trim().parse::<i32>().ok().filter(|d| *d > 0);
+    if days.is_none() {
+        warn!("scheduler: {env_var} isn't a positive number of days; ignoring it");
+    }
+    days
 }
 
 /// Read a positive day-count from `env_var`, falling back to `default`.
@@ -699,10 +724,8 @@ async fn drop_old_event_partitions(
     lock_name: &'static str,
     retention_days: i64,
 ) -> Result<()> {
-    // Single-machine guard: DETACH CONCURRENTLY + DROP can't share the
-    // provisioner's transaction-scoped lock, and two machines dropping the
-    // same partition race, so skip the tick when a peer is already pruning
-    // this parent.
+    // Single-machine guard: two machines dropping the same partition race,
+    // so skip the tick when a peer is already pruning this parent.
     let _lock = match try_job_lock(&pool, lock_key, lock_name)? {
         Some(lock) => lock,
         None => {
@@ -710,15 +733,15 @@ async fn drop_old_event_partitions(
             return Ok(());
         }
     };
-    // DETACH / DROP PARTITION need ownership of the parent, same as the
-    // provisioning DDL; run over the privileged role when configured.
+    // Dropping a partition needs ownership of it, same as the provisioning
+    // DDL; run over the privileged role when configured.
     let mut conn = ddl_conn(&pool)?;
     let cutoff = chrono::Utc::now().date_naive() - chrono::Duration::days(retention_days);
     let dropped = crate::sync::partitions::drop_partitions_older_than(&mut conn, parent, cutoff)
         .with_context(|| format!("drop {parent} partitions older than {cutoff}"))?;
     if !dropped.is_empty() {
         info!(
-            parent = parent,
+            partitioned_table = parent,
             cutoff = %cutoff,
             count = dropped.len(),
             partitions = ?dropped,

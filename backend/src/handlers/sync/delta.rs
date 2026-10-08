@@ -79,9 +79,9 @@ pub struct DeltaResponse {
     /// delta cannot reconstruct current state and the client must wipe its
     /// cache and re-bootstrap.
     ///
-    /// `sync_actions` is pruned by dropping whole monthly partitions
-    /// (`SYNC_ACTIONS_RETENTION_DAYS`, default 90). A client offline past that
-    /// horizon has a cursor pointing into dropped partitions: the deletes it
+    /// `sync_actions` can be pruned by dropping whole monthly partitions
+    /// (only when `SYNC_ACTIONS_RETENTION_DAYS` is set). A client offline past
+    /// that horizon has a cursor pointing into dropped partitions: the deletes it
     /// missed are gone, and a bootstrap alone cannot remove them because the
     /// bootstrap stream only upserts. Without this flag the client believes it
     /// caught up and keeps phantom rows indefinitely.

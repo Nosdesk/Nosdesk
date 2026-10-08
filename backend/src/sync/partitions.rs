@@ -316,8 +316,8 @@ pub fn ensure_partitions(
 /// is `<=` `cutoff`. The default partition is deliberately excluded — it
 /// has no range bound, and dropping it would close W6b's parachute.
 ///
-/// This is split from `drop_partitions_older_than` so it can be exercised
-/// from inside a test transaction (the actual DETACH CONCURRENTLY can't be).
+/// Split from `drop_partitions_older_than` so the selection can be tested
+/// on its own.
 pub fn partitions_eligible_for_drop(
     conn: &mut DbConnection,
     parent: &str,
@@ -335,20 +335,27 @@ pub fn partitions_eligible_for_drop(
 
     // pg_get_expr renders the partition bound expression as
     // `FOR VALUES FROM ('<ts>') TO ('<ts>')` for our RANGE partitions; we
-    // parse the upper bound below.
-    let rows: Vec<PartitionInfo> = diesel::sql_query(
-        "SELECT
-             c.relname AS child_name,
-             pg_get_expr(c.relpartbound, c.oid) AS range_expr
-         FROM pg_inherits i
-         JOIN pg_class c ON c.oid = i.inhrelid
-         JOIN pg_class p ON p.oid = i.inhparent
-         WHERE p.relname = $1
-         AND c.relname <> $2",
-    )
-    .bind::<Text, _>(parent)
-    .bind::<Text, _>(format!("{parent}_default"))
-    .load(conn)?;
+    // parse the upper bound below. It prints a timestamptz bound in the
+    // session's time zone, so read it in UTC: on a negative offset the
+    // bound `2026-06-01 00:00+00` prints as `2026-05-31 ...`, a day early.
+    // Oldest first, so a run that stops partway has dropped the oldest.
+    let rows: Vec<PartitionInfo> = conn.transaction(|conn| {
+        diesel::sql_query("SET LOCAL TimeZone = 'UTC'").execute(conn)?;
+        diesel::sql_query(
+            "SELECT
+                 c.relname AS child_name,
+                 pg_get_expr(c.relpartbound, c.oid) AS range_expr
+             FROM pg_inherits i
+             JOIN pg_class c ON c.oid = i.inhrelid
+             JOIN pg_class p ON p.oid = i.inhparent
+             WHERE p.relname = $1
+             AND c.relname <> $2
+             ORDER BY c.relname",
+        )
+        .bind::<Text, _>(parent)
+        .bind::<Text, _>(format!("{parent}_default"))
+        .load(conn)
+    })?;
 
     let mut eligible = Vec::new();
     for row in rows {
@@ -367,19 +374,23 @@ pub fn partitions_eligible_for_drop(
     Ok(eligible)
 }
 
-/// Drop range partitions of `parent` whose upper bound is `<=` `cutoff`.
+/// How long dropping a partition waits for its lock on the parent before
+/// giving up until the next run.
+const DROP_LOCK_TIMEOUT: &str = "5s";
+
+/// Drop the range partitions of `parent` that lie entirely before `cutoff`
+/// (upper bound `<=` `cutoff`). The default partition is never a candidate.
 ///
-/// Uses DETACH PARTITION CONCURRENTLY (PG14+) so the parent's lock window
-/// stays at SHARE UPDATE EXCLUSIVE — concurrent reads/writes on the parent
-/// keep flowing. The plain ATTACH dual was W6a's lock-friendly partner.
+/// Each one goes in its own short transaction with `DROP TABLE`, which
+/// detaches it as it drops it. DETACH ... CONCURRENTLY would hold the parent
+/// at SHARE UPDATE EXCLUSIVE, but Postgres refuses it while the parent has a
+/// default partition, and `sync_actions` and `audit_log` both have one.
+/// `DROP TABLE` takes ACCESS EXCLUSIVE on the parent for the moment the
+/// catalog changes; `lock_timeout` bounds how long it waits for that lock, and
+/// so how long new queries queue behind it, and a timeout fails the run for
+/// the scheduler to retry.
 ///
-/// CONCURRENTLY can't run inside a BEGIN block (Postgres rejects with a
-/// hard error); this helper assumes the caller is operating in autocommit
-/// (Diesel's default for raw sql_query outside `conn.transaction(...)`).
-/// The detach + drop sequence is emitted as two separate statements, with
-/// no surrounding transaction.
-///
-/// Returns the names of partitions that were detached + dropped.
+/// Returns the names of partitions that were dropped.
 pub fn drop_partitions_older_than(
     conn: &mut DbConnection,
     parent: &str,
@@ -388,10 +399,23 @@ pub fn drop_partitions_older_than(
     let eligible = partitions_eligible_for_drop(conn, parent, cutoff)?;
     let mut dropped = Vec::new();
     for child in eligible {
-        let detach = format!("ALTER TABLE {parent} DETACH PARTITION {child} CONCURRENTLY");
-        diesel::sql_query(&detach).execute(conn)?;
-        let drop = format!("DROP TABLE {child}");
-        diesel::sql_query(&drop).execute(conn)?;
+        let result = conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            diesel::sql_query(format!("SET LOCAL lock_timeout = '{DROP_LOCK_TIMEOUT}'"))
+                .execute(conn)?;
+            diesel::sql_query(format!("DROP TABLE {child}")).execute(conn)?;
+            Ok(())
+        });
+        if let Err(e) = result {
+            // The caller only sees the error; say what this run did drop.
+            if !dropped.is_empty() {
+                warn!(
+                    partitioned_table = parent,
+                    partitions = ?dropped,
+                    "dropped expired partitions before a failure"
+                );
+            }
+            return Err(e);
+        }
         dropped.push(child);
     }
     Ok(dropped)
@@ -649,12 +673,8 @@ mod tests {
     }
 
     /// The candidate query picks up partitions whose upper bound is past
-    /// the cutoff, and never the default partition. Driven through the
-    /// candidate-only path because the actual DETACH CONCURRENTLY in
-    /// `drop_partitions_older_than` cannot run inside a transaction block
-    /// (Postgres rejects), and our test runner wraps every connection in
-    /// one. The full DDL path is exercised in production at runtime; we
-    /// rely on Postgres' own well-tested DETACH semantics for the rest.
+    /// the cutoff, and never the default partition. The drop itself is
+    /// covered through the scheduled job in `tests/it/partition_prune.rs`.
     #[test]
     fn partitions_eligible_for_drop_finds_old_ranges_and_skips_default() {
         let (_guard, mut conn) = provisioning_conn();
