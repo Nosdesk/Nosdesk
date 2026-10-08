@@ -773,11 +773,10 @@ pub struct EmailConfig {
     pub from_name: String,
     pub from_email: String,
     pub enabled: bool,
-    /// Connection security. Defaults to [`SmtpSecurity::StartTls`] —
-    /// the production path. [`SmtpSecurity::Plaintext`] exists for local
-    /// integration tests against Greenmail (port 3025 is plaintext).
-    /// NEVER set to `None` in production; credentials ride the wire
-    /// in the clear.
+    /// Connection security. Defaults to [`SmtpSecurity::StartTls`].
+    /// [`SmtpSecurity::Plaintext`] sends unencrypted: for a relay on a
+    /// trusted local network that offers no STARTTLS, or a local test
+    /// server, and never across the internet. It never signs in.
     pub security: SmtpSecurity,
 }
 
@@ -791,10 +790,10 @@ pub enum SmtpSecurity {
     /// STARTTLS upgrade on port 587 (`starttls_relay()`). Default for
     /// all env-loaded configs.
     StartTls,
-    /// No TLS. Intended only for local test servers (Greenmail, Mailpit).
-    /// Named `Plaintext` rather than `None` so the variant is impossible
-    /// to mistake for "I don't care"; production configs that land on
-    /// this value are bugs.
+    /// No TLS. Only for a relay on a trusted local network that offers no
+    /// STARTTLS, or a local test server (Greenmail, Mailpit); never across
+    /// the internet. Named `Plaintext` rather than `None` so the variant is
+    /// impossible to mistake for "I don't care".
     Plaintext,
 }
 
@@ -860,8 +859,16 @@ pub fn check_port_security(port: u16, security: SmtpSecurity) -> SmtpCoherence {
 impl EmailConfig {
     /// Load email configuration from environment variables
     pub fn from_env() -> Result<Self, String> {
-        let enabled = env::var("SMTP_ENABLED")
-            .unwrap_or_else(|_| "false".to_string())
+        Self::from_lookup(|name| env::var(name).ok())
+    }
+
+    /// [`Self::from_env`] over any source of variables, so tests don't touch
+    /// the process environment. A variable set to an empty value counts as
+    /// unset, as a compose file's `SMTP_USERNAME=` leaves it.
+    fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let var = |name: &str| lookup(name).filter(|v| !v.trim().is_empty());
+        let enabled = var("SMTP_ENABLED")
+            .unwrap_or_else(|| "false".to_string())
             .parse::<bool>()
             .unwrap_or(false);
 
@@ -879,34 +886,48 @@ impl EmailConfig {
             });
         }
 
-        let smtp_host =
-            env::var("SMTP_HOST").map_err(|_| "SMTP_HOST not configured".to_string())?;
+        let smtp_host = var("SMTP_HOST").ok_or_else(|| "SMTP_HOST not configured".to_string())?;
 
-        let smtp_port = env::var("SMTP_PORT")
-            .unwrap_or_else(|_| "587".to_string())
+        let smtp_port = var("SMTP_PORT")
+            .unwrap_or_else(|| "587".to_string())
             .parse::<u16>()
             .map_err(|_| "Invalid SMTP_PORT".to_string())?;
 
-        let smtp_username =
-            env::var("SMTP_USERNAME").map_err(|_| "SMTP_USERNAME not configured".to_string())?;
+        // Credentials come as a pair: both to sign in to the relay, neither for
+        // a relay that authorises this server by its address.
+        let (smtp_username, smtp_password) = match (var("SMTP_USERNAME"), var("SMTP_PASSWORD")) {
+            (Some(username), Some(password)) => (username, password),
+            (None, None) => (String::new(), String::new()),
+            (Some(_), None) => {
+                return Err(
+                    "SMTP_USERNAME is set but SMTP_PASSWORD isn't: set both to sign in \
+                     to the relay, or neither to send without signing in"
+                        .to_string(),
+                )
+            }
+            (None, Some(_)) => {
+                return Err(
+                    "SMTP_PASSWORD is set but SMTP_USERNAME isn't: set both to sign in \
+                     to the relay, or neither to send without signing in"
+                        .to_string(),
+                )
+            }
+        };
 
-        let smtp_password =
-            env::var("SMTP_PASSWORD").map_err(|_| "SMTP_PASSWORD not configured".to_string())?;
+        let from_name = var("SMTP_FROM_NAME").unwrap_or_else(|| "Nosdesk".to_string());
 
-        let from_name = env::var("SMTP_FROM_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
+        // The username stands in for the From address only when it is one: an
+        // API-key login ("apikey") is no address to send from.
+        let from_email = var("SMTP_FROM_EMAIL")
+            .or_else(|| Some(smtp_username.clone()).filter(|u| u.contains('@')))
+            .ok_or_else(|| {
+                "SMTP_FROM_EMAIL not configured: set the address mail is sent from".to_string()
+            })?;
 
-        let from_email = env::var("SMTP_FROM_EMAIL")
-            .or_else(|_| env::var("SMTP_USERNAME"))
-            .map_err(|_| "SMTP_FROM_EMAIL not configured".to_string())?;
-
-        // Optional explicit security selector. Defaults to StartTLS
-        // for backward compatibility — every legitimate production
-        // SMTP relay supports it. `plaintext` exists for local
-        // testing against Mailpit / Greenmail; never set this in
-        // production, the doc on `SmtpSecurity::Plaintext` flags it
-        // as a misconfiguration.
-        let security = match env::var("SMTP_SECURITY")
-            .ok()
+        // Optional explicit security selector. Defaults to StartTLS for
+        // backward compatibility. `plaintext` is for a relay on a trusted
+        // local network that offers no STARTTLS, or a local test server.
+        let security = match var("SMTP_SECURITY")
             .as_deref()
             .map(|s| s.trim().to_ascii_lowercase())
             .as_deref()
@@ -930,10 +951,19 @@ impl EmailConfig {
                     "SMTP_PORT {smtp_port} / SMTP_SECURITY mismatch: {msg}"
                 ));
             }
+            // Port 25 is where a relay that takes this server by its address
+            // listens; the advice to submit on 587 or 465 is for a relay we
+            // sign in to.
+            SmtpCoherence::Warn(_) if smtp_port == 25 && smtp_username.is_empty() => {}
             SmtpCoherence::Warn(msg) => {
                 tracing::warn!(port = smtp_port, "SMTP config warning: {msg}");
             }
             SmtpCoherence::Ok => {}
+        }
+        if security == SmtpSecurity::Plaintext && !smtp_username.is_empty() {
+            tracing::warn!(
+                "SMTP_USERNAME and SMTP_PASSWORD are ignored: a plaintext connection never signs in"
+            );
         }
 
         Ok(Self {
@@ -955,10 +985,20 @@ impl EmailConfig {
             .map_err(|e| format!("Invalid from address: {e}"))
     }
 
-    /// Check if email is properly configured
+    /// Whether this can send: turned on, with a host and a From address.
+    /// Credentials are optional, since a relay may authorise this server by
+    /// its address.
     pub fn is_configured(&self) -> bool {
-        self.enabled
-            && !self.smtp_host.is_empty()
+        self.enabled && !self.smtp_host.trim().is_empty() && !self.from_email.trim().is_empty()
+    }
+
+    /// Whether a send signs in to the relay (SMTP AUTH): only with
+    /// credentials, over a connection that can carry them. lettre refuses
+    /// PLAIN/LOGIN over an unencrypted link, so a plaintext connection never
+    /// signs in, and a relay without credentials (one that accepts this server
+    /// by its address) isn't asked to.
+    pub fn signs_in(&self) -> bool {
+        self.security != SmtpSecurity::Plaintext
             && !self.smtp_username.is_empty()
             && !self.smtp_password.is_empty()
     }
@@ -1001,17 +1041,7 @@ fn build_smtp_mailer_for(
         None => builder,
     };
 
-    // Only authenticate when the connection can actually carry credentials.
-    // lettre refuses PLAIN/LOGIN over an unencrypted link, and attaching
-    // credentials to a server that offers no AUTH (the dev Mailpit sidecar,
-    // where SMTP_SECURITY=plaintext but the .env username/password are still
-    // present) makes the send fail with "No compatible authentication
-    // mechanism was found". Plaintext is local-test only, so skip auth there;
-    // also skip when no credentials are configured (open / IP-allowlisted relay).
-    let authenticate = config.security != SmtpSecurity::Plaintext
-        && !config.smtp_username.is_empty()
-        && !config.smtp_password.is_empty();
-    let builder = if authenticate {
+    let builder = if config.signs_in() {
         builder.credentials(Credentials::new(
             config.smtp_username.clone(),
             config.smtp_password.clone(),
@@ -1335,9 +1365,9 @@ impl SmtpEmailTransport {
         }
     }
 
-    /// Whether this transport can send. A workspace's own relay may send
-    /// without credentials (an IP-allowlisted relay), so it needs only a host;
-    /// the operator's env relay keeps requiring credentials, unchanged.
+    /// Whether this transport can send. Neither relay needs credentials (an
+    /// IP-allowlisted relay takes none). A workspace's own relay needs only a
+    /// host; the operator's env relay also needs a From address.
     fn can_send(&self) -> bool {
         if self.untrusted_host {
             self.config.enabled && !self.config.smtp_host.trim().is_empty()
@@ -1504,8 +1534,8 @@ impl EmailService {
         Ok(Self::new(config))
     }
 
-    /// True when the active transport can send (SMTP credentials present).
-    /// Delegates to the transport rather than the raw SMTP-centric
+    /// True when the active transport can send (on, with a host and a From
+    /// address; credentials are optional). Delegates to the transport rather than the raw SMTP-centric
     /// `EmailConfig::is_configured`.
     pub fn is_configured(&self) -> bool {
         self.transport.is_configured()
@@ -3048,8 +3078,161 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         );
     }
 
+    /// A variable source for `EmailConfig::from_lookup`.
+    fn smtp_vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let map: std::collections::HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |name| map.get(name).cloned()
+    }
+
+    /// A one-message SMTP server on an ephemeral port. It advertises AUTH, as
+    /// a relay that also takes submissions would, and returns every command
+    /// the client sent.
+    fn smtp_sink() -> (u16, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut out = stream;
+            out.write_all(b"220 sink ESMTP\r\n").unwrap();
+            let mut commands = Vec::new();
+            let mut in_data = false;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    break;
+                }
+                if in_data {
+                    if line == ".\r\n" {
+                        in_data = false;
+                        out.write_all(b"250 queued\r\n").unwrap();
+                    }
+                    continue;
+                }
+                let command = line.trim_end().to_string();
+                let verb = command.to_ascii_uppercase();
+                commands.push(command);
+                let reply: &[u8] = if verb.starts_with("EHLO") {
+                    b"250-sink\r\n250-AUTH PLAIN LOGIN\r\n250 8BITMIME\r\n"
+                } else if verb.starts_with("DATA") {
+                    in_data = true;
+                    b"354 go ahead\r\n"
+                } else if verb.starts_with("AUTH") {
+                    b"235 accepted\r\n"
+                } else if verb.starts_with("QUIT") {
+                    let _ = out.write_all(b"221 bye\r\n");
+                    break;
+                } else {
+                    b"250 ok\r\n"
+                };
+                out.write_all(reply).unwrap();
+            }
+            commands
+        });
+        (port, handle)
+    }
+
+    #[tokio::test]
+    async fn a_relay_that_authorises_by_address_needs_no_credentials() {
+        // The office relay on port 25: a host and a From address are enough.
+        let config = EmailConfig::from_lookup(smtp_vars(&[
+            ("SMTP_ENABLED", "true"),
+            ("SMTP_HOST", "relay.example.com"),
+            ("SMTP_PORT", "25"),
+            ("SMTP_FROM_EMAIL", "help@example.com"),
+        ]))
+        .expect("a relay without credentials is a valid configuration");
+        assert!(config.is_configured());
+        assert!(EmailService::new(config.clone()).is_configured());
+        assert!(!config.signs_in(), "nothing to sign in with");
+
+        // And it sends: no AUTH, though the server offers it.
+        let (port, sink) = smtp_sink();
+        let port = port.to_string();
+        let config = EmailConfig::from_lookup(smtp_vars(&[
+            ("SMTP_ENABLED", "true"),
+            ("SMTP_HOST", "127.0.0.1"),
+            ("SMTP_PORT", &port),
+            ("SMTP_SECURITY", "plaintext"),
+            ("SMTP_FROM_EMAIL", "help@example.com"),
+        ]))
+        .unwrap();
+        SmtpEmailTransport::new(config)
+            .send(&dkim_test_outbound())
+            .await
+            .expect("sent");
+        let commands = sink.join().unwrap();
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.starts_with("MAIL FROM:<help@example.com>")),
+            "{commands:?}"
+        );
+        assert!(
+            !commands
+                .iter()
+                .any(|c| c.to_ascii_uppercase().starts_with("AUTH")),
+            "{commands:?}"
+        );
+    }
+
     #[test]
-    fn a_workspace_relay_can_send_without_credentials_and_the_env_relay_cannot() {
+    fn one_smtp_credential_alone_is_a_config_error() {
+        let base = [
+            ("SMTP_ENABLED", "true"),
+            ("SMTP_HOST", "relay.example.com"),
+            ("SMTP_FROM_EMAIL", "help@example.com"),
+        ];
+        let with = |extra: (&str, &str)| {
+            let mut pairs = base.to_vec();
+            pairs.push(extra);
+            EmailConfig::from_lookup(smtp_vars(&pairs)).unwrap_err()
+        };
+        let no_password = with(("SMTP_USERNAME", "help@example.com"));
+        assert!(no_password.contains("SMTP_PASSWORD"), "{no_password}");
+        assert!(no_password.contains("neither"), "{no_password}");
+        let no_username = with(("SMTP_PASSWORD", "secret"));
+        assert!(no_username.contains("SMTP_USERNAME"), "{no_username}");
+        assert!(no_username.contains("neither"), "{no_username}");
+
+        // Both: signs in.
+        let mut pairs = base.to_vec();
+        pairs.push(("SMTP_USERNAME", "help@example.com"));
+        pairs.push(("SMTP_PASSWORD", "secret"));
+        let config = EmailConfig::from_lookup(smtp_vars(&pairs)).unwrap();
+        assert!(config.signs_in());
+        // Not over a plaintext connection, which can't carry them.
+        pairs.push(("SMTP_SECURITY", "plaintext"));
+        let config = EmailConfig::from_lookup(smtp_vars(&pairs)).unwrap();
+        assert!(!config.signs_in());
+    }
+
+    #[test]
+    fn the_from_address_falls_back_only_to_a_username_that_is_one() {
+        let from = |username: &str| {
+            EmailConfig::from_lookup(smtp_vars(&[
+                ("SMTP_ENABLED", "true"),
+                ("SMTP_HOST", "smtp.example.com"),
+                ("SMTP_USERNAME", username),
+                ("SMTP_PASSWORD", "secret"),
+            ]))
+            .map(|c| c.from_email)
+        };
+        assert_eq!(from("help@example.com").unwrap(), "help@example.com");
+        // An API-key login is no address to send from.
+        let err = from("apikey").unwrap_err();
+        assert!(err.contains("SMTP_FROM_EMAIL"), "{err}");
+    }
+
+    #[test]
+    fn either_relay_can_send_without_credentials() {
         let mut config = dkim_test_config();
         config.smtp_host = "relay.example.com".into();
         config.smtp_username = String::new();
@@ -3058,8 +3241,11 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         assert!(
             SmtpEmailTransport::new_untrusted(config.clone(), UNTRUSTED_RELAY_TIMEOUT).can_send()
         );
-        // The operator's env relay keeps requiring credentials.
-        assert!(!SmtpEmailTransport::new(config.clone()).can_send());
+        // The operator's env relay too, given a From address.
+        assert!(SmtpEmailTransport::new(config.clone()).can_send());
+        let mut fromless = config.clone();
+        fromless.from_email = String::new();
+        assert!(!SmtpEmailTransport::new(fromless).can_send());
         // A workspace relay still needs a host and to be enabled.
         let mut hostless = config.clone();
         hostless.smtp_host = " ".into();
