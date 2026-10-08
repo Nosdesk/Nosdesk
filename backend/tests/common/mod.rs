@@ -26,6 +26,8 @@ use uuid::Uuid;
 
 use backend::db::MIGRATIONS;
 
+pub mod upgrade_1_0_12;
+
 /// Customizer that seeds `app.workspace_id` on every fresh
 /// connection. After the Phase 3d NOT-NULL flip, the
 /// `workspace_id` column on every tenant table defaults to
@@ -657,10 +659,10 @@ pub fn fixture_path(rel: &str) -> std::path::PathBuf {
 /// the only thing keeping them apart is the workspace predicate.
 pub const FIXTURE_WEBHOOK_EVENT: &str = "ticket.created";
 
-/// The event type the seeded plugins declare in their manifest.
-/// C2 asserts an emit for a manifest-declared event is accepted
-/// and a non-declared one is rejected.
-pub const FIXTURE_PLUGIN_EVENT: &str = "ticket.created";
+/// The event the seeded plugins declare in their manifest: a known plugin
+/// event (`KNOWN_EVENTS`, colon-named), so a plugin event emit with it is
+/// accepted (see `plugin_events_as_events`).
+pub const FIXTURE_PLUGIN_EVENT: &str = "ticket:created";
 
 /// One workspace's seeded contents. All ids/uuids are captured so
 /// later tests can pin a connection to this workspace and assert
@@ -796,10 +798,14 @@ fn seed_one_workspace(conn: &mut TestPooledConn, label: &str) -> WorkspaceSeed {
             // A direct Insertable insert is the sanctioned test path;
             // `workspace_id` falls to the GUC-driven column default.
             let plugin_name = format!("fixture-plugin-{label}");
+            // A manifest that parses (`PluginManifest`), declaring the event
+            // an emit is checked against.
             let manifest = serde_json::json!({
+                "manifest_version": 1,
                 "name": plugin_name,
+                "displayName": format!("{label} Fixture Plugin"),
                 "version": "1.0.0",
-                // Manifest-declared events C2 will validate emits against.
+                "engines": { "nosdesk": ">=1.0.0", "plugin_api": "1" },
                 "events": [FIXTURE_PLUGIN_EVENT],
             });
             let new_plugin = NewPlugin {

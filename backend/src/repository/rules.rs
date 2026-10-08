@@ -545,7 +545,6 @@ pub enum ApplyError {
     Db(#[from] diesel::result::Error),
 }
 
-// sync-pending-wire: emits ticket.rule_applied + ticket.updated via sync::emit inside the txn
 /// Apply one manual rule to one ticket. Atomic: every action runs
 /// inside one `with_actor_context` transaction. Pre-flight checks
 /// the rule + ticket under the advisory lock so a racing archive

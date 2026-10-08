@@ -148,8 +148,10 @@ pub fn build_state(
     let email_service: Option<std::sync::Arc<crate::utils::email::EmailService>> =
         match crate::utils::email::EmailService::from_env() {
             Ok(svc) => Some(std::sync::Arc::new(svc)),
+            // SMTP is on but its settings can't be used (a disabled service
+            // loads fine): say so where the operator will look.
             Err(e) => {
-                info!(error = ?e, "Email service not configured - email notifications and channel outbound disabled");
+                warn!(error = ?e, "Email service not configured - email notifications and channel outbound disabled");
                 None
             }
         };

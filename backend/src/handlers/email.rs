@@ -145,6 +145,22 @@ pub async fn get_email_config(
                 "smtp_host": config.smtp_host,
                 "smtp_port": config.smtp_port,
                 "smtp_password_configured": !config.smtp_password.is_empty(),
+                // Credentials set over a plaintext connection go unused.
+                "smtp_signs_in": config.signs_in(),
+            })))
+        }
+        // Hosted: the platform relay's settings are the operator's, so tenants
+        // see the managed wording rather than what's wrong with them.
+        Err(_)
+            if crate::middleware::DeploymentMode::current()
+                == crate::middleware::DeploymentMode::Hosted =>
+        {
+            Ok(HttpResponse::Ok().json(json!({
+                "managed": true,
+                "from_name": "",
+                "from_email": "",
+                "enabled": false,
+                "is_configured": false,
             })))
         }
         Err(e) => Ok(HttpResponse::Ok().json(json!({

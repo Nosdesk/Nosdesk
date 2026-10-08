@@ -17,10 +17,10 @@
 //! themselves) to admin/owner. Inviting brand-new people is a separate
 //! path (`POST /api/users`, already workspace-admin gated).
 //!
-//! `workspace_members` is a no-RLS meta-table and `nosdesk_app` lacks
-//! UPDATE/DELETE on it, so writes run under a BYPASSRLS actor context
-//! (like the operator handlers). Safety comes entirely from the gate
-//! plus pinning every write to `WorkspaceContext.workspace_id`.
+//! Writes run under a BYPASSRLS actor context (like the operator
+//! handlers). `workspace_members` has row-level security keyed on the
+//! pinned workspace, so safety comes from the gate plus pinning every
+//! write to `WorkspaceContext.workspace_id`.
 
 use std::sync::Arc;
 

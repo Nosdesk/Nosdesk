@@ -181,15 +181,14 @@ services:
       # vars OVERRIDE whatever's in .env so dev never burns
       # real customer email on a stray test invitation. Plaintext
       # SMTP is fine: the link only exists inside the compose
-      # network. Username / password are placeholders — Mailpit
-      # accepts any credentials but EmailConfig::is_configured()
-      # requires them to be non-empty.
+      # network. Username and password are blanked so .env's real
+      # credentials don't apply; Mailpit takes mail without them.
       - SMTP_ENABLED=true
       - SMTP_HOST=mailpit
       - SMTP_PORT=1025
       - SMTP_SECURITY=plaintext
-      - SMTP_USERNAME=mailpit
-      - SMTP_PASSWORD=mailpit
+      - SMTP_USERNAME=
+      - SMTP_PASSWORD=
       - SMTP_FROM_NAME=Nosdesk
       - SMTP_FROM_EMAIL=noreply@nosdesk.test
       # Let a workspace's own SMTP server (Email delivery > Your SMTP
@@ -203,9 +202,8 @@ services:
   # Mailpit — local SMTP capture for development. Replaces real
   # SMTP relay in dev so password resets, invitations, and ticket
   # notifications land in a browser UI instead of customer
-  # mailboxes. Plain SMTP on 1025, web UI on 8025. Anonymous auth
-  # accepted; we still pass placeholder username/password so the
-  # backend's `is_configured()` gate doesn't trip.
+  # mailboxes. Plain SMTP on 1025, web UI on 8025. Mail is accepted
+  # without credentials.
   #
   # Backend env override below points SMTP_HOST/PORT/SECURITY at
   # this service. Operators running the production compose (without

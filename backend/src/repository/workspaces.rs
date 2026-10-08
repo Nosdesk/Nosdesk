@@ -3,8 +3,9 @@
 //! Reads, the M5 internal-provisioning write path, and the Phase 4
 //! W1 admin lifecycle ops (archive / restore / rename / hard-delete).
 //! `workspaces` is a global table — it doesn't carry a workspace_id
-//! of its own. The membership join table is likewise a meta-table;
-//! the membership row IS the workspace-scope assertion for a user.
+//! of its own. The membership row is the workspace-scope assertion for
+//! a user; `workspace_members` has row-level security, so a read on the
+//! runtime role sees only the pinned workspace's members.
 
 use std::time::Duration;
 

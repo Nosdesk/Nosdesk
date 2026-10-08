@@ -16,6 +16,14 @@
 //! rows clients apply as server-written. Plugins extend behaviour
 //! through the `event_type` string instead. (The architecture doc § 6
 //! references this constraint as part of the manifest design.)
+//!
+//! A plugin event is an event, never a row. `plugin` is a pooled aggregate:
+//! clients upsert or delete a pool row for any `plugin` action whose payload
+//! carries an `id` or `uuid`. So the server sets what decides that: the
+//! aggregate id is the emitting plugin's uuid, the op is always an update, and
+//! the caller's data is wrapped as `{ "event": ... }`, which has no row key, so
+//! clients treat it as a side event (observers still see it). The caller's
+//! `aggregate_id` and `op` are accepted for compatibility and ignored.
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
@@ -29,6 +37,7 @@ use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::plugins as plugin_repo;
+use crate::services::plugins::manifest_validate::KNOWN_EVENTS;
 use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
@@ -37,8 +46,12 @@ use crate::sync::session;
 #[derive(Debug, Deserialize)]
 pub struct PluginEventBody {
     pub aggregate: SyncAggregate,
-    pub aggregate_id: String,
-    pub op: SyncOp,
+    /// Ignored: the recorded aggregate id is the emitting plugin's uuid.
+    #[serde(default)]
+    pub aggregate_id: Option<String>,
+    /// Ignored: a plugin event is always recorded as an update.
+    #[serde(default)]
+    pub op: Option<SyncOp>,
     pub event_type: String,
     pub data: Value,
     #[serde(default)]
@@ -46,12 +59,10 @@ pub struct PluginEventBody {
 }
 
 const PLUGIN_EVENT_TYPE_MAX: usize = 64;
-/// The recorded `aggregate_id` is metadata on the row (fan-out is workspace-
-/// scoped host-side, not driven by this value); bound it anyway.
-const PLUGIN_AGGREGATE_ID_MAX: usize = 128;
-/// Cap the event payload. The row fans out to every workspace SSE client and,
-/// by `event_type`, to external webhook subscribers, so an oversized body is an
-/// amplification vector.
+/// Cap the event payload. The row fans out to every workspace SSE client, so an
+/// oversized body is an amplification vector. (Plugin events don't reach
+/// webhooks: their names are colon-named plugin events, and webhooks deliver
+/// dot-named host events only.)
 const PLUGIN_EVENT_DATA_MAX: usize = 32 * 1024;
 /// Per (workspace, plugin) emission budget, bounds how fast any one member can
 /// drive plugin-attributed fan-out.
@@ -68,11 +79,10 @@ fn validate_event_body(body: &PluginEventBody) -> Result<(), &'static str> {
     if body.event_type.trim().is_empty() || body.event_type.len() > PLUGIN_EVENT_TYPE_MAX {
         return Err("event_type must be 1 to 64 characters");
     }
-    if body.aggregate_id.trim().is_empty() {
-        return Err("aggregate_id is required");
-    }
-    if body.aggregate_id.len() > PLUGIN_AGGREGATE_ID_MAX {
-        return Err("aggregate_id is too long");
+    // Only a known plugin event, as a manifest may declare (the manifest check
+    // in the handler holds a plugin to the ones it declares).
+    if !KNOWN_EVENTS.contains(&body.event_type.as_str()) {
+        return Err("event_type is not a known plugin event");
     }
     if serde_json::to_vec(&body.data)
         .map(|v| v.len())
@@ -165,7 +175,7 @@ pub async fn emit_plugin_event(
         .and_then(|ctx| ctx.actor.workspace_id);
 
     // Bound the rate any single member can drive plugin-attributed fan-out
-    // (SSE + external webhooks). Fail open on a Redis outage: this is
+    // to the workspace's SSE clients. Fail open on a Redis outage: this is
     // abuse-limiting, not an auth gate, so a limiter outage must not break
     // plugin events, but log it.
     {
@@ -228,12 +238,13 @@ pub async fn emit_plugin_event(
         session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
             emit::record(
                 conn,
+                // Event, not row: see the module docs.
                 SyncEmit {
                     aggregate,
-                    aggregate_id: body.aggregate_id,
-                    op: body.op,
+                    aggregate_id: plugin.uuid.to_string(),
+                    op: SyncOp::Update,
                     event_type: &event_type_owned,
-                    data: body.data,
+                    data: serde_json::json!({ "event": body.data }),
                     groups,
                     causation_id: body.causation_id,
                 },
@@ -267,11 +278,11 @@ mod tests {
     use super::*;
     use serde_json::{json, Value};
 
-    fn body(event_type: &str, aggregate_id: &str, data: Value) -> PluginEventBody {
+    fn body(event_type: &str, data: Value) -> PluginEventBody {
         PluginEventBody {
             aggregate: SyncAggregate::Plugin,
-            aggregate_id: aggregate_id.to_string(),
-            op: SyncOp::Update,
+            aggregate_id: None,
+            op: None,
             event_type: event_type.to_string(),
             data,
             causation_id: None,
@@ -280,7 +291,7 @@ mod tests {
 
     #[test]
     fn accepts_a_reasonable_event() {
-        assert!(validate_event_body(&body("x.done", "42", json!({ "a": 1 }))).is_ok());
+        assert!(validate_event_body(&body("ticket:created", json!({ "a": 1 }))).is_ok());
     }
 
     #[test]
@@ -292,7 +303,7 @@ mod tests {
         ] {
             let event = PluginEventBody {
                 aggregate,
-                ..body("x.done", "42", json!({}))
+                ..body("ticket:created", json!({}))
             };
             assert!(validate_event_body(&event).is_err());
         }
@@ -300,22 +311,40 @@ mod tests {
 
     #[test]
     fn rejects_empty_or_overlong_event_type() {
-        assert!(validate_event_body(&body("   ", "42", Value::Null)).is_err());
+        assert!(validate_event_body(&body("   ", Value::Null)).is_err());
         let long = "e".repeat(PLUGIN_EVENT_TYPE_MAX + 1);
-        assert!(validate_event_body(&body(&long, "42", Value::Null)).is_err());
+        assert!(validate_event_body(&body(&long, Value::Null)).is_err());
     }
 
+    /// Only a known plugin event: a made-up name, or a host event's dot name,
+    /// is refused even if a manifest lists it.
     #[test]
-    fn rejects_empty_or_overlong_aggregate_id() {
-        assert!(validate_event_body(&body("x", "", Value::Null)).is_err());
-        let long = "1".repeat(PLUGIN_AGGREGATE_ID_MAX + 1);
-        assert!(validate_event_body(&body("x", &long, Value::Null)).is_err());
+    fn rejects_an_unknown_event_type() {
+        for name in ["report:ready", "ticket.created", "x.done"] {
+            assert!(
+                validate_event_body(&body(name, json!({}))).is_err(),
+                "{name}"
+            );
+        }
+    }
+
+    /// The caller's row-shaping fields are optional and ignored, so a body
+    /// without them is accepted.
+    #[test]
+    fn aggregate_id_and_op_are_optional() {
+        let parsed: PluginEventBody = serde_json::from_value(json!({
+            "aggregate": "plugin",
+            "event_type": "ticket:created",
+            "data": {},
+        }))
+        .expect("body parses without aggregate_id and op");
+        assert!(validate_event_body(&parsed).is_ok());
     }
 
     #[test]
     fn rejects_oversized_data() {
         let big = json!({ "blob": "x".repeat(PLUGIN_EVENT_DATA_MAX) });
-        assert!(validate_event_body(&body("x", "42", big)).is_err());
+        assert!(validate_event_body(&body("ticket:created", big)).is_err());
     }
 
     /// B6 structural guard: a caller cannot supply `groups`. Unknown fields are
@@ -334,7 +363,6 @@ mod tests {
         .expect("body parses, ignoring the injected groups");
         // There is no `groups` field to carry the injected topics; the handler
         // always emits to the workspace group.
-        assert_eq!(parsed.aggregate_id, "42");
         assert_eq!(parsed.event_type, "x.done");
     }
 }

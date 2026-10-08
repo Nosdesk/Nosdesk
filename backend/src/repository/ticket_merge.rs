@@ -143,7 +143,6 @@ fn advisory_key(workspace_id: i32, ticket_id: i32) -> i64 {
     ((workspace_id as i64) << 32) | (ticket_id as i64 & 0xffff_ffff)
 }
 
-// sync-pending-wire: emits ticket.merged / ticket.merged_into via sync::emit::record inside the txn
 /// Merge `input.source_ticket_ids` into `input.destination_ticket_id`.
 ///
 /// Runs every step in one `with_actor_context` transaction; any
@@ -335,100 +334,26 @@ pub fn execute_merge(
         .bind::<Array<Integer>, _>(&source_array)
         .execute(conn)?;
 
-        // Step 7: union watchers onto the destination. Source rows stay
-        // put (the source is still a real record). notify_on_internal_
-        // notes ORs so the destination keeps the most permissive flag.
-        // One row per watcher: someone watching two sources would
-        // otherwise reach the upsert twice, which Postgres refuses.
-        let watchers_added_to_destination = diesel::sql_query(
-            "INSERT INTO ticket_watchers \
-                 (ticket_id, user_uuid, auto_added, notify_on_internal_notes, workspace_id) \
-             SELECT $1, sw.user_uuid, TRUE, bool_or(sw.notify_on_internal_notes), sw.workspace_id \
-             FROM ticket_watchers sw \
-             WHERE sw.ticket_id = ANY($2) \
-             GROUP BY sw.user_uuid, sw.workspace_id \
-             ON CONFLICT (ticket_id, user_uuid) DO UPDATE SET \
-                 notify_on_internal_notes = \
-                     ticket_watchers.notify_on_internal_notes OR EXCLUDED.notify_on_internal_notes",
-        )
-        .bind::<Integer, _>(target_id)
-        .bind::<Array<Integer>, _>(&source_array)
-        .execute(conn)?;
-
-        // Project / cycle / asset memberships union onto the
-        // destination, then drop from the sources (closed records
-        // shouldn't show on boards). Tags and doc links accumulate on
-        // the destination; leaving them on the source is harmless.
-        union_then_clear(
+        // Step 7: everything else the sources carry moves through its usual
+        // writer, so every client and webhook hears of it. Watchers, tags and
+        // doc links accumulate on the destination; the sources keep theirs
+        // (the source is still a real record). Projects, the cycle and
+        // linked assets leave the sources: closed records shouldn't show on
+        // boards.
+        let watchers_added_to_destination = move_watchers(conn, target_id, &source_array)?;
+        move_projects(conn, target_id, &source_array)?;
+        move_cycle(conn, target_id, &source_array, actor.uuid)?;
+        move_assets(conn, target_id, &source_array)?;
+        union_tags(conn, target_id, &source_array, actor.uuid)?;
+        crate::repository::documentation_page_tickets::copy_links_to_ticket(
             conn,
-            "project_tickets",
-            "project_id",
-            target_id,
             &source_array,
-            true,
-        )?;
-        union_then_clear(
-            conn,
-            "cycle_tickets",
-            "cycle_id",
             target_id,
-            &source_array,
-            true,
         )?;
-        union_then_clear(
-            conn,
-            "ticket_assets",
-            "asset_id",
-            target_id,
-            &source_array,
-            true,
-        )?;
-        union_then_clear(
-            conn,
-            "ticket_tags",
-            "tag_id",
-            target_id,
-            &source_array,
-            false,
-        )?;
-        union_doc_links(conn, target_id, &source_array)?;
 
         // Step 8: rewrite the sources' OTHER ticket links onto the
         // destination (both directions), then drop every source link.
-        // INSERT ... SELECT ON CONFLICT DO NOTHING sidesteps PK
-        // collisions when the destination already shares that edge, and
-        // the WHERE clauses exclude edges that would self-link.
-        diesel::sql_query(
-            "INSERT INTO linked_tickets \
-                 (ticket_id, linked_ticket_id, relation_type, description, created_by, workspace_id) \
-             SELECT $1, lt.linked_ticket_id, lt.relation_type, lt.description, lt.created_by, lt.workspace_id \
-             FROM linked_tickets lt \
-             WHERE lt.ticket_id = ANY($2) \
-               AND lt.linked_ticket_id <> $1 \
-               AND lt.linked_ticket_id <> ALL($2) \
-             ON CONFLICT DO NOTHING",
-        )
-        .bind::<Integer, _>(target_id)
-        .bind::<Array<Integer>, _>(&source_array)
-        .execute(conn)?;
-        diesel::sql_query(
-            "INSERT INTO linked_tickets \
-                 (ticket_id, linked_ticket_id, relation_type, description, created_by, workspace_id) \
-             SELECT lt.ticket_id, $1, lt.relation_type, lt.description, lt.created_by, lt.workspace_id \
-             FROM linked_tickets lt \
-             WHERE lt.linked_ticket_id = ANY($2) \
-               AND lt.ticket_id <> $1 \
-               AND lt.ticket_id <> ALL($2) \
-             ON CONFLICT DO NOTHING",
-        )
-        .bind::<Integer, _>(target_id)
-        .bind::<Array<Integer>, _>(&source_array)
-        .execute(conn)?;
-        diesel::sql_query(
-            "DELETE FROM linked_tickets WHERE ticket_id = ANY($1) OR linked_ticket_id = ANY($1)",
-        )
-        .bind::<Array<Integer>, _>(&source_array)
-        .execute(conn)?;
+        move_links(conn, target_id, &source_array)?;
 
         // Step 9: record the canonical merge edge, one per source.
         for &sid in &source_ids {
@@ -607,55 +532,171 @@ fn state_category(
         .first(conn)?)
 }
 
-/// Union a two-column junction table (`<other>_id`, `ticket_id`) onto
-/// the destination via raw SQL, then optionally delete the source rows.
-/// `other_col` is the non-ticket key column. `clear_sources` drops the
-/// sources' rows after copying (project / cycle / asset boards
-/// shouldn't list closed records); false leaves them (tags accumulate).
-fn union_then_clear(
+/// Each source watcher onto the destination, once, keeping the most
+/// permissive internal-notes setting of their rows on the sources and the
+/// destination. Returns how many were newly added.
+fn move_watchers(
     conn: &mut DbConnection,
-    table: &str,
-    other_col: &str,
     target_id: i32,
     sources: &[i32],
-    clear_sources: bool,
-) -> Result<(), MergeError> {
-    let insert = format!(
-        "INSERT INTO {table} ({other_col}, ticket_id, workspace_id) \
-         SELECT j.{other_col}, $1, j.workspace_id FROM {table} j \
-         WHERE j.ticket_id = ANY($2) ON CONFLICT DO NOTHING"
-    );
-    diesel::sql_query(insert)
-        .bind::<Integer, _>(target_id)
-        .bind::<Array<Integer>, _>(sources)
-        .execute(conn)?;
+) -> Result<usize, MergeError> {
+    use crate::repository::ticket_watchers::{
+        add_watcher_with_notify, set_notify_on_internal_notes,
+    };
+    use crate::schema::ticket_watchers::dsl as w;
+    let mut wanted: std::collections::BTreeMap<Uuid, bool> = std::collections::BTreeMap::new();
+    let rows: Vec<(Uuid, bool)> = w::ticket_watchers
+        .filter(w::ticket_id.eq_any(sources))
+        .select((w::user_uuid, w::notify_on_internal_notes))
+        .load(conn)?;
+    for (user, notify) in rows {
+        *wanted.entry(user).or_default() |= notify;
+    }
+    let current: std::collections::HashMap<Uuid, bool> = w::ticket_watchers
+        .filter(w::ticket_id.eq(target_id))
+        .select((w::user_uuid, w::notify_on_internal_notes))
+        .load::<(Uuid, bool)>(conn)?
+        .into_iter()
+        .collect();
+    let mut added = 0usize;
+    for (user, notify) in wanted {
+        match current.get(&user) {
+            None => {
+                if add_watcher_with_notify(conn, target_id, user, true, notify)? {
+                    added += 1;
+                }
+            }
+            // Already watching: only a setting the sources widen changes.
+            Some(&on_target) => {
+                if notify && !on_target {
+                    set_notify_on_internal_notes(conn, target_id, &user, true)?;
+                }
+            }
+        }
+    }
+    Ok(added)
+}
 
-    if clear_sources {
-        let delete = format!("DELETE FROM {table} WHERE ticket_id = ANY($1)");
-        diesel::sql_query(delete)
-            .bind::<Array<Integer>, _>(sources)
-            .execute(conn)?;
+/// The sources' projects onto the destination; the sources leave them.
+fn move_projects(
+    conn: &mut DbConnection,
+    target_id: i32,
+    sources: &[i32],
+) -> Result<(), MergeError> {
+    use crate::schema::project_tickets::dsl as p;
+    let rows: Vec<(i32, i32)> = p::project_tickets
+        .filter(p::ticket_id.eq_any(sources))
+        .order((p::ticket_id.asc(), p::project_id.asc()))
+        .select((p::ticket_id, p::project_id))
+        .load(conn)?;
+    for (source, project) in rows {
+        crate::repository::projects::add_ticket_to_project(conn, project, target_id)?;
+        crate::repository::projects::remove_ticket_from_project(conn, project, source)?;
     }
     Ok(())
 }
 
-/// Union documentation_page_tickets onto the destination, preserving
-/// each row's link_type.
-fn union_doc_links(
+/// The first source's cycle (by id) onto a destination that has none; every
+/// source leaves its cycle. A ticket is in at most one cycle.
+fn move_cycle(
     conn: &mut DbConnection,
     target_id: i32,
     sources: &[i32],
+    actor: Option<Uuid>,
 ) -> Result<(), MergeError> {
-    diesel::sql_query(
-        "INSERT INTO documentation_page_tickets \
-             (page_id, ticket_id, link_type, created_by, workspace_id) \
-         SELECT d.page_id, $1, d.link_type, d.created_by, d.workspace_id \
-         FROM documentation_page_tickets d \
-         WHERE d.ticket_id = ANY($2) ON CONFLICT DO NOTHING",
-    )
-    .bind::<Integer, _>(target_id)
-    .bind::<Array<Integer>, _>(sources)
-    .execute(conn)?;
+    use crate::repository::cycles;
+    let source_cycles = cycles::cycle_ids_for_tickets(conn, sources)?;
+    if cycles::cycle_id_for_ticket(conn, target_id)?.is_none() {
+        if let Some(&cycle) = sources.iter().find_map(|s| source_cycles.get(s)) {
+            cycles::add_ticket(conn, cycle, target_id, actor)?;
+        }
+    }
+    for source in sources.iter().filter(|s| source_cycles.contains_key(s)) {
+        cycles::remove_ticket(conn, *source)?;
+    }
+    Ok(())
+}
+
+/// The sources' linked assets onto the destination; the sources let go of
+/// them.
+fn move_assets(conn: &mut DbConnection, target_id: i32, sources: &[i32]) -> Result<(), MergeError> {
+    use crate::schema::ticket_assets::dsl as a;
+    let mut on_target: std::collections::HashSet<i32> = a::ticket_assets
+        .filter(a::ticket_id.eq(target_id))
+        .select(a::asset_id)
+        .load::<i32>(conn)?
+        .into_iter()
+        .collect();
+    let rows: Vec<(i32, i32)> = a::ticket_assets
+        .filter(a::ticket_id.eq_any(sources))
+        .order((a::ticket_id.asc(), a::asset_id.asc()))
+        .select((a::ticket_id, a::asset_id))
+        .load(conn)?;
+    for (source, asset) in rows {
+        if on_target.insert(asset) {
+            crate::repository::tickets::add_device_to_ticket(conn, target_id, asset)?;
+        }
+        crate::repository::tickets::remove_device_from_ticket(conn, source, asset)?;
+    }
+    Ok(())
+}
+
+/// The destination's tags become its own plus every source's.
+fn union_tags(
+    conn: &mut DbConnection,
+    target_id: i32,
+    sources: &[i32],
+    actor: Option<Uuid>,
+) -> Result<(), MergeError> {
+    use crate::repository::tags;
+    let mut union: std::collections::BTreeSet<i32> = tags::tag_ids_for_ticket(conn, target_id)?
+        .into_iter()
+        .collect();
+    for ids in tags::tag_ids_for_tickets(conn, sources)?.into_values() {
+        union.extend(ids);
+    }
+    let union: Vec<i32> = union.into_iter().collect();
+    tags::set_tags_for_ticket(conn, target_id, &union, actor)?;
+    Ok(())
+}
+
+/// Rewrite each source's links to tickets outside the merge onto the
+/// destination, in the same direction and keeping the relation, description
+/// and author; then drop every link the sources have. An edge the
+/// destination already has, or one that would point at itself, isn't added.
+fn move_links(conn: &mut DbConnection, target_id: i32, sources: &[i32]) -> Result<(), MergeError> {
+    use crate::repository::linked_tickets::{link_tickets_directional, unlink_tickets};
+    use crate::schema::linked_tickets::dsl as l;
+    type Edge = (i32, i32, String, Option<String>, Option<Uuid>);
+    let edges: Vec<Edge> = l::linked_tickets
+        .filter(
+            l::ticket_id
+                .eq_any(sources)
+                .or(l::linked_ticket_id.eq_any(sources)),
+        )
+        .order((l::ticket_id.asc(), l::linked_ticket_id.asc()))
+        .select((
+            l::ticket_id,
+            l::linked_ticket_id,
+            l::relation_type,
+            l::description,
+            l::created_by,
+        ))
+        .load(conn)?;
+    let in_merge = |id: i32| id == target_id || sources.contains(&id);
+    // Each pair once: unlinking takes both directions.
+    let mut pairs: std::collections::BTreeSet<(i32, i32)> = std::collections::BTreeSet::new();
+    for (from, to, relation, description, created_by) in edges {
+        if sources.contains(&from) && !in_merge(to) {
+            link_tickets_directional(conn, target_id, to, &relation, description, created_by)?;
+        } else if sources.contains(&to) && !in_merge(from) {
+            link_tickets_directional(conn, from, target_id, &relation, description, created_by)?;
+        }
+        pairs.insert((from.min(to), from.max(to)));
+    }
+    for (a, b) in pairs {
+        unlink_tickets(conn, a, b)?;
+    }
     Ok(())
 }
 
@@ -1371,13 +1412,17 @@ mod tests {
             .unwrap();
         assert!(shared_notify, "OR of false|true must be true");
 
-        let only_src_on_dest: i64 = w::ticket_watchers
+        let only_src_on_dest: Vec<bool> = w::ticket_watchers
             .filter(w::ticket_id.eq(dest.id))
             .filter(w::user_uuid.eq(only_src.uuid))
-            .count()
-            .get_result(&mut conn)
+            .select(w::notify_on_internal_notes)
+            .load(&mut conn)
             .unwrap();
-        assert_eq!(only_src_on_dest, 1);
+        assert_eq!(
+            only_src_on_dest,
+            vec![false],
+            "added with their setting, off"
+        );
     }
 
     #[test]
@@ -1523,6 +1568,286 @@ mod tests {
             .unwrap();
         assert_eq!(on_dest, 1, "moved onto destination");
         assert_eq!(on_src, 0, "removed from closed source");
+    }
+
+    /// Sync rows of `event_type` for a junction's composite aggregate id.
+    fn count_sync_key(conn: &mut DbConnection, event_type: &str, aggregate_id: &str) -> i64 {
+        use crate::schema::sync_actions::dsl as s;
+        s::sync_actions
+            .filter(s::event_type.eq(event_type))
+            .filter(s::aggregate_id.eq(aggregate_id))
+            .count()
+            .get_result(conn)
+            .unwrap()
+    }
+
+    fn make_asset(conn: &mut DbConnection, name: &str) -> i32 {
+        use crate::schema::assets::dsl as a;
+        diesel::insert_into(a::assets)
+            .values((
+                a::name.eq(name),
+                a::kind.eq("generic"),
+                a::attributes.eq(serde_json::json!({})),
+            ))
+            .returning(a::id)
+            .get_result(conn)
+            .unwrap()
+    }
+
+    fn make_cycle(conn: &mut DbConnection, project_id: i32, name: &str) -> i32 {
+        crate::repository::cycles::create(
+            conn,
+            crate::models::NewCycle {
+                project_id,
+                name: name.to_string(),
+                start_at: None,
+                end_at: None,
+                state: "planned".to_string(),
+                created_by: None,
+            },
+        )
+        .unwrap()
+        .id
+    }
+
+    #[test]
+    fn a_merge_moves_projects_assets_and_cycles_through_their_writers() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merge_boards", "user");
+        let project = TestFixtures::create_project(&mut conn, "Boards");
+        let cycle = make_cycle(&mut conn, project.id, "Sprint");
+        let asset = make_asset(&mut conn, "Laptop");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        // The source's memberships, written directly so setup emits nothing.
+        {
+            use crate::schema::{cycle_tickets as c, project_tickets as p, ticket_assets as a};
+            diesel::insert_into(p::table)
+                .values((p::project_id.eq(project.id), p::ticket_id.eq(src.id)))
+                .execute(&mut conn)
+                .unwrap();
+            diesel::insert_into(c::table)
+                .values((c::cycle_id.eq(cycle), c::ticket_id.eq(src.id)))
+                .execute(&mut conn)
+                .unwrap();
+            diesel::insert_into(a::table)
+                .values((a::ticket_id.eq(src.id), a::asset_id.eq(asset)))
+                .execute(&mut conn)
+                .unwrap();
+        }
+
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        let (d, s) = (dest.id, src.id);
+        let (p, c, a) = (project.id, cycle, asset);
+        assert_eq!(
+            count_sync_key(&mut conn, "project_ticket.added", &format!("{p}:{d}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "project_ticket.removed", &format!("{p}:{s}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "cycle_ticket.added", &format!("{c}:{d}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "cycle_ticket.removed", &format!("{c}:{s}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "ticket_asset.added", &format!("{d}:{a}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "ticket_asset.removed", &format!("{s}:{a}")),
+            1
+        );
+    }
+
+    #[test]
+    fn a_merge_keeps_the_destinations_cycle() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merge_cycle", "user");
+        let project = TestFixtures::create_project(&mut conn, "Cycles");
+        let kept = make_cycle(&mut conn, project.id, "Kept");
+        let other = make_cycle(&mut conn, project.id, "Other");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        {
+            use crate::schema::cycle_tickets as c;
+            diesel::insert_into(c::table)
+                .values(&vec![
+                    (c::cycle_id.eq(kept), c::ticket_id.eq(dest.id)),
+                    (c::cycle_id.eq(other), c::ticket_id.eq(src.id)),
+                ])
+                .execute(&mut conn)
+                .unwrap();
+        }
+
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        assert_eq!(
+            crate::repository::cycles::cycle_id_for_ticket(&mut conn, dest.id).unwrap(),
+            Some(kept)
+        );
+        assert_eq!(
+            crate::repository::cycles::cycle_id_for_ticket(&mut conn, src.id).unwrap(),
+            None
+        );
+        assert_eq!(
+            count_sync_key(
+                &mut conn,
+                "cycle_ticket.removed",
+                &format!("{other}:{}", src.id)
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn a_merge_moves_tags_and_watchers_through_their_writers() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merge_tags", "user");
+        let watcher = TestFixtures::create_user(&mut conn, "merge_watcher", "user");
+        let newcomer = TestFixtures::create_user(&mut conn, "merge_newcomer", "user");
+        let tag = crate::repository::tags::create_tag(
+            &mut conn,
+            crate::models::NewTag {
+                name: format!("merge-tag-{}", Uuid::new_v4().simple()),
+                color: None,
+                description: None,
+            },
+        )
+        .unwrap();
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        {
+            use crate::schema::ticket_tags as t;
+            diesel::insert_into(t::table)
+                .values((t::ticket_id.eq(src.id), t::tag_id.eq(tag.id)))
+                .execute(&mut conn)
+                .unwrap();
+        }
+        // Watching both: off on the destination, on on the source.
+        add_watcher(&mut conn, dest.id, watcher.uuid, false);
+        add_watcher(&mut conn, src.id, watcher.uuid, true);
+        // Watching only the source, with internal notes off.
+        add_watcher(&mut conn, src.id, newcomer.uuid, false);
+
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        assert_eq!(count_sync(&mut conn, "ticket.tags_changed", dest.id), 1);
+        // The newcomer joins with their setting; the shared watcher's widens.
+        assert_eq!(count_sync(&mut conn, "ticket.watcher_added", dest.id), 1);
+        assert_eq!(
+            count_sync(&mut conn, "ticket.watcher_pref_changed", dest.id),
+            1
+        );
+        use crate::schema::ticket_watchers::dsl as w;
+        let mut on_dest: Vec<(Uuid, bool)> = w::ticket_watchers
+            .filter(w::ticket_id.eq(dest.id))
+            .select((w::user_uuid, w::notify_on_internal_notes))
+            .load(&mut conn)
+            .unwrap();
+        on_dest.sort();
+        let mut expected = vec![(watcher.uuid, true), (newcomer.uuid, false)];
+        expected.sort();
+        assert_eq!(on_dest, expected);
+    }
+
+    #[test]
+    fn a_merge_moves_links_through_their_writers() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merge_links", "user");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        let other = TestFixtures::create_ticket(&mut conn, "Other", Some(user.uuid), None);
+        // An earlier merge's source: its one-way edge points at this source.
+        let earlier = TestFixtures::create_ticket(&mut conn, "Earlier", Some(user.uuid), None);
+        {
+            use crate::schema::linked_tickets as l;
+            diesel::insert_into(l::table)
+                .values(&vec![
+                    (
+                        l::ticket_id.eq(src.id),
+                        l::linked_ticket_id.eq(other.id),
+                        l::relation_type.eq("related"),
+                    ),
+                    (
+                        l::ticket_id.eq(other.id),
+                        l::linked_ticket_id.eq(src.id),
+                        l::relation_type.eq("related"),
+                    ),
+                    (
+                        l::ticket_id.eq(earlier.id),
+                        l::linked_ticket_id.eq(src.id),
+                        l::relation_type.eq("duplicate_of"),
+                    ),
+                ])
+                .execute(&mut conn)
+                .unwrap();
+        }
+
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        let (d, s, o) = (dest.id, src.id, other.id);
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.added", &format!("{d}:{o}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.added", &format!("{o}:{d}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.removed", &format!("{s}:{o}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.removed", &format!("{o}:{s}")),
+            1
+        );
+        // The merge's own edge reaches clients too.
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.added", &format!("{s}:{d}")),
+            1
+        );
+        // The one-way edge moves one way, and only it is reported removed.
+        let e = earlier.id;
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.added", &format!("{e}:{d}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.removed", &format!("{e}:{s}")),
+            1
+        );
+        assert_eq!(
+            count_sync_key(&mut conn, "linked_ticket.removed", &format!("{s}:{e}")),
+            0
+        );
     }
 
     #[test]

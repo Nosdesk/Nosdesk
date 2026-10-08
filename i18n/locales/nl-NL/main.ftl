@@ -1099,8 +1099,12 @@ email-default-env-note = Ingesteld door de beheerder van de server in de omgevin
 email-default-managed-note = E-mail wordt verzonden vanaf het ingebouwde adres van je werkruimte en afgeleverd door Nosdesk. Klanten kunnen er rechtstreeks op antwoorden.
 email-default-not-configured = De server heeft geen SMTP-instellingen, dus in deze modus wordt niets verzonden. Stel de variabelen hieronder in of kies een andere optie.
 email-default-env-vars = Omgevingsvariabelen
-email-default-password-set = Ingesteld
-email-default-password-not-set = Niet ingesteld
+# Server default sign-in (machine, pending native review)
+email-default-auth-label = Aanmelden
+email-default-auth-password = Gebruikersnaam en wachtwoord
+email-default-auth-none = Geen authenticatie
+email-default-auth-ignored = Inloggegevens genegeerd op een onversleutelde verbinding
+email-default-config-error = De SMTP-instellingen van de server zijn niet bruikbaar: { $error }
 email-default-use-button = Serverstandaard gebruiken
 email-default-now-active = Deze werkruimte verzendt nu met de serverstandaard.
 email-domain-setup-intro-self-hosted = Voer het adres in waarvan je helpdesk moet verzenden. E-mail gaat via de SMTP-instellingen van de server, ondertekend voor je domein, en je publiceert één DNS-record.

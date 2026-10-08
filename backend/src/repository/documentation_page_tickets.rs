@@ -121,6 +121,27 @@ pub fn resolving_page_for_ticket(
         .optional()
 }
 
+// sync-pending-wire: needs sync aggregate wiring
+/// Copy the doc links of `sources` onto `target`, each keeping its type. A
+/// merge uses this; the sources keep their own.
+pub fn copy_links_to_ticket(
+    conn: &mut DbConnection,
+    sources: &[i32],
+    target: i32,
+) -> Result<usize, Error> {
+    use diesel::sql_types::{Array, Integer};
+    diesel::sql_query(
+        "INSERT INTO documentation_page_tickets \
+             (page_id, ticket_id, link_type, created_by, workspace_id) \
+         SELECT d.page_id, $1, d.link_type, d.created_by, d.workspace_id \
+         FROM documentation_page_tickets d \
+         WHERE d.ticket_id = ANY($2) ON CONFLICT DO NOTHING",
+    )
+    .bind::<Integer, _>(target)
+    .bind::<Array<Integer>, _>(sources)
+    .execute(conn)
+}
+
 /// Pick any 'resolves'-tier ticket for a page. Used by the
 /// resolve_yjs_document fallback when a page predates the dedicated
 /// yjs_document column and only has its content via the ticket's
