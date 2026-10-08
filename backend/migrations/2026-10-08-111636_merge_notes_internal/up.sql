@@ -20,7 +20,11 @@ WHERE s.aggregate = 'comment'
 
 -- The agent's merge reason is for the team. ticket.merged no longer carries
 -- it (merge history reads ticket_merges); take it off the rows already sent.
+-- The event is recorded on the destination; naming those tickets keeps this
+-- on sync_actions_aggregate_idx rather than a scan of every partition.
 UPDATE sync_actions
 SET data = data - 'reason'
-WHERE event_type = 'ticket.merged'
+WHERE aggregate = 'ticket'
+  AND aggregate_id IN (SELECT DISTINCT merged_into_ticket_id::text FROM ticket_merges)
+  AND event_type = 'ticket.merged'
   AND data ? 'reason';

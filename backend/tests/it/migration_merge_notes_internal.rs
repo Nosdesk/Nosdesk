@@ -60,9 +60,9 @@ struct Seeded {
     marker: i32,
 }
 
-/// A ticket another was merged into, as merges used to write it: its
-/// requester's reply, a public merge note, and the sync rows for both and for
-/// the merge.
+/// A ticket another was merged into, as merges used to write it: the merge,
+/// its requester's reply, a public merge note, and the sync rows for both and
+/// for the merge.
 fn seed(conn: &mut PgConnection) -> Seeded {
     let ws = existing(
         conn,
@@ -122,6 +122,24 @@ fn seed(conn: &mut PgConnection) -> Seeded {
         ),
     )
     .expect("marker");
+    let source = existing(
+        conn,
+        "tickets",
+        &format!(
+            "INSERT INTO tickets (workspace_id, title, workflow_state_id, requester_uuid, number) \
+             VALUES ({ws}, 'Payroll access for Jo', {state}, '{requester}', 2) RETURNING id"
+        ),
+    )
+    .expect("source");
+    existing(
+        conn,
+        "ticket_merges",
+        &format!(
+            "INSERT INTO ticket_merges \
+               (ticket_id, merged_into_ticket_id, merged_at, merged_by_user_uuid, merge_reason, workspace_id) \
+             VALUES ({source}, {ticket}, now(), '{agent}', 'Jo asked twice', {ws})"
+        ),
+    );
     let groups = format!("ARRAY['workspace:{ws}', 'ticket:{ticket}']");
     for (comment, extra) in [(reply, ""), (marker, ", 'kind', 'merge_marker'")] {
         existing(
@@ -141,7 +159,7 @@ fn seed(conn: &mut PgConnection) -> Seeded {
         &format!(
             "INSERT INTO sync_actions (workspace_id, aggregate, aggregate_id, op, event_type, data, groups) \
              VALUES ({ws}, 'ticket', '{ticket}', 'U', 'ticket.merged', \
-                     jsonb_build_object('source_ticket_ids', jsonb_build_array(2), \
+                     jsonb_build_object('source_ticket_ids', jsonb_build_array({source}), \
                                         'reason', 'Jo asked twice', 'comments_moved', 0), \
                      {groups})"
         ),
