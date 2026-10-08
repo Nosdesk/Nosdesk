@@ -15,12 +15,15 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::json;
 
+use std::sync::Arc;
+
 use crate::db::Pool;
 use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn, WorkspaceContext};
 use crate::handlers::portal::{mint_portal_session, portal_path, PortalContext};
 use crate::repository::ticket_approvals::{self as approvals, DecideError};
 use crate::repository::ticket_visibility::VisibilityContext;
+use crate::services::search::SearchService;
 
 /// The approval link from an approver's email (public, in `/api/portal/auth`).
 pub fn portal_auth_config(cfg: &mut web::ServiceConfig) {
@@ -62,6 +65,16 @@ pub struct SkipRequest {
 #[derive(Deserialize)]
 pub struct LinkQuery {
     t: String,
+}
+
+/// The search index, for a decline that cancels the ticket (and makes the next
+/// occurrence of a recurring one).
+fn observer(
+    search: &Option<web::Data<Arc<SearchService>>>,
+) -> Option<&dyn crate::repository::tickets::TicketUpdatedObserver> {
+    search
+        .as_ref()
+        .map(|s| s.get_ref() as &dyn crate::repository::tickets::TicketUpdatedObserver)
 }
 
 fn decide_error(e: DecideError) -> HttpResponse {
@@ -193,6 +206,7 @@ pub async fn decide_my_approval(
     portal: PortalContext,
     path: web::Path<i32>,
     body: web::Json<DecideRequest>,
+    search: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     let (me, ticket_id) = (portal.user_uuid, path.into_inner());
     let Some(approve) = approve_flag(&body.decision) else {
@@ -201,8 +215,16 @@ pub async fn decide_my_approval(
     let comment = body.comment.clone();
     match tc.run(|conn| {
         Ok::<_, diesel::result::Error>(
-            approvals::decide(conn, ticket_id, me, approve, comment.as_deref(), "portal")
-                .inspect(|_| after_decision(conn, ticket_id)),
+            approvals::decide(
+                conn,
+                ticket_id,
+                me,
+                approve,
+                comment.as_deref(),
+                "portal",
+                observer(&search),
+            )
+            .inspect(|_| after_decision(conn, ticket_id)),
         )
     }) {
         Ok(Ok(state)) => HttpResponse::Ok().json(json!({ "approval_state": state })),
@@ -269,6 +291,7 @@ pub async fn decide_ticket_approval(
     auth: AuthContext,
     path: web::Path<i32>,
     body: web::Json<DecideRequest>,
+    search: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
     let Some(approve) = approve_flag(&body.decision) else {
@@ -278,8 +301,16 @@ pub async fn decide_ticket_approval(
     let me = auth.user_uuid;
     match tc.run(|conn| {
         Ok::<_, diesel::result::Error>(
-            approvals::decide(conn, ticket_id, me, approve, comment.as_deref(), "app")
-                .inspect(|_| after_decision(conn, ticket_id)),
+            approvals::decide(
+                conn,
+                ticket_id,
+                me,
+                approve,
+                comment.as_deref(),
+                "app",
+                observer(&search),
+            )
+            .inspect(|_| after_decision(conn, ticket_id)),
         )
     }) {
         Ok(Ok(state)) => HttpResponse::Ok().json(json!({ "approval_state": state })),

@@ -399,9 +399,8 @@ fn apply_ticket(
                 ),
                 TicketWriteError::Database(e) => reject_diesel(e),
             })?;
-            // What the REST PATCH does next: the next occurrence of a
-            // recurring ticket that closed, and assignment on a category
-            // change.
+            // What the REST PATCH does next: assignment on a category change.
+            // (A recurring ticket's next occurrence came from the write.)
             if let Some(updated) = &updated {
                 after_update(
                     &mut ActorConn { conn, actor },

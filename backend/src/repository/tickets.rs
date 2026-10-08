@@ -613,13 +613,17 @@ pub fn update_ticket_partial(
         // assignee or workflow state records what it was. Reading the row
         // first is one indexed lookup inside the same transaction, and it
         // locks the row, so two saves that close the ticket at once see one
-        // close between them.
+        // close between them. The lock is FOR NO KEY UPDATE, the one the
+        // UPDATE below takes anyway: FOR UPDATE would also wait on the
+        // key-share lock every insert referencing the ticket holds (a comment,
+        // an attachment), and a reply that reopens a closed ticket, having
+        // already bumped `updated_at`, then deadlocked against a second reply.
         let previous =
             if ticket_update.assignee_uuid.is_some() || ticket_update.workflow_state_id.is_some() {
                 Some(
                     tickets::table
                         .find(ticket_id)
-                        .for_update()
+                        .for_no_key_update()
                         .first::<Ticket>(conn)?,
                 )
             } else {
@@ -717,24 +721,48 @@ pub fn update_ticket_partial(
 
 /// The next occurrence of a recurring ticket, when this write is the one that
 /// closed it: its state moved from one that doesn't close the ticket into one
-/// that does (Done or Cancelled). Saves after that, and a reopen and close
-/// again, make none, and neither does a series that already has a ticket due
-/// on the next date. Runs in a savepoint, so a rule that can't be read or an
-/// occurrence that can't be made is logged and the close still saves.
+/// that does (Done or Cancelled). Runs in a savepoint, so a state or rule that
+/// can't be read, or an occurrence that can't be made, is logged and the close
+/// still saves.
 fn next_occurrence_on_close(
     conn: &mut DbConnection,
     previous: &Ticket,
     closed: &Ticket,
 ) -> Option<Ticket> {
-    let rule = closed.recurrence_rule.as_deref()?;
-    let mut closes = |state_id: i32| {
-        crate::repository::workflow_states::category_of(conn, state_id)
-            .ok()
-            .flatten()
-            .is_some_and(|c| c.closes_ticket())
+    closed.recurrence_rule.as_ref()?;
+    match conn.transaction(|conn| create_next_occurrence(conn, previous, closed)) {
+        Ok(next) => next,
+        Err(e) => {
+            warn!(ticket_id = closed.id, error = ?e, "Failed to materialise next recurring occurrence");
+            None
+        }
+    }
+}
+
+/// The occurrence after `closed`: a clean copy of it in the default state,
+/// due on the rule's next date, carrying the rule so the series continues and
+/// the series' first ticket as its template. `None` unless this write closed
+/// the ticket, and `None` while the series already has an open occurrence or
+/// a ticket due on or after the next date, so a series has one open occurrence
+/// at a time and never repeats or goes back a date (a reopen and close again,
+/// even in a later period, makes none). An assignee who can no longer work
+/// tickets isn't carried over; an unassigned occurrence goes through the
+/// assignment rules, as every new ticket does.
+fn create_next_occurrence(
+    conn: &mut DbConnection,
+    previous: &Ticket,
+    closed: &Ticket,
+) -> Result<Option<Ticket>, TicketWriteError> {
+    use crate::repository::workflow_states::category_of;
+    let Some(rule) = closed.recurrence_rule.as_deref() else {
+        return Ok(None);
     };
-    if closes(previous.workflow_state_id) || !closes(closed.workflow_state_id) {
-        return None;
+    let closes =
+        |category: Option<WorkflowStateCategory>| category.is_some_and(|c| c.closes_ticket());
+    if closes(category_of(conn, previous.workflow_state_id)?)
+        || !closes(category_of(conn, closed.workflow_state_id)?)
+    {
+        return Ok(None);
     }
     let after = closed
         .due_date
@@ -747,41 +775,34 @@ fn next_occurrence_on_close(
     ) {
         Ok(Some(next_due)) => next_due,
         // The series ran out (UNTIL passed).
-        Ok(None) => return None,
+        Ok(None) => return Ok(None),
         Err(e) => {
             warn!(ticket_id = closed.id, rule = %rule, error = ?e, "Recurrence rule failed to parse on close");
-            return None;
+            return Ok(None);
         }
     };
-    match conn.transaction(|conn| create_next_occurrence(conn, closed, rule, next_due)) {
-        Ok(next) => next,
-        Err(e) => {
-            warn!(ticket_id = closed.id, error = ?e, "Failed to materialise next recurring occurrence");
-            None
-        }
-    }
-}
-
-/// The occurrence after `closed`, due `next_due`: a clean copy of it in the
-/// default state, carrying the rule so the series continues and the series'
-/// first ticket as its template. `None` when the series already has a ticket
-/// due then. An assignee who can no longer work tickets isn't carried over;
-/// an unassigned occurrence goes through the assignment rules, as every new
-/// ticket does.
-fn create_next_occurrence(
-    conn: &mut DbConnection,
-    closed: &Ticket,
-    rule: &str,
-    next_due: chrono::NaiveDateTime,
-) -> Result<Option<Ticket>, TicketWriteError> {
     let template_id = closed.recurrence_template_id.unwrap_or(closed.id);
-    let already: i64 = tickets::table
+    let pending: i64 = tickets::table
+        .inner_join(workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)))
         .filter(tickets::workspace_id.eq(closed.workspace_id))
-        .filter(tickets::recurrence_template_id.eq(template_id))
-        .filter(tickets::due_date.eq(next_due))
+        .filter(
+            tickets::recurrence_template_id
+                .eq(template_id)
+                .or(tickets::id.eq(template_id)),
+        )
+        .filter(tickets::id.ne(closed.id))
+        .filter(
+            workflow_states::category
+                .ne_all(vec![
+                    WorkflowStateCategory::Done,
+                    WorkflowStateCategory::Cancelled,
+                    WorkflowStateCategory::Merged,
+                ])
+                .or(tickets::due_date.ge(next_due)),
+        )
         .count()
         .get_result(conn)?;
-    if already > 0 {
+    if pending > 0 {
         return Ok(None);
     }
     let assignee_uuid = match closed.assignee_uuid {

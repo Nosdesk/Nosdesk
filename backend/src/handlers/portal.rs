@@ -1981,6 +1981,7 @@ pub async fn resolve_my_ticket(
     portal: PortalContext,
     path: web::Path<i32>,
     body: web::Json<ResolveRequest>,
+    search: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
     let user_uuid = portal.user_uuid;
@@ -1995,6 +1996,9 @@ pub async fn resolve_my_ticket(
             ticket_id,
             user_uuid,
             comment.as_deref(),
+            search
+                .as_ref()
+                .map(|s| s.get_ref() as &dyn crate::repository::tickets::TicketUpdatedObserver),
         )? {
             return Ok(None);
         }

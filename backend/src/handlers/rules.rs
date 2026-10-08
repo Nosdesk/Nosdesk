@@ -850,7 +850,11 @@ pub async fn apply_rule(
         },
     };
 
-    let outcome = match rules::apply_manual(&mut conn, input, &actor) {
+    // A step that closes a recurring ticket indexes its next occurrence.
+    let observer = search
+        .as_ref()
+        .map(|s| s.get_ref() as &dyn crate::repository::tickets::TicketUpdatedObserver);
+    let outcome = match rules::apply_manual(&mut conn, input, &actor, observer) {
         Ok(o) => o,
         Err(e) => return Ok(map_apply_error(e)),
     };
