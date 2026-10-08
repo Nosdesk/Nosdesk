@@ -8,7 +8,7 @@
     "url": { "rust": "String", "ts": "string" },
     "events": { "rust": "Vec<Option<String>>", "ts": "string[]" },
     "enabled": { "rust": "bool", "ts": "boolean" },
-    "headers": { "rust": "Option<serde_json::Value>", "ts": "Record<string, unknown> | null" },
+    "headers": { "rust": "Option<Vec<String>>", "ts": "string[] | null" },
     "disabled_reason": { "rust": "Option<String>", "ts": "string | null" },
     "created_at": { "rust": "NaiveDateTime", "ts": "string" },
     "updated_at": { "rust": "NaiveDateTime", "ts": "string" }

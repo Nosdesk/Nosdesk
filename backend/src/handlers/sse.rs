@@ -512,7 +512,17 @@ async fn filter_sync_actions_frame(
     let kept: Vec<serde_json::Value> = rows
         .into_iter()
         .zip(mask)
-        .filter_map(|(row, keep)| keep.then_some(row))
+        .filter(|(_, keep)| *keep)
+        .map(|(mut row, _)| {
+            let aggregate = row
+                .get("aggregate")
+                .cloned()
+                .and_then(|v| serde_json::from_value::<crate::models::SyncAggregate>(v).ok());
+            if let Some(data) = row.get_mut("data") {
+                crate::sync::visibility::project_row(&viewer, aggregate, data);
+            }
+            row
+        })
         .collect();
 
     frame_envelope(&Envelope {
@@ -1015,11 +1025,22 @@ mod tests {
     #[test]
     fn needs_filtering_reference_only_skips() {
         let env = sync_actions_env(json!([
-            { "aggregate": "user", "aggregate_id": "x" },
+            { "aggregate": "workflow_state", "aggregate_id": "2" },
             { "aggregate": "asset", "aggregate_id": "1" },
         ]));
         assert!(!batch_needs_filtering(&env, &viewer(true)));
         assert!(!batch_needs_filtering(&env, &viewer(false)));
+    }
+
+    /// A restricted viewer gets only part of someone else's `user` row, so
+    /// those rows go through the filter for them; staff get them whole.
+    #[test]
+    fn needs_filtering_user_rows_for_restricted() {
+        let env = sync_actions_env(json!([
+            { "aggregate": "user", "aggregate_id": "x" },
+        ]));
+        assert!(!batch_needs_filtering(&env, &viewer(true)));
+        assert!(batch_needs_filtering(&env, &viewer(false)));
     }
 
     #[test]

@@ -129,6 +129,15 @@ impl DeletedFilter {
     }
 }
 
+/// What a people search matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchBy {
+    /// The name or any of the person's addresses (staff).
+    NameOrEmail,
+    /// The name only: for a caller who isn't shown others' addresses.
+    Name,
+}
+
 pub fn get_paginated_users(
     conn: &mut DbConnection,
     page: i64,
@@ -136,6 +145,7 @@ pub fn get_paginated_users(
     sort_field: Option<String>,
     sort_direction: Option<String>,
     search: Option<String>,
+    search_by: SearchBy,
     role: Option<String>,
     deleted: DeletedFilter,
     workspace_id: i32,
@@ -146,8 +156,8 @@ pub fn get_paginated_users(
     let search_uuids: Option<Vec<Uuid>> = match search.as_deref() {
         Some(term) if !term.is_empty() => {
             let pattern = format!("%{}%", term.to_lowercase());
-            Some(
-                users::table
+            Some(match search_by {
+                SearchBy::NameOrEmail => users::table
                     .left_join(user_emails::table.on(user_emails::user_uuid.eq(users::uuid)))
                     .select(users::uuid)
                     .filter(
@@ -157,7 +167,11 @@ pub fn get_paginated_users(
                     )
                     .distinct()
                     .load::<Uuid>(conn)?,
-            )
+                SearchBy::Name => users::table
+                    .select(users::uuid)
+                    .filter(users::name.ilike(pattern))
+                    .load::<Uuid>(conn)?,
+            })
         }
         _ => None,
     };
@@ -791,6 +805,7 @@ mod tests {
             None,
             None,
             None,
+            SearchBy::NameOrEmail,
             None,
             DeletedFilter::Active,
             crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
@@ -815,6 +830,7 @@ mod tests {
             None,
             None,
             None,
+            SearchBy::NameOrEmail,
             None,
             DeletedFilter::Only,
             crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
