@@ -335,20 +335,27 @@ pub fn partitions_eligible_for_drop(
 
     // pg_get_expr renders the partition bound expression as
     // `FOR VALUES FROM ('<ts>') TO ('<ts>')` for our RANGE partitions; we
-    // parse the upper bound below.
-    let rows: Vec<PartitionInfo> = diesel::sql_query(
-        "SELECT
-             c.relname AS child_name,
-             pg_get_expr(c.relpartbound, c.oid) AS range_expr
-         FROM pg_inherits i
-         JOIN pg_class c ON c.oid = i.inhrelid
-         JOIN pg_class p ON p.oid = i.inhparent
-         WHERE p.relname = $1
-         AND c.relname <> $2",
-    )
-    .bind::<Text, _>(parent)
-    .bind::<Text, _>(format!("{parent}_default"))
-    .load(conn)?;
+    // parse the upper bound below. It prints a timestamptz bound in the
+    // session's time zone, so read it in UTC: on a negative offset the
+    // bound `2026-06-01 00:00+00` prints as `2026-05-31 ...`, a day early.
+    // Oldest first, so a run that stops partway has dropped the oldest.
+    let rows: Vec<PartitionInfo> = conn.transaction(|conn| {
+        diesel::sql_query("SET LOCAL TimeZone = 'UTC'").execute(conn)?;
+        diesel::sql_query(
+            "SELECT
+                 c.relname AS child_name,
+                 pg_get_expr(c.relpartbound, c.oid) AS range_expr
+             FROM pg_inherits i
+             JOIN pg_class c ON c.oid = i.inhrelid
+             JOIN pg_class p ON p.oid = i.inhparent
+             WHERE p.relname = $1
+             AND c.relname <> $2
+             ORDER BY c.relname",
+        )
+        .bind::<Text, _>(parent)
+        .bind::<Text, _>(format!("{parent}_default"))
+        .load(conn)
+    })?;
 
     let mut eligible = Vec::new();
     for row in rows {
@@ -392,12 +399,23 @@ pub fn drop_partitions_older_than(
     let eligible = partitions_eligible_for_drop(conn, parent, cutoff)?;
     let mut dropped = Vec::new();
     for child in eligible {
-        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        let result = conn.transaction::<_, diesel::result::Error, _>(|conn| {
             diesel::sql_query(format!("SET LOCAL lock_timeout = '{DROP_LOCK_TIMEOUT}'"))
                 .execute(conn)?;
             diesel::sql_query(format!("DROP TABLE {child}")).execute(conn)?;
             Ok(())
-        })?;
+        });
+        if let Err(e) = result {
+            // The caller only sees the error; say what this run did drop.
+            if !dropped.is_empty() {
+                warn!(
+                    partitioned_table = parent,
+                    partitions = ?dropped,
+                    "dropped expired partitions before a failure"
+                );
+            }
+            return Err(e);
+        }
         dropped.push(child);
     }
     Ok(dropped)

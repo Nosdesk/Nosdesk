@@ -140,3 +140,80 @@ async fn the_scheduled_prune_drops_expired_audit_log_months() {
     )
     .await;
 }
+
+fn date(y: i32, m: u32, d: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(y, m, d).expect("date")
+}
+
+/// Bounds are read in UTC. In a session on a negative offset Postgres prints
+/// the bound `2020-02-01 00:00+00` as `2020-01-31 19:00-05`; read as a date,
+/// that dropped a month a day early, while it still held the cutoff day.
+#[test]
+fn partition_bounds_are_read_in_utc() {
+    let db = TestDb::new();
+    let pool = db.pool();
+    let mut conn = pool.get().expect("conn");
+    let january = month_partition(&mut conn, "audit_log", date(2020, 1, 1));
+    diesel::sql_query("SET TimeZone = 'America/New_York'")
+        .execute(&mut conn)
+        .expect("session time zone");
+
+    let early = backend::sync::partitions::drop_partitions_older_than(
+        &mut conn,
+        "audit_log",
+        date(2020, 1, 31),
+    )
+    .expect("prune with the cutoff inside January");
+    assert!(early.is_empty(), "January holds the cutoff day: {early:?}");
+    assert!(table_exists(&mut conn, &january));
+
+    let on_time = backend::sync::partitions::drop_partitions_older_than(
+        &mut conn,
+        "audit_log",
+        date(2020, 2, 1),
+    )
+    .expect("prune with the cutoff at January's end");
+    assert_eq!(on_time, vec![january]);
+}
+
+/// A run that fails partway keeps the partitions it already dropped and
+/// reports the failure; the next run drops the rest.
+#[test]
+fn a_prune_that_fails_partway_keeps_what_it_dropped() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(2);
+    let mut conn = pool.get().expect("conn");
+    let january = month_partition(&mut conn, "audit_log", date(2020, 1, 1));
+    let february = month_partition(&mut conn, "audit_log", date(2020, 2, 1));
+
+    // Another session reading February holds a lock its drop waits on.
+    let mut reader = pool.get().expect("reader");
+    diesel::sql_query("BEGIN")
+        .execute(&mut reader)
+        .expect("begin");
+    diesel::sql_query(format!("LOCK TABLE {february} IN ACCESS SHARE MODE"))
+        .execute(&mut reader)
+        .expect("lock February");
+
+    let failed = backend::sync::partitions::drop_partitions_older_than(
+        &mut conn,
+        "audit_log",
+        date(2020, 3, 1),
+    );
+    diesel::sql_query("ROLLBACK")
+        .execute(&mut reader)
+        .expect("rollback");
+
+    assert!(failed.is_err(), "February's drop times out: {failed:?}");
+    assert!(!table_exists(&mut conn, &january), "January went first");
+    assert!(table_exists(&mut conn, &february));
+    assert_eq!(
+        backend::sync::partitions::drop_partitions_older_than(
+            &mut conn,
+            "audit_log",
+            date(2020, 3, 1)
+        )
+        .expect("the next run"),
+        vec![february]
+    );
+}

@@ -404,7 +404,6 @@ src/services/scheduled_jobs.rs archived
 src/services/scheduled_jobs.rs archived_at
 src/services/scheduled_jobs.rs cap
 src/services/scheduled_jobs.rs checked
-src/services/scheduled_jobs.rs cutoff
 src/services/scheduled_jobs.rs deleted_at
 src/services/scheduled_jobs.rs errored
 src/services/scheduled_jobs.rs grace_days
@@ -413,8 +412,6 @@ src/services/scheduled_jobs.rs job_id
 src/services/scheduled_jobs.rs loan_id
 src/services/scheduled_jobs.rs max_retention_days
 src/services/scheduled_jobs.rs name
-src/services/scheduled_jobs.rs parent
-src/services/scheduled_jobs.rs partitions
 src/services/scheduled_jobs.rs purged
 src/services/scheduled_jobs.rs read_retention_days
 src/services/scheduled_jobs.rs recipient

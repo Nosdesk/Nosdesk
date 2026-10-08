@@ -164,6 +164,11 @@ const ALLOWED_FIELDS: &[&str] = &[
     "cancelled",
     "code",
     "count",
+    // Partition retention: the partitioned table, the retention cutoff date
+    // and the partitions a run dropped. Table names and a date.
+    "cutoff",
+    "partitioned_table",
+    "partitions",
     // workspace restore: how many files landed before a put failed.
     "files_restored",
     // notification outbox: per-row intent and recipient counts.

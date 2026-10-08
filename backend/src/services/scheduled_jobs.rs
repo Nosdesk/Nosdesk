@@ -715,7 +715,7 @@ async fn drop_old_event_partitions(
         .with_context(|| format!("drop {parent} partitions older than {cutoff}"))?;
     if !dropped.is_empty() {
         info!(
-            parent = parent,
+            partitioned_table = parent,
             cutoff = %cutoff,
             count = dropped.len(),
             partitions = ?dropped,

@@ -190,7 +190,10 @@ fn record(
     entry.in_progress = false;
     if let Some(e) = error {
         entry.total_failures += 1;
-        entry.last_outcome = Some(format!("{e:#}"));
+        // The job's own message only: the scheduler status endpoint shows
+        // this, and the cause chain (which can carry database detail) goes
+        // to the log.
+        entry.last_outcome = Some(e.to_string());
     } else {
         entry.last_outcome = Some("ok".into());
     }
