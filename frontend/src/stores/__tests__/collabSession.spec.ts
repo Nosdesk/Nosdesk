@@ -40,7 +40,10 @@ const fake = vi.hoisted(() => {
       this.wsconnected = false
       this.emit('status', [{ status: 'disconnected' }])
     }
-    destroy() {}
+    destroyed = false
+    destroy() {
+      this.destroyed = true
+    }
     /** The socket opened. */
     open() {
       this.wsconnecting = false
@@ -54,6 +57,19 @@ const fake = vi.hoisted(() => {
       this.emit('connection-close', [null, this])
       this.emit('status', [{ status: 'disconnected' }])
     }
+    /** The server closed the socket with `code`. As y-websocket 3.1 does: a
+     *  44xx close turns reconnecting off and is then reported as `closed`. */
+    serverClose(code: number) {
+      const wasConnected = this.wsconnected
+      this.wsconnected = false
+      this.wsconnecting = false
+      this.emit('connection-close', [{ code, reason: '' }, this])
+      if (wasConnected) this.emit('status', [{ status: 'disconnected' }])
+      if (code >= 4400 && code < 4500) {
+        this.shouldConnect = false
+        this.emit('closed', [{ code, reason: '' }, this])
+      }
+    }
   }
 
   const providers: FakeProvider[] = []
@@ -63,10 +79,18 @@ const providers = fake.providers
 vi.mock('y-websocket', () => ({ WebsocketProvider: fake.FakeProvider }))
 vi.mock('y-indexeddb', () => ({ IndexeddbPersistence: class {}, clearDocument: vi.fn() }))
 
-const token = vi.hoisted(() => ({ cached: null as string | null, next: null as Promise<string> | null }))
+const token = vi.hoisted(() => ({
+  cached: null as string | null,
+  next: null as Promise<string> | null,
+  resets: 0,
+}))
 vi.mock('@/services/collabToken', () => ({
   peekCollabToken: () => token.cached,
   getCollabToken: () => token.next ?? Promise.resolve('t'),
+  discardCollabToken: () => {
+    token.resets++
+    token.cached = null
+  },
 }))
 
 import { useCollabSessionStore } from '@/stores/collabSession'
@@ -87,6 +111,7 @@ beforeEach(() => {
   providers.length = 0
   token.cached = null
   token.next = null
+  token.resets = 0
   localStorage.setItem('nosdesk:disable-idb-collab', '1')
 })
 afterEach(() => {
@@ -151,5 +176,88 @@ describe('a note that was connected', () => {
     providers[0].shouldConnect = false
     providers[0].emit('closed', [{ code: 4403, reason: 'forbidden' }, providers[0]])
     expect(store.connectionBadge['doc-a']).toBe('disconnected')
+  })
+})
+
+describe('a note the server refuses', () => {
+  /** Open `doc-a`, connected, and count its connect attempts from here. */
+  function openNote() {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+    return vi.spyOn(providers[0], 'connect')
+  }
+
+  it('says the viewer has no access, and stops trying', async () => {
+    const connects = openNote()
+
+    providers[0].serverClose(4403)
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(connects).not.toHaveBeenCalled()
+    expect(providers[0].shouldConnect).toBe(false)
+    expect(store.connectionBadge['doc-a']).toBe('disconnected')
+    expect(store.connectionRefusal['doc-a']).toBe('no-access')
+  })
+
+  it('says the note is gone', () => {
+    openNote()
+    providers[0].serverClose(4404)
+    expect(store.connectionRefusal['doc-a']).toBe('gone')
+  })
+
+  it('tries once more with a fresh token before saying the viewer is signed out', async () => {
+    openNote()
+
+    // The server upgrades a refused connection before closing it, so the
+    // socket opens each time.
+    providers[0].open()
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(token.resets).toBe(1)
+    expect(providers[0].shouldConnect).toBe(true)
+    expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
+
+    providers[0].open()
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(token.resets).toBe(1)
+    expect(store.connectionRefusal['doc-a']).toBe('signed-out')
+  })
+
+  it('tries a fresh token again once the server has served the note since', async () => {
+    openNote()
+    providers[0].open()
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(0)
+
+    providers[0].open()
+    providers[0].emit('sync', [true])
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(token.resets).toBe(2)
+    expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
+  })
+
+  it('keeps retrying a connection that only dropped', async () => {
+    openNote()
+    providers[0].serverClose(1006)
+    expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
+    expect(providers[0].shouldConnect).toBe(true)
+  })
+})
+
+describe('a workspace switch', () => {
+  it("closes every open note's connection", () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    store.acquire('doc-b', OPTS)
+    store.release('doc-b')
+
+    store.closeAll()
+
+    expect(providers.map((p) => p.destroyed)).toEqual([true, true])
+    expect(store.sessionSnapshot).toEqual([])
+    expect(store.connectionStatus).toEqual({})
   })
 })

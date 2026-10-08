@@ -3566,6 +3566,10 @@ editor-toolbar-connection-connecting = Connexion...
 # Connexion perdue, nouvelle tentative (machine, à relire par un locuteur natif).
 editor-toolbar-connection-reconnecting = Reconnexion...
 editor-toolbar-connection-disconnected = Déconnecté
+# Refused collab connection (machine, pending native review)
+editor-toolbar-connection-signed-out = Déconnecté. Reconnectez-vous pour enregistrer les modifications.
+editor-toolbar-connection-no-access = Aucun accès. Les modifications ici ne seront pas enregistrées.
+editor-toolbar-connection-gone = Supprimé. Les modifications ici ne seront pas enregistrées.
 editor-toolbar-user-title = { $name }
 editor-toolbar-user-title-uuid = { $name } (UUID : { $uuid })
 

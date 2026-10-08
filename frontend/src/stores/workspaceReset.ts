@@ -29,13 +29,18 @@ export async function resetWorkspaceScopedState(): Promise<void> {
   // way to keep one workspace's rows from bleeding into the next; re-hydration
   // is the caller's job.
   try {
-    const [{ tearDown }, { detachSseBridge }, { purgeAllCollabDocs }] = await Promise.all([
-      import('@/sync/lifecycle'),
-      import('@/sync/sseBridge'),
-      import('@/utils/collabLocalCache'),
-    ]);
+    const [{ tearDown }, { detachSseBridge }, { purgeAllCollabDocs }, { useCollabSessionStore }] =
+      await Promise.all([
+        import('@/sync/lifecycle'),
+        import('@/sync/sseBridge'),
+        import('@/utils/collabLocalCache'),
+        import('@/stores/collabSession'),
+      ]);
     detachSseBridge();
     await tearDown();
+    // Open notes' connections belong to the workspace being left; closed
+    // before their local copies go.
+    useCollabSessionStore().closeAll();
     await purgeAllCollabDocs();
   } catch (e) {
     logger.error('Failed to tear down the sync runtime', e);

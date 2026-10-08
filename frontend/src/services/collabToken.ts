@@ -76,6 +76,13 @@ export function resetCollabToken(): void {
   stopWarm();
 }
 
+/** Drop the cached token after a connection refused it, so the next connect
+ *  fetches a fresh one. Unlike `resetCollabToken`, keeping a token ready
+ *  carries on: other notes still need one. */
+export function discardCollabToken(): void {
+  cached = null;
+}
+
 // ---- Kept ready -------------------------------------------------------------
 //
 // With a token at hand, opening a note connects without a token round trip

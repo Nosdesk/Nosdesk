@@ -3624,6 +3624,9 @@ editor-toolbar-editing-with = Editing with:
 editor-toolbar-connection-connecting = Connecting...
 editor-toolbar-connection-reconnecting = Reconnecting...
 editor-toolbar-connection-disconnected = Disconnected
+editor-toolbar-connection-signed-out = Signed out. Sign in again to save changes.
+editor-toolbar-connection-no-access = No access. Changes here won't be saved.
+editor-toolbar-connection-gone = Deleted. Changes here won't be saved.
 editor-toolbar-user-title = { $name }
 editor-toolbar-user-title-uuid = { $name } (UUID: { $uuid })
 

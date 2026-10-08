@@ -37,7 +37,7 @@ import { ref } from 'vue'
 import { logger } from '@nosdesk/core/utils/logger'
 import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData'
 import { collabWsBaseUrl } from '@nosdesk/core/transport'
-import { getCollabToken, peekCollabToken } from '@/services/collabToken'
+import { discardCollabToken, getCollabToken, peekCollabToken } from '@/services/collabToken'
 
 /**
  * How long after refcount hits 0 we keep the websocket open
@@ -105,6 +105,20 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
  */
 export type ConnectionBadge = 'connecting' | 'reconnecting' | 'disconnected' | null
 
+/** Why the server closed a document's connection for good. */
+export type ConnectionRefusal = 'signed-out' | 'no-access' | 'gone'
+
+/**
+ * Read the server's close code (`CollabRefusal` in
+ * `handlers/collaboration.rs`): 4401 the token wasn't accepted, 4403 no
+ * access, 4404 the document is gone. Any other 44xx close reads as no access.
+ */
+function refusalFor(code: number | undefined): ConnectionRefusal {
+  if (code === 4401) return 'signed-out'
+  if (code === 4404) return 'gone'
+  return 'no-access'
+}
+
 /** A first connect shows "Connecting..." only once it takes this long. */
 const SLOW_CONNECT_MS = 2000
 /** A drop shows "Reconnecting..." only once it lasts this long; y-websocket
@@ -119,6 +133,11 @@ interface LinkState {
   /** The server closed the socket for good (a 44xx close). Cleared when a
    *  connect is started again. */
   terminal: boolean
+  /** Why, for a terminal close. */
+  refusal: ConnectionRefusal | null
+  /** A refused token was already replaced once since the server last served
+   *  this connection, so another refusal means the person is signed out. */
+  retriedToken: boolean
   /** Connected since the last deliberate disconnect, so not connecting
    *  again means the connection dropped. */
   everConnected: boolean
@@ -131,7 +150,14 @@ const linkStates = new WeakMap<WebsocketProvider, LinkState>()
 function linkState(provider: WebsocketProvider): LinkState {
   let state = linkStates.get(provider)
   if (!state) {
-    state = { tokenPending: false, terminal: false, everConnected: false, changed: () => {} }
+    state = {
+      tokenPending: false,
+      terminal: false,
+      refusal: null,
+      retriedToken: false,
+      everConnected: false,
+      changed: () => {},
+    }
     linkStates.set(provider, state)
   }
   return state
@@ -180,6 +206,7 @@ async function connectWithValidToken(provider: WebsocketProvider): Promise<void>
   const link = linkState(provider)
   // A connect started again: an earlier terminal close no longer stands.
   link.terminal = false
+  link.refusal = null
   const cached = peekCollabToken()
   if (cached) {
     provider.params = { token: cached }
@@ -235,6 +262,8 @@ interface SessionEntry {
   statusListener: () => void
   /** Bound `closed` (terminal close) listener, likewise. */
   closedListener: () => void
+  /** Bound `sync` listener, likewise. */
+  syncListener: (synced: boolean) => void
   /** Pending timer that shows the badge once a connect or drop lasts. */
   badgeTimer: ReturnType<typeof setTimeout> | null
   /** The badge `badgeTimer` will show. */
@@ -390,6 +419,10 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
   /** Per-doc badge for the editor, timed from `connectionStatus`. */
   const connectionBadge = ref<Record<string, ConnectionBadge>>({})
 
+  /** Per-doc reason the server refused the connection, for the editor to
+   *  say instead of a bare "Disconnected". */
+  const connectionRefusal = ref<Record<string, ConnectionRefusal | null>>({})
+
   function clearBadgeTimer(entry: SessionEntry): void {
     if (entry.badgeTimer) clearTimeout(entry.badgeTimer)
     entry.badgeTimer = null
@@ -403,6 +436,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     const link = linkState(provider)
     if (status === 'connected') link.everConnected = true
     connectionStatus.value[docId] = status
+    connectionRefusal.value[docId] = link.terminal ? link.refusal : null
 
     if (status !== 'connecting') {
       clearBadgeTimer(entry)
@@ -491,6 +525,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     try {
       entry.provider.off('status', entry.statusListener)
       entry.provider.off('closed', entry.closedListener)
+      entry.provider.off('sync', entry.syncListener)
     } catch {
       // Provider may already be torn down; nothing to do.
     }
@@ -498,6 +533,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     clearBadgeTimer(entry)
     delete connectionStatus.value[docId]
     delete connectionBadge.value[docId]
+    delete connectionRefusal.value[docId]
     try {
       retiredProviders.add(entry.provider)
       entry.provider.destroy()
@@ -606,9 +642,27 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     // every transition, including the token fetch and a terminal close,
     // which y-websocket reports after its last `status` event.
     const onStatus = () => refreshStatus(entry)
-    const onClosed = () => {
-      linkState(provider).terminal = true
+    const onClosed = (event?: { code?: number }) => {
+      const link = linkState(provider)
+      const refusal = refusalFor(event?.code)
+      // A refused token may only be stale (it outlived its short life, or a
+      // clock is off): fetch a fresh one and try once more before saying the
+      // person is signed out.
+      if (refusal === 'signed-out' && !link.retriedToken) {
+        link.retriedToken = true
+        discardCollabToken()
+        void connectWithValidToken(provider)
+        return
+      }
+      link.terminal = true
+      link.refusal = refusal
       refreshStatus(entry)
+    }
+    // The server served the document: a later refused token is a new
+    // problem, worth one fresh token again. Not on `connected`: a refused
+    // connection is upgraded (and so reports connected) before it is closed.
+    const onSync = (synced: boolean) => {
+      if (synced) linkState(provider).retriedToken = false
     }
     const entry: SessionEntry = {
       docId,
@@ -616,6 +670,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       provider,
       statusListener: onStatus,
       closedListener: onClosed,
+      syncListener: onSync,
       badgeTimer: null,
       badgeTimerFor: null,
       permanentUserData,
@@ -627,6 +682,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     linkState(provider).changed = onStatus
     provider.on('status', onStatus)
     provider.on('closed', onClosed)
+    provider.on('sync', onSync)
     void attachCollabToken(provider)
     // Seeded synchronously: the token fetch above has already started.
     onStatus()
@@ -712,16 +768,27 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     untouchDoc(docId)
   }
 
-  /** Test helper: wipe all sessions. Used by integration
-   *  tests; never call in production code paths. */
-  function destroyAll(): void {
+  /**
+   * Close every open document's connection and drop its session. On a
+   * workspace switch or sign-out: the connections belong to the workspace
+   * being left, and would otherwise reconnect with the next one's token
+   * and be refused until their grace period ran out.
+   */
+  function closeAll(): void {
     for (const docId of [...sessions.keys()]) evict(docId)
+  }
+
+  /** Test helper: wipe all sessions. */
+  function destroyAll(): void {
+    closeAll()
   }
 
   return {
     sessionSnapshot,
     connectionStatus,
     connectionBadge,
+    connectionRefusal,
+    closeAll,
     acquire,
     release,
     destroy,
