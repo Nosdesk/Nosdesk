@@ -10,8 +10,8 @@
  * carries a typed `kind` plus a kind-specific config object. The
  * supported kinds are reply / set_status / assign / unassign /
  * add_tags / remove_tags / set_priority / stop_processing; notify /
- * apply_macro_template / webhook are deferred and rejected by the
- * backend with RULE_ACTION_UNSUPPORTED.
+ * apply_macro_template / webhook don't run yet, and the backend refuses
+ * to save a rule with one (RULE_VALIDATION).
  *
  * Only manual rules run today, so a new rule is always manual. An older
  * rule saved with another trigger keeps it, with a note that it won't
