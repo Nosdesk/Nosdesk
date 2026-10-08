@@ -215,3 +215,122 @@ async fn the_confirmation_link_releases_a_held_ticket_without_a_password() {
         "single use"
     );
 }
+
+/// Every webhook delivery the outbox holds for `webhook_id`, by event type,
+/// draining it as the background worker does.
+fn drain_webhook_events(conn: &mut DbConnection, webhook_id: i32) -> Vec<String> {
+    use backend::services::webhooks::service::WebhookService;
+    use backend::sync::actor::ActorContext;
+    use backend::sync::session::with_actor_bypass_context;
+    let actor = ActorContext::system("test:guest_pending_hold");
+    let mut raised = Vec::new();
+    loop {
+        let (tasks, more) =
+            with_actor_bypass_context(conn, &actor, WebhookService::drain_batch_txn)
+                .expect("drain outbox");
+        raised.extend(
+            tasks
+                .into_iter()
+                .filter(|t| t.webhook_id == webhook_id)
+                .map(|t| t.payload.event_type),
+        );
+        if !more {
+            return raised;
+        }
+    }
+}
+
+/// The groups of each `event_type` row recorded for `aggregate_id`.
+fn event_groups(
+    conn: &mut DbConnection,
+    event_type: &str,
+    aggregate_id: i32,
+) -> Vec<Vec<Option<String>>> {
+    use backend::schema::sync_actions;
+    sync_actions::table
+        .filter(sync_actions::event_type.eq(event_type))
+        .filter(sync_actions::aggregate_id.eq(aggregate_id.to_string()))
+        .order(sync_actions::sync_id.asc())
+        .select(sync_actions::groups)
+        .load(conn)
+        .expect("events")
+}
+
+/// A held submission's description and files reach integrations once it's
+/// confirmed, as an unheld one's do at once.
+#[test]
+fn confirming_a_guest_ticket_sends_its_held_reply_and_files() {
+    use backend::models::{NewAttachment, NewComment};
+    use backend::repository::comments;
+
+    let db = crate::common::TestDb::new();
+    let mut conn = db.conn();
+    let guest = crate::common::insert_user(&mut conn, "Guest");
+    let webhook = backend::repository::webhooks::create_webhook(
+        &mut conn,
+        "Integration".into(),
+        "https://sink.invalid/hook".into(),
+        "secret".into(),
+        vec!["comment.added".into(), "attachment.added".into()],
+        None,
+        None,
+    )
+    .expect("webhook");
+    let ticket = guest_ticket(&mut conn, guest.uuid, true);
+    // The description and a file, written as the guest form writes them.
+    let reply = comments::create_comment(
+        &mut conn,
+        NewComment {
+            content: "<p>It smells of toner</p>".into(),
+            ticket_id: ticket.id,
+            user_uuid: guest.uuid,
+            ..Default::default()
+        },
+        None,
+    )
+    .expect("reply");
+    let draft = comments::create_attachment(
+        &mut conn,
+        NewAttachment {
+            url: "/uploads/temp/photo.jpg".into(),
+            name: "photo.jpg".into(),
+            file_size: Some(4),
+            mime_type: Some("image/jpeg".into()),
+            checksum: None,
+            comment_id: None,
+            uploaded_by: None,
+            transcription: None,
+        },
+    )
+    .expect("draft");
+    comments::reparent_attachment(
+        &mut conn,
+        draft.id,
+        &format!("/uploads/tickets/{}/photo.jpg", ticket.id),
+        reply.id,
+        guest.uuid,
+    )
+    .expect("claim");
+
+    // Held: nothing reaches the integration.
+    assert!(drain_webhook_events(&mut conn, webhook.id).is_empty());
+
+    tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid).expect("verify");
+
+    for (event_type, id) in [
+        ("comment.created", reply.id),
+        ("attachment.attached", draft.id),
+    ] {
+        let groups = event_groups(&mut conn, event_type, id);
+        assert!(
+            groups.iter().any(|g| has_workspace_audience(g)),
+            "{event_type} after release: {groups:?}"
+        );
+    }
+    let mut raised = drain_webhook_events(&mut conn, webhook.id);
+    raised.sort();
+    assert_eq!(raised, ["attachment.added", "comment.added"]);
+    // Confirming once more sends nothing again.
+    tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid).expect("verify again");
+    assert!(drain_webhook_events(&mut conn, webhook.id).is_empty());
+}

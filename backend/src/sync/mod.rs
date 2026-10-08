@@ -17,6 +17,7 @@ pub mod actor;
 pub mod emit;
 pub mod feed;
 pub mod groups;
+pub mod hold;
 pub mod partitions;
 pub mod registry;
 pub mod session;

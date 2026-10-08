@@ -440,7 +440,8 @@ pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult
 /// While pending, a ticket's events were held (no workspace audience; see
 /// `groups::for_ticket`), so this is where the workspace first hears of it:
 /// one `ticket.created` with the full audience, carrying the `created_via`
-/// the held one recorded (who submitted it, from where).
+/// the held one recorded (who submitted it, from where), then the rest of
+/// what it held (the description, its files) through `sync::hold::release`.
 pub fn verify_pending_tickets_for_user(
     conn: &mut DbConnection,
     user_uuid: Uuid,
@@ -474,6 +475,7 @@ pub fn verify_pending_tickets_for_user(
                     causation_id: None,
                 },
             )?;
+            crate::sync::hold::release(conn, ticket)?;
             crate::repository::ticket_approvals::start_if_required(conn, ticket)?;
         }
         Ok(released)
