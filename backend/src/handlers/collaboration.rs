@@ -1,5 +1,5 @@
 use actix_web::{web, Error, HttpRequest, HttpResponse, Responder};
-use actix_ws::{AggregatedMessage, CloseReason};
+use actix_ws::{AggregatedMessage, CloseCode, CloseReason};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use futures::StreamExt;
@@ -722,9 +722,12 @@ impl DocAccessor {
 }
 
 /// True when `accessor` may open `document`; [`DocAccessor::can_edit`]
-/// decides whether they may also change it. The error type is
-/// Diesel's so callers can map a DB failure to a 500 and a `false`
-/// to a 404 (never 403: a 403 leaks existence, per OWASP IDOR).
+/// decides whether they may also change it. The error type is Diesel's so
+/// callers can map a DB failure to a 500. The HTTP routes answer a `false`
+/// with 404, like a missing document. The collab socket closes it with 4403
+/// (no access) and a missing document with 4404: the caller is already a
+/// member of the document's workspace, and the note needs to say why it
+/// won't connect.
 pub(crate) fn can_access_document(
     conn: &mut crate::db::DbConnection,
     accessor: &DocAccessor,
@@ -2651,6 +2654,70 @@ pub struct CollabWsQuery {
     token: Option<String>,
 }
 
+/// Why the collab socket refuses a connection. A browser can't read the status
+/// of a failed WebSocket upgrade (it sees close code 1006), and y-websocket
+/// retries that forever, so a refusal accepts the upgrade and closes at once
+/// with one of these. Codes 4400-4499 tell y-websocket not to reconnect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollabRefusal {
+    /// No usable connection token, or no such user: sign in again.
+    Unauthenticated,
+    /// Signed in, but not allowed this document (or its workspace).
+    NoAccess,
+    /// The document doesn't exist (any more).
+    Gone,
+}
+
+impl CollabRefusal {
+    pub fn code(self) -> u16 {
+        match self {
+            Self::Unauthenticated => 4401,
+            Self::NoAccess => 4403,
+            Self::Gone => 4404,
+        }
+    }
+
+    fn reason(self) -> &'static str {
+        match self {
+            Self::Unauthenticated => "unauthenticated",
+            Self::NoAccess => "no access",
+            Self::Gone => "not found",
+        }
+    }
+
+    /// The refusal a pre-upgrade check's HTTP error stands for, if it is one.
+    fn from_error(e: &Error) -> Option<Self> {
+        match e.as_response_error().status_code() {
+            StatusCode::UNAUTHORIZED => Some(Self::Unauthenticated),
+            StatusCode::FORBIDDEN => Some(Self::NoAccess),
+            StatusCode::NOT_FOUND => Some(Self::Gone),
+            _ => None,
+        }
+    }
+}
+
+/// Accept the upgrade and close straight away with `refusal`'s code and reason,
+/// so the client learns why and stops retrying. Nothing is loaded for the
+/// document: every check that refuses runs before this.
+fn refuse_after_upgrade(
+    req: &HttpRequest,
+    body: web::Payload,
+    refusal: CollabRefusal,
+) -> Result<HttpResponse, Error> {
+    let (response, session, msg_stream) = actix_ws::handle(req, body)?;
+    actix_web::rt::spawn(async move {
+        // Held until the close is sent, so the connection isn't torn down first.
+        let _msg_stream = msg_stream;
+        let _ = session
+            .close(Some(CloseReason {
+                code: CloseCode::Other(refusal.code()),
+                description: Some(refusal.reason().to_string()),
+            }))
+            .await;
+    });
+    Ok(response)
+}
+
 /// WebSocket connection handler — entry point for WebSocket requests.
 pub async fn ws_handler(
     req: HttpRequest,
@@ -2720,11 +2787,9 @@ pub async fn ws_handler(
     // query string: a browser WebSocket can't set an Authorization header or a
     // cross-origin cookie. Token-everywhere — web and mobile both use it, like
     // the SSE token. Per-doc authorization (membership + visibility) is below.
-    let token = query
-        .token
-        .as_deref()
-        .filter(|t| !t.is_empty())
-        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Missing connection token"))?;
+    let Some(token) = query.token.as_deref().filter(|t| !t.is_empty()) else {
+        return refuse_after_upgrade(&req, body, CollabRefusal::Unauthenticated);
+    };
 
     // Parse the workspace-namespaced doc_id up front; its embedded
     // workspace_uuid is the tenancy anchor. Rejects legacy bare ids
@@ -2734,109 +2799,104 @@ pub async fn ws_handler(
     let parsed = match DocumentType::from_namespaced_doc_id(&doc_id) {
         Ok(p) => p,
         Err(e) => {
+            // Not a document this server can name (e.g. a stale client's
+            // legacy bare id): retrying won't change that.
             warn!(doc_id = %doc_id, error = ?e, "WebSocket doc_id parse failed");
-            return Err(actix_web::error::ErrorBadRequest(
-                "doc_id must be in the workspace-namespaced format ws-{uuid}_{kind}-{id}",
-            ));
+            return refuse_after_upgrade(&req, body, CollabRefusal::Gone);
         }
     };
 
     // Validate the token, resolve the connection's workspace, and build the
     // visibility context used to gate per-document access below.
-    let (user_uuid, accessor, workspace_id) =
-        if let Some(pool) = req.app_data::<web::Data<crate::db::Pool>>() {
-            let mut conn = pool.get().map_err(|_| {
-                actix_web::error::ErrorInternalServerError("Database connection failed")
-            })?;
+    let (user_uuid, accessor, workspace_id) = if let Some(pool) =
+        req.app_data::<web::Data<crate::db::Pool>>()
+    {
+        let mut conn = pool.get().map_err(|_| {
+            actix_web::error::ErrorInternalServerError("Database connection failed")
+        })?;
 
-            // docId-vs-Host integrity: on a per-tenant origin the docId must name
-            // the same workspace as the Host — the cross-tenant guard against a tab
-            // cached on workspace A constructing a B docId. With no Host context
-            // (single-origin agent app) the docId's workspace_uuid IS the selection
-            // (the WS can't send the selection header). The membership gate below
-            // authorizes either way. Integrity only; not a membership check.
-            if let Some(ws) = &ws {
-                if parsed.workspace_uuid != ws.workspace_uuid {
-                    warn!(
-                        doc_id = %doc_id,
-                        requested_workspace_uuid = %parsed.workspace_uuid,
-                        request_workspace_id = ws.workspace_id,
-                        "WebSocket doc_id workspace mismatch — rejecting cross-tenant request"
-                    );
-                    return Err(actix_web::error::ErrorForbidden(
-                        "doc_id workspace does not match the request workspace",
-                    ));
-                }
+        // docId-vs-Host integrity: on a per-tenant origin the docId must name
+        // the same workspace as the Host — the cross-tenant guard against a tab
+        // cached on workspace A constructing a B docId. With no Host context
+        // (single-origin agent app) the docId's workspace_uuid IS the selection
+        // (the WS can't send the selection header). The membership gate below
+        // authorizes either way. Integrity only; not a membership check.
+        if let Some(ws) = &ws {
+            if parsed.workspace_uuid != ws.workspace_uuid {
+                warn!(
+                    doc_id = %doc_id,
+                    requested_workspace_uuid = %parsed.workspace_uuid,
+                    request_workspace_id = ws.workspace_id,
+                    "WebSocket doc_id workspace mismatch — rejecting cross-tenant request"
+                );
+                return refuse_after_upgrade(&req, body, CollabRefusal::NoAccess);
             }
+        }
 
-            // Validate the token first (reads only the global `users` row, so it is
-            // pin-independent), then enforce the collab-specific checks, then funnel
-            // through resolve + pin + gate. Ordering this way lets the shared funnel
-            // own pin-before-gate; the caller's own workspace_role read (from_claims)
-            // runs after, under the funnel's pin and only for confirmed members.
-            use crate::utils::jwt::JwtUtils;
-            let (claims, user) =
-                match JwtUtils::validate_token_with_user_check(token, &mut conn).await {
-                    Ok(pair) => pair,
-                    Err(_) => {
-                        return Err(actix_web::error::ErrorUnauthorized(
-                            "Invalid or expired token",
-                        ))
-                    }
-                };
-            // Only a write-capable collab token opens the editing socket; a
-            // read-only SSE token (or any other) is refused, preserving the
-            // read/write split the separate scopes exist for.
-            if claims.scope != "collab" {
-                return Err(actix_web::error::ErrorForbidden(
-                    "Token not valid for collaboration",
-                ));
-            }
-            // The token is workspace-bound (Model C): it must match the doc's
-            // workspace, so a token minted for workspace A can't open a B doc.
-            if let Some(token_ws) = claims.workspace_uuid {
-                if token_ws != parsed.workspace_uuid {
-                    return Err(actix_web::error::ErrorForbidden(
-                        "Token workspace does not match the document",
-                    ));
-                }
-            }
-
-            // Resolve + pin + membership-gate via the shared connection-auth
-            // funnel. A Host-derived context (per-tenant origin) is authoritative
-            // when present — it was cross-checked against the docId above, so
-            // don't re-resolve the docId uuid; with no Host context the docId's
-            // workspace uuid IS the carrier (single-origin agent app). Deny an
-            // unresolved one: a collab connection always names a workspace.
-            use crate::middleware::cookie_auth::{GateOutcome, UnresolvedPolicy, WorkspaceCarrier};
-            let carrier = WorkspaceCarrier::ConnectionToken {
-                token_workspace: ws.is_none().then_some(parsed.workspace_uuid),
-                req: &req,
-            };
-            let workspace_id = match crate::middleware::cookie_auth::resolve_pin_and_gate(
-                &mut conn,
-                &claims,
-                carrier,
-                UnresolvedPolicy::Deny,
-            )? {
-                GateOutcome::Scoped(ctx) => ctx.workspace_id,
-                GateOutcome::Unscoped => {
-                    return Err(actix_web::error::ErrorForbidden(
-                        "Not a member of this workspace",
-                    ))
-                }
-            };
-
-            // Confirmed member, pinned: resolve the caller's OWN doc-access role.
-            let accessor = DocAccessor::from_claims(&claims, &mut conn)
-                .ok_or_else(|| actix_web::error::ErrorUnauthorized("Invalid token subject"))?;
-
-            (user.uuid, accessor, workspace_id)
-        } else {
-            return Err(actix_web::error::ErrorInternalServerError(
-                "Database pool not available",
-            ));
+        // Validate the token first (reads only the global `users` row, so it is
+        // pin-independent), then enforce the collab-specific checks, then funnel
+        // through resolve + pin + gate. Ordering this way lets the shared funnel
+        // own pin-before-gate; the caller's own workspace_role read (from_claims)
+        // runs after, under the funnel's pin and only for confirmed members.
+        use crate::utils::jwt::JwtUtils;
+        let (claims, user) = match JwtUtils::validate_token_with_user_check(token, &mut conn).await
+        {
+            Ok(pair) => pair,
+            Err(_) => return refuse_after_upgrade(&req, body, CollabRefusal::Unauthenticated),
         };
+        // Only a write-capable collab token opens the editing socket; a
+        // read-only SSE token (or any other) is refused, preserving the
+        // read/write split the separate scopes exist for.
+        if claims.scope != "collab" {
+            return refuse_after_upgrade(&req, body, CollabRefusal::Unauthenticated);
+        }
+        // The token is workspace-bound (Model C): it must match the doc's
+        // workspace, so a token minted for workspace A can't open a B doc.
+        if let Some(token_ws) = claims.workspace_uuid {
+            if token_ws != parsed.workspace_uuid {
+                return refuse_after_upgrade(&req, body, CollabRefusal::NoAccess);
+            }
+        }
+
+        // Resolve + pin + membership-gate via the shared connection-auth
+        // funnel. A Host-derived context (per-tenant origin) is authoritative
+        // when present — it was cross-checked against the docId above, so
+        // don't re-resolve the docId uuid; with no Host context the docId's
+        // workspace uuid IS the carrier (single-origin agent app). Deny an
+        // unresolved one: a collab connection always names a workspace.
+        use crate::middleware::cookie_auth::{GateOutcome, UnresolvedPolicy, WorkspaceCarrier};
+        let carrier = WorkspaceCarrier::ConnectionToken {
+            token_workspace: ws.is_none().then_some(parsed.workspace_uuid),
+            req: &req,
+        };
+        let gate = crate::middleware::cookie_auth::resolve_pin_and_gate(
+            &mut conn,
+            &claims,
+            carrier,
+            UnresolvedPolicy::Deny,
+        );
+        let workspace_id = match gate {
+            Ok(GateOutcome::Scoped(ctx)) => ctx.workspace_id,
+            Ok(GateOutcome::Unscoped) => {
+                return refuse_after_upgrade(&req, body, CollabRefusal::NoAccess)
+            }
+            Err(e) => match CollabRefusal::from_error(&e) {
+                Some(refusal) => return refuse_after_upgrade(&req, body, refusal),
+                None => return Err(e),
+            },
+        };
+
+        // Confirmed member, pinned: resolve the caller's OWN doc-access role.
+        let Some(accessor) = DocAccessor::from_claims(&claims, &mut conn) else {
+            return refuse_after_upgrade(&req, body, CollabRefusal::Unauthenticated);
+        };
+
+        (user.uuid, accessor, workspace_id)
+    } else {
+        return Err(actix_web::error::ErrorInternalServerError(
+            "Database pool not available",
+        ));
+    };
 
     debug!(
         doc_id = %doc_id,
@@ -2881,11 +2941,11 @@ pub async fn ws_handler(
             Ok(Some((dt, true))) => dt,
             Ok(Some((_, false))) => {
                 warn!(doc_id = %doc_id, user_uuid = %user_uuid, "WebSocket document access denied");
-                return Err(actix_web::error::ErrorNotFound("Document not found"));
+                return refuse_after_upgrade(&req, body, CollabRefusal::NoAccess);
             }
             Ok(None) => {
                 warn!(doc_id = %doc_id, "WebSocket doc_id resolves to no live resource");
-                return Err(actix_web::error::ErrorNotFound("Document not found"));
+                return refuse_after_upgrade(&req, body, CollabRefusal::Gone);
             }
             Err(e) => {
                 error!(doc_id = %doc_id, error = ?e, "WebSocket doc resolution/visibility check failed");
@@ -2928,9 +2988,10 @@ pub async fn ws_handler(
     };
 
     // Reserve a slot in the shared connection cap (per user+workspace) BEFORE
-    // upgrading, so a capped principal is refused with 429 (a post-upgrade WS
-    // close code buys nothing: stock y-websocket ignores it) and no task/socket
-    // is spawned. The guard moves into session_task and frees the slot when the
+    // upgrading, so a capped principal is refused with 429 and no task/socket
+    // is spawned. Unlike the refusals above this one is transient, so it stays
+    // a failed upgrade, which y-websocket retries with backoff (a 44xx close
+    // would stop it for good). The guard moves into session_task and frees the slot when the
     // task ends (close, error, timeout, eviction, panic).
     let Some(conn_guard) =
         crate::services::connection_registry::global().try_acquire((user_uuid, workspace_id))

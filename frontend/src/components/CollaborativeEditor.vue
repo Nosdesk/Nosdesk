@@ -290,6 +290,20 @@ const connectionBadge = computed<ConnectionBadge>(() =>
     ? 'disconnected'
     : collab.connectionBadge[props.docId] ?? null,
 );
+// When the server refused the connection, say why instead of a bare
+// "Disconnected": it won't come back on its own.
+const disconnectedLabel = computed(() => {
+  switch (collab.connectionRefusal[props.docId] ?? null) {
+    case 'signed-out':
+      return t('editor-toolbar-connection-signed-out');
+    case 'no-access':
+      return t('editor-toolbar-connection-no-access');
+    case 'gone':
+      return t('editor-toolbar-connection-gone');
+    default:
+      return t('editor-toolbar-connection-disconnected');
+  }
+});
 
 // State for connected users
 const connectedUsers = ref<{ id: string; user: AwarenessUser }[]>([]);
@@ -2314,7 +2328,7 @@ defineExpose({
                 {{ $t('editor-toolbar-connection-reconnecting') }}
             </div>
             <div v-show="connectionBadge === 'disconnected'" class="connection-status-disconnected">
-                {{ $t('editor-toolbar-connection-disconnected') }}
+                {{ disconnectedLabel }}
             </div>
         </div>
 

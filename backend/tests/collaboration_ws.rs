@@ -465,11 +465,136 @@ async fn handshake_resolves_workspace_from_doc_id_without_host_context() {
         "expected Binary SyncStep1, got {first:?}"
     );
 
-    // Non-member: rejected at the handshake (403 -> connect errors).
-    let denied = client.ws(&stranger_url).connect().await;
+    // Non-member: the socket opens and is closed straight away as "no access".
+    assert_eq!(
+        refusal_code(&client, &stranger_url).await,
+        4403,
+        "a non-member is refused at the docId-derived handshake"
+    );
+}
+
+/// Connect, and return the close code the server ends the connection with
+/// before sending anything else.
+async fn refusal_code(client: &awc::Client, url: &str) -> u16 {
+    let (_resp, mut conn) = client
+        .ws(url)
+        .connect()
+        .await
+        .unwrap_or_else(|e| panic!("the upgrade is accepted, then closed: {e}"));
+    let frame = tokio::time::timeout(Duration::from_secs(2), conn.next())
+        .await
+        .expect("close frame timeout")
+        .expect("stream ended before a close frame")
+        .expect("close frame error");
+    match frame {
+        ws::Frame::Close(Some(reason)) => u16::from(reason.code),
+        other => panic!("expected a close frame with a code, got {other:?}"),
+    }
+}
+
+/// A browser can't see why a WebSocket upgrade failed (it reports close code
+/// 1006, and y-websocket retries forever), so a refused connection is
+/// upgraded and closed at once with a code that says why: 4401 for no usable
+/// token, 4403 for no access, 4404 for a document that doesn't exist.
+#[actix_web::test]
+async fn a_refused_connection_is_closed_with_why() {
+    install_fast_heartbeat();
+
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+    let ws1_uuid = backend::repository::workspaces::find_by_id(&mut pool.get().expect("conn"), 1)
+        .expect("ws lookup")
+        .expect("bootstrap workspace exists")
+        .uuid;
+
+    // An admin of workspace 1, and a requester there who isn't on the ticket
+    // (a plain account: `insert_user` mints a platform admin, who sees all).
+    let admin = common::insert_user(&mut pool.get().expect("conn"), "Refusal Admin");
+    let requester = common::insert_plain_user(&mut pool.get().expect("conn"), "Refusal Requester");
+    {
+        let mut conn = pool.get().expect("conn");
+        let actor = backend::sync::actor::ActorContext::user(admin.uuid, None).with_workspace(1);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |c| {
+                for (user, role) in [(admin.uuid, "admin"), (requester, "member")] {
+                    backend::repository::workspaces::add_membership(
+                        c,
+                        1,
+                        user,
+                        role,
+                        backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                    )?;
+                }
+                Ok(())
+            },
+        )
+        .expect("seed memberships");
+    }
+    let token_for = |user: uuid::Uuid, platform_role: &str| {
+        JwtUtils::create_collab_token(&user.to_string(), platform_role, Some(ws1_uuid))
+            .expect("mint collab token")
+    };
+    let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
+
+    let state_pool_inner = pool.clone();
+    let srv = actix_test::start(move || {
+        let (state, _tmp) = build_app_state(&state_pool_inner);
+        std::mem::forget(_tmp);
+        App::new()
+            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(state_pool_inner.clone()))
+            .route("/ws/{doc}", web::get().to(ws_handler))
+    });
+    let client = awc::Client::new();
+    let ticket_doc = format!("ws-{ws1_uuid}_ticket-{ticket_uuid}");
+    let missing_doc = format!("ws-{ws1_uuid}_ticket-{}", uuid::Uuid::new_v4());
+
+    for (url, code, what) in [
+        (
+            srv.url(&format!(
+                "/ws/{ticket_doc}?token={}",
+                token_for(requester, "user")
+            )),
+            4403,
+            "a member who can't see the ticket",
+        ),
+        (
+            srv.url(&format!(
+                "/ws/{missing_doc}?token={}",
+                token_for(admin.uuid, &admin.platform_role)
+            )),
+            4404,
+            "a document that doesn't exist",
+        ),
+        (
+            srv.url(&format!("/ws/{ticket_doc}?token=not-a-token")),
+            4401,
+            "a token that doesn't validate",
+        ),
+        (srv.url(&format!("/ws/{ticket_doc}")), 4401, "no token"),
+    ] {
+        assert_eq!(refusal_code(&client, &url).await, code, "{what}");
+    }
+
+    // The admin still connects to the ticket's note.
+    let (_resp, mut conn) = client
+        .ws(srv.url(&format!(
+            "/ws/{ticket_doc}?token={}",
+            token_for(admin.uuid, &admin.platform_role)
+        )))
+        .connect()
+        .await
+        .expect("an admin connects");
+    let first = tokio::time::timeout(Duration::from_secs(2), conn.next())
+        .await
+        .expect("initial frame timeout")
+        .expect("stream ended before initial frame")
+        .expect("initial frame error");
     assert!(
-        denied.is_err(),
-        "non-member must be rejected at the docId-derived handshake"
+        matches!(first, ws::Frame::Binary(_)),
+        "expected Binary SyncStep1, got {first:?}"
     );
 }
 

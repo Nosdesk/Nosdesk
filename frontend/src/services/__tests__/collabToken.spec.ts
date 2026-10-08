@@ -79,6 +79,18 @@ describe('a token kept ready', () => {
     expect(peekCollabToken()).toBeNull()
   })
 
+  it('carries on when one note discards a refused token', async () => {
+    vi.useFakeTimers()
+    collabToken.keepCollabTokenWarm('acme')
+    await vi.advanceTimersByTimeAsync(0)
+    collabToken.discardCollabToken()
+    expect(peekCollabToken()).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(91_000)
+    expect(calls).toBe(2)
+    expect(peekCollabToken()).toBe('t2')
+  })
+
   it('is not cached when the workspace changed while it was on the way', async () => {
     const fetching = getCollabToken()
     resetCollabToken()
