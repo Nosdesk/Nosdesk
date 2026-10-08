@@ -43,6 +43,32 @@ pub struct WorkingCalendarBody {
     pub is_default: Option<bool>,
 }
 
+/// A workspace has one default calendar: clear it on every other one before
+/// `keep` (or a new one) takes it.
+fn clear_default_calendar(conn: &mut DbConnection, keep: Option<i32>) -> QueryResult<usize> {
+    diesel::update(
+        working_calendars::table
+            .filter(working_calendars::workspace_id.eq(crate::repository::pinned_workspace()))
+            .filter(working_calendars::is_default.eq(true))
+            .filter(working_calendars::id.ne(keep.unwrap_or(0))),
+    )
+    .set(working_calendars::is_default.eq(false))
+    .execute(conn)
+}
+
+/// A workspace has one default policy: clear it on every other one before
+/// `keep` (or a new one) takes it.
+fn clear_default_policy(conn: &mut DbConnection, keep: Option<i32>) -> QueryResult<usize> {
+    diesel::update(
+        sla_policies::table
+            .filter(sla_policies::workspace_id.eq(crate::repository::pinned_workspace()))
+            .filter(sla_policies::is_default.eq(true))
+            .filter(sla_policies::id.ne(keep.unwrap_or(0))),
+    )
+    .set(sla_policies::is_default.eq(false))
+    .execute(conn)
+}
+
 pub fn list_calendars(conn: &mut DbConnection) -> QueryResult<Vec<WorkingCalendar>> {
     working_calendars::table
         .order(working_calendars::name.asc())
@@ -55,15 +81,21 @@ pub fn create_calendar(
     body: WorkingCalendarBody,
     actor: Option<Uuid>,
 ) -> QueryResult<WorkingCalendar> {
-    diesel::insert_into(working_calendars::table)
-        .values(&NewWorkingCalendar {
-            name: body.name,
-            timezone: body.timezone.unwrap_or_else(|| "UTC".to_string()),
-            schedule: body.schedule,
-            is_default: body.is_default.unwrap_or(false),
-            created_by: actor,
-        })
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let is_default = body.is_default.unwrap_or(false);
+        if is_default {
+            clear_default_calendar(conn, None)?;
+        }
+        diesel::insert_into(working_calendars::table)
+            .values(&NewWorkingCalendar {
+                name: body.name,
+                timezone: body.timezone.unwrap_or_else(|| "UTC".to_string()),
+                schedule: body.schedule,
+                is_default,
+                created_by: actor,
+            })
+            .get_result(conn)
+    })
 }
 
 // sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
@@ -79,9 +111,14 @@ pub fn update_calendar(
         is_default: body.is_default,
         updated_at: Some(Utc::now()),
     };
-    diesel::update(working_calendars::table.find(id))
-        .set(&patch)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        if patch.is_default == Some(true) {
+            clear_default_calendar(conn, Some(id))?;
+        }
+        diesel::update(working_calendars::table.find(id))
+            .set(&patch)
+            .get_result(conn)
+    })
 }
 
 // sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
@@ -181,21 +218,26 @@ pub fn create_policy(
     body: SlaPolicyBody,
     actor: Option<Uuid>,
 ) -> QueryResult<SlaPolicy> {
-    diesel::insert_into(sla_policies::table)
-        .values(&NewSlaPolicy {
-            name: body.name,
-            target_response_minutes: body.target_response_minutes,
-            target_resolution_minutes: body.target_resolution_minutes,
-            working_calendar_id: body.working_calendar_id,
-            priority_filter: body.priority_filter,
-            category_id_filter: body.category_id_filter,
-            assignee_group_id_filter: body.assignee_group_id_filter,
-            is_default: body.is_default.unwrap_or(false),
-            no_sla: body.no_sla.unwrap_or(false),
-            clock_start: body.clock_start.unwrap_or_else(|| "activated".to_string()),
-            created_by: actor,
-        })
-        .get_result(conn)
+    conn.transaction(|conn| {
+        if body.is_default == Some(true) {
+            clear_default_policy(conn, None)?;
+        }
+        diesel::insert_into(sla_policies::table)
+            .values(&NewSlaPolicy {
+                name: body.name,
+                target_response_minutes: body.target_response_minutes,
+                target_resolution_minutes: body.target_resolution_minutes,
+                working_calendar_id: body.working_calendar_id,
+                priority_filter: body.priority_filter,
+                category_id_filter: body.category_id_filter,
+                assignee_group_id_filter: body.assignee_group_id_filter,
+                is_default: body.is_default.unwrap_or(false),
+                no_sla: body.no_sla.unwrap_or(false),
+                clock_start: body.clock_start.unwrap_or_else(|| "activated".to_string()),
+                created_by: actor,
+            })
+            .get_result(conn)
+    })
 }
 
 /// First-run seeder: a default working calendar (Mon-Fri 09:00-17:00 UTC)
@@ -279,9 +321,14 @@ pub fn update_policy(
         clock_start: body.clock_start,
         updated_at: Some(Utc::now()),
     };
-    diesel::update(sla_policies::table.find(id))
-        .set(&patch)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        if patch.is_default == Some(true) {
+            clear_default_policy(conn, Some(id))?;
+        }
+        diesel::update(sla_policies::table.find(id))
+            .set(&patch)
+            .get_result(conn)
+    })
 }
 
 // sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
