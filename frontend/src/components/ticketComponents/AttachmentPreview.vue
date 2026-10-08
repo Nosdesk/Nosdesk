@@ -147,6 +147,20 @@ const attachmentType = computed(() => {
   return 'file';
 });
 
+// In the compact tile, images open in the preview and PDFs in the viewer;
+// everything else downloads.
+const opensInViewer = computed(() => attachmentType.value === 'image' || attachmentType.value === 'pdf');
+
+const deleteLabel = computed(() => {
+  switch (attachmentType.value) {
+    case 'image': return $t('ticket-media-attachment-delete-image');
+    case 'pdf': return $t('ticket-media-attachment-delete-pdf');
+    case 'video': return $t('ticket-media-attachment-delete-video');
+    case 'audio': return $t('ticket-media-attachment-delete-audio');
+    default: return $t('ticket-media-attachment-delete-file');
+  }
+});
+
 const openImagePreview = async (src: string) => {
   // For PDF files, navigate to full page PDF viewer
   if (isPdfFile(props.attachment.name)) {
@@ -383,12 +397,14 @@ const generatePdfThumbnail = async () => {
 <template>
   <!-- Compact thumbnail tile for the comment attachment grid. Reuses the
        optimistic image display (displaySrc / isPending) and the shared preview
-       modal below; non-image files show an icon tile. -->
+       modal below. Images and PDFs open in their viewers; every other type is
+       a download link over the tile (beside the delete button, not around it,
+       so a delete never also follows the link). -->
   <div
     v-if="compact"
     class="relative group w-20 h-20 rounded-md overflow-hidden bg-surface-alt flex-shrink-0"
-    :class="(attachmentType === 'image' || attachmentType === 'pdf') ? 'cursor-pointer' : ''"
-    @click="(attachmentType === 'image' || attachmentType === 'pdf') && openImagePreview(authenticatedUrl)"
+    :class="opensInViewer ? 'cursor-pointer' : ''"
+    @click="opensInViewer && openImagePreview(authenticatedUrl)"
   >
     <AssetImg
       v-if="attachmentType === 'image' && !needsConversion(attachment.name)"
@@ -401,6 +417,16 @@ const generatePdfThumbnail = async () => {
       <Icon :name="attachmentType === 'pdf' ? 'book' : attachmentType === 'video' ? 'eye' : 'paperclip'" class="w-5 h-5 text-tertiary" />
       <span class="text-3xs text-tertiary leading-tight line-clamp-2 break-all">{{ getDisplayName(attachment.name) }}</span>
     </div>
+    <a
+      v-if="!opensInViewer"
+      :href="authenticatedUrl"
+      target="_blank"
+      rel="noopener"
+      :download="attachment.name"
+      class="absolute inset-0 z-10 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+      :title="$t('ticket-media-attachment-download')"
+      :aria-label="`${$t('ticket-media-file-download')} ${getDisplayName(attachment.name)}`"
+    ></a>
     <div v-if="isPending" class="absolute inset-0 z-20 flex items-center justify-center bg-surface/40 pointer-events-none">
       <Spinner />
     </div>
@@ -408,9 +434,9 @@ const generatePdfThumbnail = async () => {
       v-if="showDelete"
       type="button"
       @click.stop="emit('delete')"
-      class="hidden sm:block absolute top-0.5 right-0.5 z-30 p-1 rounded bg-surface/70 text-tertiary hover:text-status-error opacity-0 group-hover:opacity-100 transition-opacity"
-      :title="$t('ticket-media-attachment-delete-image')"
-      :aria-label="$t('ticket-media-attachment-delete-image')"
+      class="hidden sm:block absolute top-0.5 right-0.5 z-30 p-1 rounded bg-surface/70 text-tertiary hover:text-status-error opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+      :title="deleteLabel"
+      :aria-label="deleteLabel"
     >
       <Icon name="close" class="w-3 h-3" />
     </button>
