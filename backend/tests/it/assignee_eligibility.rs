@@ -23,7 +23,7 @@ use backend::models::{
 use backend::repository::{tickets as ticket_repo, workflow_states};
 use backend::schema::{assignment_rules, groups, tickets, user_groups};
 use backend::services::search::SearchService;
-use backend::services::ticket_updates::{after_update, assign_new_ticket, ActorConn};
+use backend::services::ticket_updates::{assign_new_ticket, ActorConn};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 use backend::utils::storage::{create_storage, Storage, StorageConfig};
@@ -414,27 +414,28 @@ fn a_recurring_ticket_whose_assignee_was_demoted_comes_back_unassigned() {
     let done = fx
         .run(|c| workflow_states::first_in_category(c, WorkflowStateCategory::Done))
         .id;
-    let closed = fx.run(|c| {
+    fx.run(|c| {
         diesel::update(tickets::table.find(ticket.id))
             .set((
                 tickets::recurrence_rule.eq("FREQ=WEEKLY"),
                 tickets::due_date.eq(ticket.created_at + chrono::Duration::days(1)),
-                tickets::workflow_state_id.eq(done),
             ))
-            .get_result::<Ticket>(c)
+            .execute(c)
     });
-
+    // Closing it is what makes the next occurrence.
     let mut conn = fx.pool.get().expect("conn");
-    let admin = fx.admin();
-    after_update(
-        &mut ActorConn {
-            conn: &mut conn,
-            actor: &admin,
-        },
-        None,
-        &closed,
-        false,
-    );
+    with_actor_context(&mut conn, &fx.admin(), |c| {
+        ticket_repo::update_ticket_partial(
+            c,
+            ticket.id,
+            TicketUpdate {
+                workflow_state_id: Some(done),
+                ..Default::default()
+            },
+            None,
+        )
+    })
+    .expect("close");
     drop(conn);
 
     let next: Vec<Option<Uuid>> = fx.run(|c| {

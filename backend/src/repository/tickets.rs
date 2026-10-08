@@ -3,7 +3,7 @@ use diesel::result::Error;
 use diesel::QueryResult;
 use serde_json::json;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
@@ -607,14 +607,21 @@ pub fn update_ticket_partial(
         return Ok(get_ticket_by_id(conn, ticket_id)?);
     }
 
-    let result = conn.transaction::<Ticket, TicketWriteError, _>(|conn| {
+    let (result, next_occurrence) = conn.transaction::<_, TicketWriteError, _>(|conn| {
         // The notification deriver decides "actually changed" from the
         // before/after pair in `data`, so a write that can change the
         // assignee or workflow state records what it was. Reading the row
-        // first is one indexed lookup inside the same transaction.
+        // first is one indexed lookup inside the same transaction, and it
+        // locks the row, so two saves that close the ticket at once see one
+        // close between them.
         let previous =
             if ticket_update.assignee_uuid.is_some() || ticket_update.workflow_state_id.is_some() {
-                Some(get_ticket_by_id(conn, ticket_id)?)
+                Some(
+                    tickets::table
+                        .find(ticket_id)
+                        .for_update()
+                        .first::<Ticket>(conn)?,
+                )
             } else {
                 None
             };
@@ -657,7 +664,7 @@ pub fn update_ticket_partial(
             crate::services::sla::pill_json_for_ticket(conn, &result)
         };
         let mut data = ticket_sync_row_with_sla(conn, &result, sla)?;
-        if let (Some(previous), Some(obj)) = (previous, data.as_object_mut()) {
+        if let (Some(previous), Some(obj)) = (&previous, data.as_object_mut()) {
             obj.insert(
                 "previous_assignee_uuid".into(),
                 json!(previous.assignee_uuid),
@@ -683,7 +690,14 @@ pub fn update_ticket_partial(
         if matches!(ticket_update.category_id, Some(Some(_))) {
             crate::repository::ticket_approvals::start_if_required(conn, &result)?;
         }
-        Ok(result)
+        // A recurring ticket this write closed gets its next occurrence.
+        let next_occurrence = match &previous {
+            Some(previous) if ticket_update.workflow_state_id.is_some() => {
+                next_occurrence_on_close(conn, previous, &result)
+            }
+            _ => None,
+        };
+        Ok((result, next_occurrence))
     })?;
 
     if let Some(observer) = observer {
@@ -693,9 +707,146 @@ pub fn update_ticket_partial(
             crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
                 .ok();
         observer.ticket_updated(&result, article.as_ref());
+        if let Some(next) = &next_occurrence {
+            observer.ticket_updated(next, None);
+        }
     }
 
     Ok(result)
+}
+
+/// The next occurrence of a recurring ticket, when this write is the one that
+/// closed it: its state moved from one that doesn't close the ticket into one
+/// that does (Done or Cancelled). Saves after that, and a reopen and close
+/// again, make none, and neither does a series that already has a ticket due
+/// on the next date. Runs in a savepoint, so a rule that can't be read or an
+/// occurrence that can't be made is logged and the close still saves.
+fn next_occurrence_on_close(
+    conn: &mut DbConnection,
+    previous: &Ticket,
+    closed: &Ticket,
+) -> Option<Ticket> {
+    let rule = closed.recurrence_rule.as_deref()?;
+    let mut closes = |state_id: i32| {
+        crate::repository::workflow_states::category_of(conn, state_id)
+            .ok()
+            .flatten()
+            .is_some_and(|c| c.closes_ticket())
+    };
+    if closes(previous.workflow_state_id) || !closes(closed.workflow_state_id) {
+        return None;
+    }
+    let after = closed
+        .due_date
+        .or(closed.closed_at)
+        .unwrap_or(closed.created_at);
+    let next_due = match crate::services::recurrence::next_occurrence_naive(
+        rule,
+        closed.created_at,
+        after,
+    ) {
+        Ok(Some(next_due)) => next_due,
+        // The series ran out (UNTIL passed).
+        Ok(None) => return None,
+        Err(e) => {
+            warn!(ticket_id = closed.id, rule = %rule, error = ?e, "Recurrence rule failed to parse on close");
+            return None;
+        }
+    };
+    match conn.transaction(|conn| create_next_occurrence(conn, closed, rule, next_due)) {
+        Ok(next) => next,
+        Err(e) => {
+            warn!(ticket_id = closed.id, error = ?e, "Failed to materialise next recurring occurrence");
+            None
+        }
+    }
+}
+
+/// The occurrence after `closed`, due `next_due`: a clean copy of it in the
+/// default state, carrying the rule so the series continues and the series'
+/// first ticket as its template. `None` when the series already has a ticket
+/// due then. An assignee who can no longer work tickets isn't carried over;
+/// an unassigned occurrence goes through the assignment rules, as every new
+/// ticket does.
+fn create_next_occurrence(
+    conn: &mut DbConnection,
+    closed: &Ticket,
+    rule: &str,
+    next_due: chrono::NaiveDateTime,
+) -> Result<Option<Ticket>, TicketWriteError> {
+    let template_id = closed.recurrence_template_id.unwrap_or(closed.id);
+    let already: i64 = tickets::table
+        .filter(tickets::workspace_id.eq(closed.workspace_id))
+        .filter(tickets::recurrence_template_id.eq(template_id))
+        .filter(tickets::due_date.eq(next_due))
+        .count()
+        .get_result(conn)?;
+    if already > 0 {
+        return Ok(None);
+    }
+    let assignee_uuid = match closed.assignee_uuid {
+        Some(assignee)
+            if crate::repository::assignees::is_assignable(
+                conn,
+                closed.workspace_id,
+                assignee,
+            )? =>
+        {
+            Some(assignee)
+        }
+        _ => None,
+    };
+    let open_state = crate::repository::workflow_states::default_state(conn)?.id;
+    let mut next = create_ticket(
+        conn,
+        NewTicket {
+            title: closed.title.clone(),
+            workflow_state_id: open_state,
+            priority: closed.priority,
+            requester_uuid: closed.requester_uuid,
+            assignee_uuid,
+            category_id: closed.category_id,
+            due_date: Some(next_due),
+            recurrence_rule: Some(rule.to_string()),
+            recurrence_template_id: Some(template_id),
+            ..Default::default()
+        },
+    )?;
+    info!(
+        ticket_id = closed.id,
+        template_id,
+        next_due = %next_due,
+        "Materialised next recurring occurrence"
+    );
+    if next.assignee_uuid.is_none() {
+        let picked = crate::services::assignment::AssignmentEngine::evaluate_rules(
+            conn,
+            &next,
+            AssignmentTrigger::TicketCreated,
+        )
+        .and_then(|r| r.assigned_user_uuid);
+        if let Some(assignee) = picked {
+            // Best effort: the occurrence stands unassigned if this fails.
+            match conn.transaction(|conn| {
+                update_ticket_partial(
+                    conn,
+                    next.id,
+                    TicketUpdate {
+                        assignee_uuid: Some(Some(assignee)),
+                        updated_at: Some(chrono::Utc::now().naive_utc()),
+                        ..Default::default()
+                    },
+                    None,
+                )
+            }) {
+                Ok(assigned) => next = assigned,
+                Err(e) => {
+                    warn!(ticket_id = next.id, error = ?e, "Failed to assign a recurring occurrence");
+                }
+            }
+        }
+    }
+    Ok(Some(next))
 }
 
 /// Comprehensive ticket deletion that cleans up all associated data and files
