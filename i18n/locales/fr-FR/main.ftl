@@ -1103,8 +1103,11 @@ email-default-env-note = Défini par l'opérateur du serveur dans son environnem
 email-default-managed-note = Les e-mails partent de l'adresse intégrée de votre espace de travail, distribués par Nosdesk. Les clients peuvent y répondre directement.
 email-default-not-configured = Le serveur n'a pas de réglages SMTP : rien n'est envoyé dans ce mode. Définissez les variables ci-dessous ou choisissez une autre option.
 email-default-env-vars = Variables d'environnement
-email-default-password-set = Défini
-email-default-password-not-set = Non défini
+# Server default sign-in (machine, pending native review)
+email-default-auth-label = Connexion
+email-default-auth-password = Nom d'utilisateur et mot de passe
+email-default-auth-none = Sans authentification
+email-default-config-error = Les réglages SMTP du serveur ne sont pas utilisables : { $error }
 email-default-use-button = Utiliser le réglage du serveur
 email-default-now-active = Cet espace de travail envoie désormais avec le réglage du serveur.
 email-domain-setup-intro-self-hosted = Saisissez l'adresse d'envoi de votre helpdesk. Les e-mails passent par les réglages SMTP du serveur, signés pour votre domaine, et vous publiez un enregistrement DNS.

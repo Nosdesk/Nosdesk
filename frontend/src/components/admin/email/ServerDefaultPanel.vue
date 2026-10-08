@@ -81,15 +81,16 @@ const from = (c: ServerEmailConfig) =>
         </dd>
         <dt class="text-tertiary">{{ t('email-domain-from-email-label') }}</dt>
         <dd class="min-w-0 font-mono text-xs text-primary break-all self-center">{{ from(config) }}</dd>
-        <dt class="text-tertiary">{{ t('email-relay-password-label') }}</dt>
+        <!-- Credentials are optional: a relay may accept this server by its address. -->
+        <dt class="text-tertiary">{{ t('email-default-auth-label') }}</dt>
         <dd>
           <StatusPill
             :label="
               config.smtp_password_configured
-                ? t('email-default-password-set')
-                : t('email-default-password-not-set')
+                ? t('email-default-auth-password')
+                : t('email-default-auth-none')
             "
-            :tone="config.smtp_password_configured ? 'positive' : 'caution'"
+            :tone="config.smtp_password_configured ? 'positive' : 'neutral'"
             size="xs"
           />
         </dd>
@@ -98,7 +99,11 @@ const from = (c: ServerEmailConfig) =>
         v-else
         class="rounded-lg border border-status-warning/40 bg-status-warning/10 p-3 text-sm text-primary"
       >
-        {{ t('email-default-not-configured') }}
+        {{
+          config.error
+            ? fluent.$t('email-default-config-error', { error: config.error })
+            : t('email-default-not-configured')
+        }}
       </p>
       <div class="flex flex-col gap-1.5 text-xs">
         <span class="text-tertiary">{{ t('email-default-env-vars') }}</span>
