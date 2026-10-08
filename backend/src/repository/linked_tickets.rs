@@ -175,13 +175,13 @@ pub fn link_tickets(conn: &mut DbConnection, ticket1_id: i32, ticket2_id: i32) -
     })
 }
 
-// sync-pending-wire: merge service emits ticket.merged with the edge in its data blob
 /// Insert a single directed `linked_tickets` edge `ticket_id ->
 /// linked_ticket_id` with an explicit relation_type. Unlike
 /// `link_tickets`, this does NOT mirror the reverse direction:
 /// `duplicate_of` is asymmetric (the source is a duplicate of the
 /// target, not the other way round). Idempotent via
-/// `on_conflict_do_nothing`. The merge service is the first caller.
+/// `on_conflict_do_nothing`; a new edge emits `linked_ticket.added`. The
+/// merge service is the caller.
 pub fn link_tickets_directional(
     conn: &mut DbConnection,
     ticket_id: i32,
@@ -200,10 +200,32 @@ pub fn link_tickets_directional(
         created_by,
     };
 
-    diesel::insert_into(linked_tickets::table)
-        .values(&row)
-        .on_conflict_do_nothing()
-        .execute(conn)
+    conn.transaction(|conn| {
+        let inserted = diesel::insert_into(linked_tickets::table)
+            .values(&row)
+            .on_conflict_do_nothing()
+            .execute(conn)?;
+        if inserted > 0 {
+            // The bootstrap's row shape; the subject's audience plus the
+            // other ticket's viewers.
+            let subject = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
+            let mut link_groups = crate::sync::groups::for_ticket(conn, &subject)?;
+            link_groups.push(format!("ticket:{linked_ticket_id}"));
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::LinkedTicket,
+                    aggregate_id: format!("{ticket_id}:{linked_ticket_id}"),
+                    op: SyncOp::Insert,
+                    event_type: "linked_ticket.added",
+                    data: json!({ "ticket_id": ticket_id, "linked_ticket_id": linked_ticket_id }),
+                    groups: link_groups,
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(inserted)
+    })
 }
 
 pub fn unlink_tickets(
