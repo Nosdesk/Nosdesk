@@ -103,6 +103,7 @@ mod recurring_tickets;
 mod reply_sent_twice;
 mod route_auth_funnel_lint;
 mod rules_in_workspace;
+mod scheduler_status;
 mod search_by_ticket_number;
 mod site_settings_per_workspace;
 mod sla_breach_sweep;
