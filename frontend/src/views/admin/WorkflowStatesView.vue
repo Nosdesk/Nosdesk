@@ -28,18 +28,20 @@ const isLoading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 
-// Pick from the palette the badge actually distinguishes today —
-// see workflowColors.ts. Adding `slate` / `purple` back is purely a
-// design-system change (distinct CSS vars) once they earn their keep.
+// Every colour with its own palette (see workflowColors.ts), including
+// the seeded Triage (slate) and In Review (purple).
 const COLOR_TOKENS = SUPPORTED_COLOR_TOKENS
 
 // BaseDropdown options for the palette, each carrying its swatch as a
-// leading tone dot so the menu previews the colour.
-const colorOptions = COLOR_TOKENS.map((c) => ({
-  value: c,
-  label: c,
-  tones: [paletteForColor(c).solid],
-}))
+// leading tone dot so the menu previews the colour. Labels name what the
+// swatch shows (the `gray` token draws amber).
+const colorOptions = computed(() =>
+  COLOR_TOKENS.map((c) => ({
+    value: c,
+    label: t(`admin-workflow-states-color-${c}`),
+    tones: [paletteForColor(c).solid],
+  })),
+)
 
 interface DraftState {
   name: string

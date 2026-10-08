@@ -28,21 +28,20 @@ export interface BadgePaletteClasses {
 }
 
 /**
- * The seed workflow ships six color tokens (slate, gray, blue,
- * purple, green, subtle) but currently maps them to three distinct
- * visual palettes — the legacy open / in-progress / closed status
- * styles, plus a neutral "subtle" for cancelled. An admin who picks
- * `purple` and `blue` will see them render identically until the
- * design system grows distinct CSS variables per token. The
- * [`SUPPORTED_COLOR_TOKENS`] export is the SOT for color pickers, so
- * the admin UI can't promise more than rendering delivers.
+ * The six colour tokens the seed workflow ships (slate for Triage, gray,
+ * blue, purple for In Review, green, subtle), each with its own palette:
+ * the open / in-progress / closed status styles for gray, blue and green,
+ * a neutral "subtle" for cancelled, and slate and violet for the two that
+ * would otherwise repeat a status colour. [`SUPPORTED_COLOR_TOKENS`] lists
+ * them for the colour picker.
  */
 const PALETTE: Record<string, BadgePaletteClasses> = {
-  // Open-bucket palette: low-effort intake.
+  // Intake that hasn't been looked at yet: cool neutral.
   slate: {
-    badge: 'bg-status-open-muted text-status-open border border-status-open/30',
-    solid: 'text-status-open bg-current',
+    badge: 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30',
+    solid: 'text-slate-500 bg-current',
   },
+  // Open-bucket palette: low-effort intake.
   gray: {
     badge: 'bg-status-open-muted text-status-open border border-status-open/30',
     solid: 'text-status-open bg-current',
@@ -53,10 +52,10 @@ const PALETTE: Record<string, BadgePaletteClasses> = {
       'bg-status-in-progress-muted text-status-in-progress border border-status-in-progress/30',
     solid: 'text-status-in-progress bg-current',
   },
+  // Waiting on review: active work, set apart from blue.
   purple: {
-    badge:
-      'bg-status-in-progress-muted text-status-in-progress border border-status-in-progress/30',
-    solid: 'text-status-in-progress bg-current',
+    badge: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30',
+    solid: 'text-violet-500 bg-current',
   },
   // Closed palette: terminal completion.
   green: {
@@ -76,13 +75,11 @@ const FALLBACK: BadgePaletteClasses = {
 }
 
 /**
- * Color tokens the admin UI exposes in the workflow-state picker.
- * Until the design system grows distinct CSS variables per token,
- * this list is intentionally narrowed to the visually-distinct
- * palettes — picking `slate` vs `gray` would otherwise look
- * identical in the kanban / status badge.
+ * Color tokens the admin UI exposes in the workflow-state picker: every
+ * token with a palette, so a seeded state's colour is always one it can
+ * show as selected.
  */
-export const SUPPORTED_COLOR_TOKENS = ['gray', 'blue', 'green', 'subtle'] as const
+export const SUPPORTED_COLOR_TOKENS = ['slate', 'gray', 'blue', 'purple', 'green', 'subtle'] as const
 
 export function paletteForColor(color: string | null | undefined): BadgePaletteClasses {
   if (!color) return FALLBACK

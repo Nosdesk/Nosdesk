@@ -873,6 +873,13 @@ admin-workflow-states-sla-paused-title = Les tickets dans cet état mettent en p
 admin-workflow-states-sla-running-title = Les tickets dans cet état font tourner le compteur SLA. Cliquez pour le mettre en pause.
 admin-workflow-states-sla-now-paused-flash = { $name } met désormais le SLA en pause
 admin-workflow-states-sla-now-running-flash = { $name } fait désormais tourner le SLA
+# Couleurs des états du workflow (machine, à relire par un locuteur natif).
+admin-workflow-states-color-slate = Ardoise
+admin-workflow-states-color-gray = Ambre
+admin-workflow-states-color-blue = Bleu
+admin-workflow-states-color-purple = Violet
+admin-workflow-states-color-green = Vert
+admin-workflow-states-color-subtle = Discret
 
 # DRAFT (needs native-review pass): asset-kinds registry.
 admin-asset-kinds-title = Types d'actifs

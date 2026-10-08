@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* Classes built in the shared package (workflow state colours, project
+   status dots) are found here too: Tailwind only scans this app's own
+   tree by default. */
+@source "../../../packages/core/src";
 
 @font-face {
   font-family: 'Inter';
