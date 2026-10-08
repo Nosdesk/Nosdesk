@@ -119,8 +119,9 @@ function refusalFor(code: number | undefined): ConnectionRefusal {
   return 'no-access'
 }
 
-/** A first connect shows "Connecting..." only once it takes this long. */
-const SLOW_CONNECT_MS = 2000
+/** A first connect shows "Connecting..." only once it takes this long,
+ *  timed from when the note is opened (a hover prewarm doesn't count). */
+const SLOW_CONNECT_MS = 4000
 /** A drop shows "Reconnecting..." only once it lasts this long; y-websocket
  *  usually reconnects a blip sooner. */
 const RECONNECT_GRACE_MS = 1000
@@ -443,6 +444,14 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       connectionBadge.value[docId] = status === 'disconnected' ? 'disconnected' : null
       return
     }
+    // Nobody shows a note nobody holds (a hover prewarm, or one closed and in
+    // its grace period), so its wait isn't timed: the timer starts when the
+    // note is opened.
+    if (entry.refCount === 0) {
+      clearBadgeTimer(entry)
+      connectionBadge.value[docId] = null
+      return
+    }
     const due: ConnectionBadge = link.everConnected ? 'reconnecting' : 'connecting'
     if (connectionBadge.value[docId] === due || entry.badgeTimerFor === due) return
     clearBadgeTimer(entry)
@@ -703,6 +712,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     if (entry.refCount === 0) {
       entry.lastReleasedAt = Date.now()
       scheduleGrace(entry)
+      refreshStatus(entry)
     }
     refreshSnapshot()
   }

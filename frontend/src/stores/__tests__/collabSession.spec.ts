@@ -133,13 +133,27 @@ describe('a note opening', () => {
     token.cached = 't'
     store.acquire('doc-a', OPTS)
 
-    await vi.advanceTimersByTimeAsync(500)
+    await vi.advanceTimersByTimeAsync(3500)
     expect(store.connectionBadge['doc-a'] ?? null).toBeNull()
-    await vi.advanceTimersByTimeAsync(2000)
+    await vi.advanceTimersByTimeAsync(1000)
     expect(store.connectionBadge['doc-a']).toBe('connecting')
 
     providers[0].open()
     expect(store.connectionBadge['doc-a'] ?? null).toBeNull()
+  })
+
+  it('times a slow connect from opening the note, not from hovering its row', async () => {
+    token.cached = 't'
+    // Hovering the row warms the note's connection, which stays connecting.
+    store.warm('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(3000)
+
+    store.acquire('doc-a', OPTS)
+    expect(store.connectionBadge['doc-a'] ?? null).toBeNull()
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(store.connectionBadge['doc-a'] ?? null).toBeNull()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(store.connectionBadge['doc-a']).toBe('connecting')
   })
 })
 
