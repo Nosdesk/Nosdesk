@@ -15,6 +15,7 @@
     { "type": "workflow_state.created", "op": "I" },
     { "type": "workflow_state.updated", "op": "U" },
     { "type": "workflow_state.archived", "op": "A" },
+    { "type": "workflow_state.restored", "op": "U" },
     { "type": "workflow_state.default_promoted", "op": "U" },
     { "type": "workflow_state.default_revoked", "op": "U" }
   ],

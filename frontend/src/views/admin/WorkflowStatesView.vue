@@ -63,11 +63,16 @@ const newStateInputs = ref<Record<WorkflowStateCategory, DraftState>>({
 
 const grouped = computed<Record<WorkflowStateCategory, WorkflowState[]>>(() => store.byCategory)
 
+// Archived states, for restoring. Listed apart from the categories since
+// nothing can be set to them.
+const archived = ref<WorkflowState[]>([])
+
 async function reload() {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    await store.load(true)
+    const [, archivedStates] = await Promise.all([store.load(true), workflowStatesService.listArchived()])
+    archived.value = archivedStates
     drafts.value = {}
     for (const s of store.states) {
       drafts.value[s.id] = { name: s.name, color: s.color }
@@ -169,6 +174,21 @@ async function confirmArchive(): Promise<void> {
     flash(t('admin-workflow-states-archived-flash', { name: state.name }))
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : t('admin-workflow-states-error-archive')
+  }
+}
+
+async function restore(state: WorkflowState): Promise<void> {
+  try {
+    await workflowStatesService.restore(state.id)
+    await reload()
+    flash(
+      t('admin-workflow-states-restored-flash', {
+        name: state.name,
+        category: getCategoryLabel(state.category),
+      }),
+    )
+  } catch (e) {
+    errorMessage.value = e instanceof Error ? e.message : t('admin-workflow-states-error-restore')
   }
 }
 
@@ -316,6 +336,41 @@ onMounted(() => {
             {{ $t('admin-workflow-states-add') }}
           </button>
         </div>
+      </section>
+
+      <section
+        v-if="archived.length > 0"
+        class="bg-surface border border-default rounded-lg overflow-hidden"
+        :aria-label="$t('admin-workflow-states-archived-heading')"
+      >
+        <header class="flex flex-col gap-0.5 px-4 py-3 bg-surface-alt border-b border-subtle">
+          <h2 class="text-sm font-semibold text-primary uppercase tracking-wide">
+            {{ $t('admin-workflow-states-archived-heading') }}
+          </h2>
+          <p class="text-xs text-tertiary">{{ $t('admin-workflow-states-archived-hint') }}</p>
+        </header>
+        <ul class="divide-y divide-subtle">
+          <li
+            v-for="state in archived"
+            :key="state.id"
+            class="flex flex-wrap items-center gap-3 px-4 py-3"
+          >
+            <span
+              :class="['inline-block w-3 h-3 rounded-full bg-current flex-shrink-0', paletteForColor(state.color).solid]"
+              aria-hidden="true"
+            />
+            <span class="flex-1 min-w-[150px] text-sm text-secondary">{{ state.name }}</span>
+            <span class="text-xs text-tertiary">{{ getCategoryLabel(state.category) }}</span>
+            <button
+              type="button"
+              class="text-xs text-secondary hover:text-accent transition-colors"
+              :aria-label="$t('admin-workflow-states-restore-label', { name: state.name })"
+              @click="restore(state)"
+            >
+              {{ $t('admin-workflow-states-restore') }}
+            </button>
+          </li>
+        </ul>
       </section>
     </div>
 
