@@ -888,8 +888,9 @@ pub struct CreateUserRequest {
     avatar_thumb: Option<String>,
     microsoft_uuid: Option<Uuid>,
     /// Optional password - if provided, sets the password directly.
-    /// If not provided and SMTP is configured, sends an invitation email.
-    /// If not provided and SMTP is not configured, returns an error.
+    /// If not provided and SMTP is configured, sends an invitation email
+    /// unless `send_invitation` is false. A requester may have neither (they
+    /// sign in by a portal link); anyone else needs one or the other.
     password: Option<String>,
     /// Whether to send an invitation email (only used when SMTP is configured and no password provided)
     send_invitation: Option<bool>,
@@ -979,10 +980,18 @@ pub async fn create_user(
         }
     }
 
-    // If no password provided and SMTP not configured, require password
-    if user_data.password.is_none() && !smtp_configured {
-        validation_errors
-            .push("password: Password is required when email is not configured".to_string());
+    // How the person will sign in, decided before anything is saved: a
+    // password, an invitation by email, or, for a requester added without
+    // either, a portal link when they next need one.
+    let send_invitation = user_data.send_invitation.unwrap_or(true);
+    let passwordless_requester = is_requester && user_data.password.is_none() && !send_invitation;
+    if user_data.password.is_none() && !passwordless_requester {
+        if !smtp_configured {
+            validation_errors
+                .push("password: Password is required when email is not configured".to_string());
+        } else if !send_invitation {
+            validation_errors.push("password: Set a password or send an invitation".to_string());
+        }
     }
 
     if !validation_errors.is_empty() {
@@ -1091,7 +1100,7 @@ pub async fn create_user(
                     }
                 };
                 (Some(hash), false)
-            } else if smtp_configured && user_data.send_invitation.unwrap_or(true) {
+            } else if smtp_configured && send_invitation {
                 // No password, SMTP configured - send invitation email
                 match send_user_invitation(
                     &mut conn,
@@ -1123,10 +1132,10 @@ pub async fn create_user(
 
                 (None, true) // No password hash - user will set via invitation
             } else {
-                // No password and no SMTP - this should have been caught in validation
-                return Err(ApiError::BadRequest(
-                    "Password is required when email is not configured".into(),
-                ));
+                // A requester added without a password or an invitation (the
+                // validation above allows no one else here): they sign in by a
+                // portal link.
+                (None, false)
             };
 
             debug!(user_uuid = %user.uuid, "Created user");
@@ -1146,8 +1155,10 @@ pub async fn create_user(
                 Ok(_) => {
                     if invitation_sent {
                         info!(user_name = %user.name, "New user created (invitation email sent)");
-                    } else {
+                    } else if user_data.password.is_some() {
                         info!(user_name = %user.name, "New user created (password set)");
+                    } else {
+                        info!(user_name = %user.name, "New requester created (no password)");
                     }
                     let response = repository::user_helpers::get_user_with_primary_email(
                         user.clone(),
