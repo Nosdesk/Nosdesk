@@ -77,6 +77,7 @@ mod notification_workspace_scope;
 mod people_removed_under_1_0;
 mod plugin_bundle_isolation;
 mod plugin_collection_row_scoping;
+mod plugin_events_as_events;
 mod plugin_permission_gate;
 mod portal_session;
 mod profile_write_authz;
