@@ -7,7 +7,9 @@ use serde_json::json;
 
 use backend::models::WorkspaceLdapSettings;
 use backend::sync::actor::ActorContext;
-use backend::sync::session::{elevate_session_role, reset_session_role, run_in_workspace};
+use backend::sync::session::{
+    elevate_session_role, pin_session_actor, reset_session_role, run_in_workspace,
+};
 
 use crate::common;
 
@@ -96,4 +98,52 @@ fn another_workspaces_group_doesnt_raise_a_role() {
 
     assert_eq!(stats.evaluated, 1);
     assert_eq!(role.as_deref(), Some("member"));
+}
+
+/// The positive control, and the nightly job's own posture: the group is in
+/// workspace A, and role mapping runs pinned to A on the runtime role, not
+/// elevated. The role is raised, so the filter matches A's groups and the
+/// unelevated path has the grants it needs.
+#[test]
+fn the_workspaces_own_group_raises_a_role_without_elevation() {
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let pool = db.runtime_pool(2);
+    let a = seeded.a.workspace_id;
+    let user = seeded.a.member_uuid;
+    diesel::sql_query("UPDATE workspaces SET seat_limit = NULL WHERE id = $1")
+        .bind::<diesel::sql_types::Integer, _>(a)
+        .execute(&mut db.conn())
+        .expect("unlimited seats");
+
+    run_in_workspace(&pool, REF, a, |c| {
+        diesel::sql_query(
+            "INSERT INTO user_auth_identities (user_uuid, provider_type, external_id, workspace_id) \
+             VALUES ($1, 'ldap', 'dir-user', $2)",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(user)
+        .bind::<diesel::sql_types::Integer, _>(a)
+        .execute(c)?;
+        diesel::sql_query(
+            "WITH g AS (INSERT INTO groups (name, external_source, sync_enabled, workspace_id) \
+                        VALUES ('Admins', 'ldap', true, $2) RETURNING id) \
+             INSERT INTO user_groups (user_uuid, group_id, workspace_id) SELECT $1, g.id, $2 FROM g",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(user)
+        .bind::<diesel::sql_types::Integer, _>(a)
+        .execute(c)
+    })
+    .expect("ldap user in A's Admins group");
+
+    let mut conn = pool.get().expect("conn");
+    pin_session_actor(&mut conn, &ActorContext::system(REF).with_workspace(a)).expect("pin");
+    let stats =
+        backend::services::ldap::role_mapping::apply_role_mappings(&mut conn, &settings(a), a)
+            .expect("role mapping");
+    let role =
+        backend::repository::workspaces::get_membership_role(&mut conn, a, user).expect("role");
+    reset_session_role(&mut conn);
+
+    assert_eq!(stats.changed, 1);
+    assert_eq!(role.as_deref(), Some("admin"));
 }

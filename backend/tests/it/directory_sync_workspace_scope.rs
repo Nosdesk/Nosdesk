@@ -1,8 +1,8 @@
-//! Directory sync stays in the workspace it runs for. The Microsoft and LDAP
-//! syncs run elevated past row security, pinned to their workspace, so the
-//! lookups they make by directory id name that workspace themselves: two
-//! workspaces syncing the same directory each get their own groups, devices,
-//! delta tokens and contact rows.
+//! Directory sync stays in the workspace it runs for. The Microsoft sync runs
+//! elevated past row security, pinned to its workspace (the LDAP sync runs
+//! pinned without elevating), so the lookups a sync makes by directory id name
+//! that workspace themselves: two workspaces syncing the same directory each
+//! get their own groups, devices, delta tokens and contact rows.
 
 use diesel::prelude::*;
 use diesel::result::Error;

@@ -6,10 +6,12 @@
 //! and priming the complete current-directory set for the future deprovision
 //! pass. No-op when LDAP isn't configured.
 //!
-//! Self-hosted is the only LDAP consumer and is single-workspace, so this
-//! targets `BOOTSTRAP_WORKSPACE_ID` like the scheduled Microsoft Graph sync; a
-//! multi-workspace scan would only matter for a cloud-LDAP path that doesn't
-//! exist (cloud directory sync is SCIM).
+//! Self-hosted is the only LDAP consumer. The job reconciles the bootstrap
+//! workspace (`BOOTSTRAP_WORKSPACE_ID`), like the scheduled Microsoft Graph
+//! sync; another workspace with LDAP (licensed installs can have several)
+//! syncs on demand through "Sync now". It runs pinned to its workspace without
+//! elevating, so row-level security scopes every read. (Cloud directory sync
+//! is SCIM, not LDAP.)
 
 use anyhow::{Context, Result};
 use tracing::{info, warn};
