@@ -279,21 +279,26 @@ fn stream_bootstrap_inner(
     for user in user_rows {
         let workspace_role = crate::repository::user_helpers::workspace_role(conn, user.uuid)
             .map(|r| r.as_str().to_string());
-        send(
-            tx,
-            json!({
-                "__model__": "user",
-                "uuid": user.uuid,
-                "name": user.name,
-                "email": primary_email_by_uuid.get(&user.uuid).cloned().unwrap_or_default(),
-                "platform_role": user.platform_role,
-                "workspace_role": workspace_role,
-                "pronouns": user.pronouns,
-                "avatar_url": user.avatar_url,
-                "avatar_thumb": user.avatar_thumb,
-                "dashboard_layout": dashboard_layout_by_uuid.get(&user.uuid),
-            }),
-        )?;
+        let mut row = json!({
+            "uuid": user.uuid,
+            "name": user.name,
+            "email": primary_email_by_uuid.get(&user.uuid).cloned().unwrap_or_default(),
+            "platform_role": user.platform_role,
+            "workspace_role": workspace_role,
+            "pronouns": user.pronouns,
+            "avatar_url": user.avatar_url,
+            "avatar_thumb": user.avatar_thumb,
+            "dashboard_layout": dashboard_layout_by_uuid.get(&user.uuid),
+        });
+        // Each row carries only what this viewer may see of that person, as
+        // the delta and the live stream do.
+        crate::sync::visibility::project_row(
+            &viewer,
+            Some(crate::models::SyncAggregate::User),
+            &mut row,
+        );
+        row["__model__"] = json!("user");
+        send(tx, row)?;
     }
 
     // Assets follow the same "ship every row up-front" pattern as

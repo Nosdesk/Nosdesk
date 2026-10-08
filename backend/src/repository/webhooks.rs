@@ -16,9 +16,8 @@ use crate::schema::{webhook_deliveries, webhooks};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
-/// Sync-event payload for a webhook. Deliberately excludes `secret`
-/// (the HMAC signing key) — it's in the manifest's `redacted_fields`
-/// and must never reach the sync stream / audit trail.
+/// Sync-event payload for a webhook: its settings, with the custom
+/// headers by name only. The signing `secret` is not part of it.
 fn webhook_sync_payload(w: &Webhook) -> serde_json::Value {
     json!({
         "id": w.id,
@@ -27,11 +26,18 @@ fn webhook_sync_payload(w: &Webhook) -> serde_json::Value {
         "url": w.url,
         "events": w.events,
         "enabled": w.enabled,
-        "headers": w.headers,
+        "headers": header_names(w.headers.as_ref()),
         "disabled_reason": w.disabled_reason,
         "created_at": w.created_at,
         "updated_at": w.updated_at,
     })
+}
+
+/// The names of a webhook's custom headers, without their values.
+fn header_names(headers: Option<&serde_json::Value>) -> Option<Vec<String>> {
+    headers
+        .and_then(|h| h.as_object())
+        .map(|h| h.keys().cloned().collect())
 }
 
 /// List all webhooks

@@ -226,6 +226,9 @@ pub async fn delta(
     let mut actions = actions;
     let mut keep_iter = keep.into_iter();
     actions.retain(|_| keep_iter.next().unwrap_or(false));
+    for action in &mut actions {
+        crate::sync::visibility::project_row(&viewer, Some(action.aggregate), &mut action.data);
+    }
 
     HttpResponse::Ok().json(DeltaResponse {
         actions,

@@ -289,8 +289,32 @@ pub struct PaginatedResponse<T> {
     total_pages: i64,
 }
 
+/// The people a user route returns, as the caller may see them. Staff get
+/// the full rows. Anyone else gets their own row whole and, of others, the
+/// name and avatar (`sync::visibility::user_row_for_non_staff`, the rule the
+/// sync feed follows).
+fn as_seen_by(
+    users: Vec<crate::models::UserResponse>,
+    auth: &crate::extractors::AuthContext,
+) -> Vec<serde_json::Value> {
+    users
+        .into_iter()
+        .map(|user| {
+            let mut row = serde_json::to_value(user).unwrap_or(serde_json::Value::Null);
+            if !auth.can_handle_tickets() {
+                crate::sync::visibility::user_row_for_non_staff(&mut row, auth.user_uuid);
+            }
+            row
+        })
+        .collect()
+}
+
 // User handlers
-pub async fn get_users(pool: web::Data<crate::db::Pool>, ws: WorkspaceContext) -> impl Responder {
+pub async fn get_users(
+    pool: web::Data<crate::db::Pool>,
+    ws: WorkspaceContext,
+    auth: crate::extractors::AuthContext,
+) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -307,7 +331,7 @@ pub async fn get_users(pool: web::Data<crate::db::Pool>, ws: WorkspaceContext) -
                 &mut conn,
                 ws.workspace_id,
             );
-            HttpResponse::Ok().json(user_responses)
+            HttpResponse::Ok().json(as_seen_by(user_responses, &auth))
         }
         Err(e) => {
             error!(error = ?e, "Error fetching users");
@@ -322,6 +346,7 @@ pub async fn get_paginated_users(
     query: web::Query<PaginationParams>,
     req: HttpRequest,
     ws: WorkspaceContext,
+    auth: crate::extractors::AuthContext,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -396,6 +421,18 @@ pub async fn get_paginated_users(
         repository::users::DeletedFilter::Active
     };
 
+    // A caller who isn't shown others' addresses or roles can't search,
+    // sort or filter by them either: by name only.
+    let (search_by, sort_field, role) = if auth.can_handle_tickets() {
+        (repository::users::SearchBy::NameOrEmail, sort_field, role)
+    } else {
+        (
+            repository::users::SearchBy::Name,
+            sort_field.filter(|f| matches!(f.as_str(), "name" | "first_name" | "last_name")),
+            None,
+        )
+    };
+
     match repository::get_paginated_users(
         &mut conn,
         page,
@@ -403,6 +440,7 @@ pub async fn get_paginated_users(
         sort_field,
         sort_direction,
         search,
+        search_by,
         role,
         deleted,
         ws.workspace_id,
@@ -431,7 +469,7 @@ pub async fn get_paginated_users(
 
             // Create paginated response
             let response = PaginatedResponse {
-                data: user_responses,
+                data: as_seen_by(user_responses, &auth),
                 total,
                 page,
                 page_size,
@@ -499,6 +537,7 @@ pub async fn get_user_by_uuid(
     uuid_path: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
+    auth: crate::extractors::AuthContext,
 ) -> impl Responder {
     let uuid_str = uuid_path.into_inner();
 
@@ -521,7 +560,8 @@ pub async fn get_user_by_uuid(
             // Use helper function to fetch primary email from user_emails table
             let user_response =
                 repository::user_helpers::get_user_with_primary_email(user, &mut conn);
-            HttpResponse::Ok().json(user_response)
+            let row = as_seen_by(vec![user_response], &auth).pop();
+            HttpResponse::Ok().json(row)
         }
         Err(_) => errors::not_found_msg("User not found"),
     }
@@ -537,6 +577,7 @@ pub async fn get_users_batch(
     batch_request: web::Json<BatchUsersRequest>,
     pool: web::Data<crate::db::Pool>,
     ws: WorkspaceContext,
+    auth: crate::extractors::AuthContext,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -569,7 +610,7 @@ pub async fn get_users_batch(
                 &mut conn,
                 ws.workspace_id,
             );
-            HttpResponse::Ok().json(user_responses)
+            HttpResponse::Ok().json(as_seen_by(user_responses, &auth))
         }
         Err(e) => {
             error!(error = ?e, "Error fetching users batch");

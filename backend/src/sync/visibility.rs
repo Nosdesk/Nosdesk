@@ -151,11 +151,13 @@ fn action_is_visible(
     hidden_collections: &HashSet<i32>,
     doc_fail: bool,
     ticket_fail: bool,
+    is_admin: bool,
 ) -> bool {
     let Some(agg) = v.aggregate else {
-        // Unknown/unparsed aggregate: not a gated family — allow.
-        return true;
+        // A kind of record this server can't name: no one receives it.
+        return false;
     };
+    let sees_all = visible_tickets.is_none();
     match agg {
         // Documentation: exclusion model — visible to everyone EXCEPT
         // the rows in the hidden set. Fail-closed drops all doc rows.
@@ -170,7 +172,13 @@ fn action_is_visible(
         // Ticket family: inclusion model for restricted viewers — visible
         // ONLY for tickets in the visible set. Staff (`visible_tickets ==
         // None`) keep everything.
-        _ if is_ticket_family(agg) => {
+        SyncAggregate::Ticket
+        | SyncAggregate::Comment
+        | SyncAggregate::Attachment
+        | SyncAggregate::TicketAsset
+        | SyncAggregate::LinkedTicket
+        | SyncAggregate::ProjectTicket
+        | SyncAggregate::CycleTicket => {
             let Some(visible) = visible_tickets else {
                 return true; // sees_all
             };
@@ -215,12 +223,70 @@ fn action_is_visible(
             None => true, // sees_all
             Some(visible) => !ticket_fail && v.ticket_id.is_some_and(|t| visible.contains(&t)),
         },
-        // Inventory audit trail: workspace-wide staff data, no ticket tie-in.
-        // Staff only; never delivered to restricted viewers.
-        SyncAggregate::AssetAudit => visible_tickets.is_none(),
-        // Reference data + everything else: allow. Future aggregates that
-        // need gating must add an arm above (conscious opt-in).
-        _ => true,
+        // Staff working data.
+        SyncAggregate::AssetAudit
+        | SyncAggregate::AssetLifecycleEvent
+        | SyncAggregate::AssetMedia
+        | SyncAggregate::Assignment
+        | SyncAggregate::GroupMembership
+        | SyncAggregate::KnowledgeGap => sees_all,
+        // Workspace configuration and audit reads: admins only.
+        SyncAggregate::Webhook | SyncAggregate::Channel | SyncAggregate::Data => is_admin,
+        // Everyone in the workspace. A `user` row carries only what the
+        // viewer may see of that person (`project_row`). A notification
+        // is written to its recipient's group alone.
+        SyncAggregate::Asset
+        | SyncAggregate::Cycle
+        | SyncAggregate::Project
+        | SyncAggregate::WorkflowState
+        | SyncAggregate::Plugin
+        | SyncAggregate::User
+        | SyncAggregate::Notification => true,
+    }
+}
+
+/// The fields of someone else's `user` row a viewer who isn't staff
+/// receives: who they are, as tickets and comments show them.
+const OTHERS_USER_FIELDS: &[&str] = &[
+    "uuid",
+    "name",
+    "pronouns",
+    "avatar_url",
+    "avatar_thumb",
+    "banner_url",
+    "deleted_at",
+];
+
+/// `row`, a person's row (a sync `user` record or a user route's row), as a
+/// viewer who isn't staff may see it: their own whole, someone else's with
+/// only [`OTHERS_USER_FIELDS`]. Anything but an object is left alone.
+pub fn user_row_for_non_staff(row: &mut serde_json::Value, viewer: uuid::Uuid) {
+    let serde_json::Value::Object(map) = row else {
+        return;
+    };
+    let own = map
+        .get("uuid")
+        .and_then(|v| v.as_str())
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        .is_some_and(|subject| subject == viewer);
+    if !own {
+        map.retain(|field, _| OTHERS_USER_FIELDS.contains(&field.as_str()));
+    }
+}
+
+/// A kept sync row as `viewer` may see it: for a viewer who isn't staff, a
+/// `user` row goes through [`user_row_for_non_staff`]. A bare-id prune is
+/// left as it is.
+pub fn project_row(
+    viewer: &SyncViewer,
+    aggregate: Option<SyncAggregate>,
+    data: &mut serde_json::Value,
+) {
+    let bare = data
+        .as_object()
+        .is_some_and(|o| !o.is_empty() && o.keys().all(|k| k == "id" || k == "uuid"));
+    if aggregate == Some(SyncAggregate::User) && !viewer.sees_all() && !bare {
+        user_row_for_non_staff(data, viewer.ctx.user_uuid);
     }
 }
 
@@ -362,6 +428,7 @@ pub fn filter_actions<T>(
                 &hidden_collections,
                 doc_fail,
                 ticket_fail,
+                viewer.is_doc_admin,
             )
         })
         .collect()
@@ -383,11 +450,28 @@ pub fn bootstrap_ticket_query<'a>(viewer: &SyncViewer) -> tickets::BoxedQuery<'a
 pub fn wire_aggregate_is_gated(wire: &str, viewer: &SyncViewer) -> bool {
     match wire {
         "documentation_page" | "documentation_collection" => true,
-        // Ticket family + ticket-tied / staff-only inventory aggregates are
-        // only gated for restricted viewers; staff (`sees_all`) see them all.
-        "ticket" | "comment" | "attachment" | "ticket_asset" | "linked_ticket"
-        | "project_ticket" | "cycle_ticket" | "asset_usage" | "asset_audit" => !viewer.sees_all(),
-        _ => false,
+        // Ticket family, ticket-tied / staff-only aggregates, and people rows
+        // (which a restricted viewer gets only in part) are only gated for
+        // restricted viewers; staff (`sees_all`) see them all.
+        "ticket"
+        | "comment"
+        | "attachment"
+        | "ticket_asset"
+        | "linked_ticket"
+        | "project_ticket"
+        | "cycle_ticket"
+        | "asset_usage"
+        | "asset_audit"
+        | "asset_lifecycle_event"
+        | "asset_media"
+        | "assignment"
+        | "group_membership"
+        | "knowledge_gap"
+        | "user" => !viewer.sees_all(),
+        "webhook" | "channel" | "data" => !viewer.is_doc_admin,
+        "asset" | "cycle" | "project" | "workflow_state" | "plugin" | "notification" => false,
+        // A kind of record this server can't name is dropped.
+        _ => true,
     }
 }
 
@@ -418,6 +502,7 @@ pub fn fail_closed_mask<T>(
                 &empty,
                 true, // doc_fail
                 true, // ticket_fail
+                viewer.is_doc_admin,
             )
         })
         .collect()
@@ -451,6 +536,7 @@ mod tests {
             comments,
             &HashSet::new(),
             &HashSet::new(),
+            false,
             false,
             false,
         )
@@ -638,6 +724,7 @@ mod tests {
             &HashSet::new(),
             false,
             false,
+            false,
         );
         let staff_visible = action_is_visible(
             &visible,
@@ -645,6 +732,7 @@ mod tests {
             &no_comments,
             &hidden_pages,
             &HashSet::new(),
+            false,
             false,
             false,
         );
@@ -659,10 +747,11 @@ mod tests {
         for agg in [
             SyncAggregate::User,
             SyncAggregate::Asset,
-            SyncAggregate::AssetMedia,
             SyncAggregate::WorkflowState,
             SyncAggregate::Project,
             SyncAggregate::Cycle,
+            SyncAggregate::Plugin,
+            SyncAggregate::Notification,
         ] {
             assert!(
                 check(&view(agg, false), vt.as_ref(), &empty),
@@ -689,6 +778,7 @@ mod tests {
             &HashSet::new(),
             true,
             false,
+            false,
         );
         let ticket_fail = action_is_visible(
             &t,
@@ -698,13 +788,14 @@ mod tests {
             &HashSet::new(),
             false,
             true,
+            false,
         );
         assert!(!doc_fail, "doc_fail drops doc row");
         assert!(!ticket_fail, "ticket_fail drops ticket row");
     }
 
     #[test]
-    fn unknown_aggregate_allowed() {
+    fn unknown_aggregate_reaches_no_one() {
         let v = ActionView {
             aggregate: None,
             is_delete: false,
@@ -713,7 +804,89 @@ mod tests {
             is_internal: None,
             comment_id: None,
         };
-        assert!(check(&v, restricted().as_ref(), &HashSet::new()));
-        let _ = Uuid::nil();
+        assert!(!check(&v, restricted().as_ref(), &HashSet::new()));
+        assert!(!check(&v, None, &HashSet::new()));
+        let staff = SyncViewer {
+            ctx: VisibilityContext::new(Uuid::nil(), PlatformRole::from_db("platform_admin"), None),
+            is_doc_admin: true,
+        };
+        assert!(wire_aggregate_is_gated(
+            "record_kind_from_the_future",
+            &staff
+        ));
+    }
+
+    fn admin_check(v: &ActionView, visible: Option<&HashSet<i32>>, is_admin: bool) -> bool {
+        action_is_visible(
+            v,
+            visible,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            false,
+            is_admin,
+        )
+    }
+
+    #[test]
+    fn staff_records_reach_staff_only() {
+        for agg in [
+            SyncAggregate::AssetAudit,
+            SyncAggregate::AssetLifecycleEvent,
+            SyncAggregate::AssetMedia,
+            SyncAggregate::Assignment,
+            SyncAggregate::GroupMembership,
+            SyncAggregate::KnowledgeGap,
+        ] {
+            let row = view(agg, false);
+            assert!(
+                !admin_check(&row, restricted().as_ref(), false),
+                "{agg:?} member"
+            );
+            assert!(admin_check(&row, None, false), "{agg:?} staff");
+        }
+    }
+
+    #[test]
+    fn admin_records_reach_admins_only() {
+        for agg in [
+            SyncAggregate::Webhook,
+            SyncAggregate::Channel,
+            SyncAggregate::Data,
+        ] {
+            let row = view(agg, false);
+            assert!(
+                !admin_check(&row, restricted().as_ref(), false),
+                "{agg:?} member"
+            );
+            assert!(!admin_check(&row, None, false), "{agg:?} agent");
+            assert!(admin_check(&row, None, true), "{agg:?} admin");
+        }
+    }
+
+    #[test]
+    fn a_member_gets_others_name_and_avatar_only() {
+        let me = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let row = |who: Uuid| {
+            serde_json::json!({
+                "uuid": who, "name": "Sam", "email": "sam@example.test",
+                "platform_role": "user", "workspace_role": "agent",
+                "pronouns": null, "avatar_url": null, "avatar_thumb": null,
+                "dashboard_layout": {}
+            })
+        };
+        let mut theirs = row(other);
+        user_row_for_non_staff(&mut theirs, me);
+        let mut keys: Vec<&String> = theirs.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            ["avatar_thumb", "avatar_url", "name", "pronouns", "uuid"]
+        );
+        let mut mine = row(me);
+        user_row_for_non_staff(&mut mine, me);
+        assert_eq!(mine, row(me));
     }
 }
