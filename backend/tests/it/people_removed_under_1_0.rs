@@ -176,6 +176,7 @@ fn a_member_removed_under_1_0_stays_a_person_and_can_sign_in_again() {
                     email: FORMER_EMAIL.to_string(),
                     email_verified: true,
                     name: None,
+                    real_name: None,
                     username: None,
                     avatar_url: None,
                     verified_email_set: None,

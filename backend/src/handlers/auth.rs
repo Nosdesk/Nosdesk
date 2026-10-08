@@ -649,6 +649,8 @@ async fn try_ldap_login(
                 // a directory login that resolves onto an above-baseline role.
                 email_verified: true,
                 name: result.display_name.clone(),
+                // The directory's display name is the person's name.
+                real_name: result.display_name.clone(),
                 // LDAP doesn't carry our global handle.
                 username: None,
                 // LDAP carries neither our avatar nor a verified-set snapshot.

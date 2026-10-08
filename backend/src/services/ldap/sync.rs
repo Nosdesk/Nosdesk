@@ -471,6 +471,8 @@ fn provision_entry(
         identity_workspace_id: Some(workspace_id),
         email: mapped.email,
         email_verified: true,
+        // The directory's display name is the person's name.
+        real_name: mapped.display_name.clone(),
         name: mapped.display_name,
         // LDAP doesn't carry our global handle.
         username: None,

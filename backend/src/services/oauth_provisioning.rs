@@ -83,10 +83,15 @@ pub struct ProjectedUserInput {
     /// the IdP's `email_verified` claim (Entra directory emails count as
     /// verified).
     pub email_verified: bool,
-    /// Display name. Required for new-user creation; for the
-    /// existing-by-identity path we use whatever's already on the
-    /// users row (no rename here).
+    /// Display name for a new user. May be a handle (an OIDC login's
+    /// configured username claim, or its fallback); never renames an
+    /// existing user.
     pub name: Option<String>,
+    /// The person's name as the source states it (an OIDC `name` claim, the
+    /// control plane's name, a directory display name). The only value a
+    /// re-projection renames an existing user from, and only when it isn't
+    /// the user's handle or address (see [`is_real_name`]).
+    pub real_name: Option<String>,
     /// Global username handle (orchestration O4). The control plane
     /// validates + owns it; the product stores what's projected and
     /// updates it on re-projection. `None` from callers that don't
@@ -243,6 +248,21 @@ pub fn resolve_user_by_identity_or_email(
     }
 }
 
+/// Whether `name` is a person's name to rename a user to, rather than what a
+/// source sends when it has none: one of the user's handles (`handles`: the
+/// projected one, and the stored one for a projection that carries none),
+/// their address, or the address's local part with or without its `+tag`.
+fn is_real_name(name: &str, email: &str, handles: &[Option<&str>]) -> bool {
+    let name = name.trim();
+    let local = email.trim().split('@').next().unwrap_or_default();
+    let same = |other: &str| name.eq_ignore_ascii_case(other.trim());
+    !name.is_empty()
+        && !handles.iter().flatten().any(|h| same(h))
+        && !same(email)
+        && !same(local)
+        && !crate::utils::name_from_email(email).is_some_and(|n| same(&n))
+}
+
 /// Resolve a user from an OIDC identity, creating one if needed,
 /// and ensure they're a member of the target workspace. See the
 /// module docs for the four-step lookup order.
@@ -257,6 +277,7 @@ pub fn find_or_create_projected_user(
         email,
         email_verified,
         name,
+        real_name,
         username,
         avatar_url,
         verified_email_set,
@@ -280,14 +301,21 @@ pub fn find_or_create_projected_user(
     )? {
         Some(user) => {
             // Identity orchestration O1: the projecting IdP is authoritative for
-            // the display name, so update it on RE-projection when the projection
-            // carries a name that differs — a control-plane (or SSO) display-name
-            // change now reaches an already-projected user instead of being lost
-            // (the old behaviour was create-only). Goes through `update_user` so
-            // the sync event fires. An absent or empty name is ignored so the row
-            // is never blanked, matching the create-branch fallback.
-            match name.as_ref() {
-                Some(new_name) if !new_name.is_empty() && *new_name != user.name => {
+            // the person's name, so update it on RE-projection when the
+            // projection carries a real name that differs: a control-plane (or
+            // SSO) name change reaches an already-projected user instead of
+            // being lost. Only `real_name` counts, never the display name's
+            // handle fallback, and never a value that is the user's handle or
+            // address. Goes through `update_user` so the sync event fires.
+            match real_name.as_ref() {
+                Some(new_name)
+                    if *new_name != user.name
+                        && is_real_name(
+                            new_name,
+                            &email,
+                            &[username.as_deref(), user.username.as_deref()],
+                        ) =>
+                {
                     let upd = crate::models::UserUpdate {
                         name: Some(new_name.clone()),
                         pronouns: None,
@@ -306,10 +334,12 @@ pub fn find_or_create_projected_user(
             }
         }
         None => {
-            // Fallback for callers that didn't send a name: a best guess
-            // from the address, which the operator can rename later.
+            // Fallback for callers that didn't send a name (or sent an empty
+            // one): a best guess from the address, which the operator can
+            // rename later.
             let display_name = name
                 .clone()
+                .filter(|n| !n.trim().is_empty())
                 .or_else(|| crate::utils::name_from_email(&email))
                 .unwrap_or_else(|| email.clone());
             // A brand-new OIDC user has no platform privileges; their
@@ -584,6 +614,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Owner One".to_string()),
+            real_name: None,
             username: None,
             avatar_url: None,
             verified_email_set: None,
@@ -603,6 +634,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Owner One renamed by IdP".to_string()),
+            real_name: None,
             username: None,
             avatar_url: None,
             verified_email_set: None,
@@ -623,6 +655,96 @@ mod tests {
         );
     }
 
+    /// A re-projection renames the user only to a real name. One that is the
+    /// user's handle, address or address local part is what a source sends
+    /// when it has no name, and must not replace the name the user has.
+    #[test]
+    fn reprojection_never_renames_to_the_handle_or_address() {
+        let mut conn = setup_test_connection();
+        let iss = "https://api.nosdesk.com/";
+        let sub = format!("agent-{}", uuid::Uuid::new_v4());
+        let tag = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+        let email = format!("nosbot+{tag}@nosdesk.example");
+        let input = |name: &str| ProjectedUserInput {
+            iss: iss.to_string(),
+            sub: sub.clone(),
+            identity_workspace_id: None,
+            email: email.clone(),
+            email_verified: true,
+            name: Some(name.to_string()),
+            real_name: Some(name.to_string()),
+            username: Some(format!("probe-{tag}")),
+            avatar_url: None,
+            verified_email_set: None,
+            role: "member".to_string(),
+            workspace_id: 1,
+            password_hash: None,
+            metadata: None,
+        };
+        let name_of = |conn: &mut DbConnection, name: &str| {
+            find_or_create_projected_user(conn, input(name))
+                .expect("project")
+                .into_user()
+                .name
+        };
+
+        assert_eq!(
+            name_of(&mut conn, "Workspace Agent Probe"),
+            "Workspace Agent Probe"
+        );
+        for not_a_name in [
+            format!("probe-{tag}"),
+            email.clone(),
+            format!("nosbot+{tag}"),
+            "nosbot".to_string(),
+        ] {
+            assert_eq!(
+                name_of(&mut conn, &not_a_name),
+                "Workspace Agent Probe",
+                "{not_a_name:?}"
+            );
+        }
+        // A projection without a handle (the control plane's seat accept
+        // sends none) still can't rename to the handle the user already has.
+        let mut handleless = input(&format!("probe-{tag}"));
+        handleless.username = None;
+        let user = find_or_create_projected_user(&mut conn, handleless)
+            .expect("project without a handle")
+            .into_user();
+        assert_eq!(user.name, "Workspace Agent Probe", "stored handle");
+        assert_eq!(name_of(&mut conn, "Agent Probe"), "Agent Probe");
+    }
+
+    /// An empty name on create falls back like a missing one, to a guess from
+    /// the address, instead of minting a nameless user.
+    #[test]
+    fn an_empty_name_on_create_falls_back_to_the_address() {
+        let mut conn = setup_test_connection();
+        let tag = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+        let user = find_or_create_projected_user(
+            &mut conn,
+            ProjectedUserInput {
+                iss: "https://api.nosdesk.com/".to_string(),
+                sub: format!("blank-{tag}"),
+                identity_workspace_id: None,
+                email: format!("dana+{tag}@acme.example"),
+                email_verified: true,
+                name: Some(String::new()),
+                real_name: Some(String::new()),
+                username: None,
+                avatar_url: None,
+                verified_email_set: None,
+                role: "member".to_string(),
+                workspace_id: 1,
+                password_hash: None,
+                metadata: None,
+            },
+        )
+        .expect("create")
+        .into_user();
+        assert_eq!(user.name, "dana");
+    }
+
     /// O4: the projected global handle is stored on create, updated on
     /// re-projection when it differs, and left untouched when the projection
     /// omits it — an absent handle must never blank a stored one.
@@ -640,6 +762,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Handle Holder".to_string()),
+            real_name: None,
             username: None,
             avatar_url: None,
             verified_email_set: None,
@@ -701,6 +824,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Avatar Holder".to_string()),
+            real_name: None,
             username: None,
             avatar_url: avatar,
             verified_email_set: None,
@@ -764,6 +888,7 @@ mod tests {
             email: primary.clone(),
             email_verified: true,
             name: Some("Email Holder".to_string()),
+            real_name: None,
             username: None,
             avatar_url: None,
             verified_email_set: emails,
@@ -838,6 +963,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Owner Two".to_string()),
+            real_name: None,
             username: None,
             avatar_url: None,
             verified_email_set: None,
@@ -856,6 +982,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Owner Two".to_string()),
+            real_name: None,
             username: None,
             avatar_url: None,
             verified_email_set: None,
@@ -910,6 +1037,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Victim".to_string()),
+            real_name: None,
             username: None,
             avatar_url: None,
             verified_email_set: None,
@@ -980,6 +1108,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Directory User".to_string()),
+            real_name: None,
             username: None,
             avatar_url: None,
             verified_email_set: None,
