@@ -244,6 +244,16 @@ pub struct Rule {
     pub archived_at: Option<DateTime<Utc>>,
 }
 
+impl Rule {
+    /// An archived rule is read-only: no edits and no state changes. The
+    /// rules list's Delete stamps only `archived_at`, moving the state to
+    /// archived sets both, so either marks it. Restoring one has to clear
+    /// both.
+    pub fn is_archived(&self) -> bool {
+        self.archived_at.is_some() || self.state == RuleState::Archived
+    }
+}
+
 /// INSERT row for `rules`. The repository populates `reads_set` and
 /// `writes_set` from the conditions / actions trees before passing
 /// this in, so the engine's skip-on-no-reads-changed query path and

@@ -7142,6 +7142,7 @@ admin-rule-editor-state-new = Les nouvelles règles commencent en brouillon. Enr
 admin-rule-editor-state-draft = Brouillon. Les agents ne la voient pas encore.
 admin-rule-editor-state-paused = En pause. Les agents ne la voient pas.
 admin-rule-editor-state-live = Active. Les agents peuvent l'appliquer depuis le bouton Actions de n'importe quel ticket.
+admin-rule-editor-state-archived = Archivée. Les agents ne la voient pas, et elle ne peut pas être modifiée.
 admin-rule-editor-action-reply = Répondre
 admin-rule-editor-action-set-status = Définir le statut
 admin-rule-editor-action-assign = Assigner
