@@ -48,4 +48,16 @@ export const workflowStatesService = {
     const { data } = await apiClient.delete<WorkflowState>(`/admin/workflow-states/${id}`)
     return data
   },
+
+  /** Archived states (admin). Tickets in them keep them. */
+  async listArchived(): Promise<WorkflowState[]> {
+    const { data } = await apiClient.get<ListResponse>('/admin/workflow-states/archived')
+    return data.states
+  },
+
+  /** Bring an archived state back, at the end of its category (admin). */
+  async restore(id: number): Promise<WorkflowState> {
+    const { data } = await apiClient.post<WorkflowState>(`/admin/workflow-states/${id}/restore`)
+    return data
+  },
 }

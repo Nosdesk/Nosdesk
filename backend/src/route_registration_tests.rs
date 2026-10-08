@@ -871,6 +871,8 @@ async fn workflow_states_config_routes_registered() {
             ("POST", "/admin/workflow-states"),
             ("PATCH", "/admin/workflow-states/1"),
             ("DELETE", "/admin/workflow-states/1"),
+            ("GET", "/admin/workflow-states/archived"),
+            ("POST", "/admin/workflow-states/1/restore"),
         ],
     )
     .await;

@@ -128,6 +128,7 @@ mod upgrade_from_1_0_12;
 mod user_contact_gate;
 mod webhook_delivery_in_workspace;
 mod webhook_outbox_durability;
+mod workflow_state_restore;
 mod workflow_states_per_workspace;
 mod workspace_branding;
 mod workspace_file_purge;

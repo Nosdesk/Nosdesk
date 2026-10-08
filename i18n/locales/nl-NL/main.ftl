@@ -862,6 +862,13 @@ admin-workflow-states-error-create = Kon status niet aanmaken
 admin-workflow-states-saved = Opgeslagen
 admin-workflow-states-default-flash = { $name } is nu de standaardstatus voor nieuwe tickets
 admin-workflow-states-archived-flash = { $name } gearchiveerd
+# Gearchiveerde statussen (machine, na te kijken door moedertaalspreker).
+admin-workflow-states-archived-heading = Gearchiveerd
+admin-workflow-states-archived-hint = Tickets die al een gearchiveerde status hebben, houden die, maar niemand kan hem kiezen. Zet een status terug om hem weer beschikbaar te maken.
+admin-workflow-states-restore = Terugzetten
+admin-workflow-states-restore-label = { $name } terugzetten
+admin-workflow-states-restored-flash = { $name } staat weer in { $category }
+admin-workflow-states-error-restore = Status terugzetten mislukt
 admin-workflow-states-added-flash = { $name } toegevoegd aan { $category }
 admin-workflow-states-sla-paused = Pauzeert SLA
 admin-workflow-states-sla-running = Laat SLA lopen

@@ -400,6 +400,52 @@ pub fn archive(conn: &mut DbConnection, id: i32) -> QueryResult<WorkflowState> {
     Ok(row)
 }
 
+/// Bring an archived state back. It goes to the end of its category, so it
+/// doesn't take the place of a state added since it was archived. A state
+/// that isn't archived comes back as it is, with nothing recorded. `NotFound`
+/// for a state the connection can't see.
+pub fn restore(conn: &mut DbConnection, id: i32) -> QueryResult<WorkflowState> {
+    conn.transaction(|conn| {
+        let current: WorkflowState = workflow_states::table.find(id).first(conn)?;
+        if current.archived_at.is_none() {
+            return Ok(current);
+        }
+        let position = workflow_states::table
+            .filter(workflow_states::workspace_id.eq(current.workspace_id))
+            .filter(workflow_states::category.eq(current.category))
+            .filter(workflow_states::archived_at.is_null())
+            .select(diesel::dsl::max(workflow_states::position))
+            .first::<Option<i32>>(conn)?
+            .map_or(0, |p| p + 1);
+        let row: WorkflowState = diesel::update(workflow_states::table.find(id))
+            .set((
+                workflow_states::archived_at.eq(None::<chrono::DateTime<Utc>>),
+                workflow_states::position.eq(position),
+            ))
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::WorkflowState,
+                aggregate_id: row.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "workflow_state.restored",
+                data: json!({
+                    "id": row.id,
+                    "name": row.name,
+                    "category": row.category.as_str(),
+                    "color": row.color,
+                    "position": row.position,
+                    "is_default": row.is_default,
+                }),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(row)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -6,8 +6,11 @@
 //! - `PATCH /api/admin/workflow-states/{id}` — admin. Rename, recolor,
 //!   reorder, set as workspace default.
 //! - `DELETE /api/admin/workflow-states/{id}` — admin. Soft-archive the
-//!   state. Existing tickets keep referencing it; reactivation clears
-//!   the archived_at timestamp.
+//!   state. Existing tickets keep referencing it.
+//! - `GET /api/admin/workflow-states/archived` — admin. Lists archived
+//!   states.
+//! - `POST /api/admin/workflow-states/{id}/restore` — admin. Brings an
+//!   archived state back, at the end of its category.
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
@@ -31,6 +34,15 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/workflow-states",
         web::post().to(crate::handlers::workflow_states::create),
+    )
+    // Before `/admin/workflow-states/{id}`, which would take "archived" as an id.
+    .route(
+        "/admin/workflow-states/archived",
+        web::get().to(crate::handlers::workflow_states::list_archived),
+    )
+    .route(
+        "/admin/workflow-states/{id}/restore",
+        web::post().to(crate::handlers::workflow_states::restore),
     )
     .route(
         "/admin/workflow-states/{id}",
@@ -94,6 +106,46 @@ pub async fn list(mut tc: TenantConn, _req: HttpRequest) -> impl Responder {
         Err(e) => {
             error!(error = %e, "failed to list workflow states");
             errors::internal("Failed to list workflow states")
+        }
+    }
+}
+
+/// GET /api/admin/workflow-states/archived
+pub async fn list_archived(mut tc: TenantConn, req: HttpRequest) -> Result<HttpResponse, ApiError> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    let states = tc.run(repo::list_all).map_err(|e| {
+        error!(error = %e, "failed to list archived workflow states");
+        ApiError::Internal("Failed to list workflow states".into())
+    })?;
+    let archived = states
+        .into_iter()
+        .filter(|s| s.archived_at.is_some())
+        .collect();
+    Ok(HttpResponse::Ok().json(WorkflowStatesResponse { states: archived }))
+}
+
+/// POST /api/admin/workflow-states/{id}/restore
+pub async fn restore(
+    mut tc: TenantConn,
+    path: web::Path<i32>,
+    req: HttpRequest,
+) -> Result<HttpResponse, ApiError> {
+    let id = path.into_inner();
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    let actor = actor_uuid(&req);
+    match tc.run(|conn| repo::restore(conn, id)) {
+        Ok(state) => {
+            info!(actor = ?actor, state_id = state.id, "workflow state restored");
+            Ok(HttpResponse::Ok().json(state))
+        }
+        Err(diesel::result::Error::NotFound) => {
+            Err(ApiError::NotFoundMsg("Workflow state not found".into()))
+        }
+        Err(e) => {
+            error!(error = %e, state_id = id, "failed to restore workflow state");
+            Err(ApiError::Internal(
+                "Failed to restore workflow state".into(),
+            ))
         }
     }
 }

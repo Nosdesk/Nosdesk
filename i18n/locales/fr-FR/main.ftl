@@ -866,6 +866,13 @@ admin-workflow-states-error-create = Échec de la création de l'état
 admin-workflow-states-saved = Enregistré
 admin-workflow-states-default-flash = { $name } est désormais l'état par défaut pour les nouveaux tickets
 admin-workflow-states-archived-flash = { $name } archivé
+# États archivés (machine, à relire par un locuteur natif).
+admin-workflow-states-archived-heading = Archivés
+admin-workflow-states-archived-hint = Les tickets déjà dans un état archivé le conservent, mais personne ne peut le choisir. Restaurez un état pour le rendre de nouveau disponible.
+admin-workflow-states-restore = Restaurer
+admin-workflow-states-restore-label = Restaurer { $name }
+admin-workflow-states-restored-flash = { $name } est de retour dans { $category }
+admin-workflow-states-error-restore = Impossible de restaurer l'état
 admin-workflow-states-added-flash = { $name } ajouté à { $category }
 admin-workflow-states-sla-paused = Met le SLA en pause
 admin-workflow-states-sla-running = Lance le SLA
