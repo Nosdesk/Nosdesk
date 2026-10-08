@@ -37,7 +37,8 @@ export function rolesFromTier(tier: UserRole): {
  * read as `admin`; workspace agents as `technician`; audit reviewers
  * keep their own tier; everyone else is `user`. */
 export function effectiveRole(u: {
-  platform_role: PlatformRole;
+  /** Absent on someone else's row: the platform role reaches only its owner. */
+  platform_role?: PlatformRole | null;
   workspace_role?: WorkspaceRole | null;
 }): UserRole {
   if (u.platform_role === 'platform_admin') return 'admin';
@@ -128,8 +129,12 @@ export interface User {
   managed_by?: IdentityOwner;
   editable?: EditableFields;
   name: string;
-  email: string;
-  platform_role: PlatformRole;
+  /** Absent on someone else's row when the viewer is a requester-role
+   * member: of other people they get only the name and avatar. */
+  email?: string;
+  /** Absent on someone else's row in the sync pool, and on the user routes
+   * for a requester-role member. */
+  platform_role?: PlatformRole;
   workspace_role?: WorkspaceRole | null;
   pronouns?: string | null;
   avatar_url?: string | null;
@@ -155,8 +160,10 @@ export interface User {
   /** Server-resolved timezone after walking the same chain. Only
    * present on /auth/me responses. */
   effective_timezone?: string | null;
-  created_at: string;
-  updated_at: string;
+  /** Absent on someone else's row for a requester-role member, and on
+   * sync pool rows. */
+  created_at?: string;
+  updated_at?: string;
   open_ticket_count?: number;
   device_count?: number;
   /** When set, the user is soft-deleted: hidden from active
@@ -173,8 +180,9 @@ export interface User {
 export interface UserInfo {
   uuid: string;
   name: string;
-  email: string;
-  platform_role: PlatformRole;
+  /** Absent for someone else when the viewer is a requester-role member. */
+  email?: string;
+  platform_role?: PlatformRole;
   workspace_role?: WorkspaceRole | null;
   avatar_url?: string | null;
   avatar_thumb?: string | null;

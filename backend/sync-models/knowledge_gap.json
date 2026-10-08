@@ -1,6 +1,7 @@
 {
   "name": "knowledge_gap",
   "schema_version": 1,
+  "audience": "staff",
   "fields": {
     "id": { "rust": "i64", "ts": "number", "primary": true },
     "title": { "rust": "String", "ts": "string" },

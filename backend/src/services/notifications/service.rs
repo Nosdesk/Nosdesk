@@ -589,6 +589,8 @@ impl NotificationService {
                             op: SyncOp::Insert,
                             event_type: "notification.created",
                             data: serde_json::to_value(&event).unwrap_or_default(),
+                            // The recipient's group alone: the read paths
+                            // send a notification to its `user:` addressee.
                             groups: vec![format!("user:{}", payload.recipient_uuid)],
                             causation_id: None,
                         },

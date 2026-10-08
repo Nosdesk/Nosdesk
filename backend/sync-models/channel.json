@@ -1,6 +1,7 @@
 {
   "name": "channel",
   "schema_version": 1,
+  "audience": "admin",
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
     "provider": { "rust": "String", "ts": "string" },

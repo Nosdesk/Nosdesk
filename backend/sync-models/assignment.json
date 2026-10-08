@@ -1,6 +1,7 @@
 {
   "name": "assignment",
   "schema_version": 1,
+  "audience": "staff",
   "fields": {
     "ticket_id": { "rust": "i32", "ts": "number", "primary": true },
     "assignee_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },

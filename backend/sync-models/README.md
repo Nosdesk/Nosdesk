@@ -6,6 +6,9 @@ engine (`sync_actions` table). Single source of truth for:
 - Aggregate name (matches the `sync_aggregate` Postgres ENUM and the
   Rust `SyncAggregate` enum).
 - Current payload `schema_version` (stamped on every emitted row).
+- `audience`: who receives the records (`all`, `staff`, `admin`,
+  `ticket`, `docs`, `self`, `staff+self`). The code's answer is
+  `sync::audience::audience`; the manifest repeats it.
 - The set of `event_type` strings the aggregate emits, with their op
   (I / U / D / A).
 - Field shapes — for a future codegen pass that emits Rust types and
@@ -17,7 +20,8 @@ which asserts:
 1. Every `SyncAggregate` enum variant has a matching `.json` manifest.
 2. The `name` field in each manifest matches the enum's `as_str()`.
 3. The `schema_version` matches `sync::registry::schema_version_for`.
-4. Every `event_type` referenced by `repository::*` exists in some
+4. The `audience` matches `sync::audience::audience`.
+5. Every `event_type` referenced by `repository::*` exists in some
    manifest.
 
 A future commit will add a `build.rs` that generates Rust struct

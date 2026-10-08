@@ -1,6 +1,7 @@
 {
   "name": "attachment",
   "schema_version": 2,
+  "audience": "ticket",
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
     "comment_id": { "rust": "Option<i32>", "ts": "number | null" },

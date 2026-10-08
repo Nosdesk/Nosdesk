@@ -173,6 +173,15 @@ fn requester_sql(workspace_id: i32) -> String {
     )
 }
 
+/// What a people search matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchBy {
+    /// The name or any of the person's addresses (staff).
+    NameOrEmail,
+    /// The name only: for a caller who isn't shown others' addresses.
+    Name,
+}
+
 /// One page of the workspace's people (`directory::people`), filtered and
 /// sorted. `users` has no row security, so the workspace scope is this
 /// filter, not the connection's pin.
@@ -184,6 +193,7 @@ pub fn get_paginated_users(
     sort_field: Option<String>,
     sort_direction: Option<String>,
     search: Option<String>,
+    search_by: SearchBy,
     role: Option<String>,
     population: Option<Population>,
     deleted: DeletedFilter,
@@ -195,8 +205,8 @@ pub fn get_paginated_users(
     let search_uuids: Option<Vec<Uuid>> = match search.as_deref() {
         Some(term) if !term.is_empty() => {
             let pattern = format!("%{}%", term.to_lowercase());
-            Some(
-                users::table
+            Some(match search_by {
+                SearchBy::NameOrEmail => users::table
                     .left_join(user_emails::table.on(user_emails::user_uuid.eq(users::uuid)))
                     .select(users::uuid)
                     .filter(
@@ -206,7 +216,11 @@ pub fn get_paginated_users(
                     )
                     .distinct()
                     .load::<Uuid>(conn)?,
-            )
+                SearchBy::Name => users::table
+                    .select(users::uuid)
+                    .filter(users::name.ilike(pattern))
+                    .load::<Uuid>(conn)?,
+            })
         }
         _ => None,
     };
@@ -1043,6 +1057,7 @@ mod tests {
             None,
             None,
             None,
+            SearchBy::NameOrEmail,
             None,
             None,
             DeletedFilter::Active,
@@ -1068,6 +1083,7 @@ mod tests {
             None,
             None,
             None,
+            SearchBy::NameOrEmail,
             None,
             None,
             DeletedFilter::Only,
@@ -1097,6 +1113,7 @@ mod tests {
                 None,
                 None,
                 None,
+                SearchBy::NameOrEmail,
                 None,
                 Some(pop),
                 DeletedFilter::Active,

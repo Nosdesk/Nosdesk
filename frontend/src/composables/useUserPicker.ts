@@ -285,7 +285,7 @@ export function useUserPicker(opts: Options): Result {
       .map<PickerUser>((u) => ({
         uuid: u.uuid,
         name: u.name,
-        email: u.email,
+        email: u.email ?? '',
         role: effectiveRole(u),
         avatar_thumb: u.avatar_thumb,
         avatar_url: u.avatar_url,

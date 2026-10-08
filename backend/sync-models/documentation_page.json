@@ -1,6 +1,7 @@
 {
   "name": "documentation_page",
   "schema_version": 1,
+  "audience": "docs",
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
     "uuid": { "rust": "Uuid", "ts": "string" },

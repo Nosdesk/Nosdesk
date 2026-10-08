@@ -281,24 +281,30 @@ fn stream_bootstrap_inner(
             .into_iter()
             .filter_map(|p| p.dashboard_layout.map(|dl| (p.user_uuid, dl)))
             .collect();
+    // Each row carries only what this viewer may see of that person
+    // (`sync::user_projection`), as the delta and the live stream do.
     for user in user_rows {
         let workspace_role = crate::repository::user_helpers::workspace_role(conn, user.uuid)
             .map(|r| r.as_str().to_string());
-        send(
-            tx,
-            json!({
-                "__model__": "user",
-                "uuid": user.uuid,
-                "name": user.name,
-                "email": primary_email_by_uuid.get(&user.uuid).cloned().unwrap_or_default(),
-                "platform_role": user.platform_role,
-                "workspace_role": workspace_role,
-                "pronouns": user.pronouns,
-                "avatar_url": user.avatar_url,
-                "avatar_thumb": user.avatar_thumb,
-                "dashboard_layout": dashboard_layout_by_uuid.get(&user.uuid),
-            }),
-        )?;
+        let mut row = json!({
+            "uuid": user.uuid,
+            "name": user.name,
+            "email": primary_email_by_uuid.get(&user.uuid).cloned().unwrap_or_default(),
+            "platform_role": user.platform_role,
+            "workspace_role": workspace_role,
+            "pronouns": user.pronouns,
+            "avatar_url": user.avatar_url,
+            "avatar_thumb": user.avatar_thumb,
+            "deleted_at": user.deleted_at,
+            "dashboard_layout": dashboard_layout_by_uuid.get(&user.uuid),
+        });
+        crate::sync::visibility::project_row(
+            &viewer,
+            Some(crate::models::SyncAggregate::User),
+            &mut row,
+        );
+        row["__model__"] = json!("user");
+        send(tx, row)?;
     }
 
     // Assets follow the same "ship every row up-front" pattern as
@@ -357,7 +363,7 @@ fn stream_bootstrap_inner(
     // them. This mirrors the read-side filter on /api/sync/delta;
     // both reuse the canonical access logic so they cannot drift.
     if want_all {
-        let is_admin = viewer.is_doc_admin;
+        let is_admin = viewer.is_admin;
 
         let collections: Vec<crate::models::DocumentationCollection> =
             crate::schema::documentation_collections::table.load(conn)?;
@@ -481,6 +487,19 @@ fn stream_bootstrap_inner(
         let assocs: Vec<ProjectTicket> = project_tickets::table
             .filter(project_tickets::project_id.eq_any(&project_ids))
             .load(conn)?;
+        // A project's ticket links follow the tickets: a restricted viewer
+        // gets the links to tickets they can see, as the delta sends them.
+        let assocs: Vec<ProjectTicket> = if viewer.sees_all() {
+            assocs
+        } else {
+            let ids: Vec<i32> = assocs.iter().map(|a| a.ticket_id).collect();
+            let visible =
+                crate::repository::ticket_visibility::visible_ticket_ids(conn, &viewer.ctx, &ids)?;
+            assocs
+                .into_iter()
+                .filter(|a| visible.contains(&a.ticket_id))
+                .collect()
+        };
         for a in assocs {
             send(
                 tx,

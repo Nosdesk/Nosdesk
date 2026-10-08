@@ -214,6 +214,24 @@ pub fn readable_by(
         .collect())
 }
 
+/// Of the gaps `gap_ids`, those that name a page `audience` can't open: the
+/// sync read paths leave them out for that viewer. One read for the batch.
+pub fn naming_pages_hidden_from(
+    conn: &mut DbConnection,
+    audience: &crate::repository::documentation::PageAudience,
+    gap_ids: &[i64],
+) -> Result<std::collections::HashSet<i64>, Error> {
+    let gaps: Vec<KnowledgeGap> = knowledge_gaps::table
+        .filter(knowledge_gaps::id.eq_any(gap_ids))
+        .load(conn)?;
+    let all: std::collections::HashSet<i64> = gaps.iter().map(|g| g.id).collect();
+    let readable: std::collections::HashSet<i64> = readable_by(conn, audience, gaps)?
+        .iter()
+        .map(|g| g.id)
+        .collect();
+    Ok(all.difference(&readable).copied().collect())
+}
+
 /// `gap` as `audience` may see it: a page it names that they can't open is
 /// left out. For a gap the caller reaches by another route (flagging or
 /// unflagging a ticket), which may be drafting in a page they can't open.

@@ -101,7 +101,7 @@ fn member_viewer(uuid: Uuid) -> SyncViewer {
             PlatformRole::from_db("user"),
             Some(WorkspaceRole::Member),
         ),
-        is_doc_admin: false,
+        is_admin: false,
     }
 }
 
@@ -112,7 +112,7 @@ fn staff_viewer(uuid: Uuid) -> SyncViewer {
             PlatformRole::from_db("user"),
             Some(WorkspaceRole::Agent),
         ),
-        is_doc_admin: false,
+        is_admin: false,
     }
 }
 
@@ -126,6 +126,8 @@ fn av(aggregate: SyncAggregate) -> ActionView {
         comment_id: None,
         subject_uuid: None,
         bare_id: false,
+        addressees: Vec::new(),
+        gap_id: None,
     }
 }
 
@@ -348,7 +350,7 @@ fn pinned_filter_hides_restricted_pages_in_the_viewers_workspace() {
         "a member outside the page's group sees only the open page"
     );
     let doc_admin = SyncViewer {
-        is_doc_admin: true,
+        is_admin: true,
         ..staff_viewer(seeded.b.admin_uuid)
     };
     assert_eq!(filter(&doc_admin), vec![true, true]);

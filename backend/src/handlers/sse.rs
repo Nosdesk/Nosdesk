@@ -479,40 +479,17 @@ fn batch_needs_filtering(env: &Envelope, viewer: &crate::sync::visibility::SyncV
 /// Lower one serialized-`ActionRow` JSON row into the visibility layer's
 /// `ActionView`.
 fn json_row_to_view(row: &serde_json::Value) -> crate::sync::visibility::ActionView {
-    let aggregate = row
-        .get("aggregate")
-        .cloned()
-        .and_then(|v| serde_json::from_value::<crate::models::SyncAggregate>(v).ok());
-    let data = row.get("data");
-    let aggregate_id = row.get("aggregate_id").and_then(|v| v.as_str());
-    crate::sync::visibility::ActionView {
-        aggregate,
-        is_delete: row.get("op").and_then(|v| v.as_str()) == Some("D"),
-        aggregate_id: aggregate_id.and_then(|s| s.parse().ok()),
-        ticket_id: data
-            .and_then(|d| d.get("ticket_id"))
-            .and_then(|v| v.as_i64())
-            .map(|n| n as i32),
-        is_internal: data
-            .and_then(|d| d.get("is_internal"))
-            .and_then(|v| v.as_bool()),
-        comment_id: data
-            .and_then(|d| d.get("comment_id"))
-            .and_then(|v| v.as_i64())
-            .map(|n| n as i32),
-        subject_uuid: aggregate_id.and_then(|s| Uuid::parse_str(s).ok()),
-        bare_id: data.is_some_and(crate::sync::visibility::names_only_the_row),
-    }
+    crate::sync::visibility::ActionView::from_wire(row)
 }
 
 /// Re-frame a `SyncActions` envelope with the rows this viewer may not
 /// see removed, via the shared `sync::visibility::filter_actions` (the
-/// same brain the REST delta/bootstrap paths use). Documentation rows
-/// are dropped for everyone who can't see them; ticket-family rows are
-/// dropped for restricted members. The lookup runs off-thread via
-/// `web::block`; on failure it fails closed (drops every gated family,
-/// keeps reference data). `last_sync_id` is preserved so the client's
-/// cursor still advances past the (filtered) batch.
+/// same brain the REST delta/bootstrap paths use): each kind of record
+/// reaches only its audience, and a kept `user` row only the fields this
+/// viewer may see. The lookup runs off-thread via `web::block`; on failure
+/// it fails closed (drops every family that needs a lookup).
+/// `last_sync_id` is preserved so the client's cursor still advances past
+/// the (filtered) batch.
 async fn filter_sync_actions_frame(
     pool: web::Data<crate::db::Pool>,
     viewer: crate::sync::visibility::SyncViewer,
@@ -532,7 +509,7 @@ async fn filter_sync_actions_frame(
     // With no workspace there is nothing to read in, so gated rows are dropped.
     let Some(workspace_id) = workspace_id else {
         let mask = crate::sync::visibility::fail_closed_mask(&viewer, &rows, json_row_to_view);
-        return frame_filtered(env, rows, mask);
+        return frame_filtered(env, rows, mask, &viewer);
     };
     let rows_for_block = rows.clone();
     let mask = match web::block(move || {
@@ -552,11 +529,17 @@ async fn filter_sync_actions_frame(
             crate::sync::visibility::fail_closed_mask(&viewer, &rows, json_row_to_view)
         }
     };
-    frame_filtered(env, rows, mask)
+    frame_filtered(env, rows, mask, &viewer)
 }
 
-/// Frame a `SyncActions` envelope with only the rows `mask` keeps.
-fn frame_filtered(env: Envelope, rows: Vec<serde_json::Value>, mask: Vec<bool>) -> String {
+/// Frame a `SyncActions` envelope with only the rows `mask` keeps, each as
+/// `viewer` may see it.
+fn frame_filtered(
+    env: Envelope,
+    rows: Vec<serde_json::Value>,
+    mask: Vec<bool>,
+    viewer: &crate::sync::visibility::SyncViewer,
+) -> String {
     let Envelope {
         id,
         event,
@@ -574,7 +557,17 @@ fn frame_filtered(env: Envelope, rows: Vec<serde_json::Value>, mask: Vec<bool>) 
     let kept: Vec<serde_json::Value> = rows
         .into_iter()
         .zip(mask)
-        .filter_map(|(row, keep)| keep.then_some(row))
+        .filter(|(_, keep)| *keep)
+        .map(|(mut row, _)| {
+            let aggregate = row
+                .get("aggregate")
+                .cloned()
+                .and_then(|v| serde_json::from_value::<crate::models::SyncAggregate>(v).ok());
+            if let Some(data) = row.get_mut("data") {
+                crate::sync::visibility::project_row(viewer, aggregate, data);
+            }
+            row
+        })
         .collect();
 
     frame_envelope(&Envelope {
@@ -1085,7 +1078,7 @@ mod tests {
                 PlatformRole::from_db("user"),
                 Some(role),
             ),
-            is_doc_admin: false,
+            is_admin: false,
         }
     }
 

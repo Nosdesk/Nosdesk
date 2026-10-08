@@ -516,7 +516,8 @@ fn attachment_event(
 /// visibility layer then keeps an internal note's files from requesters). A
 /// draft upload not yet on a comment is private to its uploader, and a guest's
 /// draft (no uploader) reaches no one: the claim that puts it on a comment
-/// sends the whole row to the ticket's audience.
+/// sends the whole row to the ticket's audience. The uploader's `user:` group
+/// is how the read paths know a draft is the viewer's own.
 fn attachment_groups(conn: &mut DbConnection, attachment: &Attachment) -> QueryResult<Vec<String>> {
     match (attachment.comment_id, attachment.uploaded_by) {
         (Some(cid), _) => {

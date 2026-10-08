@@ -349,6 +349,9 @@ pub struct TicketActivityRow {
     pub actor_kind: String,
     pub actor_ref: Option<String>,
     pub occurred_at: chrono::DateTime<chrono::Utc>,
+    /// Read for visibility (who a row is addressed to), not sent.
+    #[serde(skip)]
+    pub groups: Vec<Option<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -412,6 +415,7 @@ pub async fn get_ticket_activity(
                 sync_actions::actor_kind,
                 sync_actions::actor_ref,
                 sync_actions::occurred_at,
+                sync_actions::groups,
             ))
             .into_boxed();
 
@@ -440,12 +444,12 @@ pub async fn get_ticket_activity(
     // sync delta applies; staff skip the lookup entirely.
     let viewer = SyncViewer {
         ctx: VisibilityContext::from_auth(&access.auth),
-        is_doc_admin: access.auth.is_workspace_admin(),
+        is_admin: access.auth.is_workspace_admin(),
     };
     if !viewer.ctx.sees_all() {
         let keep = tc.run(|conn| {
             Ok::<_, diesel::result::Error>(filter_actions(conn, &viewer, &events, |r| {
-                ActionView::from_row(r.aggregate, r.op, &r.aggregate_id, &r.data)
+                ActionView::from_row(r.aggregate, r.op, &r.aggregate_id, &r.data, &r.groups)
             }))
         });
         let keep = match keep {

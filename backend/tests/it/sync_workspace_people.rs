@@ -319,7 +319,7 @@ fn delivered_in_a(f: &Fixture, viewer: Uuid, rows: &[UserRow]) -> Vec<UserRow> {
     let a = f.ws.a.workspace_id;
     let views: Vec<ActionView> = rows
         .iter()
-        .map(|(agg, op, id, data)| ActionView::from_row(*agg, *op, id, data))
+        .map(|(agg, op, id, data)| ActionView::from_row(*agg, *op, id, data, &[]))
         .collect();
     let mut conn = f.pool.get().expect("conn");
     let (viewer, delta) = with_actor_context::<_, diesel::result::Error>(

@@ -95,6 +95,11 @@ pub fn workspace() -> Vec<String> {
 
 /// Groups attached to an event that targets a single user (direct
 /// notifications, profile changes).
+///
+/// A `user:<uuid>` group names the person a record is for: the sync read
+/// paths treat everyone in a row's `user:` groups as its addressee
+/// (`sync::audience::Audience::Addressee`), so add one only for that
+/// person.
 pub fn for_user(user_uuid: Uuid) -> Vec<String> {
     vec![WORKSPACE_GROUP.to_string(), format!("user:{}", user_uuid)]
 }

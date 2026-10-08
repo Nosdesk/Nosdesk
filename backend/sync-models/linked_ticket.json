@@ -1,6 +1,7 @@
 {
   "name": "linked_ticket",
   "schema_version": 1,
+  "audience": "ticket",
   "fields": {
     "ticket_id": { "rust": "i32", "ts": "number", "primary": true },
     "linked_ticket_id": { "rust": "i32", "ts": "number", "primary": true }

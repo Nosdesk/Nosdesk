@@ -27,7 +27,7 @@ pub fn schema_version_for(aggregate: SyncAggregate) -> i16 {
         SyncAggregate::Plugin => 1,
         SyncAggregate::Cycle => 1,
         SyncAggregate::CycleTicket => 1,
-        SyncAggregate::User => 1,
+        SyncAggregate::User => 2,
         SyncAggregate::Asset => 1,
         SyncAggregate::AssetMedia => 2,
         SyncAggregate::AssetLifecycleEvent => 1,

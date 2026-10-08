@@ -88,7 +88,7 @@ const selectUser = (user: UserInfo) => {
   emit('select-user', {
     uuid: user.uuid,
     name: user.name,
-    email: user.email,
+    email: user.email ?? '',
     role: effectiveRole(user)
   });
   emit('close');
@@ -194,7 +194,7 @@ const clearUser = () => {
           <!-- User Info -->
           <div class="flex-1 min-w-0">
             <div class="text-sm font-medium text-primary truncate">{{ user.name }}</div>
-            <div class="text-xs text-secondary truncate">{{ user.email }}</div>
+            <div v-if="user.email" class="text-xs text-secondary truncate">{{ user.email }}</div>
           </div>
 
           <!-- Role Badge -->

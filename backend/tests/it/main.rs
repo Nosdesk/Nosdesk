@@ -101,6 +101,7 @@ mod rules_in_workspace;
 mod search_by_ticket_number;
 mod site_settings_per_workspace;
 mod sla_policy_priority;
+mod sync_audiences;
 mod sync_emit_lint;
 mod sync_model_registry;
 mod sync_ticket_group_auth;

@@ -37,6 +37,7 @@ import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import userService from '@/services/userService'
 import { usersKeys } from '@nosdesk/core/queries/users'
 import { effectiveRole, type User, type UserRole } from '@nosdesk/core/types/user'
+import { peopleColumns, peopleFacets, peopleGroupAxes } from '@/utils/peopleListLayout'
 
 defineOptions({ name: 'UsersListView' })
 
@@ -58,6 +59,9 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const toast = useToastStore()
 const auth = useAuthStore()
 const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
+// Staff see the working roster; anyone else gets only names and avatars of
+// other people (see `peopleListLayout`).
+const isStaff = computed(() => auth.isTechnician)
 
 const layoutRef = useTemplateRef<ListPageLayoutExpose>('layout')
 const scrollContainerRef = computed<HTMLElement | null>(
@@ -96,7 +100,11 @@ usePageCreateAction(onPageCreate)
 // filter, but it's driven by the Active/Deleted view tab (see the
 // #view-tabs slot) rather than a buried chip, since admins need to
 // find the deleted view to restore an accidentally deleted user.
-const userFacets = computed<ChipFacetDef[]>(() => [
+const userFacets = computed<ChipFacetDef[]>(() => {
+  const shown = peopleFacets(isStaff.value)
+  return allUserFacets.value.filter((f) => (shown as string[]).includes(f.key))
+})
+const allUserFacets = computed<ChipFacetDef[]>(() => [
   {
     key: 'name',
     labelKey: 'user-mgmt-filter-name-label',
@@ -123,7 +131,8 @@ const userFacets = computed<ChipFacetDef[]>(() => [
 const ROLE_ORDER: Array<UserRole> = ['admin', 'technician', 'audit_reviewer', 'user']
 const JOIN_BUCKET_ORDER = ['this-month', 'this-year', 'older'] as const
 
-function joinBucket(createdAt: string): (typeof JOIN_BUCKET_ORDER)[number] {
+function joinBucket(createdAt: string | undefined): (typeof JOIN_BUCKET_ORDER)[number] {
+  if (!createdAt) return 'older'
   const created = new Date(createdAt)
   const now = new Date()
   const thirtyDaysAgo = new Date(now)
@@ -133,7 +142,7 @@ function joinBucket(createdAt: string): (typeof JOIN_BUCKET_ORDER)[number] {
   return 'older'
 }
 
-const groupAxes: GroupAxisDef<User>[] = [
+const allGroupAxes: GroupAxisDef<User>[] = [
   {
     key: 'role',
     labelKey: 'user-mgmt-grouping-role',
@@ -179,6 +188,10 @@ const groupAxes: GroupAxisDef<User>[] = [
   },
 ]
 
+const groupAxes = allGroupAxes.filter((axis) =>
+  (peopleGroupAxes(isStaff.value) as string[]).includes(axis.key),
+)
+
 /**
  * Every column is server-sortable: `name`, `role`, `email`,
  * `created_at`, `open_ticket_count` and `device_count` all have match
@@ -198,24 +211,34 @@ const groupAxes: GroupAxisDef<User>[] = [
 // assigned tickets, and no assets, so the staff-only columns would only ever
 // show zeros; the requester roster is a plain directory (name, email, added).
 // `user` and `email` are shared to keep the two sets DRY.
+interface PeopleColumnDef {
+  field: string
+  label: string
+  width: string
+  sortable: boolean
+  sortKey?: string
+  responsive: 'always' | 'md' | 'lg'
+  defaultHidden?: boolean
+}
 const columns = computed(() => {
-  const userCol = { field: 'user', label: t('user-mgmt-column-user'), width: 'minmax(160px,1fr)', sortable: true, sortKey: 'name', responsive: 'always' as const }
-  const emailCol = { field: 'email', label: t('user-mgmt-column-email'), width: 'minmax(150px,260px)', sortable: true, responsive: 'always' as const }
-  if (isRequesters.value) {
-    return [
-      userCol,
-      { ...emailCol, width: 'minmax(150px,320px)' },
-      { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(110px,150px)', sortable: true, responsive: 'md' as const },
-    ]
-  }
-  return [
-    userCol,
-    emailCol,
-    { field: 'role', label: t('user-mgmt-column-role'), width: 'minmax(90px,120px)', sortable: true, responsive: 'always' as const },
-    { field: 'open_ticket_count', label: t('user-mgmt-column-tickets'), width: 'minmax(70px,90px)', sortable: true, responsive: 'md' as const },
-    { field: 'device_count', label: t('user-mgmt-column-assets'), width: 'minmax(70px,90px)', sortable: true, responsive: 'md' as const },
-    { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(110px,150px)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
-  ]
+  const userCol: PeopleColumnDef = { field: 'user', label: t('user-mgmt-column-user'), width: 'minmax(160px,1fr)', sortable: true, sortKey: 'name', responsive: 'always' }
+  const emailCol: PeopleColumnDef = { field: 'email', label: t('user-mgmt-column-email'), width: 'minmax(150px,260px)', sortable: true, responsive: 'always' }
+  const all: PeopleColumnDef[] = isRequesters.value
+    ? [
+        userCol,
+        { ...emailCol, width: 'minmax(150px,320px)' },
+        { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(110px,150px)', sortable: true, responsive: 'md' },
+      ]
+    : [
+        userCol,
+        emailCol,
+        { field: 'role', label: t('user-mgmt-column-role'), width: 'minmax(90px,120px)', sortable: true, responsive: 'always' },
+        { field: 'open_ticket_count', label: t('user-mgmt-column-tickets'), width: 'minmax(70px,90px)', sortable: true, responsive: 'md' },
+        { field: 'device_count', label: t('user-mgmt-column-assets'), width: 'minmax(70px,90px)', sortable: true, responsive: 'md' },
+        { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(110px,150px)', sortable: true, responsive: 'lg', defaultHidden: true },
+      ]
+  const shown: string[] = peopleColumns(isStaff.value, isRequesters.value)
+  return all.filter((c) => shown.includes(c.field))
 })
 
 // Shell composable bundling controls + page + selection + chip
@@ -429,8 +452,9 @@ function formatPurgeAt(deletedAt: string): string {
       <template #view-tabs>
         <div class="flex items-center gap-2">
           <!-- Primary: the People population split (staff Team vs end-user
-               Requesters). Everyone sees it; it drives the backend filter. -->
-          <div class="inline-flex items-center gap-0.5 rounded-lg border border-default bg-surface-alt p-0.5">
+               Requesters), for staff; it drives the backend filter, which
+               doesn't apply to anyone else. -->
+          <div v-if="isStaff" class="inline-flex items-center gap-0.5 rounded-lg border border-default bg-surface-alt p-0.5">
             <button
               type="button"
               class="px-3 py-1 text-sm font-medium rounded-md transition-colors"
@@ -608,7 +632,7 @@ function formatPurgeAt(deletedAt: string): string {
           />
           <div class="flex-1 min-w-0">
             <div class="text-sm text-primary font-medium truncate">{{ item.name }}</div>
-            <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
+            <div v-if="isStaff" class="flex flex-wrap items-center gap-2 mt-1 text-xs">
               <NosdeskAccountChip v-if="isIdentityExternallyManaged(item)" />
               <span v-if="item.email" class="text-tertiary truncate max-w-[200px]">{{ item.email }}</span>
               <span

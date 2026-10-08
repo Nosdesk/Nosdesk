@@ -1,6 +1,7 @@
 {
   "name": "notification",
   "schema_version": 1,
+  "audience": "self",
   "notes": "Per-recipient notification events. Emitted (op I) from NotificationService::persist_notification when a notification row is created, in the same transaction as the insert. Scoped to the recipient's private 'user:<uuid>' group so only that user's clients receive it; this is what makes notifications cross-machine (Postgres NOTIFY) rather than the prior in-process broadcast. The data payload carries enough to toast and to invalidate the notifications list/unread-count queries; clients refetch the authoritative list. aggregate_id is the notification's numeric id.",
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
