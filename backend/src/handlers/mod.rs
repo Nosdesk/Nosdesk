@@ -254,6 +254,10 @@ pub async fn add_comment_to_ticket(
             StatusCode::FORBIDDEN,
         );
     }
+    // A merged ticket's conversation continues on the one it was merged into.
+    if let Some(refused) = crate::handlers::helpers::refuse_merged(&mut tc, &[ticket_id]) {
+        return refused;
+    }
 
     debug!(ticket_id, "Adding comment to ticket");
     debug!(content = %comment_data.content, "Comment content");

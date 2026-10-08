@@ -728,3 +728,31 @@ fn push_refuses_edits_to_a_merged_ticket() {
     let after = crate::repository::tickets::get_ticket_by_id(&mut conn, source.id).unwrap();
     assert_eq!(after.title, "merged");
 }
+
+/// A push to a merged ticket the caller can't see is forbidden, the answer
+/// for any ticket they can't see; whether it was merged isn't theirs to know.
+#[test]
+fn a_push_to_a_merged_ticket_the_caller_cant_see_is_forbidden() {
+    use super::push::PushTransaction;
+    let mut conn = setup_test_connection();
+    let member = TestFixtures::create_user(&mut conn, "sync_push_merged_member", "user");
+    let other = TestFixtures::create_user(&mut conn, "sync_push_merged_other", "user");
+    let destination = TestFixtures::create_ticket(&mut conn, "Into", Some(other.uuid), None);
+    let theirs = TestFixtures::create_ticket(&mut conn, "Theirs", Some(other.uuid), None);
+    TestFixtures::mark_merged(&mut conn, &theirs, &destination, other.uuid);
+    let tx = PushTransaction {
+        tx_id: Uuid::now_v7().to_string(),
+        aggregate: SyncAggregate::Ticket,
+        model_id: theirs.id.to_string(),
+        op: SyncOp::Update,
+        patch: json!({ "title": "Mine now" }),
+        base_sync_id: None,
+    };
+    let (reason, _) = super::push::apply_transaction_as_non_staff_for_test(
+        &mut conn,
+        &tx,
+        &ActorContext::user(member.uuid, None),
+    )
+    .expect_err("refused");
+    assert_eq!(reason, "forbidden");
+}

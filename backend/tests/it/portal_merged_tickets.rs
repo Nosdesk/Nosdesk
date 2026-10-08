@@ -2,7 +2,8 @@
 //! was merged into, so the portal says where it went (when the requester can
 //! see that request) and a reply sent to it lands there; when the requester
 //! can't see the destination, the reply is refused rather than left on the
-//! merged request where nobody reads it.
+//! merged request where nobody reads it. Nobody can be added to a merged
+//! request, and a notice whose incident was merged can't be followed.
 
 use std::sync::Arc;
 
@@ -156,6 +157,14 @@ macro_rules! portal_as {
                 .route(
                     "/api/portal/tickets/{id}/comments",
                     web::post().to(backend::handlers::portal::reply_to_my_ticket),
+                )
+                .route(
+                    "/api/portal/tickets/{id}/participants",
+                    web::post().to(backend::handlers::portal::add_participant),
+                )
+                .route(
+                    "/api/portal/notices/{id}/follow",
+                    web::post().to(backend::handlers::portal::follow_notice),
                 ),
         )
         .await
@@ -232,4 +241,79 @@ async fn a_reply_to_a_request_merged_out_of_sight_is_refused() {
     assert_eq!(resp.status().as_u16(), 409, "refused as merged");
     assert_eq!(fx.replies(destination.id, "Any news?"), 0);
     assert_eq!(fx.replies(source.id, "Any news?"), 0);
+}
+
+/// `user`'s watch rows on `ticket_id`.
+fn watching(fx: &Fixture, ticket_id: i32, user: Uuid) -> i64 {
+    use backend::schema::ticket_watchers;
+    run_in_workspace(&fx.pool, REF, fx.ws.workspace_id, |c| {
+        ticket_watchers::table
+            .filter(ticket_watchers::ticket_id.eq(ticket_id))
+            .filter(ticket_watchers::user_uuid.eq(user))
+            .count()
+            .get_result(c)
+    })
+    .expect("count watchers")
+}
+
+/// Nobody can be added to a merged request: its conversation goes on in the
+/// one it was merged into.
+#[actix_web::test]
+async fn nobody_is_added_to_a_merged_request() {
+    let fx = Fixture::new();
+    let requester = fx.ws.member_uuid;
+    let destination = fx.ticket("Shared drive missing", requester);
+    let source = fx.ticket("Shared drive still missing", requester);
+    fx.merge(&source, &destination);
+    let app = portal_as!(fx, requester);
+
+    let resp = http_test::call_service(
+        &app,
+        http_test::TestRequest::post()
+            .uri(&format!("/api/portal/tickets/{}/participants", source.id))
+            .set_json(json!({ "email": "colleague@example.com" }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status().as_u16(), 409, "add to a merged request");
+    let body: serde_json::Value = http_test::read_body_json(resp).await;
+    assert_eq!(body["code"], "ticket_merged", "{body}");
+}
+
+/// A live notice whose incident was merged can't be followed there.
+#[actix_web::test]
+async fn a_notice_on_a_merged_incident_cant_be_followed() {
+    let fx = Fixture::new();
+    let requester = fx.ws.member_uuid;
+    let destination = fx.ticket("Email down", fx.ws.admin_uuid);
+    let incident = fx.ticket("Email down for everyone", fx.ws.admin_uuid);
+    fx.merge(&incident, &destination);
+    let notice: i32 = run_in_workspace(&fx.pool, REF, fx.ws.workspace_id, |c| {
+        use backend::schema::workspace_notices;
+        let now = chrono::Utc::now();
+        diesel::insert_into(workspace_notices::table)
+            .values((
+                workspace_notices::title.eq("Email is down"),
+                workspace_notices::severity.eq("outage"),
+                workspace_notices::starts_at.eq(now - chrono::Duration::hours(1)),
+                workspace_notices::ends_at.eq(now + chrono::Duration::hours(1)),
+                workspace_notices::incident_ticket_id.eq(incident.id),
+            ))
+            .returning(workspace_notices::id)
+            .get_result(c)
+    })
+    .expect("notice");
+    let app = portal_as!(fx, requester);
+
+    let resp = http_test::call_service(
+        &app,
+        http_test::TestRequest::post()
+            .uri(&format!("/api/portal/notices/{notice}/follow"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status().as_u16(), 409, "follow a merged incident");
+    let body: serde_json::Value = http_test::read_body_json(resp).await;
+    assert_eq!(body["code"], "ticket_merged", "{body}");
+    assert_eq!(watching(&fx, incident.id, requester), 0);
 }

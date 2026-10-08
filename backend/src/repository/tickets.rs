@@ -612,34 +612,30 @@ pub fn update_ticket_partial(
         return Ok(get_ticket_by_id(conn, ticket_id)?);
     }
 
-    // A merged ticket is closed for good: its conversation and work moved to
-    // the ticket it was merged into.
-    if crate::repository::ticket_merge::is_merge_source(conn, ticket_id)? {
-        return Err(TicketWriteError::Merged);
-    }
-
     let (result, next_occurrence) = conn.transaction::<_, TicketWriteError, _>(|conn| {
-        // The notification deriver decides "actually changed" from the
-        // before/after pair in `data`, so a write that can change the
-        // assignee or workflow state records what it was. Reading the row
-        // first is one indexed lookup inside the same transaction, and it
-        // locks the row, so two saves that close the ticket at once see one
-        // close between them. The lock is FOR NO KEY UPDATE, the one the
-        // UPDATE below takes anyway: FOR UPDATE would also wait on the
+        // Read and lock the row first. The lock is FOR NO KEY UPDATE, the one
+        // the UPDATE below takes anyway: FOR UPDATE would also wait on the
         // key-share lock every insert referencing the ticket holds (a comment,
         // an attachment), and a reply that reopens a closed ticket, having
         // already bumped `updated_at`, then deadlocked against a second reply.
-        let previous =
-            if ticket_update.assignee_uuid.is_some() || ticket_update.workflow_state_id.is_some() {
-                Some(
-                    tickets::table
-                        .find(ticket_id)
-                        .for_no_key_update()
-                        .first::<Ticket>(conn)?,
-                )
-            } else {
-                None
-            };
+        let locked = tickets::table
+            .find(ticket_id)
+            .for_no_key_update()
+            .first::<Ticket>(conn)?;
+        // A merged ticket is closed for good: its conversation and work moved
+        // to the ticket it was merged into. Checked under the lock, which a
+        // merge also takes on the ticket, so a write racing a merge sees it
+        // once the merge commits.
+        if crate::repository::ticket_merge::is_merge_source(conn, ticket_id)? {
+            return Err(TicketWriteError::Merged);
+        }
+        // The notification deriver decides "actually changed" from the
+        // before/after pair in `data`, so a write that can change the
+        // assignee or workflow state records what it was; the lock means two
+        // saves that close the ticket at once see one close between them.
+        let previous = (ticket_update.assignee_uuid.is_some()
+            || ticket_update.workflow_state_id.is_some())
+        .then_some(locked);
         if let (Some(Some(assignee)), Some(previous)) = (ticket_update.assignee_uuid, &previous) {
             if previous.assignee_uuid != Some(assignee) {
                 crate::repository::assignees::ensure_assignable(

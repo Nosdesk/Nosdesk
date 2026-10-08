@@ -579,7 +579,8 @@ pub enum ApiError {
     Actix(#[from] actix_web::Error),
 }
 
-/// A ticket write's refusal is the caller's mistake: 400 `INVALID_ASSIGNEE`.
+/// A ticket write's refusal is the caller's mistake: 400 `INVALID_ASSIGNEE` for
+/// an assignee who can't work tickets, 409 `ticket_merged` for a merged ticket.
 impl From<crate::repository::tickets::TicketWriteError> for ApiError {
     fn from(err: crate::repository::tickets::TicketWriteError) -> Self {
         use crate::repository::tickets::TicketWriteError;
