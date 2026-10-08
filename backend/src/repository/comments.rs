@@ -618,9 +618,15 @@ pub fn move_comments_to_ticket(
     destination: &Ticket,
 ) -> QueryResult<usize> {
     conn.transaction(|conn| {
+        // A moved reply drops the composer's id: the destination may hold a
+        // reply with the same id from the same author, and a resend is only
+        // ever matched on the ticket it was sent to.
         let moved: Vec<Comment> =
             diesel::update(comments::table.filter(comments::ticket_id.eq_any(sources)))
-                .set(comments::ticket_id.eq(destination.id))
+                .set((
+                    comments::ticket_id.eq(destination.id),
+                    comments::client_id.eq(None::<uuid::Uuid>),
+                ))
                 .get_results(conn)?;
         let destination_groups = groups::for_ticket(conn, destination)?;
         let live: Vec<&Comment> = moved.iter().filter(|c| c.deleted_at.is_none()).collect();
@@ -663,6 +669,22 @@ pub fn move_comments_to_ticket(
         }
         Ok(moved.len())
     })
+}
+
+/// The reply `author` already saved on `ticket_id` with the composer's
+/// `client_id`, if they did: what a resend of that reply gets back.
+pub fn find_by_client_id(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    author: uuid::Uuid,
+    client_id: uuid::Uuid,
+) -> QueryResult<Option<Comment>> {
+    comments::table
+        .filter(comments::ticket_id.eq(ticket_id))
+        .filter(comments::user_uuid.eq(author))
+        .filter(comments::client_id.eq(client_id))
+        .first(conn)
+        .optional()
 }
 
 pub fn get_comment_by_id(conn: &mut DbConnection, comment_id: i32) -> QueryResult<Comment> {
@@ -850,6 +872,44 @@ pub fn delete_attachment(conn: &mut DbConnection, attachment_id: i32) -> QueryRe
 mod tests {
     use super::*;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    #[test]
+    fn a_second_reply_with_the_same_client_id_is_refused() {
+        let mut conn = setup_test_connection();
+        let author = TestFixtures::create_user(&mut conn, "client_id_author", "user");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Ticket", Some(author.uuid), None);
+        let send = |conn: &mut DbConnection| {
+            create_comment(
+                conn,
+                NewComment {
+                    content: "<p>once</p>".into(),
+                    ticket_id: ticket.id,
+                    user_uuid: author.uuid,
+                    client_id: Some(uuid::Uuid::nil()),
+                    ..Default::default()
+                },
+                None,
+            )
+        };
+        let first = send(&mut conn).unwrap();
+        let again = conn.transaction(|c| send(c).map(|_| ()));
+        assert!(
+            matches!(
+                again,
+                Err(diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::UniqueViolation,
+                    _
+                ))
+            ),
+            "{again:?}"
+        );
+        assert_eq!(
+            find_by_client_id(&mut conn, ticket.id, author.uuid, uuid::Uuid::nil())
+                .unwrap()
+                .map(|c| c.id),
+            Some(first.id)
+        );
+    }
 
     fn reply(conn: &mut DbConnection, ticket_id: i32, author: uuid::Uuid) {
         create_comment(

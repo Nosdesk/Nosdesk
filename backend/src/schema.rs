@@ -620,6 +620,7 @@ diesel::table! {
         workspace_id -> Int4,
         #[max_length = 16]
         render_kind -> Nullable<Varchar>,
+        client_id -> Nullable<Uuid>,
     }
 }
 

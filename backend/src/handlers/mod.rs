@@ -336,10 +336,33 @@ pub async fn add_comment_to_ticket(
         // Honor the composer's internal-note toggle. Was dropped before
         // (defaulted to false), which saved every note as public.
         is_internal: comment_data.is_internal,
+        // A resend of this reply is answered with it (below).
+        client_id: comment_data.client_id,
         // Email body parts only apply to inbound channel comments,
         // not UI-authored ones.
         ..Default::default()
     };
+
+    // A resend of a reply already saved (the composer keeps a failed reply's
+    // client id until its draft is edited) gets that reply back: no second
+    // comment, and nothing is attached, watched or relayed again.
+    if let Some(client_id) = comment_data.client_id {
+        match tc.run(|conn| {
+            crate::repository::comments::find_by_client_id(
+                conn,
+                ticket_id,
+                user_uuid_parsed,
+                client_id,
+            )
+        }) {
+            Ok(Some(existing)) => return resent_reply(&mut tc, existing, user_info),
+            Ok(None) => {}
+            Err(e) => {
+                error!(error = %e, "Error looking up a resent reply");
+                return errors::internal("Failed to create comment");
+            }
+        }
+    }
 
     // Stamp the client-minted id (if any) so the comment.created sync action
     // carries it as `correlation_id`, letting the client reconcile its
@@ -361,6 +384,26 @@ pub async fn add_comment_to_ticket(
             Some(search_service.get_ref()),
         )
     });
+    // The same reply arriving twice at once: the other request saved it.
+    if let (
+        Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::UniqueViolation,
+            _,
+        )),
+        Some(client_id),
+    ) = (&create_result, comment_data.client_id)
+    {
+        if let Ok(Some(existing)) = tc.run(|conn| {
+            crate::repository::comments::find_by_client_id(
+                conn,
+                ticket_id,
+                user_uuid_parsed,
+                client_id,
+            )
+        }) {
+            return resent_reply(&mut tc, existing, user_info);
+        }
+    }
     match create_result {
         Ok(comment) => {
             debug!(comment_id = comment.id, "Created comment");
@@ -486,31 +529,7 @@ pub async fn add_comment_to_ticket(
             // Get user info
             let user = user_info;
 
-            // Format the ISO timestamp correctly for JavaScript
-            let created_at = comment
-                .created_at
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string();
-
-            // Format the data to match what TicketView.vue expects
-            let response = json!({
-                "id": comment.id,
-                "content": comment.content,
-                "user_uuid": comment.user_uuid.to_string(),
-                "created_at": created_at,
-                "createdAt": created_at,
-                "ticket_id": comment.ticket_id,
-                // Render-determining fields, so the value the client
-                // upserts into the pool from this response renders
-                // identically to the same row rehydrated on refresh
-                // (GET /comments serializes the full row). Omitting them
-                // is what made a fresh comment flip from inline text to
-                // an email iframe across a reload.
-                "content_format": comment.content_format,
-                "render_kind": comment.render_kind,
-                "attachments": attachments,
-                "user": user
-            });
+            let response = reply_body(&comment, &attachments, user);
 
             // The comment + the ticket's modified-date bump both reach
             // clients through the sync pool (the repository write emits
@@ -554,6 +573,59 @@ pub async fn add_comment_to_ticket(
         Err(e) => {
             error!(error = %e, "Error creating comment");
             errors::internal(format!("Failed to create comment: {}", e))
+        }
+    }
+}
+
+/// What a reply's POST answers with, in the shape TicketView.vue expects.
+fn reply_body(
+    comment: &crate::models::Comment,
+    attachments: &[crate::models::Attachment],
+    user: Option<crate::models::UserInfoWithAvatar>,
+) -> serde_json::Value {
+    // Format the ISO timestamp correctly for JavaScript
+    let created_at = comment
+        .created_at
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string();
+    json!({
+        "id": comment.id,
+        "content": comment.content,
+        "user_uuid": comment.user_uuid.to_string(),
+        "created_at": created_at,
+        "createdAt": created_at,
+        "ticket_id": comment.ticket_id,
+        // As saved: a resend answered with an earlier reply carries that
+        // reply's flag, whatever the composer's toggle says now.
+        "is_internal": comment.is_internal,
+        // Render-determining fields, so the value the client upserts into
+        // the pool from this response renders identically to the same row
+        // rehydrated on refresh (GET /comments serializes the full row).
+        // Omitting them is what made a fresh comment flip from inline text
+        // to an email iframe across a reload.
+        "content_format": comment.content_format,
+        "render_kind": comment.render_kind,
+        "attachments": attachments,
+        "user": user
+    })
+}
+
+/// A resend's answer: the reply already saved, with its files.
+fn resent_reply(
+    tc: &mut crate::extractors::TenantConn,
+    comment: crate::models::Comment,
+    user: Option<crate::models::UserInfoWithAvatar>,
+) -> HttpResponse {
+    match tc
+        .run(|conn| crate::repository::comments::get_attachments_by_comment_id(conn, comment.id))
+    {
+        Ok(attachments) => {
+            debug!(comment_id = comment.id, "Answered a resent reply");
+            HttpResponse::Ok().json(reply_body(&comment, &attachments, user))
+        }
+        Err(e) => {
+            error!(error = %e, "Error loading a resent reply's files");
+            errors::internal("Failed to create comment")
         }
     }
 }

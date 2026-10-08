@@ -93,6 +93,7 @@ mod projection_membership_role_model;
 mod push_preference_defaults;
 mod rebuild_search_index;
 mod recurring_tickets;
+mod reply_sent_twice;
 mod route_auth_funnel_lint;
 mod rules_in_workspace;
 mod search_by_ticket_number;

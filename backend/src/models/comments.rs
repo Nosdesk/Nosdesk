@@ -77,6 +77,11 @@ pub struct Comment {
     /// before this column existed; the frontend falls back to its
     /// per-`content_format` rendering when NULL.
     pub render_kind: Option<String>,
+    /// The composer's id for this reply, so a resend of it is answered with
+    /// this comment rather than saved again. Unique per ticket and author;
+    /// NULL for replies from anywhere else. Kept off the wire.
+    #[serde(skip)]
+    pub client_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, Default)]
@@ -112,6 +117,9 @@ pub struct NewComment {
     /// NULL.
     #[serde(default)]
     pub render_kind: Option<String>,
+    /// The composer's id for a reply from the app (see `Comment::client_id`).
+    #[serde(default)]
+    pub client_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
@@ -189,10 +197,11 @@ pub struct NewCommentWithAttachments {
     /// public, leaking internal notes to requester-facing views + outbound.
     #[serde(default)]
     pub is_internal: bool,
-    /// Client-minted id (UUID) for optimistic-create reconciliation: echoed
-    /// into the comment.created sync action's `correlation_id` so the client
-    /// matches the server echo to its pending optimistic row structurally,
-    /// instead of a temp-id swap + an author/time/content dedup heuristic.
+    /// Client-minted id (UUID) for the reply. Echoed into the comment.created
+    /// sync action's `correlation_id`, so the client matches the server echo
+    /// to its pending optimistic row structurally, and stored on the comment,
+    /// so a resend of the same reply (same ticket and author) is answered
+    /// with the comment already saved instead of a second one.
     #[serde(default)]
     pub client_id: Option<Uuid>,
 }

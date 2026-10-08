@@ -898,6 +898,7 @@ fn insert_inbound_comment(
         new_content: Some(classified.new_content),
         quoted_content: classified.quoted_content,
         raw_source_uri,
+        client_id: None,
     };
 
     let observer = ctx
