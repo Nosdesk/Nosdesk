@@ -135,7 +135,9 @@ async fn set_member_role_full_contract() {
     // Cap Capco to a single staff seat before any membership is projected.
     set_seat_limit_direct(&pool, capco_id, 1);
 
-    let pool_for_app = pool.clone();
+    // The app serves as the runtime role, as in production, so a handler
+    // that writes without the grant fails here; fixtures stay superuser.
+    let pool_for_app = test_db.runtime_pool(4);
     let srv = actix_test::start(move || {
         App::new()
             .app_data(web::Data::new(pool_for_app.clone()))
@@ -343,7 +345,9 @@ async fn revoke_member_sessions_signs_the_person_out_of_the_helpdesk() {
     let wrong_scope_token = common::mint_platform_jwt("platform:other", 300);
     common::mint_workspace(&mut pool.get().expect("conn"), "acme", "Acme");
 
-    let pool_for_app = pool.clone();
+    // The app serves as the runtime role, as in production, so a handler
+    // that writes without the grant fails here; fixtures stay superuser.
+    let pool_for_app = test_db.runtime_pool(4);
     let srv = actix_test::start(move || {
         App::new()
             .app_data(web::Data::new(pool_for_app.clone()))
