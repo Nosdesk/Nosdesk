@@ -91,6 +91,9 @@ export type BreakdownGroupBy = 'priority' | 'category' | 'assignee'
 
 export interface BreakdownBucket {
   key: string
+  /** The category's or assignee's name. Null for priority and for the
+   *  "none" / "unassigned" buckets, which the chart labels itself. */
+  label: string | null
   value: number
 }
 

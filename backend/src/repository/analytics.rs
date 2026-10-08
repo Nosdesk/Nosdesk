@@ -13,6 +13,8 @@
 //! (`breakdown`, `heatmap`, `leaderboard`, `audit_annotations`) land
 //! in later waves and slot into this module alongside these helpers.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
 use diesel::prelude::*;
@@ -22,7 +24,7 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::TicketPriority;
-use crate::schema::{audit_log, tickets};
+use crate::schema::{audit_log, ticket_categories, tickets, users};
 
 /// Metric identifiers the KPI endpoint understands. Each variant
 /// corresponds to a single deterministic SQL aggregation; the
@@ -572,8 +574,12 @@ pub struct BreakdownQuery {
 #[derive(Debug, Clone, Serialize)]
 pub struct BreakdownBucket {
     /// Categorical key as a string (priority enum, category id, or
-    /// assignee uuid). The frontend resolves human labels per kind.
+    /// assignee uuid).
     pub key: String,
+    /// The category's or assignee's name. `None` for priority and for the
+    /// "none" / "unassigned" buckets, which the frontend labels in the
+    /// viewer's language.
+    pub label: Option<String>,
     pub value: i64,
 }
 
@@ -601,6 +607,7 @@ pub fn breakdown(conn: &mut DbConnection, q: BreakdownQuery) -> QueryResult<Brea
             rows.into_iter()
                 .map(|(p, v)| BreakdownBucket {
                     key: priority_key(p),
+                    label: None,
                     value: v,
                 })
                 .collect()
@@ -614,12 +621,20 @@ pub fn breakdown(conn: &mut DbConnection, q: BreakdownQuery) -> QueryResult<Brea
                 .order(sql::<BigInt>("COUNT(*)").desc())
                 .limit(q.top_n)
                 .load(conn)?;
+            let ids: Vec<i32> = rows.iter().filter_map(|(id, _)| *id).collect();
+            let names: HashMap<i32, String> = ticket_categories::table
+                .filter(ticket_categories::id.eq_any(&ids))
+                .select((ticket_categories::id, ticket_categories::name))
+                .load::<(i32, String)>(conn)?
+                .into_iter()
+                .collect();
             rows.into_iter()
                 .map(|(id, v)| BreakdownBucket {
                     // Null category_id is "uncategorised"; surface
                     // it as the literal string so the frontend can
                     // render a localised label.
                     key: id.map(|n| n.to_string()).unwrap_or_else(|| "none".into()),
+                    label: id.and_then(|n| names.get(&n).cloned()),
                     value: v,
                 })
                 .collect()
@@ -633,11 +648,19 @@ pub fn breakdown(conn: &mut DbConnection, q: BreakdownQuery) -> QueryResult<Brea
                 .order(sql::<BigInt>("COUNT(*)").desc())
                 .limit(q.top_n)
                 .load(conn)?;
+            let ids: Vec<Uuid> = rows.iter().filter_map(|(id, _)| *id).collect();
+            let names: HashMap<Uuid, String> = users::table
+                .filter(users::uuid.eq_any(&ids))
+                .select((users::uuid, users::name))
+                .load::<(Uuid, String)>(conn)?
+                .into_iter()
+                .collect();
             rows.into_iter()
                 .map(|(id, v)| BreakdownBucket {
                     key: id
                         .map(|u| u.to_string())
                         .unwrap_or_else(|| "unassigned".into()),
+                    label: id.and_then(|u| names.get(&u).cloned()),
                     value: v,
                 })
                 .collect()
