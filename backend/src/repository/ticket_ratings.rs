@@ -85,6 +85,7 @@ pub fn resolve_as_requester(
     ticket_id: i32,
     user: Uuid,
     comment: Option<&str>,
+    observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> QueryResult<bool> {
     use crate::models::WorkflowStateCategory as Cat;
     conn.transaction(|conn| {
@@ -109,7 +110,7 @@ pub fn resolve_as_requester(
                     updated_at: Some(now),
                     ..Default::default()
                 },
-                None,
+                observer,
             )?;
         }
         record(conn, ticket_id, user, Rating::Good, comment)?;
@@ -140,11 +141,12 @@ mod tests {
         let watcher = TestFixtures::create_user(&mut conn, "rate_watcher", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "VPN", Some(requester.uuid), None);
 
-        assert!(!resolve_as_requester(&mut conn, ticket.id, watcher.uuid, None).unwrap());
+        assert!(!resolve_as_requester(&mut conn, ticket.id, watcher.uuid, None, None).unwrap());
         assert!(for_ticket(&mut conn, ticket.id).unwrap().is_none());
 
         assert!(
-            resolve_as_requester(&mut conn, ticket.id, requester.uuid, Some("Thanks")).unwrap()
+            resolve_as_requester(&mut conn, ticket.id, requester.uuid, Some("Thanks"), None)
+                .unwrap()
         );
         let t: Ticket = tickets::table.find(ticket.id).first(&mut conn).unwrap();
         let category =

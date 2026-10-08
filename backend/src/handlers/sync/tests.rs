@@ -494,6 +494,70 @@ fn push_closing_a_recurring_ticket_creates_the_next_one() {
     assert!(next[0].is_some_and(|d| d > due));
 }
 
+/// A recurring ticket gets one next occurrence however often it's saved after
+/// closing: editing its resolution notes or title, or reopening and closing it
+/// again, makes no second one.
+#[test]
+fn push_a_closed_recurring_ticket_gets_one_next_occurrence() {
+    use super::push::PushTransaction;
+    use crate::models::WorkflowStateCategory;
+    use crate::schema::{tickets, workflow_states};
+
+    let mut conn = setup_test_connection();
+    let admin = TestFixtures::create_user(&mut conn, "sync_push_once_admin", "admin");
+    let ticket =
+        TestFixtures::create_ticket(&mut conn, "Check the backups", Some(admin.uuid), None);
+    let due = ticket.created_at + chrono::Duration::days(1);
+    diesel::update(tickets::table.find(ticket.id))
+        .set((
+            tickets::recurrence_rule.eq("FREQ=WEEKLY"),
+            tickets::due_date.eq(due),
+        ))
+        .execute(&mut conn)
+        .expect("make it recur");
+    let state = |conn: &mut crate::db::DbConnection, category| -> i32 {
+        workflow_states::table
+            .filter(workflow_states::workspace_id.eq(1))
+            .filter(workflow_states::category.eq(category))
+            .select(workflow_states::id)
+            .first(conn)
+            .expect("a state in the category")
+    };
+    let done = state(&mut conn, WorkflowStateCategory::Done);
+    let backlog = state(&mut conn, WorkflowStateCategory::Backlog);
+
+    let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
+    let successors = |conn: &mut crate::db::DbConnection| -> Vec<Option<chrono::NaiveDateTime>> {
+        tickets::table
+            .filter(tickets::recurrence_template_id.eq(ticket.id))
+            .select(tickets::due_date)
+            .load(conn)
+            .expect("successors")
+    };
+    for (step, patch) in [
+        ("close", json!({ "workflow_state_id": done })),
+        (
+            "write the resolution",
+            json!({ "resolution_notes": "Swapped the tape" }),
+        ),
+        ("retitle", json!({ "title": "Check the nightly backups" })),
+        ("reopen", json!({ "workflow_state_id": backlog })),
+        ("close again", json!({ "workflow_state_id": done })),
+    ] {
+        let tx = PushTransaction {
+            tx_id: Uuid::now_v7().to_string(),
+            aggregate: SyncAggregate::Ticket,
+            model_id: ticket.id.to_string(),
+            op: SyncOp::Update,
+            patch,
+            base_sync_id: None,
+        };
+        super::push::apply_transaction_for_test(&mut conn, &tx, &actor).expect(step);
+        assert_eq!(successors(&mut conn).len(), 1, "after: {step}");
+    }
+    assert!(successors(&mut conn)[0].is_some_and(|d| d > due));
+}
+
 /// A category change through push runs the assignment rules for an
 /// unassigned ticket, as the REST PATCH does.
 #[test]

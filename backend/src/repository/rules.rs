@@ -556,6 +556,7 @@ pub fn apply_manual(
     conn: &mut DbConnection,
     input: ApplyInput,
     actor: &ActorContext,
+    observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> Result<ApplyOutcome, ApplyError> {
     use crate::schema::rules::dsl as r;
     use crate::schema::tickets::dsl as t;
@@ -664,7 +665,7 @@ pub fn apply_manual(
                         })
                         .unwrap_or_else(|| json!({ "index": one_based, "kind": kind }))
                 }
-                "set_status" => execute_set_status(conn, one_based, ticket.id, &config)
+                "set_status" => execute_set_status(conn, one_based, ticket.id, &config, observer)
                     .map(|state_id| {
                         json!({ "index": one_based, "kind": kind, "workflow_state_id": state_id })
                     })?,
@@ -952,9 +953,10 @@ fn update_ticket_fields(
     conn: &mut DbConnection,
     ticket_id: i32,
     update: TicketUpdate,
+    observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> Result<(), ApplyError> {
     use crate::repository::tickets::TicketWriteError;
-    crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, None).map_err(
+    crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, observer).map_err(
         |e| match e {
             TicketWriteError::IneligibleAssignee(user) => ApplyError::IneligibleAssignee(user),
             TicketWriteError::Database(e) => ApplyError::Db(e),
@@ -965,11 +967,14 @@ fn update_ticket_fields(
 
 /// `set_status` action. `closed_at` and `closed_by` follow the new state in
 /// the database (`ticket_closed_follows_state`).
+/// `observer` indexes the ticket and, when this closes a recurring one, its
+/// next occurrence.
 fn execute_set_status(
     conn: &mut DbConnection,
     action_index: usize,
     ticket_id: i32,
     config: &Value,
+    observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> Result<i32, ApplyError> {
     let state_id = config
         .get("workflow_state_id")
@@ -991,6 +996,7 @@ fn execute_set_status(
             workflow_state_id: Some(state_id),
             ..Default::default()
         },
+        observer,
     )?;
     Ok(state_id)
 }
@@ -1044,6 +1050,7 @@ fn execute_assign(
             assignee_uuid: Some(Some(assignee)),
             ..Default::default()
         },
+        None,
     )?;
     Ok(assignee)
 }
@@ -1056,6 +1063,7 @@ fn execute_unassign(conn: &mut DbConnection, ticket_id: i32) -> Result<(), Apply
             assignee_uuid: Some(None),
             ..Default::default()
         },
+        None,
     )
 }
 
@@ -1157,6 +1165,7 @@ fn execute_set_priority(
             priority: Some(priority),
             ..Default::default()
         },
+        None,
     )?;
     Ok(priority_str.to_string())
 }
