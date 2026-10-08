@@ -110,20 +110,6 @@ pub fn try_bearer_auth(
                 .and_then(|emails| emails.into_iter().find(|e| e.is_primary).map(|e| e.email))
                 .unwrap_or_else(|| "unknown@example.com".to_string());
 
-        // Update last_used_at inside the same bypass txn so the
-        // policy doesn't reject the UPDATE.
-        let client_ip = extract_client_ip(req);
-        let ip_network = client_ip.map(|ip| {
-            use ipnetwork::IpNetwork;
-            match ip {
-                IpAddr::V4(v4) => IpNetwork::V4(ipnetwork::Ipv4Network::from(v4)),
-                IpAddr::V6(v6) => IpNetwork::V6(ipnetwork::Ipv6Network::from(v6)),
-            }
-        });
-        if let Err(e) = update_token_last_used(conn, api_token.id, ip_network) {
-            warn!("Failed to update token last_used_at: {}", e);
-        }
-
         // The workspace the token was minted in. Resolved here, inside the
         // bypass, because the request has no pin yet; it becomes the ceiling
         // the membership gate enforces. Archive state is deliberately ignored
@@ -134,6 +120,22 @@ pub fn try_bearer_auth(
                 .ok_or(diesel::result::Error::NotFound)?;
 
         let refusal = ceiling_refusal(conn, &api_token, &user)?;
+
+        // Update last_used_at inside the same bypass txn so the policy
+        // doesn't reject the UPDATE; only for a token that is let in.
+        if refusal.is_none() {
+            let client_ip = extract_client_ip(req);
+            let ip_network = client_ip.map(|ip| {
+                use ipnetwork::IpNetwork;
+                match ip {
+                    IpAddr::V4(v4) => IpNetwork::V4(ipnetwork::Ipv4Network::from(v4)),
+                    IpAddr::V6(v6) => IpNetwork::V6(ipnetwork::Ipv6Network::from(v6)),
+                }
+            });
+            if let Err(e) = update_token_last_used(conn, api_token.id, ip_network) {
+                warn!("Failed to update token last_used_at: {}", e);
+            }
+        }
 
         Ok::<_, diesel::result::Error>((api_token, user, email, workspace_uuid, refusal))
     });
@@ -226,17 +228,31 @@ pub fn try_bearer_auth(
         "API token authentication successful"
     );
 
+    // Mark the request as made with an API token, for the routes a token may
+    // not use (managing API tokens).
+    req.extensions_mut().insert(ApiTokenRequest {
+        token_uuid: api_token.uuid,
+    });
+
     Ok(Some(claims))
+}
+
+/// On a request authenticated with an API token (not a signed-in session):
+/// which token. API tokens can't manage API tokens, or a token could mint
+/// itself a successor that escapes its ceiling and its maker.
+#[derive(Debug, Clone, Copy)]
+pub struct ApiTokenRequest {
+    pub token_uuid: uuid::Uuid,
 }
 
 /// Why a token may no longer act for its holder, or `None` when it may. One
 /// made for someone else acts at no more than the roles it was made for
-/// (`role_ceiling`, `platform_role_ceiling`), and only while its maker is still
-/// an admin of its workspace: the maker holds its secret. Refusing it here, the one place an
-/// API token authenticates, keeps every route, sync stream and collab or SSE
-/// connection token from seeing a higher role. A token made for oneself
-/// follows one's own role. Runs inside the lookup's bypass transaction, since
-/// the request has no workspace pin yet.
+/// (`role_ceiling`, `platform_role_ceiling`), and only while its maker is
+/// still an admin of its workspace: the maker holds its secret. Refusing it
+/// here, the one place an API token authenticates, keeps every route, sync
+/// stream and collab or SSE connection token from seeing a higher role. A
+/// token made for oneself follows one's own role. Runs inside the lookup's
+/// bypass transaction, since the request has no workspace pin yet.
 fn ceiling_refusal(
     conn: &mut crate::db::DbConnection,
     token: &crate::models::ApiToken,

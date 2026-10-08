@@ -249,3 +249,64 @@ async fn a_token_made_for_oneself_follows_ones_role() {
     set_role(&pool, &a, a.admin_uuid, "member");
     assert_eq!(statuses(&pool, &a, &token).await[0], StatusCode::FORBIDDEN);
 }
+
+/// API tokens can't manage API tokens: otherwise a token made for an admin
+/// could mint itself a successor with no ceiling that outlives its maker.
+#[actix_web::test]
+async fn a_token_cant_mint_or_revoke_tokens() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let pool = db.runtime_pool(4);
+    let a = seeded.a.clone();
+    {
+        let mut c = db.conn();
+        diesel::sql_query("UPDATE workspaces SET seat_limit = NULL WHERE id = $1")
+            .bind::<diesel::sql_types::Integer, _>(a.workspace_id)
+            .execute(&mut c)
+            .expect("unlimited seats");
+    }
+    // The maker makes a token for another admin.
+    set_role(&pool, &a, a.member_uuid, "admin");
+    let token = mint(&pool, &a, a.admin_uuid, a.member_uuid).await;
+    assert_eq!(statuses(&pool, &a, &token).await[0], StatusCode::OK);
+
+    let workspace = workspace_context(&a);
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .wrap(actix_web::middleware::from_fn(
+                backend::middleware::dual_auth_middleware,
+            ))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(workspace.clone());
+                srv.call(req)
+            })
+            .service(web::scope("/api").configure(backend::handlers::api_tokens::config)),
+    )
+    .await;
+    let bearer = ("Authorization", format!("Bearer {token}"));
+    let mint_with_token = status_of(
+        http_test::try_call_service(
+            &app,
+            http_test::TestRequest::post()
+                .uri("/api/admin/api-tokens")
+                .insert_header(bearer.clone())
+                .set_json(json!({ "name": "successor", "user_uuid": a.member_uuid }))
+                .to_request(),
+        )
+        .await,
+    );
+    assert_eq!(mint_with_token, StatusCode::FORBIDDEN);
+    let revoke_with_token = status_of(
+        http_test::try_call_service(
+            &app,
+            http_test::TestRequest::delete()
+                .uri(&format!("/api/admin/api-tokens/{}", Uuid::new_v4()))
+                .insert_header(bearer)
+                .to_request(),
+        )
+        .await,
+    );
+    assert_eq!(revoke_with_token, StatusCode::FORBIDDEN);
+}
