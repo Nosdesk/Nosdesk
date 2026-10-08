@@ -374,11 +374,13 @@ pub fn get_groups_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryRe
         .load(conn)
 }
 
-/// A user's groups from a specific external source that are still sync-enabled.
-/// The group->role mapper uses this so a group deleted/renamed in the directory
-/// (left as `sync_enabled = false`, its stale membership rows intact) stops
-/// counting toward the user's role, and so internal / other-source groups with a
-/// colliding name can't match a directory rule.
+/// A user's groups from a specific external source that are still sync-enabled,
+/// in the pinned workspace. The group->role mapper uses this so a group
+/// deleted/renamed in the directory (left as `sync_enabled = false`, its stale
+/// membership rows intact) stops counting toward the user's role, and so
+/// internal / other-source groups with a colliding name can't match a directory
+/// rule. Filtered on the pinned workspace as well as by RLS, since a caller may
+/// run elevated, and another workspace's same-named group must not count.
 pub fn get_synced_groups_for_user(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
@@ -386,7 +388,9 @@ pub fn get_synced_groups_for_user(
 ) -> QueryResult<Vec<Group>> {
     user_groups::table
         .filter(user_groups::user_uuid.eq(user_uuid))
+        .filter(user_groups::workspace_id.eq(pinned_workspace()))
         .inner_join(groups::table)
+        .filter(groups::workspace_id.eq(pinned_workspace()))
         .filter(groups::external_source.eq(external_source))
         .filter(groups::sync_enabled.eq(true))
         .select(groups::all_columns)

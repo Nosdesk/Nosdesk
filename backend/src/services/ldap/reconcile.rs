@@ -18,22 +18,24 @@ use crate::db::{DbConnection, Pool};
 use crate::repository::workspace_ldap_settings;
 use crate::services::ldap::sync;
 use crate::sync::actor::{ActorContext, BOOTSTRAP_WORKSPACE_ID};
-use crate::sync::session::{elevate_session_role, reset_session_role};
+use crate::sync::session::{pin_session_actor, reset_session_role};
 
-/// Run the nightly reconcile. Sets up the background workspace context (no
-/// request), runs the reconcile, and resets the connection's role/GUCs before
-/// returning it to the pool, mirroring `run_scheduled_delta_sync`.
+/// Run the nightly reconcile. Pins the background workspace context (no
+/// request) without elevating, so row-level security scopes every read to the
+/// workspace, as for the admin's "Sync now" (`handlers/ldap_integration.rs`),
+/// which runs the same sync on a pinned runtime connection. Resets the
+/// connection's GUCs before returning it to the pool.
 pub async fn run_scheduled_reconcile(pool: &Pool) -> Result<()> {
     let workspace_id = BOOTSTRAP_WORKSPACE_ID;
     let mut conn = pool.get().context("ldap reconcile: db conn")?;
 
     let actor = ActorContext::system("scheduler:ldap_reconcile").with_workspace(workspace_id);
-    elevate_session_role(&mut conn, &actor).context("ldap reconcile: elevate session")?;
+    pin_session_actor(&mut conn, &actor).context("ldap reconcile: pin workspace")?;
 
     let outcome = reconcile_workspace(&mut conn, workspace_id).await;
 
-    // Reset before the pooled connection is reused, so the bypass role + the
-    // pinned workspace GUC can't leak across checkouts.
+    // Reset before the pooled connection is reused, so the pinned workspace
+    // GUC can't leak across checkouts.
     reset_session_role(&mut conn);
     outcome
 }
