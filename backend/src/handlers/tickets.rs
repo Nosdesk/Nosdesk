@@ -1166,6 +1166,11 @@ pub async fn link_tickets(
     }
 
     let (ticket_id, linked_ticket_id) = path.into_inner();
+    if let Some(refused) =
+        crate::handlers::helpers::refuse_merged(&mut tc, &[ticket_id, linked_ticket_id])
+    {
+        return refused;
+    }
 
     match tc.run(|conn| repository::link_tickets(conn, ticket_id, linked_ticket_id)) {
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
@@ -1190,6 +1195,11 @@ pub async fn unlink_tickets(
     }
 
     let (ticket_id, linked_ticket_id) = path.into_inner();
+    if let Some(refused) =
+        crate::handlers::helpers::refuse_merged(&mut tc, &[ticket_id, linked_ticket_id])
+    {
+        return refused;
+    }
 
     match tc.run(|conn| repository::unlink_tickets(conn, ticket_id, linked_ticket_id)) {
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),

@@ -47,6 +47,11 @@ impl AssignmentEngine {
         if !held || !concluded || ticket.assignee_uuid.is_some() {
             return Ok(None);
         }
+        // A request merged while it waited is worked on the ticket it was
+        // merged into.
+        if crate::repository::ticket_merge::is_merge_source(conn, ticket_id)? {
+            return Ok(None);
+        }
         let Some(result) = Self::evaluate_rules(conn, &ticket, AssignmentTrigger::TicketCreated)
         else {
             return Ok(None);

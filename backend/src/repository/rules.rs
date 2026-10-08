@@ -949,13 +949,16 @@ fn update_ticket_fields(
     observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> Result<(), ApplyError> {
     use crate::repository::tickets::TicketWriteError;
-    crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, observer).map_err(
-        |e| match e {
-            TicketWriteError::IneligibleAssignee(user) => ApplyError::IneligibleAssignee(user),
-            TicketWriteError::Database(e) => ApplyError::Db(e),
-        },
-    )?;
-    Ok(())
+    match crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, observer) {
+        Ok(_) => Ok(()),
+        Err(TicketWriteError::IneligibleAssignee(user)) => {
+            Err(ApplyError::IneligibleAssignee(user))
+        }
+        Err(TicketWriteError::Merged) => Err(ApplyError::TicketMerged(
+            crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?.number,
+        )),
+        Err(TicketWriteError::Database(e)) => Err(ApplyError::Db(e)),
+    }
 }
 
 /// `set_status` action. `closed_at` and `closed_by` follow the new state in

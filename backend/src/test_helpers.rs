@@ -507,6 +507,20 @@ impl TestFixtures {
             .expect("Failed to create test ticket")
     }
 
+    /// Record `source` as merged into `destination`, as a merge does: a
+    /// `ticket_merges` row.
+    pub fn mark_merged(conn: &mut DbConnection, source: &Ticket, destination: &Ticket, by: Uuid) {
+        diesel::insert_into(ticket_merges::table)
+            .values((
+                ticket_merges::ticket_id.eq(source.id),
+                ticket_merges::merged_into_ticket_id.eq(destination.id),
+                ticket_merges::merged_at.eq(chrono::Utc::now()),
+                ticket_merges::merged_by_user_uuid.eq(by),
+            ))
+            .execute(conn)
+            .expect("Failed to record the merge");
+    }
+
     /// Give `ticket` a number unlike its id. In the shared test database a
     /// workspace's numbers and ids advance together, so a test that must tell
     /// them apart needs this.

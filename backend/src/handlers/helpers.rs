@@ -8,6 +8,31 @@ use crate::repository;
 use crate::sync::actor::ActorContext;
 use crate::utils;
 
+/// 409 `ticket_merged` when any of `ticket_ids` was merged into another
+/// ticket, for the ticket writes that don't go through
+/// `update_ticket_partial` (tags, links, watching).
+pub fn refuse_merged(
+    tc: &mut crate::extractors::TenantConn,
+    ticket_ids: &[i32],
+) -> Option<actix_web::HttpResponse> {
+    let merged = tc.run(|conn| {
+        for id in ticket_ids {
+            if repository::ticket_merge::is_merge_source(conn, *id)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    });
+    match merged {
+        Ok(false) => None,
+        Ok(true) => Some(errors::ticket_merged()),
+        Err(e) => {
+            tracing::error!(error = ?e, "merged-ticket check failed");
+            Some(errors::internal("Failed to check the ticket"))
+        }
+    }
+}
+
 /// Default page size for list endpoints when the caller doesn't
 /// specify one. Twenty is a sensible default for tabular UIs.
 pub const DEFAULT_LIMIT: i64 = 20;

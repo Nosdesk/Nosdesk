@@ -680,3 +680,51 @@ fn push_limits_non_staff_to_retitling_their_own_ticket() {
         "forbidden"
     );
 }
+
+/// A merged ticket refuses a sync push edit, scalar fields and tags alike,
+/// as it refuses the REST write.
+#[test]
+fn push_refuses_edits_to_a_merged_ticket() {
+    use super::push::PushTransaction;
+    use crate::models::NewTag;
+
+    let mut conn = setup_test_connection();
+    let admin = TestFixtures::create_user(&mut conn, "sync_push_merged", "admin");
+    let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
+    let (source, tag_id) = conn
+        .transaction::<_, diesel::result::Error, _>(|conn| {
+            session::set_actor(conn, &actor)?;
+            let destination = TestFixtures::create_ticket(conn, "into", Some(admin.uuid), None);
+            let source = TestFixtures::create_ticket(conn, "merged", Some(admin.uuid), None);
+            TestFixtures::mark_merged(conn, &source, &destination, admin.uuid);
+            let tag = crate::repository::tags::create_tag(
+                conn,
+                NewTag {
+                    name: format!("t-{}", Uuid::now_v7()),
+                    color: None,
+                    description: None,
+                },
+            )?;
+            Ok((source, tag.id))
+        })
+        .unwrap();
+
+    for patch in [
+        json!({ "title": "renamed" }),
+        json!({ "tag_ids": [tag_id] }),
+    ] {
+        let tx = PushTransaction {
+            tx_id: Uuid::now_v7().to_string(),
+            aggregate: SyncAggregate::Ticket,
+            model_id: source.id.to_string(),
+            op: SyncOp::Update,
+            patch: patch.clone(),
+            base_sync_id: None,
+        };
+        let (reason, _) = super::push::apply_transaction_for_test(&mut conn, &tx, &actor)
+            .expect_err("a merged ticket refuses the push");
+        assert_eq!(reason, "ticket_merged", "{patch}");
+    }
+    let after = crate::repository::tickets::get_ticket_by_id(&mut conn, source.id).unwrap();
+    assert_eq!(after.title, "merged");
+}
