@@ -11,7 +11,7 @@
       class="flex items-center justify-center"
       :aria-label="t('public-layout-home-aria', { appName })"
     >
-      <img
+      <AssetImg
         v-if="customLogoUrl"
         :src="customLogoUrl"
         :alt="appName"
@@ -47,6 +47,7 @@
 </template>
 
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue';
 import { computed, onMounted } from 'vue';
 import RequesterLink from '@/components/public/RequesterLink.vue';
 import NoticeBanner from '@/components/requester/NoticeBanner.vue';

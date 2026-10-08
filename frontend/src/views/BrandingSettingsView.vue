@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue'
 import { ref, computed, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery, useQueryCache } from '@pinia/colada'
@@ -388,7 +389,7 @@ async function confirmDeleteBrandingImage(): Promise<void> {
               <label class="text-sm font-medium text-primary">{{ $t('admin-branding-logo-dark-label') }}</label>
               <div class="flex items-center gap-4">
                 <div class="w-24 h-24 bg-surface-alt rounded-lg border border-default flex items-center justify-center overflow-hidden">
-                  <img
+                  <AssetImg
                     v-if="brandingConfig?.logo_url"
                     :src="brandingConfig.logo_url"
                     :alt="t('admin-branding-aria-logo')"
@@ -427,13 +428,13 @@ async function confirmDeleteBrandingImage(): Promise<void> {
               <label class="text-sm font-medium text-primary">{{ $t('admin-branding-logo-light-label') }}</label>
               <div class="flex items-center gap-4">
                 <div class="w-24 h-24 bg-white rounded-lg border border-default flex items-center justify-center overflow-hidden">
-                  <img
+                  <AssetImg
                     v-if="brandingConfig?.logo_light_url"
                     :src="brandingConfig.logo_light_url"
                     :alt="t('admin-branding-aria-logo-light')"
                     class="max-w-full max-h-full object-contain"
                   />
-                  <img
+                  <AssetImg
                     v-else-if="brandingConfig?.logo_url"
                     :src="brandingConfig.logo_url"
                     :alt="t('admin-branding-aria-logo')"
@@ -476,7 +477,7 @@ async function confirmDeleteBrandingImage(): Promise<void> {
           <div class="flex flex-col gap-3">
             <div class="flex items-center gap-4">
               <div class="w-16 h-16 bg-surface-alt rounded-lg border border-default flex items-center justify-center overflow-hidden">
-                <img
+                <AssetImg
                   v-if="brandingConfig?.favicon_url"
                   :src="brandingConfig.favicon_url"
                   :alt="t('admin-branding-aria-favicon')"
@@ -517,7 +518,7 @@ async function confirmDeleteBrandingImage(): Promise<void> {
           <div class="flex items-center gap-4 p-4 bg-surface-alt rounded-lg border border-default">
             <!-- Favicon preview -->
             <div class="w-8 h-8 bg-surface rounded border border-default flex items-center justify-center">
-              <img
+              <AssetImg
                 v-if="brandingConfig?.favicon_url"
                 :src="brandingConfig.favicon_url"
                 :alt="t('admin-branding-aria-favicon')"
@@ -530,7 +531,7 @@ async function confirmDeleteBrandingImage(): Promise<void> {
 
             <!-- Logo preview -->
             <div class="h-10 flex items-center">
-              <img
+              <AssetImg
                 v-if="brandingConfig?.logo_url"
                 :src="brandingConfig.logo_url"
                 :alt="t('admin-branding-aria-logo')"

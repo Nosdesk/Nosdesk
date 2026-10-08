@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue'
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { assetUrl } from '@nosdesk/core/transport'
 import LogoIcon from '@/components/icons/LogoIcon.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useBrandingStore } from '@/stores/branding'
@@ -54,9 +54,9 @@ const toggleTechnicalDetails = () => {
     <div class="bg-surface p-8 rounded-xl shadow-lg max-w-md w-full border border-default flex flex-col gap-6">
       <!-- Logo -->
       <div class="flex justify-center">
-        <img
+        <AssetImg
           v-if="logoUrl"
-          :src="assetUrl(logoUrl)"
+          :src="logoUrl"
           :alt="brandingStore.appName"
           class="h-10 max-w-[200px] object-contain"
         />

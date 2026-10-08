@@ -1,5 +1,7 @@
 <!-- FilePreview.vue -->
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue'
+import { assetUrl } from '@nosdesk/core/transport'
 import LinkButton from '@/components/common/LinkButton.vue'
 import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref, onMounted, nextTick } from 'vue';
@@ -161,7 +163,9 @@ const loadImagePreview = async () => {
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = props.src;
+      // Resolved for the platform, as the <AssetImg> below is.
+      // eslint-disable-next-line no-restricted-syntax
+      img.src = assetUrl(props.src);
     });
 
     imagePreview.value = img;
@@ -267,14 +271,12 @@ onMounted(async () => {
         ></canvas>
 
         <!-- Image Preview -->
-        <img
+        <AssetImg
           v-if="fileType === 'image' && !isLoadingImage"
-          ref="imagePreview"
           :src="src"
           :alt="filename"
           class="w-full h-full object-cover"
-          :class="{ 'animated-image': isAnimatedImage }"
-        >
+          :class="{ 'animated-image': isAnimatedImage }" />
 
         <!-- Animation badge for GIF/APNG -->
         <div

@@ -8,6 +8,7 @@ import { Plugin } from 'prosemirror-state';
 import type { Node as PMNode } from 'prosemirror-model';
 import type { EditorView, NodeView } from 'prosemirror-view';
 import { isAllowedImageSrc } from '@/composables/useSanitise';
+import { assetUrl } from '@nosdesk/core/transport';
 
 // Navigation handler for mention clicks
 let mentionNavigationHandler: ((uuid: string) => void) | null = null;
@@ -80,7 +81,9 @@ function createMentionContent(uuid: string, name: string, avatarUrl: string | nu
   // markdown/comment paths use.
   if (avatarUrl && isAllowedImageSrc(avatarUrl)) {
     const img = document.createElement('img');
-    img.src = avatarUrl;
+    // Resolved for the platform: a stored avatar path loads in the mobile app too.
+    // eslint-disable-next-line no-restricted-syntax
+    img.src = assetUrl(avatarUrl);
     img.alt = name;
     img.className = 'mention-avatar-img';
     img.onerror = () => {

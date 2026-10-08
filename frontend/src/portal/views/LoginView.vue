@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
@@ -88,7 +89,7 @@ async function submit(): Promise<void> {
   <div class="min-h-dvh w-full flex items-center justify-center bg-app p-4">
     <div class="w-full max-w-sm flex flex-col gap-6">
       <div class="flex flex-col items-center gap-4 text-center">
-        <img v-if="logoUrl" :src="logoUrl" :alt="branding.appName" class="h-10 max-w-[240px] object-contain" />
+        <AssetImg v-if="logoUrl" :src="logoUrl" :alt="branding.appName" class="h-10 max-w-[240px] object-contain" />
         <LogoIcon v-else class="h-10 text-accent" />
         <div class="flex flex-col gap-1">
           <h1 class="text-xl font-semibold text-primary">{{ t('portal-sign-in-title', { app: branding.appName }) }}</h1>

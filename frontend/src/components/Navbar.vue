@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import AssetImg from "@/components/common/AssetImg.vue";
 import { RouterLink, useRoute } from "vue-router";
-import { assetUrl } from "@nosdesk/core/transport";
 import DocumentationNav from "@/components/documentationComponents/DocumentationNav.vue";
 import RecentTickets from "@/components/RecentTickets.vue";
 import CollapsibleSection from "@/components/common/CollapsibleSection.vue";
@@ -352,11 +352,11 @@ const isOverflowRouteActive = computed(() =>
                 class="sidebar-logo flex items-center justify-center h-12 hover:opacity-80 transition-opacity select-none"
             >
                 <!-- Full logo when expanded -->
-                <img
+                <AssetImg
                     v-if="!isCollapsed && logoUrl"
                     :alt="brandingStore.appName + ' Logo'"
                     class="h-8 max-w-full object-contain"
-                    :src="assetUrl(logoUrl)"
+                    :src="logoUrl"
                 />
                 <LogoIcon
                     v-else-if="!isCollapsed"
@@ -364,7 +364,7 @@ const isOverflowRouteActive = computed(() =>
                     :aria-label="$t('nav-logo-alt')"
                 />
                 <!-- Favicon/icon when collapsed -->
-                <img
+                <AssetImg
                     v-else-if="brandingStore.faviconUrl"
                     :alt="brandingStore.appName"
                     class="h-6 w-6 object-contain"

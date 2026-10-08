@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AssetImg from "@/components/common/AssetImg.vue";
 import { logger } from "@nosdesk/core/utils/logger";
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { useFluent } from "fluent-vue";
@@ -887,7 +888,7 @@ defineExpose({
                   <div class="flex flex-col items-center gap-6 @lg:flex-row @lg:items-start @lg:gap-8">
                     <!-- QR Code Section (keep visible during verification) -->
                     <div class="shrink-0 bg-white p-3 rounded-xl shadow-lg">
-                        <img
+                        <AssetImg
                             v-if="mfa.qrCodeUrl.value"
                             :src="mfa.qrCodeUrl.value"
                             :alt="$t('settings-mfa-qr-alt')"

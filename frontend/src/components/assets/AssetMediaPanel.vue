@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue'
 import Button from '@/components/common/Button.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
@@ -278,7 +279,7 @@ useSyncActions(
           class="block w-full h-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           @click="openLightbox(index)"
         >
-          <img
+          <AssetImg
             :src="gridSrc(item)"
             :alt="item.caption || item.name"
             class="w-full h-full object-cover"
@@ -358,7 +359,7 @@ useSyncActions(
     >
       <div v-if="lightboxItem" class="flex flex-col">
         <div class="relative bg-black flex items-center justify-center min-h-[50vh] max-h-[70vh]">
-          <img
+          <AssetImg
             :src="lightboxItem.url"
             :alt="lightboxItem.caption || lightboxItem.name"
             class="max-w-full max-h-[70vh] object-contain"

@@ -57,6 +57,7 @@ defineProps<{ items: MenuItem[] }>()
 /** `highlight` / `unhighlight` fire on pointer or focus traversal of
  * an enabled item, so callers can live-preview an option before it
  * is selected (dashboard widget sizing). Optional to consume. */
+import AssetImg from '@/components/common/AssetImg.vue'
 import MenuItem from '@/components/common/MenuItem.vue'
 
 const emit = defineEmits<{
@@ -128,7 +129,7 @@ const emit = defineEmits<{
         >
           <path stroke-linecap="round" stroke-linejoin="round" :d="item.icon" />
         </svg>
-        <img
+        <AssetImg
           v-else-if="item.iconUrl"
           :src="item.iconUrl"
           alt=""

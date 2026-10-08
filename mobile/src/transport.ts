@@ -15,6 +15,7 @@ import {
   apiBaseUrl,
   configureAssetUrl,
   configureTransport,
+  proxiedAssetResolver,
   type AuthStrategy,
 } from '@nosdesk/core/transport'
 import { resetInstanceConfig } from '@nosdesk/core/services/instanceConfig'
@@ -41,7 +42,9 @@ const ASSET_SCHEME_PREFIX = /android/i.test(navigator.userAgent)
   : 'nosdesk-asset://localhost'
 
 configureAssetUrl(
-  (path) => (path.startsWith('/') ? `${ASSET_SCHEME_PREFIX}${path}` : path),
+  // Only files the server serves; the app's own (emoji, bundled assets) load
+  // from the bundle.
+  proxiedAssetResolver(ASSET_SCHEME_PREFIX),
   // The inverse. Both prefixes are stripped, not just this platform's, so an
   // iOS-authored paste normalises correctly on Android and the reverse.
   (url) => url.replace(/^(?:nosdesk-asset:\/\/localhost|http:\/\/nosdesk-asset\.localhost)/, '')

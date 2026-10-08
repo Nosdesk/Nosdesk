@@ -11,7 +11,7 @@
 import { computed, ref, watch, nextTick } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { isAllowedImageSrc } from '@/composables/useSanitise';
+import { resolveSanitisedImage, screenImageSrc } from '@/composables/useSanitise';
 import { enhanceMentions } from '@/plugins/prosemirror-mention-view';
 import { enhanceTicketLinks } from '@/components/editor/ticketLinkPlugin';
 
@@ -51,11 +51,9 @@ const renderedHtml = computed(() => {
   // Block off-origin <img src> (tracking-pixel exfiltration) while
   // allowing same-origin / relative / data: images. See
   // security-audit-2026-06.
-  DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
-    if (node.nodeName === 'IMG' && data.attrName === 'src' && !isAllowedImageSrc(data.attrValue)) {
-      data.keepAttr = false;
-    }
-  });
+  DOMPurify.addHook('uponSanitizeAttribute', screenImageSrc);
+  // Images that stay go through the platform's asset resolver.
+  DOMPurify.addHook('afterSanitizeAttributes', resolveSanitisedImage);
 
   // Sanitize HTML but allow our mention spans
   const clean = DOMPurify.sanitize(html, {
@@ -78,6 +76,7 @@ const renderedHtml = computed(() => {
   });
 
   DOMPurify.removeHook('uponSanitizeAttribute');
+  DOMPurify.removeHook('afterSanitizeAttributes');
 
   return clean;
 });

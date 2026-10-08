@@ -5,6 +5,7 @@
  * Renders emojis using Twemoji SVGs for consistent cross-platform display.
  * Supports theme-aware styling (grayscale for e-paper, amber for red-horizon).
  */
+import AssetImg from '@/components/common/AssetImg.vue'
 import { computed, ref, watch } from 'vue'
 import { getEmojiUrl, isTwemojiPreloaded } from '@/composables/useTwemoji'
 
@@ -50,7 +51,7 @@ const sizeClass = computed(() => {
 </script>
 
 <template>
-  <img
+  <AssetImg
     :src="svgUrl"
     :alt="alt || emoji"
     class="twemoji inline-block align-text-bottom transition-opacity duration-100"

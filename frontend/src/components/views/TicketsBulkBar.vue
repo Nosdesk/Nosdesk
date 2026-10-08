@@ -16,6 +16,7 @@
  * parent's job. We emit the chosen value + the selected ids and let
  * TicketsListView wire it through the sync engine.
  */
+import AssetImg from '@/components/common/AssetImg.vue'
 import { computed, nextTick, ref, watch, type Ref } from 'vue'
 import { ListboxContent, ListboxGroup, ListboxGroupLabel, ListboxItem, ListboxRoot, ToolbarButton } from 'reka-ui'
 import BulkActionBar from '@/components/common/BulkActionBar.vue'
@@ -415,7 +416,7 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
           class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           @click="runPluginBulkAction(action)"
         >
-          <img v-if="action.icon" :src="action.icon" class="w-3.5 h-3.5" alt="" />
+          <AssetImg v-if="action.icon" :src="action.icon" class="w-3.5 h-3.5" alt="" />
           <Icon v-else name="puzzle" class="w-3.5 h-3.5" />
           <span>{{ action.label ?? action.pluginName }}</span>
         </button>

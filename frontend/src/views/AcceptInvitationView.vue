@@ -6,7 +6,7 @@
       class="flex items-center justify-center"
       :aria-label="`${appName} home`"
     >
-      <img
+      <AssetImg
         v-if="customLogoUrl"
         :src="customLogoUrl"
         :alt="appName"
@@ -255,6 +255,7 @@
 </template>
 
 <script setup lang="ts">
+import AssetImg from '@/components/common/AssetImg.vue'
 import Button from '@/components/common/Button.vue'
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute, RouterLink } from 'vue-router';

@@ -87,6 +87,38 @@ fn respond_status(responder: UriSchemeResponder, status: StatusCode) {
     }
 }
 
+/// The request the proxy makes for one webview load.
+#[derive(Debug, PartialEq)]
+struct Upstream {
+    url: String,
+    headers: Vec<(header::HeaderName, String)>,
+}
+
+/// The upstream GET for `path`: the API base plus the path, with the bearer
+/// when signed in and the webview's `Range` when it sent one. `None` only when
+/// no server is configured yet. Signed out, the request still goes, without a
+/// bearer: public files (the workspace's logo on the sign-in and invitation
+/// pages) load, and the server answers 401 for anything else.
+fn upstream(
+    token: Option<&str>,
+    base_url: Option<&str>,
+    path: &str,
+    range: Option<&str>,
+) -> Option<Upstream> {
+    let base_url = base_url?;
+    let mut headers = Vec::new();
+    if let Some(token) = token {
+        headers.push((header::AUTHORIZATION, format!("Bearer {token}")));
+    }
+    if let Some(range) = range {
+        headers.push((header::RANGE, range.to_owned()));
+    }
+    Some(Upstream {
+        url: format!("{}{}", base_url.trim_end_matches('/'), path),
+        headers,
+    })
+}
+
 /// Proxy handler for the `nosdesk-asset` scheme.
 pub fn handle<R: Runtime>(
     ctx: UriSchemeContext<'_, R>,
@@ -95,10 +127,6 @@ pub fn handle<R: Runtime>(
 ) {
     let proxy = ctx.app_handle().state::<AssetProxy>().inner().clone();
     let (token, base_url) = proxy.read();
-    let (Some(token), Some(base_url)) = (token, base_url) else {
-        // Not signed in / no server configured yet.
-        return respond_status(responder, StatusCode::UNAUTHORIZED);
-    };
 
     // The scheme path carries the full API path (e.g. `/api/files/tickets/1/x`).
     let path = request
@@ -106,21 +134,27 @@ pub fn handle<R: Runtime>(
         .path_and_query()
         .map(|pq| pq.as_str().to_string())
         .unwrap_or_default();
-    let url = format!("{}{}", base_url.trim_end_matches('/'), path);
-
     let range = request
         .headers()
         .get(header::RANGE)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
 
+    let Some(upstream) = upstream(
+        token.as_deref(),
+        base_url.as_deref(),
+        &path,
+        range.as_deref(),
+    ) else {
+        // No server configured yet.
+        return respond_status(responder, StatusCode::UNAUTHORIZED);
+    };
+
     let client = proxy.client.clone();
     tauri::async_runtime::spawn(async move {
-        let mut req = client
-            .get(&url)
-            .header(header::AUTHORIZATION, format!("Bearer {token}"));
-        if let Some(r) = range {
-            req = req.header(header::RANGE, r);
+        let mut req = client.get(&upstream.url);
+        for (name, value) in upstream.headers {
+            req = req.header(name, value);
         }
 
         let upstream = match req.send().await {
@@ -163,4 +197,46 @@ pub fn handle<R: Runtime>(
             Err(_) => respond_status(responder, StatusCode::INTERNAL_SERVER_ERROR),
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signed_out_a_load_goes_without_a_bearer() {
+        let up = upstream(
+            None,
+            Some("https://help.example/"),
+            "/uploads/branding/logo.png",
+            None,
+        )
+        .expect("forwarded");
+        assert_eq!(up.url, "https://help.example/uploads/branding/logo.png");
+        assert!(up.headers.is_empty());
+    }
+
+    #[test]
+    fn signed_in_a_load_carries_the_bearer_and_range() {
+        let up = upstream(
+            Some("tok"),
+            Some("https://help.example"),
+            "/api/files/tickets/1/a.mp4",
+            Some("bytes=0-1023"),
+        )
+        .expect("forwarded");
+        assert_eq!(up.url, "https://help.example/api/files/tickets/1/a.mp4");
+        assert_eq!(
+            up.headers,
+            vec![
+                (header::AUTHORIZATION, "Bearer tok".to_string()),
+                (header::RANGE, "bytes=0-1023".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn without_a_server_nothing_is_forwarded() {
+        assert_eq!(upstream(Some("tok"), None, "/api/files/x", None), None);
+    }
 }

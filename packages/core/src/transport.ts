@@ -194,6 +194,24 @@ export function configureAssetUrl(
   if (reverse) assetPathResolver = reverse
 }
 
+/**
+ * Whether a path is a file the server serves (`/api/...`, `/uploads/...`), as
+ * opposed to one shipped with the app itself (`/twemoji/...`, `/assets/...`).
+ * Only server files need a platform's asset resolver; an app file must stay
+ * local, so it loads from the bundle, offline too.
+ */
+export function isServerFilePath(path: string): boolean {
+  return path.startsWith('/api/') || path.startsWith('/uploads/')
+}
+
+/**
+ * A resolver for `configureAssetUrl` that sends server files through
+ * `prefix` (a platform's proxy scheme) and leaves everything else as is.
+ */
+export function proxiedAssetResolver(prefix: string): (path: string) => string {
+  return (path) => (isServerFilePath(path) ? `${prefix}${path}` : path)
+}
+
 export function assetUrl(path: string): string {
   return assetUrlResolver(path)
 }

@@ -224,7 +224,10 @@ const onImgMount = (el: unknown) => {
       </Transition>
       <!-- The photo fades in over the initials once it decodes; a failed load
            leaves the initials. :key on the URL forces element recreation when
-           it changes, bypassing the browser cache and re-running the fade. -->
+           it changes, bypassing the browser cache and re-running the fade.
+           A plain <img> for the element ref; avatarUrl is resolved through
+           assetUrl above. -->
+      <!-- eslint-disable vue/no-restricted-v-bind -->
       <img
         v-if="!isLoading && hasPhoto"
         :key="`img:${avatarUrl}`"
@@ -238,6 +241,7 @@ const onImgMount = (el: unknown) => {
         @error="imageFailed = true"
         @transitionend="photoShown = true"
       />
+      <!-- eslint-enable vue/no-restricted-v-bind -->
     </div>
 
     <!-- Name text. While loading, render a width-matched
