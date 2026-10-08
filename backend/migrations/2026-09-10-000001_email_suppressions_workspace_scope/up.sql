@@ -20,6 +20,12 @@
 
 ALTER TABLE email_suppressions ADD COLUMN workspace_id INTEGER;
 
+-- The address is only unique within a workspace now, so two tenants can each
+-- suppress the same person independently. The address-only key goes before
+-- the backfill, which copies a row for each further workspace that mailed the
+-- address; the per-workspace key goes on once every row has its workspace.
+ALTER TABLE email_suppressions DROP CONSTRAINT email_suppressions_pkey;
+
 DO $$
 DECLARE
     ws_count INTEGER;
@@ -85,9 +91,6 @@ ALTER TABLE email_suppressions
     ADD CONSTRAINT email_suppressions_workspace_id_fkey
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
--- The address is only unique within a workspace now, so two tenants can each
--- suppress the same person independently.
-ALTER TABLE email_suppressions DROP CONSTRAINT email_suppressions_pkey;
 ALTER TABLE email_suppressions ADD PRIMARY KEY (workspace_id, email);
 
 ALTER TABLE email_suppressions ENABLE ROW LEVEL SECURITY;
