@@ -1141,16 +1141,9 @@ pub async fn workspace_provisioning(
     let mut conn = pool_conn(&pool, "workspace_provisioning")?;
     let workspace = resolve_workspace_or_respond(&mut conn, &slug, "workspace_provisioning")?;
 
-    // Owner membership: workspace_members is a meta-table (no RLS), so a
-    // direct workspace-id-filtered count is correct without pinning context.
-    let owners = workspaces::count_workspace_owners(&mut conn, workspace.id).unwrap_or_else(|e| {
-        warn!(error = ?e, slug = %slug, "workspace_provisioning: owner count failed");
-        0
-    });
-
-    // Seeded functional defaults live on FORCE-RLS tenant tables, so count
-    // them with the workspace pinned in the actor context — the same scope
-    // the create-time seed wrote them under.
+    // The seeded defaults and the owner membership all live on FORCE-RLS
+    // tenant tables, so count them with the workspace pinned in the actor
+    // context, the same scope the create-time seed wrote them under.
     let actor = crate::sync::actor::ActorContext::system("workspace:provisioning")
         .with_workspace(workspace.id);
     let counts = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
@@ -1166,10 +1159,11 @@ pub async fn workspace_provisioning(
                 .select(count_star())
                 .first(conn)?;
             let cat: i64 = ticket_categories::table.select(count_star()).first(conn)?;
-            Ok((wf, sla, cat))
+            let owners = workspaces::count_workspace_owners(conn, workspace.id)?;
+            Ok((wf, sla, cat, owners))
         },
     );
-    let (wf, sla, cat) = match counts {
+    let (wf, sla, cat, owners) = match counts {
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspace_provisioning: seeded-defaults count failed");
