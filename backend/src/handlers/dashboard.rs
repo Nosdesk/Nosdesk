@@ -69,7 +69,11 @@ pub async fn get_stats(
         return Err(ApiError::Forbidden("forbidden".into()));
     }
 
-    let groups = query.parse_include()?;
+    let mut groups = query.parse_include()?;
+    // The knowledge-gap queue is staff data, like its own routes.
+    if !auth.can_handle_tickets() {
+        groups.remove(&StatsGroup::KnowledgeGaps);
+    }
 
     if groups.is_empty() {
         // Empty `include=` (e.g., `?include=`) is a request for
@@ -84,7 +88,8 @@ pub async fn get_stats(
     // checkout, so an unpinned conn computes empty stats in hosted mode.
     helpers::pin_workspace(&mut conn, ws.workspace_id);
 
-    match dashboard_stats::compute(&mut conn, &target_user, &groups) {
+    let pages = crate::repository::documentation::PageAudience::from_auth(&auth);
+    match dashboard_stats::compute(&mut conn, &target_user, &groups, &pages) {
         Ok(bundle) => Ok(HttpResponse::Ok().json(bundle)),
         Err(e) => {
             error!(error = ?e, "dashboard stats computation failed");

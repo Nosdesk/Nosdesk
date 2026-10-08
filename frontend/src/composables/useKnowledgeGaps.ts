@@ -17,6 +17,7 @@ import knowledgeGapsService, {
   type KnowledgeGap,
   type KnowledgeGapStatus,
 } from '@nosdesk/core/services/knowledgeGapsService'
+import { useSyncDocsStore } from '@nosdesk/core/sync/stores/documentation'
 
 export const knowledgeGapKeys = {
   root: ['knowledge-gaps'] as const,
@@ -28,6 +29,21 @@ export const knowledgeGapKeys = {
 }
 
 const DEFAULT_STATUSES: KnowledgeGapStatus[] = ['open', 'drafting']
+
+/**
+ * A gap's title as the reader sees it. A gap about a page (a stale doc) names
+ * the page by id only, so its title gains the page's name from the docs the
+ * reader can open; the server leaves out gaps about pages they can't.
+ */
+export function useGapTitle() {
+  const docs = useSyncDocsStore()
+  const pageTitles = computed(() => new Map(docs.allPages.map((p) => [p.id, p.title])))
+  return (gap: { title: string; subject_page_id?: number | null }): string => {
+    const id = gap.subject_page_id
+    const page = id == null ? undefined : pageTitles.value.get(id)
+    return page ? `${gap.title}: ${page}` : gap.title
+  }
+}
 
 /**
  * List of gaps for the queue view. Default status filter is the

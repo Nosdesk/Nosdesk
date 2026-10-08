@@ -13,6 +13,10 @@
 //! + status for ticket-typed signals). The Phase 3 LLM will read
 //! richer data straight from the source rows; the HTTP surface
 //! only carries what the queue UI actually shows.
+//!
+//! A documentation page the caller can't open reads as absent here, as on
+//! the docs routes: a gap that names one is not found, a ticket it resolves
+//! can still be flagged, and a gap can't be resolved with it.
 
 use actix_web::{web, HttpResponse, Responder};
 use diesel::prelude::*;
@@ -24,6 +28,7 @@ use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::helpers;
 use crate::models::{KnowledgeGap, KnowledgeGapSignal, UserInfoWithAvatar};
+use crate::repository::documentation::PageAudience;
 use crate::repository::{self, knowledge_gaps};
 
 // ---------------------------------------------------------------
@@ -136,6 +141,7 @@ pub async fn flag_ticket_as_gap(
     let ticket_id = path.into_inner();
     let user_uuid = auth.user_uuid;
     let reason = body.into_inner().reason;
+    let audience = PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
         // Need the ticket title for the gap headline. Cheap join.
@@ -149,10 +155,11 @@ pub async fn flag_ticket_as_gap(
             Some(t) => t,
             None => return Ok(FlagOutcome::TicketNotFound),
         };
-        // Already documented: the doc exists, so there is no gap to flag.
+        // Already documented: a doc the caller can open exists, so there is
+        // no gap to flag.
         if let Some((page_id, title, slug)) =
             crate::repository::documentation_page_tickets::resolving_page_for_ticket(
-                conn, ticket_id,
+                conn, ticket_id, &audience,
             )?
         {
             return Ok(FlagOutcome::AlreadyDocumented {
@@ -163,6 +170,7 @@ pub async fn flag_ticket_as_gap(
         }
         let (gap, _signal, was_created) =
             knowledge_gaps::flag_ticket(conn, ticket_id, &ticket_title, user_uuid, reason)?;
+        let gap = knowledge_gaps::as_seen_by(conn, &audience, gap)?;
         Ok(if was_created {
             FlagOutcome::Created(gap)
         } else {
@@ -209,8 +217,13 @@ pub async fn unflag_ticket_as_gap(
     }
     let ticket_id = path.into_inner();
     let user_uuid = auth.user_uuid;
+    let audience = PageAudience::from_auth(&auth);
 
-    match tc.run(|conn| knowledge_gaps::unflag_ticket(conn, ticket_id, user_uuid)) {
+    match tc.run(|conn| {
+        knowledge_gaps::unflag_ticket(conn, ticket_id, user_uuid)?
+            .map(|gap| knowledge_gaps::as_seen_by(conn, &audience, gap))
+            .transpose()
+    }) {
         Ok(Some(gap)) => HttpResponse::Ok().json(KnowledgeGapResponse {
             gap,
             signals: None,
@@ -246,6 +259,7 @@ pub async fn list_knowledge_gaps(
     }
 
     let q = query.into_inner();
+    let audience = PageAudience::from_auth(&auth);
     let statuses = q
         .status
         .as_deref()
@@ -263,7 +277,10 @@ pub async fn list_knowledge_gaps(
     };
 
     match tc.run(|conn| {
+        // A page of the queue, less any gap naming a page the caller can't
+        // open, so a page can come back shorter than the limit.
         let gaps = knowledge_gaps::list_gaps(conn, filter)?;
+        let gaps = knowledge_gaps::readable_by(conn, &audience, gaps)?;
         let ids: Vec<i64> = gaps.iter().map(|g| g.id).collect();
         let kinds = knowledge_gaps::primary_signal_types(conn, &ids)?;
         Ok::<_, diesel::result::Error>((gaps, kinds))
@@ -303,12 +320,11 @@ pub async fn get_knowledge_gap(
         return errors::forbidden("Technician or admin role required");
     }
     let gap_id = path.into_inner();
+    let audience = PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        let gap = match knowledge_gaps::get_gap(conn, gap_id) {
-            Ok(g) => g,
-            Err(diesel::result::Error::NotFound) => return Ok(GapDetailOutcome::NotFound),
-            Err(e) => return Err(e),
+        let Some(gap) = knowledge_gaps::get_readable_gap(conn, &audience, gap_id)? else {
+            return Ok(GapDetailOutcome::NotFound);
         };
         let signals = knowledge_gaps::list_signals_for_gap(conn, gap.id)?;
         let hydrated: Vec<KnowledgeGapSignalResponse> = signals
@@ -346,13 +362,20 @@ pub async fn dismiss_knowledge_gap(
     }
     let gap_id = path.into_inner();
     let user_uuid = auth.user_uuid;
+    let audience = PageAudience::from_auth(&auth);
 
-    match tc.run(|conn| knowledge_gaps::dismiss_gap(conn, gap_id, user_uuid)) {
-        Ok(gap) => HttpResponse::Ok().json(KnowledgeGapResponse {
+    match tc.run(|conn| {
+        if knowledge_gaps::get_readable_gap(conn, &audience, gap_id)?.is_none() {
+            return Ok(None);
+        }
+        knowledge_gaps::dismiss_gap(conn, gap_id, user_uuid).map(Some)
+    }) {
+        Ok(Some(gap)) => HttpResponse::Ok().json(KnowledgeGapResponse {
             gap,
             signals: None,
             primary_signal_type: None,
         }),
+        Ok(None) => errors::not_found("Gap"),
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to dismiss gap");
             errors::internal("Failed to dismiss gap")
@@ -514,13 +537,25 @@ pub async fn resolve_knowledge_gap(
     let req_body = body.into_inner();
     let user_uuid = auth.user_uuid;
     let page_id = req_body.page_id;
+    let audience = PageAudience::from_auth(&auth);
 
-    match tc.run(|conn| knowledge_gaps::resolve_gap(conn, gap_id, page_id, Some(user_uuid))) {
-        Ok(gap) => HttpResponse::Ok().json(KnowledgeGapResponse {
+    // Both the gap and the page must be ones the caller can see; one they
+    // can't reads as not found.
+    match tc.run(|conn| {
+        if knowledge_gaps::get_readable_gap(conn, &audience, gap_id)?.is_none() {
+            return Ok(Err("Gap"));
+        }
+        if !audience.can_open_page(conn, page_id)? {
+            return Ok(Err("Page"));
+        }
+        knowledge_gaps::resolve_gap(conn, gap_id, page_id, Some(user_uuid)).map(Ok)
+    }) {
+        Ok(Ok(gap)) => HttpResponse::Ok().json(KnowledgeGapResponse {
             gap,
             signals: None,
             primary_signal_type: None,
         }),
+        Ok(Err(missing)) => errors::not_found(missing),
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to resolve gap");
             errors::internal("Failed to resolve gap")

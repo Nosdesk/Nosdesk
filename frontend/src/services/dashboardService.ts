@@ -28,6 +28,8 @@ export interface KnowledgeGapsStatsItem {
   impactScore: number
   evidenceCount: number
   lastEvidenceAt: string | null
+  /** The page the gap is about (a stale doc), by id. */
+  subjectPageId: number | null
 }
 
 export interface KnowledgeGapsStats {

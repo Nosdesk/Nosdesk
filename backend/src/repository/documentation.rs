@@ -1015,6 +1015,22 @@ impl PageAudience {
         Ok(exists && self.can_read(conn, page_id))
     }
 
+    /// Which of `page_ids` this audience may not read. An id with no page is
+    /// not hidden (there is nothing to name).
+    pub fn hidden_pages(
+        &self,
+        conn: &mut DbConnection,
+        page_ids: &[i32],
+    ) -> Result<std::collections::HashSet<i32>, Error> {
+        match self {
+            PageAudience::Unrestricted => Ok(std::collections::HashSet::new()),
+            PageAudience::User {
+                user_uuid,
+                is_admin,
+            } => Ok(hidden_documentation_ids(conn, page_ids, &[], user_uuid, *is_admin)?.0),
+        }
+    }
+
     /// The pages in `pages` this audience may read.
     pub fn filter_pages(
         &self,

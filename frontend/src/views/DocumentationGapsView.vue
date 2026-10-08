@@ -29,6 +29,7 @@ import {
   useDetectClustersMutation,
   useResolveGapMutation,
   useWriteGapDocMutation,
+  useGapTitle,
 } from '@/composables/useKnowledgeGaps'
 import type {
   KnowledgeGap,
@@ -86,6 +87,7 @@ const dismissMutation = useDismissGapMutation()
 const isDismissing = ref(false)
 const toast = useToastStore()
 const docs = useSyncDocsStore()
+const gapTitle = useGapTitle()
 
 function statusLabel(status: string): string {
   switch (status) {
@@ -107,7 +109,7 @@ const writeMutation = useWriteGapDocMutation()
 async function writeDoc() {
   const gap = selectedGap.value
   if (!gap) return
-  const page = await writeMutation.mutateAsync({ gapId: gap.id, title: gap.title })
+  const page = await writeMutation.mutateAsync({ gapId: gap.id, title: gapTitle(gap) })
   if (!page) {
     toast.error(t('docs-gaps-write-failed'))
     return
@@ -197,8 +199,6 @@ function failedSearchPayload(signal: KnowledgeGapSignal): FailedSearchPayload {
 
 interface StaleDocPayload {
   page_uuid?: string
-  page_title?: string
-  page_slug?: string
   verified_at?: string
   verify_interval_days?: number
   days_stale?: number
@@ -207,6 +207,13 @@ interface StaleDocPayload {
 
 function staleDocPayload(signal: KnowledgeGapSignal): StaleDocPayload {
   return (signal.payload ?? {}) as StaleDocPayload
+}
+
+/** A stale-doc signal's page (its `source_ref` is the page id), from the docs
+ *  this reader can open. */
+const pagesById = computed(() => new Map(docs.allPages.map((p) => [p.id, p])))
+function stalePage(signal: KnowledgeGapSignal) {
+  return pagesById.value.get(Number(signal.source_ref)) ?? null
 }
 
 /** The unit of a gap's impact_score: searches for failed-search gaps,
@@ -333,7 +340,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             >
               <div class="flex items-start justify-between gap-2 mb-1">
                 <p class="flex-1 min-w-0 text-sm text-primary font-medium truncate">
-                  {{ gap.title }}
+                  {{ gapTitle(gap) }}
                 </p>
                 <span
                   class="flex-shrink-0 text-3xs px-1.5 py-0.5 rounded bg-surface text-tertiary"
@@ -384,7 +391,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
           <!-- Title + actions -->
           <header class="flex items-start justify-between gap-4 pb-4 border-b border-subtle">
             <div class="flex-1 min-w-0">
-              <h1 class="text-xl font-semibold text-primary">{{ selectedGap.title }}</h1>
+              <h1 class="text-xl font-semibold text-primary">{{ gapTitle(selectedGap) }}</h1>
               <p v-if="selectedGap.description" class="text-sm text-secondary mt-2">
                 {{ selectedGap.description }}
               </p>
@@ -483,11 +490,11 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                        the doc, which auto-dismisses the gap. -->
                   <template v-else-if="signal.signal_type === 'stale_doc'">
                     <RouterLink
-                      v-if="staleDocPayload(signal).page_slug"
-                      :to="`/documentation/${staleDocPayload(signal).page_slug}`"
+                      v-if="stalePage(signal)"
+                      :to="`/documentation/${stalePage(signal)!.slug}`"
                       class="text-sm text-primary hover:text-accent transition-colors"
                     >
-                      📄 {{ staleDocPayload(signal).page_title ?? $t('docs-gaps-stale-untitled') }}
+                      📄 {{ stalePage(signal)!.title || $t('docs-gaps-stale-untitled') }}
                     </RouterLink>
                     <p class="text-2xs text-tertiary mt-1">
                       <template v-if="staleDocPayload(signal).verified_at">

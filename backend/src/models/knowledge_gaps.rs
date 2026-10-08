@@ -35,6 +35,9 @@ pub struct KnowledgeGap {
     pub workspace_id: i32,
     /// The draft page this gap is being written as, while `drafting`.
     pub draft_page_id: Option<i32>,
+    /// The page a gap is about (a stale-doc gap's page). Named by id only:
+    /// a reader names it from the documentation they can open.
+    pub subject_page_id: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -65,6 +68,7 @@ pub struct KnowledgeGapUpdate {
     pub dismissed_by: Option<Option<Uuid>>,
     pub resolved_at: Option<Option<NaiveDateTime>>,
     pub draft_page_id: Option<Option<i32>>,
+    pub subject_page_id: Option<Option<i32>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Queryable, Identifiable, Associations, Clone)]

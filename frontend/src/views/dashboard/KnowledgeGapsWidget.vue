@@ -12,6 +12,7 @@ import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { RouterLink } from 'vue-router'
 import { useInjectedDashboardStats } from '@/composables/useDashboardStats'
+import { useGapTitle } from '@/composables/useKnowledgeGaps'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import Icon from '@/components/common/Icon.vue'
@@ -20,6 +21,7 @@ const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const stats = useInjectedDashboardStats()
+const gapTitle = useGapTitle()
 
 const knowledgeGaps = computed(() => stats.bundle.value?.knowledgeGaps)
 const items = computed(() => knowledgeGaps.value?.top ?? [])
@@ -73,7 +75,9 @@ function signalCount(count: number): string {
         >
           <Icon name="warning" class="text-amber-500 flex-shrink-0 mt-0.5" />
           <div class="flex-1 min-w-0">
-            <p class="text-sm text-primary truncate">{{ item.title }}</p>
+            <p class="text-sm text-primary truncate">
+              {{ gapTitle({ title: item.title, subject_page_id: item.subjectPageId }) }}
+            </p>
             <div class="text-2xs text-tertiary mt-0.5 flex items-center gap-2">
               <span>{{ signalCount(item.evidenceCount) }}</span>
               <span v-if="item.lastEvidenceAt" class="text-subtle">&middot;</span>

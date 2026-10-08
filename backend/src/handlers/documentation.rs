@@ -873,6 +873,13 @@ pub async fn create_documentation_page(
                 return Ok(CreatePageOutcome::InvalidCollection);
             }
         }
+        // So is a gap naming a page the caller can't open (as on the gap
+        // routes): writing a page for it would move it to drafting.
+        if let Some(gap_id) = request.gap_id {
+            if repository::knowledge_gaps::get_readable_gap(conn, &audience, gap_id)?.is_none() {
+                return Ok(CreatePageOutcome::GapNotFound);
+            }
+        }
 
         // Build the NewDocumentationPage from request
         let slug = utils::slug::generate_unique_slug(&request.title, conn);
@@ -978,6 +985,7 @@ pub async fn create_documentation_page(
         }
         Ok(CreatePageOutcome::InvalidParent) => errors::bad_request(INVALID_PARENT),
         Ok(CreatePageOutcome::InvalidCollection) => errors::bad_request(INVALID_COLLECTION),
+        Ok(CreatePageOutcome::GapNotFound) => errors::not_found("Gap"),
         Err(_) => errors::internal("Failed to create page"),
     }
 }
@@ -987,6 +995,7 @@ enum CreatePageOutcome {
     Created(DocumentationPage, DocumentationPageResponse),
     InvalidParent,
     InvalidCollection,
+    GapNotFound,
 }
 
 /// A parent the repository refused: not a page in this workspace, or the page

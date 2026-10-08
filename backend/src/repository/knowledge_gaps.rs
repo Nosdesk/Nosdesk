@@ -41,6 +41,7 @@ fn gap_sync_payload(g: &KnowledgeGap) -> serde_json::Value {
         "assignee_uuid": g.assignee_uuid,
         "resolved_page_id": g.resolved_page_id,
         "draft_page_id": g.draft_page_id,
+        "subject_page_id": g.subject_page_id,
         "evidence_count": g.evidence_count,
         "impact_score": g.impact_score,
         "last_evidence_at": g.last_evidence_at,
@@ -65,6 +66,10 @@ pub const SIGNAL_STALE_DOC: &str = "stale_doc";
 pub const SIGNAL_AI_SUGGESTED: &str = "ai_suggested";
 
 pub const SOURCE_TICKET: &str = "ticket";
+
+/// A stale-doc gap's title. The page is named by `subject_page_id`, never in
+/// the title, so the queue can't name a page to someone who can't open it.
+pub const STALE_DOC_TITLE: &str = "Doc may be stale";
 
 /// Per-ticket count of open (non-dismissed) signals attached to
 /// each ticket id. Drives the CardData `kb_gap_signal` pill on
@@ -181,6 +186,73 @@ pub fn primary_signal_types(
 
 pub fn get_gap(conn: &mut DbConnection, gap_id: i64) -> Result<KnowledgeGap, Error> {
     knowledge_gaps::table.find(gap_id).first(conn)
+}
+
+/// The documentation pages a gap names: the page it is about, the page that
+/// resolved it, and the draft it is being written in.
+fn pages_named(gap: &KnowledgeGap) -> impl Iterator<Item = i32> {
+    [gap.subject_page_id, gap.resolved_page_id, gap.draft_page_id]
+        .into_iter()
+        .flatten()
+}
+
+/// The gaps in `gaps` that name no page `audience` can't open. A gap about a
+/// page the reader can't open is absent to them, like the page.
+pub fn readable_by(
+    conn: &mut DbConnection,
+    audience: &crate::repository::documentation::PageAudience,
+    gaps: Vec<KnowledgeGap>,
+) -> Result<Vec<KnowledgeGap>, Error> {
+    let page_ids: Vec<i32> = gaps.iter().flat_map(pages_named).collect();
+    if page_ids.is_empty() {
+        return Ok(gaps);
+    }
+    let hidden = audience.hidden_pages(conn, &page_ids)?;
+    Ok(gaps
+        .into_iter()
+        .filter(|gap| !pages_named(gap).any(|id| hidden.contains(&id)))
+        .collect())
+}
+
+/// `gap` as `audience` may see it: a page it names that they can't open is
+/// left out. For a gap the caller reaches by another route (flagging or
+/// unflagging a ticket), which may be drafting in a page they can't open.
+pub fn as_seen_by(
+    conn: &mut DbConnection,
+    audience: &crate::repository::documentation::PageAudience,
+    mut gap: KnowledgeGap,
+) -> Result<KnowledgeGap, Error> {
+    let named: Vec<i32> = pages_named(&gap).collect();
+    if named.is_empty() {
+        return Ok(gap);
+    }
+    let hidden = audience.hidden_pages(conn, &named)?;
+    for page in [
+        &mut gap.subject_page_id,
+        &mut gap.resolved_page_id,
+        &mut gap.draft_page_id,
+    ] {
+        if page.is_some_and(|id| hidden.contains(&id)) {
+            *page = None;
+        }
+    }
+    Ok(gap)
+}
+
+/// The gap `gap_id`, if it exists and names no page `audience` can't open.
+pub fn get_readable_gap(
+    conn: &mut DbConnection,
+    audience: &crate::repository::documentation::PageAudience,
+    gap_id: i64,
+) -> Result<Option<KnowledgeGap>, Error> {
+    let Some(gap) = knowledge_gaps::table
+        .find(gap_id)
+        .first::<KnowledgeGap>(conn)
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    Ok(readable_by(conn, audience, vec![gap])?.pop())
 }
 
 pub fn list_signals_for_gap(
@@ -1218,8 +1290,6 @@ pub fn run_failed_search_detection(
 pub struct StaleDocCandidate {
     pub page_id: i32,
     pub page_uuid: uuid::Uuid,
-    pub page_title: String,
-    pub page_slug: String,
     pub verified_at: chrono::NaiveDateTime,
     pub verify_interval_days: i32,
     pub recent_ticket_ids: Vec<i32>,
@@ -1238,20 +1308,17 @@ fn find_stale_doc_candidates(
     let recent_cutoff = now - chrono::Duration::days(recent_ticket_days as i64);
 
     // Step 1: load verified-with-interval pages.
-    let pages: Vec<(i32, uuid::Uuid, String, String, chrono::NaiveDateTime, i32)> =
-        documentation_pages::table
-            .filter(documentation_pages::verified_at.is_not_null())
-            .filter(documentation_pages::verify_interval_days.is_not_null())
-            .filter(documentation_pages::deleted_at.is_null())
-            .select((
-                documentation_pages::id,
-                documentation_pages::uuid,
-                documentation_pages::title,
-                documentation_pages::slug,
-                documentation_pages::verified_at.assume_not_null(),
-                documentation_pages::verify_interval_days.assume_not_null(),
-            ))
-            .load(conn)?;
+    let pages: Vec<(i32, uuid::Uuid, chrono::NaiveDateTime, i32)> = documentation_pages::table
+        .filter(documentation_pages::verified_at.is_not_null())
+        .filter(documentation_pages::verify_interval_days.is_not_null())
+        .filter(documentation_pages::deleted_at.is_null())
+        .select((
+            documentation_pages::id,
+            documentation_pages::uuid,
+            documentation_pages::verified_at.assume_not_null(),
+            documentation_pages::verify_interval_days.assume_not_null(),
+        ))
+        .load(conn)?;
 
     // Filter in Rust to "stale": verified_at + interval < now.
     // SQL-side date arithmetic with chrono::Duration is awkward
@@ -1259,7 +1326,7 @@ fn find_stale_doc_candidates(
     // has been verified) so post-filter is cheap.
     let stale: Vec<_> = pages
         .into_iter()
-        .filter(|(_, _, _, _, verified_at, days)| {
+        .filter(|(_, _, verified_at, days)| {
             *verified_at + chrono::Duration::days(*days as i64) < now
         })
         .collect();
@@ -1268,7 +1335,7 @@ fn find_stale_doc_candidates(
         return Ok(Vec::new());
     }
 
-    let stale_ids: Vec<i32> = stale.iter().map(|(id, _, _, _, _, _)| *id).collect();
+    let stale_ids: Vec<i32> = stale.iter().map(|(id, _, _, _)| *id).collect();
 
     // Step 2: which of those pages have 'resolves' links to
     // tickets that closed in the recent window? Join workflow_states
@@ -1299,23 +1366,19 @@ fn find_stale_doc_candidates(
 
     Ok(stale
         .into_iter()
-        .filter_map(
-            |(page_id, page_uuid, page_title, page_slug, verified_at, verify_interval_days)| {
-                let recent_ticket_ids = by_page.remove(&page_id)?;
-                if recent_ticket_ids.len() < min_recent_tickets {
-                    return None;
-                }
-                Some(StaleDocCandidate {
-                    page_id,
-                    page_uuid,
-                    page_title,
-                    page_slug,
-                    verified_at,
-                    verify_interval_days,
-                    recent_ticket_ids,
-                })
-            },
-        )
+        .filter_map(|(page_id, page_uuid, verified_at, verify_interval_days)| {
+            let recent_ticket_ids = by_page.remove(&page_id)?;
+            if recent_ticket_ids.len() < min_recent_tickets {
+                return None;
+            }
+            Some(StaleDocCandidate {
+                page_id,
+                page_uuid,
+                verified_at,
+                verify_interval_days,
+                recent_ticket_ids,
+            })
+        })
         .collect())
 }
 
@@ -1355,12 +1418,15 @@ pub fn run_stale_doc_detection(
             .num_days()
             .max(0);
 
+            // The gap names its page by id only (`subject_page_id`): its title
+            // and evidence stay readable to whoever reads the queue, and a
+            // reader names the page from the documentation they can open.
             let gap = match existing {
                 Some(g) => g,
                 None => create_gap(
                     tx,
                     NewKnowledgeGap {
-                        title: format!("Doc may be stale: {}", candidate.page_title),
+                        title: STALE_DOC_TITLE.to_string(),
                         description: None,
                         status: STATUS_OPEN.to_string(),
                         created_by: detected_by,
@@ -1387,8 +1453,6 @@ pub fn run_stale_doc_detection(
                     source_ref,
                     payload: serde_json::json!({
                         "page_uuid": candidate.page_uuid,
-                        "page_title": candidate.page_title,
-                        "page_slug": candidate.page_slug,
                         "verified_at": candidate.verified_at,
                         "verify_interval_days": candidate.verify_interval_days,
                         "days_stale": days_stale,
@@ -1399,6 +1463,16 @@ pub fn run_stale_doc_detection(
                 },
             )?;
 
+            if gap.subject_page_id != Some(candidate.page_id) {
+                update_gap(
+                    tx,
+                    gap.id,
+                    KnowledgeGapUpdate {
+                        subject_page_id: Some(Some(candidate.page_id)),
+                        ..Default::default()
+                    },
+                )?;
+            }
             recompute_aggregates(tx, gap.id)?;
 
             if was_created {
