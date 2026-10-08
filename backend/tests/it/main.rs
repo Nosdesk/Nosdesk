@@ -101,6 +101,7 @@ mod route_auth_funnel_lint;
 mod rules_in_workspace;
 mod search_by_ticket_number;
 mod site_settings_per_workspace;
+mod sla_breach_sweep;
 mod sla_defaults;
 mod sla_policy_priority;
 mod sync_audiences;
