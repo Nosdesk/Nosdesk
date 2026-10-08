@@ -12,11 +12,21 @@
 mod common;
 
 use std::net::TcpListener;
+use std::path::PathBuf;
 
 use backend::config::Config;
 use backend::startup::build_server;
 
 use common::upgrade_1_0_12::{self as fixture, UpgradeDb};
+
+/// The app's upload and search directories, removed however the test ends.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 #[actix_web::test]
 async fn the_app_boots_on_an_upgraded_1_0_12_database() {
@@ -35,9 +45,10 @@ async fn the_app_boots_on_an_upgraded_1_0_12_database() {
         "MFA_KEK_V1",
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     );
-    let scratch = std::env::temp_dir().join(format!("nosdesk-upgrade-{}", std::process::id()));
-    std::env::set_var("NOSDESK_UPLOAD_DIR", scratch.join("uploads"));
-    std::env::set_var("SEARCH_INDEX_PATH", scratch.join("search"));
+    let scratch =
+        Scratch(std::env::temp_dir().join(format!("nosdesk-upgrade-{}", std::process::id())));
+    std::env::set_var("NOSDESK_UPLOAD_DIR", scratch.0.join("uploads"));
+    std::env::set_var("SEARCH_INDEX_PATH", scratch.0.join("search"));
 
     let config = Config::from_source(
         &|k| match k {
@@ -85,5 +96,4 @@ async fn the_app_boots_on_an_upgraded_1_0_12_database() {
     scheduler.cancel();
     handle.stop(false).await;
     let _ = server_task.await;
-    let _ = std::fs::remove_dir_all(&scratch);
 }
