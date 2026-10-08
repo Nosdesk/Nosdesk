@@ -1414,12 +1414,18 @@ const AUTH_ERROR_EMAIL_UNVERIFIED: &str = "email_unverified";
 /// from first-login.
 /// Sanitise the post-login redirect target before bouncing the browser to
 /// it. `redirect_uri` is client-supplied at initiation (carried through the
-/// signed state), so an unchecked absolute URL would be an open redirect we
-/// could be phished through. Only same-origin relative paths are honoured;
-/// anything else (absolute URL, protocol-relative `//host`, or empty) falls
-/// back to the app root.
+/// signed state; the sign-in page sends its `?redirect=` page), so only a
+/// path in this app is honoured. As written it must be one leading slash and
+/// then visible ASCII; with its `%XX` escapes decoded it must hold no
+/// backslash and not start with `//`. That rules out other hosts (`//host`,
+/// and `/\host`, which browsers read the same way), schemes, and anything a
+/// browser would strip or rewrite. Anything else falls back to the app root.
+/// The frontend's `isInAppPath` applies the same rule.
 fn safe_post_login_location(redirect_uri: &str) -> String {
-    if redirect_uri.starts_with('/') && !redirect_uri.starts_with("//") {
+    let written_in_app =
+        redirect_uri.starts_with('/') && redirect_uri.bytes().all(|b| b.is_ascii_graphic());
+    let decoded = urlencoding::decode_binary(redirect_uri.as_bytes());
+    if written_in_app && !decoded.contains(&b'\\') && !decoded.starts_with(b"//") {
         redirect_uri.to_string()
     } else {
         "/".to_string()
@@ -2219,6 +2225,42 @@ mod hosted_auth_tests {
         assert_eq!(safe_post_login_location("//evil.example"), "/");
         assert_eq!(safe_post_login_location("javascript:alert(1)"), "/");
         assert_eq!(safe_post_login_location(""), "/");
+    }
+
+    /// The sign-in page sends its `?redirect=` page, so the target can come
+    /// from a link. Browsers read a backslash as a slash and drop tabs and
+    /// newlines, so `/\host` and `/<tab>/host` both name another host; the
+    /// encoded forms are refused too. The same cases are in the frontend's
+    /// `utils/__tests__/inAppPath.spec.ts`.
+    #[test]
+    fn post_login_location_refuses_paths_a_browser_reads_as_another_host() {
+        for target in [
+            "/",
+            "/acme/tickets/12",
+            "/acme/tickets/12?tab=notes#c4",
+            "/search?q=%20vpn",
+        ] {
+            assert_eq!(safe_post_login_location(target), target, "{target:?}");
+        }
+        for target in [
+            "",
+            "tickets/12",
+            "//evil.example",
+            "/\\evil.example",
+            "/x\\y",
+            "/\t/evil.example",
+            "/\n/evil.example",
+            "/a b",
+            "https://evil.example",
+            "javascript:alert(1)",
+            "/\u{e9}",
+            "/%2F%2Fevil.example",
+            "/%2fevil.example",
+            "/%5Cevil.example",
+            "/x%5Cy",
+        ] {
+            assert_eq!(safe_post_login_location(target), "/", "{target:?}");
+        }
     }
 
     #[test]
