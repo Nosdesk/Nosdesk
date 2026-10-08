@@ -1169,9 +1169,6 @@ admin-sla-placeholder-tz = Australia/Sydney
 admin-sla-policy-name-placeholder = Critical incidents
 admin-sla-schedule-hint = Schedule defaults to Mon-Fri 9-17. Edit by hand or expand here later.
 admin-sla-priority-any = Any
-admin-sla-priority-low = low
-admin-sla-priority-medium = medium
-admin-sla-priority-high = high
 admin-sla-workspace-default = Workspace default
 admin-sla-create = Create
 

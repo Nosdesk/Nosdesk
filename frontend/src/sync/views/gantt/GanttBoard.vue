@@ -1136,7 +1136,7 @@ function open(card: CardData): void {
         title: trayDraggedCard.title,
         category: trayDraggedCard.workflow_state.category,
         assigneeUuid: trayDraggedCard.assignee_uuid,
-        priority: trayDraggedCard.priority === 'urgent' ? 'high' : trayDraggedCard.priority,
+        priority: trayDraggedCard.priority,
       }"
       :position="trayDrag.state.dragPosition"
       :extra-count="trayDrag.state.draggedCardIds.length - 1"

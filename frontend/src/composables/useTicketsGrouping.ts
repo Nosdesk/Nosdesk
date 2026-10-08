@@ -21,6 +21,8 @@ import {
   type GroupBucket,
 } from '@/composables/useListGrouping'
 import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
+import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions'
+import { priorityLabel } from '@/utils/priorityHelpers'
 
 export type GroupBy =
   | 'none'
@@ -49,16 +51,8 @@ export interface UseTicketsGrouping {
 // Stable severity orderings so chips and group headers always
 // read top-to-bottom in severity order, regardless of bucket
 // label localisation.
-const PRIORITY_ORDER: Priority[] = ['urgent', 'high', 'medium', 'low', 'none']
+const PRIORITY_ORDER: Priority[] = PRIORITY_OPTIONS.map((o) => o.value)
 const SLA_ORDER = ['breached', 'at-risk', 'on-track', 'paused', 'none'] as const
-
-function priorityLabel(p: Priority): string {
-  if (p === 'urgent') return translate('priority-urgent', undefined, 'Urgent')
-  if (p === 'high') return translate('priority-high', undefined, 'High')
-  if (p === 'medium') return translate('priority-medium', undefined, 'Medium')
-  if (p === 'low') return translate('priority-low', undefined, 'Low')
-  return translate('priority-none', undefined, 'No priority')
-}
 
 function slaLabel(k: string): string {
   if (k === 'breached') return translate('sla-breached', undefined, 'Breached')

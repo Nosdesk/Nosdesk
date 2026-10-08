@@ -5,6 +5,8 @@ import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
+import type { Priority } from '@nosdesk/core/sync/views/types'
+import { priorityForBadge } from '@/utils/priorityHelpers'
 
 const props = defineProps<{
   ticket: {
@@ -13,7 +15,7 @@ const props = defineProps<{
     title: string
     category?: WorkflowStateCategory
     assigneeUuid?: string | null
-    priority?: 'low' | 'medium' | 'high' | 'none'
+    priority?: Priority
   }
   position: { x: number; y: number }
   /** Additional cards in a multi-select drag (shown as "+ N more"). */
@@ -73,11 +75,12 @@ const showPriority = computed(() =>
   props.ticket.priority != null && props.ticket.priority !== 'none',
 )
 
-const priorityLevel = computed((): 'low' | 'medium' | 'high' | undefined => {
-  const p = props.ticket.priority
-  if (p === 'low' || p === 'medium' || p === 'high') return p
-  return undefined
-})
+// The indicator shows three levels, so urgent reads as high here, as it does
+// on the cards.
+const priorityLevel = computed(
+  (): 'low' | 'medium' | 'high' | undefined =>
+    (props.ticket.priority && priorityForBadge(props.ticket.priority)) || undefined,
+)
 </script>
 
 <template>

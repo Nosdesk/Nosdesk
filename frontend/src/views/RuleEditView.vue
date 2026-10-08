@@ -41,6 +41,7 @@ import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useMobileDetection } from '@/composables/useMobileDetection';
+import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions';
 
 // Desktop only: on mobile the leading back-arrow in SiteHeader is the single
 // back affordance, so this inline control hides to avoid two per screen. Same
@@ -368,7 +369,7 @@ function setAssignTarget(index: number, method: string): void {
 }
 
 const priorityOptions = computed(() =>
-  ['low', 'medium', 'high', 'urgent'].map((value) => ({ value, label: t(`priority-${value}`) })),
+  PRIORITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
 );
 // The backend reads `normal` as medium; older rules may carry it.
 const priorityValue = (config: Record<string, unknown> | undefined) => {

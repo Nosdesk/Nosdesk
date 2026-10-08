@@ -1,5 +1,6 @@
 import { ref, readonly } from 'vue'
 import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
+import type { Priority } from '@nosdesk/core/sync/views/types'
 import { shareableTicketUrl } from '@/utils/shareUrl'
 import { ticketIdFromUrl } from '@/utils/ticketNumbers'
 import { createDragEdgeScroller } from '@/composables/useDragEdgeScroll'
@@ -11,7 +12,7 @@ export interface DraggableTicket {
   title: string
   category?: WorkflowStateCategory
   assigneeUuid?: string | null
-  priority?: 'low' | 'medium' | 'high' | 'none'
+  priority?: Priority
 }
 
 /** Parse a ticket id from an HTML5 drag payload (sidebar, kanban). */

@@ -19,12 +19,18 @@ export function priorityForBadge(p: Priority): 'low' | 'medium' | 'high' | null 
   return null
 }
 
+// Keyed by every priority, so adding one fails type-check here until it
+// has a label and colours.
+const PRIORITY_LABEL_FALLBACKS: Record<Priority, string> = {
+  urgent: 'Urgent',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+  none: 'No priority',
+}
+
 export function priorityLabel(p: Priority): string {
-  if (p === 'urgent') return translate('priority-urgent', undefined, 'Urgent')
-  if (p === 'high') return translate('priority-high', undefined, 'High')
-  if (p === 'medium') return translate('priority-medium', undefined, 'Medium')
-  if (p === 'low') return translate('priority-low', undefined, 'Low')
-  return translate('priority-none', undefined, 'No priority')
+  return translate(`priority-${p}`, undefined, PRIORITY_LABEL_FALLBACKS[p])
 }
 
 /** Flat option rows for `CustomDropdown` / bulk pickers, from the one
@@ -38,19 +44,31 @@ export function buildPriorityDropdownOptions(
 /** Subtle inline tint used in the title cell to make urgent /
  * high tickets visually pop in the table. Returns null for
  * everything else (no tint applied). */
+const INLINE_PRIORITY_CLASS: Record<Priority, string | null> = {
+  urgent: 'text-rose-500',
+  high: 'text-orange-500',
+  medium: null,
+  low: null,
+  none: null,
+}
+
 export function inlinePriorityClass(p: Priority): string | null {
-  if (p === 'urgent') return 'text-rose-500'
-  if (p === 'high') return 'text-orange-500'
-  return null
+  return INLINE_PRIORITY_CLASS[p] ?? null
 }
 
 /** Pill tone class for the dedicated Priority pill in the preview
  * pane. Heavier styling than the inline tint — meant to read as
  * "this whole pill is the priority indicator." */
+const PRIORITY_TONE_CLASS: Record<Priority, string> = {
+  urgent: 'text-rose-600 dark:text-rose-400',
+  high: 'text-orange-600 dark:text-orange-400',
+  medium: 'text-secondary',
+  low: 'text-secondary',
+  none: 'text-secondary',
+}
+
 export function priorityToneClass(p: Priority): string {
-  if (p === 'urgent') return 'text-rose-600 dark:text-rose-400'
-  if (p === 'high') return 'text-orange-600 dark:text-orange-400'
-  return 'text-secondary'
+  return PRIORITY_TONE_CLASS[p] ?? 'text-secondary'
 }
 
 /** Leading row stripe encoding SLA urgency, used by the table.

@@ -22,3 +22,25 @@ export const PRIORITY_OPTIONS: SelectOption<TicketPriority>[] = [
   { value: "low", labelKey: "priority-low" },
   { value: "none", labelKey: "priority-none" },
 ];
+
+/** Severity, 0 (none) to 4 (urgent), as the backend ranks it. */
+export const PRIORITY_RANK: Record<TicketPriority, number> = {
+  none: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+  urgent: 4,
+};
+
+/** A priority's severity; anything that isn't one ranks as none. */
+export function priorityRank(priority: string | null | undefined): number {
+  return PRIORITY_RANK[priority as TicketPriority] ?? 0;
+}
+
+/** Compare two priorities by severity, least severe first. */
+export function comparePriority(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
+  return priorityRank(a) - priorityRank(b);
+}

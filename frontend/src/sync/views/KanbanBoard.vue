@@ -335,7 +335,7 @@ function cardToDragPreview(card: CardData): DraggableTicket {
     title: card.title,
     category: card.workflow_state.category,
     assigneeUuid: card.assignee_uuid ?? null,
-    priority: priority === 'urgent' ? 'high' : priority,
+    priority,
   }
 }
 
