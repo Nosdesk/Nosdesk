@@ -185,6 +185,8 @@ pub async fn register_push_device(
     let mut conn = errors::db_conn(&pool)?;
     let actor =
         crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
+    // cross-tenant: a device token is unique across workspaces, so registering it can take over its
+    // row from another workspace.
     let res = crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
         crate::repository::push_devices::register(
             conn,
@@ -223,6 +225,7 @@ pub async fn unregister_push_device(
     let mut conn = errors::db_conn(&pool)?;
     let actor =
         crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
+    // cross-tenant: revokes the caller's token in whichever workspace it was registered.
     let res = crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
         crate::repository::push_devices::revoke(conn, user_uuid, &token)
     });
@@ -403,6 +406,8 @@ pub async fn set_notification_content_level(
     let mut conn = errors::db_conn(&pool)?;
     let actor =
         crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
+    // elevated-in-workspace: updates this workspace's own `workspaces` row, which nosdesk_app can
+    // only read.
     let res = crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
         crate::repository::workspaces::set_notification_push_detail(conn, workspace_id, detailed)
     });

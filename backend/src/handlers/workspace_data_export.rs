@@ -258,6 +258,8 @@ async fn run_export(
             }
         }
     };
+    // elevated-in-workspace: the background export task updates its own job row by id, with no
+    // workspace pinned.
     let _ = with_actor_bypass_context(&mut conn, &actor, |conn| {
         export_repo::update(conn, job_id, upd).map(|_| ())
     });
@@ -277,6 +279,8 @@ async fn run_export_inner(
     //    never needs auth secrets.
     let mut conn = pool.get().map_err(|e| format!("pool: {e}"))?;
     let actor = ActorContext::system("background:workspace_export");
+    // elevated-in-workspace: the background export task reads one workspace's rows, filtered by its
+    // id, with no workspace pinned.
     let (dumps, meta) = with_actor_bypass_context(&mut conn, &actor, |conn| {
         collect_workspace_rows(conn, workspace_id, false)
             .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))

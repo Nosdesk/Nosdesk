@@ -1195,6 +1195,8 @@ pub async fn sync_data(
 
         let actor = crate::sync::actor::ActorContext::system("background:msgraph_sync")
             .with_workspace(sync_workspace_id);
+        // elevated-in-workspace: the Graph sync holds this connection across awaits, so it pins and
+        // elevates the session for one workspace's writes, and resets it before release.
         if let Err(e) = crate::sync::session::elevate_session_role(&mut conn, &actor) {
             error!("Failed to elevate session for msgraph sync: {}", e);
             update_sync_progress(
@@ -1425,6 +1427,8 @@ pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<
     // conn returns to the pool. Without this the RLS writes silently fail.
     let actor = crate::sync::actor::ActorContext::system("scheduler:msgraph_delta_sync")
         .with_workspace(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID);
+    // elevated-in-workspace: the Graph sync holds this connection across awaits, so it pins and
+    // elevates the session for one workspace's writes, and resets it before release.
     crate::sync::session::elevate_session_role(&mut conn, &actor)
         .map_err(|e| anyhow::anyhow!("session elevation failed: {e}"))?;
 

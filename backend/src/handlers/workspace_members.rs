@@ -123,6 +123,8 @@ pub async fn list_members(
         }
     };
     let actor = ActorContext::system("workspace:members:list").with_workspace(ctx.workspace_id);
+    // elevated-in-workspace: shares the operator console's membership functions; every read here
+    // names ctx.workspace_id, behind the admin gate above.
     let result = with_actor_bypass_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
         workspaces::list_workspace_members(conn, ctx.workspace_id)
     });
@@ -188,6 +190,8 @@ pub async fn update_member_role(
         }
     };
     let actor = caller_actor(&caller, ctx.workspace_id);
+    // elevated-in-workspace: shares the operator console's membership functions; every read and
+    // write here names ctx.workspace_id, behind the gates above.
     let outcome =
         with_actor_bypass_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
             let Some(existing) = workspaces::membership(conn, ctx.workspace_id, target)? else {
@@ -268,6 +272,8 @@ pub async fn remove_member(
         }
     };
     let actor = caller_actor(&caller, ctx.workspace_id);
+    // elevated-in-workspace: shares the operator console's membership functions; every read and
+    // write here names ctx.workspace_id, behind the gates above.
     let outcome =
         with_actor_bypass_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
             let Some(existing) = workspaces::membership(conn, ctx.workspace_id, target)? else {

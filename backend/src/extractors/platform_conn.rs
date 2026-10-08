@@ -87,6 +87,8 @@ impl PlatformConn {
         let mut conn = self.pool.get().map_err(|e| {
             diesel::result::Error::QueryBuilderError(format!("pool acquire: {e}").into())
         })?;
+        // cross-tenant: PlatformConn is the operator and workspace-lifecycle connection; a handler
+        // that extracts it declares it works across workspaces.
         session::with_actor_bypass_context(&mut conn, &self.actor, f)
     }
 }

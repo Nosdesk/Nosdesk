@@ -441,6 +441,8 @@ pub fn find_or_create_projected_user(
     // if the membership row isn't actually present after the write —
     // rather than reporting `created: true` over a phantom row. First-
     // write-wins on the role (re-projection keeps the existing role).
+    // elevated-in-workspace: a control-plane membership grant, which workspace_members' row policy
+    // would check against the wrong caller.
     let persisted_role = crate::sync::session::with_actor_bypass_context::<String, DieselError>(
         conn,
         &membership_actor,

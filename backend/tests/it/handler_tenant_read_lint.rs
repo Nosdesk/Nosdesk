@@ -25,9 +25,11 @@
 //! ## What is matched
 //!
 //! A handler is flagged when it holds a raw connection (`pool.get()` /
-//! `db_conn(`), does NOT pin it (`with_actor_context` / `with_actor_bypass_context`
-//! / `pin_workspace` / `pin_request_workspace` / `run_in_workspace` /
-//! `background_run`), is NOT exempt, AND calls one of:
+//! `db_conn(`), does NOT pin it (`with_actor_context` / `pin_workspace` /
+//! `pin_request_workspace` / `run_in_workspace`), is NOT exempt, AND calls one
+//! of the below. The elevated primitives (`with_actor_bypass_context`,
+//! `background_run`) don't count as a pin: they lift row security instead of
+//! scoping by it.
 //!   - the access-check family, matched by naming convention: `authorize_*`,
 //!     `can_view_*`, `can_access_*`, `can_user_access_*` (these MUST run pinned),
 //!   - a known handler-level tenant existence reader (see `TENANT_READERS`).
@@ -70,10 +72,9 @@ fn handler_authz_reads_run_on_a_pinned_connection() {
     )
     .unwrap();
     let raw_conn_re = Regex::new(r"\bdb_conn\s*\(|\bpool\s*\.\s*get\s*\(").unwrap();
-    let pin_re = Regex::new(
-        r"with_actor_context|with_actor_bypass_context|pin_workspace|pin_request_workspace|run_in_workspace|background_run",
-    )
-    .unwrap();
+    let pin_re =
+        Regex::new(r"with_actor_context|pin_workspace|pin_request_workspace|run_in_workspace")
+            .unwrap();
     // Calls to a matched authorization read: any access-prefix fn, or one of the
     // explicit tenant readers. `\bNAME\s*(`.
     let mut patterns: Vec<String> = ACCESS_PREFIXES

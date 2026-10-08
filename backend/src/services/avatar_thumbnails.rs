@@ -147,6 +147,7 @@ pub async fn backfill_thumbnails(
 /// row-secured, so on the runtime role an unpinned read finds no memberships
 /// and every column write would be skipped.
 fn avatar_rows(conn: &mut DbConnection, reference: &'static str) -> QueryResult<Vec<AvatarRow>> {
+    // cross-tenant: lists every user with an avatar, across workspaces.
     with_actor_bypass_context(conn, &ActorContext::system(reference), |conn| {
         diesel::sql_query(
             "SELECT u.uuid::text AS uuid_str, u.avatar_url, u.avatar_thumb, \

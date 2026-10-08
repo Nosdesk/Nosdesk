@@ -314,6 +314,8 @@ async fn ingest(
 ) -> Result<PipelineOutcome, String> {
     let mut conn = pool.get().map_err(|e| format!("pool acquire: {e}"))?;
     let actor = ActorContext::system("inbound:ingest").with_workspace(workspace_id);
+    // elevated-in-workspace: the ingest pipeline holds this connection across awaits, so it pins
+    // and elevates the session for one workspace's writes, and resets it before release.
     elevate_session_role(&mut conn, &actor).map_err(|e| format!("elevate session: {e}"))?;
 
     let channel = match &routed {

@@ -239,6 +239,8 @@ pub async fn create_workspace(
     // RLS applies fail-closed. The owner doesn't exist yet (projected by a
     // separate call), so seed rows are authored as NULL.
     let provision_actor = crate::sync::actor::ActorContext::system("workspace:provision");
+    // cross-tenant: creates a workspace, so there is none to pin yet, and `workspaces` takes
+    // inserts only under nosdesk_admin.
     let result = crate::sync::session::with_actor_bypass_context::<Workspace, CreateWorkspaceError>(
         &mut conn,
         &provision_actor,
@@ -368,6 +370,8 @@ pub async fn deprovision_workspace(
     // UPDATE workspaces runs under the BYPASSRLS role (nosdesk_app has
     // SELECT only on this parent table), same as create.
     let actor = crate::sync::actor::ActorContext::system("workspace:deprovision");
+    // elevated-in-workspace: updates this workspace's own `workspaces` row, which nosdesk_app can
+    // only read.
     let result = crate::sync::session::with_actor_bypass_context::<
         Option<Workspace>,
         diesel::result::Error,
@@ -426,6 +430,8 @@ pub async fn restore_workspace(
     }
 
     let actor = crate::sync::actor::ActorContext::system("workspace:restore");
+    // elevated-in-workspace: updates this workspace's own `workspaces` row, which nosdesk_app can
+    // only read.
     let result = crate::sync::session::with_actor_bypass_context::<
         Option<Workspace>,
         diesel::result::Error,
@@ -476,6 +482,8 @@ pub async fn set_seat_limit(
     // `workspaces` is BYPASSRLS-only (`nosdesk_app` has SELECT only), so the
     // UPDATE runs under `nosdesk_admin` like the create insert.
     let actor = crate::sync::actor::ActorContext::system("workspace:seat_limit");
+    // elevated-in-workspace: updates this workspace's own `workspaces` row, which nosdesk_app can
+    // only read.
     let result = crate::sync::session::with_actor_bypass_context::<usize, diesel::result::Error>(
         &mut conn,
         &actor,
@@ -889,6 +897,8 @@ pub async fn set_member_role(
     // an insert with the requested role so the promotion actually takes.
     let actor = crate::sync::actor::ActorContext::system("workspace:set_member_role")
         .with_workspace(workspace.id);
+    // elevated-in-workspace: a control-plane membership write, which workspace_members' row policy
+    // would check against the wrong caller.
     let outcome = crate::sync::session::with_actor_bypass_context::<
         SetMemberRoleOutcome,
         diesel::result::Error,
@@ -1045,6 +1055,8 @@ pub async fn set_custom_domain(
     // `workspaces` is BYPASSRLS-only (`nosdesk_app` has SELECT only), so the
     // UPDATE runs under `nosdesk_admin` like the seat-limit one.
     let actor = crate::sync::actor::ActorContext::system("workspace:custom_domain");
+    // elevated-in-workspace: updates this workspace's own `workspaces` row, which nosdesk_app can
+    // only read.
     let updated = match crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
         &mut conn,
         &actor,

@@ -436,6 +436,7 @@ impl PreferenceService {
             .map_err(|e| format!("Failed to acquire connection: {e}"))?;
         let actor = crate::sync::actor::ActorContext::system("background:notification_pref_set")
             .with_workspace(resolved_workspace);
+        // cross-tenant: a user's notification preferences apply in every workspace they belong to.
         crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
             let type_id: i32 = notification_types::table
                 .filter(notification_types::code.eq(notification_type.as_str()))
@@ -486,6 +487,7 @@ impl PreferenceService {
             .map_err(|e| format!("Failed to acquire connection: {e}"))?;
         let actor = crate::sync::actor::ActorContext::system("background:notification_unsubscribe")
             .with_workspace(resolved_workspace);
+        // cross-tenant: a user's notification preferences apply in every workspace they belong to.
         crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
             diesel::sql_query(
                 "INSERT INTO notification_preferences \
@@ -721,6 +723,8 @@ impl PreferenceService {
         let actor =
             crate::sync::actor::ActorContext::system("background:notification_ws_default_set")
                 .with_workspace(workspace_id_val);
+        // elevated-in-workspace: writes this workspace's notification default from a service with
+        // no request pin; the actor pins the workspace.
         crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
             let type_id: i32 = notification_types::table
                 .filter(notification_types::code.eq(notification_type.as_str()))

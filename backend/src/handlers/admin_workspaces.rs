@@ -294,6 +294,8 @@ pub async fn create_workspace(
     // so each seeded row's workspace_id + audit context resolves to it. A seed
     // failure rolls the workspace row back rather than leaving it unusable.
     let provision_actor = crate::sync::actor::ActorContext::system("workspace:provision");
+    // cross-tenant: creates a workspace, so there is none to pin yet, and `workspaces` takes
+    // inserts only under nosdesk_admin.
     let result = crate::sync::session::with_actor_bypass_context::<Workspace, CreateWorkspaceError>(
         &mut conn,
         &provision_actor,
