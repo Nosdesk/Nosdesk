@@ -810,6 +810,10 @@ admin-nav-asset-kinds-description = Definieer de activatypen die u bijhoudt en d
 # Beheer-chrome.
 admin-back-to-dashboard = Terug naar dashboard
 admin-heading = Beheer
+# PostgreSQL upgrade notice (machine, pending native review)
+admin-postgres-upgrade-notice = Nosdesk 1.1 heeft PostgreSQL 18 nodig. Lees de upgrade-opmerkingen voordat je bijwerkt.
+admin-postgres-upgrade-notice-link = Upgrade-opmerkingen
+admin-postgres-upgrade-notice-dismiss = Sluiten
 admin-search-placeholder = Zoeken in instellingen...
 admin-search-empty = Geen instellingen komen overeen met "{ $query }"
 admin-clear-search = Zoekopdracht wissen

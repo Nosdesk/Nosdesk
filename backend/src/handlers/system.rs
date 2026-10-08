@@ -2,9 +2,18 @@ use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
+/// Where the upgrade notes for Nosdesk 1.1 (PostgreSQL 18) live.
+pub const UPGRADE_GUIDE_URL: &str =
+    "https://nosdesk.com/docs/operations/installation#upgrading-postgresql";
+
+/// The PostgreSQL major version Nosdesk 1.1 needs.
+pub const NEXT_RELEASE_POSTGRES_MAJOR: u32 = 18;
+
 // App state for tracking server start time
 pub struct SystemState {
     pub start_time: Instant,
+    /// The database server's major version, read once at startup.
+    pub postgres_major: Option<u32>,
 }
 
 impl Default for SystemState {
@@ -17,8 +26,35 @@ impl SystemState {
     pub fn new() -> Self {
         Self {
             start_time: Instant::now(),
+            postgres_major: None,
         }
     }
+
+    pub fn with_postgres_major(postgres_major: Option<u32>) -> Self {
+        Self {
+            postgres_major,
+            ..Self::new()
+        }
+    }
+}
+
+/// The database server's major version (`server_version_num` / 10000).
+pub fn postgres_major(conn: &mut crate::db::DbConnection) -> Option<u32> {
+    use diesel::RunQueryDsl;
+    #[derive(diesel::QueryableByName)]
+    struct Version {
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        v: i32,
+    }
+    diesel::sql_query("SELECT current_setting('server_version_num')::int AS v")
+        .get_result::<Version>(conn)
+        .ok()
+        .and_then(|row| u32::try_from(row.v / 10_000).ok())
+}
+
+/// Whether the database must be upgraded before Nosdesk 1.1.
+pub fn postgres_upgrade_needed(postgres_major: Option<u32>) -> bool {
+    postgres_major.is_some_and(|major| major < NEXT_RELEASE_POSTGRES_MAJOR)
 }
 
 #[derive(Serialize)]
@@ -27,6 +63,12 @@ pub struct SystemInfoResponse {
     pub environment: String,
     pub uptime_seconds: u64,
     pub uptime_formatted: String,
+    /// The database server's major version, when it could be read.
+    pub postgres_major: Option<u32>,
+    /// True when the database is older than Nosdesk 1.1 needs.
+    pub postgres_upgrade_needed: bool,
+    /// The upgrade notes to read first.
+    pub upgrade_guide_url: &'static str,
 }
 
 #[derive(Serialize)]
@@ -134,6 +176,9 @@ pub async fn get_system_info(
         environment,
         uptime_seconds: uptime.as_secs(),
         uptime_formatted: format_uptime(uptime),
+        postgres_major: system_state.postgres_major,
+        postgres_upgrade_needed: postgres_upgrade_needed(system_state.postgres_major),
+        upgrade_guide_url: UPGRADE_GUIDE_URL,
     };
 
     HttpResponse::Ok().json(response)
@@ -166,4 +211,16 @@ pub async fn check_system_updates(req: HttpRequest) -> impl Responder {
     };
 
     HttpResponse::Ok().json(response)
+}
+
+#[cfg(test)]
+mod postgres_notice_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_server_older_than_18_needs_upgrading() {
+        assert!(postgres_upgrade_needed(Some(17)));
+        assert!(!postgres_upgrade_needed(Some(18)));
+        assert!(!postgres_upgrade_needed(None));
+    }
 }

@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import AdminSidebar from '@/components/admin/AdminSidebar.vue';
+import PostgresUpgradeNotice from '@/components/admin/PostgresUpgradeNotice.vue';
 import { allAdminNavItems, isAdminRouteActive } from '@/components/admin/adminNavData';
 
 const route = useRoute();
@@ -50,6 +51,7 @@ const activeItemTitle = computed(() =>
     </div>
 
     <div class="flex-1 min-w-0 h-full overflow-auto">
+      <PostgresUpgradeNotice />
       <!-- Inner page transition. The top-level RouterView in
            App.vue keys by the parent route's path, so AdminLayout
            (and its sidebar) stays mounted across admin sub-route

@@ -887,6 +887,9 @@ asset-kind-attribute-asset-empty-for-scope = No assets of kind "{ $kind }" yet.
 # title and copy, group labels and 19 nav items (title + blurb).
 admin-back-to-dashboard = Back to Dashboard
 admin-heading = Administration
+admin-postgres-upgrade-notice = Nosdesk 1.1 needs PostgreSQL 18. Read the upgrade notes before upgrading.
+admin-postgres-upgrade-notice-link = Upgrade notes
+admin-postgres-upgrade-notice-dismiss = Dismiss
 admin-search-placeholder = Search settings...
 admin-search-empty = No settings match "{ $query }"
 admin-clear-search = Clear search
