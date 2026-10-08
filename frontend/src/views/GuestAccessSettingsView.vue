@@ -169,6 +169,7 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
 import { useToastStore } from '@nosdesk/core/stores/toast';
+import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions';
 import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
 import { useWorkspacePortal } from '@/composables/useWorkspacePortal';
 import {
@@ -253,11 +254,9 @@ const toggles = computed<Array<{ key: ToggleKey; label: string; description: str
 // writes a real value through.
 const DEFAULT_PRIORITY = 'medium';
 
-const priorityOptions = computed<DropdownOption[]>(() => [
-  { value: 'low', label: t('admin-guest-priority-low') },
-  { value: 'medium', label: t('admin-guest-priority-medium') },
-  { value: 'high', label: t('admin-guest-priority-high') }
-]);
+const priorityOptions = computed<DropdownOption[]>(() =>
+  PRIORITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))
+);
 
 const priorityValue = computed(
   () => settings.value?.guest_ticket_default_priority ?? DEFAULT_PRIORITY
