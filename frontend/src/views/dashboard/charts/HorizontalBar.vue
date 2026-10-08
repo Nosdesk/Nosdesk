@@ -67,18 +67,17 @@ const isEmpty = computed(() => !loading.value && !hasError.value && buckets.valu
 
 const maxValue = computed(() => Math.max(1, ...buckets.value.map((b) => b.value)))
 
-/** Label for a bucket key. Priority reuses the canonical priority
- *  labels so every surface reads the same; category and assignee
- *  keys fall back to the raw id for now — resolving them to human
- *  names requires an extra round trip and ships in Wave 6 alongside
- *  drill-through. */
+/** Label for a bucket. Priority reuses the canonical priority labels
+ *  so every surface reads the same; a category or assignee bucket
+ *  carries its name from the server, and the key stands in only if a
+ *  name is missing. */
 function bucketLabel(b: BreakdownBucket): string {
   if (props.groupBy === 'priority') {
     return priorityLabel(b.key as Priority)
   }
   if (b.key === 'none') return t('dashboard-bar-uncategorised')
   if (b.key === 'unassigned') return t('dashboard-bar-unassigned')
-  return b.key
+  return b.label ?? b.key
 }
 
 /** Okabe-Ito categorical palette, cycled for category/assignee
