@@ -8,6 +8,7 @@
     "status": { "rust": "String", "ts": "string" },
     "assignee_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
     "resolved_page_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "subject_page_id": { "rust": "Option<i32>", "ts": "number | null" },
     "evidence_count": { "rust": "i32", "ts": "number" },
     "impact_score": { "rust": "i32", "ts": "number" },
     "last_evidence_at": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },

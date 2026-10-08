@@ -221,9 +221,13 @@ fn a_ticket_with_a_live_resolving_page_reports_it() {
     let mut conn = db.conn();
     let author = crate::common::insert_user(&mut conn, "Writer");
     let t = ticket(&mut conn, "Monitor flicker");
-    assert!(links::resolving_page_for_ticket(&mut conn, t)
-        .expect("read")
-        .is_none());
+    assert!(links::resolving_page_for_ticket(
+        &mut conn,
+        t,
+        &documentation::PageAudience::Unrestricted
+    )
+    .expect("read")
+    .is_none());
 
     let doc = page(
         &mut conn,
@@ -232,16 +236,21 @@ fn a_ticket_with_a_live_resolving_page_reports_it() {
         DocumentationStatus::Published,
     );
     links::upsert_link(&mut conn, doc.id, t, links::LINK_RESOLVES, None).expect("link");
-    let (id, _, slug) = links::resolving_page_for_ticket(&mut conn, t)
-        .expect("read")
-        .expect("documented");
+    let (id, _, slug) =
+        links::resolving_page_for_ticket(&mut conn, t, &documentation::PageAudience::Unrestricted)
+            .expect("read")
+            .expect("documented");
     assert_eq!((id, slug.as_str()), (doc.id, "flicker"));
 
     // A deleted page doesn't count.
     set_status(&mut conn, doc.id, DocumentationStatus::Deleted);
-    assert!(links::resolving_page_for_ticket(&mut conn, t)
-        .expect("read")
-        .is_none());
+    assert!(links::resolving_page_for_ticket(
+        &mut conn,
+        t,
+        &documentation::PageAudience::Unrestricted
+    )
+    .expect("read")
+    .is_none());
 }
 
 #[test]

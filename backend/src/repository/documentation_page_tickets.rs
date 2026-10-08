@@ -91,16 +91,19 @@ pub fn links_for_ticket(
         .load::<DocumentationPageTicket>(conn)
 }
 
-/// A live page (draft or published) that resolves `ticket_id`, most recent
-/// first: its id, title and slug. Flagging such a ticket for documentation is
-/// refused, since the doc already exists.
+/// The newest live page (draft or published) that resolves `ticket_id` and
+/// that `audience` may read: its id, title and slug. Flagging such a ticket
+/// for documentation is refused, since the doc already exists. A page the
+/// reader can't open reads as absent, so it neither blocks the flag nor is
+/// named in the refusal.
 pub fn resolving_page_for_ticket(
     conn: &mut DbConnection,
     ticket_id_arg: i32,
+    audience: &crate::repository::documentation::PageAudience,
 ) -> Result<Option<(i32, String, String)>, Error> {
     use crate::models::DocumentationStatus;
     use crate::schema::documentation_pages;
-    documentation_page_tickets::table
+    let resolving: Vec<(i32, String, String)> = documentation_page_tickets::table
         .inner_join(
             documentation_pages::table
                 .on(documentation_pages::id.eq(documentation_page_tickets::page_id)),
@@ -117,8 +120,10 @@ pub fn resolving_page_for_ticket(
             documentation_pages::title,
             documentation_pages::slug,
         ))
-        .first(conn)
-        .optional()
+        .load(conn)?;
+    Ok(resolving
+        .into_iter()
+        .find(|(page_id, _, _)| audience.can_read(conn, *page_id)))
 }
 
 /// Pick any 'resolves'-tier ticket for a page. Used by the

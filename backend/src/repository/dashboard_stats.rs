@@ -92,6 +92,10 @@ pub struct KnowledgeGapsStatsItem {
     pub evidence_count: i32,
     #[serde(rename = "lastEvidenceAt")]
     pub last_evidence_at: Option<chrono::NaiveDateTime>,
+    /// The page the gap is about (a stale doc), named by id: the reader
+    /// names it from the documentation they can open.
+    #[serde(rename = "subjectPageId")]
+    pub subject_page_id: Option<i32>,
 }
 
 /// Stats for the shared work queue. Not user-scoped.
@@ -126,6 +130,7 @@ pub fn compute(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
     groups: &HashSet<StatsGroup>,
+    pages: &crate::repository::documentation::PageAudience,
 ) -> QueryResult<StatsBundle> {
     let mut bundle = StatsBundle::default();
     if groups.contains(&StatsGroup::Queue) {
@@ -138,53 +143,44 @@ pub fn compute(
         bundle.summary = Some(scoped_stats_requester(conn, user_uuid)?);
     }
     if groups.contains(&StatsGroup::KnowledgeGaps) {
-        bundle.knowledge_gaps = Some(knowledge_gaps_stats(conn)?);
+        bundle.knowledge_gaps = Some(knowledge_gaps_stats(conn, pages)?);
     }
     Ok(bundle)
 }
 
-fn knowledge_gaps_stats(conn: &mut DbConnection) -> QueryResult<KnowledgeGapsStats> {
+fn knowledge_gaps_stats(
+    conn: &mut DbConnection,
+    pages: &crate::repository::documentation::PageAudience,
+) -> QueryResult<KnowledgeGapsStats> {
     use crate::schema::knowledge_gaps;
 
-    // Total open+drafting (the "active" set the queue view shows).
-    let total: i64 = knowledge_gaps::table
-        .filter(knowledge_gaps::status.eq_any(["open", "drafting"]))
-        .count()
-        .get_result(conn)?;
-
-    // Top 5 by impact_score. The composite index
-    // idx_knowledge_gaps_active covers this — see the migration.
-    let top: Vec<(i64, String, i32, i32, Option<chrono::NaiveDateTime>)> = knowledge_gaps::table
+    // The active set (open + drafting) the queue shows, less any gap naming a
+    // page the reader can't open, so the count and the list agree. Active
+    // gaps are a short editorial queue, so they are read whole. The composite
+    // index idx_knowledge_gaps_active covers this; see the migration.
+    let active: Vec<crate::models::KnowledgeGap> = knowledge_gaps::table
         .filter(knowledge_gaps::status.eq_any(["open", "drafting"]))
         .order_by((
             knowledge_gaps::impact_score.desc(),
             knowledge_gaps::last_evidence_at.desc().nulls_last(),
         ))
-        .select((
-            knowledge_gaps::id,
-            knowledge_gaps::title,
-            knowledge_gaps::impact_score,
-            knowledge_gaps::evidence_count,
-            knowledge_gaps::last_evidence_at,
-        ))
-        .limit(5)
         .load(conn)?;
+    let top = crate::repository::knowledge_gaps::readable_by(conn, pages, active)?;
+    let total = top.len() as i64;
 
     Ok(KnowledgeGapsStats {
         total,
         top: top
             .into_iter()
-            .map(
-                |(id, title, impact_score, evidence_count, last_evidence_at)| {
-                    KnowledgeGapsStatsItem {
-                        id,
-                        title,
-                        impact_score,
-                        evidence_count,
-                        last_evidence_at,
-                    }
-                },
-            )
+            .take(5)
+            .map(|gap| KnowledgeGapsStatsItem {
+                id: gap.id,
+                title: gap.title,
+                impact_score: gap.impact_score,
+                evidence_count: gap.evidence_count,
+                last_evidence_at: gap.last_evidence_at,
+                subject_page_id: gap.subject_page_id,
+            })
             .collect(),
     })
 }

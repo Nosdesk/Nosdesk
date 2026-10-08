@@ -997,6 +997,7 @@ diesel::table! {
         resolved_at -> Nullable<Timestamptz>,
         workspace_id -> Int4,
         draft_page_id -> Nullable<Int4>,
+        subject_page_id -> Nullable<Int4>,
     }
 }
 

@@ -32,6 +32,9 @@ export interface KnowledgeGap {
   resolved_page_id: number | null
   /** The draft page this gap is being written as, while `drafting`. */
   draft_page_id: number | null
+  /** The page the gap is about (a stale doc), by id only: the reader names it
+   *  from the documentation they can open. */
+  subject_page_id: number | null
   evidence_count: number
   last_evidence_at: string | null
   impact_score: number

@@ -649,10 +649,10 @@ pub async fn delete_comment(
 /// headers. 404 on comments that have no archived source (UI-
 /// authored, chat-relayed, or pre-archive history).
 ///
-/// Visibility is the comment's own (`repository::file_access`): not
-/// removed, internal only for staff, on a ticket the caller can see. The link opens in a new tab without
-/// the workspace selection header, so the workspace comes from the
-/// comment (see `authorize_at_owning_workspace`). Deny maps to 404
+/// Visibility is the comment's own (`repository::file_access`):
+/// internal only for staff, on a ticket the caller can see. The link
+/// opens in a new tab without the workspace selection header, so the
+/// workspace comes from the comment (see `authorize_at_owning_workspace`). Deny maps to 404
 /// (not 403) per the AUD-001 IDOR pattern so the response shape
 /// can't be used to enumerate comment ids that the caller doesn't
 /// own.

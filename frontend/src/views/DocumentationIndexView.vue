@@ -7,7 +7,7 @@ import { useDocumentation } from '@/composables/useDocumentation'
 import { useDocPages, toPage } from '@/composables/useDocPages'
 import { useSyncDocsStore, isActivePage } from '@nosdesk/core/sync/stores/documentation'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
-import { useKnowledgeGaps } from '@/composables/useKnowledgeGaps'
+import { useGapTitle, useKnowledgeGaps } from '@/composables/useKnowledgeGaps'
 import CollectionBrowser from '@/components/documentationComponents/CollectionBrowser.vue'
 import CollectionModal from '@/components/documentationComponents/CollectionModal.vue'
 import DocumentationIndexToolbar from '@/components/documentationComponents/DocumentationIndexToolbar.vue'
@@ -124,6 +124,8 @@ function pageAuthor(page: Page) {
   return page.last_edited_by ?? page.created_by
 }
 
+const gapTitle = useGapTitle()
+
 function isSearchGap(title: string): boolean {
   return title.startsWith('Customers searched:')
 }
@@ -235,7 +237,7 @@ usePageCreateAction(handleCreatePage)
                     >
                       <Icon name="warning" size="xs" class="shrink-0 text-status-warning" aria-hidden="true" />
                       <span class="truncate min-w-0 flex-1 text-xs-plus leading-snug text-primary group-hover:text-accent transition-colors">
-                        {{ gap.title }}
+                        {{ gapTitle(gap) }}
                       </span>
                       <span class="shrink-0 text-3xs px-1.5 py-0.5 rounded bg-surface-alt text-tertiary tabular-nums whitespace-nowrap">
                         {{ gapImpactLabel(gap) }}
