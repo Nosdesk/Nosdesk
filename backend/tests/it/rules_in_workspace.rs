@@ -652,3 +652,103 @@ async fn a_priority_step_records_the_priority_it_set() {
     let taken = taken.expect("actions taken");
     assert_eq!(taken[0]["priority"], "medium", "{taken}");
 }
+
+/// An archived rule shows in the list with archived rules included, and
+/// restoring it brings it back as a draft that can be edited and go live,
+/// whichever way it was archived. Restoring a rule that isn't archived
+/// changes nothing.
+#[actix_web::test]
+async fn an_archived_rule_can_be_listed_and_restored() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let pool = db.runtime_pool(4);
+    let a = &seeded.a;
+
+    let call = |req: http_test::TestRequest| {
+        let pool = pool.clone();
+        async move { as_admin(&pool, a, req).await }
+    };
+    let create = |name: &'static str| async move {
+        let created = call(
+            http_test::TestRequest::post()
+                .uri("/api/rules")
+                .set_json(json!({
+                    "name": name,
+                    "trigger_kind": "manual",
+                    "actions": [{ "kind": "set_priority", "config": { "priority": "high" } }],
+                })),
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        http_test::read_body_json::<Value, _>(created).await["id"]
+            .as_i64()
+            .expect("rule id")
+    };
+
+    let deleted = create("Archived from the list").await;
+    let resp = call(http_test::TestRequest::delete().uri(&format!("/api/rules/{deleted}"))).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let moved = create("Archived by state").await;
+    let resp = call(
+        http_test::TestRequest::patch()
+            .uri(&format!("/api/rules/{moved}/state"))
+            .set_json(json!({ "state": "archived" })),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let active = create("Still active").await;
+
+    let listed: Value = http_test::read_body_json(
+        call(http_test::TestRequest::get().uri("/api/rules?include_archived=true")).await,
+    )
+    .await;
+    let ids: Vec<i64> = listed
+        .as_array()
+        .expect("rules")
+        .iter()
+        .filter_map(|r| r["id"].as_i64())
+        .collect();
+    for id in [deleted, moved, active] {
+        assert!(ids.contains(&id), "rule {id} listed: {ids:?}");
+    }
+
+    for id in [deleted, moved] {
+        let resp =
+            call(http_test::TestRequest::post().uri(&format!("/api/rules/{id}/restore"))).await;
+        assert_eq!(resp.status(), StatusCode::OK, "restore rule {id}");
+        let rule: Value = http_test::read_body_json(resp).await;
+        assert!(rule["archived_at"].is_null(), "rule {id}: {rule}");
+        assert_eq!(rule["state"], "draft", "rule {id}: {rule}");
+
+        let renamed = call(
+            http_test::TestRequest::put()
+                .uri(&format!("/api/rules/{id}"))
+                .set_json(json!({ "name": format!("Restored {id}") })),
+        )
+        .await;
+        assert_eq!(renamed.status(), StatusCode::OK, "edit restored rule {id}");
+        let live = call(
+            http_test::TestRequest::patch()
+                .uri(&format!("/api/rules/{id}/state"))
+                .set_json(json!({ "state": "live" })),
+        )
+        .await;
+        assert_eq!(
+            live.status(),
+            StatusCode::OK,
+            "restored rule {id} goes live"
+        );
+    }
+
+    // Not archived: unchanged.
+    let resp =
+        call(http_test::TestRequest::post().uri(&format!("/api/rules/{active}/restore"))).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let rule: Value = http_test::read_body_json(resp).await;
+    assert_eq!(rule["state"], "draft");
+    assert_eq!(rule["name"], "Still active");
+
+    let missing = call(http_test::TestRequest::post().uri("/api/rules/999999/restore")).await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}

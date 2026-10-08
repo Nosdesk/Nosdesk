@@ -57,6 +57,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::patch().to(crate::handlers::rules::transition_state),
     )
     .route(
+        "/rules/{id}/restore",
+        web::post().to(crate::handlers::rules::restore_rule),
+    )
+    .route(
         "/rules/{id}/versions",
         web::get().to(crate::handlers::rules::list_rule_versions),
     )
@@ -705,6 +709,27 @@ pub async fn delete_rule(
                 "unexpected NotArchived from archive".into(),
             )),
         }
+    }
+}
+
+/// `POST /api/rules/{id}/restore` (admin). Brings an archived rule back as
+/// a draft; a rule that isn't archived comes back unchanged.
+pub async fn restore_rule(
+    req: HttpRequest,
+    path: web::Path<i32>,
+    mut tc: TenantConn,
+) -> Result<HttpResponse, ApiError> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    let id = path.into_inner();
+    match tc.run_result(|conn| rules::restore(conn, id)) {
+        Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
+        Err(rules::WriteError::NotFound(_)) => {
+            Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
+        }
+        Err(rules::WriteError::Db(e)) => Err(ApiError::Database(e)),
+        Err(rules::WriteError::NotArchived(_)) => Err(ApiError::Internal(
+            "unexpected NotArchived from restore".into(),
+        )),
     }
 }
 

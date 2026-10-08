@@ -290,6 +290,23 @@ async function setLive(live: boolean): Promise<void> {
   }
 }
 
+// Restoring brings an archived rule back as a draft, editable again.
+async function restore(): Promise<void> {
+  const rule = original.value;
+  if (!rule) return;
+  errorMessage.value = '';
+  transitioning.value = true;
+  try {
+    fill(await rulesService.restore(rule.id));
+    await queryCache.invalidateQueries({ key: ['rules'] });
+    toast.success(t('admin-rules-toast-restored', { name: rule.name }));
+  } catch (err) {
+    errorMessage.value = extractErrorMessage(err, t('admin-rules-error-restore'));
+  } finally {
+    transitioning.value = false;
+  }
+}
+
 const stateNote = computed(() => {
   if (isArchived.value) return t('admin-rule-editor-state-archived');
   switch (original.value?.state) {
@@ -585,7 +602,17 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
         <div class="flex flex-col gap-3 rounded-lg border border-default bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p class="text-sm text-secondary">{{ stateNote }}</p>
           <Button
-            v-if="original?.state === 'live' && !isArchived"
+            v-if="isArchived"
+            variant="secondary"
+            size="sm"
+            icon="restore"
+            :loading="transitioning"
+            @click="restore"
+          >
+            {{ t('admin-rules-restore') }}
+          </Button>
+          <Button
+            v-else-if="original?.state === 'live'"
             variant="secondary"
             size="sm"
             icon="pause"
@@ -595,7 +622,7 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
             {{ t('admin-rules-pause') }}
           </Button>
           <Button
-            v-else-if="original && isManual && !isArchived"
+            v-else-if="original && isManual"
             variant="secondary"
             size="sm"
             icon="play"

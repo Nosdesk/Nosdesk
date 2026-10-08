@@ -72,6 +72,15 @@ export const rulesService = {
   },
 
   /**
+   * POST /api/rules/{id}/restore. Admin. Brings an archived rule back as a
+   * draft; a rule that isn't archived comes back unchanged.
+   */
+  async restore(id: number): Promise<Rule> {
+    const { data } = await apiClient.post<Rule>(`/rules/${id}/restore`);
+    return data;
+  },
+
+  /**
    * DELETE /api/rules/{id}?hard=true. Admin. The rule must be
    * archived first; the API returns 409 RULE_NOT_ARCHIVED otherwise.
    */
