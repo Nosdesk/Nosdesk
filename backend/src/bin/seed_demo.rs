@@ -534,6 +534,7 @@ fn seed(
                     quoted_content: None,
                     raw_source_uri: None,
                     render_kind: None,
+                    client_id: None,
                 },
                 None,
             )?;

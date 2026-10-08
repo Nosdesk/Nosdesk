@@ -510,6 +510,7 @@ async fn full_cycle_inbound_internal_outbound() {
                 quoted_content: None,
                 raw_source_uri: None,
                 render_kind: None,
+                client_id: None,
             },
             None,
         )
@@ -561,6 +562,7 @@ async fn full_cycle_inbound_internal_outbound() {
                 quoted_content: None,
                 raw_source_uri: None,
                 render_kind: None,
+                client_id: None,
             },
             None,
         )

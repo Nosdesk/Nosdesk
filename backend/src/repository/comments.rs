@@ -665,6 +665,22 @@ pub fn move_comments_to_ticket(
     })
 }
 
+/// The reply `author` already saved on `ticket_id` with the composer's
+/// `client_id`, if they did: what a resend of that reply gets back.
+pub fn find_by_client_id(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    author: uuid::Uuid,
+    client_id: uuid::Uuid,
+) -> QueryResult<Option<Comment>> {
+    comments::table
+        .filter(comments::ticket_id.eq(ticket_id))
+        .filter(comments::user_uuid.eq(author))
+        .filter(comments::client_id.eq(client_id))
+        .first(conn)
+        .optional()
+}
+
 pub fn get_comment_by_id(conn: &mut DbConnection, comment_id: i32) -> QueryResult<Comment> {
     comments::table.find(comment_id).first(conn)
 }

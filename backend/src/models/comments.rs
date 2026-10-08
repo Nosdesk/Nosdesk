@@ -77,6 +77,11 @@ pub struct Comment {
     /// before this column existed; the frontend falls back to its
     /// per-`content_format` rendering when NULL.
     pub render_kind: Option<String>,
+    /// The composer's id for this reply, so a resend of it is answered with
+    /// this comment rather than saved again. Unique per ticket and author;
+    /// NULL for replies from anywhere else. Kept off the wire.
+    #[serde(skip)]
+    pub client_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, Default)]
@@ -112,6 +117,9 @@ pub struct NewComment {
     /// NULL.
     #[serde(default)]
     pub render_kind: Option<String>,
+    /// The composer's id for a reply from the app (see `Comment::client_id`).
+    #[serde(default)]
+    pub client_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]

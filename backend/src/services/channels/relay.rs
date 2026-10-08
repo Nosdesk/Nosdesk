@@ -293,6 +293,7 @@ mod tests {
             raw_source_uri: None,
             workspace_id: 1,
             render_kind: None,
+            client_id: None,
         }
     }
 
