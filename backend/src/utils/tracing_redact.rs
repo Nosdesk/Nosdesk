@@ -180,6 +180,11 @@ const ALLOWED_FIELDS: &[&str] = &[
     "request_host",
     "failed",
     "processed",
+    // SLA breach sweep: people notified, notices refused, and breaches with
+    // no one to tell. Counts only.
+    "notified",
+    "notify_failed",
+    "no_recipient",
     "stamped",
     "total",
     // canonical wide-event business dimensions — stamped by handlers via

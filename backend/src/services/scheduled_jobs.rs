@@ -1036,14 +1036,29 @@ pub async fn detect_sla_breaches(
     }
 
     let processed = breaches.len();
+    // A breach is told to the ticket's assignee and watchers only, so one with
+    // neither notifies no one. Counted so the sweep line shows it.
+    let no_recipient = breaches
+        .iter()
+        .filter(|b| b.assignee_uuid.is_none() && b.watcher_uuids.is_empty())
+        .count();
     // Async fanout outside the DB workspace context: notify the assignee +
     // watchers via NotificationService (in-app + email). The pill repaint and
     // webhook deliveries already flowed from the `ticket.sla_breached`
     // sync_action emitted inside process_one_breach; no discrete SSE here.
-    coalesced_fanout(&notification_service, &breaches).await;
+    let fanout = coalesced_fanout(&notification_service, &breaches).await;
 
     if processed > 0 || failed > 0 {
-        info!(processed, failed, "scheduler: SLA breach detection swept");
+        // `notified`: people handed a notice (one per person and workspace);
+        // `no_recipient`: breaches with no assignee or watcher to tell.
+        info!(
+            processed,
+            failed,
+            notified = fanout.notified,
+            notify_failed = fanout.failed,
+            no_recipient,
+            "scheduler: SLA breach detection swept"
+        );
     }
     Ok(())
 }
@@ -1321,6 +1336,14 @@ fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
         .collect()
 }
 
+/// What [`coalesced_fanout`] did: notices handed to the notification service,
+/// and notices it refused.
+#[derive(Debug, Default, Clone, Copy)]
+struct FanoutCounts {
+    notified: usize,
+    failed: usize,
+}
+
 /// Coalesced notification fanout for a sweep's detected breaches. The DB work
 /// already committed per ticket in `process_one_breach` (incl. the
 /// `ticket.sla_breached` sync_action that drives the pool pill repaint + the
@@ -1329,13 +1352,14 @@ fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
 async fn coalesced_fanout(
     notification_service: &crate::services::notifications::NotificationService,
     breaches: &[BreachContext],
-) {
+) -> FanoutCounts {
     use crate::services::notifications::types::{
         NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
     };
 
+    let mut counts = FanoutCounts::default();
     if breaches.is_empty() {
-        return;
+        return counts;
     }
 
     // System-triggered: no human actor. `kind: System` marks the origin;
@@ -1360,17 +1384,22 @@ async fn coalesced_fanout(
             notice.workspace_id,
         )
         .with_body(notice.body);
-        if let Err(e) = notification_service.notify(payload).await {
-            warn!(
-                recipient = %notice.recipient,
-                error = %e,
-                "scheduler:sla_breach: notify failed"
-            );
+        match notification_service.notify(payload).await {
+            Ok(_) => counts.notified += 1,
+            Err(e) => {
+                counts.failed += 1;
+                warn!(
+                    recipient = %notice.recipient,
+                    error = %e,
+                    "scheduler:sla_breach: notify failed"
+                );
+            }
         }
     }
     // The breach webhook is delivered from the webhook_outbox via the
     // ticket.sla_breached sync_action emitted in process_one_breach; no
     // SSE broadcast needed here.
+    counts
 }
 
 impl SlaBreachKind {
