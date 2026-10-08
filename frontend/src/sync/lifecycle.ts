@@ -481,12 +481,15 @@ async function syncFetch(path: string): Promise<Response> {
   // (empty in host mode), and credential mode from the transport seam directly.
   const url = `${apiBaseUrl()}${path}`
   const credentials: RequestCredentials = transport().auth.useCredentials ? 'include' : 'omit'
-  const headers = { ...workspaceHeaders(), ...transport().auth.authHeaders() }
-  const res = await fetch(url, { credentials, headers })
+  // Built per attempt: a refresh replaces a bearer client's (mobile's) token,
+  // so the retry must carry the new one, not the expired one it just got a
+  // 401 for.
+  const headers = () => ({ ...workspaceHeaders(), ...transport().auth.authHeaders() })
+  const res = await fetch(url, { credentials, headers: headers() })
   if (res.status !== 401) return res
   const refreshed = await transport().auth.refresh()
   if (!refreshed) return res
-  return fetch(url, { credentials, headers })
+  return fetch(url, { credentials, headers: headers() })
 }
 
 export async function fetchServerIdentity(): Promise<{
