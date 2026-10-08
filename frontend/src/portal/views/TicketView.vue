@@ -9,6 +9,7 @@ import Icon from '@/components/common/Icon.vue'
 import CommentContent from '@/components/ticketComponents/CommentContent.vue'
 import TicketStatusIcon from '@/components/TicketStatusIcon.vue'
 import { formatDate, formatDateTime, formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
+import { ticketRoute } from '@nosdesk/core/utils/ticketRoutes'
 
 import AttachmentPicker from '../components/AttachmentPicker.vue'
 import PortalLayout from '../components/PortalLayout.vue'
@@ -297,7 +298,7 @@ async function sendReply(): Promise<void> {
             <template v-if="detail.data.value.merged_into">
               {{ t('portal-merged-into', { number: detail.data.value.merged_into }) }}
               <RouterLink
-                :to="`/tickets/${detail.data.value.merged_into}`"
+                :to="ticketRoute(detail.data.value.merged_into)"
                 class="self-start font-medium text-accent hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {{ t('portal-merged-open', { number: detail.data.value.merged_into }) }}

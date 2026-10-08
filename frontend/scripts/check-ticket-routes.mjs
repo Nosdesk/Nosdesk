@@ -36,9 +36,11 @@ function walk(dir, out = []) {
   return out
 }
 
-// `/tickets/${…}` or `/tickets/id/${…}` in a template literal, or the same
-// prefix + … in a concatenation.
-const HAND_BUILT = /`\/tickets\/(?:id\/)?\$\{|['"]\/tickets\/(?:id\/)?['"]\s*\+/g
+// `/tickets/${…}` or `/tickets/id/${…}` opening a template literal or
+// following an interpolation (`${origin}/tickets/${n}`), or the same prefix
+// + … in a concatenation. API paths such as `/collaboration/tickets/${id}`
+// don't match.
+const HAND_BUILT = /[`}]\/tickets\/(?:id\/)?\$\{|['"]\/tickets\/(?:id\/)?['"]\s*\+/g
 
 const problems = []
 for (const root of ROOTS) {
