@@ -334,3 +334,62 @@ fn confirming_a_guest_ticket_sends_its_held_reply_and_files() {
     tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid).expect("verify again");
     assert!(drain_webhook_events(&mut conn, webhook.id).is_empty());
 }
+
+/// Each held event is sent on once: the copy names the held row, a second
+/// release sends nothing, and another ticket's held events stay held.
+#[test]
+fn a_held_event_is_released_once_and_only_for_its_ticket() {
+    use backend::models::NewComment;
+    use backend::repository::comments;
+    use backend::schema::sync_actions;
+
+    let db = crate::common::TestDb::new();
+    let mut conn = db.conn();
+    let guest = crate::common::insert_user(&mut conn, "Guest");
+    let other = crate::common::insert_user(&mut conn, "Other guest");
+    let ticket = guest_ticket(&mut conn, guest.uuid, true);
+    let elsewhere = guest_ticket(&mut conn, other.uuid, true);
+    let mut reply_on = |ticket_id: i32, user_uuid: uuid::Uuid| {
+        comments::create_comment(
+            &mut conn,
+            NewComment {
+                content: "<p>It smells of toner</p>".into(),
+                ticket_id,
+                user_uuid,
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("reply")
+    };
+    let reply = reply_on(ticket.id, guest.uuid);
+    let held_reply = reply_on(elsewhere.id, other.uuid);
+
+    let released = tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid).expect("verify");
+    let ticket = released.into_iter().next().expect("released ticket");
+
+    let reply_rows = |conn: &mut DbConnection| -> Vec<(uuid::Uuid, Option<uuid::Uuid>)> {
+        sync_actions::table
+            .filter(sync_actions::event_type.eq("comment.created"))
+            .filter(sync_actions::aggregate_id.eq(reply.id.to_string()))
+            .order(sync_actions::sync_id.asc())
+            .select((sync_actions::event_uuid, sync_actions::causation_id))
+            .load(conn)
+            .expect("rows")
+    };
+    let rows = reply_rows(&mut conn);
+    assert_eq!(rows.len(), 2, "the held reply and its release");
+    assert_eq!(rows[1].1, Some(rows[0].0), "the release names the held row");
+
+    let again = backend::sync::hold::release(&mut conn, &ticket).expect("release again");
+    assert_eq!(again, 0, "a second release sends nothing");
+    assert_eq!(reply_rows(&mut conn).len(), 2);
+
+    let held = event_groups(&mut conn, "comment.created", held_reply.id);
+    assert_eq!(held.len(), 1, "another ticket's held rows stay put");
+    assert!(
+        !has_workspace_audience(&held[0]),
+        "still held: {:?}",
+        held[0]
+    );
+}
