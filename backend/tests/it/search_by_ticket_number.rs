@@ -85,7 +85,10 @@ async fn ticket_hits(
             .service(web::scope("/api").configure(backend::handlers::search::config)),
     )
     .await;
-    let uri = format!("/api/search?q={}", q.replace('#', "%23"));
+    let uri = format!(
+        "/api/search?q={}",
+        q.replace('#', "%23").replace(' ', "%20")
+    );
     let body: Value = http_test::call_and_read_body_json(
         &app,
         http_test::TestRequest::get().uri(&uri).to_request(),
@@ -154,4 +157,37 @@ async fn a_ticket_number_finds_the_ticket() {
     assert!(ticket_hits(&pool, &search, a, a.member_uuid, "#2")
         .await
         .is_empty());
+}
+
+/// A hit whose ticket can't be found for its number (a deleted ticket still
+/// in the index) links by id, through the route that looks the number up,
+/// never with its id where a number belongs.
+#[actix_web::test]
+async fn a_hit_without_a_number_links_by_id() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seed_pool = db.pool_with_size(2);
+    let seeded = common::seed_two_workspaces(&mut seed_pool.get().expect("conn"));
+    let a = &seeded.a;
+    let real = open(&seed_pool, a.workspace_id, "Scanner offline", None);
+
+    let pool = db.runtime_pool(2);
+    let index_dir = tempfile::tempdir().expect("index dir");
+    let search = Arc::new(SearchService::new(index_dir.path(), &pool).expect("init search"));
+    let mut gone = real.clone();
+    gone.id = 99_999;
+    gone.title = "Ghost escalation".to_string();
+    search.index_ticket(&gone, None).expect("index");
+    search.commit().expect("commit");
+
+    // The reader picks the commit up shortly after it lands.
+    let mut hits = Vec::new();
+    for _ in 0..50 {
+        hits = ticket_hits(&pool, &search, a, a.admin_uuid, "Ghost escalation").await;
+        if !hits.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(hits, vec![(99_999, "/tickets/id/99999".to_string())]);
 }

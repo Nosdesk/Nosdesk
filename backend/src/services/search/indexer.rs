@@ -42,7 +42,9 @@ pub fn index_document_from_ticket(
 
     IndexDocument::new(EntityType::Ticket, ticket.id as i64, &ticket.title, content)
         .metadata(metadata)
-        .url(format!("/tickets/{}", ticket.id))
+        // The id, in a route that says so: the search handler turns it into
+        // the number people know before it leaves.
+        .url(crate::utils::ticket_link::ticket_route_by_id(ticket.id))
         .preview(preview)
         .updated_at(ticket.updated_at.and_utc().timestamp())
         .workspace_id(ticket.workspace_id as i64)
@@ -59,7 +61,9 @@ pub fn index_document_from_comment(comment: &models::Comment, ticket_title: &str
     let title = format!("Comment on: {}", ticket_title);
 
     IndexDocument::new(EntityType::Comment, comment.id as i64, title, plain_content)
-        .url(format!("/tickets/{}", comment.ticket_id))
+        .url(crate::utils::ticket_link::ticket_route_by_id(
+            comment.ticket_id,
+        ))
         .preview(preview)
         .updated_at(comment.created_at.and_utc().timestamp())
         .is_internal(comment.is_internal)
@@ -123,7 +127,7 @@ pub fn index_document_from_attachment(
 
     IndexDocument::new(EntityType::Attachment, attachment.id as i64, title, content)
         .metadata(metadata_parts.join(" "))
-        .url(format!("/tickets/{}", ticket_id))
+        .url(crate::utils::ticket_link::ticket_route_by_id(ticket_id))
         .preview(preview)
         .updated_at(chrono::Utc::now().timestamp())
         .workspace_id(attachment.workspace_id as i64)

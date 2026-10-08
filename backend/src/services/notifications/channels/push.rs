@@ -40,7 +40,9 @@ pub struct PushPayload {
     pub entity_id: i32,
     /// Deep-link target ticket, or 0 for "no ticket link".
     pub ticket_id: i32,
-    /// That ticket's number, which app routes carry; 0 with no ticket.
+    /// That ticket's number, which app routes carry; 0 with no ticket or
+    /// none known (a payload from before numbers), and the app then routes by
+    /// `ticket_id`. An `i32`, not optional: the cloud relay forwards it as is.
     pub ticket_number: i32,
 }
 
@@ -217,7 +219,7 @@ impl NotificationDeliveryChannel for PushChannel {
             entity_type: notification.payload.entity.entity_type().to_string(),
             entity_id: notification.payload.entity.entity_id(),
             ticket_id: notification.payload.entity.ticket_id(),
-            ticket_number: notification.payload.entity.ticket_number(),
+            ticket_number: notification.payload.entity.ticket_number().unwrap_or(0),
         };
 
         let outcome = self.sender.send(&targets, &payload).await;

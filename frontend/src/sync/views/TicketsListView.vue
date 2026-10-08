@@ -86,7 +86,7 @@ import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities
 import { FACET_ORDER } from '@/components/views/filterFacets'
 import { TICKET_COLUMNS } from '@nosdesk/core/sync/views/ticketColumns'
 import { shareableTicketUrl } from '@/utils/shareUrl'
-import { pooledTicketNumber, ticketPathForId } from '@/utils/ticketNumbers'
+import { pooledTicketNumber, ticketPathForId, ticketRoute } from '@/utils/ticketNumbers'
 
 const router = useRouter()
 const route = useRoute()
@@ -882,7 +882,7 @@ const slaOverlays = computed<CalendarOverlay[]>(() => {
       label: sla.breached
         ? `SLA breached: ${card.title}`
         : `SLA target: ${card.title}`,
-      href: `/tickets/${card.number}`,
+      href: ticketRoute(card.number),
     })
   }
   return out

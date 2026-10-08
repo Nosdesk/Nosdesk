@@ -377,7 +377,7 @@ pub async fn confirm_guest_submission(
                     .json(json!({
                         "success": true,
                         "message": "Your request has been confirmed.",
-                        "redirect_to": format!("/tickets/{number}"),
+                        "redirect_to": crate::utils::ticket_link::ticket_route(number),
                     })));
             }
             Err(e) => {

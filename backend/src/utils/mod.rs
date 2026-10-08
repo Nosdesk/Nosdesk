@@ -44,6 +44,7 @@ pub mod slug;
 pub mod storage;
 pub mod template_variables;
 pub mod tenant_origin;
+pub mod ticket_link;
 pub mod tracing_redact;
 pub mod unsubscribe_token;
 pub mod user;

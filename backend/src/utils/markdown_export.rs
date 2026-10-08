@@ -211,13 +211,18 @@ fn ticket_link_markdown(
         .get_attribute(txn, "ticketId")
         .map(|v| v.to_string(txn))
         .unwrap_or_default();
-    match ticket_id
-        .parse::<i32>()
-        .ok()
-        .and_then(|id| numbers.get(&id))
-    {
-        Some(number) => format!("[Ticket #{number}](/tickets/{number})"),
-        None => format!("[Ticket](/tickets/id/{ticket_id})"),
+    let Ok(id) = ticket_id.parse::<i32>() else {
+        return "Ticket".to_string();
+    };
+    match numbers.get(&id) {
+        Some(&number) => format!(
+            "[Ticket #{number}]({})",
+            crate::utils::ticket_link::ticket_route(number)
+        ),
+        None => format!(
+            "[Ticket]({})",
+            crate::utils::ticket_link::ticket_route_by_id(id)
+        ),
     }
 }
 

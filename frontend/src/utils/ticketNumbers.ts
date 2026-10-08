@@ -11,23 +11,20 @@ import { getWorkspaceRouting, serverHasTicketNumbers } from '@nosdesk/core/servi
 import ticketService from '@nosdesk/core/services/ticketService'
 import { activeWorkspaceSlug } from '@/services/activeWorkspace'
 
-interface NumberedTicket {
-  id: number
-  number?: number | null
-}
+import {
+  pooledTicketNumber,
+  ticketNumber,
+  type NumberedTicket,
+} from '@nosdesk/core/utils/ticketPaths'
 
-/** The ticket as people quote it, without the `#`. */
-export function ticketNumber(ticket: NumberedTicket): number {
-  return ticket.number ?? ticket.id
-}
-
-/**
- * The ticket's route, `/tickets/<number>`. A row without its number (one
- * cached before tickets had numbers) goes by {@link ticketPathForId}.
- */
-export function ticketPath(ticket: NumberedTicket): string {
-  return ticket.number != null ? `/tickets/${ticket.number}` : ticketPathForId(ticket.id)
-}
+// The route builders live in core, so the portal and the mobile app share them.
+export {
+  pooledTicketNumber,
+  ticketNumber,
+  ticketPath,
+  ticketPathForId,
+} from '@nosdesk/core/utils/ticketPaths'
+export { ticketRoute, ticketRouteById } from '@nosdesk/core/utils/ticketRoutes'
 
 /**
  * The number to show for a row that may lack one (a list cached before
@@ -38,23 +35,6 @@ export function knownTicketNumber(ticket: NumberedTicket): number | undefined {
   if (ticket.number != null) return ticket.number
   if (!serverHasTicketNumbers()) return ticket.id
   return pooledTicketNumber(ticket.id)
-}
-
-/** The number of the pooled ticket with this id, if the pool holds it. */
-export function pooledTicketNumber(id: number): number | undefined {
-  const row = pool.get<NumberedTicket>('ticket', id)
-  return row ? ticketNumber(row) : undefined
-}
-
-/**
- * The route to a ticket known only by id. Straight to `/tickets/<number>` when
- * the pool holds the ticket; otherwise `/tickets/id/<id>`, which looks the
- * number up and redirects.
- */
-export function ticketPathForId(id: number): string {
-  if (!serverHasTicketNumbers()) return `/tickets/${id}`
-  const number = pooledTicketNumber(id)
-  return number !== undefined ? `/tickets/${number}` : `/tickets/id/${id}`
 }
 
 /**

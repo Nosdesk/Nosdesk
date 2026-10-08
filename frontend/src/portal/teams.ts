@@ -8,6 +8,7 @@
 // loaded only here, so the portal and the widget don't carry them.
 
 import { ref } from 'vue'
+import { ticketRoute } from '@nosdesk/core/utils/ticketRoutes'
 import type { IPublicClientApplication } from '@azure/msal-browser'
 
 export interface TeamsContext {
@@ -172,7 +173,7 @@ export function signInTeams(interactive = false): Promise<TeamsProblem | null> {
 export function routeForSubPage(subPageId: string | null): string {
   const match = subPageId?.match(/^(ticket|approval)-(\d+)$/)
   if (!match) return '/tickets'
-  return match[1] === 'ticket' ? `/tickets/${match[2]}` : `/approvals/${match[2]}`
+  return match[1] === 'ticket' ? ticketRoute(Number(match[2])) : `/approvals/${match[2]}`
 }
 
 /** The portal theme for a Teams theme. */

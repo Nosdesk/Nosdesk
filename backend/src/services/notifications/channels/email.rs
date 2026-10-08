@@ -147,8 +147,12 @@ impl EmailChannel {
                 format!("{base_url}/assets/{id}")
             }
             _ => {
-                let number = notification.payload.entity.ticket_number();
-                format!("{base_url}/tickets/{number}")
+                let route = notification
+                    .payload
+                    .entity
+                    .ticket_route()
+                    .unwrap_or_default();
+                format!("{base_url}{route}")
             }
         }
     }

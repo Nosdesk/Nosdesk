@@ -119,6 +119,7 @@ mod ticket_join_write_lint;
 mod ticket_merge;
 mod ticket_numbers;
 mod ticket_update_routes;
+mod ticket_url_lint;
 mod ticket_write_lint;
 mod tracing_field_allowlist_lint;
 mod two_workspace_fixture;

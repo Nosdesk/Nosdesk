@@ -299,18 +299,26 @@ impl NotificationEntity {
         }
     }
 
-    /// The ticket's number, for links people follow: its id on a payload
-    /// queued before tickets had numbers, 0 when there's no ticket.
-    pub fn ticket_number(&self) -> i32 {
+    /// The ticket's number, for links people follow. `None` with no ticket,
+    /// and on a payload queued before tickets had numbers: its id is not a
+    /// number, so the link goes by id instead (see [`Self::ticket_route`]).
+    pub fn ticket_number(&self) -> Option<i32> {
         match self {
-            Self::Ticket { id, number, .. } => number.unwrap_or(*id),
-            Self::Comment {
-                ticket_id,
-                ticket_number,
-                ..
-            } => ticket_number.unwrap_or(*ticket_id),
-            Self::DocumentationPage { .. } => 0,
-            Self::Asset { .. } => 0,
+            Self::Ticket { number, .. } => *number,
+            Self::Comment { ticket_number, .. } => *ticket_number,
+            Self::DocumentationPage { .. } => None,
+            Self::Asset { .. } => None,
+        }
+    }
+
+    /// The ticket's route: by number, or by id on a payload queued before
+    /// tickets had numbers. `None` with no ticket.
+    pub fn ticket_route(&self) -> Option<String> {
+        match self {
+            Self::Ticket { .. } | Self::Comment { .. } => Some(
+                crate::utils::ticket_link::ticket_route_for(self.ticket_id(), self.ticket_number()),
+            ),
+            Self::DocumentationPage { .. } | Self::Asset { .. } => None,
         }
     }
 
@@ -445,7 +453,9 @@ pub struct NotificationEvent {
     pub entity_type: String,
     pub entity_id: i32,
     pub ticket_id: i32,
-    pub ticket_number: i32,
+    /// `None` on a notification queued before tickets had numbers: the app
+    /// then routes by `ticket_id`.
+    pub ticket_number: Option<i32>,
     pub actor: NotificationActor,
     #[serde(default)]
     pub metadata: serde_json::Value,
@@ -597,7 +607,8 @@ mod tests {
         assert_eq!(entity.entity_type(), "ticket");
         assert_eq!(entity.entity_id(), 42);
         assert_eq!(entity.ticket_id(), 42);
-        assert_eq!(entity.ticket_number(), 7);
+        assert_eq!(entity.ticket_number(), Some(7));
+        assert_eq!(entity.ticket_route().as_deref(), Some("/tickets/7"));
     }
 
     #[test]
@@ -605,12 +616,14 @@ mod tests {
         let entity: NotificationEntity =
             serde_json::from_value(serde_json::json!({ "type": "ticket", "id": 42, "title": "T" }))
                 .expect("deserialize");
-        assert_eq!(entity.ticket_number(), 42);
+        assert_eq!(entity.ticket_number(), None);
+        assert_eq!(entity.ticket_route().as_deref(), Some("/tickets/id/42"));
         let entity: NotificationEntity = serde_json::from_value(serde_json::json!({
             "type": "comment", "id": 10, "ticket_id": 42, "ticket_title": "T"
         }))
         .expect("deserialize");
-        assert_eq!(entity.ticket_number(), 42);
+        assert_eq!(entity.ticket_number(), None);
+        assert_eq!(entity.ticket_route().as_deref(), Some("/tickets/id/42"));
     }
 
     #[test]
