@@ -22,6 +22,12 @@ pub struct ApiToken {
     pub last_used_at: Option<chrono::NaiveDateTime>,
     pub last_used_ip: Option<ipnetwork::IpNetwork>,
     pub workspace_id: i32,
+    /// For a token made for someone else: the workspace role it was made
+    /// for. It stops authenticating once its holder's role is higher.
+    /// `None` on a token its holder made for themselves.
+    pub role_ceiling: Option<String>,
+    /// Likewise the platform role it was made with (`user` for none).
+    pub platform_role_ceiling: Option<String>,
 }
 
 /// New API token for insertion. All tokens are user-bound; the
@@ -37,6 +43,8 @@ pub struct NewApiToken {
     pub scopes: Option<Vec<Option<String>>>,
     pub created_by: Uuid,
     pub expires_at: Option<chrono::NaiveDateTime>,
+    pub role_ceiling: Option<String>,
+    pub platform_role_ceiling: Option<String>,
 }
 
 /// Request to create a new API token

@@ -13,6 +13,22 @@ use crate::models::{Claims, CreateApiTokenRequest, PlatformRole, WorkspaceRole};
 use crate::repository::api_tokens;
 use crate::utils::rbac::require_workspace_role;
 
+/// API tokens are managed only from a signed-in session. A token that could
+/// mint or revoke tokens could make itself a successor that escapes the
+/// ceiling it was made with and outlives its maker.
+fn refuse_api_token_caller(req: &HttpRequest) -> Result<(), ApiError> {
+    if req
+        .extensions()
+        .get::<crate::middleware::api_token::ApiTokenRequest>()
+        .is_some()
+    {
+        return Err(ApiError::Forbidden(
+            "API tokens can be managed only from a signed-in session".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route(
         "/admin/api-tokens",
@@ -59,6 +75,7 @@ pub async fn create_api_token(
     mut tc: TenantConn,
     body: web::Json<CreateApiTokenRequest>,
 ) -> Result<HttpResponse, ApiError> {
+    refuse_api_token_caller(&req)?;
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
@@ -136,6 +153,11 @@ pub async fn create_api_token(
         {
             return Ok(Outcome::TargetRoleExceedsCaller);
         }
+        // A token made for someone else records the roles it was made for
+        // (already capped at the caller's above); the auth path refuses it once
+        // its holder's role is higher. One made for oneself follows one's role.
+        let ceiling = (user_uuid != created_by)
+            .then(|| (target_role, PlatformRole::from_db(&target.platform_role)));
         let created = api_tokens::create_api_token(
             conn,
             user_uuid,
@@ -143,6 +165,7 @@ pub async fn create_api_token(
             created_by,
             expires_in_days,
             scopes,
+            ceiling,
         )?;
         Ok(Outcome::Created(created))
     });
@@ -218,6 +241,7 @@ pub async fn revoke_api_token(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> Result<HttpResponse, ApiError> {
+    refuse_api_token_caller(&req)?;
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
