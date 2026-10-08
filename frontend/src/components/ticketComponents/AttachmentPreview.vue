@@ -423,9 +423,9 @@ const generatePdfThumbnail = async () => {
       target="_blank"
       rel="noopener"
       :download="attachment.name"
-      class="absolute inset-0 z-10"
+      class="absolute inset-0 z-10 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
       :title="$t('ticket-media-attachment-download')"
-      :aria-label="getDisplayName(attachment.name)"
+      :aria-label="`${$t('ticket-media-file-download')} ${getDisplayName(attachment.name)}`"
     ></a>
     <div v-if="isPending" class="absolute inset-0 z-20 flex items-center justify-center bg-surface/40 pointer-events-none">
       <Spinner />
@@ -434,7 +434,7 @@ const generatePdfThumbnail = async () => {
       v-if="showDelete"
       type="button"
       @click.stop="emit('delete')"
-      class="hidden sm:block absolute top-0.5 right-0.5 z-30 p-1 rounded bg-surface/70 text-tertiary hover:text-status-error opacity-0 group-hover:opacity-100 transition-opacity"
+      class="hidden sm:block absolute top-0.5 right-0.5 z-30 p-1 rounded bg-surface/70 text-tertiary hover:text-status-error opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
       :title="deleteLabel"
       :aria-label="deleteLabel"
     >

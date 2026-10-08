@@ -43,9 +43,13 @@ describe('AttachmentPreview (compact)', () => {
     expect(link.exists()).toBe(true)
     expect(link.attributes('href')).toBe(served('notes.txt'))
     expect(link.attributes('download')).toBe('notes.txt')
+    expect(link.attributes('aria-label')).toBe('Download notes.txt')
+    expect(link.classes()).toContain('focus-visible:ring-2')
   })
 
-  it('downloads through the mobile app asset scheme there', () => {
+  // The href resolves through the mobile asset scheme like every other file
+  // link; a tap doesn't save a file in the app anywhere yet (pre-existing).
+  it('resolves the link through the mobile app asset scheme there', () => {
     configureAssetUrl(proxiedAssetResolver('nosdesk-asset://localhost'))
     expect(tile('notes.txt').find('a').attributes('href')).toBe(`nosdesk-asset://localhost${served('notes.txt')}`)
   })
@@ -63,6 +67,8 @@ describe('AttachmentPreview (compact)', () => {
     expect(label('memo.mp3')).toBe('Delete audio')
     expect(label('invoice.pdf')).toBe('Delete PDF')
     expect(label('photo.png')).toBe('Delete image')
+    // Shown when the tile has keyboard focus, not only on hover.
+    expect(tile('notes.txt').find('button').classes()).toContain('group-focus-within:opacity-100')
   })
 
   it('still opens an image in the preview and a PDF in the viewer', async () => {
