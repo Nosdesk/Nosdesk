@@ -11,6 +11,8 @@ import PropertyChip from '@/components/ticketComponents/PropertyChip.vue'
 
 defineProps<{
   devices: Asset[]
+  /** Show the devices without add or remove controls. */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -40,6 +42,7 @@ function deviceTitle(device: Asset): string | undefined {
   <PropertyChipRow
     :label="$t('ticket-field-devices-label')"
     :add-label="$t('ticket-field-devices-add')"
+    :read-only="readonly"
     @add="emit('add')"
   >
     <PropertyChip
@@ -48,7 +51,7 @@ function deviceTitle(device: Asset): string | undefined {
       :label="deviceLabel(device)"
       :title="deviceTitle(device)"
       :to="`/assets/${device.id}`"
-      removable
+      :removable="!readonly"
       :remove-title="$t('ticket-field-devices-detach')"
       @remove="emit('remove', device.id)"
     />

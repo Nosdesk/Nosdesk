@@ -25,6 +25,8 @@ interface Props {
   /** The ticket's number, for the promoted page's title. */
   ticketNumber: number;
   initializing?: boolean;
+  /** Show the notes without offering to edit them (a merged ticket). */
+  readonly?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -214,6 +216,7 @@ const confirmPromote = async () => {
         :resource-id="ticketId"
         :is-binary-update="true"
         :hide-revision-history="true"
+        :readonly="readonly"
         @update:model-value="handleContentChange"
         class="flex-grow w-full"
       />
@@ -226,6 +229,7 @@ const confirmPromote = async () => {
         <RevisionList
           :ticket-id="ticketId"
           :active-revision-number="activeRevisionNumber"
+          :readonly="readonly"
           @select-revision="handleSelectRevision"
           @restored="handleRevisionRestored"
         />

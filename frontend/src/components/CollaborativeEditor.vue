@@ -121,6 +121,8 @@ interface Props {
      */
     resourceId?: number;
     hideRevisionHistory?: boolean;
+    /** Show the document without offering to edit it (a merged ticket's notes). */
+    readonly?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -131,7 +133,7 @@ const props = withDefaults(defineProps<Props>(), {
 const authStore = useAuthStore();
 // Staff edit collaborative documents; anyone else who can open one reads it.
 // The server drops a reader's changes, so the editor doesn't offer them.
-const canEdit = computed(() => authStore.isTechnician);
+const canEdit = computed(() => authStore.isTechnician && !props.readonly);
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

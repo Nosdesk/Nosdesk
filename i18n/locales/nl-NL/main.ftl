@@ -4361,6 +4361,9 @@ ticket-detail-title-label = Titel
 ticket-detail-source-label = Bron
 ticket-detail-source-tooltip = Geopend via { $provider }. Reacties worden via de thread teruggestuurd.
 ticket-detail-source-email = E-mail
+# Gehoste e-mailbronnen (machine, na te kijken door moedertaalspreker).
+ticket-detail-source-email-forward = E-mail (doorgestuurd)
+ticket-detail-source-email-managed = E-mail (supportadres)
 ticket-detail-source-slack = Slack
 ticket-detail-source-teams = Microsoft Teams
 ticket-detail-clear-requester = Aanvrager wissen

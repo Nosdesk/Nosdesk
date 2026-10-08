@@ -9,6 +9,7 @@
  * touching consumers.
  */
 import type { CalendarViewShape, FilterState, ListViewShape } from './types'
+import { TERMINAL_CATEGORIES } from '../../types/workflow'
 
 export interface BuiltInView {
   /** Stable id used in the URL (`?view=my-open`). */
@@ -75,6 +76,11 @@ const defaultColumns: ListViewShape['columns'] = [
   { field: 'last_activity_at', width: 160, sortable: true },
 ]
 
+/** Categories the active views leave out: done, cancelled and merged. A
+ * merge source is finished with; its work goes on in the ticket it was
+ * merged into. */
+const CLOSED_CATEGORIES: string[] = [...TERMINAL_CATEGORIES]
+
 const baseFilter: Omit<FilterState, 'predicate' | 'quick_filters'> = {
   scope: {
     project_ids: 'all',
@@ -128,7 +134,7 @@ export const MY_ACTIVE_VIEW: BuiltInView = {
     predicate: {
       combinator: 'AND',
       children: [
-        { field: 'workflow_state.category', op: 'not_in', value: ['done', 'cancelled'] },
+        { field: 'workflow_state.category', op: 'not_in', value: CLOSED_CATEGORIES },
       ],
     },
     quick_filters: ['mine'],
@@ -153,7 +159,7 @@ export const ALL_ACTIVE_VIEW: BuiltInView = {
     predicate: {
       combinator: 'AND',
       children: [
-        { field: 'workflow_state.category', op: 'not_in', value: ['done', 'cancelled'] },
+        { field: 'workflow_state.category', op: 'not_in', value: CLOSED_CATEGORIES },
       ],
     },
     quick_filters: [],
@@ -196,7 +202,7 @@ export const UNASSIGNED_VIEW: BuiltInView = {
     predicate: {
       combinator: 'AND',
       children: [
-        { field: 'workflow_state.category', op: 'not_in', value: ['done', 'cancelled'] },
+        { field: 'workflow_state.category', op: 'not_in', value: CLOSED_CATEGORIES },
       ],
     },
     quick_filters: ['unassigned'],
@@ -220,7 +226,7 @@ export const OVERDUE_VIEW: BuiltInView = {
     predicate: {
       combinator: 'AND',
       children: [
-        { field: 'workflow_state.category', op: 'not_in', value: ['done', 'cancelled'] },
+        { field: 'workflow_state.category', op: 'not_in', value: CLOSED_CATEGORIES },
       ],
     },
     quick_filters: ['overdue'],

@@ -43,6 +43,8 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const props = defineProps<{
   ticketId: number
   watcherUuids: string[]
+  /** Show the watchers without the watch toggle. */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -184,7 +186,7 @@ watch(isWatching, (watching) => {
           >+{{ overflowCount }}</span>
         </div>
       </div>
-      <div class="flex items-center gap-0.5 shrink-0">
+      <div v-if="!readonly" class="flex items-center gap-0.5 shrink-0">
         <!-- Bell toggle. Same bell glyph for both states; colour +
              weight distinguishes them (no `bellOff` in the registry).
              Subscribed reads as a quiet accent text colour with a
