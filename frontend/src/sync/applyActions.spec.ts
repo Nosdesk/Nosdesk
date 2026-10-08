@@ -70,3 +70,29 @@ describe('applyActions on a missed create', () => {
     expect(row.created_at).toBe('c')
   })
 })
+
+// A plugin's emitted event is recorded as an update of the emitting plugin
+// with its data wrapped as `{ event }`: no row key, so it never touches a
+// pooled plugin row (observers still get it).
+describe('applyActions on a plugin event', () => {
+  beforeEach(() => pool.reset())
+
+  it('leaves the plugin pool as it was', () => {
+    const uuid = '01a118ca-3968-72b8-8acb-67e7a10c190a'
+    pool.upsert('plugin', uuid, { uuid, name: 'report', trust_level: 'verified' })
+    applySseFrame(
+      [
+        {
+          ...update(0, { event: { uuid: 'other', trust_level: 'forged' } }),
+          aggregate: 'plugin' as never,
+          aggregate_id: uuid,
+          event_type: 'ticket:created',
+        },
+      ],
+      1,
+      1,
+    )
+    expect(pool.get<{ trust_level: string }>('plugin', uuid)!.trust_level).toBe('verified')
+    expect(pool.has('plugin', 'other')).toBe(false)
+  })
+})
