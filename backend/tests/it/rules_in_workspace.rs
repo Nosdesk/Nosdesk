@@ -361,3 +361,88 @@ async fn a_team_step_with_no_one_who_can_work_tickets_is_refused() {
         .expect("ticket");
     assert_eq!(assignee, None);
 }
+
+/// A paused rule (`dry_run`, "Paused" in the app) doesn't apply: nothing is
+/// written, no reply is posted or mailed, and no application is recorded.
+/// Making it live again lets it apply.
+#[actix_web::test]
+async fn a_paused_rule_does_not_apply() {
+    use backend::schema::{comments, outbound_emails, rule_applications};
+    use diesel::prelude::*;
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let a = &seeded.a;
+    let (_, target) = seed_team(
+        &mut db.pool_with_size(1).get().expect("conn"),
+        a,
+        &[a.admin_uuid],
+    );
+    let pool = db.runtime_pool(4);
+
+    let created = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::post()
+            .uri("/api/rules")
+            .set_json(json!({
+                "name": "Tell them it's fixed",
+                "trigger_kind": "manual",
+                "actions": [
+                    { "kind": "reply", "config": { "visibility": "public", "body": "Fixed it." } },
+                    { "kind": "set_priority", "config": { "priority": "high" } },
+                ],
+            })),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let id = http_test::read_body_json::<Value, _>(created).await["id"]
+        .as_i64()
+        .expect("rule id");
+    let set_state = |state: &'static str| {
+        http_test::TestRequest::patch()
+            .uri(&format!("/api/rules/{id}/state"))
+            .set_json(json!({ "state": state }))
+    };
+    let apply = || {
+        http_test::TestRequest::post()
+            .uri(&format!("/api/rules/{id}/apply"))
+            .set_json(json!({ "ticket_id": target }))
+    };
+    let counts = || {
+        let mut conn = db.pool_with_size(1).get().expect("conn");
+        let comments: i64 = comments::table
+            .filter(comments::ticket_id.eq(target))
+            .count()
+            .get_result(&mut conn)
+            .expect("comments");
+        let applications: i64 = rule_applications::table
+            .filter(rule_applications::ticket_id.eq(target))
+            .count()
+            .get_result(&mut conn)
+            .expect("applications");
+        let outbound: i64 = outbound_emails::table
+            .count()
+            .get_result(&mut conn)
+            .expect("outbound");
+        (comments, applications, outbound)
+    };
+
+    for state in ["live", "dry_run"] {
+        let resp = as_admin(&pool, a, set_state(state)).await;
+        assert_eq!(resp.status(), StatusCode::OK, "to {state}");
+    }
+    let before = counts();
+    let paused = as_admin(&pool, a, apply()).await;
+    assert_eq!(paused.status(), StatusCode::CONFLICT);
+    let body = http_test::read_body_json::<Value, _>(paused).await;
+    assert_eq!(body["code"], "RULE_NOT_LIVE", "{body}");
+    assert_eq!(counts(), before, "a paused rule writes nothing");
+
+    let resp = as_admin(&pool, a, set_state("live")).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let applied = as_admin(&pool, a, apply()).await;
+    assert_eq!(applied.status(), StatusCode::OK, "a live rule applies");
+    assert_eq!(counts().1, before.1 + 1);
+}
