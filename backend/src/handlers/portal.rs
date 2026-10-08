@@ -1518,13 +1518,20 @@ pub async fn follow_notice(
         else {
             return Ok(None);
         };
+        if crate::repository::ticket_merge::is_merge_source(conn, ticket)? {
+            return Ok(Some(Err(())));
+        }
         crate::repository::ticket_watchers::add_watcher(conn, ticket, viewer, false)?;
-        Ok::<_, diesel::result::Error>(Some(ticket))
+        Ok::<_, diesel::result::Error>(Some(Ok(ticket)))
     });
     match result {
-        Ok(Some(ticket)) => {
+        Ok(Some(Ok(ticket))) => {
             HttpResponse::Ok().json(json!({ "following": true, "ticket_id": ticket }))
         }
+        Ok(Some(Err(()))) => errors::conflict_with_code(
+            "This issue was merged into another one, so it can't be followed here",
+            "ticket_merged",
+        ),
         Ok(None) => errors::not_found("That notice isn't live"),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to follow a notice");
@@ -1866,6 +1873,12 @@ pub async fn add_participant(
         let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
         if ticket.requester_uuid != Some(requester) {
             return Ok(Err(errors::not_found("Ticket not found")));
+        }
+        if crate::repository::ticket_merge::is_merge_source(conn, ticket_id)? {
+            return Ok(Err(errors::conflict_with_code(
+                "This request was merged into another one, so people can't be added to it",
+                "ticket_merged",
+            )));
         }
         let current = participants_of(conn, &ticket, requester)?;
         if current.len() > MAX_PARTICIPANTS {

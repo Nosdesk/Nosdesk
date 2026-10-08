@@ -140,6 +140,11 @@ fn reopen_on_requester_reply(
     {
         return Ok(());
     }
+    // A merged request isn't reopened: it was merged into another one, which
+    // carries the conversation on.
+    if crate::repository::ticket_merge::is_merge_source(conn, parent.id)? {
+        return Ok(());
+    }
     let open = crate::repository::workflow_states::default_state(conn)?;
 
     #[derive(diesel::QueryableByName)]
@@ -984,6 +989,39 @@ mod tests {
             .first(&mut conn)
             .unwrap();
         assert_eq!(actor, Some(requester.uuid), "the reopen is the requester's");
+    }
+
+    /// A requester's reply to a request merged away doesn't reopen it, even
+    /// one left done by an older merge; the reply itself is saved.
+    #[test]
+    fn a_requester_reply_to_a_merged_request_doesnt_reopen_it() {
+        use crate::models::WorkflowStateCategory as Cat;
+        let mut conn = setup_test_connection();
+        let requester = TestFixtures::create_user(&mut conn, "merged_reply_requester", "user");
+        let done =
+            crate::repository::workflow_states::first_in_category(&mut conn, Cat::Done).unwrap();
+        let destination =
+            TestFixtures::create_ticket(&mut conn, "Printer", Some(requester.uuid), None);
+        let ticket =
+            TestFixtures::create_ticket(&mut conn, "Printer again", Some(requester.uuid), None);
+        diesel::update(tickets::table.find(ticket.id))
+            .set(tickets::workflow_state_id.eq(done.id))
+            .execute(&mut conn)
+            .unwrap();
+        TestFixtures::mark_merged(&mut conn, &ticket, &destination, requester.uuid);
+
+        let saved = create_comment(
+            &mut conn,
+            NewComment {
+                content: "Still broken".into(),
+                ticket_id: ticket.id,
+                user_uuid: requester.uuid,
+                ..Default::default()
+            },
+            None,
+        );
+        assert!(saved.is_ok(), "the reply is saved: {saved:?}");
+        assert_eq!(state_of(&mut conn, ticket.id).0, done.id, "still done");
     }
 
     #[test]

@@ -295,15 +295,6 @@ fn apply_ticket(
 
     match tx.op {
         SyncOp::Update => {
-            // A merged ticket takes no edits, its tags included (they don't go
-            // through `update_ticket_partial`, which refuses the rest).
-            let merged = crate::repository::ticket_merge::is_merge_source(conn, ticket_id);
-            if merged.map_err(reject_diesel)? {
-                return Err(TxReject(
-                    "ticket_merged",
-                    crate::repository::tickets::MERGED_TICKET.into(),
-                ));
-            }
             // `tag_ids` is the one non-column field the optimistic queue may
             // carry: it's a ticket_tags join-table set, not a `tickets` column.
             // Split it out and apply it via set_tags_for_ticket (which emits its
@@ -341,6 +332,17 @@ fn apply_ticket(
                 if !only_title || !visible {
                     return Err(forbidden());
                 }
+            }
+            // A merged ticket takes no edits, its tags included (they don't go
+            // through `update_ticket_partial`, which refuses the rest). Asked
+            // after the permission check, so the answer says nothing about a
+            // ticket the caller can't see.
+            let merged = crate::repository::ticket_merge::is_merge_source(conn, ticket_id);
+            if merged.map_err(reject_diesel)? {
+                return Err(TxReject(
+                    "ticket_merged",
+                    crate::repository::tickets::MERGED_TICKET.into(),
+                ));
             }
             let has_scalar = !obj.is_empty();
             // The columns the server owns are refused, as on the REST routes.

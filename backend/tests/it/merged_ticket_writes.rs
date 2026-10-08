@@ -1,6 +1,7 @@
 //! A merged ticket refuses changes through the agent REST routes: its fields,
-//! tags, links and watching (409 `ticket_merged`). Unwatching stays allowed, so
-//! someone can stop following a merged ticket.
+//! tags, links, watching and replies (409 `ticket_merged`). Unwatching stays
+//! allowed, so someone can stop following a merged ticket. A write racing the
+//! merge is refused too, once the merge commits.
 
 use std::sync::Arc;
 
@@ -13,11 +14,13 @@ use uuid::Uuid;
 
 use backend::extractors::WorkspaceContext;
 use backend::middleware::RequestContext;
-use backend::models::{Claims, NewTicket, Ticket};
+use backend::models::{Claims, NewTicket, Ticket, TicketUpdate, WorkflowStateCategory};
 use backend::repository::ticket_merge::{execute_merge, MergeInput};
+use backend::repository::tickets::TicketWriteError;
+use backend::services::outbound_email::OutboundEmailResolver;
 use backend::services::search::SearchService;
 use backend::sync::actor::ActorContext;
-use backend::sync::session::run_in_workspace;
+use backend::sync::session::{run_in_workspace, set_actor, with_actor_context};
 use backend::utils::storage::{create_storage, Storage, StorageConfig};
 
 use crate::common;
@@ -99,6 +102,10 @@ async fn a_merged_ticket_refuses_rest_writes_but_can_be_unwatched() {
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(storage))
             .app_data(web::Data::new(search))
+            .app_data(web::Data::new(Arc::new(OutboundEmailResolver::new(
+                pool.clone(),
+                None,
+            ))))
             .wrap_fn(move |req, srv| {
                 req.extensions_mut().insert(workspace.clone());
                 req.extensions_mut().insert(claims.clone());
@@ -125,6 +132,9 @@ async fn a_merged_ticket_refuses_rest_writes_but_can_be_unwatched() {
         http_test::TestRequest::post().uri(&format!("/api/tickets/{s}/link/{}", other.id)),
         http_test::TestRequest::post().uri(&format!("/api/tickets/{}/link/{s}", other.id)),
         http_test::TestRequest::delete().uri(&format!("/api/tickets/{s}/unlink/{}", other.id)),
+        http_test::TestRequest::post()
+            .uri(&format!("/api/tickets/{s}/comments"))
+            .set_json(json!({ "content": "Any update?", "attachments": [] })),
     ];
     for request in refused {
         let request = request.to_request();
@@ -153,4 +163,119 @@ async fn a_merged_ticket_refuses_rest_writes_but_can_be_unwatched() {
     })
     .expect("reload");
     assert_eq!(after.title, "VPN keeps dropping");
+}
+
+/// A write that reaches a ticket while it's being merged waits for the merge,
+/// then is refused, instead of landing on the ticket after the merge commits.
+#[test]
+fn a_write_racing_a_merge_is_refused_once_the_merge_commits() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(3);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let ws = seeded.workspace_id;
+    let admin = ActorContext::user(seeded.admin_uuid, None).with_workspace(ws);
+    let ticket = |title: &str| -> Ticket {
+        run_in_workspace(&pool, REF, ws, |c| {
+            let state = backend::repository::workflow_states::default_state(c)?;
+            diesel::insert_into(backend::schema::tickets::table)
+                .values(&NewTicket {
+                    title: title.to_string(),
+                    workflow_state_id: state.id,
+                    ..Default::default()
+                })
+                .get_result(c)
+        })
+        .expect("insert ticket")
+    };
+    let destination = ticket("Disk full");
+    let source = ticket("Disk full again");
+
+    // A merge part way through: the source is moved to merged and the merge
+    // recorded, not yet committed.
+    let mut merging = pool.get().expect("conn");
+    diesel::sql_query("BEGIN")
+        .execute(&mut merging)
+        .expect("begin");
+    set_actor(&mut merging, &admin).expect("actor");
+    let merged_state = backend::repository::workflow_states::first_in_category(
+        &mut merging,
+        WorkflowStateCategory::Merged,
+    )
+    .expect("merged state");
+    diesel::update(backend::schema::tickets::table.find(source.id))
+        .set(backend::schema::tickets::workflow_state_id.eq(merged_state.id))
+        .execute(&mut merging)
+        .expect("move to merged");
+    {
+        use backend::schema::ticket_merges;
+        diesel::insert_into(ticket_merges::table)
+            .values((
+                ticket_merges::ticket_id.eq(source.id),
+                ticket_merges::merged_into_ticket_id.eq(destination.id),
+                ticket_merges::merged_at.eq(chrono::Utc::now()),
+                ticket_merges::merged_by_user_uuid.eq(seeded.admin_uuid),
+            ))
+            .execute(&mut merging)
+            .expect("record the merge");
+    }
+
+    let writer = {
+        let pool = pool.clone();
+        let admin = admin.clone();
+        let id = source.id;
+        std::thread::spawn(move || {
+            let mut conn = pool.get().expect("conn");
+            diesel::sql_query("SET lock_timeout = '10s'")
+                .execute(&mut conn)
+                .expect("lock timeout");
+            with_actor_context(&mut conn, &admin, |c| {
+                backend::repository::tickets::update_ticket_partial(
+                    c,
+                    id,
+                    TicketUpdate {
+                        title: Some("Renamed mid-merge".to_string()),
+                        ..Default::default()
+                    },
+                    None,
+                )
+            })
+        })
+    };
+    // Commit the merge once the write is waiting on it.
+    #[derive(QueryableByName)]
+    struct Waiting {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        n: i64,
+    }
+    let started = std::time::Instant::now();
+    loop {
+        let waiting: Waiting = diesel::sql_query(
+            "SELECT count(*) AS n FROM pg_stat_activity \
+             WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        )
+        .get_result(&mut pool.get().expect("conn"))
+        .expect("waiting");
+        if waiting.n > 0 {
+            break;
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "the write never waited on the merge"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    diesel::sql_query("COMMIT")
+        .execute(&mut merging)
+        .expect("commit the merge");
+
+    let written = writer.join().expect("writer");
+    assert!(
+        matches!(written, Err(TicketWriteError::Merged)),
+        "the write after the merge: {written:?}"
+    );
+    let after: Ticket = run_in_workspace(&pool, REF, ws, |c| {
+        backend::schema::tickets::table.find(source.id).first(c)
+    })
+    .expect("reload");
+    assert_eq!(after.title, "Disk full again");
 }
