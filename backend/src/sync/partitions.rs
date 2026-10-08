@@ -316,8 +316,8 @@ pub fn ensure_partitions(
 /// is `<=` `cutoff`. The default partition is deliberately excluded — it
 /// has no range bound, and dropping it would close W6b's parachute.
 ///
-/// This is split from `drop_partitions_older_than` so it can be exercised
-/// from inside a test transaction (the actual DETACH CONCURRENTLY can't be).
+/// Split from `drop_partitions_older_than` so the selection can be tested
+/// on its own.
 pub fn partitions_eligible_for_drop(
     conn: &mut DbConnection,
     parent: &str,
@@ -367,19 +367,23 @@ pub fn partitions_eligible_for_drop(
     Ok(eligible)
 }
 
-/// Drop range partitions of `parent` whose upper bound is `<=` `cutoff`.
+/// How long dropping a partition waits for its lock on the parent before
+/// giving up until the next run.
+const DROP_LOCK_TIMEOUT: &str = "5s";
+
+/// Drop the range partitions of `parent` that lie entirely before `cutoff`
+/// (upper bound `<=` `cutoff`). The default partition is never a candidate.
 ///
-/// Uses DETACH PARTITION CONCURRENTLY (PG14+) so the parent's lock window
-/// stays at SHARE UPDATE EXCLUSIVE — concurrent reads/writes on the parent
-/// keep flowing. The plain ATTACH dual was W6a's lock-friendly partner.
+/// Each one goes in its own short transaction with `DROP TABLE`, which
+/// detaches it as it drops it. DETACH ... CONCURRENTLY would hold the parent
+/// at SHARE UPDATE EXCLUSIVE, but Postgres refuses it while the parent has a
+/// default partition, and `sync_actions` and `audit_log` both have one.
+/// `DROP TABLE` takes ACCESS EXCLUSIVE on the parent for the moment the
+/// catalog changes; `lock_timeout` bounds how long it waits for that lock, and
+/// so how long new queries queue behind it, and a timeout fails the run for
+/// the scheduler to retry.
 ///
-/// CONCURRENTLY can't run inside a BEGIN block (Postgres rejects with a
-/// hard error); this helper assumes the caller is operating in autocommit
-/// (Diesel's default for raw sql_query outside `conn.transaction(...)`).
-/// The detach + drop sequence is emitted as two separate statements, with
-/// no surrounding transaction.
-///
-/// Returns the names of partitions that were detached + dropped.
+/// Returns the names of partitions that were dropped.
 pub fn drop_partitions_older_than(
     conn: &mut DbConnection,
     parent: &str,
@@ -388,10 +392,12 @@ pub fn drop_partitions_older_than(
     let eligible = partitions_eligible_for_drop(conn, parent, cutoff)?;
     let mut dropped = Vec::new();
     for child in eligible {
-        let detach = format!("ALTER TABLE {parent} DETACH PARTITION {child} CONCURRENTLY");
-        diesel::sql_query(&detach).execute(conn)?;
-        let drop = format!("DROP TABLE {child}");
-        diesel::sql_query(&drop).execute(conn)?;
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            diesel::sql_query(format!("SET LOCAL lock_timeout = '{DROP_LOCK_TIMEOUT}'"))
+                .execute(conn)?;
+            diesel::sql_query(format!("DROP TABLE {child}")).execute(conn)?;
+            Ok(())
+        })?;
         dropped.push(child);
     }
     Ok(dropped)
@@ -649,12 +655,8 @@ mod tests {
     }
 
     /// The candidate query picks up partitions whose upper bound is past
-    /// the cutoff, and never the default partition. Driven through the
-    /// candidate-only path because the actual DETACH CONCURRENTLY in
-    /// `drop_partitions_older_than` cannot run inside a transaction block
-    /// (Postgres rejects), and our test runner wraps every connection in
-    /// one. The full DDL path is exercised in production at runtime; we
-    /// rely on Postgres' own well-tested DETACH semantics for the rest.
+    /// the cutoff, and never the default partition. The drop itself is
+    /// covered through the scheduled job in `tests/it/partition_prune.rs`.
     #[test]
     fn partitions_eligible_for_drop_finds_old_ranges_and_skips_default() {
         let (_guard, mut conn) = provisioning_conn();

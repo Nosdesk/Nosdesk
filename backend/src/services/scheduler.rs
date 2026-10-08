@@ -156,16 +156,13 @@ where
     match &result {
         Ok(()) => debug!(task = name, elapsed_ms = %elapsed.as_millis(), "scheduler: ok"),
         Err(e) => {
-            // Display (`%e`), not Debug (`?e`). anyhow's Debug walks
-            // the full source chain AND prints the captured backtrace,
-            // which lit up the scheduler logs with 60-frame stack
-            // traces for what was usually a one-line operational
-            // failure ("sync completed with errors", "db pool
-            // exhausted"). Display gives the message + source chain
-            // without the backtrace; if an operator wants the full
-            // chain they can re-run with RUST_LOG=debug or inspect
-            // the status registry's last_error field.
-            error!(task = name, error = %e, elapsed_ms = %elapsed.as_millis(), "scheduler: failed; retrying next tick")
+            // Alternate Display (`{e:#}`): the message and its whole
+            // cause chain on one line ("drop x older than y: <the
+            // database's error>"). Plain Display shows only the outermost
+            // context, which hid why the partition prune failed; Debug
+            // adds the captured backtrace, 60-frame stack traces for what
+            // is usually a one-line operational failure.
+            error!(task = name, error = %format_args!("{e:#}"), elapsed_ms = %elapsed.as_millis(), "scheduler: failed; retrying next tick")
         }
     }
     record(statuses, name, elapsed, result.as_ref().err());
@@ -193,7 +190,7 @@ fn record(
     entry.in_progress = false;
     if let Some(e) = error {
         entry.total_failures += 1;
-        entry.last_outcome = Some(e.to_string());
+        entry.last_outcome = Some(format!("{e:#}"));
     } else {
         entry.last_outcome = Some("ok".into());
     }

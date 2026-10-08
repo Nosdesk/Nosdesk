@@ -179,9 +179,9 @@ pub fn spawn_scheduled_jobs(
 
         // Daily: row-level retention for security_events and
         // webhook_deliveries; partition-level retention for audit_log
-        // and sync_actions. Partition drops use DETACH CONCURRENTLY so
-        // the parent's lock window stays at SHARE UPDATE EXCLUSIVE
-        // (W6a's lock-friendly attach in reverse).
+        // and sync_actions. Each expired partition is dropped in a short
+        // transaction under a lock timeout (DETACH CONCURRENTLY is refused
+        // while the parent has a default partition).
         let p = pool.clone();
         spawn_periodic(
             "security_events.prune",
