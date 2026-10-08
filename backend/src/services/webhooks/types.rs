@@ -161,7 +161,8 @@ impl WebhookEventType {
             // Added means on a ticket: created on a comment, or a draft
             // upload attached to one. A draft alone has no workspace
             // audience (its uploader's, or none for a guest's), so its
-            // events raise nothing.
+            // events raise nothing. A file a merge moves with its reply
+            // (`attachment.moved`) isn't added either.
             "attachment.created" | "attachment.attached" => Self::AttachmentAdded,
             "attachment.deleted" => Self::AttachmentDeleted,
             "asset.created" => Self::AssetCreated,
@@ -265,6 +266,8 @@ mod tests {
             ("comment.created", Some(CommentAdded)),
             ("attachment.created", Some(AttachmentAdded)),
             ("attachment.attached", Some(AttachmentAdded)),
+            // A merge moving a reply's file adds nothing.
+            ("attachment.moved", None),
             ("asset.created", Some(AssetCreated)),
             ("project_ticket.added", Some(ProjectAssigned)),
             ("project_ticket.removed", Some(ProjectUnassigned)),
