@@ -551,7 +551,8 @@ pub enum ApplyError {
 /// or merge can't slip past. On any executor error the whole apply
 /// rolls back and the `rule_applications` row is never written
 /// (which is the audit-correct behaviour: the failed apply didn't
-/// happen).
+/// happen). Only a live rule applies: a draft, a paused (`dry_run`) or an
+/// archived one is refused before anything runs, whoever calls.
 pub fn apply_manual(
     conn: &mut DbConnection,
     input: ApplyInput,
@@ -577,7 +578,7 @@ pub fn apply_manual(
         if rule.archived_at.is_some() {
             return Err(ApplyError::NotLive(rule.id, rule.state.as_str()));
         }
-        if rule.state != RuleState::Live && rule.state != RuleState::DryRun {
+        if rule.state != RuleState::Live {
             return Err(ApplyError::NotLive(rule.id, rule.state.as_str()));
         }
         if rule.trigger_kind != RuleTriggerKind::Manual {
@@ -717,17 +718,8 @@ pub fn apply_manual(
             ))
             .get_result(conn)?;
 
-        // dry_run state writes a shadow rule_applications row so the
-        // admin can preview without touching production data. The
-        // action writes above still hit the DB in the txn, but the
-        // outer transaction will be COMMITTED — dry-run rows live in
-        // the audit log alongside successful ones, distinguished by
-        // status. That matches the plan §4.3 contract.
-        let status = if updated_rule.state == RuleState::DryRun {
-            RuleApplicationStatus::DryRun
-        } else {
-            RuleApplicationStatus::Succeeded
-        };
+        // Only a live rule gets here, so the application succeeded.
+        let status = RuleApplicationStatus::Succeeded;
 
         let actions_taken_value = if actions_taken.is_empty() {
             None
@@ -791,7 +783,8 @@ pub fn apply_manual(
                     "actor_uuid": actor.uuid,
                     "comment_id": comment_id,
                     "actions_taken": actions_taken_value,
-                    "was_dry_run": status == RuleApplicationStatus::DryRun,
+                    // Always false now; kept for readers of older events.
+                    "was_dry_run": false,
                 }),
                 groups: sync_groups,
                 causation_id: None,
