@@ -27,7 +27,9 @@ async fn workspaces_deprovision_restore_lifecycle() {
     let owner = common::insert_user(&mut pool.get().expect("conn"), "DeprovOwner");
     let platform_token = common::mint_platform_jwt("platform:provision", 300);
 
-    let pool_for_app = pool.clone();
+    // The app serves as the runtime role, as in production, so a handler
+    // that writes without the grant fails here; fixtures stay superuser.
+    let pool_for_app = test_db.runtime_pool(4);
     let srv = actix_test::start(move || {
         App::new()
             .app_data(web::Data::new(pool_for_app.clone()))

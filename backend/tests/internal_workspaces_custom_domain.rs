@@ -48,7 +48,9 @@ async fn custom_domain_set_clear_collide() {
     // denylist (Phase 4 W4), so minting it trips the CHECK constraint.
     common::mint_workspace(&mut pool.get().expect("conn"), "globex", "Globex");
 
-    let pool_for_app = pool.clone();
+    // The app serves as the runtime role, as in production, so a handler
+    // that writes without the grant fails here; fixtures stay superuser.
+    let pool_for_app = test_db.runtime_pool(4);
     let srv = actix_test::start(move || {
         App::new()
             .app_data(web::Data::new(pool_for_app.clone()))
