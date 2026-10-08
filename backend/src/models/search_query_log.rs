@@ -10,4 +10,5 @@ pub struct NewSearchQueryLog {
     pub query_raw: String,
     pub query_norm: String,
     pub result_count: i32,
+    pub searched_at: chrono::NaiveDateTime,
 }
