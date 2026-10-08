@@ -334,6 +334,8 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
         ? t('ticket-activity-phrase-merged-into', { target_id: number })
         : t('ticket-activity-phrase-generic')
     }
+    case 'ticket.merge_notice_sent':
+      return t('ticket-activity-phrase-merge-notice-sent')
     case 'ticket.rule_applied': {
       // Rules engine fire (manual apply, or Phase 2+ event /
       // time-elapsed). The rule name + dry-run flag drives the

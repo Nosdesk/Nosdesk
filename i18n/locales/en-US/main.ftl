@@ -4635,6 +4635,7 @@ ticket-activity-phrase-merged = merged { $count ->
    *[other] { $count } tickets
   } into this one
 ticket-activity-phrase-merged-into = merged this ticket into #{ $target_id }
+ticket-activity-phrase-merge-notice-sent = sent a merge notice
 ticket-activity-phrase-generic = made a change
 
 # Ticket: tag picker sidebar surface (TicketTagsField).

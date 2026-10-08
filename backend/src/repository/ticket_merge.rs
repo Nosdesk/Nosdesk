@@ -385,10 +385,12 @@ pub fn execute_merge(
                 aggregate_id: target_id.to_string(),
                 op: SyncOp::Update,
                 event_type: "ticket.merged",
+                // No `reason`: the destination's requester receives this row,
+                // and the agent's reason is for the team. Merge history reads
+                // it from `ticket_merges`.
                 data: json!({
                     "source_ticket_ids": source_ids,
                     "actor_uuid": actor.uuid,
-                    "reason": reason,
                     "comments_moved": comments_moved,
                     "channel_messages_rerouted": channel_messages_rerouted,
                     "watchers_added": watchers_added_to_destination,
@@ -750,7 +752,9 @@ fn build_marker(
         // keep the type total.
         user_uuid: actor.uuid.unwrap_or(Uuid::nil()),
         channel_metadata: Some(metadata),
-        is_internal: false,
+        // For the team: it names every merged ticket, whoever asked for it.
+        // A customer hears of the merge through the merge notice.
+        is_internal: true,
         content_format: ContentFormat::Html,
         body_text: Some(body_text),
         body_html: Some(body_html),
@@ -831,10 +835,15 @@ pub fn merge_history_for_ticket(
         actor_uuid: Option<Uuid>,
         #[diesel(sql_type = Nullable<Text>)]
         actor_name: Option<String>,
+        #[diesel(sql_type = Nullable<Text>)]
+        reason: Option<String>,
     }
 
+    // Every source of one merge records the same reason.
     let rows: Vec<EventRow> = diesel::sql_query(
-        "SELECT s.sync_id, s.occurred_at, s.data, s.actor_uuid, u.name AS actor_name \
+        "SELECT s.sync_id, s.occurred_at, s.data, s.actor_uuid, u.name AS actor_name, \
+                (SELECT m.merge_reason FROM ticket_merges m \
+                  WHERE m.ticket_id = (s.data->'source_ticket_ids'->>0)::int) AS reason \
          FROM sync_actions s \
          LEFT JOIN users u ON u.uuid = s.actor_uuid \
          WHERE s.event_type = 'ticket.merged' AND s.aggregate_id = $1::text \
@@ -860,7 +869,7 @@ pub fn merge_history_for_ticket(
                 merged_by_user_uuid: r.actor_uuid,
                 merged_by_name: r.actor_name,
                 source_ticket_ids,
-                reason: r.data["reason"].as_str().map(str::to_string),
+                reason: r.reason,
                 comments_moved: r.data["comments_moved"].as_i64().unwrap_or(0),
                 merge_marker_comment_id: r.data["merge_marker_comment_id"]
                     .as_i64()
@@ -876,17 +885,21 @@ pub fn merge_history_for_ticket(
 }
 
 /// Enqueue a templated "your request was merged" reply to each source
-/// ticket's customer, on the source's origin email channel. Best-effort
-/// and post-commit; the handler calls this only when the merge dialog's
-/// notify-customer box was ticked. Each outbound binds to the
-/// destination ticket, so a customer reply threads onto the merged
-/// target rather than reopening the source. Sources without an email
-/// channel or a requester email are skipped. Returns the number
-/// enqueued.
+/// ticket's customer, on the source's origin email channel, routed the way an
+/// acknowledgement on that channel is (`outbound::reply_routing`: the polled
+/// mailbox, the forwarding address, or the workspace's own address). Best
+/// effort and post-commit; the handler calls this only when the merge
+/// dialog's notify-customer box was ticked. Each outbound binds to the
+/// destination ticket, so a customer reply threads onto the merged target
+/// rather than reopening the source. A source that can't be told (no channel
+/// that delivers email, no requester address) is logged and skipped; one that
+/// is records `ticket.merge_notice_sent`, so the team sees it went. Returns
+/// the number enqueued.
 ///
-/// The notice ends with the workspace's security note when it's on, like a
-/// reply. `base_url` is the note's last fallback for the domain it names,
-/// used only when no sending address resolves.
+/// The notice is in the customer's language and ends with the workspace's
+/// security note when it's on, like a reply. `base_url` is the note's last
+/// fallback for the domain it names, used only when no sending address
+/// resolves.
 pub fn enqueue_merge_notifications(
     conn: &mut DbConnection,
     destination: &Ticket,
@@ -897,57 +910,66 @@ pub fn enqueue_merge_notifications(
         channels as channels_repo, outbound_emails, site_settings as site_settings_repo,
         user_helpers,
     };
-    use crate::services::channels::email_imap::ImapChannelConfig;
     use crate::services::channels::threading::{
         format_outbound_message_id, format_outbound_subject,
     };
 
     let settings = site_settings_repo::get_site_settings(conn)?;
-    let locale = crate::utils::locale::effective_locale(None, &settings.default_locale);
-    let mut body = crate::utils::i18n::tr(&locale, "merge-notification-customer-template");
-    if let Some(note) = crate::utils::email_branding::security_note(
+    let note = crate::utils::email_branding::security_note(
         conn,
         &settings,
         base_url,
         crate::utils::email_branding::SentFrom::Workspace,
-    ) {
-        body = format!("{body}\n\n{note}");
-    }
+    );
 
     let mut enqueued = 0usize;
     for source in sources {
         let (Some(channel_id), Some(requester_uuid)) =
             (source.origin_channel_id, source.requester_uuid)
         else {
+            tracing::info!(
+                ticket_id = source.id,
+                "merge notice: no origin channel or requester; skipped"
+            );
             continue;
         };
-
-        // Email is the only channel that delivers a reply today.
-        let channel = match channels_repo::find(conn, channel_id) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        if channel.provider != "email_imap" {
+        let Ok(channel) = channels_repo::find(conn, channel_id) else {
+            tracing::info!(
+                ticket_id = source.id,
+                "merge notice: origin channel gone; skipped"
+            );
             continue;
-        }
-        let config = match serde_json::from_value::<ImapChannelConfig>(channel.config.clone()) {
-            Ok(cfg) => cfg,
-            Err(_) => continue,
+        };
+        // The same routing the acknowledgement and agent replies use; `None`
+        // is a channel that doesn't deliver email.
+        let Some((reply_domain, reply_to)) =
+            crate::services::channels::outbound::reply_routing(conn, &channel)
+        else {
+            tracing::info!(
+                ticket_id = source.id,
+                "merge notice: {} channel has no reply route; skipped",
+                channel.provider
+            );
+            continue;
         };
         let Some(recipient) = user_helpers::get_primary_email(&requester_uuid, conn) else {
+            tracing::info!(
+                ticket_id = source.id,
+                "merge notice: requester has no address; skipped"
+            );
             continue;
         };
 
-        let message_id =
-            format_outbound_message_id(destination.id, source.id, &config.reply_domain);
+        let locale = crate::repository::user_locale::resolve_effective_locale(conn, requester_uuid);
+        let mut body = crate::utils::i18n::tr(&locale, "merge-notification-customer-template");
+        if let Some(note) = &note {
+            body = format!("{body}\n\n{note}");
+        }
+        let message_id = format_outbound_message_id(destination.id, source.id, &reply_domain);
         let subject = format_outbound_subject(destination.number, &destination.title);
-        // B3: customer replies to the merge notice should thread back into the
-        // ticket via the channel's polled mailbox (see outbound.rs). Only when
-        // the IMAP username is an address.
-        let headers_json = if config.username.contains('@') {
-            serde_json::json!({ "Reply-To": config.username })
-        } else {
-            serde_json::json!({})
+        let headers_json = match &reply_to {
+            Some(address) => serde_json::json!({ "Reply-To": address }),
+            None => serde_json::json!({}),
         };
 
         outbound_emails::enqueue(
@@ -958,7 +980,7 @@ pub fn enqueue_merge_notifications(
                 comment_id: None,
                 recipient,
                 subject,
-                body_text: body.clone(),
+                body_text: body,
                 body_html: None,
                 message_id,
                 in_reply_to: None,
@@ -972,6 +994,23 @@ pub fn enqueue_merge_notifications(
                 // their own ticket: transactional, not an opt-out-able
                 // notification (only internal ticket-activity notifications are).
                 mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
+            },
+        )?;
+        // On the source's activity, for the team: the notice went.
+        let groups = groups::for_ticket(conn, source)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Ticket,
+                aggregate_id: source.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "ticket.merge_notice_sent",
+                data: json!({
+                    "ticket_id": source.id,
+                    "merged_into_ticket_id": destination.id,
+                }),
+                groups,
+                causation_id: None,
             },
         )?;
         enqueued += 1;
@@ -1065,11 +1104,13 @@ mod tests {
         // Marker comment exists on the destination, flagged structured,
         // naming the source by its number.
         use crate::schema::comments::dsl as c;
-        let (content, meta): (String, Option<serde_json::Value>) = c::comments
+        let (content, meta, internal): (String, Option<serde_json::Value>, bool) = c::comments
             .filter(c::id.eq(outcome.merge_marker_comment_id))
-            .select((c::content, c::channel_metadata))
+            .select((c::content, c::channel_metadata, c::is_internal))
             .first(&mut conn)
             .unwrap();
+        // The note lists every merged ticket: it's for the team.
+        assert!(internal, "the merge note is internal");
         let meta = meta.unwrap();
         assert_eq!(meta["kind"], "merge_marker");
         assert_eq!(
@@ -2124,5 +2165,52 @@ mod tests {
 
         let n = enqueue_merge_notifications(&mut conn, &dest, &[src], "").unwrap();
         assert_eq!(n, 0);
+    }
+
+    /// A chat source has no email to send: it's skipped, and its ticket
+    /// records no notice.
+    #[test]
+    fn merge_notifications_skip_chat_sources() {
+        use crate::schema::tickets;
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "chatter", "user");
+        TestFixtures::create_user_email(&mut conn, user.uuid, "chatter@example.com", true);
+        let channel = TestFixtures::create_channel(&mut conn, "slack");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        let src: Ticket = diesel::update(tickets::table.find(src.id))
+            .set(tickets::origin_channel_id.eq(channel.id))
+            .get_result(&mut conn)
+            .unwrap();
+
+        let n =
+            enqueue_merge_notifications(&mut conn, &dest, std::slice::from_ref(&src), "").unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(count_sync(&mut conn, "ticket.merge_notice_sent", src.id), 0);
+    }
+
+    /// The agent's reason reaches merge history, not the sync row the
+    /// destination's requester receives.
+    #[test]
+    fn the_merge_reason_stays_with_the_team() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "agent", "user");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        let row = sync_row(&mut conn, "ticket.merged", dest.id);
+        assert_eq!(row.data.get("reason"), None, "{}", row.data);
+        let history = merge_history_for_ticket(&mut conn, dest.id).unwrap();
+        assert_eq!(history.merge_events.len(), 1);
+        assert_eq!(
+            history.merge_events[0].reason.as_deref(),
+            Some("same outage")
+        );
     }
 }

@@ -6971,6 +6971,8 @@ ticket-activity-phrase-merged = a fusionné { $count ->
    *[other] { $count } tickets
   } dans celui-ci
 ticket-activity-phrase-merged-into = a fusionné ce ticket dans le #{ $target_id }
+# Merge notice sent (machine, pending native review)
+ticket-activity-phrase-merge-notice-sent = a envoyé un avis de fusion
 
 # Moteur de règles (docs/rules-and-actions-plan.md).
 
