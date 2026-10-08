@@ -10,6 +10,7 @@ pub mod asset_media;
 pub mod asset_models;
 pub mod asset_usage;
 pub mod assets;
+pub mod assignees;
 pub mod assignment_rules;
 pub mod audit;
 pub mod audit_log;

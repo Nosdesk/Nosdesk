@@ -27,7 +27,7 @@ use crate::extractors::SyncContext;
 use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{Project, ProjectUpdate, SyncAggregate, SyncOp, TicketUpdate};
-use crate::repository::tickets::TicketUpdatedObserver;
+use crate::repository::tickets::{TicketUpdatedObserver, TicketWriteError};
 use crate::services::search::SearchService;
 use crate::services::ticket_updates::{after_update, ActorConn};
 use crate::sync::actor::{ActorContext, ActorKind};
@@ -361,14 +361,6 @@ fn apply_ticket(
                         TxReject("invalid_reference", "unknown workflow state".into())
                     })?;
             }
-            if let Some(Some(assignee)) = patch.assignee_uuid {
-                if !assignable(conn, assignee) {
-                    return Err(TxReject(
-                        "invalid_assignee",
-                        "only technicians and administrators can be assigned tickets".into(),
-                    ));
-                }
-            }
             if let Some(Some(category_id)) = patch.category_id {
                 let user = actor.uuid.ok_or_else(forbidden)?;
                 let visible = crate::repository::categories::can_user_see_category(
@@ -384,6 +376,7 @@ fn apply_ticket(
             }
             let category_changed = patch.category_id.is_some();
             let observer = search.map(|s| s as &dyn TicketUpdatedObserver);
+            // The write refuses an assignee who can't work tickets.
             let (updated, sync_id) = run_with_actor(conn, actor, |conn| {
                 let updated = if has_scalar {
                     Some(crate::repository::tickets::update_ticket_partial(
@@ -399,7 +392,13 @@ fn apply_ticket(
                 }
                 Ok((updated, latest_sync_id(conn)?))
             })
-            .map_err(reject_diesel)?;
+            .map_err(|e| match e {
+                TicketWriteError::IneligibleAssignee(_) => TxReject(
+                    "invalid_assignee",
+                    crate::repository::tickets::INELIGIBLE_ASSIGNEE.into(),
+                ),
+                TicketWriteError::Database(e) => reject_diesel(e),
+            })?;
             // What the REST PATCH does next: the next occurrence of a
             // recurring ticket that closed, and assignment on a category
             // change.
@@ -426,13 +425,6 @@ fn apply_ticket(
             "tickets don't support soft-archive yet".into(),
         )),
     }
-}
-
-/// Whether `user` can be assigned tickets in the pinned workspace, as the REST
-/// routes check.
-fn assignable(conn: &mut DbConnection, user: uuid::Uuid) -> bool {
-    crate::repository::users::get_user_by_uuid(&user, conn)
-        .is_ok_and(|u| crate::repository::user_helpers::user_can_handle_tickets(conn, &u))
 }
 
 fn decode_ticket_patch(value: &Value) -> Result<TicketUpdate, TxReject> {
@@ -500,11 +492,11 @@ fn decode_project_patch(value: &Value) -> Result<ProjectUpdate, TxReject> {
     })
 }
 
-fn run_with_actor<T>(
+fn run_with_actor<T, E: From<diesel::result::Error>>(
     conn: &mut DbConnection,
     actor: &ActorContext,
-    f: impl FnOnce(&mut DbConnection) -> diesel::QueryResult<T>,
-) -> diesel::QueryResult<T> {
+    f: impl FnOnce(&mut DbConnection) -> Result<T, E>,
+) -> Result<T, E> {
     conn.transaction(|conn| {
         session::set_actor(conn, actor)?;
         f(conn)

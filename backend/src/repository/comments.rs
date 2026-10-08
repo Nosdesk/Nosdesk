@@ -193,7 +193,7 @@ fn reopen_on_requester_reply(
     };
     restore(conn)?;
     restarted?;
-    reopened.map(|_| ())
+    reopened.map(|_| ()).map_err(Into::into)
 }
 
 /// Bare create — UI handlers, the import binary, and any caller

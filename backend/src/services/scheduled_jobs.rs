@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use diesel::sql_types::{Array, BigInt, Integer, Text, Uuid as SqlUuid};
-use diesel::{sql_query, OptionalExtension, QueryableByName, RunQueryDsl};
+use diesel::{sql_query, Connection, OptionalExtension, QueryableByName, RunQueryDsl};
 use std::collections::HashMap;
 use tracing::{info, warn};
 
@@ -1556,9 +1556,20 @@ pub async fn approval_timeouts(pool: Pool) -> Result<()> {
             workspace_id,
             |conn| {
                 if crate::repository::ticket_approvals::auto_approve(conn, ticket_id)? {
-                    crate::services::assignment::AssignmentEngine::assign_after_approval(
-                        conn, ticket_id,
-                    )?;
+                    // Best effort, like a decision's routing: the approval
+                    // stands even if the request can't be assigned, and the
+                    // savepoint keeps a failed assignment from undoing it.
+                    if let Err(e) = conn.transaction(|conn| {
+                        crate::services::assignment::AssignmentEngine::assign_after_approval(
+                            conn, ticket_id,
+                        )
+                    }) {
+                        warn!(
+                            ticket_id,
+                            error = ?e,
+                            "scheduler:approval_timeouts: assignment after approval failed"
+                        );
+                    }
                 }
                 Ok(())
             },

@@ -4,7 +4,6 @@
 
 use std::sync::Arc;
 
-use diesel::QueryResult;
 use tracing::{info, warn};
 
 use crate::db::DbConnection;
@@ -19,12 +18,18 @@ use crate::sync::session::with_actor_context;
 
 /// Runs a closure in the caller's workspace, as its actor.
 pub trait InWorkspace {
-    fn run<T>(&mut self, f: impl FnOnce(&mut DbConnection) -> QueryResult<T>) -> QueryResult<T>;
+    fn run<T, E: From<diesel::result::Error>>(
+        &mut self,
+        f: impl FnOnce(&mut DbConnection) -> Result<T, E>,
+    ) -> Result<T, E>;
 }
 
 impl InWorkspace for TenantConn {
-    fn run<T>(&mut self, f: impl FnOnce(&mut DbConnection) -> QueryResult<T>) -> QueryResult<T> {
-        TenantConn::run(self, f)
+    fn run<T, E: From<diesel::result::Error>>(
+        &mut self,
+        f: impl FnOnce(&mut DbConnection) -> Result<T, E>,
+    ) -> Result<T, E> {
+        TenantConn::run_result(self, f)
     }
 }
 
@@ -35,7 +40,10 @@ pub struct ActorConn<'a> {
 }
 
 impl InWorkspace for ActorConn<'_> {
-    fn run<T>(&mut self, f: impl FnOnce(&mut DbConnection) -> QueryResult<T>) -> QueryResult<T> {
+    fn run<T, E: From<diesel::result::Error>>(
+        &mut self,
+        f: impl FnOnce(&mut DbConnection) -> Result<T, E>,
+    ) -> Result<T, E> {
         with_actor_context(self.conn, self.actor, f)
     }
 }
@@ -50,7 +58,7 @@ pub fn after_update(
     updated: &Ticket,
     category_changed: bool,
 ) {
-    materialise_next_occurrence(db, updated);
+    materialise_next_occurrence(db, search, updated);
     if category_changed && updated.assignee_uuid.is_none() {
         assign_on_category_change(db, search, updated);
     }
@@ -59,8 +67,14 @@ pub fn after_update(
 /// RRULE materialise-on-close: if the ticket is in a closed category and
 /// carries a recurrence_rule, generate the next occurrence so the user sees it
 /// land immediately. A malformed rule is logged and skipped rather than
-/// failing the close.
-fn materialise_next_occurrence(db: &mut impl InWorkspace, updated: &Ticket) {
+/// failing the close. The occurrence is a future ticket, not history, so an
+/// assignee who can no longer work tickets isn't carried over; it starts
+/// unassigned and goes through the assignment rules.
+fn materialise_next_occurrence(
+    db: &mut impl InWorkspace,
+    search: Option<&Arc<SearchService>>,
+    updated: &Ticket,
+) {
     let Some(rule) = updated.recurrence_rule.as_ref() else {
         return;
     };
@@ -87,12 +101,18 @@ fn materialise_next_occurrence(db: &mut impl InWorkspace, updated: &Ticket) {
                 Ok(s) => s.id,
                 Err(_) => updated.workflow_state_id,
             };
+            let assignee_uuid = updated.assignee_uuid.filter(|&assignee| {
+                db.run(|conn| {
+                    repository::assignees::is_assignable(conn, updated.workspace_id, assignee)
+                })
+                .unwrap_or(false)
+            });
             let new_ticket = NewTicket {
                 title: updated.title.clone(),
                 workflow_state_id: open_state,
                 priority: updated.priority,
                 requester_uuid: updated.requester_uuid,
-                assignee_uuid: updated.assignee_uuid,
+                assignee_uuid,
                 category_id: updated.category_id,
                 due_date: Some(next_due),
                 recurrence_rule: Some(rule.clone()),
@@ -100,12 +120,15 @@ fn materialise_next_occurrence(db: &mut impl InWorkspace, updated: &Ticket) {
                 ..Default::default()
             };
             match db.run(|conn| repository::create_ticket(conn, new_ticket)) {
-                Ok(_) => info!(
-                    ticket_id = updated.id,
-                    template_id,
-                    next_due = %next_due,
-                    "Materialised next recurring occurrence"
-                ),
+                Ok(next) => {
+                    info!(
+                        ticket_id = updated.id,
+                        template_id,
+                        next_due = %next_due,
+                        "Materialised next recurring occurrence"
+                    );
+                    assign_new_ticket(db, search, next);
+                }
                 Err(e) => warn!(
                     ticket_id = updated.id,
                     error = ?e,
@@ -163,7 +186,9 @@ fn run_assignment_rules(
     trigger: AssignmentTrigger,
 ) -> Option<Ticket> {
     let result = db
-        .run(|conn| Ok(AssignmentEngine::evaluate_rules(conn, ticket, trigger)))
+        .run(|conn| {
+            Ok::<_, diesel::result::Error>(AssignmentEngine::evaluate_rules(conn, ticket, trigger))
+        })
         .ok()
         .flatten()?;
     let assigned_uuid = result.assigned_user_uuid?;

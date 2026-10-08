@@ -141,9 +141,14 @@ async fn an_admin_saves_and_manages_rules_in_their_workspace() {
     assert_eq!(archived.status(), StatusCode::OK);
 }
 
-/// A team of the admin and the member, where the admin already has an
-/// open ticket, plus an unassigned ticket to apply a rule to.
-fn seed_team(conn: &mut backend::db::DbConnection, ws: &WorkspaceSeed) -> (i32, i32) {
+/// A team of `members` (the admin and the member, a requester who can't work
+/// tickets, in the first test), where the admin already has an open ticket,
+/// plus an unassigned ticket to apply a rule to.
+fn seed_team(
+    conn: &mut backend::db::DbConnection,
+    ws: &WorkspaceSeed,
+    members: &[Uuid],
+) -> (i32, i32) {
     use backend::models::NewTicket;
     use backend::schema::{groups, tickets, user_groups, workflow_states};
     use diesel::prelude::*;
@@ -159,7 +164,7 @@ fn seed_team(conn: &mut backend::db::DbConnection, ws: &WorkspaceSeed) -> (i32, 
             .values(groups::name.eq("Network"))
             .returning(groups::id)
             .get_result(c)?;
-        for user in [ws.admin_uuid, ws.member_uuid] {
+        for &user in members {
             diesel::insert_into(user_groups::table)
                 .values((
                     user_groups::group_id.eq(team),
@@ -186,7 +191,7 @@ fn seed_team(conn: &mut backend::db::DbConnection, ws: &WorkspaceSeed) -> (i32, 
 }
 
 #[actix_web::test]
-async fn a_team_step_assigns_whoever_has_the_fewest_open_tickets() {
+async fn a_team_step_assigns_whoever_can_work_tickets_and_has_the_fewest_open() {
     use backend::schema::tickets;
     use diesel::prelude::*;
 
@@ -194,7 +199,11 @@ async fn a_team_step_assigns_whoever_has_the_fewest_open_tickets() {
     let db = common::TestDb::new();
     let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
     let a = &seeded.a;
-    let (team, target) = seed_team(&mut db.pool_with_size(1).get().expect("conn"), a);
+    let (team, target) = seed_team(
+        &mut db.pool_with_size(1).get().expect("conn"),
+        a,
+        &[a.admin_uuid, a.member_uuid],
+    );
     let pool = db.runtime_pool(4);
 
     // A step without its team is refused when the rule is saved.
@@ -252,14 +261,15 @@ async fn a_team_step_assigns_whoever_has_the_fewest_open_tickets() {
     .await;
     assert_eq!(applied.status(), StatusCode::OK);
 
-    // The admin already has an open ticket, so the member gets this one.
+    // The member has no open tickets but can't work them, so the admin gets
+    // this one too.
     let mut conn = db.pool_with_size(1).get().expect("conn");
     let assignee: Option<Uuid> = tickets::table
         .find(target)
         .select(tickets::assignee_uuid)
         .first(&mut conn)
         .expect("ticket");
-    assert_eq!(assignee, Some(a.member_uuid));
+    assert_eq!(assignee, Some(a.admin_uuid));
 
     // Each change reached the sync stream the way a manual edit does, so
     // clients update and the new assignee can be notified.
@@ -279,8 +289,75 @@ async fn a_team_step_assigns_whoever_has_the_fewest_open_tickets() {
         events
             .iter()
             .any(|(kind, data)| kind == "ticket.assignee_changed"
-                && data["assignee_uuid"] == json!(a.member_uuid)
+                && data["assignee_uuid"] == json!(a.admin_uuid)
                 && data.get("previous_assignee_uuid").is_some()),
         "assignment emitted with the previous assignee: {events:?}"
     );
+}
+
+/// A team step on a team with no one who can work tickets is the rule's
+/// mistake, not a server fault: 400, and the ticket stays unassigned.
+#[actix_web::test]
+async fn a_team_step_with_no_one_who_can_work_tickets_is_refused() {
+    use backend::schema::tickets;
+    use diesel::prelude::*;
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let a = &seeded.a;
+    let (team, target) = seed_team(
+        &mut db.pool_with_size(1).get().expect("conn"),
+        a,
+        &[a.member_uuid],
+    );
+    let pool = db.runtime_pool(4);
+
+    let created = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::post()
+            .uri("/api/rules")
+            .set_json(json!({
+                "name": "Hand to the front desk",
+                "trigger_kind": "manual",
+                "actions": [
+                    { "kind": "assign", "config": { "method": "group", "group_id": team } },
+                ],
+            })),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let id = http_test::read_body_json::<Value, _>(created).await["id"]
+        .as_i64()
+        .expect("rule id");
+    let live = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::patch()
+            .uri(&format!("/api/rules/{id}/state"))
+            .set_json(json!({ "state": "live" })),
+    )
+    .await;
+    assert_eq!(live.status(), StatusCode::OK);
+
+    let applied = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::post()
+            .uri(&format!("/api/rules/{id}/apply"))
+            .set_json(json!({ "ticket_id": target })),
+    )
+    .await;
+    assert_eq!(applied.status(), StatusCode::BAD_REQUEST);
+    let body = http_test::read_body_json::<Value, _>(applied).await;
+    assert_eq!(body["code"], "INVALID_ASSIGNEE", "{body}");
+
+    let mut conn = db.pool_with_size(1).get().expect("conn");
+    let assignee: Option<Uuid> = tickets::table
+        .find(target)
+        .select(tickets::assignee_uuid)
+        .first(&mut conn)
+        .expect("ticket");
+    assert_eq!(assignee, None);
 }

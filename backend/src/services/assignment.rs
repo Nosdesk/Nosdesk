@@ -33,7 +33,7 @@ impl AssignmentEngine {
     pub fn assign_after_approval(
         conn: &mut DbConnection,
         ticket_id: i32,
-    ) -> QueryResult<Option<Ticket>> {
+    ) -> Result<Option<Ticket>, crate::repository::tickets::TicketWriteError> {
         let ticket: Ticket = tickets::table.find(ticket_id).first(conn)?;
         let held = site_settings::table
             .select(site_settings::approval_waiting_display)
@@ -117,7 +117,7 @@ impl AssignmentEngine {
             }
 
             // Execute the assignment strategy
-            if let Some(assigned_user) = Self::execute_strategy(conn, &rule) {
+            if let Some(assigned_user) = Self::execute_strategy(conn, &rule, ticket.workspace_id) {
                 // Log the assignment
                 let _ = Self::log_assignment(
                     conn,
@@ -219,13 +219,31 @@ impl AssignmentEngine {
         true
     }
 
-    /// Execute the assignment strategy and return the assigned user UUID
-    fn execute_strategy(conn: &mut DbConnection, rule: &AssignmentRule) -> Option<Option<Uuid>> {
+    /// Execute the assignment strategy and return the assigned user UUID.
+    /// Only someone who can work tickets is picked; a direct rule naming
+    /// anyone else doesn't apply.
+    fn execute_strategy(
+        conn: &mut DbConnection,
+        rule: &AssignmentRule,
+        workspace_id: i32,
+    ) -> Option<Option<Uuid>> {
         match rule.method {
-            AssignmentMethod::DirectUser => {
-                // Assign to the specific user
-                Some(rule.target_user_uuid)
-            }
+            AssignmentMethod::DirectUser => match rule.target_user_uuid {
+                Some(user) => {
+                    let assignable =
+                        crate::repository::assignees::is_assignable(conn, workspace_id, user)
+                            .unwrap_or(false);
+                    if !assignable {
+                        log::warn!(
+                            "Assignment rule {} names someone who can't work tickets; skipped",
+                            rule.id
+                        );
+                        return None;
+                    }
+                    Some(Some(user))
+                }
+                None => Some(None),
+            },
             AssignmentMethod::GroupRoundRobin => Self::round_robin_assignment(conn, rule),
             AssignmentMethod::GroupRandom => Self::random_assignment(conn, rule),
             AssignmentMethod::GroupQueue => {
@@ -243,11 +261,11 @@ impl AssignmentEngine {
     ) -> Option<Option<Uuid>> {
         let group_id = rule.target_group_id?;
 
-        // Get group members ordered consistently
-        let members = match crate::repository::groups::get_users_in_group(conn, group_id) {
+        // The members who can work tickets, ordered consistently.
+        let members = match crate::repository::assignees::eligible_members(conn, group_id) {
             Ok(m) if !m.is_empty() => m,
             Ok(_) => {
-                log::warn!("Group {group_id} has no members for round-robin");
+                log::warn!("Group {group_id} has no one who can work tickets for round-robin");
                 return None;
             }
             Err(e) => {
@@ -262,23 +280,25 @@ impl AssignmentEngine {
 
         // Calculate next index
         let next_index = (current_index + 1) % (members.len() as i32);
-        let selected_user = &members[next_index as usize];
+        let selected_user = members[next_index as usize];
 
         // Update state
-        let _ = Self::update_state(conn, rule.id, next_index, Some(selected_user.uuid));
+        let _ = Self::update_state(conn, rule.id, next_index, Some(selected_user));
 
-        Some(Some(selected_user.uuid))
+        Some(Some(selected_user))
     }
 
     /// Random assignment from group members
     fn random_assignment(conn: &mut DbConnection, rule: &AssignmentRule) -> Option<Option<Uuid>> {
         let group_id = rule.target_group_id?;
 
-        // Get group members
-        let members = match crate::repository::groups::get_users_in_group(conn, group_id) {
+        // The members who can work tickets
+        let members = match crate::repository::assignees::eligible_members(conn, group_id) {
             Ok(m) if !m.is_empty() => m,
             Ok(_) => {
-                log::warn!("Group {group_id} has no members for random assignment");
+                log::warn!(
+                    "Group {group_id} has no one who can work tickets for random assignment"
+                );
                 return None;
             }
             Err(e) => {
@@ -289,12 +309,12 @@ impl AssignmentEngine {
 
         // Select random member
         let mut rng = rand::rng();
-        let selected_user = members.choose(&mut rng)?;
+        let selected_user = *members.choose(&mut rng)?;
 
         // Update state for tracking
-        let _ = Self::update_state(conn, rule.id, 0, Some(selected_user.uuid));
+        let _ = Self::update_state(conn, rule.id, 0, Some(selected_user));
 
-        Some(Some(selected_user.uuid))
+        Some(Some(selected_user))
     }
 
     /// Get active rules ordered by priority (lower number = higher priority)
