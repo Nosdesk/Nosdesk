@@ -12,6 +12,7 @@
   "events": [
     { "type": "attachment.created", "op": "I" },
     { "type": "attachment.attached", "op": "U" },
+    { "type": "attachment.moved", "op": "U" },
     { "type": "attachment.deleted", "op": "D" }
   ],
   "groups": [

@@ -605,6 +605,66 @@ pub fn reparent_attachment(
     })
 }
 
+/// Move every reply on the `sources` tickets to `destination`, as a merge
+/// does, and tell every client. Each reply's row now names the destination
+/// (`comment.moved`, the row as the bootstrap sends it, so a client that never
+/// had it gets it whole), and each of its files reaches the destination's
+/// audience (`attachment.moved`), who may never have seen the source. A
+/// removed reply moves too but stays out of the pool, its files with it.
+/// Returns how many replies moved.
+pub fn move_comments_to_ticket(
+    conn: &mut DbConnection,
+    sources: &[i32],
+    destination: &Ticket,
+) -> QueryResult<usize> {
+    conn.transaction(|conn| {
+        let moved: Vec<Comment> =
+            diesel::update(comments::table.filter(comments::ticket_id.eq_any(sources)))
+                .set(comments::ticket_id.eq(destination.id))
+                .get_results(conn)?;
+        let destination_groups = groups::for_ticket(conn, destination)?;
+        let live: Vec<&Comment> = moved.iter().filter(|c| c.deleted_at.is_none()).collect();
+        for comment in &live {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::Comment,
+                    aggregate_id: comment.id.to_string(),
+                    op: SyncOp::Update,
+                    event_type: "comment.moved",
+                    // `is_internal` keeps an internal note from requesters.
+                    data: json!({
+                        "id": comment.id,
+                        "ticket_id": comment.ticket_id,
+                        "user_uuid": comment.user_uuid,
+                        "content": comment.content,
+                        "new_content": comment.new_content,
+                        "quoted_content": comment.quoted_content,
+                        "is_internal": comment.is_internal,
+                        "content_format": comment.content_format,
+                        "render_kind": comment.render_kind,
+                        "created_at": comment.created_at,
+                    }),
+                    groups: destination_groups.clone(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        // The file stays where it is stored; only who hears of it changes.
+        // Moving a file isn't adding one, so this raises no AttachmentAdded.
+        let live_ids: Vec<i32> = live.iter().map(|c| c.id).collect();
+        let files: Vec<Attachment> = attachments::table
+            .filter(attachments::comment_id.eq_any(&live_ids))
+            .order(attachments::id.asc())
+            .load(conn)?;
+        for file in &files {
+            let event = attachment_event(conn, file, SyncOp::Update, "attachment.moved")?;
+            emit::record(conn, event)?;
+        }
+        Ok(moved.len())
+    })
+}
+
 pub fn get_comment_by_id(conn: &mut DbConnection, comment_id: i32) -> QueryResult<Comment> {
     comments::table.find(comment_id).first(conn)
 }

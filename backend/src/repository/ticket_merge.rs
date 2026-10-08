@@ -284,46 +284,12 @@ pub fn execute_merge(
             crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &source);
         }
 
-        // Step 5: move comments (attachments ride along via comment_id),
-        // and tell every client: a moved comment's row now names the
-        // destination, so the destination shows it without a reload. A
-        // soft-deleted comment moves too but stays out of the pool.
-        let moved: Vec<Comment> = {
-            use crate::schema::comments::dsl as c;
-            diesel::update(c::comments.filter(c::ticket_id.eq_any(&source_array)))
-                .set(c::ticket_id.eq(target_id))
-                .get_results(conn)?
-        };
-        let comments_moved = moved.len();
-        let destination_groups = groups::for_ticket(conn, &destination)?;
-        for comment in moved.iter().filter(|c| c.deleted_at.is_none()) {
-            emit::record(
-                conn,
-                SyncEmit {
-                    aggregate: SyncAggregate::Comment,
-                    aggregate_id: comment.id.to_string(),
-                    op: SyncOp::Update,
-                    event_type: "comment.moved",
-                    // The row as the bootstrap sends it, so a client that
-                    // never had it gets it whole, and `is_internal` keeps
-                    // an internal note from requesters.
-                    data: json!({
-                        "id": comment.id,
-                        "ticket_id": comment.ticket_id,
-                        "user_uuid": comment.user_uuid,
-                        "content": comment.content,
-                        "new_content": comment.new_content,
-                        "quoted_content": comment.quoted_content,
-                        "is_internal": comment.is_internal,
-                        "content_format": comment.content_format,
-                        "render_kind": comment.render_kind,
-                        "created_at": comment.created_at,
-                    }),
-                    groups: destination_groups.clone(),
-                    causation_id: None,
-                },
-            )?;
-        }
+        // Step 5: move the replies, with their files, to the destination.
+        let comments_moved = crate::repository::comments::move_comments_to_ticket(
+            conn,
+            &source_array,
+            &destination,
+        )?;
 
         // Step 6: reroute channel messages so future inbound replies
         // thread onto the destination.
@@ -1486,6 +1452,69 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(still_linked, comment.id);
+    }
+
+    #[test]
+    fn a_moved_replys_files_reach_the_destinations_audience() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merge_files", "user");
+        let project = TestFixtures::create_project(&mut conn, "Files");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        // Only the destination is on the project board, so its audience is
+        // wider than the source's.
+        {
+            use crate::schema::project_tickets as p;
+            diesel::insert_into(p::table)
+                .values((p::project_id.eq(project.id), p::ticket_id.eq(dest.id)))
+                .execute(&mut conn)
+                .unwrap();
+        }
+        let reply = TestFixtures::create_comment(&mut conn, src.id, user.uuid, "has a file");
+        let file = TestFixtures::create_attachment(&mut conn, reply.id, "f.pdf");
+        let removed = TestFixtures::create_comment(&mut conn, src.id, user.uuid, "removed");
+        let removed_file = TestFixtures::create_attachment(&mut conn, removed.id, "g.pdf");
+        {
+            use crate::schema::comments::dsl as c;
+            diesel::update(c::comments.find(removed.id))
+                .set(c::deleted_at.eq(Some(chrono::Utc::now().naive_utc())))
+                .execute(&mut conn)
+                .unwrap();
+        }
+
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        let groups: Vec<Option<String>> = {
+            use crate::schema::sync_actions::dsl as s;
+            s::sync_actions
+                .filter(s::event_type.eq("attachment.moved"))
+                .filter(s::aggregate_id.eq(file.id.to_string()))
+                .select(s::groups)
+                .first(&mut conn)
+                .unwrap()
+        };
+        assert!(
+            groups.contains(&Some(format!("ticket:{}", dest.id))),
+            "{groups:?}"
+        );
+        assert!(
+            groups.contains(&Some(format!("project:{}", project.id))),
+            "{groups:?}"
+        );
+        assert_eq!(count_sync(&mut conn, "attachment.moved", file.id), 1);
+        // A removed reply stays out of the pool, and so do its files.
+        assert_eq!(
+            count_sync(&mut conn, "attachment.moved", removed_file.id),
+            0
+        );
+        // Moving a file isn't adding one: nothing that raises AttachmentAdded.
+        assert_eq!(count_sync(&mut conn, "attachment.attached", file.id), 0);
+        assert_eq!(count_sync(&mut conn, "attachment.created", file.id), 0);
     }
 
     #[test]
