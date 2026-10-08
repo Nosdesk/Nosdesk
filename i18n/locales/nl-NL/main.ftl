@@ -869,6 +869,13 @@ admin-workflow-states-sla-paused-title = Tickets in deze status pauzeren de SLA-
 admin-workflow-states-sla-running-title = Tickets in deze status laten de SLA-klok lopen. Klik om te pauzeren.
 admin-workflow-states-sla-now-paused-flash = { $name } pauzeert nu de SLA-klok
 admin-workflow-states-sla-now-running-flash = { $name } laat nu de SLA-klok lopen
+# Kleuren van workflowstatussen (machine, na te kijken door moedertaalspreker).
+admin-workflow-states-color-slate = Leisteen
+admin-workflow-states-color-gray = Amber
+admin-workflow-states-color-blue = Blauw
+admin-workflow-states-color-purple = Paars
+admin-workflow-states-color-green = Groen
+admin-workflow-states-color-subtle = Gedempt
 
 # DRAFT (needs native-review pass): asset-kinds registry.
 admin-asset-kinds-title = Activatypen

@@ -33,12 +33,15 @@ const successMessage = ref('')
 const COLOR_TOKENS = SUPPORTED_COLOR_TOKENS
 
 // BaseDropdown options for the palette, each carrying its swatch as a
-// leading tone dot so the menu previews the colour.
-const colorOptions = COLOR_TOKENS.map((c) => ({
-  value: c,
-  label: c,
-  tones: [paletteForColor(c).solid],
-}))
+// leading tone dot so the menu previews the colour. Labels name what the
+// swatch shows (the `gray` token draws amber).
+const colorOptions = computed(() =>
+  COLOR_TOKENS.map((c) => ({
+    value: c,
+    label: t(`admin-workflow-states-color-${c}`),
+    tones: [paletteForColor(c).solid],
+  })),
+)
 
 interface DraftState {
   name: string

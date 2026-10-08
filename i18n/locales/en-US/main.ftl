@@ -898,6 +898,13 @@ admin-workflow-states-sla-paused-title = Tickets in this state pause the SLA clo
 admin-workflow-states-sla-running-title = Tickets in this state run the SLA clock. Click to pause it.
 admin-workflow-states-sla-now-paused-flash = { $name } now pauses the SLA clock
 admin-workflow-states-sla-now-running-flash = { $name } now runs the SLA clock
+# The colour token "gray" draws amber; labels name what the swatch shows.
+admin-workflow-states-color-slate = Slate
+admin-workflow-states-color-gray = Amber
+admin-workflow-states-color-blue = Blue
+admin-workflow-states-color-purple = Purple
+admin-workflow-states-color-green = Green
+admin-workflow-states-color-subtle = Muted
 
 # Admin: asset-kinds registry (AssetKindsView). Admins define the
 # kinds of assets they track and the attributes each kind carries.
