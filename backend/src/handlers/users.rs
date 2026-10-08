@@ -565,11 +565,12 @@ pub async fn get_users(
     ws: WorkspaceContext,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
-    // Pin the resolved workspace so the users read and per-row workspace_role
-    // lookup are visible under RLS (both tables are workspace-isolated).
+    // Pin the resolved workspace so the people lookup and per-row
+    // workspace_role read are visible under RLS. `users` itself has no row
+    // security, so the list is the workspace's people, not every account.
     helpers::pin_workspace(&mut conn, ws.workspace_id);
 
-    match repository::get_users(&mut conn) {
+    match repository::directory::list_people(&mut conn, ws.workspace_id) {
         Ok(users) => {
             // Convert users to UserResponse with emails (batch fetch for efficiency)
             let user_responses = repository::user_helpers::get_users_with_primary_emails(
@@ -594,8 +595,9 @@ pub async fn get_paginated_users(
     ws: WorkspaceContext,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
-    // Pin the resolved workspace so the users read and per-row workspace_role
-    // lookup are visible under RLS (both tables are workspace-isolated).
+    // Pin the resolved workspace so the people lookup and per-row
+    // workspace_role read are visible under RLS. `users` itself has no row
+    // security; the repository lists only the workspace's people.
     helpers::pin_workspace(&mut conn, ws.workspace_id);
 
     // Extract and validate pagination parameters
@@ -3142,6 +3144,23 @@ pub async fn get_user_profile_bundle(
     // Pin the request's workspace so the bundle's workspace_role (and other
     // RLS-scoped reads) resolve to the caller's workspace.
     helpers::pin_request_workspace(&req, &mut conn);
+
+    // Someone else's profile only if they are one of this workspace's people:
+    // `users` has no row security, so without this an admin here could read
+    // any account in the deployment. A stranger reads as not found.
+    if user_uuid_parsed != auth.user_uuid {
+        let person = match helpers::request_workspace_id(&req) {
+            Some(ws) => repository::directory::find_member(&mut conn, ws, user_uuid_parsed)
+                .map_err(|e| {
+                    error!(user_uuid = %user_uuid_parsed, error = ?e, "Failed to resolve profile");
+                    ApiError::Internal("Failed to load profile".into())
+                })?,
+            None => None,
+        };
+        if person.is_none() {
+            return Err(ApiError::NotFoundMsg("User not found".into()));
+        }
+    }
 
     match crate::repository::user_profile::compute(&mut conn, &user_uuid_parsed, &groups) {
         Ok(Some(bundle)) => Ok(HttpResponse::Ok().json(bundle)),

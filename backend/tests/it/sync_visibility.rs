@@ -124,6 +124,8 @@ fn av(aggregate: SyncAggregate) -> ActionView {
         ticket_id: None,
         is_internal: None,
         comment_id: None,
+        subject_uuid: None,
+        bare_id: false,
     }
 }
 
@@ -254,8 +256,13 @@ fn reference_data_always_allowed() {
 
     let alice = user(&mut conn, "Alice");
     let viewer = member_viewer(alice);
+    // A `user` row is scoped to the workspace's people; the viewer's own
+    // row always goes (see `sync_workspace_people`).
     let items = vec![
-        av(SyncAggregate::User),
+        ActionView {
+            subject_uuid: Some(alice),
+            ..av(SyncAggregate::User)
+        },
         av(SyncAggregate::Asset),
         av(SyncAggregate::WorkflowState),
         av(SyncAggregate::Project),

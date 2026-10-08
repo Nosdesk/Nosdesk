@@ -33,29 +33,48 @@ pub fn purge_grace_window() -> chrono::Duration {
     chrono::Duration::days(days)
 }
 
-/// Emit a `user.updated` sync_action carrying the projection the
-/// frontend's `useReference('user', uuid)` consumes. Called from
-/// inside the same transaction as the SQL write so the event row
-/// appears atomically with the changed row. Pulls the primary
-/// email from `user_emails` since the canonical address lives
-/// outside the `users` table.
+/// Emit a `user.*` sync_action carrying the projection the frontend's
+/// `useReference('user', uuid)` consumes (a delete carries only the uuid).
+/// Called from inside the same transaction as the SQL write so the event
+/// row appears atomically with the changed row. Pulls the primary email
+/// from `user_emails` since the canonical address lives outside the
+/// `users` table.
 fn emit_user_event(
     conn: &mut DbConnection,
     user: &User,
     op: SyncOp,
     event_type: &'static str,
 ) -> QueryResult<()> {
-    let email =
-        crate::repository::user_helpers::get_primary_email(&user.uuid, conn).unwrap_or_default();
-    let workspace_role = crate::repository::user_helpers::workspace_role(conn, user.uuid)
-        .map(|r| r.as_str().to_string());
-    // Personal dashboard layout lives in `user_preferences`; carry it
-    // so a user's own sessions sync the arrangement live through the
-    // pool. Tolerant fetch — on delete the prefs row may have already
-    // cascaded, which is fine (the layout is irrelevant then).
-    let dashboard_layout = crate::repository::user_preferences::get(conn, user.uuid)
-        .ok()
-        .and_then(|p| p.dashboard_layout);
+    // A delete names only the row, like a ticket prune: it must reach every
+    // session that may hold the row, and by then the person is gone from every
+    // record that made them one of the workspace's people, so nothing else
+    // about them may ride along.
+    let data = if matches!(op, SyncOp::Delete) {
+        json!({ "uuid": user.uuid })
+    } else {
+        let email = crate::repository::user_helpers::get_primary_email(&user.uuid, conn)
+            .unwrap_or_default();
+        let workspace_role = crate::repository::user_helpers::workspace_role(conn, user.uuid)
+            .map(|r| r.as_str().to_string());
+        // Personal dashboard layout lives in `user_preferences`; carry it
+        // so a user's own sessions sync the arrangement live through the
+        // pool.
+        let dashboard_layout = crate::repository::user_preferences::get(conn, user.uuid)
+            .ok()
+            .and_then(|p| p.dashboard_layout);
+        json!({
+            "uuid": user.uuid,
+            "name": user.name,
+            "email": email,
+            "platform_role": user.platform_role,
+            "workspace_role": workspace_role,
+            "pronouns": user.pronouns,
+            "avatar_url": user.avatar_url,
+            "avatar_thumb": user.avatar_thumb,
+            "deleted_at": user.deleted_at,
+            "dashboard_layout": dashboard_layout,
+        })
+    };
     emit::record(
         conn,
         SyncEmit {
@@ -63,18 +82,7 @@ fn emit_user_event(
             aggregate_id: user.uuid.to_string(),
             op,
             event_type,
-            data: json!({
-                "uuid": user.uuid,
-                "name": user.name,
-                "email": email,
-                "platform_role": user.platform_role,
-                "workspace_role": workspace_role,
-                "pronouns": user.pronouns,
-                "avatar_url": user.avatar_url,
-                "avatar_thumb": user.avatar_thumb,
-                "deleted_at": user.deleted_at,
-                "dashboard_layout": dashboard_layout,
-            }),
+            data,
             groups: groups::workspace(),
             causation_id: None,
         },
@@ -98,6 +106,9 @@ pub trait UserDeletedObserver: Send + Sync {
 }
 
 // User repository functions
+
+/// Every user in the deployment, across workspaces (instance maintenance
+/// only). A workspace's people are `directory::list_people`.
 pub fn get_users(conn: &mut DbConnection) -> Result<Vec<User>, Error> {
     users::table.order_by(users::name.asc()).load::<User>(conn)
 }
@@ -162,6 +173,9 @@ fn requester_sql(workspace_id: i32) -> String {
     )
 }
 
+/// One page of the workspace's people (`directory::people`), filtered and
+/// sorted. `users` has no row security, so the workspace scope is this
+/// filter, not the connection's pin.
 #[allow(clippy::too_many_arguments)]
 pub fn get_paginated_users(
     conn: &mut DbConnection,
@@ -322,7 +336,9 @@ pub fn get_paginated_users(
          WHERE ue.user_uuid = users.uuid AND ue.is_primary LIMIT 1)";
 
     // Count query with filters
-    let mut count_query = users::table.into_boxed();
+    let mut count_query = users::table
+        .filter(crate::repository::directory::listed_people(workspace_id))
+        .into_boxed();
     if let Some(ref uuids) = search_uuids {
         count_query = count_query.filter(users::uuid.eq_any(uuids.clone()));
     }
@@ -340,7 +356,9 @@ pub fn get_paginated_users(
     let total: i64 = count_query.count().get_result(conn)?;
 
     // Data query with same filters + sort + pagination
-    let mut query = users::table.into_boxed();
+    let mut query = users::table
+        .filter(crate::repository::directory::listed_people(workspace_id))
+        .into_boxed();
     if let Some(ref uuids) = search_uuids {
         query = query.filter(users::uuid.eq_any(uuids.clone()));
     }
@@ -714,10 +732,9 @@ pub fn purge_user(
             .execute(conn)?;
 
         // === Phase 4: Delete the user ===
-        // Capture the row before delete so the sync emit carries
-        // the projection (name / role / avatar) for clients that
-        // want to display "Foo Bar (deleted)" in historical
-        // contexts. After the row is gone we'd only have the uuid.
+        // The emit below names only the uuid (see `emit_user_event`):
+        // every session drops the row, and nothing about the person
+        // outlives the purge in a client's cache.
         let user_row: User = users::table.find(user_uuid).first(conn)?;
         let deleted_count = diesel::delete(users::table.find(user_uuid)).execute(conn)?;
 

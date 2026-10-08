@@ -115,3 +115,49 @@ fn a_former_colleague_still_resolves() {
         "a former member's name must still resolve, or their history renders blank"
     );
 }
+
+/// Identity resolution reaches past membership to the people a workspace's own
+/// records name: here the requester of one of its tickets, whose account
+/// belongs to another workspace. The client falls back on this lookup for any
+/// uuid its bootstrap did not carry, so it has to agree with the bootstrap.
+#[test]
+fn someone_its_tickets_name_resolves() {
+    use diesel::prelude::*;
+
+    crate::common::ensure_test_keyring();
+    let test_db = crate::common::TestDb::new();
+    let pool = test_db.pool_with_size(2);
+    let mut conn = pool.get().expect("conn");
+
+    let ws = crate::common::seed_two_workspaces(&mut conn);
+    let (ours, theirs) = (ws.a.workspace_id, ws.b.workspace_id);
+    let visitor = crate::common::insert_plain_user(&mut conn, "Visiting Requester");
+    join(&mut conn, theirs, visitor, "member");
+    backend::sync::session::run_in_workspace(&pool, "test:directory_scoping", ours, |c| {
+        let state = backend::repository::workflow_states::default_state(c)?;
+        diesel::insert_into(backend::schema::tickets::table)
+            .values(&backend::models::NewTicket {
+                title: "Visitor's request".to_string(),
+                workflow_state_id: state.id,
+                requester_uuid: Some(visitor),
+                ..Default::default()
+            })
+            .execute(c)
+    })
+    .expect("ticket in ours");
+
+    assert!(
+        directory::find_member(&mut conn, ours, visitor)
+            .expect("query")
+            .is_some(),
+        "the requester of one of our tickets resolves"
+    );
+    let found =
+        directory::find_members(&mut conn, ours, &[visitor, ws.b.member_uuid]).expect("query");
+    let uuids: Vec<uuid::Uuid> = found.iter().map(|u| u.uuid).collect();
+    assert!(uuids.contains(&visitor));
+    assert!(
+        !uuids.contains(&ws.b.member_uuid),
+        "their member, named by nothing of ours, still does not"
+    );
+}

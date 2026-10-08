@@ -525,21 +525,30 @@ pub fn get_user_with_primary_email(
 }
 
 /// Batch get primary emails for multiple users efficiently
-/// Returns a HashMap of user_uuid -> email
+/// Returns a HashMap of user_uuid -> email; empty on a failed read.
 pub fn get_primary_emails_batch(
     user_uuids: &[Uuid],
     conn: &mut DbConnection,
 ) -> std::collections::HashMap<Uuid, String> {
+    primary_emails(conn, user_uuids).unwrap_or_default()
+}
+
+/// [`get_primary_emails_batch`] that reports a failed read instead of
+/// returning an empty map, for callers that must not send rows without
+/// their addresses.
+pub fn primary_emails(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> QueryResult<std::collections::HashMap<Uuid, String>> {
     use crate::schema::user_emails;
 
-    let emails: Vec<(Uuid, String)> = user_emails::table
+    Ok(user_emails::table
         .filter(user_emails::user_uuid.eq_any(user_uuids))
         .filter(user_emails::is_primary.eq(true))
         .select((user_emails::user_uuid, user_emails::email))
-        .load::<(Uuid, String)>(conn)
-        .unwrap_or_default();
-
-    emails.into_iter().collect()
+        .load::<(Uuid, String)>(conn)?
+        .into_iter()
+        .collect())
 }
 
 /// Helper to convert multiple users to UserResponses with their

@@ -1,0 +1,13 @@
+DROP INDEX IF EXISTS public.asset_loans_workspace_borrower_idx;
+DROP INDEX IF EXISTS public.assets_workspace_managed_by_idx;
+DROP INDEX IF EXISTS public.assets_workspace_primary_user_idx;
+DROP INDEX IF EXISTS public.documentation_revisions_workspace_created_by_idx;
+DROP INDEX IF EXISTS public.documentation_pages_workspace_verified_by_idx;
+DROP INDEX IF EXISTS public.documentation_pages_workspace_last_edited_by_idx;
+DROP INDEX IF EXISTS public.documentation_pages_workspace_created_by_idx;
+DROP INDEX IF EXISTS public.comments_workspace_user_idx;
+DROP INDEX IF EXISTS public.ticket_watchers_workspace_user_idx;
+DROP INDEX IF EXISTS public.tickets_workspace_closed_by_idx;
+DROP INDEX IF EXISTS public.tickets_workspace_created_by_idx;
+DROP INDEX IF EXISTS public.tickets_workspace_assignee_idx;
+DROP INDEX IF EXISTS public.tickets_workspace_requester_idx;
