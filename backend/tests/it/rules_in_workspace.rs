@@ -446,3 +446,65 @@ async fn a_paused_rule_does_not_apply() {
     assert_eq!(applied.status(), StatusCode::OK, "a live rule applies");
     assert_eq!(counts().1, before.1 + 1);
 }
+
+/// A priority step written the old way ("normal") applies and is recorded as
+/// the priority it set.
+#[actix_web::test]
+async fn a_priority_step_records_the_priority_it_set() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let a = &seeded.a;
+    let (_, target) = seed_team(
+        &mut db.pool_with_size(1).get().expect("conn"),
+        a,
+        &[a.admin_uuid],
+    );
+    let pool = db.runtime_pool(4);
+    let created = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::post()
+            .uri("/api/rules")
+            .set_json(json!({
+                "name": "Back to normal",
+                "trigger_kind": "manual",
+                "actions": [{ "kind": "set_priority", "config": { "priority": "normal" } }],
+            })),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let id = http_test::read_body_json::<Value, _>(created).await["id"]
+        .as_i64()
+        .expect("rule id");
+    let live = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::patch()
+            .uri(&format!("/api/rules/{id}/state"))
+            .set_json(json!({ "state": "live" })),
+    )
+    .await;
+    assert_eq!(live.status(), StatusCode::OK);
+    let applied = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::post()
+            .uri(&format!("/api/rules/{id}/apply"))
+            .set_json(json!({ "ticket_id": target })),
+    )
+    .await;
+    assert_eq!(applied.status(), StatusCode::OK);
+    let taken: Option<Value> = {
+        use backend::schema::rule_applications;
+        use diesel::prelude::*;
+        let mut conn = db.pool_with_size(1).get().expect("conn");
+        rule_applications::table
+            .filter(rule_applications::ticket_id.eq(target))
+            .select(rule_applications::actions_taken)
+            .first(&mut conn)
+            .expect("the application")
+    };
+    let taken = taken.expect("actions taken");
+    assert_eq!(taken[0]["priority"], "medium", "{taken}");
+}

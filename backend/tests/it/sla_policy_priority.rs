@@ -120,3 +120,64 @@ async fn an_sla_policy_targets_only_a_real_priority() {
         "update with a typo"
     );
 }
+
+/// A policy saved before the check, with a filter naming no priority, can
+/// still be saved with that filter unchanged (the app resends the whole policy
+/// when it changes one field); changing it to another such value is refused.
+#[actix_web::test]
+async fn an_unchanged_stored_filter_saves_again() {
+    use diesel::prelude::*;
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let a = &seeded.a;
+    let pool = db.runtime_pool(4);
+    let created = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::post()
+            .uri("/api/admin/sla/policies")
+            .set_json(policy(json!("high"))),
+    )
+    .await;
+    let id = http_test::read_body_json::<Value, _>(created).await["id"]
+        .as_i64()
+        .expect("policy id") as i32;
+    {
+        use backend::schema::sla_policies;
+        let mut conn = db.pool_with_size(1).get().expect("conn");
+        diesel::update(sla_policies::table.find(id))
+            .set(sla_policies::priority_filter.eq("critical"))
+            .execute(&mut conn)
+            .expect("store a legacy filter");
+    }
+    let mut renamed = policy(json!("critical"));
+    renamed["name"] = json!("Faster lane");
+    let resp = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::patch()
+            .uri(&format!("/api/admin/sla/policies/{id}"))
+            .set_json(renamed),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "the stored filter, unchanged"
+    );
+    let body = http_test::read_body_json::<Value, _>(resp).await;
+    assert_eq!(body["priority_filter"], "critical");
+    assert_eq!(body["name"], "Faster lane");
+
+    let resp = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::patch()
+            .uri(&format!("/api/admin/sla/policies/{id}"))
+            .set_json(policy(json!("severe"))),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "a new bad value");
+}

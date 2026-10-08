@@ -253,7 +253,7 @@ fn validate_row(
         } else {
             errors.push((
                 Some("priority".into()),
-                format!("'{raw}' is not a valid priority; use low, medium, or high"),
+                format!("'{raw}' is not a valid priority; use none, low, medium, high or urgent"),
             ));
             TicketPriority::Medium
         }

@@ -1156,7 +1156,7 @@ fn execute_set_priority(
         },
         None,
     )?;
-    Ok(priority_str.to_string())
+    Ok(priority.as_str().to_string())
 }
 
 // =====================================================================

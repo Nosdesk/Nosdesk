@@ -85,6 +85,7 @@ mod plugin_collection_row_scoping;
 mod plugin_events_as_events;
 mod plugin_permission_gate;
 mod portal_session;
+mod priority_names;
 mod profile_write_authz;
 mod project_ticket_visibility;
 mod projection_membership_role_model;
