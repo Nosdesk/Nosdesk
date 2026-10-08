@@ -278,6 +278,35 @@ fn detection_does_not_recreate_a_dismissed_gap_without_new_evidence() {
     assert_eq!(later.gaps_created, 1);
 }
 
+#[test]
+fn searches_after_a_dismissal_are_new_evidence_when_the_database_clock_lags() {
+    // Inside one transaction Postgres's now() stays at the transaction's
+    // start, which stands in for a database clock running behind the app's.
+    // The dismissal is timed by the app, so the searches must be too.
+    let db = crate::common::TestDb::new();
+    let mut conn = db.conn();
+    let author = crate::common::insert_user(&mut conn, "Admin");
+    conn.transaction::<_, diesel::result::Error, _>(|tx| {
+        for _ in 0..2 {
+            search_query_log::log_query(tx, "unlock account", 0)?;
+        }
+        let first = gaps::run_failed_search_detection(tx, None, 30, 2)?;
+        assert_eq!(first.gaps_created, 1);
+        gaps::dismiss_gap(tx, first.new_gap_ids[0], author.uuid)?;
+
+        for _ in 0..2 {
+            search_query_log::log_query(tx, "Unlock account", 0)?;
+        }
+        let later = gaps::run_failed_search_detection(tx, None, 30, 2)?;
+        assert_eq!(
+            later.gaps_created, 1,
+            "the searches came after the dismissal"
+        );
+        Ok(())
+    })
+    .expect("transaction");
+}
+
 #[actix_web::test]
 async fn the_hourly_job_detects_gaps_in_each_workspace() {
     let db = crate::common::TestDb::new();

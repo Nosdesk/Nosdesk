@@ -23,7 +23,9 @@ pub fn normalise_query(raw: &str) -> String {
 
 // sync-audit-only: Operational / bespoke tables
 /// Insert one log row. Errors are non-fatal at the call site —
-/// search must succeed even if logging fails.
+/// search must succeed even if logging fails. Timed by the app's clock,
+/// not the column's `now()`: `count_failed_since` compares it with gap
+/// close times, which the app stamps.
 pub fn log_query(conn: &mut DbConnection, query_raw: &str, result_count: i32) -> Result<(), Error> {
     let query_norm = normalise_query(query_raw);
     if query_norm.is_empty() {
@@ -33,6 +35,7 @@ pub fn log_query(conn: &mut DbConnection, query_raw: &str, result_count: i32) ->
         query_raw: query_raw.to_string(),
         query_norm,
         result_count,
+        searched_at: chrono::Utc::now().naive_utc(),
     };
     diesel::insert_into(search_query_log::table)
         .values(&row)
