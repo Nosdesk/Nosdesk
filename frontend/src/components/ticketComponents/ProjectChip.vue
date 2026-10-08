@@ -11,6 +11,8 @@ import PropertyChip from '@/components/ticketComponents/PropertyChip.vue'
 
 const props = defineProps<{
   projectId: string
+  /** No remove control. */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -50,7 +52,7 @@ watch(
     :title="chipLabel"
     :to="`/projects/${projectId}`"
     :loading="loading"
-    removable
+    :removable="!readonly"
     :remove-title="removeTitle"
     @remove="emit('remove', projectId)"
   />

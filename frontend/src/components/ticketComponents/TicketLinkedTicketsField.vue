@@ -24,6 +24,8 @@ const props = defineProps<{
   isDropTarget?: boolean
   /** The ticket being dragged, for the affordance label. */
   dragLabel?: string | null
+  /** Show the links without add or remove controls. */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -41,6 +43,7 @@ const hasContent = computed(
     :label="t('ticket-field-linked-tickets-label')"
     :add-label="t('ticket-field-linked-tickets-add')"
     :hide-chips="!hasContent"
+    :read-only="readonly"
     @add="emit('add')"
   >
     <span
@@ -57,6 +60,7 @@ const hasContent = computed(
       v-for="id in linkedTicketIds"
       :key="id"
       :ticket-id="id"
+      :readonly="readonly"
       @remove="(removedId) => emit('remove', removedId)"
     />
   </PropertyChipRow>

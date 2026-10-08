@@ -458,7 +458,7 @@ const handleLinkDrop = async (event: DragEvent) => {
     event.preventDefault();
     resetDropState();
 
-    if (shouldSuppressTicketDrop()) {
+    if (shouldSuppressTicketDrop() || ticket.value?.merged_into_ticket_id != null) {
         return;
     }
 
@@ -782,6 +782,7 @@ const rootEl = ref<HTMLElement | null>(null);
                                 :is-link-drop-target="isLinkDropTarget"
                                 :link-drop-drag-label="dragState.ticket ? (dragState.ticket.number !== undefined ? `#${dragState.ticket.number} ${dragState.ticket.title}` : dragState.ticket.title) : null"
                                 :internal-comments="internalComments"
+                                :readonly="ticket.merged_into_ticket_id != null"
                                 @update:selectedWorkflowStateId="updateWorkflowState"
                                 @update:selectedPriority="updatePriority"
                                 @update:selectedCategory="updateCategory"
@@ -874,6 +875,7 @@ const rootEl = ref<HTMLElement | null>(null);
                                 :initial-content="''"
                                 :ticket-id="ticket.id"
                                 :ticket-number="ticket.number"
+                                :readonly="ticket.merged_into_ticket_id != null"
                             />
                         </div>
 

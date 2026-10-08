@@ -39,6 +39,8 @@ const props = defineProps<{
    *  emit instead. */
   ticketId: number
   tagIds: number[]
+  /** Show the tags without add or remove controls. */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -178,7 +180,9 @@ function chipClass(tag: Tag): string {
          container reserves via its own `px-2`, while keeping
          the label text aligned at the same x as plain <h3>
          rows. See TicketDetails for the layered padding math. -->
+    <h3 v-if="readonly" class="text-xs font-medium text-tertiary">{{ t('ticket-field-tags-label') }}</h3>
     <button
+      v-else
       type="button"
       class="group flex items-center justify-between gap-2 -mx-2 px-2 py-1 rounded text-left hover:bg-surface-hover transition-colors"
       :title="t('ticket-field-tags-add')"
@@ -209,12 +213,13 @@ function chipClass(tag: Tag): string {
       <span
         v-for="tag in attachedTags"
         :key="tag.id"
-        class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-2xs font-medium"
-        :class="chipClass(tag)"
+        class="inline-flex items-center gap-1 pl-2 py-0.5 rounded text-2xs font-medium"
+        :class="[chipClass(tag), readonly ? 'pr-2' : 'pr-1']"
         :title="tag.description || tag.name"
       >
         {{ tag.name }}
         <button
+          v-if="!readonly"
           type="button"
           class="inline-flex items-center justify-center w-4 h-4 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
           :title="t('ticket-field-tags-remove', { name: tag.name })"

@@ -12,6 +12,7 @@ import {
   buildWorkflowDropdownOptions,
   isCategoryHeaderValue,
   coarseStatusBucket,
+  TERMINAL_CATEGORIES,
 } from '@nosdesk/core/types/workflow';
 import QRCode from 'qrcode';
 import UserPicker from "@/components/ticketComponents/UserPicker.vue";
@@ -45,6 +46,7 @@ import { useAuthStore } from "@/stores/auth";
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
 import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@nosdesk/core/utils/dateUtils";
 import { useUsersDirectory } from "@/composables/useUsersDirectory";
+import { ticketSourceLabelKey } from "@/utils/ticketSource";
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -179,6 +181,9 @@ const props = defineProps<{
    *  tech can promote their working notes into a fixed-record
    *  resolution without retyping. */
   internalComments?: CommentWithAttachments[];
+  /** Show the ticket without offering to change it: a merged ticket, whose
+   *  work goes on in the ticket it was merged into. */
+  readonly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -434,13 +439,10 @@ const recurrenceHint = computed<string | undefined>(() => {
 const sourceLabel = computed<string | null>(() => {
   if (!props.ticket.origin_channel_id) return null;
   const provider = props.ticket.submitted_via ?? 'channel';
-  if (provider === 'email_imap') return t('ticket-detail-source-email');
-  if (provider === 'email_smtp') return t('ticket-detail-source-email');
-  if (provider === 'slack') return t('ticket-detail-source-slack');
-  if (provider === 'teams') return t('ticket-detail-source-teams');
-  // Fall through to the raw provider name for channels we
-  // haven't pretty-named yet, better than masking the source.
-  return provider;
+  const key = ticketSourceLabelKey(provider);
+  // The raw provider name for a channel without a name yet, better
+  // than masking the source.
+  return key ? t(key) : provider;
 });
 
 // ---- SLA pill ---------------------------------------------------
@@ -528,8 +530,8 @@ function draftResolutionFromInternalNotes() {
 }
 
 // Terminal state lookup for the visual treatment. Workflow states
-// are workspace-configurable; their `category` (one of the six
-// system categories) tells us whether the state is terminal.
+// are workspace-configurable; their `category` tells us whether the
+// state is terminal (done, cancelled or merged).
 // Falls back to "not terminal" when the workflow store hasn't
 // loaded yet — the user just gets the muted styling until the
 // store warms.
@@ -537,7 +539,7 @@ const isTerminalState = computed<boolean>(() => {
   const id = props.selectedWorkflowStateId;
   if (id == null) return false;
   const cat = workflowStatesStore.findById(id)?.category;
-  return cat === 'done' || cat === 'cancelled';
+  return cat != null && TERMINAL_CATEGORIES.has(cat);
 });
 
 // ---- Audit timestamps -------------------------------------------
@@ -914,7 +916,7 @@ watchEffect(async () => {
             <span class="text-tertiary font-medium">{{ t('ticket-detail-source-label') }}</span>
             <span
               class="inline-flex items-center gap-1.5 text-secondary"
-              :title="t('ticket-detail-source-tooltip', { provider: ticket.submitted_via ?? 'channel' })"
+              :title="t('ticket-detail-source-tooltip', { provider: sourceLabel })"
             >
               <Icon name="email" class="w-3.5 h-3.5" />
               {{ sourceLabel }}
@@ -946,7 +948,7 @@ watchEffect(async () => {
                   size="xs"
                   variant="ghost-danger"
                   class="print:hidden opacity-0 group-hover/req:opacity-100 pointer-coarse:opacity-100"
-                  v-if="selectedRequester"
+                  v-if="selectedRequester && !readonly"
                   @click="emit('update:requester', '')"
                 />
               </div>
@@ -956,7 +958,7 @@ watchEffect(async () => {
                    permanent border + background the previous version
                    carried, matching the flat-panel pattern adopted
                    for Status / Priority / Category / Scheduling. -->
-              <div class="rounded-lg hover:bg-surface-hover transition-colors">
+              <div class="rounded-lg hover:bg-surface-hover transition-colors" :inert="readonly">
                 <UserPicker
                   ref="requesterRef"
                   :modelValue="selectedRequester"
@@ -983,7 +985,7 @@ watchEffect(async () => {
                        visible (not hover-revealed) because Claim is a
                        primary affordance, not a power-user shortcut. -->
                   <button
-                    v-if="canSelfAssign && !selectedAssignee"
+                    v-if="canSelfAssign && !selectedAssignee && !readonly"
                     @click="toggleSelfAssign"
                     type="button"
                     class="text-2xs font-medium px-2 h-6 rounded text-accent hover:bg-accent-muted transition-colors"
@@ -1000,12 +1002,12 @@ watchEffect(async () => {
                     size="xs"
                     variant="ghost-danger"
                     class="opacity-0 group-hover/ass:opacity-100 pointer-coarse:opacity-100"
-                    v-if="selectedAssignee"
+                    v-if="selectedAssignee && !readonly"
                     @click="emit('update:assignee', '')"
                   />
                 </div>
               </div>
-              <div class="rounded-lg hover:bg-surface-hover transition-colors">
+              <div class="rounded-lg hover:bg-surface-hover transition-colors" :inert="readonly">
                 <UserPicker
                   ref="assigneeRef"
                   :modelValue="selectedAssignee"
@@ -1038,6 +1040,7 @@ watchEffect(async () => {
                 :value="workflowDropdownValue"
                 :options="workflowDropdownOptions"
                 type="status"
+                :disabled="readonly"
                 @update:value="handleStatusDropdownChange"
                 class="w-full"
               />
@@ -1050,6 +1053,7 @@ watchEffect(async () => {
                 :value="selectedPriority"
                 :options="priorityOptions"
                 type="priority"
+                :disabled="readonly"
                 @update:value="(v: string) => emit('update:selectedPriority', v as TicketPriority)"
                 class="w-full"
               />
@@ -1194,12 +1198,13 @@ watchEffect(async () => {
                 <div class="flex items-center gap-2">
                   <DatePicker
                     v-model="startDateValue"
+                    :disabled="readonly"
                     size="sm"
                     block
                     :aria-label="t('ticket-detail-scheduling-start-date')"
                   />
                   <IconButton
-                    v-if="ticket.start_date"
+                    v-if="ticket.start_date && !readonly"
                     size="sm"
                     icon="close"
                     :label="t('ticket-detail-scheduling-clear-start')"
@@ -1218,12 +1223,13 @@ watchEffect(async () => {
                 <div class="flex items-center gap-2">
                   <DatePicker
                     v-model="dueDateValue"
+                    :disabled="readonly"
                     size="sm"
                     block
                     :aria-label="t('ticket-detail-scheduling-due-date')"
                   />
                   <IconButton
-                    v-if="ticket.due_date"
+                    v-if="ticket.due_date && !readonly"
                     size="sm"
                     icon="close"
                     :label="t('ticket-detail-scheduling-clear-due')"
@@ -1243,6 +1249,7 @@ watchEffect(async () => {
                   :model-value="recurrenceSelectValue"
                   :options="RECURRENCE_PRESETS"
                   :description="recurrenceHint"
+                  :disabled="readonly"
                   size="sm"
                   @update:model-value="(v) => handleRecurrenceChange(v as string)"
                 />
@@ -1262,6 +1269,7 @@ watchEffect(async () => {
               :value="selectedCategory?.toString() || ''"
               :options="categoryOptions"
               type="category"
+              :disabled="readonly"
               @update:value="emit('update:selectedCategory', $event)"
               class="w-full"
               :placeholder="t('ticket-detail-category-placeholder')"
@@ -1292,6 +1300,7 @@ watchEffect(async () => {
           <TicketTagsField
             :ticket-id="ticket.id"
             :tag-ids="ticket.tag_ids ?? []"
+            :readonly="readonly"
             @update:tag-ids="(v) => emit('update:tag-ids', v)"
           />
           </div><!-- /Cluster C -->
@@ -1306,6 +1315,7 @@ watchEffect(async () => {
           <TicketWatchersField
             :ticket-id="ticket.id"
             :watcher-uuids="ticket.watcher_uuids ?? []"
+            :readonly="readonly"
             @toggle="emit('toggle-watch')"
           />
 
@@ -1317,12 +1327,13 @@ watchEffect(async () => {
                attachments live in the parent. -->
           <TicketDevicesField
             :devices="devices ?? []"
+            :readonly="readonly"
             @add="emit('add-device')"
             @remove="(id) => emit('remove-device', id)"
           />
 
           <TicketAssetUsage
-            v-if="ticket.id"
+            v-if="ticket.id && !readonly"
             :ticket-id="ticket.id"
             :assets="devices ?? []"
             @asset-updated="(id) => emit('asset-usage-recorded', id)"
@@ -1342,12 +1353,14 @@ watchEffect(async () => {
             :show-drop-affordance="!!showLinkDropAffordance"
             :is-drop-target="!!isLinkDropTarget"
             :drag-label="linkDropDragLabel"
+            :readonly="readonly"
             @add="emit('add-linked-ticket')"
             @remove="(id) => emit('remove-linked-ticket', id)"
           />
 
           <TicketProjectsField
             :project-ids="normalisedProjectIds"
+            :readonly="readonly"
             @add="emit('add-project')"
             @remove="(id) => emit('remove-project', id)"
           />
@@ -1385,7 +1398,7 @@ watchEffect(async () => {
                      replace) so a half-written resolution survives
                      the pull. -->
                 <button
-                  v-if="(props.internalComments?.length ?? 0) > 0"
+                  v-if="(props.internalComments?.length ?? 0) > 0 && !readonly"
                   type="button"
                   class="inline-flex items-center gap-1 px-2 h-6 rounded text-2xs font-medium text-status-warning hover:bg-status-warning-muted transition-colors"
                   :title="t('ticket-detail-resolution-draft-from-notes-title', { count: props.internalComments?.length ?? 0 })"
@@ -1413,6 +1426,7 @@ watchEffect(async () => {
                  the manualMinHeight floor in FormTextarea. -->
             <FormTextarea
               v-model="localResolutionNotes"
+              :disabled="readonly"
               :placeholder="t('ticket-detail-resolution-placeholder')"
               :rows="2"
               :max-rows="12"

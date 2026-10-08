@@ -223,6 +223,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
               type="status"
               compact
               inline
+              :disabled="card?.workflow_state.category === 'merged'"
               :placeholder="$t('views-ticket-preview-status')"
               @update:value="updateStatus"
             />
@@ -270,6 +271,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
                   type="priority"
                   compact
                   inline
+                  :disabled="card?.workflow_state.category === 'merged'"
                   :placeholder="$t('views-ticket-preview-priority')"
                   @update:value="updatePriority"
                 />

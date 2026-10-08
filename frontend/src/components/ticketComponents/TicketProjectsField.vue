@@ -8,6 +8,8 @@ import PropertyChipRow from '@/components/ticketComponents/PropertyChipRow.vue'
 
 defineProps<{
   projectIds: string[]
+  /** Show the projects without add or remove controls. */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -20,12 +22,14 @@ const emit = defineEmits<{
   <PropertyChipRow
     :label="$t('ticket-field-projects-label')"
     :add-label="$t('ticket-field-projects-add')"
+    :read-only="readonly"
     @add="emit('add')"
   >
     <ProjectChip
       v-for="id in projectIds"
       :key="id"
       :project-id="id"
+      :readonly="readonly"
       @remove="(removedId) => emit('remove', removedId)"
     />
   </PropertyChipRow>

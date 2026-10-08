@@ -4371,6 +4371,9 @@ ticket-detail-title-label = Titre
 ticket-detail-source-label = Source
 ticket-detail-source-tooltip = Ouvert via { $provider }. Les réponses sont relayées dans le fil.
 ticket-detail-source-email = E-mail
+# Sources de messagerie hébergées (machine, à relire par un locuteur natif).
+ticket-detail-source-email-forward = E-mail (transféré)
+ticket-detail-source-email-managed = E-mail (adresse de support)
 ticket-detail-source-slack = Slack
 ticket-detail-source-teams = Microsoft Teams
 ticket-detail-clear-requester = Effacer le demandeur

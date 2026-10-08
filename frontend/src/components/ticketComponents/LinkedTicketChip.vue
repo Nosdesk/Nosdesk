@@ -13,6 +13,8 @@ import { pooledTicketNumber, ticketNumber, ticketPath } from '@/utils/ticketNumb
 
 const props = defineProps<{
   ticketId: number
+  /** No remove control. */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -58,7 +60,7 @@ watch(
     :title="chipTooltip"
     :to="ticketPath({ id: ticketId, number })"
     :loading="loading"
-    removable
+    :removable="!readonly"
     :remove-title="unlinkTitle"
     @remove="emit('remove', ticketId)"
   >

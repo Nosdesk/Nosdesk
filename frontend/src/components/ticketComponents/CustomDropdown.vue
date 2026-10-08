@@ -43,6 +43,8 @@ const props = defineProps<{
   compact?: boolean
   /** Shrink-wrap the trigger instead of filling the row width. */
   inline?: boolean
+  /** Show the value without offering to change it. */
+  disabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -110,6 +112,7 @@ const sheetTitle = computed(() => {
 })
 
 function toggle() {
+  if (props.disabled) return
   isOpen.value = !isOpen.value
 }
 
@@ -129,9 +132,11 @@ const glyphSize = computed(() => (props.compact ? 12 : 14))
       type="button"
       aria-haspopup="dialog"
       :aria-expanded="isOpen"
+      :disabled="disabled"
       @click="toggle"
-      class="group bg-transparent text-primary text-left flex items-center justify-between hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
+      class="group bg-transparent text-primary text-left flex items-center justify-between transition-colors"
       :class="[
+        disabled ? 'cursor-default' : 'hover:bg-surface-hover active:bg-surface-alt cursor-pointer',
         inline ? 'w-auto max-w-full' : 'w-full',
         compact
           ? 'px-1.5 py-0.5 min-h-0 text-xs rounded-md gap-1.5'
@@ -176,6 +181,7 @@ const glyphSize = computed(() => (props.compact ? 12 : 14))
            state to reveal with. Matches the "display, click to edit"
            register the rest of the sidebar settled on. -->
       <svg
+        v-if="!disabled"
         class="text-tertiary transition-all duration-200 shrink-0"
         :class="[
           compact ? 'w-3 h-3' : 'w-4 h-4',

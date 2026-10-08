@@ -43,6 +43,9 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const props = defineProps<{
   ticketId: number
   watcherUuids: string[]
+  /** A merged ticket: the current user can stop watching (to stop its
+   *  notifications) but not start, and per-watch preferences are hidden. */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -69,6 +72,7 @@ const overflowCount = computed<number>(() => Math.max(0, props.watcherUuids.leng
 
 function handleToggle() {
   if (!currentUserUuid.value) return
+  if (props.readonly && !isWatching.value) return
   emit('toggle')
 }
 
@@ -184,7 +188,7 @@ watch(isWatching, (watching) => {
           >+{{ overflowCount }}</span>
         </div>
       </div>
-      <div class="flex items-center gap-0.5 shrink-0">
+      <div v-if="!readonly || isWatching" class="flex items-center gap-0.5 shrink-0">
         <!-- Bell toggle. Same bell glyph for both states; colour +
              weight distinguishes them (no `bellOff` in the registry).
              Subscribed reads as a quiet accent text colour with a
@@ -213,7 +217,7 @@ watch(isWatching, (watching) => {
              pattern: primary toggle on the left, preferences
              chevron on the right. -->
         <button
-          v-if="isWatching"
+          v-if="isWatching && !readonly"
           ref="prefsButtonRef"
           type="button"
           class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover transition-colors"

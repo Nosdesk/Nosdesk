@@ -47,6 +47,8 @@ interface Props {
    * as well as from this list, and the highlight has to follow either.
    */
   activeRevisionNumber?: number | null
+  /** No restore: the document can't be edited (a merged ticket's notes). */
+  readonly?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -63,7 +65,7 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 
 // Restoring a revision edits the document, which only staff can do.
 const authStore = useAuthStore()
-const canRestore = computed(() => authStore.isTechnician)
+const canRestore = computed(() => authStore.isTechnician && !props.readonly)
 
 const { getUserHandle } = useUsersDirectory()
 
