@@ -17,6 +17,7 @@
 //! - Enabled / template stored on `site_settings` so an admin can
 //!   customise wording without a redeploy. `None` template → the
 //!   built-in [`DEFAULT_TEMPLATE`] is used.
+//! - No ack goes to a ticket flagged as likely spam.
 //! - Fire-and-forget from the pipeline: a failure to send never
 //!   blocks ticket creation.
 //! - The auto-ack is NOT a ticket comment — it's a system-authored
@@ -96,6 +97,16 @@ async fn send_auto_ack(
     in_reply_to: &str,
     inbound_locale: Option<&str>,
 ) -> Result<(), String> {
+    // A message flagged as likely spam gets no reply: answering would confirm
+    // the address to whoever sent it, and a forged sender would get mail they
+    // never asked for. The ticket still opens for the team to review.
+    if ticket.spam_suspected {
+        debug!(
+            ticket_id = ticket.id,
+            "auto-ack: ticket flagged as spam; skipping"
+        );
+        return Ok(());
+    }
     // Load site_settings (RLS) + recipient lookup, pinned to the ticket's
     // workspace. The auto-ack runs from a detached spawn with no request
     // context, so it must establish the workspace itself; run_in_workspace
@@ -468,5 +479,31 @@ mod tests {
             "Alice",
         );
         assert_eq!(out, "ref=7 unknown={{does_not_exist}}");
+    }
+
+    #[tokio::test]
+    async fn a_spam_flagged_ticket_gets_no_auto_ack() {
+        let pool = crate::test_helpers::setup_test_pool();
+        let channel = {
+            let mut conn = pool.get().expect("test connection");
+            crate::test_helpers::TestFixtures::create_channel(&mut conn, "email_imap")
+        };
+        let resolver = OutboundEmailResolver::new(pool.clone(), None);
+        // The requester has no email on file, so an ack that gets past the
+        // spam check fails while it prepares. Ok means nothing was attempted.
+        let mut ticket = sample_ticket();
+        ticket.workspace_id = channel.workspace_id;
+        ticket.requester_uuid = Some(uuid::Uuid::new_v4());
+
+        ticket.spam_suspected = false;
+        let plain = send_auto_ack(&pool, &resolver, &channel, &ticket, "<m@x>", None).await;
+        assert!(
+            plain.is_err(),
+            "an unflagged ticket goes on to prepare the ack"
+        );
+
+        ticket.spam_suspected = true;
+        let flagged = send_auto_ack(&pool, &resolver, &channel, &ticket, "<m@x>", None).await;
+        assert_eq!(flagged, Ok(()), "a spam-flagged ticket gets no auto-ack");
     }
 }
