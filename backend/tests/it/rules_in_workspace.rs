@@ -361,3 +361,117 @@ async fn a_team_step_with_no_one_who_can_work_tickets_is_refused() {
         .expect("ticket");
     assert_eq!(assignee, None);
 }
+
+/// An archived rule stays archived: it can't go live, be paused or be
+/// edited, whether it was archived from the list (which stamps only
+/// `archived_at`) or by moving its state to archived.
+#[actix_web::test]
+async fn an_archived_rule_cannot_go_live() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let pool = db.runtime_pool(4);
+    let a = &seeded.a;
+
+    let create = |name: &'static str| {
+        let pool = pool.clone();
+        async move {
+            let created = as_admin(
+                &pool,
+                a,
+                http_test::TestRequest::post()
+                    .uri("/api/rules")
+                    .set_json(json!({
+                        "name": name,
+                        "trigger_kind": "manual",
+                        "actions": [{ "kind": "set_priority", "config": { "priority": "high" } }],
+                    })),
+            )
+            .await;
+            assert_eq!(created.status(), StatusCode::CREATED);
+            http_test::read_body_json::<Value, _>(created).await["id"]
+                .as_i64()
+                .expect("rule id")
+        }
+    };
+
+    // Archived from the list: DELETE without `hard`.
+    let deleted = create("Archived from the list").await;
+    let archived = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::delete().uri(&format!("/api/rules/{deleted}")),
+    )
+    .await;
+    assert_eq!(archived.status(), StatusCode::OK);
+
+    // Archived by its state.
+    let moved = create("Archived by state").await;
+    let archived = as_admin(
+        &pool,
+        a,
+        http_test::TestRequest::patch()
+            .uri(&format!("/api/rules/{moved}/state"))
+            .set_json(json!({ "state": "archived" })),
+    )
+    .await;
+    assert_eq!(archived.status(), StatusCode::OK);
+
+    for id in [deleted, moved] {
+        for state in ["live", "dry_run", "draft"] {
+            let resp = as_admin(
+                &pool,
+                a,
+                http_test::TestRequest::patch()
+                    .uri(&format!("/api/rules/{id}/state"))
+                    .set_json(json!({ "state": state })),
+            )
+            .await;
+            assert_eq!(resp.status(), StatusCode::CONFLICT, "rule {id} to {state}");
+            let body: Value = http_test::read_body_json(resp).await;
+            assert_eq!(
+                body["code"], "RULE_ARCHIVED",
+                "rule {id} to {state}: {body}"
+            );
+        }
+
+        let edited = as_admin(
+            &pool,
+            a,
+            http_test::TestRequest::put()
+                .uri(&format!("/api/rules/{id}"))
+                .set_json(json!({ "name": "Back from the dead" })),
+        )
+        .await;
+        assert_eq!(edited.status(), StatusCode::CONFLICT, "rule {id} edit");
+        let body: Value = http_test::read_body_json(edited).await;
+        assert_eq!(body["code"], "RULE_ARCHIVED", "rule {id} edit: {body}");
+
+        // Archiving it again changes nothing.
+        let again = as_admin(
+            &pool,
+            a,
+            http_test::TestRequest::patch()
+                .uri(&format!("/api/rules/{id}/state"))
+                .set_json(json!({ "state": "archived" })),
+        )
+        .await;
+        assert_eq!(again.status(), StatusCode::OK, "rule {id} archived again");
+
+        let rule: Value = http_test::read_body_json(
+            as_admin(
+                &pool,
+                a,
+                http_test::TestRequest::get().uri(&format!("/api/rules/{id}")),
+            )
+            .await,
+        )
+        .await;
+        assert!(
+            rule["archived_at"].is_string(),
+            "rule {id} still archived: {rule}"
+        );
+        assert_ne!(rule["state"], "live", "rule {id}: {rule}");
+        assert_ne!(rule["name"], "Back from the dead", "rule {id}: {rule}");
+    }
+}

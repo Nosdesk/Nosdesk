@@ -7133,6 +7133,7 @@ admin-rule-editor-state-new = Nieuwe regels beginnen als concept. Sla deze op en
 admin-rule-editor-state-draft = Concept. Agents zien hem nog niet.
 admin-rule-editor-state-paused = Gepauzeerd. Agents zien hem niet.
 admin-rule-editor-state-live = Actief. Agents kunnen hem op elk ticket toepassen via de knop Acties.
+admin-rule-editor-state-archived = Gearchiveerd. Agents zien hem niet, en hij kan niet worden bewerkt.
 admin-rule-editor-action-reply = Antwoorden
 admin-rule-editor-action-set-status = Status instellen
 admin-rule-editor-action-assign = Toewijzen

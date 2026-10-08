@@ -7097,6 +7097,7 @@ admin-rule-editor-state-new = New rules start as drafts. Save this one, then pre
 admin-rule-editor-state-draft = Draft. Agents can't see it yet.
 admin-rule-editor-state-paused = Paused. Agents can't see it.
 admin-rule-editor-state-live = Live. Agents can apply it from the Actions button on any ticket.
+admin-rule-editor-state-archived = Archived. Agents can't see it, and it can't be edited.
 admin-rule-editor-action-reply = Reply
 admin-rule-editor-action-set-status = Set status
 admin-rule-editor-action-assign = Assign

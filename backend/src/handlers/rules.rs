@@ -339,6 +339,17 @@ fn actor_workspace_id(req: &HttpRequest) -> Option<i32> {
         .unwrap_or(None)
 }
 
+/// An archived rule is read-only: no edits and no state changes. The list's
+/// Delete stamps only `archived_at`, moving the state to archived sets both,
+/// so either marks it.
+fn is_archived(rule: &Rule) -> bool {
+    rule.archived_at.is_some() || rule.state == RuleState::Archived
+}
+
+fn archived_conflict(id: i32) -> HttpResponse {
+    errors::conflict_with_code(format!("rule {id} is archived"), "RULE_ARCHIVED")
+}
+
 fn actor_uuid(req: &HttpRequest) -> Option<Uuid> {
     req.extensions()
         .get::<RequestContext>()
@@ -489,7 +500,8 @@ pub async fn get_rule(
 /// `PUT /api/rules/{id}` (admin). Apply a partial update; the
 /// migration's BEFORE UPDATE trigger writes a `rule_versions` row
 /// and bumps `updated_at`. `reads_set` / `writes_set` are
-/// recomputed by the repo when `conditions` or `actions` move.
+/// recomputed by the repo when `conditions` or `actions` move. An
+/// archived rule can't be edited (409 `RULE_ARCHIVED`).
 pub async fn update_rule(
     req: HttpRequest,
     path: web::Path<i32>,
@@ -531,6 +543,9 @@ pub async fn update_rule(
         Ok(None) => return Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
         Err(e) => return Err(ApiError::Database(e)),
     };
+    if is_archived(&existing) {
+        return Ok(archived_conflict(id));
+    }
     let effective_conditions = conditions.clone().unwrap_or(existing.conditions);
     let effective_actions = actions.clone().unwrap_or(existing.actions);
     let effective_trigger_kind = trigger_kind.unwrap_or(existing.trigger_kind);
@@ -588,7 +603,8 @@ pub async fn update_rule(
 
 /// `PATCH /api/rules/{id}/state` (admin). State transition with
 /// the legal-transition table; everything else returns 409
-/// `RULE_STATE_TRANSITION`.
+/// `RULE_STATE_TRANSITION`, and any change to an archived rule 409
+/// `RULE_ARCHIVED`.
 pub async fn transition_state(
     req: HttpRequest,
     path: web::Path<i32>,
@@ -604,6 +620,14 @@ pub async fn transition_state(
         Ok(None) => return Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
         Err(e) => return Err(ApiError::Database(e)),
     };
+    if is_archived(&existing) {
+        // Archiving again changes nothing; anything else would bring it back.
+        return Ok(if target == RuleState::Archived {
+            HttpResponse::Ok().json(RuleDto::from(existing))
+        } else {
+            archived_conflict(id)
+        });
+    }
     if existing.state == target {
         return Ok(HttpResponse::Ok().json(RuleDto::from(existing)));
     }

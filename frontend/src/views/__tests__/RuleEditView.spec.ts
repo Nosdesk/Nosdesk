@@ -125,6 +125,23 @@ describe('RuleEditView', () => {
     expect(button('admin-rules-go-live')).toBeUndefined()
   })
 
+  it('shows an archived rule as archived, with no Go live and no saving', async () => {
+    // Archived from the list: only archived_at is set; the state is as it was.
+    for (const archived of [rule({ archived_at: '2026-10-02T00:00:00Z' }), rule({ state: 'live', archived_at: '2026-10-02T00:00:00Z' })]) {
+      rules.get.mockResolvedValue(archived)
+      const w = await mountAt('admin-rules-edit', { id: '4' })
+      expect(w.text()).toContain('admin-rule-editor-state-archived')
+      expect(w.text()).not.toContain('admin-rule-editor-state-draft')
+      expect(w.text()).not.toContain('admin-rule-editor-state-live')
+      expect(button('admin-rules-go-live')).toBeUndefined()
+      expect(button('admin-rules-pause')).toBeUndefined()
+      expect(button('admin-rule-editor-save')!.disabled).toBe(true)
+      w.unmount()
+      wrapper = null
+      document.body.innerHTML = ''
+    }
+  })
+
   it('assigns a step to a team', async () => {
     rules.get.mockResolvedValue(rule({ actions: [{ kind: 'assign', config: { method: 'direct', user_uuid: '' } }] }))
     rules.update.mockResolvedValue(rule())

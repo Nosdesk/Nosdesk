@@ -176,8 +176,14 @@ function stepProblem(action: RuleAction): string | null {
   }
 }
 
+// Archived from the list stamps only archived_at, so either marks it. The
+// server refuses edits and state changes to an archived rule (RULE_ARCHIVED).
+const isArchived = computed(
+  () => original.value != null && (original.value.archived_at != null || original.value.state === 'archived'),
+);
+
 const canSave = computed(
-  () => name.value.trim().length > 0 && actions.value.length > 0 && !saving.value,
+  () => name.value.trim().length > 0 && actions.value.length > 0 && !saving.value && !isArchived.value,
 );
 /** Set by a save attempt with unfinished steps, so their hints show. */
 const showStepProblems = ref(false);
@@ -265,6 +271,7 @@ async function setLive(live: boolean): Promise<void> {
 }
 
 const stateNote = computed(() => {
+  if (isArchived.value) return t('admin-rule-editor-state-archived');
   switch (original.value?.state) {
     case undefined:
       return t('admin-rule-editor-state-new');
@@ -556,7 +563,7 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
       <div class="flex flex-col gap-3 rounded-lg border border-default bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <p class="text-sm text-secondary">{{ stateNote }}</p>
         <Button
-          v-if="original?.state === 'live'"
+          v-if="original?.state === 'live' && !isArchived"
           variant="secondary"
           size="sm"
           icon="pause"
@@ -566,7 +573,7 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
           {{ t('admin-rules-pause') }}
         </Button>
         <Button
-          v-else-if="original && isManual"
+          v-else-if="original && isManual && !isArchived"
           variant="secondary"
           size="sm"
           icon="play"
