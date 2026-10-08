@@ -8,6 +8,7 @@ import apiClient from '@nosdesk/core/apiClient'
 import { useMicrosoftAuth } from '@/composables/useMicrosoftAuth'
 import AuthCallbackCard, { type ErrorInfo } from '@/components/auth/AuthCallbackCard.vue'
 import { extractErrorMessage } from '@/utils/errors'
+import { isInAppPath } from '@/utils/inAppPath'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -146,18 +147,10 @@ onMounted(async () => {
         authStore.user = data.user
       }
 
-      // Only honour same-origin relative paths from sessionStorage.
-      // The pre-auth code stuffs window.location.pathname in there,
-      // but sessionStorage is XSS-readable and could be poisoned to
-      // bounce users to a phishing site after login. Reject anything
-      // that's not a leading-single-slash relative path: protocol-
-      // relative ("//attacker.com"), absolute URLs ("https://..."),
-      // and javascript: URIs all collapse to '/'.
+      // Only a path in this app, by the rule every sign-in return follows:
+      // sessionStorage is readable and writable by any script on the page.
       const stored = sessionStorage.getItem('authRedirect')
-      let redirectPath = '/'
-      if (stored && stored.startsWith('/') && !stored.startsWith('//') && !stored.includes('://')) {
-        redirectPath = stored
-      }
+      let redirectPath = isInAppPath(stored) ? stored : '/'
       if (redirectPath.includes(`/auth/${provider.value}/callback`)) {
         redirectPath = '/'
       }

@@ -1400,32 +1400,39 @@ const AUTH_ERROR_NO_EMAIL: &str = "no_email";
 /// seat link was refused (see `resolve_user_by_identity_or_email`).
 const AUTH_ERROR_EMAIL_UNVERIFIED: &str = "email_unverified";
 
-// Helper function to find or create a user from OAuth profile
-/// Lazy OIDC user provisioning, called from the OAuth callback when
-/// a user logs in. Extracts identity claims from the provider's
-/// user_info JSON (MS Graph shape) and delegates to the shared
-/// `services::oauth_provisioning::find_or_create_projected_user` —
-/// same core code path the M5 eager-projection endpoint uses, so
-/// lazy and eager calls converge to the same row.
-///
-/// OAuth-created users land as workspace `member` regardless of the
-/// global role (which stays `User`). Owner / admin grants come from
-/// the eager-projection path during workspace provisioning, not
-/// from first-login.
-/// Sanitise the post-login redirect target before bouncing the browser to
-/// it. `redirect_uri` is client-supplied at initiation (carried through the
-/// signed state; the sign-in page sends its `?redirect=` page), so only a
-/// path in this app is honoured. As written it must be one leading slash and
-/// then visible ASCII; with its `%XX` escapes decoded it must hold no
-/// backslash and not start with `//`. That rules out other hosts (`//host`,
-/// and `/\host`, which browsers read the same way), schemes, and anything a
-/// browser would strip or rewrite. Anything else falls back to the app root.
-/// The frontend's `isInAppPath` applies the same rule.
+/// Longest return path sign-in follows; a longer one falls back to "/".
+const MAX_RETURN_PATH_LEN: usize = 2048;
+
+/// Whether `path` is a path in this app that sign-in may send the browser
+/// back to. As written it must be one leading slash and then visible ASCII,
+/// at most [`MAX_RETURN_PATH_LEN`] long. With its `%XX` escapes decoded it
+/// must hold no backslash, and its path part (before any `?` or `#`) no `//`
+/// and no `.` or `..` segment, so it can't resolve to another host or start
+/// with `//`. The frontend's `isInAppPath` applies the same rule, and both
+/// sides test it against `tests/fixtures/in_app_paths.json`.
+fn is_in_app_path(path: &str) -> bool {
+    if path.len() > MAX_RETURN_PATH_LEN
+        || !path.starts_with('/')
+        || !path.bytes().all(|b| b.is_ascii_graphic())
+    {
+        return false;
+    }
+    if urlencoding::decode_binary(path.as_bytes()).contains(&b'\\') {
+        return false;
+    }
+    let end = path.find(['?', '#']).unwrap_or(path.len());
+    let decoded = urlencoding::decode_binary(&path.as_bytes()[..end]);
+    !decoded.windows(2).any(|pair| pair == b"//")
+        && decoded[1..]
+            .split(|&b| b == b'/')
+            .all(|segment| segment != b"." && segment != b"..")
+}
+
+/// The post-login redirect target, if sign-in may follow it, else the app
+/// root. `redirect_uri` is client-supplied at initiation (carried through the
+/// signed state; the sign-in page sends its `?redirect=` page).
 fn safe_post_login_location(redirect_uri: &str) -> String {
-    let written_in_app =
-        redirect_uri.starts_with('/') && redirect_uri.bytes().all(|b| b.is_ascii_graphic());
-    let decoded = urlencoding::decode_binary(redirect_uri.as_bytes());
-    if written_in_app && !decoded.contains(&b'\\') && !decoded.starts_with(b"//") {
+    if is_in_app_path(redirect_uri) {
         redirect_uri.to_string()
     } else {
         "/".to_string()
@@ -1436,21 +1443,17 @@ fn safe_post_login_location(redirect_uri: &str) -> String {
 /// result query (`auth_success=true` / `auth_error=<code>`). The stored
 /// return target is client-supplied at initiation (typically an absolute
 /// `window.location.href`), so only its path survives: an absolute URL is
-/// reduced to its same-origin path and never followed to another host, which
-/// would otherwise be an open redirector on this path too (RFC 9700
-/// section 4.11). Free text never rides in the query; codes only.
+/// reduced to its same-origin path and never followed to another host
+/// (RFC 9700 section 4.11), and the path must pass [`is_in_app_path`] like
+/// any sign-in return. Free text never rides in the query; codes only.
 fn connect_result_redirect(redirect_uri: &str, result_query: &str) -> HttpResponse {
-    let target = redirect_uri.split('?').next().unwrap_or("");
+    let target = redirect_uri.split(['?', '#']).next().unwrap_or("");
     let path = match target.split_once("://") {
         // Absolute URL: keep the path after the authority, drop the host.
         Some((_, rest)) => rest.find('/').map(|i| &rest[i..]).unwrap_or("/"),
         None => target,
     };
-    let path = if path.starts_with('/') && !path.starts_with("//") {
-        path
-    } else {
-        "/"
-    };
+    let path = if is_in_app_path(path) { path } else { "/" };
     HttpResponse::Found()
         .append_header(("Location", format!("{path}?{result_query}")))
         .finish()
@@ -1685,6 +1688,16 @@ fn resolve_existing_seat_user(
     }
 }
 
+/// Lazy OIDC user provisioning, called from the OAuth callback when
+/// a user logs in. Takes the login's identity claims and delegates to the
+/// shared `services::oauth_provisioning::find_or_create_projected_user`,
+/// the same core code path the M5 eager-projection endpoint uses, so
+/// lazy and eager calls converge to the same row.
+///
+/// OAuth-created users land as workspace `member` regardless of the
+/// global role (which stays `User`). Owner / admin grants come from
+/// the eager-projection path during workspace provisioning, not
+/// from first-login.
 async fn find_or_create_oauth_user(
     claims: &OAuthLoginClaims,
     // Identity issuer for `user_auth_identities.provider_type`. For
@@ -2206,6 +2219,39 @@ mod login_claims_tests {
         assert_eq!(loc("//evil.example/x"), "/?auth_success=true");
         assert_eq!(loc("javascript:alert(1)"), "/?auth_success=true");
         assert_eq!(loc(""), "/?auth_success=true");
+        // A fragment goes with the query.
+        assert_eq!(
+            loc("https://app.example/profile#keys"),
+            "/profile?auth_success=true"
+        );
+    }
+
+    /// The connect flow returns through the same rule as sign-in. Its query
+    /// and fragment are dropped first, so only paths without them are
+    /// compared here.
+    #[test]
+    fn connect_redirect_follows_only_paths_in_the_app() {
+        let loc = |uri: &str| {
+            let resp = super::connect_result_redirect(uri, "auth_success=true");
+            resp.headers()
+                .get("location")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+        };
+        let (in_app, not_in_app) = super::hosted_auth_tests::return_path_cases();
+        let plain = |p: &&String| !p.contains(['?', '#']);
+        for target in in_app.iter().filter(plain) {
+            assert_eq!(
+                loc(target),
+                format!("{target}?auth_success=true"),
+                "{target:?}"
+            );
+        }
+        for target in not_in_app.iter().filter(plain) {
+            assert_eq!(loc(target), "/?auth_success=true", "{target:?}");
+        }
     }
 }
 
@@ -2227,38 +2273,34 @@ mod hosted_auth_tests {
         assert_eq!(safe_post_login_location(""), "/");
     }
 
-    /// The sign-in page sends its `?redirect=` page, so the target can come
-    /// from a link. Browsers read a backslash as a slash and drop tabs and
-    /// newlines, so `/\host` and `/<tab>/host` both name another host; the
-    /// encoded forms are refused too. The same cases are in the frontend's
-    /// `utils/__tests__/inAppPath.spec.ts`.
+    /// The return paths sign-in may and may not follow, shared with the
+    /// frontend's `isInAppPath` spec so both sides apply one rule.
+    #[derive(serde::Deserialize)]
+    struct ReturnPathCases {
+        in_app: Vec<String>,
+        not_in_app: Vec<String>,
+    }
+
+    pub(super) fn return_path_cases() -> (Vec<String>, Vec<String>) {
+        let cases: ReturnPathCases =
+            serde_json::from_str(include_str!("../../tests/fixtures/in_app_paths.json"))
+                .expect("in_app_paths.json");
+        let longest = format!("/{}", "a".repeat(super::MAX_RETURN_PATH_LEN - 1));
+        let too_long = format!("{longest}a");
+        let mut in_app = cases.in_app;
+        in_app.push(longest);
+        let mut not_in_app = cases.not_in_app;
+        not_in_app.push(too_long);
+        (in_app, not_in_app)
+    }
+
     #[test]
-    fn post_login_location_refuses_paths_a_browser_reads_as_another_host() {
-        for target in [
-            "/",
-            "/acme/tickets/12",
-            "/acme/tickets/12?tab=notes#c4",
-            "/search?q=%20vpn",
-        ] {
-            assert_eq!(safe_post_login_location(target), target, "{target:?}");
+    fn post_login_location_follows_only_paths_in_the_app() {
+        let (in_app, not_in_app) = return_path_cases();
+        for target in &in_app {
+            assert_eq!(&safe_post_login_location(target), target, "{target:?}");
         }
-        for target in [
-            "",
-            "tickets/12",
-            "//evil.example",
-            "/\\evil.example",
-            "/x\\y",
-            "/\t/evil.example",
-            "/\n/evil.example",
-            "/a b",
-            "https://evil.example",
-            "javascript:alert(1)",
-            "/\u{e9}",
-            "/%2F%2Fevil.example",
-            "/%2fevil.example",
-            "/%5Cevil.example",
-            "/x%5Cy",
-        ] {
+        for target in &not_in_app {
             assert_eq!(safe_post_login_location(target), "/", "{target:?}");
         }
     }

@@ -1,27 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { isInAppPath } from '@/utils/inAppPath'
+import { isInAppPath, MAX_RETURN_PATH_LENGTH } from '@/utils/inAppPath'
+import casesJson from '../../../../backend/tests/fixtures/in_app_paths.json?raw'
 
-// The same cases as the server's
-// `post_login_location_refuses_paths_a_browser_reads_as_another_host`
-// (backend/src/handlers/auth_providers.rs): both sides apply one rule.
-const IN_APP = ['/', '/acme/tickets/12', '/acme/tickets/12?tab=notes#c4', '/search?q=%20vpn']
-const NOT_IN_APP = [
-  '',
-  'tickets/12',
-  '//evil.example',
-  '/\\evil.example',
-  '/x\\y',
-  '/\t/evil.example',
-  '/\n/evil.example',
-  '/a b',
-  'https://evil.example',
-  'javascript:alert(1)',
-  '/\u00e9',
-  '/%2F%2Fevil.example',
-  '/%2fevil.example',
-  '/%5Cevil.example',
-  '/x%5Cy',
-]
+// The same cases the server's `safe_post_login_location` tests read, so both
+// sides apply one rule.
+const cases = JSON.parse(casesJson) as { in_app: string[]; not_in_app: string[] }
+const longest = `/${'a'.repeat(MAX_RETURN_PATH_LENGTH - 1)}`
+const IN_APP = [...cases.in_app, longest]
+const NOT_IN_APP = [...cases.not_in_app, `${longest}a`]
 
 describe('isInAppPath', () => {
   it('accepts a path in the app, with its query and hash', () => {

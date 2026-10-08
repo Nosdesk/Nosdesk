@@ -1,0 +1,36 @@
+{
+  "about": "Return paths sign-in may and may not send the browser back to. Read by the server's safe_post_login_location tests (backend/src/handlers/auth_providers.rs) and the frontend's isInAppPath spec (frontend/src/utils/__tests__/inAppPath.spec.ts), so both apply one rule. Both also check the length cap (2048) in code.",
+  "in_app": [
+    "/",
+    "/acme/tickets/12",
+    "/acme/tickets/12?tab=notes#c4",
+    "/acme/tickets/",
+    "/search?q=%20vpn",
+    "/search?q=a//b"
+  ],
+  "not_in_app": [
+    "",
+    "tickets/12",
+    "//other.example",
+    "/\\other.example",
+    "/x\\y",
+    "/\t/other.example",
+    "/\n/other.example",
+    "/a b",
+    "https://other.example",
+    "javascript:alert(1)",
+    "/é",
+    "/%2F%2Fother.example",
+    "/%2fother.example",
+    "/%5Cother.example",
+    "/%5cother.example",
+    "/x%5Cy",
+    "/search?q=%5C",
+    "/.//other.example",
+    "/./x",
+    "/../x",
+    "/%2e%2e/x",
+    "/a//b",
+    "/%3F//other.example"
+  ]
+}
