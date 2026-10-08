@@ -65,6 +65,7 @@ mod integration_routes_require_admin;
 mod knowledge_gap_lifecycle;
 mod logging_pii_guardrail;
 mod migration_backfill_existing_workspace;
+mod migration_email_suppressions_scope;
 mod migration_reserved_slugs;
 mod migration_ticket_numbers;
 mod migration_version_lint;
