@@ -42,6 +42,10 @@ pub struct OAuthLoginClaims {
     /// address and Graph sends no claim, so always `true`).
     pub email_verified: bool,
     pub display_name: Option<String>,
+    /// The person's name as the provider states it: OIDC's `name` claim, or
+    /// Microsoft Graph's `displayName`. Unlike `display_name` it never falls
+    /// back to a handle, so it is the only value a login renames a user from.
+    pub real_name: Option<String>,
     pub given_name: Option<String>,
     pub family_name: Option<String>,
     /// Opaque provider payload, persisted verbatim as identity metadata. No
@@ -76,6 +80,7 @@ impl From<&oidc::OidcUserInfo> for OAuthLoginClaims {
             email: u.email.clone(),
             email_verified: u.email_verified.unwrap_or(false),
             display_name: u.name.clone().or_else(|| u.preferred_username.clone()),
+            real_name: u.name.clone().filter(|n| !n.trim().is_empty()),
             given_name: u.given_name.clone(),
             family_name: u.family_name.clone(),
             raw: u.raw_claims.clone(),
@@ -101,6 +106,7 @@ impl From<&crate::handlers::msgraph_integration::MicrosoftGraphUser> for OAuthLo
             // `email_verified` claim of its own.
             email_verified: true,
             display_name: m.display_name.clone(),
+            real_name: m.display_name.clone().filter(|n| !n.trim().is_empty()),
             given_name: m.given_name.clone(),
             family_name: m.surname.clone(),
             raw: serde_json::to_value(m).unwrap_or(serde_json::Value::Null),
@@ -1732,6 +1738,9 @@ async fn find_or_create_oauth_user(
         // A missing display name defers to find_or_create_projected_user's
         // email-localpart fallback rather than failing the login.
         name: claims.display_name.clone(),
+        // Only a real name renames an existing user: `display_name` may be
+        // the handle (the default `OIDC_USERNAME_CLAIM`, or the fallback).
+        real_name: claims.real_name.clone(),
         // O4: the CP stamps the handle into the id_token/userinfo as the
         // standard `preferred_username` claim, so login lazily syncs it.
         username: claims
@@ -2098,6 +2107,70 @@ mod login_claims_tests {
     }
     fn ms(v: serde_json::Value) -> MicrosoftGraphUser {
         serde_json::from_value(v).expect("valid MicrosoftGraphUser fixture")
+    }
+
+    /// A login renames the user only from a real `name` claim. The display
+    /// name a login carries falls back to `preferred_username` (the control
+    /// plane's handle) when there's no name, and by default
+    /// (`OIDC_USERNAME_CLAIM=preferred_username`) it is the handle even when
+    /// there is one; neither may replace the name the user has.
+    #[actix_web::test]
+    async fn a_login_renames_the_user_only_from_a_name_claim() {
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let iss = "https://api.nosdesk.example";
+        let id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+        let sub = format!("agent-{id}");
+        let email = format!("nosbot+{id}@nosdesk.example");
+        let handle = format!("nosbot+{id}");
+        let login = |name: Option<&str>, username_claim: &str| {
+            let mut claims = json!({
+                "sub": sub, "email": email, "email_verified": true,
+                "preferred_username": handle,
+                "raw_claims": { "preferred_username": handle },
+            });
+            if let Some(name) = name {
+                claims["name"] = json!(name);
+            }
+            OAuthLoginClaims::from_oidc(&oidc(claims), username_claim)
+        };
+
+        let user = super::find_or_create_oauth_user(
+            &login(Some("Workspace Agent Probe"), "name"),
+            iss,
+            &mut conn,
+            1,
+        )
+        .await
+        .expect("first login");
+        assert_eq!(user.name, "Workspace Agent Probe");
+
+        // No `name` claim: the handle stands in for the display name.
+        let user = super::find_or_create_oauth_user(&login(None, "name"), iss, &mut conn, 1)
+            .await
+            .expect("login without a name");
+        assert_eq!(user.name, "Workspace Agent Probe", "kept, not the handle");
+
+        // The default username claim makes the handle the display name.
+        let user = super::find_or_create_oauth_user(
+            &login(Some("Workspace Agent Probe"), "preferred_username"),
+            iss,
+            &mut conn,
+            1,
+        )
+        .await
+        .expect("login with the default username claim");
+        assert_eq!(user.name, "Workspace Agent Probe", "kept, not the handle");
+
+        // A new real name still renames: the IdP owns the name.
+        let user = super::find_or_create_oauth_user(
+            &login(Some("Agent Probe"), "preferred_username"),
+            iss,
+            &mut conn,
+            1,
+        )
+        .await
+        .expect("login with a new name");
+        assert_eq!(user.name, "Agent Probe");
     }
 
     #[test]

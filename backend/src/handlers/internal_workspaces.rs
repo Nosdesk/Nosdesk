@@ -631,6 +631,9 @@ pub async fn upsert_projected_user(
         // email-fallback link is authorised here. The (iss, sub) is
         // usually known too, in which case the identity match wins first.
         email_verified: true,
+        // The control plane's name is the person's name; a re-projection
+        // still won't rename to the handle or the address.
+        real_name: name.clone(),
         name,
         username,
         // Pass the avatar tri-state through verbatim (O5): None = no change,
