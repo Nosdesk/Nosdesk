@@ -139,8 +139,9 @@ impl Config {
             }
         }
 
-        // Redis is a hard dependency: HTTP + auth/MFA rate limiting, the Yjs
-        // collab cache, and the `/readiness` probe all require it. Resolve ONE
+        // Redis is a hard dependency: HTTP + auth/MFA rate limiting, TOTP replay
+        // checks, collaboration routing across machines, and the `/readiness`
+        // probe all require it. Resolve ONE
         // URL for all of them (same shape as `utils::rate_limit::get_redis_url`).
         // Production requires it explicitly — in-memory rate limiting would be
         // per-machine, an N× silent bypass across the fleet — while dev defaults
@@ -152,7 +153,7 @@ impl Config {
             None => {
                 if is_production {
                     error!(
-                        "REDIS_URL is required in production: rate limiting, the collab cache, and the readiness probe all depend on Redis, and in-memory limiting is a per-machine (N×) silent bypass. Configure Redis."
+                        "REDIS_URL is required in production: rate limiting, TOTP replay checks and the readiness probe all depend on Redis, and in-memory limiting is a per-machine (N×) silent bypass. Configure Redis."
                     );
                     return Err(fatal("REDIS_URL is required in production"));
                 }
