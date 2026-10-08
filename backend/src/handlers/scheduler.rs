@@ -35,10 +35,18 @@ pub async fn get_status(
     statuses: web::Data<StatusRegistry>,
     req: HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
-    // Same admin-guard helper the channels endpoints use. We grab a
-    // connection purely for the guard — scheduler status is in-memory
-    // so no DB work happens downstream.
-    helpers::admin_conn(&req, &pool)?;
+    // The jobs are the instance's. On hosted that's every workspace on it,
+    // so only a platform admin reads them; self-hosted, the instance is the
+    // workspace admin's own. The status is in memory: the connection is only
+    // for the workspace-admin check.
+    match crate::middleware::DeploymentMode::current() {
+        crate::middleware::DeploymentMode::Hosted => {
+            crate::utils::rbac::require_platform_admin(&req)?;
+        }
+        crate::middleware::DeploymentMode::SelfHosted => {
+            helpers::admin_conn(&req, &pool)?;
+        }
+    }
 
     let Ok(map) = statuses.read() else {
         return Err(ApiError::Internal("scheduler status lock poisoned".into()));
