@@ -1061,27 +1061,30 @@ pub async fn detect_sla_breaches(
     }
 
     let processed = breaches.len();
-    // A breach is told to the ticket's assignee and watchers only, so one with
-    // neither notifies no one. Counted so the sweep line shows it.
+    // A breach is told to the ticket's assignee and watchers. One with neither
+    // goes to the workspace's admins instead; counted so the sweep line shows
+    // how often that happens.
     let no_recipient = breaches
         .iter()
         .filter(|b| b.assignee_uuid.is_none() && b.watcher_uuids.is_empty())
         .count();
     // Async fanout outside the DB workspace context: notify the assignee +
-    // watchers via NotificationService (in-app + email). The pill repaint and
+    // watchers, or the admins, via NotificationService (in-app + email). The pill repaint and
     // webhook deliveries already flowed from the `ticket.sla_breached`
     // sync_action emitted inside process_one_breach; no discrete SSE here.
     let fanout = coalesced_fanout(&notification_service, &breaches).await;
 
     if processed > 0 || failed > 0 {
         // `notified`: people handed a notice (one per person and workspace);
-        // `no_recipient`: breaches with no assignee or watcher to tell.
+        // `no_recipient`: breaches with no assignee or watcher to tell;
+        // `admins_notified`: of `notified`, notices to admins about such a breach.
         info!(
             processed,
             failed,
             notified = fanout.notified,
             notify_failed = fanout.failed,
             no_recipient,
+            admins_notified = fanout.admins_notified,
             "scheduler: SLA breach detection swept"
         );
     }
@@ -1155,6 +1158,9 @@ struct BreachContext {
     breached_at: chrono::DateTime<chrono::Utc>,
     assignee_uuid: Option<uuid::Uuid>,
     watcher_uuids: Vec<uuid::Uuid>,
+    /// The workspace's admins, read only when the ticket has no assignee and
+    /// no watchers: they are told instead, so the breach isn't missed.
+    admin_uuids: Vec<uuid::Uuid>,
 }
 
 /// Atomically stamp the breach + emit a pill-refresh sync_action +
@@ -1250,6 +1256,12 @@ fn process_one_breach(
         )?;
         let watcher_uuids =
             crate::repository::ticket_watchers::watcher_uuids(conn, ticket_id).unwrap_or_default();
+        // Told once, with the breach: the stamp above makes a later sweep skip it.
+        let admin_uuids = if ticket.assignee_uuid.is_none() && watcher_uuids.is_empty() {
+            crate::repository::workspaces::admin_uuids(conn, workspace_id).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let breached_at = match kind {
             SlaBreachKind::Response => ticket.sla_response_breached_at,
             SlaBreachKind::Resolution => ticket.sla_resolution_breached_at,
@@ -1270,6 +1282,7 @@ fn process_one_breach(
             breached_at: to_utc(breached_at),
             assignee_uuid: ticket.assignee_uuid,
             watcher_uuids,
+            admin_uuids,
         }))
     })
 }
@@ -1283,6 +1296,9 @@ struct CoalescedNotice {
     ticket_number: i32,
     ticket_title: String,
     body: String,
+    /// The recipient is told about at least one breach as an admin, because
+    /// no one was assigned to or watching that ticket.
+    as_admin: bool,
 }
 
 /// Group a sweep's breaches into one notification per (recipient, workspace).
@@ -1290,30 +1306,35 @@ struct CoalescedNotice {
 /// and a summary must not mix tickets across workspaces (nor notify into the
 /// wrong one). A recipient with one breached ticket gets the per-ticket body;
 /// one with several gets a single summary linking to the most-overdue ticket.
+/// A breach with no assignee and no watchers goes to the workspace's admins.
 /// Pure so the grouping + summary logic is unit-tested without the DB.
 fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
     use std::collections::BTreeMap;
 
-    let mut by_recipient: BTreeMap<(uuid::Uuid, i32), Vec<&BreachContext>> = BTreeMap::new();
+    let mut by_recipient: BTreeMap<(uuid::Uuid, i32), (Vec<&BreachContext>, bool)> =
+        BTreeMap::new();
     for b in breaches {
         let mut recipients: Vec<uuid::Uuid> = b
             .assignee_uuid
             .into_iter()
             .chain(b.watcher_uuids.iter().copied())
             .collect();
+        let as_admin = recipients.is_empty();
+        if as_admin {
+            recipients.extend(b.admin_uuids.iter().copied());
+        }
         recipients.sort();
         recipients.dedup();
         for recipient in recipients {
-            by_recipient
-                .entry((recipient, b.workspace_id))
-                .or_default()
-                .push(b);
+            let entry = by_recipient.entry((recipient, b.workspace_id)).or_default();
+            entry.0.push(b);
+            entry.1 |= as_admin;
         }
     }
 
     by_recipient
         .into_iter()
-        .map(|((recipient, workspace_id), tickets)| {
+        .map(|((recipient, workspace_id), (tickets, as_admin))| {
             if tickets.len() == 1 {
                 let b = tickets[0];
                 CoalescedNotice {
@@ -1329,6 +1350,7 @@ fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
                         b.ticket_title,
                         b.breached_at.format("%Y-%m-%d %H:%M UTC"),
                     ),
+                    as_admin,
                 }
             } else {
                 // Summarise. Link to the most-overdue ticket as the
@@ -1356,6 +1378,7 @@ fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
                     ticket_number: rep.ticket_number,
                     ticket_title: rep.ticket_title.clone(),
                     body: format!("{} tickets breached their SLA: {}", tickets.len(), listing),
+                    as_admin,
                 }
             }
         })
@@ -1363,11 +1386,13 @@ fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
 }
 
 /// What [`coalesced_fanout`] did: notices handed to the notification service,
-/// and notices it refused.
+/// notices it refused, and of those handed over, the ones to admins about a
+/// breach no one else was told of.
 #[derive(Debug, Default, Clone, Copy)]
 struct FanoutCounts {
     notified: usize,
     failed: usize,
+    admins_notified: usize,
 }
 
 /// Coalesced notification fanout for a sweep's detected breaches. The DB work
@@ -1411,7 +1436,12 @@ async fn coalesced_fanout(
         )
         .with_body(notice.body);
         match notification_service.notify(payload).await {
-            Ok(_) => counts.notified += 1,
+            Ok(_) => {
+                counts.notified += 1;
+                if notice.as_admin {
+                    counts.admins_notified += 1;
+                }
+            }
             Err(e) => {
                 counts.failed += 1;
                 warn!(
@@ -1879,7 +1909,35 @@ mod tests {
             breached_at: chrono::Utc::now() - chrono::Duration::seconds(secs_overdue),
             assignee_uuid: Some(assignee),
             watcher_uuids: vec![],
+            admin_uuids: vec![],
         }
+    }
+
+    #[test]
+    fn coalesce_tells_the_admins_only_when_no_one_else_is_told() {
+        let (agent, admin_a, admin_b) = (
+            uuid::Uuid::now_v7(),
+            uuid::Uuid::now_v7(),
+            uuid::Uuid::now_v7(),
+        );
+        let owned = BreachContext {
+            admin_uuids: vec![admin_a],
+            ..breach(1, 1, agent, 60)
+        };
+        let unowned = BreachContext {
+            assignee_uuid: None,
+            admin_uuids: vec![admin_a, admin_b],
+            ..breach(2, 1, agent, 60)
+        };
+        let notices = coalesce_breaches(&[owned, unowned]);
+        let mut told: Vec<(uuid::Uuid, i32, bool)> = notices
+            .iter()
+            .map(|n| (n.recipient, n.ticket_id, n.as_admin))
+            .collect();
+        told.sort();
+        let mut expected = vec![(agent, 1, false), (admin_a, 2, true), (admin_b, 2, true)];
+        expected.sort();
+        assert_eq!(told, expected);
     }
 
     #[test]

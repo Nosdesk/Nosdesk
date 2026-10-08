@@ -829,6 +829,21 @@ pub fn count_workspace_owners(conn: &mut DbConnection, workspace_id: i32) -> Que
         .get_result(conn)
 }
 
+/// The workspace's current owners and admins, leaving out deleted accounts.
+/// Who is told about something no one else in the workspace is watching.
+pub fn admin_uuids(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<Vec<Uuid>> {
+    use crate::schema::users;
+    workspace_members::table
+        .inner_join(users::table)
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::role.eq_any(["owner", "admin"]))
+        .filter(workspace_members::removed_at.is_null())
+        .filter(users::deleted_at.is_null())
+        .select(workspace_members::user_uuid)
+        .order(workspace_members::user_uuid.asc())
+        .load(conn)
+}
+
 /// Outcome of [`remove_membership`], so callers map each case to the right HTTP
 /// shape.
 #[derive(Debug, PartialEq, Eq)]
