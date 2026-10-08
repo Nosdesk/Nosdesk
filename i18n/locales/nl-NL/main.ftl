@@ -3555,6 +3555,8 @@ editor-toolbar-redo = Opnieuw uitvoeren
 editor-toolbar-revision-history = Revisiegeschiedenis
 editor-toolbar-editing-with = Bewerken met:
 editor-toolbar-connection-connecting = Verbinden...
+# Verbinding weggevallen, opnieuw proberen (machine, na te kijken door moedertaalspreker).
+editor-toolbar-connection-reconnecting = Opnieuw verbinden...
 editor-toolbar-connection-disconnected = Verbinding verbroken
 editor-toolbar-user-title = { $name }
 editor-toolbar-user-title-uuid = { $name } (UUID: { $uuid })
