@@ -6,14 +6,12 @@ import { numberForTicketId } from '@/composables/useTicketNumberLookup'
  * the steps the agent skipped). Filters by status and how many runs to show.
  */
 import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery } from '@pinia/colada';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
-import Button from '@/components/common/Button.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
@@ -23,18 +21,16 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import { useRuleStepText } from '@/composables/useRuleStepText';
 import { ticketPathForId } from '@/utils/ticketNumbers';
 import rulesService from '@nosdesk/core/services/rulesService';
-import { useMobileDetection } from '@/composables/useMobileDetection';
+import BackButton from '@/components/common/BackButton.vue';
 
 // Desktop only: on mobile the leading back-arrow in SiteHeader is the single
 // back affordance, so this inline control hides to avoid two per screen. Same
 // contract BackButton encodes; kept inline here because this toolbar's
 // secondary-button styling is deliberate.
-const { isMobile } = useMobileDetection('sm');
 import type { RuleAction, RuleApplication, RuleApplicationStatus } from '@nosdesk/core/types/rule';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
-const router = useRouter();
 
 const statusFilter = ref<RuleApplicationStatus | 'all'>('all');
 const limit = ref<number>(50);
@@ -155,102 +151,98 @@ function toggleExpanded(id: number): void {
   expanded.value = next;
 }
 
-function back(): void {
-  router.push({ name: 'admin-rules' });
-}
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
-    <div class="flex flex-wrap items-center gap-3">
-      <Button v-if="!isMobile" variant="secondary" size="sm" @click="back" icon="chevronLeft">
-        <span>{{ t('admin-rules-activity-back') }}</span>
-      </Button>
-      <h1 class="text-2xl font-semibold flex-1 min-w-0">
-        {{ t('admin-rules-activity-title') }}
-      </h1>
-    </div>
+  <div class="flex-1">
+    <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
+      <div class="flex flex-col gap-1">
+        <BackButton fallback-route="/admin/rules" :label="t('admin-rules-activity-back')" compact />
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">
+          {{ t('admin-rules-activity-title') }}
+        </h1>
+        <p class="text-secondary text-sm sm:text-base max-w-2xl">
+          {{ t('admin-rules-activity-help') }}
+        </p>
+      </div>
 
-    <p class="text-sm text-secondary max-w-2xl">
-      {{ t('admin-rules-activity-help') }}
-    </p>
+      <AlertMessage v-if="loadError" type="error" :message="loadError" />
 
-    <AlertMessage v-if="loadError" type="error" :message="loadError" />
+      <div class="flex flex-wrap items-center gap-3">
+        <BaseDropdown
+          :model-value="statusFilter"
+          :options="statusFilterOptions"
+          size="sm"
+          @update:model-value="statusFilter = String($event) as RuleApplicationStatus | 'all'"
+        />
+        <BaseDropdown
+          :model-value="limitModel"
+          :options="limitOptions"
+          size="sm"
+          @update:model-value="limitModel = String($event)"
+        />
+      </div>
 
-    <div class="flex flex-wrap items-center gap-3">
-      <BaseDropdown
-        :model-value="statusFilter"
-        :options="statusFilterOptions"
-        size="sm"
-        @update:model-value="statusFilter = String($event) as RuleApplicationStatus | 'all'"
+      <Skeleton v-if="isFirstLoad" class="flex flex-col gap-2">
+        <SkeletonBar v-for="i in 6" :key="i" class="h-10 w-full" />
+      </Skeleton>
+
+      <EmptyState
+        v-else-if="applications.length === 0"
+        :title="t('admin-rules-activity-empty-title')"
+        :hint="t('admin-rules-activity-empty-hint')"
       />
-      <BaseDropdown
-        :model-value="limitModel"
-        :options="limitOptions"
-        size="sm"
-        @update:model-value="limitModel = String($event)"
-      />
+
+      <ul v-else class="flex flex-col gap-2">
+        <li
+          v-for="app in applications"
+          :key="app.id"
+          class="border border-default rounded-lg bg-surface overflow-hidden"
+        >
+          <button
+            type="button"
+            class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+            :aria-expanded="expanded.has(app.id)"
+            @click="toggleExpanded(app.id)"
+          >
+            <StatusPill :label="statusLabel(app.status)" :tone="statusTone(app.status)" />
+            <span class="flex flex-col gap-0.5 flex-1 min-w-0">
+              <span class="text-sm font-medium text-primary truncate">{{ ruleName(app) }}</span>
+              <span class="text-xs text-secondary truncate">{{ summary(app) }}</span>
+            </span>
+            <span class="text-xs text-secondary flex-shrink-0">{{ formatRelativeTime(app.applied_at) }}</span>
+            <Icon
+              :name="expanded.has(app.id) ? 'chevronUp' : 'chevronDown'"
+              class="w-3.5 h-3.5 text-secondary flex-shrink-0"
+            />
+          </button>
+          <div
+            v-if="expanded.has(app.id)"
+            class="flex flex-col gap-3 border-t border-subtle bg-surface-alt px-4 py-3"
+          >
+            <div class="flex flex-col gap-1">
+              <p class="text-xs font-medium text-tertiary">{{ t('admin-rules-activity-what-it-did') }}</p>
+              <ul v-if="outcomeLines(app).length > 0" class="flex flex-col gap-1 pl-4 list-disc text-sm text-primary">
+                <li v-for="(line, i) in outcomeLines(app)" :key="i">{{ line }}</li>
+              </ul>
+              <p v-else class="text-sm text-secondary">{{ t('admin-rules-activity-inspector-empty') }}</p>
+              <p v-if="app.failure_reason" class="text-sm text-status-error">{{ app.failure_reason }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-4 text-sm">
+              <RouterLink :to="ticketPathForId(app.ticket_id)" class="text-accent hover:underline">
+                {{ t('admin-rules-activity-open-ticket') }}
+              </RouterLink>
+              <RouterLink
+                v-if="ruleFor(app)"
+                :to="{ name: 'admin-rules-edit', params: { id: app.rule_id } }"
+                class="text-accent hover:underline"
+              >
+                {{ t('admin-rules-activity-open-rule') }}
+              </RouterLink>
+            </div>
+          </div>
+        </li>
+      </ul>
     </div>
-
-    <Skeleton v-if="isFirstLoad" class="flex flex-col gap-2">
-      <SkeletonBar v-for="i in 6" :key="i" class="h-10 w-full" />
-    </Skeleton>
-
-    <EmptyState
-      v-else-if="applications.length === 0"
-      :title="t('admin-rules-activity-empty-title')"
-      :hint="t('admin-rules-activity-empty-hint')"
-    />
-
-    <ul v-else class="flex flex-col gap-2">
-      <li
-        v-for="app in applications"
-        :key="app.id"
-        class="border border-default rounded-lg bg-surface overflow-hidden"
-      >
-        <button
-          type="button"
-          class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-          :aria-expanded="expanded.has(app.id)"
-          @click="toggleExpanded(app.id)"
-        >
-          <StatusPill :label="statusLabel(app.status)" :tone="statusTone(app.status)" />
-          <span class="flex flex-col gap-0.5 flex-1 min-w-0">
-            <span class="text-sm font-medium text-primary truncate">{{ ruleName(app) }}</span>
-            <span class="text-xs text-secondary truncate">{{ summary(app) }}</span>
-          </span>
-          <span class="text-xs text-secondary flex-shrink-0">{{ formatRelativeTime(app.applied_at) }}</span>
-          <Icon
-            :name="expanded.has(app.id) ? 'chevronUp' : 'chevronDown'"
-            class="w-3.5 h-3.5 text-secondary flex-shrink-0"
-          />
-        </button>
-        <div
-          v-if="expanded.has(app.id)"
-          class="flex flex-col gap-3 border-t border-subtle bg-surface-alt px-4 py-3"
-        >
-          <div class="flex flex-col gap-1">
-            <p class="text-xs font-medium text-tertiary">{{ t('admin-rules-activity-what-it-did') }}</p>
-            <ul v-if="outcomeLines(app).length > 0" class="flex flex-col gap-1 pl-4 list-disc text-sm text-primary">
-              <li v-for="(line, i) in outcomeLines(app)" :key="i">{{ line }}</li>
-            </ul>
-            <p v-else class="text-sm text-secondary">{{ t('admin-rules-activity-inspector-empty') }}</p>
-            <p v-if="app.failure_reason" class="text-sm text-status-error">{{ app.failure_reason }}</p>
-          </div>
-          <div class="flex flex-wrap items-center gap-4 text-sm">
-            <RouterLink :to="ticketPathForId(app.ticket_id)" class="text-accent hover:underline">
-              {{ t('admin-rules-activity-open-ticket') }}
-            </RouterLink>
-            <RouterLink
-              v-if="ruleFor(app)"
-              :to="{ name: 'admin-rules-edit', params: { id: app.rule_id } }"
-              class="text-accent hover:underline"
-            >
-              {{ t('admin-rules-activity-open-rule') }}
-            </RouterLink>
-          </div>
-        </div>
-      </li>
-    </ul>
   </div>
 </template>

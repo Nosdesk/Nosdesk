@@ -154,141 +154,146 @@ async function setLive(rule: Rule, live: boolean): Promise<void> {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
-    <div class="flex flex-wrap items-center gap-3">
-      <h1 class="text-2xl font-semibold flex-1 min-w-0">
-        {{ t('admin-rules-title') }}
-      </h1>
-      <Button variant="secondary" @click="openActivity" icon="history">
-        <span>{{ t('admin-rules-activity-cta') }}</span>
-      </Button>
-      <Button variant="secondary" @click="startersOpen = true" icon="book">
-        <span>{{ t('admin-rules-starters-cta') }}</span>
-      </Button>
-      <Button variant="primary" @click="openCreate" icon="add">
-        <span>{{ t('admin-rules-new-cta') }}</span>
-      </Button>
-    </div>
-
-    <p class="text-sm text-secondary max-w-2xl">
-      {{ t('admin-rules-help-intro') }}
-    </p>
-
-    <AlertMessage v-if="loadError" type="error" :message="loadError" />
-    <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
-
-    <div class="flex flex-wrap items-center gap-3">
-      <SearchInput
-        v-model="search"
-        :placeholder="t('admin-rules-search-placeholder')"
-        class="flex-1 min-w-[12rem]"
-      />
-      <BaseDropdown
-        v-if="triggerKindsInUse.length > 1"
-        :model-value="triggerFilter"
-        :options="triggerFilterOptions"
-        size="sm"
-        @update:model-value="triggerFilter = String($event) as RuleTriggerKind | 'all'"
-      />
-      <BaseDropdown
-        :model-value="stateFilter"
-        :options="stateFilterOptions"
-        size="sm"
-        @update:model-value="stateFilter = String($event) as RuleState | 'all'"
-      />
-    </div>
-
-    <Skeleton v-if="isFirstLoad" class="flex flex-col gap-2">
-      <SkeletonBar v-for="i in 6" :key="i" class="h-10 w-full" />
-    </Skeleton>
-
-    <EmptyState
-      v-else-if="filtered.length === 0"
-      :title="t('admin-rules-empty-title')"
-      :hint="t('admin-rules-empty-hint')"
-    >
-      <div class="flex flex-wrap items-center justify-center gap-2">
-        <Button variant="primary" icon="book" @click="startersOpen = true">
-          {{ t('admin-rules-starters-cta') }}
-        </Button>
-        <Button variant="secondary" icon="add" @click="openCreate">
-          {{ t('admin-rules-new-cta') }}
-        </Button>
+  <div class="flex-1">
+    <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div class="flex flex-col gap-1 min-w-0">
+          <h1 class="text-xl sm:text-2xl font-bold text-primary">
+            {{ t('admin-rules-title') }}
+          </h1>
+          <p class="text-secondary text-sm sm:text-base max-w-2xl">
+            {{ t('admin-rules-help-intro') }}
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <Button variant="secondary" size="sm" @click="openActivity" icon="history">
+            <span>{{ t('admin-rules-activity-cta') }}</span>
+          </Button>
+          <Button variant="secondary" size="sm" @click="startersOpen = true" icon="book">
+            <span>{{ t('admin-rules-starters-cta') }}</span>
+          </Button>
+          <Button variant="primary" size="sm" @click="openCreate" icon="add">
+            <span>{{ t('admin-rules-new-cta') }}</span>
+          </Button>
+        </div>
       </div>
-    </EmptyState>
 
-    <table v-else class="w-full text-sm">
-      <thead>
-        <tr class="border-b border-default text-left text-secondary">
-          <th class="py-2 font-medium">{{ t('admin-rules-col-name') }}</th>
-          <th class="py-2 font-medium">{{ t('admin-rules-col-trigger') }}</th>
-          <th class="py-2 font-medium">{{ t('admin-rules-col-state') }}</th>
-          <th class="py-2 font-medium">{{ t('admin-rules-col-last-fired') }}</th>
-          <th class="py-2 font-medium text-right">{{ t('admin-rules-col-fire-count') }}</th>
-          <th class="py-2 font-medium"></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="rule in filtered"
-          :key="rule.id"
-          class="border-b border-subtle hover:bg-surface-hover cursor-pointer"
-          @click="openEdit(rule)"
-        >
-          <td class="py-2">
-            <div class="font-medium">{{ rule.name }}</div>
-            <div v-if="rule.description" class="text-xs text-secondary truncate max-w-md">
-              {{ rule.description }}
-            </div>
-          </td>
-          <td class="py-2 text-secondary">{{ triggerLabel(rule.trigger_kind) }}</td>
-          <td class="py-2">
-            <StatusPill :label="stateLabel(rule.state)" :tone="stateTone(rule.state)" />
-          </td>
-          <td class="py-2 text-secondary">{{ formatLastFired(rule.last_fired_at) }}</td>
-          <td class="py-2 text-right tabular-nums">{{ rule.fire_count }}</td>
-          <td class="py-2 text-right" @click.stop>
-            <div class="flex items-center justify-end gap-2">
-              <Button
-                v-if="rule.state === 'live'"
-                variant="secondary"
-                size="sm"
-                icon="pause"
-                @click="setLive(rule, false)"
-              >
-                {{ t('admin-rules-pause') }}
-              </Button>
-              <Button
-                v-else-if="canGoLive(rule)"
-                variant="secondary"
-                size="sm"
-                icon="play"
-                @click="setLive(rule, true)"
-              >
-                {{ t('admin-rules-go-live') }}
-              </Button>
-              <IconButton
-                size="sm"
-                icon="archive"
-                :label="t('admin-rules-action-archive-tooltip')"
-                @click="archiveTarget = rule"
-              />
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <AlertMessage v-if="loadError" type="error" :message="loadError" />
+      <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-    <StarterRulesDialog :show="startersOpen" :rules="rules" @close="startersOpen = false" />
+      <div class="flex flex-wrap items-center gap-3">
+        <SearchInput
+          v-model="search"
+          :placeholder="t('admin-rules-search-placeholder')"
+          class="flex-1 min-w-[12rem]"
+        />
+        <BaseDropdown
+          v-if="triggerKindsInUse.length > 1"
+          :model-value="triggerFilter"
+          :options="triggerFilterOptions"
+          size="sm"
+          @update:model-value="triggerFilter = String($event) as RuleTriggerKind | 'all'"
+        />
+        <BaseDropdown
+          :model-value="stateFilter"
+          :options="stateFilterOptions"
+          size="sm"
+          @update:model-value="stateFilter = String($event) as RuleState | 'all'"
+        />
+      </div>
 
-    <ConfirmModal
-      :show="archiveTarget !== null"
-      :title="t('admin-rules-archive-confirm-title')"
-      :message="archiveTarget ? t('admin-rules-archive-confirm-body', { name: archiveTarget.name }) : ''"
-      :confirm-label="t('admin-rules-archive-confirm-button')"
-      variant="warning"
-      @confirm="archiveTarget && archive(archiveTarget)"
-      @cancel="archiveTarget = null"
-    />
+      <Skeleton v-if="isFirstLoad" class="flex flex-col gap-2">
+        <SkeletonBar v-for="i in 6" :key="i" class="h-10 w-full" />
+      </Skeleton>
+
+      <EmptyState
+        v-else-if="filtered.length === 0"
+        :title="t('admin-rules-empty-title')"
+        :hint="t('admin-rules-empty-hint')"
+      >
+        <div class="flex flex-wrap items-center justify-center gap-2">
+          <Button variant="primary" icon="book" @click="startersOpen = true">
+            {{ t('admin-rules-starters-cta') }}
+          </Button>
+          <Button variant="secondary" icon="add" @click="openCreate">
+            {{ t('admin-rules-new-cta') }}
+          </Button>
+        </div>
+      </EmptyState>
+
+      <table v-else class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-default text-left text-secondary">
+            <th class="py-2 font-medium">{{ t('admin-rules-col-name') }}</th>
+            <th class="py-2 font-medium">{{ t('admin-rules-col-trigger') }}</th>
+            <th class="py-2 font-medium">{{ t('admin-rules-col-state') }}</th>
+            <th class="py-2 font-medium">{{ t('admin-rules-col-last-fired') }}</th>
+            <th class="py-2 font-medium text-right">{{ t('admin-rules-col-fire-count') }}</th>
+            <th class="py-2 font-medium"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="rule in filtered"
+            :key="rule.id"
+            class="border-b border-subtle hover:bg-surface-hover cursor-pointer"
+            @click="openEdit(rule)"
+          >
+            <td class="py-2">
+              <div class="font-medium">{{ rule.name }}</div>
+              <div v-if="rule.description" class="text-xs text-secondary truncate max-w-md">
+                {{ rule.description }}
+              </div>
+            </td>
+            <td class="py-2 text-secondary">{{ triggerLabel(rule.trigger_kind) }}</td>
+            <td class="py-2">
+              <StatusPill :label="stateLabel(rule.state)" :tone="stateTone(rule.state)" />
+            </td>
+            <td class="py-2 text-secondary">{{ formatLastFired(rule.last_fired_at) }}</td>
+            <td class="py-2 text-right tabular-nums">{{ rule.fire_count }}</td>
+            <td class="py-2 text-right" @click.stop>
+              <div class="flex items-center justify-end gap-2">
+                <Button
+                  v-if="rule.state === 'live'"
+                  variant="secondary"
+                  size="sm"
+                  icon="pause"
+                  @click="setLive(rule, false)"
+                >
+                  {{ t('admin-rules-pause') }}
+                </Button>
+                <Button
+                  v-else-if="canGoLive(rule)"
+                  variant="secondary"
+                  size="sm"
+                  icon="play"
+                  @click="setLive(rule, true)"
+                >
+                  {{ t('admin-rules-go-live') }}
+                </Button>
+                <IconButton
+                  size="sm"
+                  icon="archive"
+                  :label="t('admin-rules-action-archive-tooltip')"
+                  @click="archiveTarget = rule"
+                />
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <StarterRulesDialog :show="startersOpen" :rules="rules" @close="startersOpen = false" />
+
+      <ConfirmModal
+        :show="archiveTarget !== null"
+        :title="t('admin-rules-archive-confirm-title')"
+        :message="archiveTarget ? t('admin-rules-archive-confirm-body', { name: archiveTarget.name }) : ''"
+        :confirm-label="t('admin-rules-archive-confirm-button')"
+        variant="warning"
+        @confirm="archiveTarget && archive(archiveTarget)"
+        @cancel="archiveTarget = null"
+      />
+    </div>
   </div>
 </template>
