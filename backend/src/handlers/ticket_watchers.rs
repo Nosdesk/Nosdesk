@@ -33,6 +33,10 @@ pub async fn list_watchers(mut tc: TenantConn, access: TicketAccess) -> impl Res
 
 pub async fn watch_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
     let TicketAccess { ticket_id, auth } = access;
+    // Unwatching a merged ticket stays allowed; starting to watch one doesn't.
+    if let Some(refused) = crate::handlers::helpers::refuse_merged(&mut tc, &[ticket_id]) {
+        return refused;
+    }
     match tc.run(|conn| repo::add_watcher(conn, ticket_id, auth.user_uuid, false)) {
         Ok(added) => HttpResponse::Ok().json(serde_json::json!({
             "watching": true,
@@ -106,6 +110,9 @@ pub async fn update_my_watch_preferences(
     body: web::Json<WatchPreferencesBody>,
 ) -> impl Responder {
     let TicketAccess { ticket_id, auth } = access;
+    if let Some(refused) = crate::handlers::helpers::refuse_merged(&mut tc, &[ticket_id]) {
+        return refused;
+    }
     let Some(notify) = body.notify_on_internal_notes else {
         return errors::bad_request("notify_on_internal_notes is required");
     };

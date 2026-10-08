@@ -539,12 +539,18 @@ pub enum TicketWriteError {
     /// `repository::assignees`).
     #[error("{INELIGIBLE_ASSIGNEE}")]
     IneligibleAssignee(Uuid),
+    /// The ticket was merged into another one, where its work continues.
+    #[error("{MERGED_TICKET}")]
+    Merged,
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
 }
 
 /// What a caller is told when an assignee is refused.
 pub const INELIGIBLE_ASSIGNEE: &str = "Only agents and admins can be assigned tickets";
+
+/// What a caller is told when it writes to a merged ticket.
+pub const MERGED_TICKET: &str = "This ticket was merged into another one, so it can't be changed";
 
 /// For a caller in a `QueryResult` context. A refused assignee reads as a
 /// check violation, so it still surfaces as the caller's mistake rather than a
@@ -555,6 +561,10 @@ impl From<TicketWriteError> for diesel::result::Error {
             TicketWriteError::IneligibleAssignee(_) => diesel::result::Error::DatabaseError(
                 diesel::result::DatabaseErrorKind::CheckViolation,
                 Box::new(INELIGIBLE_ASSIGNEE.to_string()),
+            ),
+            TicketWriteError::Merged => diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::CheckViolation,
+                Box::new(MERGED_TICKET.to_string()),
             ),
             TicketWriteError::Database(e) => e,
         }
@@ -600,6 +610,12 @@ pub fn update_ticket_partial(
     // empty-changeset error on a `.set()` with all-None fields.
     if count == 0 {
         return Ok(get_ticket_by_id(conn, ticket_id)?);
+    }
+
+    // A merged ticket is closed for good: its conversation and work moved to
+    // the ticket it was merged into.
+    if crate::repository::ticket_merge::is_merge_source(conn, ticket_id)? {
+        return Err(TicketWriteError::Merged);
     }
 
     let (result, next_occurrence) = conn.transaction::<_, TicketWriteError, _>(|conn| {
@@ -1543,6 +1559,48 @@ mod tests {
     // ---- Guest-submission helpers ----
 
     use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    /// A merged ticket is closed for good: its conversation and work moved to
+    /// the ticket it was merged into, so no write changes it.
+    #[test]
+    fn a_merged_ticket_refuses_changes() {
+        let mut conn = setup_test_connection();
+        let agent = TestFixtures::create_user(&mut conn, "merged_writes", "technician");
+        let destination = TestFixtures::create_ticket(&mut conn, "Printer jammed", None, None);
+        let source = TestFixtures::create_ticket(&mut conn, "Printer still jammed", None, None);
+        TestFixtures::mark_merged(&mut conn, &source, &destination, agent.uuid);
+
+        let refused = update_ticket_partial(
+            &mut conn,
+            source.id,
+            crate::models::TicketUpdate {
+                title: Some("Renamed after the merge".to_string()),
+                resolution_notes: Some(Some("Fixed".to_string())),
+                ..Default::default()
+            },
+            None,
+        );
+        assert!(
+            refused.is_err(),
+            "a merged ticket took a write: {refused:?}"
+        );
+        let after = get_ticket_by_id(&mut conn, source.id).unwrap();
+        assert_eq!(after.title, "Printer still jammed");
+        assert_eq!(after.resolution_notes, None);
+
+        // The destination still takes writes.
+        let renamed = update_ticket_partial(
+            &mut conn,
+            destination.id,
+            crate::models::TicketUpdate {
+                title: Some("Printer jammed on level 3".to_string()),
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("the destination is writable");
+        assert_eq!(renamed.title, "Printer jammed on level 3");
+    }
 
     #[test]
     fn partial_update_sets_start_date_and_emits_it() {

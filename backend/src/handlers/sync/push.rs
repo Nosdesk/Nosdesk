@@ -295,6 +295,15 @@ fn apply_ticket(
 
     match tx.op {
         SyncOp::Update => {
+            // A merged ticket takes no edits, its tags included (they don't go
+            // through `update_ticket_partial`, which refuses the rest).
+            let merged = crate::repository::ticket_merge::is_merge_source(conn, ticket_id);
+            if merged.map_err(reject_diesel)? {
+                return Err(TxReject(
+                    "ticket_merged",
+                    crate::repository::tickets::MERGED_TICKET.into(),
+                ));
+            }
             // `tag_ids` is the one non-column field the optimistic queue may
             // carry: it's a ticket_tags join-table set, not a `tickets` column.
             // Split it out and apply it via set_tags_for_ticket (which emits its
@@ -396,6 +405,10 @@ fn apply_ticket(
                 TicketWriteError::IneligibleAssignee(_) => TxReject(
                     "invalid_assignee",
                     crate::repository::tickets::INELIGIBLE_ASSIGNEE.into(),
+                ),
+                TicketWriteError::Merged => TxReject(
+                    "ticket_merged",
+                    crate::repository::tickets::MERGED_TICKET.into(),
                 ),
                 TicketWriteError::Database(e) => reject_diesel(e),
             })?;

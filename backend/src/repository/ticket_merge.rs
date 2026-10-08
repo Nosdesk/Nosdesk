@@ -449,14 +449,11 @@ pub fn execute_merge(
     })
 }
 
-/// Fetch a ticket by id, mapping "not found" to a clean `MergeError`.
-/// Whether a ticket is already a merge source (has a `ticket_merges` row).
-/// Replaces the old `ticket.merged_into_ticket_id.is_some()` check now that
-/// merge metadata lives in the satellite.
-fn is_merge_source(conn: &mut DbConnection, ticket_id: i32) -> Result<bool, MergeError> {
+/// Whether a ticket was merged into another one (has a `ticket_merges` row).
+pub fn is_merge_source(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<bool> {
     use crate::schema::ticket_merges;
     use diesel::dsl::{exists, select};
-    Ok(select(exists(ticket_merges::table.find(ticket_id))).get_result(conn)?)
+    select(exists(ticket_merges::table.find(ticket_id))).get_result(conn)
 }
 
 /// The ticket a merged ticket's conversation continues on: the one it was

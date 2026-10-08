@@ -416,7 +416,9 @@ fn conclude(
             "channel": channel,
         }),
     )?;
-    if state == DECLINED {
+    // A merged request stays merged: the decision is recorded above, and the
+    // request it was merged into carries on.
+    if state == DECLINED && !crate::repository::ticket_merge::is_merge_source(conn, ticket.id)? {
         // No cancelled state configured: the approval state alone says it.
         if let Some(cancelled) = crate::repository::workflow_states::first_in_category(
             conn,
@@ -637,6 +639,99 @@ mod tests {
     fn ticket_in(conn: &mut DbConnection, category: i32, requester: Uuid) -> Ticket {
         let t = TestFixtures::create_ticket(conn, "Laptop", Some(requester), Some(category));
         tickets::table.find(t.id).first(conn).unwrap()
+    }
+
+    /// A request waiting on `approver`, then merged into another one. Returns
+    /// it and the merged state it sits in.
+    fn merged_while_waiting(conn: &mut DbConnection, name: &str, approver: Uuid) -> (Ticket, i32) {
+        let requester = TestFixtures::create_user(conn, &format!("{name}_req"), "user");
+        let cat = approval_type(conn, "any", false, &[approver]);
+        let ticket = ticket_in(conn, cat, requester.uuid);
+        start_if_required(conn, &ticket).unwrap();
+        let destination =
+            TestFixtures::create_ticket(conn, "Laptop again", Some(requester.uuid), None);
+        let merged = crate::repository::workflow_states::first_in_category(
+            conn,
+            WorkflowStateCategory::Merged,
+        )
+        .unwrap();
+        diesel::update(tickets::table.find(ticket.id))
+            .set(tickets::workflow_state_id.eq(merged.id))
+            .execute(conn)
+            .unwrap();
+        TestFixtures::mark_merged(conn, &ticket, &destination, approver);
+        (ticket, merged.id)
+    }
+
+    /// A decline on a request merged while it waited is recorded, and doesn't
+    /// try to cancel the merged ticket.
+    #[test]
+    fn a_decline_on_a_merged_request_is_recorded_and_it_stays_merged() {
+        let mut conn = setup_test_connection();
+        let boss = TestFixtures::create_user(&mut conn, "merged_decline_boss", "user");
+        let (ticket, merged) = merged_while_waiting(&mut conn, "merged_decline", boss.uuid);
+
+        let decided = decide(
+            &mut conn,
+            ticket.id,
+            boss.uuid,
+            false,
+            Some("Duplicate"),
+            "portal",
+            None,
+        );
+        assert_eq!(decided.as_deref(), Ok(DECLINED), "the decision is recorded");
+        let t: Ticket = tickets::table.find(ticket.id).first(&mut conn).unwrap();
+        assert_eq!(t.approval_state.as_deref(), Some(DECLINED));
+        assert_eq!(t.workflow_state_id, merged, "it stays merged");
+    }
+
+    /// An approval on a request merged while it waited is recorded, and the
+    /// held request isn't routed: the ticket it was merged into is the one
+    /// worked on.
+    #[test]
+    fn an_approval_on_a_merged_request_is_recorded_and_it_is_not_routed() {
+        use crate::models::{AssignmentMethod, NewAssignmentRule};
+        use crate::schema::assignment_rules;
+        let mut conn = setup_test_connection();
+        let boss = TestFixtures::create_user(&mut conn, "merged_approve_boss", "user");
+        let agent = TestFixtures::create_user(&mut conn, "merged_approve_agent", "technician");
+        let (ticket, merged) = merged_while_waiting(&mut conn, "merged_approve", boss.uuid);
+        // A held request is routed once approved, and this rule would route
+        // it. The settings row is shared between tests, so it's written last.
+        diesel::insert_into(assignment_rules::table)
+            .values(&NewAssignmentRule {
+                name: "Everything to the agent".into(),
+                description: None,
+                priority: 1,
+                is_active: true,
+                method: AssignmentMethod::DirectUser,
+                target_user_uuid: Some(agent.uuid),
+                target_group_id: None,
+                trigger_on_create: true,
+                trigger_on_category_change: false,
+                category_id: None,
+                conditions: None,
+                created_by: Some(boss.uuid),
+            })
+            .execute(&mut conn)
+            .unwrap();
+        crate::repository::site_settings::get_site_settings(&mut conn).unwrap();
+        diesel::update(crate::schema::site_settings::table)
+            .set(crate::schema::site_settings::approval_waiting_display.eq("held"))
+            .execute(&mut conn)
+            .unwrap();
+
+        let decided = decide(&mut conn, ticket.id, boss.uuid, true, None, "portal", None);
+        assert_eq!(decided.as_deref(), Ok(APPROVED), "the decision is recorded");
+        let routed = crate::services::assignment::AssignmentEngine::assign_after_approval(
+            &mut conn, ticket.id,
+        );
+        assert!(matches!(routed, Ok(None)), "not routed: {routed:?}");
+        let t: Ticket = tickets::table.find(ticket.id).first(&mut conn).unwrap();
+        assert_eq!(t.approval_state.as_deref(), Some(APPROVED));
+        assert_eq!(t.assignee_uuid, None);
+        assert_eq!(t.workflow_state_id, merged, "it stays merged");
     }
 
     #[test]

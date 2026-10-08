@@ -194,6 +194,11 @@ pub fn conflict(message: impl Into<String>) -> HttpResponse {
     conflict_with_code(message, "CONFLICT")
 }
 
+/// 409 `ticket_merged`: a write to a ticket that was merged into another.
+pub fn ticket_merged() -> HttpResponse {
+    conflict_with_code(crate::repository::tickets::MERGED_TICKET, "ticket_merged")
+}
+
 /// 409 Conflict with a specific machine-readable code.
 pub fn conflict_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
     stamp(
@@ -586,6 +591,9 @@ impl From<crate::repository::tickets::TicketWriteError> for ApiError {
                     "INVALID_ASSIGNEE",
                 ),
             )),
+            TicketWriteError::Merged => {
+                ApiError::Actix(from_response("merged ticket", ticket_merged()))
+            }
             TicketWriteError::Database(e) => ApiError::Database(e),
         }
     }

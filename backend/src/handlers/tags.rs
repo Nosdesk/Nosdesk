@@ -108,6 +108,9 @@ pub async fn set_ticket_tags(
     body: web::Json<SetTicketTagsBody>,
 ) -> impl Responder {
     let TicketAccess { ticket_id, auth } = access;
+    if let Some(refused) = crate::handlers::helpers::refuse_merged(&mut tc, &[ticket_id]) {
+        return refused;
+    }
     let tag_ids = body.tag_ids.clone();
     let actor_uuid = auth.user_uuid;
     match tc.run(|conn| repo::set_tags_for_ticket(conn, ticket_id, &tag_ids, Some(actor_uuid))) {
