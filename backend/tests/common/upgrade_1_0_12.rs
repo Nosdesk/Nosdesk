@@ -1,9 +1,11 @@
 //! A database as 1.0.12 left it, holding realistic data, for upgrade tests.
 //!
 //! `UpgradeDb::at_1_0_12` is a fresh database migrated through the last
-//! migration 1.0.12 shipped. `seed` fills it the way a used 1.0.12 install
-//! looks, one function per kind of data, so a test can add its own the same
-//! way. Rows go in with the table's user triggers off, as a restore loads
+//! migration 1.0.12 shipped (`UpgradeDb::from_dump` restores a real one
+//! instead). `seed` fills it the way a used 1.0.12 install with two
+//! workspaces looks, and `seed_single_workspace` the way a Community install
+//! with only its bootstrap workspace looks; both call one function per kind
+//! of data, so a test can add its own the same way. Rows go in with the table's user triggers off, as a restore loads
 //! them: no audit or sync side effects, timestamps exactly as given, foreign
 //! keys still checked. `migrate_to_head` then runs every later migration as
 //! the connecting superuser, one at a time, so a failure names its migration.
@@ -33,6 +35,9 @@ pub const KEPT_TABLES: &[&str] = &[
     "user_preferences",
     "workspace_members",
     "workflow_states",
+    "working_calendars",
+    "sla_policies",
+    "ticket_categories",
     "site_settings",
     "tickets",
     "comments",
@@ -54,8 +59,8 @@ pub struct UpgradeDb {
 }
 
 impl UpgradeDb {
-    /// A fresh database migrated to exactly what 1.0.12 shipped.
-    pub fn at_1_0_12() -> Self {
+    /// An empty database.
+    fn create() -> Self {
         let name = format!(
             "nosdesk_upgrade_{}",
             &Uuid::new_v4().simple().to_string()[..16]
@@ -64,8 +69,51 @@ impl UpgradeDb {
         let mut admin =
             PgConnection::establish(&super::admin_url()).expect("connect to admin DB (postgres)");
         run(&mut admin, &format!("CREATE DATABASE \"{name}\""));
-        let db = Self { name, url };
+        Self { name, url }
+    }
 
+    /// A fresh database restored from a `pg_dump` file, plain SQL or the
+    /// custom format (`pg_dump -Fc`), such as one taken from a real 1.0.12
+    /// install. Runs `psql` or `pg_restore` from `PG_BIN_DIR` when set, else
+    /// from `PATH`; their major version should match the server's.
+    pub fn from_dump(path: &std::path::Path) -> Self {
+        let db = Self::create();
+        let mut magic = [0u8; 5];
+        let custom = std::fs::File::open(path)
+            .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut magic))
+            .map(|()| &magic == b"PGDMP")
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let mut command = if custom {
+            let mut c = std::process::Command::new(pg_tool("pg_restore"));
+            c.args(["--exit-on-error", "--dbname", &db.url]);
+            c
+        } else {
+            let mut c = std::process::Command::new(pg_tool("psql"));
+            c.args([
+                "--quiet",
+                "--set",
+                "ON_ERROR_STOP=1",
+                "--dbname",
+                &db.url,
+                "--file",
+            ]);
+            c
+        };
+        let status = command
+            .arg(path)
+            .status()
+            .unwrap_or_else(|e| panic!("run the restore for {}: {e}", path.display()));
+        assert!(
+            status.success(),
+            "restoring {} failed: {status}",
+            path.display()
+        );
+        db
+    }
+
+    /// A fresh database migrated to exactly what 1.0.12 shipped.
+    pub fn at_1_0_12() -> Self {
+        let db = Self::create();
         let mut conn = db.conn();
         run(
             &mut conn,
@@ -111,16 +159,23 @@ impl UpgradeDb {
 
 impl Drop for UpgradeDb {
     fn drop(&mut self) {
+        // FORCE ends the sessions still open on it, including a booted
+        // app's pool and workers that would otherwise reconnect.
         if let Ok(mut admin) = PgConnection::establish(&super::admin_url()) {
             let _ = diesel::sql_query(format!(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
-                 WHERE datname = '{}' AND pid <> pg_backend_pid()",
+                "DROP DATABASE IF EXISTS \"{}\" WITH (FORCE)",
                 self.name
             ))
             .execute(&mut admin);
-            let _ = diesel::sql_query(format!("DROP DATABASE IF EXISTS \"{}\"", self.name))
-                .execute(&mut admin);
         }
+    }
+}
+
+/// `tool` from `PG_BIN_DIR` when set, else from `PATH`.
+pub fn pg_tool(tool: &str) -> std::path::PathBuf {
+    match std::env::var_os("PG_BIN_DIR") {
+        Some(dir) => std::path::Path::new(&dir).join(tool),
+        None => tool.into(),
     }
 }
 
@@ -207,14 +262,21 @@ pub struct States {
     pub merged: i32,
 }
 
+/// A workspace and its workflow states.
+#[derive(Debug, Clone)]
+pub struct Workspace {
+    pub id: i32,
+    pub states: States,
+}
+
 #[derive(Debug, Clone)]
 pub struct Workspaces {
     /// The bootstrap workspace every 1.0 install has (id 1, slug `default`).
     pub default: i32,
     pub default_states: States,
-    /// A second workspace on a slug 1.1 reserves (`teams`).
-    pub teams: i32,
-    pub teams_states: States,
+    /// A second workspace on a slug 1.1 reserves (`teams`). `None` in the
+    /// single-workspace shape every Community install has.
+    pub teams: Option<Workspace>,
 }
 
 #[derive(Debug, Clone)]
@@ -242,12 +304,15 @@ pub struct Tickets {
     /// Cancelled with no `closed_at` and no history; `updated_at` stands in.
     pub cancelled: i32,
     pub cancelled_updated_at: &'static str,
+    /// Closed, then reopened into In Progress; 1.0.x left its `closed_at`
+    /// and `closed_by` set.
+    pub reopened: i32,
     /// Merged into `merge_target` (1.0 kept the merge on the ticket row).
     pub merged: i32,
     pub merge_target: i32,
     /// In the teams workspace but on the default workspace's Backlog, which
-    /// 1.0.x let happen.
-    pub foreign_state: i32,
+    /// 1.0.x let happen. `None` without a teams workspace.
+    pub foreign_state: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -259,13 +324,23 @@ pub struct Seeded {
     /// Raw `full`-scope API token for `people.admin` in the default
     /// workspace.
     pub api_token: String,
-    /// The address both workspaces mailed and that bounced.
+    /// The address every workspace mailed and that bounced.
     pub suppressed_email: &'static str,
 }
 
-/// Seed everything, in dependency order.
+/// Seed an install with two workspaces, in dependency order.
 pub fn seed(conn: &mut PgConnection) -> Seeded {
     let workspaces = seed_workspaces(conn);
+    seed_into(conn, workspaces)
+}
+
+/// Seed a Community install: the bootstrap workspace only.
+pub fn seed_single_workspace(conn: &mut PgConnection) -> Seeded {
+    let workspaces = seed_bootstrap_workspace(conn);
+    seed_into(conn, workspaces)
+}
+
+fn seed_into(conn: &mut PgConnection, workspaces: Workspaces) -> Seeded {
     let people = seed_people(conn, &workspaces);
     let tickets = seed_tickets(conn, &workspaces, &people);
     seed_state_history(conn, &workspaces, &people, &tickets);
@@ -304,8 +379,73 @@ fn states_of(conn: &mut PgConnection, workspace: i32) -> States {
     }
 }
 
-/// The bootstrap workspace plus a second one slugged `teams`, with its own
-/// settings row and the default workflow states 1.0.12 seeded for it.
+/// The weekly schedule 1.0.12's default working calendar had.
+const DEFAULT_SCHEDULE: &str = r#"{"mon": [["09:00", "17:00"]], "tue": [["09:00", "17:00"]], "wed": [["09:00", "17:00"]], "thu": [["09:00", "17:00"]], "fri": [["09:00", "17:00"]], "sat": [], "sun": []}"#;
+
+/// What 1.0.12's `seed_workspace_defaults` gave a workspace, each only where
+/// it had none yet: the seven workflow states, a 9 to 5 working calendar
+/// with a default SLA policy, and three ticket categories. The bootstrap
+/// workspace's states, calendar and policy come with the schema.
+pub fn seed_workspace_defaults(conn: &mut PgConnection, workspace: i32) {
+    load(
+        conn,
+        "workflow_states",
+        &format!(
+            "INSERT INTO workflow_states (workspace_id, name, category, color, position, is_default) \
+             SELECT {workspace}, name, category, color, position, is_default \
+             FROM workflow_states WHERE workspace_id = 1 \
+             AND NOT EXISTS (SELECT 1 FROM workflow_states WHERE workspace_id = {workspace}) \
+             ORDER BY id"
+        ),
+    );
+    load(
+        conn,
+        "working_calendars",
+        &format!(
+            "INSERT INTO working_calendars (workspace_id, name, timezone, schedule, is_default) \
+             SELECT {workspace}, 'Default 9-5', 'UTC', '{}', true \
+             WHERE NOT EXISTS (SELECT 1 FROM working_calendars WHERE workspace_id = {workspace})",
+            DEFAULT_SCHEDULE
+        ),
+    );
+    load(
+        conn,
+        "sla_policies",
+        &format!(
+            "INSERT INTO sla_policies \
+             (workspace_id, name, target_response_minutes, target_resolution_minutes, working_calendar_id, is_default) \
+             SELECT {workspace}, 'Default', 240, 1440, c.id, true FROM working_calendars c \
+             WHERE c.workspace_id = {workspace} AND c.is_default \
+             AND NOT EXISTS (SELECT 1 FROM sla_policies WHERE workspace_id = {workspace})"
+        ),
+    );
+    load(
+        conn,
+        "ticket_categories",
+        &format!(
+            "INSERT INTO ticket_categories (workspace_id, name, description, color, icon, display_order, is_active) \
+             SELECT {workspace}, v.* FROM (VALUES \
+               ('Support', 'General help requests', '#3b82f6', 'question', 0, true), \
+               ('Bug', 'Defect reports', '#ef4444', 'bug', 1, true), \
+               ('Feature request', 'Enhancement ideas', '#8b5cf6', 'lightbulb', 2, true) \
+             ) AS v(name, description, color, icon, display_order, is_active) \
+             WHERE NOT EXISTS (SELECT 1 FROM ticket_categories WHERE workspace_id = {workspace})"
+        ),
+    );
+}
+
+/// The Community shape: the bootstrap workspace with its defaults.
+pub fn seed_bootstrap_workspace(conn: &mut PgConnection) -> Workspaces {
+    seed_workspace_defaults(conn, 1);
+    Workspaces {
+        default: 1,
+        default_states: states_of(conn, 1),
+        teams: None,
+    }
+}
+
+/// The bootstrap workspace plus a second one slugged `teams`, each with
+/// its settings row and the defaults 1.0.12 seeded.
 pub fn seed_workspaces(conn: &mut PgConnection) -> Workspaces {
     let teams = load_returning_id(
         conn,
@@ -318,21 +458,13 @@ pub fn seed_workspaces(conn: &mut PgConnection) -> Workspaces {
         "site_settings",
         &format!("INSERT INTO site_settings (workspace_id, app_name) VALUES ({teams}, 'Teams')"),
     );
-    load(
-        conn,
-        "workflow_states",
-        &format!(
-            "INSERT INTO workflow_states (workspace_id, name, category, color, position, is_default) \
-             SELECT {teams}, name, category, color, position, is_default \
-             FROM workflow_states WHERE workspace_id = 1 ORDER BY id"
-        ),
-    );
-    Workspaces {
-        default: 1,
-        default_states: states_of(conn, 1),
-        teams,
-        teams_states: states_of(conn, teams),
-    }
+    seed_workspace_defaults(conn, teams);
+    let mut workspaces = seed_bootstrap_workspace(conn);
+    workspaces.teams = Some(Workspace {
+        id: teams,
+        states: states_of(conn, teams),
+    });
+    workspaces
 }
 
 fn person(
@@ -377,16 +509,20 @@ fn person(
     uuid
 }
 
-/// An admin of both workspaces, an agent, a requester, and a former member
+/// An admin of every workspace, an agent, a requester, and a former member
 /// with no membership row left.
 pub fn seed_people(conn: &mut PgConnection, ws: &Workspaces) -> People {
+    let mut admin_of = vec![(ws.default, "admin")];
+    if let Some(teams) = &ws.teams {
+        admin_of.push((teams.id, "admin"));
+    }
     People {
         admin: person(
             conn,
             "Ada Admin",
             "ada@example.com",
             "platform_admin",
-            &[(ws.default, "admin"), (ws.teams, "admin")],
+            &admin_of,
         ),
         agent: person(
             conn,
@@ -432,8 +568,9 @@ fn q(value: impl std::fmt::Display) -> String {
     format!("'{value}'")
 }
 
-/// Open, done and cancelled tickets with no `closed_at`, a merged pair, and a
-/// teams ticket on the default workspace's Backlog.
+/// Open, done and cancelled tickets with no `closed_at`, a reopened one that
+/// still has it, a merged pair, and (with a teams workspace) a teams ticket
+/// on the default workspace's Backlog.
 pub fn seed_tickets(conn: &mut PgConnection, ws: &Workspaces, people: &People) -> Tickets {
     let d = &ws.default_states;
     let open = ticket(
@@ -472,6 +609,19 @@ pub fn seed_tickets(conn: &mut PgConnection, ws: &Workspaces, people: &People) -
         cancelled_updated_at,
         &[("requester_uuid", q(people.requester))],
     );
+    let reopened = ticket(
+        conn,
+        ws.default,
+        d.active,
+        "Monitor flickers again",
+        "2026-08-09T09:00:00Z",
+        "2026-08-12T09:00:00Z",
+        &[
+            ("requester_uuid", q(people.requester)),
+            ("closed_at", q("2026-08-11T09:00:00Z")),
+            ("closed_by", q(people.agent)),
+        ],
+    );
     let merge_target = ticket(
         conn,
         ws.default,
@@ -495,21 +645,24 @@ pub fn seed_tickets(conn: &mut PgConnection, ws: &Workspaces, people: &People) -
             ("merge_reason", q("Same outage")),
         ],
     );
-    let foreign_state = ticket(
-        conn,
-        ws.teams,
-        d.backlog,
-        "New starter needs a desk",
-        "2026-08-08T09:00:00Z",
-        "2026-08-08T09:00:00Z",
-        &[("requester_uuid", q(people.admin))],
-    );
+    let foreign_state = ws.teams.as_ref().map(|teams| {
+        ticket(
+            conn,
+            teams.id,
+            d.backlog,
+            "New starter needs a desk",
+            "2026-08-08T09:00:00Z",
+            "2026-08-08T09:00:00Z",
+            &[("requester_uuid", q(people.admin))],
+        )
+    });
     Tickets {
         open,
         done,
         done_closed_at,
         cancelled,
         cancelled_updated_at,
+        reopened,
         merged,
         merge_target,
         foreign_state,
@@ -671,15 +824,16 @@ pub fn seed_session(conn: &mut PgConnection, people: &People) {
     );
 }
 
-/// Both workspaces mailed one address that hard-bounced, so it is
+/// Every workspace mailed one address that hard-bounced, so it is
 /// suppressed; a second suppression has no outbound history left. The
 /// suppressed address.
 pub fn seed_mail(conn: &mut PgConnection, ws: &Workspaces, tickets: &Tickets) -> &'static str {
     let address = "bounced@example.org";
-    for (workspace, ticket) in [
-        (ws.default, tickets.open),
-        (ws.teams, tickets.foreign_state),
-    ] {
+    let mut mailed = vec![(ws.default, tickets.open)];
+    if let (Some(teams), Some(ticket)) = (&ws.teams, tickets.foreign_state) {
+        mailed.push((teams.id, ticket));
+    }
+    for (workspace, ticket) in mailed {
         load(
             conn,
             "outbound_emails",
