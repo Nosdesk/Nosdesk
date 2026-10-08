@@ -459,6 +459,28 @@ fn is_merge_source(conn: &mut DbConnection, ticket_id: i32) -> Result<bool, Merg
     Ok(select(exists(ticket_merges::table.find(ticket_id))).get_result(conn)?)
 }
 
+/// The ticket a merged ticket's conversation continues on: the one it was
+/// merged into, followed on if that one was merged later too. `None` when
+/// `ticket_id` wasn't merged.
+pub fn merge_destination(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Option<i32>> {
+    use crate::schema::ticket_merges;
+    let mut current = ticket_id;
+    // A destination is never a merge source when it's merged into, so a chain
+    // can't loop; the bound only guards against bad data.
+    for _ in 0..32 {
+        let next = ticket_merges::table
+            .find(current)
+            .select(ticket_merges::merged_into_ticket_id)
+            .first::<i32>(conn)
+            .optional()?;
+        match next {
+            Some(next) => current = next,
+            None => break,
+        }
+    }
+    Ok((current != ticket_id).then_some(current))
+}
+
 /// Batched merge lookup for the sync bootstrap: the `ticket_merges` row for
 /// each merge-source ticket in `ticket_ids`, keyed by source ticket id. Absent
 /// keys are unmerged tickets. Mirrors the other per-ticket membership maps so

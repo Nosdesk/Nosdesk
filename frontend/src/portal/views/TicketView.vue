@@ -22,6 +22,7 @@ import {
   getMyTicket,
   getMyTicketByNumber,
   isClosed,
+  isMerged,
   markSeen,
   replyToMyTicket,
   type PortalAttachment,
@@ -133,6 +134,11 @@ function jumpToLatest(): void {
   document.getElementById('portal-thread-end')?.scrollIntoView({ behavior: 'smooth', block: 'end' })
 }
 
+// A merged request's conversation continues on the one it was merged into:
+// no reply box or "is it fixed?" here, just where it went.
+const merged = computed(() => !!detail.data.value && isMerged(detail.data.value.ticket))
+const canReply = computed(() => !!detail.data.value?.can_reply && !merged.value)
+
 async function refresh(): Promise<void> {
   await queryCache.invalidateQueries({ key: key.value })
   void queryCache.invalidateQueries({ key: ['portal', 'tickets'] })
@@ -224,7 +230,7 @@ async function sendReply(): Promise<void> {
             >
               <!-- The thread's spine, joining one message to the next. -->
               <span
-                v-if="index < detail.data.value.comments.length - 1 || detail.data.value.can_reply"
+                v-if="index < detail.data.value.comments.length - 1 || canReply"
                 class="absolute left-4 top-10 bottom-0 w-px bg-[var(--color-border-default)]"
                 aria-hidden="true"
               />
@@ -285,7 +291,31 @@ async function sendReply(): Promise<void> {
           </Button>
 
           <p
-            v-if="!detail.data.value.can_reply"
+            v-if="merged"
+            class="flex flex-col gap-2 text-sm text-secondary bg-surface border border-default rounded-xl p-4"
+          >
+            <template v-if="detail.data.value.merged_into">
+              {{ t('portal-merged-into', { number: detail.data.value.merged_into }) }}
+              <RouterLink
+                :to="`/tickets/${detail.data.value.merged_into}`"
+                class="self-start font-medium text-accent hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {{ t('portal-merged-open', { number: detail.data.value.merged_into }) }}
+              </RouterLink>
+            </template>
+            <template v-else>
+              {{ t('portal-merged-hidden') }}
+              <RouterLink
+                to="/tickets/new"
+                class="self-start font-medium text-accent hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {{ t('portal-nav-new') }}
+              </RouterLink>
+            </template>
+          </p>
+
+          <p
+            v-else-if="!detail.data.value.can_reply"
             class="text-sm text-secondary bg-surface border border-default rounded-xl p-4"
           >
             {{ t('portal-shared-read-only', { name: detail.data.value.ticket.requested_by ?? '' }) }}
@@ -333,7 +363,7 @@ async function sendReply(): Promise<void> {
 
         <aside class="flex flex-col gap-4 lg:sticky lg:top-20">
           <ResolutionCard
-            v-if="detail.data.value.is_requester && !stillNeedsHelp"
+            v-if="detail.data.value.is_requester && !stillNeedsHelp && !merged"
             :ticket="detail.data.value.ticket"
             :rating="detail.data.value.rating"
             :answer="answer"
