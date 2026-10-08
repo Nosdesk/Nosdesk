@@ -7,7 +7,14 @@ import type { PublicNotice } from '@nosdesk/core/services/noticeService'
 import portalApi from './api'
 import type { CommentContentFormat, CommentRenderKind } from '@nosdesk/core/types/comment'
 
-export type StateCategory = 'triage' | 'backlog' | 'active' | 'in_review' | 'done' | 'cancelled'
+export type StateCategory =
+  | 'triage'
+  | 'backlog'
+  | 'active'
+  | 'in_review'
+  | 'done'
+  | 'cancelled'
+  | 'merged'
 
 export interface PortalState {
   name: string
@@ -80,6 +87,8 @@ export interface PortalTicketDetail {
   participants: PortalParticipant[]
   /** False when it's only shared with the viewer's organisation (read only). */
   can_reply: boolean
+  /** The number of the request it was merged into, when the viewer can see it. */
+  merged_into: number | null
 }
 
 export interface PortalMe {
@@ -89,9 +98,15 @@ export interface PortalMe {
   effective_locale: string
 }
 
-/** Closed means resolved or cancelled; everything else is still open. */
+/** Closed means resolved, cancelled or merged into another request. */
 export function isClosed(ticket: PortalTicket): boolean {
-  return ticket.state?.category === 'done' || ticket.state?.category === 'cancelled'
+  const category = ticket.state?.category
+  return category === 'done' || category === 'cancelled' || category === 'merged'
+}
+
+/** Merged into another request, where its conversation continues. */
+export function isMerged(ticket: PortalTicket): boolean {
+  return ticket.state?.category === 'merged'
 }
 
 /** Request a passwordless sign-in link. Always resolves (uniform response). */

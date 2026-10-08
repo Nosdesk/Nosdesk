@@ -1217,6 +1217,15 @@ fn my_ticket(mut tc: TenantConn, portal: PortalContext, ticket_id: i32) -> HttpR
             .map(|r| json!({ "rating": r.rating, "comment": r.comment }));
         let is_requester = ticket.requester_uuid == Some(viewer);
         let participants = participants_of(conn, &ticket, viewer)?;
+        // A merged request names the one its conversation moved to, but only
+        // when the viewer can see that one.
+        let merged_into = match crate::repository::ticket_merge::merge_destination(conn, ticket_id)?
+        {
+            Some(destination) if can_view_ticket(conn, &vis, destination)? => {
+                Some(crate::repository::tickets::get_ticket_by_id(conn, destination)?.number)
+            }
+            _ => None,
+        };
         Ok(Some((
             CustomerTicket::for_viewer(ticket, &states, viewer, conn),
             comments,
@@ -1224,19 +1233,27 @@ fn my_ticket(mut tc: TenantConn, portal: PortalContext, ticket_id: i32) -> HttpR
             is_requester,
             participants,
             can_reply,
+            merged_into,
         )))
     });
     match result {
-        Ok(Some((ticket, comments, rating, is_requester, participants, can_reply))) => {
-            HttpResponse::Ok().json(json!({
-                "ticket": ticket,
-                "comments": comments,
-                "rating": rating,
-                "is_requester": is_requester,
-                "participants": participants,
-                "can_reply": can_reply,
-            }))
-        }
+        Ok(Some((
+            ticket,
+            comments,
+            rating,
+            is_requester,
+            participants,
+            can_reply,
+            merged_into,
+        ))) => HttpResponse::Ok().json(json!({
+            "ticket": ticket,
+            "comments": comments,
+            "rating": rating,
+            "is_requester": is_requester,
+            "participants": participants,
+            "can_reply": can_reply,
+            "merged_into": merged_into,
+        })),
         Ok(None) => errors::not_found("Ticket not found"),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to load ticket");
@@ -1670,6 +1687,14 @@ pub async fn create_my_ticket(
     }
 }
 
+/// What a portal reply came to.
+enum PortalReply {
+    Posted(crate::models::Comment),
+    NotFound,
+    /// Merged into a request the requester can't reply on.
+    MergedOutOfSight,
+}
+
 /// `POST /api/portal/tickets/{id}/comments` — the customer replies on one of
 /// their own tickets. Ownership is checked first (404 otherwise), and the reply
 /// is always a customer-visible (non-internal) comment authored by the customer.
@@ -1701,8 +1726,17 @@ pub async fn reply_to_my_ticket(
 
     let result = tc.run(move |conn| {
         if !can_view_ticket(conn, &vis, ticket_id)? {
-            return Ok(None);
+            return Ok(PortalReply::NotFound);
         }
+        // A merged request's conversation continues on the one it was merged
+        // into, so the reply goes there. When the requester can't reply on
+        // that one (another person's request), refuse rather than leave the
+        // reply on the merged request, where nobody reads it.
+        let ticket_id = match crate::repository::ticket_merge::merge_destination(conn, ticket_id)? {
+            None => ticket_id,
+            Some(destination) if can_view_ticket(conn, &vis, destination)? => destination,
+            Some(_) => return Ok(PortalReply::MergedOutOfSight),
+        };
         let new_comment = NewComment {
             content,
             ticket_id,
@@ -1730,24 +1764,29 @@ pub async fn reply_to_my_ticket(
                 None,
             )?;
         }
-        Ok(Some(comment))
+        Ok(PortalReply::Posted(comment))
     });
 
-    if let Ok(Some(comment)) = &result {
+    if let Ok(PortalReply::Posted(comment)) = &result {
         claim_uploads(
             &mut tc,
             &storage,
             &attachment_ids,
             user_uuid,
-            ticket_id,
+            comment.ticket_id,
             comment.id,
         )
         .await;
     }
 
     match result {
-        Ok(Some(comment)) => HttpResponse::Created().json(comment),
-        Ok(None) => errors::not_found("Ticket not found"),
+        Ok(PortalReply::Posted(comment)) => HttpResponse::Created().json(comment),
+        Ok(PortalReply::NotFound) => errors::not_found("Ticket not found"),
+        Ok(PortalReply::MergedOutOfSight) => errors::conflict_with_code(
+            "This request was merged into another one, so it can't take replies here. \
+             If you still need help, start a new request.",
+            "ticket_merged",
+        ),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to post reply");
             errors::internal("Failed to post reply")

@@ -52,6 +52,10 @@ const steps = computed<Step[]>(() => {
     out.push({ key: 'closed', label: t('portal-track-closed'), state: 'stopped' })
     return out
   }
+  if (category === 'merged') {
+    out.push({ key: 'merged', label: t('portal-track-merged'), state: 'stopped' })
+    return out
+  }
   // Waiting in the queue: the team has it but nobody has started.
   if (!working && !finished) out[out.length - 1].state = 'current'
   out.push({
