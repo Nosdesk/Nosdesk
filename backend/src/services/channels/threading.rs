@@ -13,7 +13,8 @@
 //!
 //! Steps 2 and 3 name a ticket by a number anyone can type, so they only
 //! match a ticket in the channel's workspace that the sender is already on
-//! (requester, watcher or staff); otherwise the cascade moves on.
+//! (requester, watcher or staff); otherwise the cascade moves on. A merged
+//! ticket named this way resolves to the ticket it was merged into.
 //!
 //! A message whose own Message-ID is one we sent never gets here: the
 //! pipeline drops it as a duplicate of the recorded outbound row.
@@ -78,7 +79,8 @@ pub async fn default_explicit_threading(
 
 /// The id of the ticket numbered `number` in the channel's workspace, when
 /// the message's sender is on it. The sender resolves as the pipeline's
-/// identity step resolves them.
+/// identity step resolves them. A merged ticket's conversation continues on
+/// the one it was merged into, so that is where the message goes.
 fn senders_ticket(
     event: &InboundMessage,
     channel_id: i32,
@@ -90,9 +92,11 @@ fn senders_ticket(
     let ticket_id = tickets_repo::id_for_number(conn, workspace_id, number).ok()??;
     let user =
         crate::repository::user_helpers::find_verified_user_by_email(sender, conn).ok()??;
-    tickets_repo::is_on_ticket(conn, ticket_id, user.uuid)
-        .ok()?
-        .then_some(ticket_id)
+    if !tickets_repo::is_on_ticket(conn, ticket_id, user.uuid).ok()? {
+        return None;
+    }
+    let destination = crate::repository::ticket_merge::merge_destination(conn, ticket_id).ok()?;
+    Some(destination.unwrap_or(ticket_id))
 }
 
 // ---------- Parsers ----------
@@ -541,5 +545,80 @@ mod tests {
 
         let result = default_explicit_threading(&inbound, ch.id, &mut conn).await;
         assert_eq!(result, Some(ticket_b.id));
+    }
+
+    // ---- merged tickets ----
+
+    /// A reply that names a merged ticket by number lands on the ticket it
+    /// was merged into, followed on if that one was merged too.
+    #[tokio::test]
+    async fn a_number_naming_a_merged_ticket_reaches_its_destination() {
+        use crate::services::channels::{ExternalIdentity, LoopMarkers, SenderAuth};
+        use crate::test_helpers::{setup_test_connection, TestFixtures};
+        use diesel::prelude::*;
+
+        let mut conn = setup_test_connection();
+        let channel = TestFixtures::create_channel(&mut conn, "email_imap");
+        let alice = TestFixtures::create_user(&mut conn, "Alice", "user");
+        TestFixtures::create_user_email(&mut conn, alice.uuid, "alice-merge@example.com", true);
+        let first = TestFixtures::create_ticket(&mut conn, "First", Some(alice.uuid), None);
+        let second = TestFixtures::create_ticket(&mut conn, "Second", None, None);
+        let last = TestFixtures::create_ticket(&mut conn, "Last", None, None);
+        for (from, into) in [(first.id, second.id), (second.id, last.id)] {
+            diesel::insert_into(crate::schema::ticket_merges::table)
+                .values((
+                    crate::schema::ticket_merges::ticket_id.eq(from),
+                    crate::schema::ticket_merges::merged_into_ticket_id.eq(into),
+                    crate::schema::ticket_merges::merged_at.eq(chrono::Utc::now().naive_utc()),
+                    crate::schema::ticket_merges::workspace_id.eq(channel.workspace_id),
+                ))
+                .execute(&mut conn)
+                .expect("merge row");
+        }
+
+        let message = |subject: Option<String>, recipient: String| InboundMessage {
+            external_id: "<reply@example.com>".into(),
+            from: ExternalIdentity {
+                provider: "email_imap".into(),
+                external_id: "alice-merge@example.com".into(),
+                display_name: "Alice".into(),
+                known_email: Some("alice-merge@example.com".into()),
+            },
+            subject,
+            body_text: "any news?".into(),
+            body_html: None,
+            attachments: vec![],
+            references: vec![],
+            received_at: chrono::Utc::now(),
+            loop_markers: LoopMarkers::default(),
+            raw_metadata: serde_json::json!({}),
+            recipients: vec![recipient],
+            is_bounce: false,
+            bounce_reports: Vec::new(),
+            raw_bytes: None,
+            content_language: None,
+            source_ref: None,
+            spam_suspected: false,
+            sender_auth: SenderAuth::Unknown,
+        };
+
+        let by_tag = message(
+            Some(format!("Re: [#{}] First", first.number)),
+            "support@yourco.com".into(),
+        );
+        assert_eq!(
+            default_explicit_threading(&by_tag, channel.id, &mut conn).await,
+            Some(last.id),
+            "a subject tag naming a merged ticket"
+        );
+        let by_address = message(
+            Some("Re: First".into()),
+            format!("support+ticket-{}@yourco.com", first.number),
+        );
+        assert_eq!(
+            default_explicit_threading(&by_address, channel.id, &mut conn).await,
+            Some(last.id),
+            "a plus address naming a merged ticket"
+        );
     }
 }
