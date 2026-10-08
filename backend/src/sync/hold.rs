@@ -19,9 +19,12 @@ use crate::sync::groups;
 /// as if they were new: same aggregate, event type and data, with
 /// `causation_id` naming the held row. The held `ticket.created` is left out,
 /// because confirming records a fresh one. Call it once the ticket is no
-/// longer pending, after that `ticket.created`. Returns how many were sent.
+/// longer pending, after that `ticket.created`. A held row something already
+/// names as its cause was sent on before, so calling this again sends nothing
+/// new. Returns how many were sent.
 pub fn release(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<usize> {
     use crate::schema::sync_actions;
+    let released = diesel::alias!(crate::schema::sync_actions as released);
 
     type Held = (
         Uuid,
@@ -32,16 +35,24 @@ pub fn release(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<usize> {
         serde_json::Value,
         Vec<Option<String>>,
     );
+    let group = vec![Some(format!("ticket:{}", ticket.id))];
+    // Nothing for the ticket predates it; this also prunes partitions.
+    let since = DateTime::<Utc>::from_naive_utc_and_offset(ticket.created_at, Utc);
     let held: Vec<Held> = sync_actions::table
-        .filter(sync_actions::groups.contains(vec![Some(format!("ticket:{}", ticket.id))]))
-        // Nothing for the ticket predates it; this also prunes partitions.
-        .filter(
-            sync_actions::occurred_at.ge(DateTime::<Utc>::from_naive_utc_and_offset(
-                ticket.created_at,
-                Utc,
-            )),
-        )
+        .filter(sync_actions::groups.contains(group.clone()))
+        .filter(sync_actions::occurred_at.ge(since))
         .filter(sync_actions::event_type.ne("ticket.created"))
+        // Not already released: a release carries the ticket's group too.
+        .filter(diesel::dsl::not(diesel::dsl::exists(
+            released
+                .filter(
+                    released
+                        .field(sync_actions::causation_id)
+                        .eq(sync_actions::event_uuid.nullable()),
+                )
+                .filter(released.field(sync_actions::groups).contains(group))
+                .filter(released.field(sync_actions::occurred_at).ge(since)),
+        )))
         .order(sync_actions::sync_id.asc())
         .select((
             sync_actions::event_uuid,
