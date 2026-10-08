@@ -29,7 +29,7 @@ jobs:
     # the same `nosdesk_test` database it expects locally.
     services:
       postgres:
-        image: postgres:17-bookworm
+        image: postgres:18-bookworm
         env:
           POSTGRES_USER: nosdesk
           POSTGRES_PASSWORD: nosdesk_password

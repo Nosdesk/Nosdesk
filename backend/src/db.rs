@@ -173,7 +173,48 @@ pub fn run_migrations() -> Result<(), Box<dyn std::error::Error + Send + Sync>> 
     info!(role, database = %redact_db_url(&url), "Running migrations");
     let mut conn = PgConnection::establish(&url)
         .map_err(|e| format!("migration connection ({role}) failed: {e}"))?;
+    require_supported_postgres(&mut conn)?;
     with_advisory_lock(&mut conn, apply_pending_migrations)
+}
+
+/// The oldest PostgreSQL Nosdesk runs on, as `server_version_num`: the schema
+/// uses PostgreSQL 18's native `uuidv7()`.
+const MIN_POSTGRES_VERSION_NUM: i32 = 180_000;
+
+/// Refuse an older server before any migration runs, so it is never left
+/// half-migrated.
+fn require_supported_postgres(
+    conn: &mut PgConnection,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[derive(diesel::QueryableByName)]
+    struct ServerVersion {
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        num: i32,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        text: String,
+    }
+    let version: ServerVersion = diesel::sql_query(
+        "SELECT current_setting('server_version_num')::int AS num, \
+                current_setting('server_version') AS text",
+    )
+    .get_result(conn)
+    .map_err(|e| format!("reading the PostgreSQL version failed: {e}"))?;
+    if version.num < MIN_POSTGRES_VERSION_NUM {
+        return Err(unsupported_postgres(&version.text).into());
+    }
+    Ok(())
+}
+
+/// What an operator on an older PostgreSQL is told.
+fn unsupported_postgres(server_version: &str) -> String {
+    format!(
+        "Nosdesk needs PostgreSQL 18 or later; this server runs {server_version}. Upgrade \
+         the database by following \
+         https://nosdesk.com/docs/operations/installation#upgrading-postgresql. Your data \
+         is untouched: Nosdesk stopped before running any migration. To keep Nosdesk \
+         running until the database is upgraded, use the image ghcr.io/nosdesk/nosdesk:1.0 \
+         for now."
+    )
 }
 
 /// Whether to apply migrations at server boot. Default true (single-role dev /
@@ -763,5 +804,28 @@ mod redact_db_url_tests {
     #[test]
     fn unparseable_falls_back_without_leaking() {
         assert_eq!(redact_db_url("not a url"), "<unparseable DATABASE_URL>");
+    }
+}
+
+#[cfg(test)]
+mod unsupported_postgres_tests {
+    use super::unsupported_postgres;
+
+    /// The refusal on an older PostgreSQL leads with the upgrade guide, says
+    /// the data wasn't touched, and only then names the 1.0 image as a
+    /// stopgap.
+    #[test]
+    fn the_refusal_on_an_older_postgres_leads_with_the_upgrade_guide() {
+        let message = unsupported_postgres("17.6 (Debian 17.6-1.pgdg12+1)");
+        let at = |needle: &str| {
+            message
+                .find(needle)
+                .unwrap_or_else(|| panic!("{needle:?} missing from: {message}"))
+        };
+        let guide = at("https://nosdesk.com/docs/operations/installation#upgrading-postgresql");
+        let untouched = at("untouched");
+        let stopgap = at("ghcr.io/nosdesk/nosdesk:1.0");
+        assert!(at("17.6") < guide, "{message}");
+        assert!(guide < untouched && untouched < stopgap, "{message}");
     }
 }
