@@ -28,9 +28,8 @@ const isLoading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 
-// Pick from the palette the badge actually distinguishes today —
-// see workflowColors.ts. Adding `slate` / `purple` back is purely a
-// design-system change (distinct CSS vars) once they earn their keep.
+// Every colour with its own palette (see workflowColors.ts), including
+// the seeded Triage (slate) and In Review (purple).
 const COLOR_TOKENS = SUPPORTED_COLOR_TOKENS
 
 // BaseDropdown options for the palette, each carrying its swatch as a
