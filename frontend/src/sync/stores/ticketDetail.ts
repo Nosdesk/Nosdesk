@@ -580,6 +580,8 @@ export function useTicketDetail(
     const kind = data.is_internal === true ? 'note' : 'reply'
 
     let newComment: Awaited<ReturnType<typeof ticketService.addCommentToTicket>> | undefined
+    // The request succeeded, whatever its body held.
+    let sent = false
     try {
       let attachments: UploadedFile[] = []
       if (data.files?.length > 0) {
@@ -609,6 +611,7 @@ export function useTicketDetail(
         data.is_internal === true,
         clientId,
       )
+      sent = true
     } catch (err) {
       logger.error('Error adding comment', { ticketId, error: err })
       // The server's echo arrived, so the reply was created and its row now
@@ -657,7 +660,14 @@ export function useTicketDetail(
       previews.forEach((_, i) => pool.remove('attachment', tempId - i - 1))
       replyFinished()
     }
-    if (!newComment) return
+    if (!sent) return
+    if (!newComment) {
+      // Saved, but the response carried no row to show. Release the server's
+      // echo so the sync stream shows the reply instead.
+      previews.forEach((url) => URL.revokeObjectURL(url))
+      clearOptimisticCreate(clientId)
+      return
+    }
 
     // The reply is created. Upsert the authoritative comment (idempotent with
     // the incoming sync action) and its attachments, in the same tick the temp

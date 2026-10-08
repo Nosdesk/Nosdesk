@@ -97,6 +97,31 @@ export async function clearSession(): Promise<void> {
   syncAssetProxy()
 }
 
+/** Trade the refresh token for a new pair. Called only through `refresh()`. */
+async function rotateTokens(): Promise<boolean> {
+  if (!refreshToken) return false
+  try {
+    // Native fetch (off the webview / off the axios interceptor stack).
+    const res = await tauriFetch(`${apiBaseUrl()}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Auth-Mode': 'bearer' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    if (!res.ok) return false
+    const data = (await res.json()) as BearerTokens
+    if (!data.access_token || !data.refresh_token) return false
+    accessToken = data.access_token
+    refreshToken = data.refresh_token
+    await store?.save(data.refresh_token)
+    syncAssetProxy()
+    return true
+  } catch {
+    return false
+  }
+}
+
+let refreshInFlight: Promise<boolean> | null = null
+
 const bearerAuthStrategy: AuthStrategy = {
   authHeaders() {
     const headers: Record<string, string> = { 'X-Auth-Mode': 'bearer' }
@@ -105,26 +130,15 @@ const bearerAuthStrategy: AuthStrategy = {
   },
   // No cookie jar on a tauri:// origin.
   useCredentials: false,
-  async refresh() {
-    if (!refreshToken) return false
-    try {
-      // Native fetch (off the webview / off the axios interceptor stack).
-      const res = await tauriFetch(`${apiBaseUrl()}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Auth-Mode': 'bearer' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      })
-      if (!res.ok) return false
-      const data = (await res.json()) as BearerTokens
-      if (!data.access_token || !data.refresh_token) return false
-      accessToken = data.access_token
-      refreshToken = data.refresh_token
-      await store?.save(data.refresh_token)
-      syncAssetProxy()
-      return true
-    } catch {
-      return false
-    }
+  // One refresh at a time, shared by every caller: the API client's 401
+  // retry and the sync runtime's both land here, and the server rotates the
+  // refresh token on each use and signs the device out when a used one comes
+  // back, so two concurrent refreshes would end the session.
+  refresh() {
+    refreshInFlight ??= rotateTokens().finally(() => {
+      refreshInFlight = null
+    })
+    return refreshInFlight
   },
   hasSession() {
     return accessToken !== null || refreshToken !== null

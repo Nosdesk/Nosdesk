@@ -24,9 +24,6 @@ import { tauriHttpAdapter } from './tauriHttpAdapter'
 type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean }
 
 let registered = false
-// Single in-flight refresh shared across concurrent 401s, so a burst of
-// requests triggers exactly one token rotation.
-let refreshing: Promise<boolean> | null = null
 
 export function setupApiClient(): void {
   if (registered) return
@@ -79,12 +76,8 @@ export function setupApiClient(): void {
         return Promise.reject(error)
       }
       original._retry = true
-      refreshing ??= transport()
-        .auth.refresh()
-        .finally(() => {
-          refreshing = null
-        })
-      const refreshed = await refreshing
+      // The transport shares one in-flight refresh with the sync runtime.
+      const refreshed = await transport().auth.refresh()
       if (refreshed) return apiClient(original)
       // Session can't be renewed: clear local state and surface the 401.
       transport().auth.onSessionLost()

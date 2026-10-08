@@ -34,7 +34,7 @@ vi.mock('@/i18n', () => ({
 }))
 
 import { useTicketDetail } from '../ticketDetail'
-import { noteServerEcho } from '@/sync/optimisticCreates'
+import { isEchoSuppressed, noteServerEcho } from '@/sync/optimisticCreates'
 import { resendClientId, useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
 import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
 
@@ -383,5 +383,27 @@ describe('a sent reply', () => {
       ([kind, id]) => kind === 'comment' && (id as number) < 0,
     )![1]
     expect(pool.remove).toHaveBeenCalledWith('comment', tempId)
+  })
+})
+
+describe('a reply saved with an empty response', () => {
+  it('shows through its server echo and is not offered again', async () => {
+    const pool = await import('@nosdesk/core/sync/pool')
+    addCommentToTicket.mockImplementationOnce((...args: unknown[]) => {
+      // The echo arrives while the request is out; the 2xx carries no body.
+      noteServerEcho(args[4] as string, 556)
+      return Promise.resolve(undefined)
+    })
+    const detail = useTicketDetail(101)
+
+    await detail.addComment({ ...reply(), files: [] })
+
+    expect(isEchoSuppressed(556)).toBe(false)
+    const tempId = (pool.upsert as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([kind, id]) => kind === 'comment' && (id as number) < 0,
+    )![1]
+    expect(pool.remove).toHaveBeenCalledWith('comment', tempId)
+    expect(useTicketDraftsStore().getDraft(101).content).toBe('')
+    expect(toast.error).not.toHaveBeenCalled()
   })
 })
