@@ -34,6 +34,7 @@
     { "type": "ticket.cycle_changed", "op": "U" },
     { "type": "ticket.merged", "op": "U" },
     { "type": "ticket.merged_into", "op": "U" },
+    { "type": "ticket.merge_notice_sent", "op": "U" },
     { "type": "ticket.linked", "op": "U" },
     { "type": "ticket.unlinked", "op": "U" },
     { "type": "ticket.sla_updated", "op": "U" },
