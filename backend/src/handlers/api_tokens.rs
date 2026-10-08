@@ -136,6 +136,11 @@ pub async fn create_api_token(
         {
             return Ok(Outcome::TargetRoleExceedsCaller);
         }
+        // A token made for someone else records the roles it was made for
+        // (already capped at the caller's above); the auth path refuses it once
+        // its holder's role is higher. One made for oneself follows one's role.
+        let ceiling = (user_uuid != created_by)
+            .then(|| (target_role, PlatformRole::from_db(&target.platform_role)));
         let created = api_tokens::create_api_token(
             conn,
             user_uuid,
@@ -143,6 +148,7 @@ pub async fn create_api_token(
             created_by,
             expires_in_days,
             scopes,
+            ceiling,
         )?;
         Ok(Outcome::Created(created))
     });

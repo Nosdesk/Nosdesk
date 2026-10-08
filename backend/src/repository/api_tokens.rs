@@ -10,7 +10,9 @@ use ring::digest::{Context, SHA256};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{ApiToken, ApiTokenCreatedResponse, ApiTokenInfo, NewApiToken};
+use crate::models::{
+    ApiToken, ApiTokenCreatedResponse, ApiTokenInfo, NewApiToken, PlatformRole, WorkspaceRole,
+};
 use crate::schema::api_tokens;
 
 /// API token prefix for identification
@@ -47,6 +49,7 @@ pub fn create_api_token(
     created_by: Uuid,
     expires_in_days: Option<i64>,
     scopes: Option<Vec<String>>,
+    ceiling: Option<(WorkspaceRole, PlatformRole)>,
 ) -> Result<ApiTokenCreatedResponse, diesel::result::Error> {
     let raw_token = generate_api_token();
     let token_hash = hash_token(&raw_token);
@@ -74,6 +77,8 @@ pub fn create_api_token(
         scopes: db_scopes,
         created_by,
         expires_at,
+        role_ceiling: ceiling.map(|(role, _)| role.as_str().to_string()),
+        platform_role_ceiling: ceiling.map(|(_, platform)| platform.as_str().to_string()),
     };
 
     let created: ApiToken = diesel::insert_into(api_tokens::table)
@@ -254,6 +259,7 @@ mod tests {
             user.uuid,
             Some(30),
             None,
+            None,
         )
         .unwrap();
 
@@ -278,6 +284,7 @@ mod tests {
             user.uuid,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -300,6 +307,7 @@ mod tests {
             user.uuid,
             Some(0),
             None,
+            None,
         )
         .unwrap();
 
@@ -318,6 +326,7 @@ mod tests {
             user.uuid,
             "Default Scope".into(),
             user.uuid,
+            None,
             None,
             None,
         )

@@ -484,6 +484,8 @@ pub fn mint_scoped_api_token(
         scopes: Some(scopes.iter().map(|s| Some((*s).to_string())).collect()),
         created_by: user.uuid,
         expires_at: None,
+        role_ceiling: None,
+        platform_role_ceiling: None,
     };
     diesel::insert_into(api_tokens::table)
         .values(&new_token)

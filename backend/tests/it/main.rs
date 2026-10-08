@@ -18,6 +18,7 @@ mod common;
 
 mod admin_workspace_members;
 mod analytics_kpi_summary;
+mod api_token_role_ceiling;
 mod asset_audits;
 mod asset_kinds_picker;
 mod assignee_eligibility;
@@ -66,6 +67,7 @@ mod knowledge_gap_hidden_pages;
 mod knowledge_gap_lifecycle;
 mod ldap_groups_in_workspace;
 mod logging_pii_guardrail;
+mod migration_api_token_role_ceiling;
 mod migration_backfill_existing_workspace;
 mod migration_email_suppressions_scope;
 mod migration_knowledge_gap_subject_page;

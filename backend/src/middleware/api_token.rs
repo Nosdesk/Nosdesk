@@ -133,11 +133,36 @@ pub fn try_bearer_auth(
             crate::repository::workspaces::uuid_for_id(conn, api_token.workspace_id)?
                 .ok_or(diesel::result::Error::NotFound)?;
 
-        Ok::<_, diesel::result::Error>((api_token, user, email, workspace_uuid))
+        let refusal = ceiling_refusal(conn, &api_token, &user)?;
+
+        Ok::<_, diesel::result::Error>((api_token, user, email, workspace_uuid, refusal))
     });
 
     let (api_token, user, email, bound_workspace) = match lookup_result {
-        Ok(triple) => triple,
+        Ok((api_token, user, email, workspace_uuid, None)) => {
+            (api_token, user, email, workspace_uuid)
+        }
+        Ok((api_token, _, _, _, Some(refusal))) => {
+            // Same answer as an unknown token, so a probe can't tell a
+            // promoted holder from a revoked token; the log says which.
+            match refusal {
+                CeilingRefusal::MakerNotAdmin => warn!(
+                    token_uuid = %api_token.uuid,
+                    "API token refused: its maker is no longer an admin of its workspace"
+                ),
+                CeilingRefusal::RoleAboveCeiling => warn!(
+                    token_uuid = %api_token.uuid,
+                    "API token refused: its holder's workspace role is above the one it was made for"
+                ),
+                CeilingRefusal::PlatformRoleChanged => warn!(
+                    token_uuid = %api_token.uuid,
+                    "API token refused: its holder has a platform role it wasn't made with"
+                ),
+            }
+            return Err(actix_web::error::ErrorUnauthorized(
+                "Invalid or expired API token",
+            ));
+        }
         Err(diesel::result::Error::NotFound) => {
             warn!(path = %req.path(), "API token not found or expired");
             return Err(actix_web::error::ErrorUnauthorized(
@@ -202,6 +227,68 @@ pub fn try_bearer_auth(
     );
 
     Ok(Some(claims))
+}
+
+/// Why a token may no longer act for its holder, or `None` when it may. One
+/// made for someone else acts at no more than the roles it was made for
+/// (`role_ceiling`, `platform_role_ceiling`), and only while its maker is still
+/// an admin of its workspace: the maker holds its secret. Refusing it here, the one place an
+/// API token authenticates, keeps every route, sync stream and collab or SSE
+/// connection token from seeing a higher role. A token made for oneself
+/// follows one's own role. Runs inside the lookup's bypass transaction, since
+/// the request has no workspace pin yet.
+fn ceiling_refusal(
+    conn: &mut crate::db::DbConnection,
+    token: &crate::models::ApiToken,
+    holder: &crate::models::User,
+) -> diesel::QueryResult<Option<CeilingRefusal>> {
+    use crate::models::{PlatformRole, WorkspaceRole};
+    use crate::repository::workspaces::membership;
+
+    if token.created_by == token.user_uuid {
+        return Ok(None);
+    }
+    let maker_is_admin =
+        match crate::repository::users::find_active_by_uuid(&token.created_by, conn) {
+            Ok(_) => membership(conn, token.workspace_id, token.created_by)?
+                .is_some_and(|m| WorkspaceRole::from_db(&m.role) >= WorkspaceRole::Admin),
+            Err(diesel::result::Error::NotFound) => false,
+            Err(e) => return Err(e),
+        };
+    if !maker_is_admin {
+        return Ok(Some(CeilingRefusal::MakerNotAdmin));
+    }
+    // A token from before ceilings were recorded and missed by the backfill
+    // reads as made for a plain member.
+    let ceiling = token
+        .role_ceiling
+        .as_deref()
+        .map(WorkspaceRole::from_db)
+        .unwrap_or(WorkspaceRole::Member);
+    if let Some(m) = membership(conn, token.workspace_id, token.user_uuid)? {
+        if WorkspaceRole::from_db(&m.role) > ceiling {
+            return Ok(Some(CeilingRefusal::RoleAboveCeiling));
+        }
+    }
+    // Platform roles aren't ordered: none, or the one it was made with.
+    let live = PlatformRole::from_db(&holder.platform_role);
+    let platform_ceiling = token
+        .platform_role_ceiling
+        .as_deref()
+        .map(PlatformRole::from_db)
+        .unwrap_or(PlatformRole::User);
+    if live == PlatformRole::User || live == platform_ceiling {
+        Ok(None)
+    } else {
+        Ok(Some(CeilingRefusal::PlatformRoleChanged))
+    }
+}
+
+/// Why [`ceiling_refusal`] refused a token, for the log line.
+enum CeilingRefusal {
+    MakerNotAdmin,
+    RoleAboveCeiling,
+    PlatformRoleChanged,
 }
 
 /// Middleware function that supports both Bearer token and cookie authentication
