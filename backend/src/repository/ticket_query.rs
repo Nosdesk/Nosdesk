@@ -37,15 +37,20 @@ fn parse_status_filter(status_str: &str) -> Vec<WorkflowStateCategory> {
     out
 }
 
-/// Parse priority string to enum
+/// The priority a filter names; an unknown one filters on medium, as it always
+/// has.
 fn parse_priority(priority_str: &str) -> TicketPriority {
-    match priority_str.to_lowercase().as_str() {
-        "none" => TicketPriority::None,
-        "low" => TicketPriority::Low,
-        "high" => TicketPriority::High,
-        "urgent" => TicketPriority::Urgent,
-        _ => TicketPriority::Medium,
-    }
+    TicketPriority::parse(priority_str).unwrap_or_default()
+}
+
+/// Priority by severity (`TicketPriority::rank`), for sorting. The database
+/// enum's own order puts urgent below high, so it isn't sorted on directly.
+fn priority_rank() -> diesel::expression::SqlLiteral<diesel::sql_types::Integer> {
+    let arms: String = TicketPriority::ALL
+        .iter()
+        .map(|p| format!(" WHEN '{}' THEN {}", p.as_str(), p.rank()))
+        .collect();
+    diesel::dsl::sql::<diesel::sql_types::Integer>(&format!("CASE tickets.priority{arms} END"))
 }
 
 /// Builder for constructing ticket queries with fluent API
@@ -468,8 +473,8 @@ impl TicketQuery {
             // / closed" relative ordering at the bucket level.
             (Some("status"), Some("asc")) => query = query.order(tickets::workflow_state_id.asc()),
             (Some("status"), _) => query = query.order(tickets::workflow_state_id.desc()),
-            (Some("priority"), Some("asc")) => query = query.order(tickets::priority.asc()),
-            (Some("priority"), _) => query = query.order(tickets::priority.desc()),
+            (Some("priority"), Some("asc")) => query = query.order(priority_rank().asc()),
+            (Some("priority"), _) => query = query.order(priority_rank().desc()),
             (Some("created_at"), Some("asc")) => query = query.order(tickets::created_at.asc()),
             (Some("created_at"), _) => query = query.order(tickets::created_at.desc()),
             _ => query = query.order(tickets::id.desc()),
@@ -738,6 +743,46 @@ mod tests {
         assert_eq!(result.data.len(), 2);
         assert!(result.total >= 5);
         assert!(result.total_pages >= 3);
+    }
+
+    /// Sorting by priority follows severity: descending puts urgent first,
+    /// then high, medium, low and none. (The database enum lists urgent before
+    /// high, so sorting by its order put high on top.)
+    #[test]
+    fn priority_sort_follows_severity() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "prio_sort_user", "admin");
+        let tag = format!("prio-sort-{}", uuid::Uuid::new_v4().simple());
+        for priority in [
+            TicketPriority::Low,
+            TicketPriority::Urgent,
+            TicketPriority::None,
+            TicketPriority::High,
+            TicketPriority::Medium,
+        ] {
+            let title = format!("{tag} {}", priority.as_str());
+            let ticket = TestFixtures::create_ticket(&mut conn, &title, Some(user.uuid), None);
+            diesel::update(tickets::table.find(ticket.id))
+                .set(tickets::priority.eq(priority))
+                .execute(&mut conn)
+                .unwrap();
+        }
+        let auth = AuthContext::test_context(user.uuid, "admin", vec![]);
+        let mut sorted = |direction: &str| -> Vec<&'static str> {
+            TicketQuery::new()
+                .visible_to(&auth)
+                .search(Some(tag.clone()))
+                .sort(Some("priority".into()), Some(direction.into()))
+                .paginate(1, 50)
+                .execute_with_users(&mut conn)
+                .unwrap()
+                .data
+                .iter()
+                .map(|item| item.ticket.priority.as_str())
+                .collect()
+        };
+        assert_eq!(sorted("desc"), ["urgent", "high", "medium", "low", "none"]);
+        assert_eq!(sorted("asc"), ["none", "low", "medium", "high", "urgent"]);
     }
 
     #[test]

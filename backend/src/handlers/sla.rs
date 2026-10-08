@@ -119,7 +119,11 @@ pub async fn create_policy(
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let actor_uuid = auth.user_uuid;
-    match tc.run(|conn| sla_admin::create_policy(conn, body.into_inner(), Some(actor_uuid))) {
+    let body = body
+        .into_inner()
+        .with_checked_priority()
+        .map_err(|m| ApiError::BadRequest(m.into()))?;
+    match tc.run(|conn| sla_admin::create_policy(conn, body, Some(actor_uuid))) {
         Ok(policy) => Ok(HttpResponse::Created().json(policy)),
         Err(e) => {
             error!(error = %e, "create sla policy failed");
@@ -137,7 +141,11 @@ pub async fn update_policy(
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    match tc.run(|conn| sla_admin::update_policy(conn, id, body.into_inner())) {
+    let body = body
+        .into_inner()
+        .with_checked_priority()
+        .map_err(|m| ApiError::BadRequest(m.into()))?;
+    match tc.run(|conn| sla_admin::update_policy(conn, id, body)) {
         Ok(policy) => Ok(HttpResponse::Ok().json(policy)),
         Err(e) => {
             error!(error = %e, id, "update sla policy failed");

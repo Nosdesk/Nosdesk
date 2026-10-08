@@ -140,6 +140,24 @@ pub struct SlaPolicyBody {
     pub clock_start: Option<String>,
 }
 
+impl SlaPolicyBody {
+    /// The body with its priority filter checked and stored by its canonical
+    /// name: a filter naming no priority is refused, a legacy name ("normal")
+    /// is saved as the priority it means, and an empty one means any priority.
+    pub fn with_checked_priority(mut self) -> Result<Self, &'static str> {
+        self.priority_filter = match self.priority_filter.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(filter) => Some(
+                crate::models::TicketPriority::parse(filter)
+                    .ok_or("Unknown priority: use none, low, medium, high or urgent")?
+                    .as_str()
+                    .to_string(),
+            ),
+        };
+        Ok(self)
+    }
+}
+
 pub fn list_policies(conn: &mut DbConnection) -> QueryResult<Vec<SlaPolicy>> {
     sla_policies::table
         .order(sla_policies::name.asc())

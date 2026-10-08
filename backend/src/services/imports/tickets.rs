@@ -349,14 +349,7 @@ fn resolve_email(
 }
 
 fn parse_priority(s: &str) -> Option<TicketPriority> {
-    match s.to_lowercase().as_str() {
-        "none" => Some(TicketPriority::None),
-        "low" => Some(TicketPriority::Low),
-        "medium" => Some(TicketPriority::Medium),
-        "high" => Some(TicketPriority::High),
-        "urgent" => Some(TicketPriority::Urgent),
-        _ => None,
-    }
+    TicketPriority::parse(s)
 }
 
 fn trimmed(row: &HashMap<String, String>, key: &str) -> String {

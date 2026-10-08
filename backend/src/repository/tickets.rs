@@ -75,16 +75,9 @@ pub trait TicketDeletedObserver: Send + Sync {
 
 // ============= Helper Functions for Enum Parsing =============
 
-/// Parse a priority string into a TicketPriority enum
+/// The priority an imported ticket names; medium if it names none we know.
 fn parse_ticket_priority(priority: &str) -> TicketPriority {
-    match priority {
-        "none" => TicketPriority::None,
-        "low" => TicketPriority::Low,
-        "medium" => TicketPriority::Medium,
-        "high" => TicketPriority::High,
-        "urgent" => TicketPriority::Urgent,
-        _ => TicketPriority::Medium, // Default to medium if unknown
-    }
+    TicketPriority::parse(priority).unwrap_or_default()
 }
 
 // Get all tickets

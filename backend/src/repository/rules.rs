@@ -1138,16 +1138,12 @@ fn execute_set_priority(
     // this set; we error here as defence-in-depth so an editor
     // mismatch surfaces with a clear message
     // rather than a silent demotion.
-    let priority = match priority_str {
-        "low" => TicketPriority::Low,
-        "normal" | "medium" => TicketPriority::Medium,
-        "high" => TicketPriority::High,
-        "urgent" => TicketPriority::Urgent,
-        "none" => TicketPriority::None,
-        other => {
+    let priority = match TicketPriority::parse(priority_str) {
+        Some(priority) => priority,
+        None => {
             return Err(ApplyError::ActionFailed {
                 index: action_index,
-                message: format!("unknown priority: {other}"),
+                message: format!("unknown priority: {priority_str}"),
             })
         }
     };
