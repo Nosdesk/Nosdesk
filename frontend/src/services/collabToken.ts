@@ -7,6 +7,7 @@
  * is reset on workspace switch / logout via `resetCollabToken()`.
  */
 import apiClient from '@nosdesk/core/apiClient';
+import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
 
 interface CollabTokenResponse {
   token: string;
@@ -84,9 +85,14 @@ export function resetCollabToken(): void {
 
 let warming = false;
 let warmTimer: ReturnType<typeof setTimeout> | null = null;
+/** Failed fetches in a row; spaces out the retries. */
+let warmFailures = 0;
+const WARM_RETRY_FIRST_MS = 5_000;
+const WARM_RETRY_MAX_MS = 5 * 60_000;
 
 function stopWarm(): void {
   warming = false;
+  warmFailures = 0;
   if (warmTimer) clearTimeout(warmTimer);
   warmTimer = null;
 }
@@ -103,11 +109,16 @@ async function refreshWarmToken(): Promise<void> {
   try {
     await getCollabToken();
   } catch {
-    // Signed out, or the API is down: stop rather than retry in the
-    // background. Opening a note still fetches one.
-    if (startedIn === generation) stopWarm();
+    // A blip (a phone waking up, the API restarting): try again, further
+    // apart each time. Sign-out and a workspace switch stop this through
+    // `resetCollabToken`; opening a note still fetches a token itself.
+    if (!warming || startedIn !== generation) return;
+    const delay = Math.min(WARM_RETRY_MAX_MS, WARM_RETRY_FIRST_MS * 2 ** warmFailures);
+    warmFailures++;
+    warmTimer = setTimeout(() => void refreshWarmToken(), delay);
     return;
   }
+  warmFailures = 0;
   if (!warming || startedIn !== generation || !cached) return;
   // Just after it stops being good to connect with, when a fetch replaces it.
   warmTimer = setTimeout(() => void refreshWarmToken(), Math.max(1000, cached.expiresAt - Date.now() + 50));
@@ -116,16 +127,25 @@ async function refreshWarmToken(): Promise<void> {
 /**
  * Keep a collab token ready from now on: fetch one at once and another as
  * each runs out, while the page is visible. Called once the sync runtime has
- * loaded a workspace; calling it again does nothing extra.
+ * loaded, with the workspace it loaded; calling it again does nothing extra.
+ * A token is bound to a workspace, so in path routing nothing is fetched
+ * until one is chosen (a page without a slug, like the no-access or help
+ * pages, has none).
  */
-export function keepCollabTokenWarm(): void {
+export function keepCollabTokenWarm(workspaceSlug: string | null): void {
+  if (!workspaceSlug && getWorkspaceRouting() === 'path') return;
   if (warming) return;
   warming = true;
   void refreshWarmToken();
 }
 
+// Hidden, nothing is fetched; visible again, a token is fetched at once (no
+// waiting out a retry delay from before).
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
-    if (warming && !pageHidden()) void refreshWarmToken();
+    if (warming && !pageHidden()) {
+      warmFailures = 0;
+      void refreshWarmToken();
+    }
   });
 }

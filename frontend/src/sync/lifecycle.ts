@@ -208,6 +208,9 @@ export function ensureSyncRuntime(
     let rebootstrap: Promise<void> | null = null
     rebootstrap = (async () => {
       await tearDown() // clears runtimePromise; restore it so callers share this run
+      // A collab token is bound to the workspace it was minted in.
+      const { resetCollabToken } = await import('@/services/collabToken')
+      resetCollabToken()
       runtimePromise = rebootstrap
       await bootstrapRuntime(userUuid, workspaceSlug)
     })().catch((e) => {
@@ -237,7 +240,7 @@ async function bootstrapRuntime(
   // Have a collab token ready, so opening a note connects without first
   // waiting for one.
   const { keepCollabTokenWarm } = await import('@/services/collabToken')
-  keepCollabTokenWarm()
+  keepCollabTokenWarm(workspaceSlug)
 }
 
 const POLL_INTERVAL_MS = 10_000

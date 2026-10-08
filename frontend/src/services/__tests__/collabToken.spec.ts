@@ -1,20 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 let calls = 0
+/** Calls that fail, as when the API is briefly unreachable. */
+let failNext = 0
 vi.mock('@nosdesk/core/apiClient', () => ({
   default: {
     post: vi.fn(async () => {
       calls++
+      if (failNext > 0) {
+        failNext--
+        throw new Error('network down')
+      }
       return { data: { token: `t${calls}`, expires_in: 120, refresh_buffer: 30 } }
     }),
   },
 }))
+const routing = vi.hoisted(() => ({ mode: 'host' as 'host' | 'path' }))
+vi.mock('@nosdesk/core/services/instanceConfig', () => ({ getWorkspaceRouting: () => routing.mode }))
 
 import * as collabToken from '@/services/collabToken'
+
+function setVisibility(state: 'visible' | 'hidden') {
+  Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
 import { getCollabToken, peekCollabToken, resetCollabToken } from '@/services/collabToken'
 
 beforeEach(() => {
   calls = 0
+  failNext = 0
+  routing.mode = 'host'
+  setVisibility('visible')
   resetCollabToken()
   vi.useRealTimers()
 })
@@ -43,7 +59,7 @@ describe('collab token', () => {
 describe('a token kept ready', () => {
   it('is fetched at once and again as each one runs out', async () => {
     vi.useFakeTimers()
-    collabToken.keepCollabTokenWarm()
+    collabToken.keepCollabTokenWarm('acme')
     await vi.advanceTimersByTimeAsync(0)
     expect(peekCollabToken()).toBe('t1')
 
@@ -54,7 +70,7 @@ describe('a token kept ready', () => {
 
   it('stops when the session or workspace ends', async () => {
     vi.useFakeTimers()
-    collabToken.keepCollabTokenWarm()
+    collabToken.keepCollabTokenWarm('acme')
     await vi.advanceTimersByTimeAsync(0)
     resetCollabToken()
 
@@ -68,5 +84,49 @@ describe('a token kept ready', () => {
     resetCollabToken()
     await fetching
     expect(peekCollabToken()).toBeNull()
+  })
+})
+
+describe('a token kept ready, when fetching fails', () => {
+  it('tries again later instead of giving up', async () => {
+    vi.useFakeTimers()
+    failNext = 1
+    collabToken.keepCollabTokenWarm('acme')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(peekCollabToken()).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(calls).toBe(2)
+    expect(peekCollabToken()).toBe('t2')
+  })
+
+  it('tries again at once when the page is shown again', async () => {
+    vi.useFakeTimers()
+    failNext = 1
+    collabToken.keepCollabTokenWarm('acme')
+    await vi.advanceTimersByTimeAsync(0)
+    setVisibility('hidden')
+    await vi.advanceTimersByTimeAsync(60_000)
+    // Hidden: the retry waits.
+    expect(calls).toBe(1)
+
+    setVisibility('visible')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls).toBe(2)
+    expect(peekCollabToken()).toBe('t2')
+  })
+})
+
+describe('a token kept ready in path routing', () => {
+  it('waits for a workspace to be chosen', async () => {
+    vi.useFakeTimers()
+    routing.mode = 'path'
+    collabToken.keepCollabTokenWarm(null)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls).toBe(0)
+
+    collabToken.keepCollabTokenWarm('acme')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls).toBe(1)
   })
 })
