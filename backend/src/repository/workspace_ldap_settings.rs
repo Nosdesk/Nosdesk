@@ -15,6 +15,7 @@ use diesel::prelude::*;
 use crate::db::DbConnection;
 use crate::models::{UpsertWorkspaceLdapSettings, WorkspaceLdapSettings, WorkspaceLdapSyncState};
 use crate::repository::channels::CredentialError;
+use crate::repository::pinned_workspace;
 use crate::utils::encryption;
 
 /// AAD purpose tag for the workspace LDAP bind password. Combined with the
@@ -182,10 +183,13 @@ pub fn decrypt_bind_password(
 
 // ---- DirSync cursor state --------------------------------------------------
 
-/// The DirSync cursor state for the current workspace, if any. RLS scopes it.
+/// The DirSync cursor state for the pinned workspace, if any. Filtered on the
+/// pin as well as by RLS, so an elevated caller reads its own workspace's
+/// cursor too.
 pub fn get_sync_state(conn: &mut DbConnection) -> QueryResult<Option<WorkspaceLdapSyncState>> {
     use crate::schema::workspace_ldap_sync_state::dsl as s;
     s::workspace_ldap_sync_state
+        .filter(s::workspace_id.eq(pinned_workspace()))
         .select(WorkspaceLdapSyncState::as_select())
         .first(conn)
         .optional()

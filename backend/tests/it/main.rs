@@ -64,6 +64,7 @@ mod imports_users;
 mod integration_routes_require_admin;
 mod knowledge_gap_hidden_pages;
 mod knowledge_gap_lifecycle;
+mod ldap_groups_in_workspace;
 mod logging_pii_guardrail;
 mod migration_backfill_existing_workspace;
 mod migration_email_suppressions_scope;

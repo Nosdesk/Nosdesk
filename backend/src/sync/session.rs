@@ -252,6 +252,15 @@ pub fn elevate_session_role(conn: &mut DbConnection, actor: &ActorContext) -> Qu
     set_actor_session_scoped(conn, actor)
 }
 
+/// Pin an actor and its workspace on the connection for the session, without
+/// elevating: the runtime role and row-level security stay in force. For async
+/// background jobs that only need their own workspace (the LDAP reconcile),
+/// with [`reset_session_role`] to clear the pin before the connection goes
+/// back to the pool.
+pub fn pin_session_actor(conn: &mut DbConnection, actor: &ActorContext) -> QueryResult<()> {
+    set_actor_session_scoped(conn, actor)
+}
+
 /// Inverse of [`elevate_session_role`]: returns the role to the
 /// connection's login role (typically `nosdesk_app`) and clears
 /// every actor / workspace GUC the elevation set. Best-effort —
