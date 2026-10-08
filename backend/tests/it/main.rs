@@ -108,6 +108,7 @@ mod ticket_update_routes;
 mod ticket_write_lint;
 mod tracing_field_allowlist_lint;
 mod two_workspace_fixture;
+mod upgrade_from_1_0_12;
 mod user_contact_gate;
 mod webhook_delivery_in_workspace;
 mod webhook_outbox_durability;

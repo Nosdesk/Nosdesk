@@ -26,6 +26,8 @@ use uuid::Uuid;
 
 use backend::db::MIGRATIONS;
 
+pub mod upgrade_1_0_12;
+
 /// Customizer that seeds `app.workspace_id` on every fresh
 /// connection. After the Phase 3d NOT-NULL flip, the
 /// `workspace_id` column on every tenant table defaults to
