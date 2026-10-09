@@ -54,8 +54,11 @@ class SSEService {
   private eventListeners = new Map<SSEEventType, Set<EventHandler>>();
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
-  private readonly maxReconnectAttempts = 10;
   private readonly baseReconnectDelay = 1000;
+  /** The longest wait between attempts. Reconnecting never gives up: a
+   *  stream that stopped trying left the tab without live updates until a
+   *  reload. */
+  private readonly maxReconnectDelay = 30000;
   private sseToken: string | null = null;
   private tokenExpiryTime: number | null = null;
   // Unique client ID assigned by the server on connection (for echo suppression)
@@ -69,6 +72,28 @@ class SSEService {
 
   private wanted(): boolean {
     return this.started || this.watchedTickets.size > 0;
+  }
+
+  constructor() {
+    // Back online, or back to the tab: try now instead of waiting out the
+    // backoff, which can be up to `maxReconnectDelay`.
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", () => this.resumeNow());
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") this.resumeNow();
+      });
+    }
+  }
+
+  /** Reconnect at once if the stream is wanted but down. */
+  private resumeNow(): void {
+    if (!this.wanted() || this.eventSource || this.isConnecting.value) return;
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    this.reconnectAttempts = 0;
+    void this.connect();
   }
 
   /** SSE connection client ID (assigned by server, unique per tab/connection) */
@@ -226,13 +251,7 @@ class SSEService {
     this.lastError.value = translate('sse-connection-failed', undefined, 'Connection failed');
 
     this.cleanup();
-
-    // Auto-reconnect
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.scheduleReconnection();
-    } else {
-      logger.error("SSE: Max reconnection attempts reached");
-    }
+    this.scheduleReconnection();
   }
 
   // Handle server-requested reconnection
@@ -246,11 +265,13 @@ class SSEService {
   private scheduleReconnection() {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
     }
+    if (!this.wanted()) return;
 
     const delay = Math.min(
       this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
-      30000, // Max 30 seconds
+      this.maxReconnectDelay,
     );
 
     this.reconnectTimeout = setTimeout(() => {
@@ -268,9 +289,7 @@ class SSEService {
       await this.connect();
     } catch (error) {
       logger.error("SSE: Reconnection failed:", error);
-      if (this.reconnectAttempts < this.maxReconnectAttempts) {
-        this.scheduleReconnection();
-      }
+      this.scheduleReconnection();
     }
   }
 
@@ -397,9 +416,7 @@ class SSEService {
         error instanceof Error ? error.message : "Connection failed";
 
       // Schedule reconnect on connection failure
-      if (this.reconnectAttempts < this.maxReconnectAttempts) {
-        this.scheduleReconnection();
-      }
+      this.scheduleReconnection();
     }
   }
 
