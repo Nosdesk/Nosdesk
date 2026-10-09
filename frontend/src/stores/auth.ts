@@ -16,6 +16,7 @@ import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
 import { isTauriRuntime } from '@/platform';
 import { nativeLogoutRedirectUri } from '@/platform/oidcScheme';
 import { transport } from '@nosdesk/core/transport';
+import { sessionGone } from '@nosdesk/core/services/session';
 import { releaseSsoAutoStart } from '@/utils/ssoAutoStart';
 
 // Configure axios to use relative URLs and send cookies
@@ -163,11 +164,18 @@ export const useAuthStore = defineStore('auth', () => {
             error.value = translate('auth-login-rate-limited', undefined, 'Too many requests. Please wait a moment.');
             throw err;
           } else if (status === 401) {
-            // The shared refresh already had its say: the session is over.
-            // Tear down here only; asking the server to sign out could end a
-            // session another tab has just started.
-            logger.debug('Session lost while loading the profile');
-            void sessionLost();
+            // The shared refresh decides whether the session is over. Rejected:
+            // it is gone, so tear down here only (asking the server to sign
+            // out could end a session another tab has just started). Anything
+            // else (offline, a failing refresh, an endpoint 401 after a
+            // renewal) keeps the person signed in.
+            if (sessionGone()) {
+              logger.debug('Session lost while loading the profile');
+              void sessionLost();
+            } else {
+              error.value = translate('auth-login-network-error', undefined, 'Network error. Please check your connection.');
+              throw err;
+            }
           } else if (status === 403) {
             logger.debug('Signing out after the profile was refused:', status);
             logout();

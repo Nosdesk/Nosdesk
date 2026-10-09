@@ -40,10 +40,12 @@ afterEach(() => {
 })
 
 /** Boot the web platform signed in, with every API request refused and the
- *  refresh rejected. Returns the URLs the API client was asked for. */
-async function bootRejected() {
+ *  refresh rejected (or, `offline`, unable to reach the server). Returns the
+ *  URLs the API client was asked for. */
+async function bootRejected(refresh: 'rejected' | 'offline' = 'rejected') {
   const axios = (await import('axios')).default
   vi.spyOn(axios, 'post').mockImplementation((async () => {
+    if (refresh === 'offline') throw new AxiosError('offline', 'ERR_NETWORK')
     throw new AxiosError('refused', 'ERR_BAD_REQUEST', undefined, null, {
       status: 401,
     } as AxiosResponse)
@@ -82,5 +84,21 @@ describe('a session the server rejects', () => {
 
     expect(auth.user).toBeNull()
     expect(sent.filter((s) => s.includes('/auth/logout'))).toEqual([])
+  })
+
+  it('keeps the person signed in when a 401 meets a refresh that cannot reach the server', async () => {
+    const { auth, sent } = await bootRejected('offline')
+
+    const outcome = await auth.fetchUserData({ force: true }).then(
+      () => 'loaded',
+      () => 'failed',
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(auth.user).not.toBeNull()
+    expect(router.push).not.toHaveBeenCalled()
+    expect(sent.filter((s) => s.includes('/auth/logout'))).toEqual([])
+    // Reported to the caller like any request made while offline.
+    expect(outcome).toBe('failed')
   })
 })
