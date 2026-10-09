@@ -21,6 +21,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     )
     .service(
         web::scope("/msgraph")
+            .default_service(web::to(crate::errors::api_route_not_found))
             .route("/request", web::post().to(process_graph_request))
             .route("/users", web::get().to(get_graph_users))
             .route("/devices", web::get().to(get_graph_devices))

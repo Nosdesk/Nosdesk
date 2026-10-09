@@ -575,6 +575,94 @@ pub fn internal_error(message: impl Into<String>) -> actix_web::Error {
 }
 
 // =================================================================
+// Extractor failures and unknown API routes
+// =================================================================
+
+/// The envelope for a request actix couldn't extract: a body that isn't the
+/// JSON or form the route takes, a query or path that doesn't parse. The
+/// status is the extractor's own; the message describes the request, never
+/// the server.
+fn extractor_error(status: StatusCode, message: impl Into<String>) -> actix_web::Error {
+    let code = match status {
+        StatusCode::NOT_FOUND => "RESOURCE_NOT_FOUND",
+        StatusCode::PAYLOAD_TOO_LARGE => "PAYLOAD_TOO_LARGE",
+        _ => "BAD_REQUEST",
+    };
+    from_response(
+        "request could not be read",
+        with_fields(status, code, message, json!({})),
+    )
+}
+
+/// `web::JsonConfig` with `limit` whose failures answer with the envelope.
+pub fn json_config(limit: usize) -> web::JsonConfig {
+    use actix_web::error::JsonPayloadError as E;
+    web::JsonConfig::default()
+        .limit(limit)
+        .error_handler(|err, _| {
+            let status = err.status_code();
+            let message = match &err {
+                E::Deserialize(e) => format!("Invalid JSON body: {e}"),
+                E::OverflowKnownLength { .. } | E::Overflow { .. } => {
+                    "Request body is too large".to_string()
+                }
+                E::ContentType => "Expected a JSON body (Content-Type: application/json)".into(),
+                _ => "Invalid JSON body".to_string(),
+            };
+            extractor_error(status, message)
+        })
+}
+
+/// `web::FormConfig` with `limit` whose failures answer with the envelope.
+pub fn form_config(limit: usize) -> web::FormConfig {
+    use actix_web::error::UrlencodedError as E;
+    web::FormConfig::default()
+        .limit(limit)
+        .error_handler(|err, _| {
+            let status = err.status_code();
+            let message = match &err {
+                E::Overflow { .. } | E::UnknownLength => "Request body is too large",
+                E::ContentType => "Expected a form body",
+                _ => "Invalid form body",
+            };
+            extractor_error(status, message)
+        })
+}
+
+/// `web::QueryConfig` whose failures answer with the envelope.
+pub fn query_config() -> web::QueryConfig {
+    use actix_web::error::QueryPayloadError as E;
+    web::QueryConfig::default().error_handler(|err, _| {
+        let status = err.status_code();
+        let message = match &err {
+            E::Deserialize(e) => format!("Invalid query string: {e}"),
+            _ => "Invalid query string".to_string(),
+        };
+        extractor_error(status, message)
+    })
+}
+
+/// `web::PathConfig` whose failures answer with the envelope.
+pub fn path_config() -> web::PathConfig {
+    use actix_web::error::PathError as E;
+    web::PathConfig::default().error_handler(|err, _| {
+        let status = err.status_code();
+        let message = match &err {
+            E::Deserialize(e) => format!("Invalid path: {e}"),
+            _ => "Invalid path".to_string(),
+        };
+        extractor_error(status, message)
+    })
+}
+
+/// Default service for the API scopes: a path no route under the scope
+/// matches. A scope's middleware wraps its default service, so an unknown
+/// path is refused the same way (401 without a credential) before this runs.
+pub async fn api_route_not_found() -> HttpResponse {
+    not_found_msg("No such API route")
+}
+
+// =================================================================
 // ApiError: canonical Actix error enum
 // =================================================================
 
@@ -709,6 +797,82 @@ impl ResponseError for ApiError {
 mod tests {
     use super::*;
     use actix_web::body::to_bytes;
+
+    /// Each extractor config answers a request it can't read with the
+    /// envelope, keeping the extractor's status.
+    #[actix_web::test]
+    async fn extractor_configs_answer_with_the_envelope() {
+        use actix_web::{test, App};
+
+        #[derive(serde::Deserialize)]
+        struct Body {
+            #[allow(dead_code)]
+            n: i32,
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(json_config(16))
+                .app_data(form_config(16))
+                .app_data(query_config())
+                .app_data(path_config())
+                .route("/json", web::post().to(|_: web::Json<Body>| async { "ok" }))
+                .route("/form", web::post().to(|_: web::Form<Body>| async { "ok" }))
+                .route(
+                    "/query",
+                    web::get().to(|_: web::Query<Body>| async { "ok" }),
+                )
+                .route(
+                    "/path/{n}",
+                    web::get().to(|_: web::Path<i32>| async { "ok" }),
+                ),
+        )
+        .await;
+        let cases = [
+            (
+                test::TestRequest::post()
+                    .uri("/json")
+                    .insert_header(("Content-Type", "application/json"))
+                    .set_payload(r#"{"n":"x"}"#),
+                StatusCode::BAD_REQUEST,
+                "BAD_REQUEST",
+            ),
+            (
+                test::TestRequest::post()
+                    .uri("/json")
+                    .insert_header(("Content-Type", "application/json"))
+                    .set_payload(r#"{"n":1,"padding":"far too long"}"#),
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "PAYLOAD_TOO_LARGE",
+            ),
+            (
+                test::TestRequest::post()
+                    .uri("/form")
+                    .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
+                    .set_payload("n=x"),
+                StatusCode::BAD_REQUEST,
+                "BAD_REQUEST",
+            ),
+            (
+                test::TestRequest::get().uri("/query?n=x"),
+                StatusCode::BAD_REQUEST,
+                "BAD_REQUEST",
+            ),
+            (
+                test::TestRequest::get().uri("/path/x"),
+                StatusCode::BAD_REQUEST,
+                "BAD_REQUEST",
+            ),
+        ];
+        for (req, status, code) in cases {
+            let req = req.to_request();
+            let what = req.path().to_string();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), status, "{what}");
+            let body: serde_json::Value = test::read_body_json(resp).await;
+            assert!(body["error"].is_string(), "{what}: {body}");
+            assert_eq!(body["code"], code, "{what}: {body}");
+        }
+    }
 
     /// A handler's `Err(ApiError)` must render the same body as the
     /// free-function builder it delegates to, plus the `ErrorKind` stamp

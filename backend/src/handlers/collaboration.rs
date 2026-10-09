@@ -3809,6 +3809,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     // `rest_routes`.
     cfg.service(
         web::scope("")
+            .default_service(web::to(crate::errors::api_route_not_found))
             .wrap(actix_web::middleware::from_fn(
                 crate::middleware::dual_auth_middleware,
             ))

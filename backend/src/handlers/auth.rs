@@ -114,6 +114,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         )
         .service(
             web::scope("/sessions")
+                .default_service(web::to(crate::errors::api_route_not_found))
                 .wrap(from_fn(cookie_auth_middleware))
                 .route("", web::get().to(crate::handlers::get_user_sessions))
                 .route(
@@ -129,6 +130,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         )
         .service(
             web::scope("/mfa")
+                .default_service(web::to(crate::errors::api_route_not_found))
                 .wrap(from_fn(cookie_auth_middleware))
                 .route("/setup", web::post().to(crate::handlers::mfa_setup))
                 .route(
@@ -153,6 +155,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         )
         .service(
             web::scope("/passkeys")
+                .default_service(web::to(crate::errors::api_route_not_found))
                 .wrap(from_fn(cookie_auth_middleware))
                 .route(
                     "/register/start",

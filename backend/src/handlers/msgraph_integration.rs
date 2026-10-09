@@ -33,6 +33,7 @@ use crate::utils;
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/integrations/graph")
+            .default_service(web::to(crate::errors::api_route_not_found))
             .route("/config", web::get().to(get_config_validation))
             .route("/status", web::get().to(get_connection_status))
             .route("/test", web::post().to(test_connection))
