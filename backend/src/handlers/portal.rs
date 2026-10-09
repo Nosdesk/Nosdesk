@@ -237,8 +237,14 @@ pub(crate) fn mint_portal_session(
 
     Ok(PortalSessionCookies {
         access: crate::utils::cookies::create_portal_access_cookie(&tokens.access_token),
-        refresh: crate::utils::cookies::create_portal_refresh_cookie(&tokens.refresh_token),
-        csrf: crate::utils::cookies::create_portal_csrf_cookie(&tokens.csrf_token),
+        refresh: crate::utils::cookies::create_portal_refresh_cookie(
+            &tokens.refresh_token,
+            tokens.expires_at,
+        ),
+        csrf: crate::utils::cookies::create_portal_csrf_cookie(
+            &tokens.csrf_token,
+            tokens.expires_at,
+        ),
         csrf_token: tokens.csrf_token,
     })
 }
@@ -348,9 +354,11 @@ pub async fn refresh_portal_session(
         ))
         .cookie(crate::utils::cookies::create_portal_refresh_cookie(
             &rotated.refresh_token,
+            rotated.expires_at,
         ))
         .cookie(crate::utils::cookies::create_portal_csrf_cookie(
             &csrf_token,
+            rotated.expires_at,
         ))
         .json(json!({
             "success": true,

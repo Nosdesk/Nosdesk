@@ -26,13 +26,16 @@ pub fn cookie_name(base: &'static str) -> Cow<'static, str> {
 }
 
 /// Max-age of a session's refresh cookie and of the CSRF cookie bound to it:
-/// the session's sliding idle window. The CSRF cookie belongs to the session,
-/// not to the 15-minute access token, so a write after an idle spell still
-/// carries it and gets auth's 401 (refresh and retry) rather than a CSRF 403.
-fn session_cookie_max_age() -> actix_web::cookie::time::Duration {
-    actix_web::cookie::time::Duration::seconds(
-        crate::utils::session_policy::idle_ttl().num_seconds(),
-    )
+/// exactly until the session expires (`expires_at`, as stored on its refresh
+/// token: the idle window clamped to the session's ceiling). The CSRF cookie
+/// belongs to the session, not to the 15-minute access token, so a write
+/// after an idle spell still carries it and gets auth's 401 (refresh and
+/// retry) rather than a CSRF 403. Neither cookie outlives the session.
+pub fn session_cookie_max_age(
+    expires_at: chrono::NaiveDateTime,
+) -> actix_web::cookie::time::Duration {
+    let left = expires_at - chrono::Utc::now().naive_utc();
+    actix_web::cookie::time::Duration::seconds(left.num_seconds().max(0))
 }
 
 /// Create an httpOnly cookie for the access token (15 minutes)
@@ -46,29 +49,32 @@ pub fn create_access_token_cookie(token: &str) -> Cookie<'static> {
         .finish()
 }
 
-/// Create an httpOnly cookie for the refresh token (the session's idle
-/// window). `Path=/` because
+/// Create an httpOnly cookie for the refresh token, living until the session
+/// expires at `expires_at`. `Path=/` because
 /// `__Host-` demands it; the path scoping it used to have bought little (the
 /// cookie is httpOnly and only the refresh handler reads it).
-pub fn create_refresh_token_cookie(token: &str) -> Cookie<'static> {
+pub fn create_refresh_token_cookie(
+    token: &str,
+    expires_at: chrono::NaiveDateTime,
+) -> Cookie<'static> {
     Cookie::build(cookie_name(REFRESH_TOKEN_COOKIE), token.to_string())
         .path("/")
         .http_only(true)
         .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
-        .max_age(session_cookie_max_age())
+        .max_age(session_cookie_max_age(expires_at))
         .finish()
 }
 
 /// Create a cookie for the CSRF token (NOT httpOnly - JS needs to read it).
 /// Lives as long as the refresh cookie; a refresh rotates it.
-pub fn create_csrf_token_cookie(token: &str) -> Cookie<'static> {
+pub fn create_csrf_token_cookie(token: &str, expires_at: chrono::NaiveDateTime) -> Cookie<'static> {
     Cookie::build(cookie_name(CSRF_TOKEN_COOKIE), token.to_string())
         .path("/")
         .http_only(false) // JavaScript needs to read this
         .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
-        .max_age(session_cookie_max_age())
+        .max_age(session_cookie_max_age(expires_at))
         .finish()
 }
 
@@ -169,26 +175,32 @@ pub fn create_portal_access_cookie(token: &str) -> Cookie<'static> {
         .finish()
 }
 
-/// httpOnly portal refresh-token cookie (the session's idle window).
-pub fn create_portal_refresh_cookie(token: &str) -> Cookie<'static> {
+/// httpOnly portal refresh-token cookie, living until the session expires.
+pub fn create_portal_refresh_cookie(
+    token: &str,
+    expires_at: chrono::NaiveDateTime,
+) -> Cookie<'static> {
     Cookie::build(cookie_name(PORTAL_REFRESH_TOKEN_COOKIE), token.to_string())
         .path("/")
         .http_only(true)
         .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
-        .max_age(session_cookie_max_age())
+        .max_age(session_cookie_max_age(expires_at))
         .finish()
 }
 
 /// Portal CSRF cookie (NOT httpOnly so the portal SPA can echo it in a header).
 /// Lives as long as the portal refresh cookie; a refresh rotates it.
-pub fn create_portal_csrf_cookie(token: &str) -> Cookie<'static> {
+pub fn create_portal_csrf_cookie(
+    token: &str,
+    expires_at: chrono::NaiveDateTime,
+) -> Cookie<'static> {
     Cookie::build(cookie_name(PORTAL_CSRF_TOKEN_COOKIE), token.to_string())
         .path("/")
         .http_only(false)
         .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
-        .max_age(session_cookie_max_age())
+        .max_age(session_cookie_max_age(expires_at))
         .finish()
 }
 
@@ -229,6 +241,10 @@ mod tests {
     // process-global and cargo runs tests in parallel.
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    fn in_a_week() -> chrono::NaiveDateTime {
+        chrono::Utc::now().naive_utc() + chrono::Duration::days(7)
+    }
+
     fn production() -> std::sync::MutexGuard<'static, ()> {
         let g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("ENVIRONMENT");
@@ -256,16 +272,16 @@ mod tests {
         let _g = production();
         let cookies = [
             create_access_token_cookie("t"),
-            create_refresh_token_cookie("t"),
-            create_csrf_token_cookie("t"),
+            create_refresh_token_cookie("t", in_a_week()),
+            create_csrf_token_cookie("t", in_a_week()),
             delete_access_token_cookie(),
             delete_refresh_token_cookie(),
             delete_csrf_token_cookie(),
             create_oauth_state_cookie("t"),
             delete_oauth_state_cookie(),
             create_portal_access_cookie("t"),
-            create_portal_refresh_cookie("t"),
-            create_portal_csrf_cookie("t"),
+            create_portal_refresh_cookie("t", in_a_week()),
+            create_portal_csrf_cookie("t", in_a_week()),
         ];
         for c in cookies {
             assert!(
@@ -293,7 +309,7 @@ mod tests {
     #[test]
     fn refresh_token_cookie_is_http_only() {
         let _g = production();
-        let cookie = create_refresh_token_cookie("ref456");
+        let cookie = create_refresh_token_cookie("ref456", in_a_week());
         assert_eq!(cookie.name(), cookie_name(REFRESH_TOKEN_COOKIE));
         assert!(cookie.http_only().unwrap_or(false));
         assert_eq!(cookie.same_site(), Some(SameSite::Strict));
@@ -302,7 +318,7 @@ mod tests {
     #[test]
     fn csrf_cookie_is_not_http_only() {
         let _g = production();
-        let cookie = create_csrf_token_cookie("csrf789");
+        let cookie = create_csrf_token_cookie("csrf789", in_a_week());
         assert_eq!(cookie.name(), cookie_name(CSRF_TOKEN_COOKIE));
         assert_eq!(cookie.value(), "csrf789");
         // CSRF cookie must be readable by JavaScript
@@ -348,16 +364,32 @@ mod tests {
         );
     }
 
-    /// The CSRF cookie lives as long as the session it guards, in both realms.
+    /// The refresh and CSRF cookies live exactly as long as the session they
+    /// belong to, in both realms, including a session whose ceiling is closer
+    /// than the idle window.
     #[test]
-    fn csrf_cookie_lives_as_long_as_the_refresh_cookie() {
+    fn session_cookies_live_until_the_session_expires() {
+        let close = |c: Cookie<'static>, want: actix_web::cookie::time::Duration| {
+            let age = c.max_age().expect("max-age");
+            assert!(
+                (age - want).abs() <= actix_web::cookie::time::Duration::seconds(2),
+                "{} max-age {age} not {want}",
+                c.name()
+            );
+        };
+        for days in [7, 2] {
+            let expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(days);
+            let want = actix_web::cookie::time::Duration::days(days);
+            close(create_refresh_token_cookie("t", expires), want);
+            close(create_csrf_token_cookie("t", expires), want);
+            close(create_portal_refresh_cookie("t", expires), want);
+            close(create_portal_csrf_cookie("t", expires), want);
+        }
+        // An already-ended session never gets a negative max-age.
+        let past = chrono::Utc::now().naive_utc() - chrono::Duration::hours(1);
         assert_eq!(
-            create_csrf_token_cookie("t").max_age(),
-            create_refresh_token_cookie("t").max_age()
-        );
-        assert_eq!(
-            create_portal_csrf_cookie("t").max_age(),
-            create_portal_refresh_cookie("t").max_age()
+            create_csrf_token_cookie("t", past).max_age(),
+            Some(actix_web::cookie::time::Duration::ZERO)
         );
     }
 

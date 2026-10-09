@@ -179,8 +179,14 @@ fn agent_sign_in(
     jar.absorb(
         [
             backend::utils::cookies::create_access_token_cookie(&tokens.access_token),
-            backend::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token),
-            backend::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token),
+            backend::utils::cookies::create_refresh_token_cookie(
+                &tokens.refresh_token,
+                tokens.expires_at,
+            ),
+            backend::utils::cookies::create_csrf_token_cookie(
+                &tokens.csrf_token,
+                tokens.expires_at,
+            ),
         ]
         .into_iter(),
     );
@@ -422,7 +428,10 @@ async fn a_refused_portal_refresh_expires_the_session_cookies() {
     let (ctx, mut jar) = portal_sign_in(&pool, "dead-portal");
     // The refresh token no longer names a live session.
     jar.absorb(std::iter::once(
-        backend::utils::cookies::create_portal_refresh_cookie("not-a-token"),
+        backend::utils::cookies::create_portal_refresh_cookie(
+            "not-a-token",
+            chrono::Utc::now().naive_utc() + chrono::Duration::days(7),
+        ),
     ));
     let app = portal_app!(pool, ctx);
 

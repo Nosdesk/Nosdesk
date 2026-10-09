@@ -528,9 +528,11 @@ pub(crate) fn build_auth_response(
             ))
             .cookie(crate::utils::cookies::create_refresh_token_cookie(
                 &tokens.refresh_token,
+                tokens.expires_at,
             ))
             .cookie(crate::utils::cookies::create_csrf_token_cookie(
                 &tokens.csrf_token,
+                tokens.expires_at,
             ))
             .json(body),
         AuthMode::Bearer => {
@@ -568,9 +570,11 @@ pub(crate) fn build_auth_cookie_redirect(
         ))
         .cookie(crate::utils::cookies::create_refresh_token_cookie(
             &tokens.refresh_token,
+            tokens.expires_at,
         ))
         .cookie(crate::utils::cookies::create_csrf_token_cookie(
             &tokens.csrf_token,
+            tokens.expires_at,
         ))
         .append_header(("Location", location))
         .finish()
@@ -1092,10 +1096,6 @@ pub async fn logout(
     req: HttpRequest,
     body: Option<web::Json<LogoutRequest>>,
 ) -> impl Responder {
-    use crate::utils::cookies::{
-        delete_access_token_cookie, delete_csrf_token_cookie, delete_refresh_token_cookie,
-    };
-
     let redirect_uri = body.and_then(|b| b.into_inner().redirect_uri);
     let mut logout_url: Option<String> = None;
 
@@ -1139,18 +1139,18 @@ pub async fn logout(
         }
     }
 
-    HttpResponse::Ok()
-        .cookie(delete_access_token_cookie())
-        .cookie(delete_refresh_token_cookie())
-        .cookie(delete_csrf_token_cookie())
-        .json(json!({
-            "success": true,
-            "message": "Logged out successfully",
-            // Null unless this was an OIDC session and a redirect_uri was given.
-            // The client navigates here (web) / opens it in the system browser
-            // (mobile) to end the IdP session too.
-            "logout_url": logout_url
-        }))
+    let mut res = HttpResponse::Ok();
+    for cookie in crate::utils::cookies::delete_agent_cookies() {
+        res.cookie(cookie);
+    }
+    res.json(json!({
+        "success": true,
+        "message": "Logged out successfully",
+        // Null unless this was an OIDC session and a redirect_uri was given.
+        // The client navigates here (web) / opens it in the system browser
+        // (mobile) to end the IdP session too.
+        "logout_url": logout_url
+    }))
 }
 
 pub async fn change_password(
@@ -2587,6 +2587,8 @@ pub async fn revoke_all_other_sessions(
 pub(crate) struct RotatedSession {
     pub access_token: String,
     pub refresh_token: String,
+    /// When the rotated refresh token (and the session) expires.
+    pub expires_at: chrono::NaiveDateTime,
 }
 
 /// The realm-agnostic half of a token refresh: from "a refresh token was
@@ -2805,6 +2807,7 @@ where
     Ok(RotatedSession {
         access_token: new_access_token,
         refresh_token: new_refresh_raw,
+        expires_at: new_refresh_expires,
     })
 }
 
@@ -2889,6 +2892,7 @@ pub async fn refresh_token(
     };
     let new_access_token = rotated.access_token;
     let new_refresh_raw = rotated.refresh_token;
+    let expires_at = rotated.expires_at;
 
     // 11. Return new tokens, the way the client asked for them.
     let new_csrf_token = crate::utils::csrf::generate_csrf_token();
@@ -2920,9 +2924,11 @@ pub async fn refresh_token(
         ))
         .cookie(crate::utils::cookies::create_refresh_token_cookie(
             &new_refresh_raw,
+            expires_at,
         ))
         .cookie(crate::utils::cookies::create_csrf_token_cookie(
             &new_csrf_token,
+            expires_at,
         ))
         .json(response))
 }
