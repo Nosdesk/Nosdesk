@@ -21,12 +21,13 @@ const portalApi = axios.create({
 })
 
 portalApi.interceptors.request.use((config) => {
-  // Embedded, the visitor's token rides a header (no cookies in a third-party
-  // frame; a bearer needs no CSRF token).
+  // Embedded, the visitor's token rides a header. A third-party frame sends no
+  // cookies, so the bearer needs no CSRF token; but a frame on the portal's
+  // own site does send the portal cookies, and then the server wants the CSRF
+  // token too, so echo it whenever there is one.
   const bearer = isEmbed ? embedBearer() : null
   if (bearer) {
     config.headers['Authorization'] = `Bearer ${bearer}`
-    return config
   }
   const token = portalCsrfToken()
   if (token) {

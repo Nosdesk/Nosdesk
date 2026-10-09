@@ -286,3 +286,41 @@ async fn recovery_login_is_exempt_from_the_double_submit() {
     .await;
     assert_eq!(status, StatusCode::OK);
 }
+
+/// A bearer only stands in for the double-submit when the request carries no
+/// session cookie: auth can fall back to (or prefer) the cookie, and then the
+/// cookie is what authenticates the write.
+#[actix_web::test]
+async fn a_bearer_alongside_a_session_cookie_still_needs_a_csrf_token() {
+    let session = agent_session();
+    let (status, body) = post(
+        "/api/tickets",
+        &[
+            ("Host", "app.test"),
+            ("Origin", "https://app.test"),
+            ("Cookie", &session),
+            ("Authorization", "Bearer nsk_not-checked-here"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["code"], "csrf_missing");
+}
+
+#[actix_web::test]
+async fn a_bearer_alongside_a_portal_session_cookie_still_needs_a_csrf_token() {
+    use backend::utils::cookies::PORTAL_ACCESS_TOKEN_COOKIE;
+    let session = cookie(PORTAL_ACCESS_TOKEN_COOKIE, "a-session");
+    let (status, body) = post(
+        "/api/portal/tickets",
+        &[
+            ("Host", "help.acme.test"),
+            ("Origin", "https://help.acme.test"),
+            ("Cookie", &session),
+            ("Authorization", "Bearer not-checked-here"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["code"], "csrf_missing");
+}

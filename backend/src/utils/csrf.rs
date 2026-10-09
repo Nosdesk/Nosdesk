@@ -153,8 +153,12 @@ where
             });
         }
 
-        // Check if this request is authenticated via Bearer token (API token)
-        // API tokens don't need CSRF validation as they can't be used in CSRF attacks
+        // A bearer (API token, native session, embedded portal) can't be
+        // forged cross-site, so it needs no CSRF check, but only when it is
+        // the request's only credential. Auth can still authenticate by the
+        // cookie when one is present (an `nsk_` token on a cookie-only route
+        // falls back to it; the portal reads its cookie first), and then the
+        // cookie is what the check has to guard.
         let has_bearer_token = req
             .headers()
             .get("Authorization")
@@ -162,7 +166,7 @@ where
             .map(|auth| auth.starts_with("Bearer "))
             .unwrap_or(false);
 
-        if has_bearer_token {
+        if has_bearer_token && !carries_session_cookie(&req) {
             tracing::debug!(
                 "🔒 CSRF: Skipping validation for Bearer token request to {}",
                 req.path()
@@ -279,8 +283,8 @@ where
             });
         }
 
-        // No session to forge against: no bearer (handled above) and no
-        // access cookie of either realm. Let auth answer, which is a 401 the
+        // No session to forge against: no access cookie of either realm (a
+        // bearer request without one already went through above). Let auth answer, which is a 401 the
         // client refreshes on, rather than a CSRF 403 it can't recover from
         // (an idle tab's access cookie has simply expired). The Origin check
         // above has already run.
