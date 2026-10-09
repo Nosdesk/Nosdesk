@@ -37,15 +37,20 @@ portalApi.interceptors.request.use((config) => {
 })
 
 // The access cookie lives 15 minutes; the refresh cookie a week. On a 401,
-// rotate once (shared by every request that failed meanwhile) and retry; only
-// when the refresh itself fails is the session gone, so bounce to sign-in.
-let refreshing: Promise<boolean> | null = null
+// rotate once (shared by every request that failed meanwhile) and retry. Only
+// a 401 from the refresh itself means the session is gone, so bounce to
+// sign-in. Any other failure (offline, a 5xx while the server restarts) keeps
+// the session and the page; the next request tries again.
+type RefreshResult = 'renewed' | 'rejected' | 'unavailable'
+let refreshing: Promise<RefreshResult> | null = null
 
-function refreshSession(): Promise<boolean> {
+function refreshSession(): Promise<RefreshResult> {
   refreshing ??= axios
     .post('/api/portal/auth/refresh', null, { withCredentials: true })
-    .then(() => true)
-    .catch(() => false)
+    .then((): RefreshResult => 'renewed')
+    .catch((err): RefreshResult =>
+      axios.isAxiosError(err) && err.response?.status === 401 ? 'rejected' : 'unavailable',
+    )
     .finally(() => {
       refreshing = null
     })
@@ -66,7 +71,9 @@ portalApi.interceptors.response.use(
         if (router.currentRoute.value.path !== embedHome) router.push(embedHome)
         return Promise.reject(error)
       }
-      if (await refreshSession()) return portalApi(original)
+      const refreshed = await refreshSession()
+      if (refreshed === 'renewed') return portalApi(original)
+      if (refreshed === 'unavailable') return Promise.reject(error)
       // Dynamic import avoids a router <-> api cycle. Sign-in returns the
       // requester to the page they were on.
       const { default: router } = await import('./router')

@@ -89,8 +89,16 @@ describe('portal sign-in', () => {
 
 describe('an expired portal session', () => {
   it('sends the requester to sign in with the page they were on', async () => {
-    // The session can't be renewed.
-    vi.spyOn(axios, 'post').mockRejectedValue(new Error('refresh refused'))
+    // The session can't be renewed: the refresh is refused.
+    vi.spyOn(axios, 'post').mockRejectedValue(
+      new AxiosError('refresh refused', 'ERR_BAD_REQUEST', undefined, null, {
+        status: 401,
+        statusText: '',
+        data: {},
+        headers: {},
+        config: {} as never,
+      }),
+    )
     portalApi.defaults.adapter = async (config) => {
       throw new AxiosError('expired', 'ERR_BAD_REQUEST', config, null, {
         status: 401,

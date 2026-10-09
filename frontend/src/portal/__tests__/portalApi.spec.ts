@@ -72,3 +72,50 @@ describe('portal API client', () => {
     expect(sent()).toBe(1)
   })
 })
+
+describe('portal API client when the refresh fails', () => {
+  it('stays put and keeps the session when the refresh is unavailable', async () => {
+    serve({ status: 401 })
+    refresh.mockRejectedValue(
+      new AxiosError('unavailable', 'ERR_BAD_RESPONSE', undefined, null, {
+        status: 503,
+        statusText: '',
+        data: {},
+        headers: {},
+        config: {} as never,
+      }),
+    )
+
+    const failed = await portalApi.post('/tickets', {}).catch((e: AxiosError) => e)
+
+    expect(failed.response?.status).toBe(401)
+    expect(appRouter.push).not.toHaveBeenCalled()
+  })
+
+  it('stays put when offline', async () => {
+    serve({ status: 401 })
+    refresh.mockRejectedValue(new AxiosError('Network Error', 'ERR_NETWORK'))
+
+    await expect(portalApi.post('/tickets', {})).rejects.toBeTruthy()
+
+    expect(appRouter.push).not.toHaveBeenCalled()
+  })
+
+  it('goes to sign-in when the refresh is refused', async () => {
+    serve({ status: 401 })
+    refresh.mockRejectedValue(
+      new AxiosError('refused', 'ERR_BAD_REQUEST', undefined, null, {
+        status: 401,
+        statusText: '',
+        data: {},
+        headers: {},
+        config: {} as never,
+      }),
+    )
+
+    await expect(portalApi.post('/tickets', {})).rejects.toBeTruthy()
+
+    expect(appRouter.push).toHaveBeenCalledTimes(1)
+    expect(appRouter.push.mock.calls[0][0]).toMatchObject({ path: '/login' })
+  })
+})
