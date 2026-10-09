@@ -1172,6 +1172,7 @@ function startPaneResize(event: PointerEvent): void {
     <MergeTicketsDialog
       :open="showContextMergeDialog"
       :selected-tickets="mergeCandidateTickets"
+      :preferred-destination-id="contextMenuTicketId"
       @close="showContextMergeDialog = false"
       @merged="onContextMerged"
     />

@@ -15,7 +15,11 @@ import { useFluent } from 'fluent-vue';
 import { updateTicket } from '@nosdesk/core/services/ticketService';
 import Icon from '@/components/common/Icon.vue';
 
-const props = defineProps<{ ticketId: number }>();
+const props = defineProps<{
+  ticketId: number;
+  /** Offer Delete: admins only, as the server allows. */
+  canDelete?: boolean;
+}>();
 const emit = defineEmits<{ delete: [] }>();
 
 const fluent = useFluent();
@@ -50,6 +54,7 @@ async function markNotSpam() {
       {{ t('ticket-spam-not-spam') }}
     </button>
     <Button
+      v-if="canDelete"
       @click="emit('delete')"
       variant="danger"
       size="xs"

@@ -433,6 +433,7 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
   <MergeTicketsDialog
     :open="showMergeDialog"
     :selected-tickets="selectedTickets"
+    :preferred-destination-id="ids.at(-1) ?? null"
     @close="showMergeDialog = false"
     @merged="onMerged"
   />

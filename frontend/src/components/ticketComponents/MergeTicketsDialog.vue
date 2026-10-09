@@ -36,6 +36,9 @@ export interface MergeDialogTicket {
 const props = defineProps<{
   open: boolean
   selectedTickets: MergeDialogTicket[]
+  /** The ticket the agent is merging into: the one right-clicked, or the
+   *  last one ticked. Defaults to the oldest when absent or not selected. */
+  preferredDestinationId?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -116,7 +119,8 @@ watch(
   () => props.open,
   (open) => {
     if (!open) return
-    destinationId.value = oldest(props.selectedTickets)?.id ?? null
+    const preferred = props.selectedTickets.find((t) => t.id === props.preferredDestinationId)
+    destinationId.value = (preferred ?? oldest(props.selectedTickets))?.id ?? null
     reason.value = ''
     notifyCustomer.value = false
     submitting.value = false
