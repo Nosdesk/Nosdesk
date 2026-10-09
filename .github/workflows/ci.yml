@@ -69,18 +69,17 @@ jobs:
       # we never use frees ~25GB. large-packages off: the apt removal it
       # does is slow and the fast reclaimers below cover the shortfall.
       - name: Free disk space
-        uses: jlumbroso/free-disk-space@v1.3.1
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
         with:
           large-packages: false
 
-      - uses: actions/checkout@v6
-
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
           toolchain: '1.95.0'
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: backend
 
@@ -146,7 +145,7 @@ jobs:
         run: cargo test --test channels_email_imap_integration -- --ignored --test-threads=1
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
         with:
           tool: cargo-deny
 
@@ -158,9 +157,8 @@ jobs:
     name: Frontend (Vue)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: npm
@@ -180,4 +178,5 @@ jobs:
 
       - name: npm audit
         working-directory: frontend
-        run: npm audit
+        # Shipped deps only: braces (GHSA-vfj7-8cjw-p6xm, dev-only via the ESLint config) has no patched release.
+        run: npm audit --omit=dev
