@@ -531,16 +531,18 @@ const calendarDraftTimezone = computed<string>({
 })
 
 // ---------------- Display helpers ----------------
+// A policy without its own calendar is measured on the workspace default.
 function calendarName(id: number | null): string {
-  if (id == null) return '-'
+  if (id == null) return t('admin-sla-calendar-workspace-default')
   return calendars.value.find((c) => c.id === id)?.name ?? `#${id}`
 }
 
+// Targets are working time on the policy's calendar, so they read in hours:
+// 1440 minutes is 24 working hours (three 8-hour days), not one day.
 function fmtMinutes(m: number | null): string {
   if (m == null) return '-'
   if (m < 60) return `${m}m`
-  if (m < 24 * 60) return `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)}h`
-  return `${(m / (24 * 60)).toFixed(m % (24 * 60) === 0 ? 0 : 1)}d`
+  return `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)}h`
 }
 
 // Mirrors FormInput's size="sm" field styling so the bare
@@ -557,7 +559,7 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
 // ---------------- BaseDropdown adapters ----------------
 // BaseDropdown is string-valued; these bridge the nullable enum / numeric
 // policy filters to a '' sentinel for the "any" option (and back to
-// null / Number on set). The calendar field uses '' = no calendar.
+// null / Number on set). The calendar field uses '' = the workspace default calendar.
 const priorityFilterModel = computed<string>({
   get: () => policyDraft.value.priority_filter ?? '',
   set: (v) => {
@@ -606,7 +608,7 @@ const groupDropdownOptions = computed(() => [
   ...groupOptions.value.map((o) => ({ value: String(o.value), label: o.label })),
 ])
 const calendarDropdownOptions = computed(() => [
-  { value: '', label: '-' },
+  { value: '', label: t('admin-sla-calendar-workspace-default') },
   ...calendarOptions.value.map((o) => ({ value: String(o.value), label: o.label })),
 ])
 const holidayImportOptions = computed(() => [
@@ -1114,7 +1116,7 @@ const clockStartOptions = computed(() => [
               :label="$t('admin-sla-field-response')"
               size="sm"
               integer
-              :min="0"
+              :min="1"
               @update:model-value="(v) => (policyDraft.target_response_minutes = v ?? undefined)"
             />
             <FormNumber
@@ -1122,7 +1124,7 @@ const clockStartOptions = computed(() => [
               :label="$t('admin-sla-field-resolution')"
               size="sm"
               integer
-              :min="0"
+              :min="1"
               @update:model-value="(v) => (policyDraft.target_resolution_minutes = v ?? undefined)"
             />
           </div>

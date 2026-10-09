@@ -636,11 +636,11 @@ fn stream_bootstrap_inner(
             .unwrap_or(&[]);
         let sla = crate::services::sla::pick_policy(&sla_ctx.policies, &t, assignee_groups)
             .and_then(|policy| {
-                let cal_id = policy.working_calendar_id?;
-                let calendar = sla_ctx.calendars_by_id.get(&cal_id)?;
+                let calendar =
+                    crate::services::sla::calendar_for_policy(policy, &sla_ctx.calendars_by_id)?;
                 let holidays = sla_ctx
                     .holidays_by_calendar
-                    .get(&cal_id)
+                    .get(&calendar.id)
                     .cloned()
                     .unwrap_or_default();
                 // Missing state row (shouldn't happen but possible if

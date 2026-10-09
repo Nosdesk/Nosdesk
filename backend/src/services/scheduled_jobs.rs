@@ -1099,6 +1099,7 @@ fn scan_breach_candidates(
 ) -> Result<Vec<(i32, SlaBreachKind, i32)>> {
     use crate::schema::tickets;
     use crate::sync::actor::ActorContext;
+    use crate::sync::groups::PENDING_VERIFICATION as PENDING;
     use crate::sync::session::with_actor_bypass_context;
     use diesel::prelude::*;
 
@@ -1115,6 +1116,7 @@ fn scan_breach_candidates(
             .filter(tickets::sla_response_target_at.is_not_null())
             .filter(tickets::sla_response_target_at.le(now))
             .filter(tickets::sla_response_breached_at.is_null())
+            .filter(tickets::verification_state.is_distinct_from(PENDING))
             .select((tickets::id, tickets::workspace_id))
             .order(tickets::sla_response_target_at.asc())
             .limit(SLA_BREACH_SCAN_LIMIT)
@@ -1125,6 +1127,7 @@ fn scan_breach_candidates(
             .filter(tickets::sla_resolution_target_at.is_not_null())
             .filter(tickets::sla_resolution_target_at.le(now))
             .filter(tickets::sla_resolution_breached_at.is_null())
+            .filter(tickets::verification_state.is_distinct_from(PENDING))
             .select((tickets::id, tickets::workspace_id))
             .order(tickets::sla_resolution_target_at.asc())
             .limit(SLA_BREACH_SCAN_LIMIT)
@@ -1197,8 +1200,11 @@ fn process_one_breach(
         else {
             return Ok(None);
         };
-        if crate::services::sla::StateClock::of_state_id(conn, ticket.workflow_state_id)
-            == crate::services::sla::StateClock::Stopped
+        // A guest ticket waiting for confirmation has no SLA yet either;
+        // recomputing clears any target it was left with.
+        if crate::services::sla::is_pending_verification(&ticket)
+            || crate::services::sla::StateClock::of_state_id(conn, ticket.workflow_state_id)
+                == crate::services::sla::StateClock::Stopped
         {
             crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &ticket);
             return Ok(None);

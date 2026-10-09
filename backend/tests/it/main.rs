@@ -112,6 +112,7 @@ mod search_by_ticket_number;
 mod site_settings_per_workspace;
 mod sla_breach_sweep;
 mod sla_defaults;
+mod sla_policy_changes;
 mod sla_policy_priority;
 mod sync_audiences;
 mod sync_emit_lint;

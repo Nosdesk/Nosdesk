@@ -359,6 +359,12 @@ pub fn create_ticket_with_annotation(
         } else {
             None
         };
+        // A policy that covers the new ticket gives it its targets now, so
+        // it can breach without waiting for its first edit. That may also
+        // start its clock, so the row is read again for the event. A guest
+        // ticket waiting for confirmation gets none until it's released.
+        crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &ticket);
+        let ticket: Ticket = tickets::table.find(ticket.id).first(conn)?;
         let groups = groups::for_ticket(conn, &ticket)?;
         // `created_via` is an additive nested object: legacy
         // consumers that look at the existing top-level fields keep
@@ -457,6 +463,15 @@ pub fn verify_pending_tickets_for_user(
             tickets::updated_at.eq(chrono::Utc::now().naive_utc()),
         ))
         .get_results(conn)?;
+        // Released, it joins the workspace's SLA: its clock and targets
+        // start now (they were held while it waited).
+        let released = released
+            .into_iter()
+            .map(|ticket| {
+                crate::services::sla::recompute_and_stamp_sla_on_release(conn, &ticket);
+                tickets::table.find(ticket.id).first::<Ticket>(conn)
+            })
+            .collect::<QueryResult<Vec<Ticket>>>()?;
         for ticket in &released {
             let created_via = held_created_via(conn, ticket.id)?.unwrap_or_else(|| {
                 json!({ "source": "guest_portal", "from_email": null, "from_name": null, "subject": ticket.title })
@@ -670,7 +685,16 @@ pub fn update_ticket_partial(
             || ticket_update.category_id.is_some()
             || ticket_update.sla_override.is_some();
         let sla = if pill_affecting {
-            crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &result)
+            match &previous {
+                Some(previous) if previous.workflow_state_id != result.workflow_state_id => {
+                    crate::services::sla::recompute_and_stamp_sla_after_state_change(
+                        conn,
+                        &result,
+                        previous.workflow_state_id,
+                    )
+                }
+                _ => crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &result),
+            }
         } else {
             crate::services::sla::pill_json_for_ticket(conn, &result)
         };
@@ -1144,11 +1168,10 @@ pub fn get_complete_ticket(
                 .and_then(|u| crate::repository::groups::get_group_ids_for_user(conn, &u).ok())
                 .unwrap_or_default();
             let policy = crate::services::sla::pick_policy(&ctx.policies, &ticket, &group_ids)?;
-            let cal_id = policy.working_calendar_id?;
-            let calendar = ctx.calendars_by_id.get(&cal_id)?;
+            let calendar = crate::services::sla::calendar_for_policy(policy, &ctx.calendars_by_id)?;
             let holidays = ctx
                 .holidays_by_calendar
-                .get(&cal_id)
+                .get(&calendar.id)
                 .cloned()
                 .unwrap_or_default();
             // What the ticket's state does to the clock: its category

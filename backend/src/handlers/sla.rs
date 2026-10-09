@@ -99,6 +99,22 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     );
 }
 
+/// Run an SLA configuration write and, in the same transaction, restamp the
+/// workspace's open tickets so their targets follow the change.
+fn with_restamp<T>(
+    conn: &mut crate::db::DbConnection,
+    workspace_id: Option<i32>,
+    write: impl FnOnce(&mut crate::db::DbConnection) -> QueryResult<T>,
+) -> QueryResult<T> {
+    conn.transaction(|conn| {
+        let written = write(conn)?;
+        if let Some(workspace_id) = workspace_id {
+            crate::services::sla::restamp_open_tickets(conn, workspace_id)?;
+        }
+        Ok(written)
+    })
+}
+
 // ---- Policies ----
 
 pub async fn list_policies(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
@@ -123,7 +139,15 @@ pub async fn create_policy(
         .into_inner()
         .with_checked_priority()
         .map_err(|m| ApiError::BadRequest(m.into()))?;
-    match tc.run(|conn| sla_admin::create_policy(conn, body, Some(actor_uuid))) {
+    body.check_targets()
+        .map_err(|m| ApiError::BadRequest(m.into()))?;
+    let workspace_id = tc.workspace_id();
+    let written = tc.run(|conn| {
+        with_restamp(conn, workspace_id, |conn| {
+            sla_admin::create_policy(conn, body, Some(actor_uuid))
+        })
+    });
+    match written {
         Ok(policy) => Ok(HttpResponse::Created().json(policy)),
         Err(e) => {
             error!(error = %e, "create sla policy failed");
@@ -142,6 +166,8 @@ pub async fn update_policy(
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     let body = body.into_inner();
+    body.check_targets()
+        .map_err(|m| ApiError::BadRequest(m.into()))?;
     // A filter saved before saving checked it may come back unchanged (the app
     // resends the whole policy to toggle its default): keep it as it is.
     // Reading it leniently already makes it match nothing.
@@ -154,7 +180,13 @@ pub async fn update_policy(
         body.with_checked_priority()
             .map_err(|m| ApiError::BadRequest(m.into()))?
     };
-    match tc.run(|conn| sla_admin::update_policy(conn, id, body)) {
+    let workspace_id = tc.workspace_id();
+    let written = tc.run(|conn| {
+        with_restamp(conn, workspace_id, |conn| {
+            sla_admin::update_policy(conn, id, body)
+        })
+    });
+    match written {
         Ok(policy) => Ok(HttpResponse::Ok().json(policy)),
         Err(e) => {
             error!(error = %e, id, "update sla policy failed");
@@ -171,7 +203,13 @@ pub async fn delete_policy(
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    match tc.run(|conn| sla_admin::delete_policy(conn, id)) {
+    let workspace_id = tc.workspace_id();
+    let written = tc.run(|conn| {
+        with_restamp(conn, workspace_id, |conn| {
+            sla_admin::delete_policy(conn, id)
+        })
+    });
+    match written {
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => {
             error!(error = %e, id, "delete sla policy failed");
@@ -200,7 +238,13 @@ pub async fn create_calendar(
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let actor_uuid = auth.user_uuid;
-    match tc.run(|conn| sla_admin::create_calendar(conn, body.into_inner(), Some(actor_uuid))) {
+    let workspace_id = tc.workspace_id();
+    let written = tc.run(|conn| {
+        with_restamp(conn, workspace_id, |conn| {
+            sla_admin::create_calendar(conn, body.into_inner(), Some(actor_uuid))
+        })
+    });
+    match written {
         Ok(cal) => Ok(HttpResponse::Created().json(cal)),
         Err(e) => {
             error!(error = %e, "create calendar failed");
@@ -220,7 +264,13 @@ pub async fn update_calendar(
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    match tc.run(|conn| sla_admin::update_calendar(conn, id, body.into_inner())) {
+    let workspace_id = tc.workspace_id();
+    let written = tc.run(|conn| {
+        with_restamp(conn, workspace_id, |conn| {
+            sla_admin::update_calendar(conn, id, body.into_inner())
+        })
+    });
+    match written {
         Ok(cal) => Ok(HttpResponse::Ok().json(cal)),
         Err(e) => {
             error!(error = %e, id, "update calendar failed");
@@ -239,7 +289,13 @@ pub async fn delete_calendar(
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    match tc.run(|conn| sla_admin::delete_calendar(conn, id)) {
+    let workspace_id = tc.workspace_id();
+    let written = tc.run(|conn| {
+        with_restamp(conn, workspace_id, |conn| {
+            sla_admin::delete_calendar(conn, id)
+        })
+    });
+    match written {
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => {
             error!(error = %e, id, "delete calendar failed");
@@ -276,7 +332,13 @@ pub async fn create_holiday(
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let calendar_id = path.into_inner();
-    match tc.run(|conn| sla_admin::create_holiday(conn, calendar_id, body.into_inner())) {
+    let workspace_id = tc.workspace_id();
+    let written = tc.run(|conn| {
+        with_restamp(conn, workspace_id, |conn| {
+            sla_admin::create_holiday(conn, calendar_id, body.into_inner())
+        })
+    });
+    match written {
         Ok(row) => Ok(HttpResponse::Created().json(row)),
         Err(diesel::result::Error::DatabaseError(
             diesel::result::DatabaseErrorKind::UniqueViolation,
@@ -299,7 +361,13 @@ pub async fn delete_holiday(
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
-    match tc.run(|conn| sla_admin::delete_holiday(conn, id)) {
+    let workspace_id = tc.workspace_id();
+    let written = tc.run(|conn| {
+        with_restamp(conn, workspace_id, |conn| {
+            sla_admin::delete_holiday(conn, id)
+        })
+    });
+    match written {
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => {
             error!(error = %e, id, "delete holiday failed");
@@ -435,17 +503,16 @@ pub async fn explain_for_ticket(
 
         let explain_policy =
             crate::services::sla::pick_policy(&policies, &ticket, &group_ids).map(|policy| {
-                let calendar = policy.working_calendar_id.and_then(|cid| {
-                    crate::schema::working_calendars::table
-                        .find(cid)
-                        .first::<crate::models::WorkingCalendar>(conn)
-                        .ok()
-                        .map(|c| SlaExplainCalendar {
+                // The calendar the engine measures on, which is the
+                // workspace default when the policy names none.
+                let calendar =
+                    crate::services::sla::load_calendar_for_policy(conn, policy).map(|(c, _)| {
+                        SlaExplainCalendar {
                             id: c.id,
                             name: c.name,
                             timezone: c.timezone,
-                        })
-                });
+                        }
+                    });
 
                 // Translate the filters the matcher accepted into typed
                 // entries so the frontend can render them with local
