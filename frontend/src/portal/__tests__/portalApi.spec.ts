@@ -1,5 +1,5 @@
 import axios, { AxiosError, type AxiosAdapter } from 'axios'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The portal client recovers a lapsed session one way: a 401 refreshes once
 // and the request is sent again. Any 403 is a refusal, not a lapsed session.
@@ -117,5 +117,44 @@ describe('portal API client when the refresh fails', () => {
 
     expect(appRouter.push).toHaveBeenCalledTimes(1)
     expect(appRouter.push.mock.calls[0][0]).toMatchObject({ path: '/login' })
+  })
+
+  describe('its CSRF cookie', () => {
+    const refused = () =>
+      new AxiosError('refused', 'ERR_BAD_REQUEST', undefined, null, {
+        status: 401,
+        statusText: '',
+        data: {},
+        headers: {},
+        config: {} as never,
+      })
+    const csrf = () => document.cookie.match(/(?:^|;\s*)portal_csrf=([^;]+)/)?.[1] ?? null
+    afterEach(() => {
+      document.cookie = 'portal_csrf=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    })
+
+    it('is dropped when the refresh is refused', async () => {
+      document.cookie = 'portal_csrf=old; path=/'
+      serve({ status: 401 })
+      refresh.mockRejectedValue(refused())
+
+      await expect(portalApi.post('/tickets', {})).rejects.toBeTruthy()
+
+      expect(csrf()).toBeNull()
+    })
+
+    it('is kept when a newer sign-in replaced it while the refused refresh was out', async () => {
+      document.cookie = 'portal_csrf=old; path=/'
+      serve({ status: 401 })
+      refresh.mockImplementation(async () => {
+        // Another tab signs in before this tab's refusal arrives.
+        document.cookie = 'portal_csrf=new; path=/'
+        throw refused()
+      })
+
+      await expect(portalApi.post('/tickets', {})).rejects.toBeTruthy()
+
+      expect(csrf()).toBe('new')
+    })
   })
 })

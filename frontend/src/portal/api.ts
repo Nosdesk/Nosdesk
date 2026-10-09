@@ -44,13 +44,26 @@ portalApi.interceptors.request.use((config) => {
 type RefreshResult = 'renewed' | 'rejected' | 'unavailable'
 let refreshing: Promise<RefreshResult> | null = null
 
+/** Expire the JS-readable portal CSRF cookie (`__Host-` on https). */
+function clearPortalCsrfCookie(): void {
+  const expired = 'expires=Thu, 01 Jan 1970 00:00:00 GMT'
+  document.cookie = `__Host-portal_csrf=; path=/; secure; ${expired}`
+  document.cookie = `portal_csrf=; path=/; ${expired}`
+}
+
 function refreshSession(): Promise<RefreshResult> {
-  refreshing ??= axios
+  if (refreshing) return refreshing
+  // A refusal sets no cookies (it may be a stale tab's), so drop the CSRF
+  // cookie here, and only if no newer sign-in has replaced it meanwhile.
+  const sentWith = portalCsrfToken()
+  refreshing = axios
     .post('/api/portal/auth/refresh', null, { withCredentials: true })
     .then((): RefreshResult => 'renewed')
-    .catch((err): RefreshResult =>
-      axios.isAxiosError(err) && err.response?.status === 401 ? 'rejected' : 'unavailable',
-    )
+    .catch((err): RefreshResult => {
+      if (!axios.isAxiosError(err) || err.response?.status !== 401) return 'unavailable'
+      if (portalCsrfToken() === sentWith) clearPortalCsrfCookie()
+      return 'rejected'
+    })
     .finally(() => {
       refreshing = null
     })

@@ -119,14 +119,6 @@ async fn wrote() -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
 }
 
-fn expired(reply: &Reply, base: &'static str) -> bool {
-    let name = cookie_name(base);
-    reply
-        .cookies
-        .iter()
-        .any(|c| c.name() == name && c.max_age() == Some(Duration::ZERO))
-}
-
 // ---- Agent ----------------------------------------------------------------
 
 macro_rules! agent_app {
@@ -245,28 +237,41 @@ async fn an_agent_write_with_no_session_is_a_401() {
     assert_eq!(write.status, StatusCode::UNAUTHORIZED);
 }
 
+/// A refresh the server refuses sets no cookies. It may be a stale tab's,
+/// sent with the old refresh cookie just before another tab signed in, and the
+/// browser applies a deletion to whatever cookie it holds by that name: the
+/// new session's.
 #[actix_web::test]
-async fn a_refused_agent_refresh_expires_the_session_cookies() {
+async fn a_refused_agent_refresh_leaves_a_newer_session_signed_in() {
     crate::common::ensure_test_keyring();
     let db = crate::common::TestDb::new();
     let pool = db.pool_with_size(4);
     let user = crate::common::insert_user(&mut pool.get().expect("conn"), "Revoked Agent");
-    let (sid, jar) = agent_sign_in(&pool, &user);
+    let (sid, stale) = agent_sign_in(&pool, &user);
     backend::repository::active_sessions::revoke_session_by_uuid(
         &mut pool.get().expect("conn"),
         &sid,
     )
     .expect("revoke");
+    // Another tab signs in while the stale tab's refresh is out.
+    let (_, mut browser) = agent_sign_in(&pool, &user);
+    let before = browser.0.clone();
     let app = agent_app!(pool);
 
-    let refresh = send!(app, jar.post("/api/auth/refresh", CSRF_TOKEN_COOKIE));
+    let refresh = send!(app, stale.post("/api/auth/refresh", CSRF_TOKEN_COOKIE));
     assert_eq!(refresh.status, StatusCode::UNAUTHORIZED);
+    assert!(
+        refresh.cookies.is_empty(),
+        "a refused refresh sets no cookies; got {:?}",
+        refresh.cookies
+    );
+    browser.absorb(refresh.cookies.into_iter());
     for base in [ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, CSRF_TOKEN_COOKIE] {
-        assert!(
-            expired(&refresh, base),
-            "a refused refresh expires {base}; got {:?}",
-            refresh.cookies
-        );
+        let kept = before
+            .iter()
+            .find(|c| c.name() == cookie_name(base))
+            .map(|c| c.value().to_string());
+        assert_eq!(browser.value(base), kept, "the newer session keeps {base}");
     }
 
     // A native client sent its token in the body and holds no cookies.
@@ -420,8 +425,10 @@ async fn a_portal_write_with_no_session_is_a_401() {
     assert_eq!(write.status, StatusCode::UNAUTHORIZED);
 }
 
+/// The portal realm's refused refresh sets no cookies either (see the agent
+/// test above).
 #[actix_web::test]
-async fn a_refused_portal_refresh_expires_the_session_cookies() {
+async fn a_refused_portal_refresh_sets_no_cookies() {
     crate::common::ensure_test_keyring();
     let db = crate::common::TestDb::new();
     let pool = db.pool_with_size(4);
@@ -440,15 +447,9 @@ async fn a_refused_portal_refresh_expires_the_session_cookies() {
         jar.post("/api/portal/auth/refresh", PORTAL_CSRF_TOKEN_COOKIE),
     );
     assert_eq!(refresh.status, StatusCode::UNAUTHORIZED);
-    for base in [
-        PORTAL_ACCESS_TOKEN_COOKIE,
-        PORTAL_REFRESH_TOKEN_COOKIE,
-        PORTAL_CSRF_TOKEN_COOKIE,
-    ] {
-        assert!(
-            expired(&refresh, base),
-            "a refused refresh expires {base}; got {:?}",
-            refresh.cookies
-        );
-    }
+    assert!(
+        refresh.cookies.is_empty(),
+        "a refused refresh sets no cookies; got {:?}",
+        refresh.cookies
+    );
 }

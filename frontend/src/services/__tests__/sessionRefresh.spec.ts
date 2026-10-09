@@ -223,3 +223,34 @@ describe('an API request retried after a refresh', () => {
     expect(sentTo).toEqual(['acme', 'acme'])
   })
 })
+
+describe('a refusal that arrives after another tab signed in', () => {
+  it('leaves the new session\'s CSRF cookie alone', async () => {
+    const axios = (await import('axios')).default
+    vi.spyOn(axios, 'post').mockImplementation((async () => {
+      // Another tab signs in while this tab's refresh is out.
+      document.cookie = 'csrf_token=second; path=/'
+      throw httpError(401)
+    }) as never)
+    const { configurePlatform } = await import('@/platform')
+    await configurePlatform()
+    const { refreshSession, sessionGone } = await import('@nosdesk/core/services/session')
+
+    expect(await refreshSession()).toBe('rejected')
+
+    expect(document.cookie).toContain('csrf_token=second')
+    expect(sessionGone()).toBe(false)
+  })
+
+  it('drops the refused session\'s CSRF cookie', async () => {
+    const axios = (await import('axios')).default
+    vi.spyOn(axios, 'post').mockImplementation((() => Promise.reject(httpError(401))) as never)
+    const { configurePlatform } = await import('@/platform')
+    await configurePlatform()
+    const { refreshSession, sessionGone } = await import('@nosdesk/core/services/session')
+
+    expect(await refreshSession()).toBe('rejected')
+
+    expect(sessionGone()).toBe(true)
+  })
+})
