@@ -357,6 +357,61 @@ function retryPendingTokens(): void {
   }
 }
 
+// ---- Hidden tabs ------------------------------------------------
+// A tab hidden for a while lets its notes' connections go; shown again, the
+// notes still open reconnect through `connectWithValidToken`, so the dial
+// carries a token that is valid now, not the one held when the tab was hidden
+// (by then usually past its ~2 minute life). Owned here, with the provider,
+// rather than by each editor: one listener covers every open note, and no
+// caller dials the provider directly.
+
+/** How long a tab stays hidden before its notes disconnect. A brief tab
+ *  switch keeps them connected. */
+const HIDDEN_DISCONNECT_MS = 30_000
+
+/** Providers disconnected because the tab was hidden. */
+const hiddenTabProviders = new WeakSet<WebsocketProvider>()
+let hiddenTabTimer: ReturnType<typeof setTimeout> | null = null
+
+function disconnectForHiddenTab(): void {
+  for (const { provider } of sessions.values()) {
+    const link = linkState(provider)
+    if (link.terminal) continue
+    const live = provider.wsconnected || provider.wsconnecting || provider.shouldConnect || link.tokenPending
+    if (!live) continue
+    hiddenTabProviders.add(provider)
+    // Showing the tab again is a first connect, timed as one.
+    link.everConnected = false
+    stopConnecting(provider)
+    provider.disconnect()
+  }
+}
+
+function reconnectShownTab(): void {
+  for (const entry of sessions.values()) {
+    if (!hiddenTabProviders.has(entry.provider)) continue
+    hiddenTabProviders.delete(entry.provider)
+    // A note closed while the tab was hidden reconnects when it is reopened
+    // (`acquire`), not now.
+    if (entry.refCount > 0) void connectWithValidToken(entry.provider)
+  }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      hiddenTabTimer ??= setTimeout(() => {
+        hiddenTabTimer = null
+        if (document.hidden) disconnectForHiddenTab()
+      }, HIDDEN_DISCONNECT_MS)
+      return
+    }
+    if (hiddenTabTimer) clearTimeout(hiddenTabTimer)
+    hiddenTabTimer = null
+    reconnectShownTab()
+  })
+}
+
 // ---- IndexedDB LRU bookkeeping ---------------------------------
 // Tracks when each docId was last accessed so we can prune the
 // oldest stores when their count exceeds MAX_IDB_DOCS. Survives

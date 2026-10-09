@@ -49,8 +49,8 @@ import {
     yUndoPlugin,
     undo,
     redo,
-    initProseMirrorDoc,
 } from "y-prosemirror";
+import { initialEditorDoc } from "./editor/initialDoc";
 import { keymap } from "prosemirror-keymap";
 import {
     toggleMark,
@@ -341,9 +341,6 @@ watch(mentionUsers, () => {
 // Track initialization state
 const isInitialized = ref(false);
 let reinitializeTimeout: ReturnType<typeof setTimeout> | null = null;
-
-// Visibility change debounce timeout
-let visibilityTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // Event handler references for proper cleanup
 let onlineHandler: (() => void) | null = null;
@@ -750,7 +747,7 @@ const initEditor = async () => {
         yXmlFragment = ydoc.getXmlFragment("prosemirror");
 
         // Initialize ProseMirror with the Yjs binding
-        const { doc, mapping } = initProseMirrorDoc(yXmlFragment, schema);
+        const { doc, mapping } = initialEditorDoc(yXmlFragment, schema);
 
         // Verify the document was initialized correctly
         if (!doc) {
@@ -1328,30 +1325,9 @@ const focusEditor = (event: MouseEvent | TouchEvent) => {
     }
 };
 
-// Handle tab visibility changes with debounce to prevent aggressive disconnection
-// When browser backgrounds tab for extended periods, disconnect to save resources
-// Short tab switches (< 30 seconds) should maintain the connection
-const handleVisibilityChange = () => {
-    // Clear any pending visibility timeout
-    if (visibilityTimeout) {
-        clearTimeout(visibilityTimeout);
-        visibilityTimeout = null;
-    }
-
-    if (document.hidden && provider?.wsconnected) {
-        // Wait 30 seconds before disconnecting when backgrounded
-        // This prevents disconnect during brief tab switches
-        visibilityTimeout = setTimeout(() => {
-            if (document.hidden && provider?.wsconnected) {
-                log.info("Tab backgrounded for 30s - disconnecting WebSocket to save resources");
-                provider.disconnect();
-            }
-        }, 30000);
-    } else if (!document.hidden && provider && !provider.wsconnected) {
-        log.info("Tab foregrounded - reconnecting WebSocket");
-        provider.connect();
-    }
-};
+// A hidden tab's connection is the collab session store's: it disconnects the
+// notes after a while and reconnects them, with a fresh token, when the tab is
+// shown again.
 
 const toggleTypeMenu = () => {
     showTypeMenu.value = !showTypeMenu.value;
@@ -1542,12 +1518,6 @@ const cleanup = () => {
     if (reinitializeTimeout) {
         clearTimeout(reinitializeTimeout);
         reinitializeTimeout = null;
-    }
-
-    // CRITICAL: Clear visibility timeout to prevent disconnect after unmount
-    if (visibilityTimeout) {
-        clearTimeout(visibilityTimeout);
-        visibilityTimeout = null;
     }
 
     // CRITICAL: cleanup order matters now that the doc + provider
@@ -1796,9 +1766,6 @@ onMounted(() => {
     };
     window.addEventListener("online", onlineHandler);
     window.addEventListener("offline", offlineHandler);
-
-    // Add visibility change listener (handler defined at top level)
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 });
 
 onBeforeUnmount(() => {
@@ -1824,17 +1791,8 @@ onBeforeUnmount(() => {
         offlineHandler = null;
     }
 
-    // Clear visibility change debounce timeout
-    if (visibilityTimeout) {
-        clearTimeout(visibilityTimeout);
-        visibilityTimeout = null;
-    }
-
     // Mention search timer + AbortController teardown lives in the
     // composable's onScopeDispose; nothing extra to clean up here.
-
-    // Remove visibility change listener
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
 
 // The detached revision viewer. The live editor is never re-stated, so there
