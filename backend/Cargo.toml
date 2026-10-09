@@ -85,6 +85,9 @@ tokio-util = "0.7"  # CancellationToken used by the periodic scheduler + future 
 # so the listener holds its own dedicated connection outside the r2d2
 # pool. HTTP handlers continue to use Diesel + r2d2 as before.
 tokio-postgres = "0.7"
+# TLS for the LISTEN connections (db::listen), on the native-tls stack the
+# IMAP and LDAP clients already use; it covers every libpq sslmode.
+postgres-native-tls = "0.5"
 lazy_static = "1.5.0"        # For static mutable state
 dashmap = "6.1.0"            # Thread-safe concurrent hashmap
 # `log` façade only; every call site uses `tracing` (with `tracing-log`
@@ -257,6 +260,9 @@ awc = "3"
 futures-util = "0.3"
 mockall = "0.13.0"
 tempfile = "3"
+# Certificates for the stand-in TLS Postgres server in the LISTEN connection
+# tests. aws_lc_rs because aws-lc-rs is already in the tree.
+rcgen = { version = "0.13", default-features = false, features = ["aws_lc_rs", "pem"] }
 
 # Trim debuginfo to line tables only. Full debug symbols are the
 # bulk of the target dir and the main driver of CI's "No space left

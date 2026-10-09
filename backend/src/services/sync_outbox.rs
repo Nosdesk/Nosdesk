@@ -44,7 +44,7 @@ use diesel::prelude::*;
 use futures::FutureExt;
 use serde::Serialize;
 use tokio::sync::mpsc;
-use tokio_postgres::{AsyncMessage, NoTls};
+use tokio_postgres::AsyncMessage;
 use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
@@ -187,19 +187,15 @@ async fn listen_loop(
 ) -> Result<(), anyhow::Error> {
     // tokio-postgres needs a separate connection from r2d2's pool.
     // Diesel's libpq client doesn't expose async LISTEN cleanly.
-    let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
+    let (client, mut messages) = crate::db::listen::connect(database_url).await?;
 
-    // Drive the protocol on a dedicated task. `poll_message` yields
-    // both protocol messages and async notifications; we forward
-    // notifications via channel and discard everything else.
-    // `Box::pin` moves the connection into the closure with a
-    // stable pin — `poll_message` needs `Pin<&mut Self>`.
+    // Drive the protocol on a dedicated task. The message stream yields
+    // async notifications and notices; we forward notifications via
+    // channel and discard everything else.
     let (notif_tx, mut notif_rx) = mpsc::channel::<()>(64);
     let driver = tokio::spawn(async move {
         use futures::StreamExt;
-        let mut connection = Box::pin(connection);
-        let mut stream = futures::stream::poll_fn(move |cx| connection.as_mut().poll_message(cx));
-        while let Some(msg) = stream.next().await {
+        while let Some(msg) = messages.next().await {
             match msg {
                 Ok(AsyncMessage::Notification(_)) => {
                     // Empty payload — the listener doesn't care
