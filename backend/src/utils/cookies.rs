@@ -25,6 +25,16 @@ pub fn cookie_name(base: &'static str) -> Cow<'static, str> {
     }
 }
 
+/// Max-age of a session's refresh cookie and of the CSRF cookie bound to it:
+/// the session's sliding idle window. The CSRF cookie belongs to the session,
+/// not to the 15-minute access token, so a write after an idle spell still
+/// carries it and gets auth's 401 (refresh and retry) rather than a CSRF 403.
+fn session_cookie_max_age() -> actix_web::cookie::time::Duration {
+    actix_web::cookie::time::Duration::seconds(
+        crate::utils::session_policy::idle_ttl().num_seconds(),
+    )
+}
+
 /// Create an httpOnly cookie for the access token (15 minutes)
 pub fn create_access_token_cookie(token: &str) -> Cookie<'static> {
     Cookie::build(cookie_name(ACCESS_TOKEN_COOKIE), token.to_string())
@@ -36,7 +46,8 @@ pub fn create_access_token_cookie(token: &str) -> Cookie<'static> {
         .finish()
 }
 
-/// Create an httpOnly cookie for the refresh token (7 days). `Path=/` because
+/// Create an httpOnly cookie for the refresh token (the session's idle
+/// window). `Path=/` because
 /// `__Host-` demands it; the path scoping it used to have bought little (the
 /// cookie is httpOnly and only the refresh handler reads it).
 pub fn create_refresh_token_cookie(token: &str) -> Cookie<'static> {
@@ -45,18 +56,19 @@ pub fn create_refresh_token_cookie(token: &str) -> Cookie<'static> {
         .http_only(true)
         .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
-        .max_age(actix_web::cookie::time::Duration::days(7))
+        .max_age(session_cookie_max_age())
         .finish()
 }
 
-/// Create a cookie for the CSRF token (NOT httpOnly - JS needs to read it)
+/// Create a cookie for the CSRF token (NOT httpOnly - JS needs to read it).
+/// Lives as long as the refresh cookie; a refresh rotates it.
 pub fn create_csrf_token_cookie(token: &str) -> Cookie<'static> {
     Cookie::build(cookie_name(CSRF_TOKEN_COOKIE), token.to_string())
         .path("/")
         .http_only(false) // JavaScript needs to read this
         .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
-        .max_age(actix_web::cookie::time::Duration::minutes(15))
+        .max_age(session_cookie_max_age())
         .finish()
 }
 
@@ -91,6 +103,16 @@ pub fn delete_csrf_token_cookie() -> Cookie<'static> {
         .same_site(SameSite::Strict)
         .max_age(actix_web::cookie::time::Duration::seconds(0))
         .finish()
+}
+
+/// Expire the three agent session cookies (sign-out, or a refresh the server
+/// refused because the session is gone).
+pub fn delete_agent_cookies() -> [Cookie<'static>; 3] {
+    [
+        delete_access_token_cookie(),
+        delete_refresh_token_cookie(),
+        delete_csrf_token_cookie(),
+    ]
 }
 
 /// Binds an in-progress OAuth/OIDC login to the browser that started it
@@ -147,29 +169,30 @@ pub fn create_portal_access_cookie(token: &str) -> Cookie<'static> {
         .finish()
 }
 
-/// httpOnly portal refresh-token cookie (7 days).
+/// httpOnly portal refresh-token cookie (the session's idle window).
 pub fn create_portal_refresh_cookie(token: &str) -> Cookie<'static> {
     Cookie::build(cookie_name(PORTAL_REFRESH_TOKEN_COOKIE), token.to_string())
         .path("/")
         .http_only(true)
         .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
-        .max_age(actix_web::cookie::time::Duration::days(7))
+        .max_age(session_cookie_max_age())
         .finish()
 }
 
 /// Portal CSRF cookie (NOT httpOnly so the portal SPA can echo it in a header).
+/// Lives as long as the portal refresh cookie; a refresh rotates it.
 pub fn create_portal_csrf_cookie(token: &str) -> Cookie<'static> {
     Cookie::build(cookie_name(PORTAL_CSRF_TOKEN_COOKIE), token.to_string())
         .path("/")
         .http_only(false)
         .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
-        .max_age(actix_web::cookie::time::Duration::minutes(15))
+        .max_age(session_cookie_max_age())
         .finish()
 }
 
-/// Expire the three portal cookies (sign-out). Same attributes as the setters
+/// Expire the three portal cookies (sign-out, or a refused refresh). Same attributes as the setters
 /// so the browser matches and drops them.
 pub fn delete_portal_cookies() -> [Cookie<'static>; 3] {
     let expire = |name: &'static str, http_only: bool| {
@@ -322,6 +345,19 @@ mod tests {
         assert_eq!(
             cookie.max_age(),
             Some(actix_web::cookie::time::Duration::minutes(15))
+        );
+    }
+
+    /// The CSRF cookie lives as long as the session it guards, in both realms.
+    #[test]
+    fn csrf_cookie_lives_as_long_as_the_refresh_cookie() {
+        assert_eq!(
+            create_csrf_token_cookie("t").max_age(),
+            create_refresh_token_cookie("t").max_age()
+        );
+        assert_eq!(
+            create_portal_csrf_cookie("t").max_age(),
+            create_portal_refresh_cookie("t").max_age()
         );
     }
 

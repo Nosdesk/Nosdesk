@@ -116,13 +116,69 @@ async fn csp_reports_skip_the_origin_check() {
     assert_eq!(status, StatusCode::OK);
 }
 
+/// `Cookie` header carrying an access cookie for the agent realm.
+fn agent_session() -> String {
+    format!(
+        "{}=a-session",
+        backend::utils::cookies::cookie_name(backend::utils::cookies::ACCESS_TOKEN_COOKIE)
+    )
+}
+
 #[actix_web::test]
 async fn same_host_request_without_csrf_token_still_fails_double_submit() {
+    let session = agent_session();
     let (status, body) = post(
         "/api/tickets",
-        &[("Host", "app.test"), ("Origin", "https://app.test")],
+        &[
+            ("Host", "app.test"),
+            ("Origin", "https://app.test"),
+            ("Cookie", &session),
+        ],
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(body["code"], "csrf_missing");
+}
+
+/// With no session cookie there is nothing to forge: the write goes on to
+/// auth (here, straight to the handler), which answers 401 in the real app.
+#[actix_web::test]
+async fn a_write_without_a_session_is_left_to_auth() {
+    let (status, _) = post(
+        "/api/tickets",
+        &[("Host", "app.test"), ("Origin", "https://app.test")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+/// A CSRF cookie alone is not a session either: an idle tab's access cookie
+/// has expired while its CSRF cookie lives on.
+#[actix_web::test]
+async fn a_csrf_cookie_without_an_access_cookie_is_left_to_auth() {
+    let csrf = format!(
+        "{}=t",
+        backend::utils::cookies::cookie_name(backend::utils::cookies::CSRF_TOKEN_COOKIE)
+    );
+    let (status, _) = post(
+        "/api/tickets",
+        &[
+            ("Host", "app.test"),
+            ("Origin", "https://app.test"),
+            ("Cookie", &csrf),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[actix_web::test]
+async fn the_origin_check_runs_without_a_session() {
+    let (status, body) = post(
+        "/api/tickets",
+        &[("Host", "app.test"), ("Origin", "https://evil.example")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["code"], "origin_not_allowed");
 }

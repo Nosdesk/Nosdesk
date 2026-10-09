@@ -28,6 +28,18 @@ pub fn csrf_cookie_for_path(path: &str) -> &'static str {
     }
 }
 
+/// The access cookie (base name) that authenticates a request on this path:
+/// `portal_access` under `/api/portal/`, `access_token` everywhere else. The
+/// two auth middlewares read only these (or a bearer), so a request carrying
+/// neither has no session for a forged request to ride on.
+pub fn access_cookie_for_path(path: &str) -> &'static str {
+    if path.starts_with("/api/portal/") {
+        crate::utils::cookies::PORTAL_ACCESS_TOKEN_COOKIE
+    } else {
+        crate::utils::cookies::ACCESS_TOKEN_COOKIE
+    }
+}
+
 pub fn validate_csrf_token(provided: &str, expected: &str) -> bool {
     // Use constant-time comparison to prevent timing attacks
     use constant_time_eq::constant_time_eq;
@@ -260,6 +272,25 @@ where
             });
         }
 
+        // No session to forge against: neither a bearer (handled above) nor
+        // this realm's access cookie. Let auth answer, which is a 401 the
+        // client refreshes on, rather than a CSRF 403 it can't recover from
+        // (an idle tab's access cookie has simply expired). The Origin check
+        // above has already run.
+        let has_session_cookie = req
+            .cookie(&crate::utils::cookies::cookie_name(access_cookie_for_path(
+                path,
+            )))
+            .is_some();
+        if !has_session_cookie {
+            tracing::debug!(path = %path, "CSRF: no session cookie, leaving the request to auth");
+            let fut = self.service.call(req);
+            return Box::pin(async move {
+                let res = fut.await?;
+                Ok(res)
+            });
+        }
+
         // Extract CSRF token from header
         let header_token = req
             .headers()
@@ -364,6 +395,20 @@ mod tests {
     #[test]
     fn validate_matching_tokens() {
         assert!(validate_csrf_token("abc123", "abc123"));
+    }
+
+    #[test]
+    fn portal_paths_are_authenticated_by_the_portal_access_cookie() {
+        use crate::utils::cookies::{ACCESS_TOKEN_COOKIE, PORTAL_ACCESS_TOKEN_COOKIE};
+        assert_eq!(
+            access_cookie_for_path("/api/portal/tickets"),
+            PORTAL_ACCESS_TOKEN_COOKIE
+        );
+        assert_eq!(access_cookie_for_path("/api/tickets"), ACCESS_TOKEN_COOKIE);
+        assert_eq!(
+            access_cookie_for_path("/api/collaboration/token"),
+            ACCESS_TOKEN_COOKIE
+        );
     }
 
     #[test]

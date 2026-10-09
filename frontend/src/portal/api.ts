@@ -35,10 +35,9 @@ portalApi.interceptors.request.use((config) => {
   return config
 })
 
-// The access cookie lives 15 minutes; the refresh cookie a week. On a 401 (or
-// a stale CSRF token, see below), rotate once (shared by every request that
-// failed meanwhile) and retry; only when the refresh itself fails is the
-// session gone, so bounce to sign-in.
+// The access cookie lives 15 minutes; the refresh cookie a week. On a 401,
+// rotate once (shared by every request that failed meanwhile) and retry; only
+// when the refresh itself fails is the session gone, so bounce to sign-in.
 let refreshing: Promise<boolean> | null = null
 
 function refreshSession(): Promise<boolean> {
@@ -57,12 +56,7 @@ portalApi.interceptors.response.use(
   async (error) => {
     const original = error?.config
     const status = error?.response?.status
-    // The CSRF cookie lives as long as the access cookie, so after a long idle
-    // a write is refused for a missing token before auth is even checked.
-    // Refreshing re-issues it, so treat that the same as an expired session.
-    const code = error?.response?.data?.code
-    const staleCsrf = status === 403 && (code === 'csrf_missing' || code === 'csrf_invalid')
-    if ((status === 401 || staleCsrf) && original && !original._retried) {
+    if (status === 401 && original && !original._retried) {
       original._retried = true
       if (isEmbed) {
         // The token lapsed: ask the host for a fresh one.
