@@ -111,8 +111,17 @@ fn run_assignment_rules(
         ..Default::default()
     };
     let observer = search.map(|s| s as &dyn TicketUpdatedObserver);
+    // The rule made this change, not whoever created or edited the ticket:
+    // the write and its sync action are credited to the rule as a system
+    // actor (`assignment_rule:<id>`), for the rest of this transaction.
+    let rule_actor =
+        crate::sync::actor::ActorContext::system(format!("assignment_rule:{}", result.rule_id))
+            .with_workspace(ticket.workspace_id);
     let updated = db
-        .run(|conn| repository::update_ticket_partial(conn, ticket.id, assign, observer))
+        .run(|conn| {
+            crate::sync::session::set_actor(conn, &rule_actor)?;
+            repository::update_ticket_partial(conn, ticket.id, assign, observer)
+        })
         .ok()?;
     info!(
         ticket_id = ticket.id,
