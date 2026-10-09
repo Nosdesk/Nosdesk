@@ -2769,7 +2769,7 @@ pub async fn ws_handler(
             };
             if !crate::utils::cors_allowlist::global().allows(origin_normalized) && !same_origin {
                 warn!(origin = %origin_str, "WebSocket origin not in CORS allowlist");
-                return Err(actix_web::error::ErrorForbidden("Invalid origin"));
+                return Err(crate::errors::forbidden_error("Invalid origin"));
             }
         }
         None => {
@@ -2777,7 +2777,7 @@ pub async fn ws_handler(
             // In production, require it; in dev, allow for testing tools
             if is_production {
                 warn!("WebSocket request missing Origin header in production");
-                return Err(actix_web::error::ErrorForbidden("Origin header required"));
+                return Err(crate::errors::forbidden_error("Origin header required"));
             }
             debug!("WebSocket request without Origin header (allowed in non-production)");
         }
@@ -2811,9 +2811,9 @@ pub async fn ws_handler(
     let (user_uuid, accessor, workspace_id) = if let Some(pool) =
         req.app_data::<web::Data<crate::db::Pool>>()
     {
-        let mut conn = pool.get().map_err(|_| {
-            actix_web::error::ErrorInternalServerError("Database connection failed")
-        })?;
+        let mut conn = pool
+            .get()
+            .map_err(|_| crate::errors::internal_error("Database connection failed"))?;
 
         // docId-vs-Host integrity: on a per-tenant origin the docId must name
         // the same workspace as the Host — the cross-tenant guard against a tab
@@ -2893,9 +2893,7 @@ pub async fn ws_handler(
 
         (user.uuid, accessor, workspace_id)
     } else {
-        return Err(actix_web::error::ErrorInternalServerError(
-            "Database pool not available",
-        ));
+        return Err(crate::errors::internal_error("Database pool not available"));
     };
 
     debug!(
@@ -2916,12 +2914,10 @@ pub async fn ws_handler(
     let doc_type = {
         let pool = req
             .app_data::<web::Data<crate::db::Pool>>()
-            .ok_or_else(|| {
-                actix_web::error::ErrorInternalServerError("Database pool not available")
-            })?;
-        let mut conn = pool.get().map_err(|_| {
-            actix_web::error::ErrorInternalServerError("Database connection failed")
-        })?;
+            .ok_or_else(|| crate::errors::internal_error("Database pool not available"))?;
+        let mut conn = pool
+            .get()
+            .map_err(|_| crate::errors::internal_error("Database connection failed"))?;
         // Resolve the resource + run the visibility gate under the request's
         // workspace context. `parsed.resolve` reads `tickets`/`documentation`
         // and `can_access_document` reads more tenant tables — all RLS-scoped
@@ -2949,9 +2945,7 @@ pub async fn ws_handler(
             }
             Err(e) => {
                 error!(doc_id = %doc_id, error = ?e, "WebSocket doc resolution/visibility check failed");
-                return Err(actix_web::error::ErrorInternalServerError(
-                    "Access check failed",
-                ));
+                return Err(crate::errors::internal_error("Access check failed"));
             }
         }
     };

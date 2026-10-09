@@ -129,18 +129,11 @@ impl std::fmt::Display for AuthContextError {
 
 impl actix_web::ResponseError for AuthContextError {
     fn error_response(&self) -> actix_web::HttpResponse {
-        use actix_web::HttpResponse;
         match self {
-            Self::Unauthorized => HttpResponse::Unauthorized()
-                .json(serde_json::json!({"error": "Authentication required"})),
-            Self::InvalidUuid => {
-                HttpResponse::BadRequest().json(serde_json::json!({"error": "Invalid user UUID"}))
-            }
-            Self::UserNotFound => {
-                HttpResponse::NotFound().json(serde_json::json!({"error": "User not found"}))
-            }
-            Self::DatabaseError(_) => HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": "Internal server error"})),
+            Self::Unauthorized => crate::errors::unauthorized("Authentication required"),
+            Self::InvalidUuid => crate::errors::bad_request("Invalid user UUID"),
+            Self::UserNotFound => crate::errors::not_found_msg("User not found"),
+            Self::DatabaseError(_) => crate::errors::internal("Internal server error"),
         }
     }
 }

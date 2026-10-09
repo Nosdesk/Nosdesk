@@ -523,6 +523,58 @@ pub fn from_response(cause: &'static str, resp: HttpResponse) -> actix_web::Erro
 }
 
 // =================================================================
+// The envelope as an `actix_web::Error`
+// =================================================================
+//
+// For middleware, extractors and handlers that return `actix_web::Error`.
+// Use these, never `actix_web::error::Error*` (`ErrorNotFound("...")` and
+// the rest), whose body is plain text with no code; `error_envelope_lint`
+// holds that. The message is shown to the client, so keep it free of
+// internal detail.
+
+/// 400 `BAD_REQUEST`.
+pub fn bad_request_error(message: impl Into<String>) -> actix_web::Error {
+    ApiError::BadRequest(message.into()).into()
+}
+
+/// 401 `AUTH_REQUIRED`, with a bare `Bearer` challenge.
+pub fn unauthorized_error(message: impl Into<String>) -> actix_web::Error {
+    ApiError::Unauthorized(message.into()).into()
+}
+
+/// 401 `INVALID_TOKEN`: a credential was presented and failed. The challenge
+/// says so (`Bearer error="invalid_token"`, RFC 6750 section 3); with no
+/// credential, use [`unauthorized_error`], whose challenge is bare.
+pub fn invalid_token_error(message: impl Into<String>) -> actix_web::Error {
+    let mut resp = unauthorized_with_code(message, "INVALID_TOKEN");
+    resp.headers_mut().insert(
+        actix_web::http::header::WWW_AUTHENTICATE,
+        actix_web::http::header::HeaderValue::from_static("Bearer error=\"invalid_token\""),
+    );
+    from_response("invalid token", resp)
+}
+
+/// 403 `FORBIDDEN`.
+pub fn forbidden_error(message: impl Into<String>) -> actix_web::Error {
+    ApiError::Forbidden(message.into()).into()
+}
+
+/// 404 `RESOURCE_NOT_FOUND`.
+pub fn not_found_error(message: impl Into<String>) -> actix_web::Error {
+    ApiError::NotFoundMsg(message.into()).into()
+}
+
+/// 413 `PAYLOAD_TOO_LARGE`.
+pub fn payload_too_large_error(message: impl Into<String>) -> actix_web::Error {
+    from_response("payload too large", payload_too_large(message))
+}
+
+/// 500 `INTERNAL_ERROR`.
+pub fn internal_error(message: impl Into<String>) -> actix_web::Error {
+    ApiError::Internal(message.into()).into()
+}
+
+// =================================================================
 // ApiError: canonical Actix error enum
 // =================================================================
 

@@ -121,28 +121,28 @@ pub fn authorize_portal_request(
     claims: &Claims,
 ) -> Result<PortalContext, Error> {
     if claims.scope != PORTAL_SCOPE {
-        return Err(actix_web::error::ErrorForbidden("Not a portal session"));
+        return Err(crate::errors::forbidden_error("Not a portal session"));
     }
 
     let token_workspace = claims.workspace_uuid.ok_or_else(|| {
-        actix_web::error::ErrorForbidden("Portal session is not bound to a workspace")
+        crate::errors::forbidden_error("Portal session is not bound to a workspace")
     })?;
 
     let origin_ctx = req
         .extensions()
         .get::<WorkspaceContext>()
         .cloned()
-        .ok_or_else(|| actix_web::error::ErrorForbidden("No workspace for this origin"))?;
+        .ok_or_else(|| crate::errors::forbidden_error("No workspace for this origin"))?;
 
     if token_workspace != origin_ctx.workspace_uuid {
         // Token minted for a different tenant than the origin serves.
-        return Err(actix_web::error::ErrorForbidden(
+        return Err(crate::errors::forbidden_error(
             "Portal session does not match this workspace",
         ));
     }
 
     let user_uuid = Uuid::parse_str(&claims.sub)
-        .map_err(|_| actix_web::error::ErrorForbidden("Not a member of this workspace"))?;
+        .map_err(|_| crate::errors::forbidden_error("Not a member of this workspace"))?;
     require_portal_membership(conn, origin_ctx.workspace_id, user_uuid)?;
 
     Ok(PortalContext {
@@ -811,7 +811,7 @@ impl FromRequest for PortalContext {
     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
         match req.extensions().get::<PortalContext>().cloned() {
             Some(ctx) => ready(Ok(ctx)),
-            None => ready(Err(actix_web::error::ErrorUnauthorized(
+            None => ready(Err(crate::errors::unauthorized_error(
                 "Portal authentication required",
             ))),
         }
@@ -830,10 +830,10 @@ pub async fn portal_auth_middleware(
 ) -> Result<ServiceResponse<impl MessageBody>, Error> {
     let pool = req
         .app_data::<web::Data<Pool>>()
-        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Database pool not found"))?;
+        .ok_or_else(|| crate::errors::internal_error("Database pool not found"))?;
     let mut conn = pool
         .get()
-        .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
+        .map_err(|_| crate::errors::internal_error("Database connection failed"))?;
 
     // The portal session cookie, or (the embedded help widget, which can't
     // use cookies in a third-party frame) the same portal token as a bearer.
@@ -849,11 +849,11 @@ pub async fn portal_auth_middleware(
                 .and_then(|h| h.strip_prefix("Bearer "))
                 .map(|t| t.trim().to_string())
         })
-        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Authentication required"))?;
+        .ok_or_else(|| crate::errors::unauthorized_error("Authentication required"))?;
 
     let (claims, _user) = JwtUtils::authenticate_with_token(&token, &mut conn)
         .await
-        .map_err(|_| actix_web::error::ErrorUnauthorized("Invalid or expired token"))?;
+        .map_err(|_| crate::errors::invalid_token_error("Invalid or expired token"))?;
 
     let portal_ctx = authorize_portal_request(&req, &mut conn, &claims)?;
     drop(conn);
@@ -1290,7 +1290,7 @@ pub async fn download_attachment(
         })
         .map_err(|e| {
             tracing::error!(error = ?e, ticket_id, "portal: attachment lookup failed");
-            actix_web::error::ErrorInternalServerError("Attachment lookup failed")
+            crate::errors::internal_error("Attachment lookup failed")
         })?;
     // A reply's files are stored under `tickets/` and linked as
     // `/uploads/tickets/...`; anything else (a draft still in `temp/`) isn't a
@@ -1300,7 +1300,7 @@ pub async fn download_attachment(
         .and_then(|u| u.strip_prefix("/uploads/"))
         .filter(|p| p.starts_with("tickets/"))
     else {
-        return Err(actix_web::error::ErrorNotFound("File not found"));
+        return Err(crate::errors::not_found_error("File not found"));
     };
     let storage = crate::utils::storage::WorkspaceScopedStorage::arc(
         base_storage.get_ref().clone(),

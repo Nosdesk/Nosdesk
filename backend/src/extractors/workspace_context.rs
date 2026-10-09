@@ -86,11 +86,8 @@ impl std::fmt::Display for WorkspaceContextError {
 
 impl actix_web::ResponseError for WorkspaceContextError {
     fn error_response(&self) -> actix_web::HttpResponse {
-        use actix_web::HttpResponse;
         match self {
-            Self::Missing => {
-                HttpResponse::NotFound().json(serde_json::json!({"error": "Workspace not found"}))
-            }
+            Self::Missing => crate::errors::not_found_msg("Workspace not found"),
         }
     }
 }

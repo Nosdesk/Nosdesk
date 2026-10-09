@@ -46,13 +46,9 @@ impl std::fmt::Display for ScopedStorageError {
 
 impl actix_web::ResponseError for ScopedStorageError {
     fn error_response(&self) -> actix_web::HttpResponse {
-        use actix_web::HttpResponse;
         match self {
-            Self::StorageUnavailable => HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": "Storage backend unavailable"})),
-            Self::NoWorkspace => {
-                HttpResponse::NotFound().json(serde_json::json!({"error": "Workspace not found"}))
-            }
+            Self::StorageUnavailable => crate::errors::internal("Storage backend unavailable"),
+            Self::NoWorkspace => crate::errors::not_found_msg("Workspace not found"),
         }
     }
 }

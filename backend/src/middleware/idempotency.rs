@@ -67,18 +67,17 @@ pub async fn idempotency_middleware(
     let header_val = header_val.expect("checked Some above");
     let scoped_key = format!("{}:{}", req.path(), header_val);
     let pool = req.app_data::<web::Data<Pool>>().cloned().ok_or_else(|| {
-        actix_web::error::ErrorInternalServerError(
-            "Idempotency middleware: DB pool not found in app data",
-        )
+        crate::errors::internal_error("Idempotency middleware: DB pool not found in app data")
     })?;
 
     // Cache lookup. Failures here are non-fatal (treat as miss);
     // we'd rather run the handler than 500 a request because the
     // cache table was briefly unreachable.
     let cached = {
-        let mut conn = pool
-            .get()
-            .map_err(|e| actix_web::error::ErrorInternalServerError(format!("db conn: {e}")))?;
+        let mut conn = pool.get().map_err(|e| {
+            warn!(error = %e, "idempotency: no database connection");
+            crate::errors::internal_error("Database connection failed")
+        })?;
         match idempotency_keys::try_get(&mut conn, &scoped_key) {
             Ok(record) => record,
             Err(e) => {
@@ -96,9 +95,8 @@ pub async fn idempotency_middleware(
         );
         let status = StatusCode::from_u16(record.response_status as u16).unwrap_or(StatusCode::OK);
         let body_bytes = serde_json::to_vec(&record.response_body).map_err(|e| {
-            actix_web::error::ErrorInternalServerError(format!(
-                "serialize cached idempotency body: {e}"
-            ))
+            warn!(error = %e, "idempotency: cached body didn't serialize");
+            crate::errors::internal_error("Failed to replay the cached response")
         })?;
         let response = HttpResponse::build(status)
             .content_type("application/json")
@@ -117,7 +115,7 @@ pub async fn idempotency_middleware(
 
     let body_bytes = to_bytes(response.into_body())
         .await
-        .map_err(|_| actix_web::error::ErrorInternalServerError("read response body"))?;
+        .map_err(|_| crate::errors::internal_error("read response body"))?;
 
     // Only successful (2xx) responses are cached. An idempotency key
     // exists to keep a request that already *succeeded* from running
@@ -152,7 +150,8 @@ pub async fn idempotency_middleware(
             match serde_json::from_slice::<serde_json::Value>(&body_bytes) {
                 Ok(json_body) => {
                     let mut conn = pool.get().map_err(|e| {
-                        actix_web::error::ErrorInternalServerError(format!("db conn: {e}"))
+                        warn!(error = %e, "idempotency: no database connection");
+                        crate::errors::internal_error("Database connection failed")
                     })?;
                     if let Err(e) = idempotency_keys::upsert(
                         &mut conn,

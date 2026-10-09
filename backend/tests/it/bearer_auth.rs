@@ -208,3 +208,58 @@ async fn nsk_api_token_still_authenticates() {
         "nsk_ API tokens must keep working unchanged"
     );
 }
+
+/// Every refusal of the auth middleware answers with the API's `{error, code}`
+/// envelope as JSON, beside its challenge: no credential, an invalid session
+/// JWT, and an unknown `nsk_` API token.
+#[actix_web::test]
+async fn auth_refusals_carry_the_error_envelope() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let app = protected_app!(pool);
+
+    for (auth, code, challenge) in [
+        (None, "AUTH_REQUIRED", "Bearer"),
+        (
+            Some("Bearer not-a-real-jwt"),
+            "INVALID_TOKEN",
+            "Bearer error=\"invalid_token\"",
+        ),
+        (
+            Some("Bearer nsk_not_a_real_token"),
+            "INVALID_TOKEN",
+            "Bearer error=\"invalid_token\"",
+        ),
+    ] {
+        let mut req = test::TestRequest::get().uri("/api/ping");
+        if let Some(auth) = auth {
+            req = req.insert_header(("Authorization", auth));
+        }
+        let err = test::try_call_service(&app, req.to_request())
+            .await
+            .expect_err("refused");
+        let resp = err.error_response();
+        assert_eq!(resp.status(), 401, "{auth:?}");
+        assert_eq!(
+            resp.headers()
+                .get("WWW-Authenticate")
+                .and_then(|v| v.to_str().ok()),
+            Some(challenge),
+            "{auth:?}"
+        );
+        assert_eq!(
+            resp.headers()
+                .get("Content-Type")
+                .and_then(|v| v.to_str().ok()),
+            Some("application/json"),
+            "{auth:?}"
+        );
+        let body = actix_web::body::to_bytes(resp.into_body())
+            .await
+            .expect("body");
+        let json: serde_json::Value = serde_json::from_slice(&body).expect("JSON body");
+        assert!(json["error"].is_string(), "{auth:?}: {json}");
+        assert_eq!(json["code"], code, "{auth:?}: {json}");
+    }
+}
