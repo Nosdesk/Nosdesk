@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { performBack } from '@/router/navigation';
 import { useFluent } from 'fluent-vue';
@@ -53,6 +53,11 @@ onMounted(() => {
     isLoading.value = false;
   }
 });
+
+// The tab title is the PDF's only while it's open. The title manager keeps
+// its state when the next route is a ticket, asset or document page (the
+// usual way back from a PDF), so clear it here.
+onBeforeUnmount(() => titleManager.setCustomTitle(null));
 
 const handlePdfReady = () => {
 };
