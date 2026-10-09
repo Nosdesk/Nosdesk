@@ -412,7 +412,9 @@ let pruning = false
  * If we've accumulated more IDB docs than the cap, delete the oldest
  * ones until we're back under. A doc open in any tab is skipped (this
  * tab's sessions, and other tabs' through their locks). Where the
- * browser can't say what other tabs have open, nothing is pruned.
+ * browser can't say what other tabs have open, nothing is pruned; the
+ * app shell has no other tabs, so there only this context's sessions
+ * are skipped.
  */
 async function pruneIdbStores(): Promise<void> {
   if (pruning || !canSeeOpenDocs()) return

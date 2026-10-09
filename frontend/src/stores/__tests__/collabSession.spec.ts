@@ -590,6 +590,7 @@ describe("a note's local copy", () => {
   })
   afterEach(() => {
     Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
+    delete (globalThis as { isTauri?: boolean }).isTauri
     localStorage.removeItem(TOUCHED)
   })
 
@@ -669,6 +670,20 @@ describe("a note's local copy", () => {
 
     expect(fake.clearDocument).not.toHaveBeenCalled()
     expect(Object.keys(touched())).toHaveLength(51)
+  })
+
+  it('is pruned in the app shell without Web Locks, except notes open in it', async () => {
+    // The app shell is one webview: its own sessions are every open note.
+    ;(globalThis as { isTauri?: boolean }).isTauri = true
+    store.acquire('ws-old-0', OPTS)
+    seedTouched(50)
+
+    store.acquire('ws-new', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(fake.clearDocument.mock.calls.map(([name]) => name)).toEqual(['ws-old-1'])
+    expect(touched()).toHaveProperty('ws-old-0')
+    expect(touched()).not.toHaveProperty('ws-old-1')
   })
 
   it('is cleared on sign-out even while other tabs have the note open', async () => {

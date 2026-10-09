@@ -17,6 +17,7 @@
  */
 import { clearDocument as clearIdbDocument } from 'y-indexeddb'
 import { logger } from '@nosdesk/core/utils/logger'
+import { isTauriRuntime } from '@/platform'
 
 /**
  * localStorage key holding `{ docId: lastTouchedMs }` for every collab
@@ -63,10 +64,17 @@ function lockManager(): LockManager | null {
   return navigator.locks ?? null
 }
 
-/** Whether this tab can tell which docs other tabs have open. Without it, a
- *  cleanup that should spare open docs has to skip everything. */
+/** The app shell runs a single webview, so this context's own open docs
+ *  are every open doc there is. */
+function isOnlyContext(): boolean {
+  return isTauriRuntime()
+}
+
+/** Whether this context can tell which docs others have open: through Web
+ *  Locks, or because there are no others. Without it, a cleanup that should
+ *  spare open docs has to skip everything. */
 export function canSeeOpenDocs(): boolean {
-  return lockManager() !== null
+  return lockManager() !== null || isOnlyContext()
 }
 
 /**
@@ -101,11 +109,17 @@ export function holdCollabDocLock(docId: string): () => Promise<void> {
 
 /**
  * Delete a doc's local store unless another tab has the doc open. Resolves
- * to whether it was deleted; false where the browser has no Web Locks.
+ * to whether it was deleted. Without Web Locks: in the app shell the store
+ * is deleted (the caller skips this context's own open docs, and there is
+ * no other context); in a browser nothing is.
  */
 export async function clearCollabDocIfClosed(docId: string): Promise<boolean> {
   const locks = lockManager()
-  if (!locks) return false
+  if (!locks) {
+    if (!isOnlyContext()) return false
+    await clearIdbDocument(docId)
+    return true
+  }
   return locks.request(
     LOCK_PREFIX + docId,
     { mode: 'exclusive', ifAvailable: true },
