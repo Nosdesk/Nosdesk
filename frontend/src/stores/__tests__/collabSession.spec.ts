@@ -114,6 +114,8 @@ const fake = vi.hoisted(() => {
    *  `update` handler writes in a transaction, which throws once the
    *  connection is closed. */
   class FakeIdb {
+    /** A y-indexeddb version whose private internals moved. */
+    static internalsChanged = false
     stored: Uint8Array[] = []
     destroyed = false
     readonly connection = new FakeDb()
@@ -134,6 +136,7 @@ const fake = vi.hoisted(() => {
     ) {
       idbs.push(this)
       doc.on('update', this._storeUpdate)
+      if (FakeIdb.internalsChanged) delete (this as { _db?: unknown })._db
     }
     destroy() {
       this.doc.off('update', this._storeUpdate)
@@ -589,6 +592,7 @@ describe("a note's local copy", () => {
     token.cached = 't'
   })
   afterEach(() => {
+    fake.FakeIdb.internalsChanged = false
     Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
     delete (globalThis as { isTauri?: boolean }).isTauri
     localStorage.removeItem(TOUCHED)
@@ -621,6 +625,21 @@ describe("a note's local copy", () => {
       expect.stringContaining('local copy'),
       expect.objectContaining({ docId: 'ws-a_ticket-1' }),
     )
+  })
+
+  it('is left off, and the note still opens, if y-indexeddb internals changed', async () => {
+    const warn = vi.spyOn(logger, 'warn')
+    const locks = withLocks()
+    fake.FakeIdb.internalsChanged = true
+
+    const { ydoc } = store.acquire('ws-a_ticket-1', OPTS)
+    store.acquire('ws-a_ticket-2', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(() => ydoc.getText('t').insert(0, 'edit')).not.toThrow()
+    expect(providers[0].sent).toHaveLength(1)
+    expect(locks.held.size).toBe(0)
+    expect(warn.mock.calls.filter(([msg]) => String(msg).includes('internals'))).toHaveLength(1)
   })
 
   it('is not pruned while another tab has the note open', async () => {

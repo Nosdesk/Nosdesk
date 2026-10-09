@@ -463,13 +463,41 @@ function dropPersistence(entry: SessionEntry, idb: IndexeddbPersistence, reason:
   if (entry.idb !== idb) return
   entry.idb = null
   releaseDocLock(entry)
-  idb.destroy().catch(() => {
-    // The connection is already gone; nothing left to close.
-  })
+  destroyQuietly(idb)
   logger.warn('Collab session: the local copy is unavailable; the note carries on without it', {
     docId: entry.docId,
     reason,
   })
+}
+
+/** Destroy a persistence whose connection may already be gone. */
+function destroyQuietly(idb: IndexeddbPersistence): void {
+  try {
+    idb.destroy().catch(() => {
+      // The connection is already gone; nothing left to close.
+    })
+  } catch {
+    // Its internals aren't what we expect (see `hasGuardableShape`).
+  }
+}
+
+let warnedUnguardable = false
+
+/**
+ * Whether y-indexeddb still has the internals `guardPersistence` wraps:
+ * the doc `update` handler and the connection promise. They are private,
+ * so a version bump could change them. Without them the handler can't be
+ * guarded, and an unguarded one can stop an edit reaching the server, so
+ * persistence is turned off instead (the note opens from the server).
+ */
+function hasGuardableShape(idb: IndexeddbPersistence): boolean {
+  const internals = idb as Partial<Pick<IndexeddbPersistence, '_storeUpdate' | '_db'>>
+  const ok = typeof internals._storeUpdate === 'function' && typeof internals._db?.then === 'function'
+  if (!ok && !warnedUnguardable) {
+    warnedUnguardable = true
+    logger.warn('Collab session: y-indexeddb internals changed; notes open without a local copy')
+  }
+  return ok
 }
 
 /**
@@ -797,6 +825,10 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     if (isLocalPersistenceEnabled()) {
       try {
         idb = new IndexeddbPersistence(docId, ydoc)
+        if (!hasGuardableShape(idb)) {
+          destroyQuietly(idb)
+          idb = null
+        }
       } catch (err) {
         logger.warn('Collab session: IndexeddbPersistence construction failed, continuing without local cache', {
           docId,
