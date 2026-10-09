@@ -234,8 +234,40 @@
             </div>
           </div>
 
+          <!-- Encrypted backup: its password opens the preview -->
+          <div v-if="restorePreview?.password_required" class="flex flex-col gap-3">
+            <p class="text-xs sm:text-sm text-secondary">{{ $t('admin-backup-restore-locked') }}</p>
+            <div class="flex flex-col gap-1.5">
+              <label class="block text-xs sm:text-sm font-medium text-secondary">{{ $t('admin-backup-decryption-password-label') }}</label>
+              <div class="max-w-full sm:max-w-md" data-test="restore-password">
+                <PasswordInput
+                  v-model="restorePassword"
+                  :placeholder="$t('admin-backup-decryption-password-placeholder')"
+                  input-class="text-sm"
+                />
+              </div>
+            </div>
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+              <Button
+                data-test="restore-unlock"
+                @click="unlockPreview"
+                :disabled="!restorePassword"
+                :loading="isUnlocking"
+              >
+                {{ $t('admin-backup-restore-unlock') }}
+              </Button>
+              <button
+                type="button"
+                @click="cancelRestore"
+                class="px-4 py-2 border border-default rounded-lg text-sm text-secondary hover:bg-surface-alt transition-colors"
+              >
+                {{ $t('admin-backup-cancel') }}
+              </button>
+            </div>
+          </div>
+
           <!-- Restore preview -->
-          <div v-if="restorePreview" class="flex flex-col gap-3 sm:gap-4">
+          <div v-else-if="restorePreview?.manifest" class="flex flex-col gap-3 sm:gap-4">
             <div class="p-3 bg-surface-alt rounded-lg">
               <h4 class="text-xs sm:text-sm font-medium text-primary mb-2">{{ $t('admin-backup-details-heading') }}</h4>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-xs sm:text-sm">
@@ -268,16 +300,17 @@
               </ul>
             </div>
 
-            <!-- Password for encrypted backup -->
-            <div v-if="restorePreview.has_encrypted_sensitive" class="flex flex-col gap-1.5">
-              <label class="block text-xs sm:text-sm font-medium text-secondary">{{ $t('admin-backup-decryption-password-label') }}</label>
-              <div class="max-w-full sm:max-w-md">
-                <PasswordInput
-                  v-model="restorePassword"
-                  :placeholder="$t('admin-backup-decryption-password-placeholder')"
-                  input-class="text-sm"
-                />
-              </div>
+            <!-- A backup without sensitive data clears every password and MFA -->
+            <div
+              v-if="!restorePreview.encrypted"
+              data-test="restore-no-credentials"
+              class="p-3 bg-status-error/10 border border-status-error/30 rounded-lg flex flex-col gap-2"
+            >
+              <p class="text-xs sm:text-sm text-status-error">{{ $t('admin-backup-restore-no-credentials') }}</p>
+              <label class="flex items-start gap-2 text-xs sm:text-sm text-primary cursor-pointer">
+                <input v-model="credentialLossConfirmed" type="checkbox" class="mt-0.5" />
+                <span>{{ $t('admin-backup-restore-no-credentials-confirm') }}</span>
+              </label>
             </div>
 
             <!-- Restore confirmation -->
@@ -290,8 +323,9 @@
             <!-- Restore actions -->
             <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
               <Button
+                data-test="restore-execute"
                 @click="executeRestore"
-                :disabled="(restorePreview.has_encrypted_sensitive && !restorePassword)"
+                :disabled="!restorePreview.encrypted && !credentialLossConfirmed"
                 variant="warning"
                 :loading="isRestoring"
               >
@@ -361,6 +395,8 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const restoreJobId = ref<string | null>(null);
 const restorePreview = ref<RestorePreview | null>(null);
 const restorePassword = ref('');
+const isUnlocking = ref(false);
+const credentialLossConfirmed = ref(false);
 const isRestoring = ref(false);
 
 // Documentation export state
@@ -482,13 +518,27 @@ const uploadFile = async (file: File) => {
   }
 };
 
+const unlockPreview = async () => {
+  if (!restoreJobId.value) return;
+
+  isUnlocking.value = true;
+  try {
+    restorePreview.value = await backupService.unlockRestorePreview(restoreJobId.value, restorePassword.value);
+  } catch (error) {
+    const code = (error as { response?: { data?: { code?: string } } }).response?.data?.code;
+    toast.error(t(code === 'BACKUP_WRONG_PASSWORD' ? 'admin-backup-restore-wrong-password' : 'admin-backup-restore-unlock-error'));
+  } finally {
+    isUnlocking.value = false;
+  }
+};
+
 const executeRestore = async () => {
   if (!restoreJobId.value) return;
 
   isRestoring.value = true;
   try {
     const result = await backupService.executeRestore(restoreJobId.value, {
-      password: restorePreview.value?.has_encrypted_sensitive ? restorePassword.value : undefined,
+      password: restorePreview.value?.encrypted ? restorePassword.value : undefined,
     });
 
     toast.success(t('admin-backup-restore-success', { files: result.files_restored, message: result.message }));
@@ -506,6 +556,7 @@ const cancelRestore = () => {
   restoreJobId.value = null;
   restorePreview.value = null;
   restorePassword.value = '';
+  credentialLossConfirmed.value = false;
   if (fileInput.value) {
     fileInput.value.value = '';
   }

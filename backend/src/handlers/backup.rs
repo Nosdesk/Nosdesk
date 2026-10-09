@@ -53,6 +53,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::get().to(crate::handlers::backup::preview_restore),
     )
     .route(
+        "/admin/backup/restore/{id}/preview",
+        web::post().to(crate::handlers::backup::unlock_restore_preview),
+    )
+    .route(
         "/admin/backup/restore/{id}/execute",
         web::post().to(crate::handlers::backup::execute_restore),
     );
@@ -412,48 +416,110 @@ pub async fn upload_restore(
 
 /// Preview restore contents
 /// GET /api/admin/backup/restore/{id}/preview
+///
+/// An encrypted backup can't be read without its password, which a GET
+/// doesn't carry: the answer then says so (`encrypted` and
+/// `password_required`, no manifest), and the preview comes from the POST
+/// with the password.
 pub async fn preview_restore(
     mut tc: TenantConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
-    // Get authenticated admin user
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+    let file_path = match restore_file(&mut tc, &req, &path.into_inner()) {
+        Ok(file_path) => file_path,
+        Err(refused) => return actix_web::ResponseError::error_response(&refused),
     };
+    match backup_service::is_encrypted_backup(&file_path) {
+        Ok(true) => HttpResponse::Ok().json(json!({
+            "encrypted": true,
+            "password_required": true,
+            "manifest": null,
+            "warnings": [],
+        })),
+        Ok(false) => preview_response(&file_path, None),
+        Err(e) => preview_error(e, false),
+    }
+}
 
-    // Check if user is admin
+/// Preview an encrypted backup with its password
+/// POST /api/admin/backup/restore/{id}/preview
+pub async fn unlock_restore_preview(
+    mut tc: TenantConn,
+    path: web::Path<String>,
+    req: actix_web::HttpRequest,
+    body: web::Json<ExecuteRestoreRequest>,
+) -> impl Responder {
+    let file_path = match restore_file(&mut tc, &req, &path.into_inner()) {
+        Ok(file_path) => file_path,
+        Err(refused) => return actix_web::ResponseError::error_response(&refused),
+    };
+    preview_response(&file_path, body.password.as_deref())
+}
+
+/// The uploaded backup behind restore job `job_id`, for a platform admin on
+/// a self-hosted server.
+fn restore_file(
+    tc: &mut TenantConn,
+    req: &actix_web::HttpRequest,
+    job_id: &str,
+) -> Result<std::path::PathBuf, ApiError> {
+    let Some(claims) = req.extensions().get::<Claims>().cloned() else {
+        return Err(ApiError::Unauthorized("Authentication required".into()));
+    };
     if !is_platform_admin(&claims) {
-        return errors::forbidden("Admin access required");
+        return Err(ApiError::Forbidden("Admin access required".into()));
     }
     if is_hosted() {
-        return errors::forbidden(RESTORE_NOT_ON_HOSTED);
+        return Err(ApiError::Forbidden(RESTORE_NOT_ON_HOSTED.into()));
     }
-
-    let job_id = match Uuid::parse_str(&path.into_inner()) {
-        Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid job ID"),
-    };
-
+    let job_id =
+        Uuid::parse_str(job_id).map_err(|_| ApiError::BadRequest("Invalid job ID".into()))?;
     let job = match tc.run(|conn| backup_repo::get_backup_job(conn, job_id)) {
         Ok(job) => job,
-        Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
-        Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
+        Err(diesel::result::Error::NotFound) => {
+            return Err(ApiError::NotFoundMsg("Job not found".into()))
+        }
+        Err(e) => return Err(ApiError::Internal(format!("Failed to get job: {}", e))),
     };
+    job.file_path
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| ApiError::BadRequest("No backup file available".into()))
+}
 
-    let file_path = match job.file_path {
-        Some(path) => std::path::PathBuf::from(path),
-        None => return errors::bad_request("No backup file available"),
-    };
+/// The preview of a readable backup: `password_required` is false.
+fn preview_response(file_path: &std::path::Path, password: Option<&str>) -> HttpResponse {
+    match backup_service::preview_restore(file_path, password) {
+        Ok(preview) => {
+            let mut body = json!(preview);
+            body["password_required"] = json!(false);
+            HttpResponse::Ok().json(body)
+        }
+        Err(e) => preview_error(e, password.is_some()),
+    }
+}
 
-    // GET preview has no body to carry a password; encrypted
-    // backups will fail here with "password required" and the
-    // operator can drive the actual restore via POST which does
-    // take the password.
-    match backup_service::preview_restore(&file_path, None) {
-        Ok(preview) => HttpResponse::Ok().json(preview),
-        Err(e) => errors::internal(format!("Failed to preview: {}", e)),
+/// A backup that can't be read is the caller's: a missing or wrong password,
+/// or a file that isn't a backup. Anything else is the server's.
+fn preview_error(e: backup_service::BackupError, password_given: bool) -> HttpResponse {
+    use backup_service::BackupError;
+    match e {
+        BackupError::InvalidPassword => errors::bad_request_with_code(
+            "That password doesn't open this backup",
+            "BACKUP_WRONG_PASSWORD",
+        ),
+        BackupError::EncryptionError(_) if !password_given => errors::bad_request_with_code(
+            "This backup is encrypted; enter its password",
+            "BACKUP_PASSWORD_REQUIRED",
+        ),
+        BackupError::ZipError(_)
+        | BackupError::JsonError(_)
+        | BackupError::CorruptedBackup(_)
+        | BackupError::EncryptionError(_) => errors::bad_request_with_code(
+            format!("This file can't be read as a backup: {e}"),
+            "BACKUP_UNREADABLE",
+        ),
+        e => errors::internal(format!("Failed to preview: {}", e)),
     }
 }
 

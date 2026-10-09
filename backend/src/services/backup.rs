@@ -378,7 +378,7 @@ pub(crate) fn unseal_inner_zip(file_bytes: &[u8], password: &str) -> Result<Vec<
 /// True when the file starts with the encrypted-wrapper magic.
 /// Cheap byte check; callers use this to decide whether to
 /// require a password.
-fn is_encrypted_backup(backup_path: &Path) -> Result<bool, BackupError> {
+pub fn is_encrypted_backup(backup_path: &Path) -> Result<bool, BackupError> {
     use std::io::Read as _;
     let mut f = File::open(backup_path)?;
     let mut magic = [0u8; 4];

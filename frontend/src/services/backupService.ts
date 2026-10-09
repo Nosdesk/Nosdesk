@@ -77,6 +77,14 @@ export const backupService = {
   },
 
   /**
+   * Preview an encrypted backup with its password
+   */
+  async unlockRestorePreview(id: string, password: string): Promise<RestorePreview> {
+    const response = await apiClient.post<RestorePreview>(`/admin/backup/restore/${id}/preview`, { password });
+    return response.data;
+  },
+
+  /**
    * Execute a restore
    */
   async executeRestore(id: string, request: ExecuteRestoreRequest): Promise<RestoreResult> {

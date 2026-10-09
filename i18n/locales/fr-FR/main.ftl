@@ -1966,6 +1966,13 @@ admin-backup-warnings-heading = Avertissements
 admin-backup-decryption-password-label = Mot de passe de déchiffrement
 admin-backup-decryption-password-placeholder = Saisissez le mot de passe de chiffrement de la sauvegarde
 admin-backup-restore-warning = La restauration remplacera les fichiers existants. Action irréversible.
+# Restauration d'une sauvegarde (machine, à relire par un locuteur natif)
+admin-backup-restore-locked = Cette sauvegarde est chiffrée. Saisissez son mot de passe pour voir son contenu.
+admin-backup-restore-unlock = Déverrouiller
+admin-backup-restore-wrong-password = Ce mot de passe n'ouvre pas cette sauvegarde
+admin-backup-restore-unlock-error = Impossible d'ouvrir la sauvegarde
+admin-backup-restore-no-credentials = Cette sauvegarde a été faite sans les données sensibles : elle ne contient ni mots de passe ni MFA. La restaurer efface tous les mots de passe et toutes les inscriptions MFA de ce serveur, y compris les vôtres : personne ne peut se connecter avant que son mot de passe soit réinitialisé. Un administrateur peut en réinitialiser un sur le serveur avec nosdesk-cli admin reset-password.
+admin-backup-restore-no-credentials-confirm = Je comprends que tout le monde, moi compris, devra choisir un nouveau mot de passe
 admin-backup-restore-button = Restaurer les fichiers
 admin-backup-restoring = Restauration...
 admin-backup-cancel = Annuler
