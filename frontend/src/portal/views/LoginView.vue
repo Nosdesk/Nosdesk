@@ -12,6 +12,7 @@ import { useBrandingStore } from '@/stores/branding'
 import { useThemeStore } from '@/stores/theme'
 
 import { getSso, requestMagicLink, signInWithCode, SSO_START_URL, type PortalSso } from '../service'
+import { signInDestination } from '../signInRedirect'
 
 const { $t: t } = useFluent()
 const route = useRoute()
@@ -57,7 +58,7 @@ async function submitCode(): Promise<void> {
   codeFailed.value = false
   try {
     await signInWithCode(email.value.trim(), code.value)
-    void router.replace('/tickets')
+    void router.replace(signInDestination(route.query))
   } catch {
     codeFailed.value = true
   } finally {
