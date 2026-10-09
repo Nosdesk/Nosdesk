@@ -29,8 +29,16 @@ const fake = vi.hoisted(() => {
     emit(event: string, args: unknown[] = []) {
       for (const fn of [...(this.listeners.get(event) ?? [])]) fn(...args)
     }
+    /** The token each dial went out with. */
+    connectedWith: string[] = []
+    /** Inside `connection-close`, while the closing socket is still attached. */
+    private closing = false
     connect() {
       this.shouldConnect = true
+      // As y-websocket: with the closing socket still attached, connect only
+      // re-arms `shouldConnect`; nothing is dialled yet.
+      if (this.closing) return
+      this.connectedWith.push(this.params.token)
       this.wsconnecting = true
       this.emit('status', [{ status: 'connecting' }])
     }
@@ -54,7 +62,9 @@ const fake = vi.hoisted(() => {
     drop() {
       this.wsconnected = false
       this.wsconnecting = false
+      this.closing = true
       this.emit('connection-close', [null, this])
+      this.closing = false
       this.emit('status', [{ status: 'disconnected' }])
     }
     /** The server closed the socket with `code`. As y-websocket 3.1 does: a
@@ -63,7 +73,9 @@ const fake = vi.hoisted(() => {
       const wasConnected = this.wsconnected
       this.wsconnected = false
       this.wsconnecting = false
+      this.closing = true
       this.emit('connection-close', [{ code, reason: '' }, this])
+      this.closing = false
       if (wasConnected) this.emit('status', [{ status: 'disconnected' }])
       if (code >= 4400 && code < 4500) {
         this.shouldConnect = false
@@ -82,15 +94,28 @@ vi.mock('y-indexeddb', () => ({ IndexeddbPersistence: class {}, clearDocument: v
 const token = vi.hoisted(() => ({
   cached: null as string | null,
   next: null as Promise<string> | null,
+  /** Answers for the next fetches, in order; then `next`, then 't'. */
+  queue: [] as Array<() => Promise<string>>,
+  fetches: 0,
   resets: 0,
 }))
 vi.mock('@/services/collabToken', () => ({
   peekCollabToken: () => token.cached,
-  getCollabToken: () => token.next ?? Promise.resolve('t'),
+  getCollabToken: () => {
+    token.fetches++
+    return token.queue.shift()?.() ?? token.next ?? Promise.resolve('t')
+  },
   discardCollabToken: () => {
     token.resets++
     token.cached = null
   },
+}))
+
+// Whether the app still holds a session (the transport's `hasSession()`).
+const session = vi.hoisted(() => ({ present: true }))
+vi.mock('@nosdesk/core/transport', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@nosdesk/core/transport')>()),
+  transport: () => ({ auth: { hasSession: () => session.present } }),
 }))
 
 import { useCollabSessionStore } from '@/stores/collabSession'
@@ -111,7 +136,10 @@ beforeEach(() => {
   providers.length = 0
   token.cached = null
   token.next = null
+  token.queue = []
+  token.fetches = 0
   token.resets = 0
+  session.present = true
   localStorage.setItem('nosdesk:disable-idb-collab', '1')
 })
 afterEach(() => {
@@ -232,10 +260,92 @@ describe('a note the server refuses', () => {
     expect(providers[0].shouldConnect).toBe(true)
     expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
 
+    // Meanwhile the session ended.
+    session.present = false
     providers[0].open()
     providers[0].serverClose(4401)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(token.resets).toBe(1)
+    expect(store.connectionRefusal['doc-a']).toBe('signed-out')
+  })
+
+  it('does not say signed out when a fresh token is refused but the session holds', async () => {
+    openNote()
+    providers[0].open()
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(0)
+
+    providers[0].open()
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(token.resets).toBe(1)
+    expect(store.connectionRefusal['doc-a']).toBe('no-access')
+  })
+
+  it('reconnects with a new token when the first fetch for one fails, and never says signed out', async () => {
+    openNote()
+    await vi.advanceTimersByTimeAsync(0)
+    // The token fetch fails once (the API blipped), then works.
+    token.queue = [() => Promise.reject(new Error('network')), () => Promise.resolve('fresh')]
+
+    providers[0].open()
+    providers[0].serverClose(4401)
+    // Play the server: a connect with the refused token is refused again.
+    for (let i = 0; i < 60; i++) {
+      await vi.advanceTimersByTimeAsync(1000)
+      const p = providers[0]
+      if (p.wsconnecting && p.params.token === 't') {
+        p.open()
+        p.serverClose(4401)
+      }
+      expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
+    }
+
+    expect(providers[0].connectedWith.slice(1)).not.toContain('t')
+    expect(providers[0].connectedWith.at(-1)).toBe('fresh')
+    expect(providers[0].shouldConnect).toBe(true)
+  })
+
+  it('stays reconnecting while a token cannot be fetched, and tries again at once when back online', async () => {
+    openNote()
+    await vi.advanceTimersByTimeAsync(0)
+    token.next = Promise.reject(new Error('network'))
+    token.next.catch(() => {})
+
+    providers[0].open()
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(store.connectionBadge['doc-a']).toBe('reconnecting')
+    expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
+    expect(providers[0].connectedWith.slice(1)).toEqual([])
+
+    // Retries space out: a long outage doesn't fetch every few seconds.
+    const before = token.fetches
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    expect(token.fetches - before).toBeLessThan(15)
+
+    token.next = Promise.resolve('fresh')
+    window.dispatchEvent(new Event('online'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(providers[0].connectedWith.at(-1)).toBe('fresh')
+  })
+
+  it('says signed out when the token fetch fails because the session is gone', async () => {
+    openNote()
+    await vi.advanceTimersByTimeAsync(0)
+    // The token POST was refused and so was the refresh: the app no longer
+    // holds a session.
+    token.next = Promise.reject(new Error('401'))
+    token.next.catch(() => {})
+    session.present = false
+
+    providers[0].open()
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.connectionRefusal['doc-a']).toBe('signed-out')
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(providers[0].connectedWith.slice(1)).toEqual([])
     expect(store.connectionRefusal['doc-a']).toBe('signed-out')
   })
 

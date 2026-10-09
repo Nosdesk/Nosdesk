@@ -36,7 +36,7 @@ import { ref } from 'vue'
 
 import { logger } from '@nosdesk/core/utils/logger'
 import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData'
-import { collabWsBaseUrl } from '@nosdesk/core/transport'
+import { collabWsBaseUrl, transport } from '@nosdesk/core/transport'
 import { discardCollabToken, getCollabToken, peekCollabToken } from '@/services/collabToken'
 
 /**
@@ -131,6 +131,13 @@ interface LinkState {
   /** A token for the next connect is being fetched (or the fetch is
    *  backing off after a failure): connecting, not disconnected. */
   tokenPending: boolean
+  /** Bumped by every connect started and every deliberate stop, so a token
+   *  fetch that finishes after either knows it no longer applies. */
+  attempt: number
+  /** The next try at fetching a token, after a failed one. */
+  retryTimer: ReturnType<typeof setTimeout> | null
+  /** Failed token fetches in a row; spaces out the retries. */
+  tokenFailures: number
   /** The server closed the socket for good (a 44xx close). Cleared when a
    *  connect is started again. */
   terminal: boolean
@@ -153,6 +160,9 @@ function linkState(provider: WebsocketProvider): LinkState {
   if (!state) {
     state = {
       tokenPending: false,
+      attempt: 0,
+      retryTimer: null,
+      tokenFailures: 0,
       terminal: false,
       refusal: null,
       retriedToken: false,
@@ -185,13 +195,30 @@ function deriveConnectionStatus(provider: WebsocketProvider): ConnectionStatus {
   return 'disconnected'
 }
 
-/** Wait before reconnecting after a failed token fetch, so an API outage
- *  can't turn into a tight reconnect loop. */
-const TOKEN_RETRY_DELAY_MS = 2000
+/** Backoff between token fetches after a failed one: the first retry soon
+ *  (an API blip), then further apart, so an outage can't become a tight loop. */
+const TOKEN_RETRY_FIRST_MS = 2000
+const TOKEN_RETRY_MAX_MS = 30_000
 
 /** Providers torn down by `evict`; a token fetch that finishes afterwards
  *  must not reconnect them. */
 const retiredProviders = new WeakSet<WebsocketProvider>()
+
+/** Whether the app still holds a session. Only when it doesn't is a refused
+ *  token "signed out"; the app decides that, not the collab connection. */
+function sessionPresent(): boolean {
+  return transport().auth.hasSession()
+}
+
+/** Stop any connect in progress: a pending token fetch or retry no longer
+ *  connects when it finishes. */
+function stopConnecting(provider: WebsocketProvider): void {
+  const link = linkState(provider)
+  link.attempt++
+  link.tokenPending = false
+  if (link.retryTimer) clearTimeout(link.retryTimer)
+  link.retryTimer = null
+}
 
 /**
  * Connect with a token that is valid at handshake time. y-websocket rebuilds
@@ -202,9 +229,15 @@ const retiredProviders = new WeakSet<WebsocketProvider>()
  * - an expired one parks the reconnect, fetches a fresh token, then connects.
  *   Without the pause the first retry after the ~2 minute TTL went out with
  *   the old token and was refused.
+ * A failed fetch never connects with the token the provider already holds
+ * (the server may have refused it): the doc stays reconnecting and the fetch
+ * is retried with backoff, or at once when the device comes back online. If
+ * the session is gone, the doc is signed out instead.
  */
 async function connectWithValidToken(provider: WebsocketProvider): Promise<void> {
+  stopConnecting(provider)
   const link = linkState(provider)
+  const attempt = link.attempt
   // A connect started again: an earlier terminal close no longer stands.
   link.terminal = false
   link.refusal = null
@@ -221,26 +254,44 @@ async function connectWithValidToken(provider: WebsocketProvider): Promise<void>
   // `shouldConnect`). Not `disconnect()`: inside `connection-close` that
   // re-enters the close path.
   provider.shouldConnect = false
-  // A terminal close (the server said not to reconnect) is emitted after
-  // `connection-close`; it must win over the reconnect below.
-  let terminal = false
-  const onTerminal = () => {
-    terminal = true
-  }
-  provider.on('closed', onTerminal)
   link.tokenPending = true
   link.changed()
+  let token: string | null = null
   try {
-    provider.params = { token: await getCollabToken() }
+    token = await getCollabToken()
   } catch (err) {
-    logger.warn('Collab session: token fetch failed; retrying shortly', { err })
-    await new Promise((resolve) => setTimeout(resolve, TOKEN_RETRY_DELAY_MS))
-  } finally {
-    provider.off('closed', onTerminal)
-    link.tokenPending = false
+    logger.warn('Collab session: token fetch failed', { err })
   }
-  if (!terminal && !retiredProviders.has(provider)) provider.connect()
-  link.changed()
+  // Superseded by a newer connect or a deliberate stop. A terminal close
+  // (the server said not to reconnect), emitted after `connection-close`,
+  // wins over the reconnect too.
+  if (attempt !== link.attempt || retiredProviders.has(provider)) return
+  if (link.terminal) {
+    link.tokenPending = false
+    link.changed()
+    return
+  }
+  if (token !== null) {
+    link.tokenPending = false
+    link.tokenFailures = 0
+    provider.params = { token }
+    provider.connect()
+    link.changed()
+    return
+  }
+  if (!sessionPresent()) {
+    link.tokenPending = false
+    link.terminal = true
+    link.refusal = 'signed-out'
+    link.changed()
+    return
+  }
+  const delay = Math.min(TOKEN_RETRY_MAX_MS, TOKEN_RETRY_FIRST_MS * 2 ** link.tokenFailures)
+  link.tokenFailures++
+  link.retryTimer = setTimeout(() => {
+    link.retryTimer = null
+    void connectWithValidToken(provider)
+  }, delay)
 }
 
 /**
@@ -292,6 +343,13 @@ interface SessionEntry {
  * semantics.
  */
 const sessions = new Map<string, SessionEntry>()
+
+/** Fetch a token now for every doc waiting to retry one. */
+function retryPendingTokens(): void {
+  for (const entry of sessions.values()) {
+    if (linkState(entry.provider).retryTimer) void connectWithValidToken(entry.provider)
+  }
+}
 
 // ---- IndexedDB LRU bookkeeping ---------------------------------
 // Tracks when each docId was last accessed so we can prune the
@@ -467,12 +525,16 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     )
   }
 
-  // Going offline or back online changes every doc's status at once.
+  // Going offline or back online changes every doc's status at once. Back
+  // online, a doc waiting to retry its token fetch tries again straight away.
   if (typeof window !== 'undefined') {
     const refreshAll = () => {
       for (const entry of sessions.values()) refreshStatus(entry)
     }
-    window.addEventListener('online', refreshAll)
+    window.addEventListener('online', () => {
+      retryPendingTokens()
+      refreshAll()
+    })
     window.addEventListener('offline', refreshAll)
   }
 
@@ -500,6 +562,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
         // Deliberate: reopening the note later is a first connect again,
         // not a reconnect.
         linkState(entry.provider).everConnected = false
+        stopConnecting(entry.provider)
         try {
           entry.provider.disconnect()
         } catch (err) {
@@ -539,6 +602,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       // Provider may already be torn down; nothing to do.
     }
     linkState(entry.provider).changed = () => {}
+    stopConnecting(entry.provider)
     clearBadgeTimer(entry)
     delete connectionStatus.value[docId]
     delete connectionBadge.value[docId]
@@ -664,7 +728,9 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
         return
       }
       link.terminal = true
-      link.refusal = refusal
+      // A refused token means signed out only once the session is gone. A
+      // fresh token refused while it holds is this connection being refused.
+      link.refusal = refusal === 'signed-out' && sessionPresent() ? 'no-access' : refusal
       refreshStatus(entry)
     }
     // The server served the document: a later refused token is a new

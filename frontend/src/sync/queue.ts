@@ -13,8 +13,7 @@
  * next boot.
  */
 import { logger } from '@nosdesk/core/utils/logger'
-import { apiBaseUrl, transport } from '@nosdesk/core/transport'
-import { workspaceHeaders } from '@/services/activeWorkspace'
+import { syncFetch } from './syncFetch'
 import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
 import type { PushResponse, PushTransaction, SyncAggregate } from '@nosdesk/core/sync/types'
@@ -170,20 +169,12 @@ export async function flush(): Promise<void> {
       let response: PushResponse | null = null
       const epoch = pool.currentEpoch()
       try {
-        // Raw fetch (not apiClient) by design, so resolve base URL, auth
-        // headers (the global CSRF middleware requires the double-submit
-        // header on this POST), the selection header (empty in host mode),
-        // and credential mode from the transport seam directly.
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          ...workspaceHeaders(),
-          ...transport().auth.authHeaders(),
-        }
-        const res = await fetch(`${apiBaseUrl()}/sync/push`, {
+        // Raw fetch (not apiClient) by design; `syncFetch` refreshes an
+        // expired session and retries once, like every other sync request.
+        const res = await syncFetch('/sync/push', {
           method: 'POST',
-          headers,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(wirePayload),
-          credentials: transport().auth.useCredentials ? 'include' : 'omit',
         })
         if (!res.ok) {
           throw new Error(`push failed: ${res.status}`)

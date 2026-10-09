@@ -21,8 +21,8 @@ import { setReferenceFetcher } from '@nosdesk/core/sync/composables'
 import { notifySyncActions } from '@nosdesk/core/sync/observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
-import { apiBaseUrl, transport } from '@nosdesk/core/transport'
-import { workspaceHeaders, workspaceReady, workspaceReadyRef } from '@/services/activeWorkspace'
+import { syncFetch } from './syncFetch'
+import { workspaceReady, workspaceReadyRef } from '@/services/activeWorkspace'
 import type {
   BootstrapLine,
   BootstrapMeta,
@@ -465,33 +465,6 @@ export async function hydrate(
  * The schema hash names the IndexedDB; the instance id is the epoch
  * fence (a change means a different database generation). `instanceId`
  * falls back to `''` so a fetch/DB hiccup never triggers a wipe. */
-/**
- * `fetch` with credentials that survives an expired (15 min) access
- * token. The sync runtime uses raw fetch (streaming bootstrap, no
- * axios), so it doesn't inherit the axios client's refresh-on-401. On a
- * 401 we run the shared, deduplicated refresh once and retry; that
- * single refresh is coordinated with the axios client so the
- * token-rotating endpoint is never hit twice concurrently. On refresh
- * failure the original 401 response is returned and the caller backs
- * off (the axios client owns redirect-to-login for a dead session).
- */
-async function syncFetch(path: string): Promise<Response> {
-  // The sync engine uses raw fetch (streaming JSONL), so the axios interceptor
-  // doesn't apply here; resolve base URL, auth headers, the selection header
-  // (empty in host mode), and credential mode from the transport seam directly.
-  const url = `${apiBaseUrl()}${path}`
-  const credentials: RequestCredentials = transport().auth.useCredentials ? 'include' : 'omit'
-  // Built per attempt: a refresh replaces a bearer client's (mobile's) token,
-  // so the retry must carry the new one, not the expired one it just got a
-  // 401 for.
-  const headers = () => ({ ...workspaceHeaders(), ...transport().auth.authHeaders() })
-  const res = await fetch(url, { credentials, headers: headers() })
-  if (res.status !== 401) return res
-  const refreshed = await transport().auth.refresh()
-  if (!refreshed) return res
-  return fetch(url, { credentials, headers: headers() })
-}
-
 export async function fetchServerIdentity(): Promise<{
   schemaHash: string
   instanceId: string
