@@ -704,6 +704,8 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     const existing = sessions.get(docId)
     if (existing) {
       cancelGrace(existing)
+      // Reconnected here, so not again when a hidden tab is shown.
+      hiddenTabProviders.delete(existing.provider)
       // Re-connect if the websocket dropped while idle, with a token that is
       // still valid (a session idle past the TTL holds an expired one).
       if (!existing.provider.wsconnected) {

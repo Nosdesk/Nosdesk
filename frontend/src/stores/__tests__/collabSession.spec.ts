@@ -44,8 +44,15 @@ const fake = vi.hoisted(() => {
     }
     disconnect() {
       this.shouldConnect = false
-      this.wsconnecting = false
-      this.wsconnected = false
+      // As y-websocket: closing the socket reports `connection-close` (and
+      // would reconnect if `shouldConnect` were set again meanwhile).
+      if (this.wsconnected || this.wsconnecting) {
+        this.wsconnecting = false
+        this.wsconnected = false
+        this.closing = true
+        this.emit('connection-close', [{ code: 1000, reason: '' }, this])
+        this.closing = false
+      }
       this.emit('status', [{ status: 'disconnected' }])
     }
     destroyed = false
@@ -513,6 +520,24 @@ describe('a note in a tab that is hidden', () => {
 
     expect(providers[0].wsconnected).toBe(true)
     expect(providers[0].connectedWith).toEqual(['t'])
+  })
+
+  it('dials once when it is reopened before the tab is shown', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+
+    setTabHidden(true)
+    await vi.advanceTimersByTimeAsync(30_000)
+    store.release('doc-a')
+    // Reopened (a prewarm, or a route change) while the tab is still hidden.
+    store.acquire('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    setTabHidden(false)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(providers[0].connectedWith).toEqual(['t', 't'])
   })
 
   it('stays disconnected once shown if it was closed meanwhile, until it is opened again', async () => {

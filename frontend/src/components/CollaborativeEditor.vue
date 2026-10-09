@@ -1325,10 +1325,6 @@ const focusEditor = (event: MouseEvent | TouchEvent) => {
     }
 };
 
-// A hidden tab's connection is the collab session store's: it disconnects the
-// notes after a while and reconnects them, with a fresh token, when the tab is
-// shown again.
-
 const toggleTypeMenu = () => {
     showTypeMenu.value = !showTypeMenu.value;
     if (showTypeMenu.value) showInsertMenu.value = false;
