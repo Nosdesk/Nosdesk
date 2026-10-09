@@ -128,8 +128,6 @@ export const useAuthStore = defineStore('auth', () => {
         }
 
         const userData = await authService.getCurrentUser();
-        // A confirmed authenticated session ends any prior teardown window.
-        setLoggingOut(false);
         user.value = userData;
         // /auth/me is resolved under the request's pinned workspace, so the
         // role we just got belongs to the active workspace. Record it so
@@ -372,9 +370,6 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Helper function to set authentication data (tokens are in httpOnly cookies)
     function setAuthData(userData: User) {
-      // A fresh authenticated session ends any prior sign-out teardown
-      // window, so 401-suppression no longer applies.
-      setLoggingOut(false);
       user.value = userData;
       // The login/MFA response is workspace-agnostic on the central app
       // (no workspace pinned at login), so its `workspace_role` isn't
@@ -477,11 +472,21 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
-    // Mark the session as intentionally tearing down so the API layer
-    // treats the 401s from any in-flight / settling requests as expected
-    // teardown noise rather than failures to log + refresh. Cleared on the
-    // next successful sign-in (setAuthData / fetchUserData).
+    // Mark the session as intentionally tearing down for as long as this
+    // runs, so the API layer treats the 401s from in-flight / settling
+    // requests as expected teardown noise rather than failures to log and
+    // refresh. Not a moment longer: afterwards the login page covers its own
+    // 401s, and a latch would outlive the next sign-in (a passkey sign-in
+    // sets the user directly) and swallow that session's 401s.
     setLoggingOut(true);
+    try {
+      await signOut();
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
+  async function signOut() {
 
     // Per-surface post-logout redirect for RP-initiated (front-channel) logout.
     // Web returns to /login; native returns on its custom scheme (which the app

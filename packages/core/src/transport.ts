@@ -102,6 +102,18 @@ export function requestHeaders(): Record<string, string> {
   return out
 }
 
+/**
+ * The host headers to send a request with. Built once per request and kept on
+ * its config, so a retry (after a session refresh) goes out with the headers
+ * its first attempt carried: above all the workspace, which a switch in the
+ * meantime must not change.
+ */
+export function hostHeadersFor(requestConfig: object): Record<string, string> {
+  const config = requestConfig as { _hostHeaders?: Record<string, string> }
+  config._hostHeaders ??= requestHeaders()
+  return config._hostHeaders
+}
+
 // Hosts can hold requests until they may be sent (a workspace switch in
 // progress), and refuse responses that no longer apply (a request sent under the
 // previous workspace). Both interceptors, web and mobile, run these, so the rule

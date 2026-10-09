@@ -16,8 +16,8 @@ import {
   apiBaseUrl,
   passRequestGates,
   refuseResponse,
+  hostHeadersFor,
   rememberHostHeaders,
-  requestHeaders,
   transport,
 } from '@nosdesk/core/transport';
 
@@ -76,12 +76,11 @@ addRequestHeaderProvider(diagnosticsHeaders);
 let isRefreshing = false;
 let refreshSubscribers: ((success: boolean) => void)[] = [];
 
-// Set while an intentional sign-out is in progress, and kept set until the
-// next successful sign-in. During this window the session is gone on
-// purpose, so any 401s from requests still settling (or from an
-// unauthenticated page) are expected teardown noise: the interceptor skips
-// the token-refresh dance and the error-level logging for them. The auth
-// store flips this via `setLoggingOut`.
+// Set while an intentional sign-out (the auth store's logout()) runs. During
+// it the session is gone on purpose, so 401s from requests still settling
+// are expected teardown noise: the interceptor skips the token-refresh dance
+// and the error-level logging for them. Cleared when logout() finishes; the
+// login page's own 401s are covered by `onPublicAuthPage`.
 let loggingOut = false;
 export function setLoggingOut(value: boolean): void {
   loggingOut = value;
@@ -126,8 +125,9 @@ apiClient.interceptors.request.use(
     // id, trace id, SSE client id, auth provider) — composed via the transport
     // seam so the mobile interceptor (which clears this one) sends the identical
     // set. The diagnostics provider registered below sets currentCorrelationId,
-    // which the logging just below reads.
-    const hostHeaders = requestHeaders();
+    // which the logging just below reads. A retry after a refresh reuses its
+    // first attempt's headers, so it can't move to another workspace.
+    const hostHeaders = hostHeadersFor(config);
     Object.assign(config.headers, hostHeaders);
     rememberHostHeaders(config, hostHeaders);
 

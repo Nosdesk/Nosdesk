@@ -5,11 +5,10 @@ import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 
 // session; one that can't reach the server (offline, a 502 while it restarts)
 // signs nobody out.
 
-// As the real one: a sign-out marks itself under way first.
+// As the real one ends: on the login page.
 const logout = vi.hoisted(() =>
   vi.fn(async () => {
-    const { setLoggingOut } = await import('@/services/apiConfig')
-    setLoggingOut(true)
+    window.history.replaceState({}, '', '/login')
   }),
 )
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ logout }) }))
@@ -195,5 +194,32 @@ describe('a CSRF cookie that expired while the session is still good', () => {
     expect(post).toHaveBeenCalledTimes(1)
     expect(sessionGone()).toBe(false)
     expect(logout).not.toHaveBeenCalled()
+  })
+})
+
+describe('an API request retried after a refresh', () => {
+  it('goes to the workspace it was first sent to, even if the person switched meanwhile', async () => {
+    const { setActiveWorkspaceSlug } = await import('@/services/activeWorkspace')
+    setActiveWorkspaceSlug('acme')
+    const axios = (await import('axios')).default
+    vi.spyOn(axios, 'post').mockImplementation((async () => {
+      // The person switches workspace while the refresh is out.
+      setActiveWorkspaceSlug('globex')
+      return { status: 200, data: {} }
+    }) as never)
+    const { configurePlatform } = await import('@/platform')
+    await configurePlatform()
+    const { default: apiClient } = await import('@nosdesk/core/apiClient')
+    const sentTo: Array<string | undefined> = []
+    apiClient.defaults.adapter = async (config) => {
+      sentTo.push(config.headers.get('X-Nosdesk-Workspace') as string | undefined)
+      if (sentTo.length === 1) throw httpError(401, config)
+      return { status: 200, statusText: '', data: {}, headers: {}, config } as AxiosResponse
+    }
+
+    // The answer belongs to the old workspace, so it is not delivered.
+    await apiClient.post('/tickets/7/comments', { body: 'hi' }).catch(() => {})
+
+    expect(sentTo).toEqual(['acme', 'acme'])
   })
 })

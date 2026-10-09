@@ -13,8 +13,8 @@ import {
   apiBaseUrl,
   passRequestGates,
   refuseResponse,
+  hostHeadersFor,
   rememberHostHeaders,
-  requestHeaders,
   transport,
 } from '@nosdesk/core/transport'
 import { refreshSession } from '@nosdesk/core/services/session'
@@ -53,8 +53,9 @@ export function setupApiClient(): void {
     }
     // Host per-request headers (workspace selection + diagnostics) from the
     // seam: the web apiConfig attaches these, but this bootstrap cleared it, so
-    // apply the composed union here.
-    const hostHeaders = requestHeaders()
+    // apply the composed union here. A retry after a refresh reuses its first
+    // attempt's headers, so it can't move to another workspace.
+    const hostHeaders = hostHeadersFor(config)
     for (const [key, value] of Object.entries(hostHeaders)) {
       config.headers.set(key, value)
     }
