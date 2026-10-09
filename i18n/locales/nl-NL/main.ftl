@@ -1962,6 +1962,13 @@ admin-backup-warnings-heading = Waarschuwingen
 admin-backup-decryption-password-label = Ontsleutelwachtwoord
 admin-backup-decryption-password-placeholder = Voer het versleutelwachtwoord van de back-up in
 admin-backup-restore-warning = Herstellen vervangt bestaande bestanden. Deze actie kan niet ongedaan worden gemaakt.
+# Back-up herstellen (machine, wacht op controle door een moedertaalspreker)
+admin-backup-restore-locked = Deze back-up is versleuteld. Voer het wachtwoord in om te zien wat erin staat.
+admin-backup-restore-unlock = Ontgrendelen
+admin-backup-restore-wrong-password = Met dat wachtwoord gaat deze back-up niet open
+admin-backup-restore-unlock-error = De back-up kon niet worden geopend
+admin-backup-restore-no-credentials = Deze back-up is gemaakt zonder gevoelige gegevens, dus er staan geen wachtwoorden of MFA in. Herstellen wist alle wachtwoorden en MFA-registraties op deze server, ook die van jou: niemand kan inloggen tot zijn wachtwoord opnieuw is ingesteld. Een beheerder kan er een opnieuw instellen op de server met nosdesk-cli admin reset-password.
+admin-backup-restore-no-credentials-confirm = Ik begrijp dat iedereen, ik ook, een nieuw wachtwoord nodig heeft
 admin-backup-restore-button = Bestanden herstellen
 admin-backup-restoring = Herstellen...
 admin-backup-cancel = Annuleren

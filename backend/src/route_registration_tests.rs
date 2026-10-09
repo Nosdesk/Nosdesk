@@ -934,6 +934,7 @@ async fn backup_config_routes_registered() {
             ("GET", "/admin/backup/download/1"),
             ("POST", "/admin/backup/restore/upload"),
             ("GET", "/admin/backup/restore/1/preview"),
+            ("POST", "/admin/backup/restore/1/preview"),
             ("POST", "/admin/backup/restore/1/execute"),
         ],
     )

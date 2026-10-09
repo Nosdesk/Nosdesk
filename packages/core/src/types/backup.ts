@@ -46,9 +46,16 @@ export interface BackupManifest {
   encryption?: EncryptionManifest;
 }
 
+/**
+ * What a backup holds. An encrypted backup is unreadable until its password
+ * is given: the first answer is `password_required` with no manifest, and
+ * the preview with the password fills it in. Only encrypted backups carry
+ * passwords and MFA.
+ */
 export interface RestorePreview {
-  manifest: BackupManifest;
-  has_encrypted_sensitive: boolean;
+  manifest: BackupManifest | null;
+  encrypted: boolean;
+  password_required: boolean;
   warnings: string[];
 }
 
