@@ -31,7 +31,7 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{BigInt, Integer, Jsonb, Nullable, SmallInt, Text, Timestamptz};
 use tokio::sync::mpsc;
-use tokio_postgres::{AsyncMessage, NoTls};
+use tokio_postgres::AsyncMessage;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -392,13 +392,11 @@ async fn listen(database_url: String, wake: mpsc::Sender<()>) {
 }
 
 async fn listen_once(database_url: &str, wake: &mpsc::Sender<()>) -> Result<(), anyhow::Error> {
-    let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
+    let (client, mut messages) = crate::db::listen::connect(database_url).await?;
     let wake = wake.clone();
     let driver = tokio::spawn(async move {
         use futures::StreamExt;
-        let mut connection = Box::pin(connection);
-        let mut stream = futures::stream::poll_fn(move |cx| connection.as_mut().poll_message(cx));
-        while let Some(msg) = stream.next().await {
+        while let Some(msg) = messages.next().await {
             match msg {
                 Ok(AsyncMessage::Notification(_)) => {
                     // A full channel means a wake is already pending.

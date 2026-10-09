@@ -31,7 +31,7 @@ use std::time::Duration;
 use diesel::prelude::*;
 use futures::FutureExt;
 use tokio::sync::mpsc;
-use tokio_postgres::{AsyncMessage, NoTls};
+use tokio_postgres::AsyncMessage;
 use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
@@ -121,14 +121,12 @@ async fn listen_loop(
     search: &Arc<SearchService>,
     watermark: &mut i64,
 ) -> Result<(), anyhow::Error> {
-    let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
+    let (client, mut messages) = crate::db::listen::connect(database_url).await?;
 
     let (notif_tx, mut notif_rx) = mpsc::channel::<()>(64);
     let driver = tokio::spawn(async move {
         use futures::StreamExt;
-        let mut connection = Box::pin(connection);
-        let mut stream = futures::stream::poll_fn(move |cx| connection.as_mut().poll_message(cx));
-        while let Some(msg) = stream.next().await {
+        while let Some(msg) = messages.next().await {
             match msg {
                 Ok(AsyncMessage::Notification(_)) => {
                     if notif_tx.send(()).await.is_err() {

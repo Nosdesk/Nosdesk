@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{error, info, warn};
 
+pub mod listen;
+
 pub type Pool = r2d2::Pool<ResettingManager>;
 pub type DbConnection = r2d2::PooledConnection<ResettingManager>;
 

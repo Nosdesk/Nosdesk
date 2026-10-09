@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use tokio::sync::mpsc;
-use tokio_postgres::{AsyncMessage, NoTls};
+use tokio_postgres::AsyncMessage;
 use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
@@ -87,14 +87,12 @@ async fn listen_loop(
     registry: &Arc<CircuitBreakerRegistry>,
 ) -> Result<(), anyhow::Error> {
     // Same dedicated tokio_postgres connection pattern as sync_outbox.
-    let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
+    let (client, mut messages) = crate::db::listen::connect(database_url).await?;
 
     let (notif_tx, mut notif_rx) = mpsc::channel::<()>(64);
     let driver = tokio::spawn(async move {
         use futures::StreamExt;
-        let mut connection = Box::pin(connection);
-        let mut stream = futures::stream::poll_fn(move |cx| connection.as_mut().poll_message(cx));
-        while let Some(msg) = stream.next().await {
+        while let Some(msg) = messages.next().await {
             match msg {
                 Ok(AsyncMessage::Notification(_)) => {
                     // Empty payload — multi-row commits dedupe to a
