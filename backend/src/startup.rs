@@ -644,6 +644,7 @@ fn is_portal_route(path: &str) -> bool {
     let under = |prefix: &str| path == prefix || path.starts_with(&format!("{prefix}/"));
     path.is_empty()
         || path == "/login"
+        || path == "/new"
         || under("/tickets")
         || under("/approvals")
         || path == "/help"
@@ -2071,6 +2072,8 @@ mod tests {
             "/tickets/",
             "/tickets/42",
             "/tickets/new",
+            // The short new-request link sends you on to /tickets/new.
+            "/new",
         ] {
             assert_eq!(
                 spa_shell_path(hosted, true, path),
