@@ -40,8 +40,9 @@ jobs:
         id: vars
         run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      # Derives image tags from the git tag: v0.1.0-rc.5 -> 0.1.0-rc.5.
-      # `latest` is applied only to stable tags (no -rc/-beta prerelease).
+      # Derives image tags from the git tag: v1.0.14 -> 1.0.14 and 1.0. A
+      # 1.0.x release never takes `latest`: main's releases (1.1 onward) own
+      # it, and a 1.0.x patch shipped after them mustn't move it back.
       - name: Image metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -51,7 +52,7 @@ jobs:
             docker.io/nosdesk/nosdesk
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -91,7 +92,9 @@ jobs:
       # Publish the GitHub Release once the image is up. Prerelease tags
       # (anything with a `-`, e.g. -rc.5/-beta) are marked prerelease, so the
       # in-app updater's /releases/latest query keeps skipping them and only
-      # surfaces stable releases. Idempotent: a re-run updates the release.
+      # surfaces stable releases. A 1.0.x release is never /releases/latest
+      # (`make_latest: false`), for the same reason it never takes the
+      # `latest` image tag. Idempotent: a re-run updates the release.
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -99,6 +102,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ steps.meta.outputs.version }}
           prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: false
           generate_release_notes: true
           body: |
             Container image `${{ steps.meta.outputs.version }}`:
