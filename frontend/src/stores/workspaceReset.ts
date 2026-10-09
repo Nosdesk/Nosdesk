@@ -21,7 +21,16 @@
  */
 import { logger } from '@nosdesk/core/utils/logger';
 
-export async function resetWorkspaceScopedState(): Promise<void> {
+/**
+ * Why the workspace's state is going. On sign-out every local copy of a
+ * collaborative doc is deleted, including ones other tabs have open: those
+ * tabs are signed out too, so their copies are the signed-out person's data.
+ * On a switch, docs another tab has open are kept, since that tab may still
+ * be working in either workspace.
+ */
+export type WorkspaceResetReason = 'sign-out' | 'switch';
+
+export async function resetWorkspaceScopedState(reason: WorkspaceResetReason): Promise<void> {
   // Sync runtime, SSE bridge, and collab IndexedDB, first: stopping the poll
   // and the stream before the workspace is cleared below means neither fires
   // with no workspace set. The sync pool's IDB is keyed
@@ -40,8 +49,8 @@ export async function resetWorkspaceScopedState(): Promise<void> {
     await tearDown();
     // Open notes' connections belong to the workspace being left; closed
     // before their local copies go.
-    useCollabSessionStore().closeAll();
-    await purgeAllCollabDocs();
+    await useCollabSessionStore().closeAll();
+    await purgeAllCollabDocs({ includeOpen: reason === 'sign-out' });
   } catch (e) {
     logger.error('Failed to tear down the sync runtime', e);
   }

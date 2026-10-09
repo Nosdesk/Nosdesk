@@ -15,8 +15,20 @@ const fake = vi.hoisted(() => {
     params: Record<string, string> = {}
     awareness = { setLocalState: () => {} }
     private listeners = new Map<string, Set<Listener>>()
-    constructor(_url: string, _room: string, _doc: unknown, opts: { connect?: boolean } = {}) {
+    /** Updates handed to the socket, as y-websocket's doc `update` handler
+     *  does (it queues them while disconnected and sends on sync). */
+    sent: Uint8Array[] = []
+    private onDocUpdate = (update: Uint8Array, origin: unknown) => {
+      if (origin !== this) this.sent.push(update)
+    }
+    constructor(
+      _url: string,
+      _room: string,
+      private doc: YDocLike,
+      opts: { connect?: boolean } = {},
+    ) {
       providers.push(this)
+      doc.on('update', this.onDocUpdate)
       if (opts.connect !== false) this.connect()
     }
     on(event: string, fn: Listener) {
@@ -51,6 +63,7 @@ const fake = vi.hoisted(() => {
     destroyed = false
     destroy() {
       this.destroyed = true
+      this.doc.off('update', this.onDocUpdate)
     }
     /** The socket opened. */
     open() {
@@ -84,12 +97,102 @@ const fake = vi.hoisted(() => {
     }
   }
 
+  /** An IndexedDB connection, as lib0 opens it: closed on `versionchange`
+   *  (another tab deleting the database). */
+  class FakeDb extends EventTarget {
+    closed = false
+    constructor() {
+      super()
+      this.addEventListener('versionchange', () => this.close())
+    }
+    close() {
+      this.closed = true
+    }
+  }
+
+  /** y-indexeddb's persistence, down to the part that matters here: its doc
+   *  `update` handler writes in a transaction, which throws once the
+   *  connection is closed. */
+  class FakeIdb {
+    stored: Uint8Array[] = []
+    destroyed = false
+    readonly connection = new FakeDb()
+    _db = Promise.resolve(this.connection)
+    _storeUpdate = (update: Uint8Array, origin: unknown) => {
+      if (origin === this) return
+      if (this.connection.closed) {
+        throw new DOMException(
+          "Failed to execute 'transaction' on 'IDBDatabase': The database connection is closing.",
+          'InvalidStateError',
+        )
+      }
+      this.stored.push(update)
+    }
+    constructor(
+      readonly name: string,
+      private doc: YDocLike,
+    ) {
+      idbs.push(this)
+      doc.on('update', this._storeUpdate)
+    }
+    destroy() {
+      this.doc.off('update', this._storeUpdate)
+      this.destroyed = true
+      return this._db.then((db) => db.close())
+    }
+    clearData() {
+      return this.destroy().then(() => clearDocument(this.name))
+    }
+  }
+
+  const clearDocument = vi.fn(async (_name: string) => {})
+
+  /** Web Locks, with a hook for locks another tab holds. */
+  class FakeLocks {
+    /** Lock names another tab holds shared (it has the doc open). */
+    heldElsewhere = new Set<string>()
+    /** Locks this tab holds, by name, with their mode and count. */
+    held = new Map<string, { mode: LockMode; count: number }>()
+    async request(
+      name: string,
+      opts: LockOptions,
+      cb: (lock: { name: string; mode: LockMode } | null) => unknown,
+    ) {
+      const mode = opts.mode ?? 'exclusive'
+      const mine = this.held.get(name)
+      const busy =
+        (this.heldElsewhere.has(name) && mode === 'exclusive') ||
+        (mine !== undefined && (mode === 'exclusive' || mine.mode === 'exclusive'))
+      if (busy) {
+        if (opts.ifAvailable) return cb(null)
+        // Queued until the holder lets go, or withdrawn by its signal.
+        return new Promise((_resolve, reject) => {
+          opts.signal?.addEventListener('abort', () =>
+            reject(new DOMException('withdrawn', 'AbortError')),
+          )
+        })
+      }
+      this.held.set(name, { mode, count: (mine?.count ?? 0) + 1 })
+      try {
+        return await cb({ name, mode })
+      } finally {
+        const entry = this.held.get(name)!
+        if (--entry.count === 0) this.held.delete(name)
+      }
+    }
+  }
+
   const providers: FakeProvider[] = []
-  return { FakeProvider, providers }
+  const idbs: FakeIdb[] = []
+  return { FakeProvider, providers, FakeIdb, idbs, clearDocument, FakeLocks }
 })
 const providers = fake.providers
+const idbs = fake.idbs
 vi.mock('y-websocket', () => ({ WebsocketProvider: fake.FakeProvider }))
-vi.mock('y-indexeddb', () => ({ IndexeddbPersistence: class {}, clearDocument: vi.fn() }))
+vi.mock('y-indexeddb', () => ({
+  IndexeddbPersistence: fake.FakeIdb,
+  clearDocument: fake.clearDocument,
+}))
 
 const token = vi.hoisted(() => ({
   cached: null as string | null,
@@ -133,6 +236,7 @@ vi.mock('@nosdesk/core/transport', async (importOriginal) => ({
 
 import { useCollabSessionStore } from '@/stores/collabSession'
 import { logger } from '@nosdesk/core/utils/logger'
+import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
 
 const OPTS = { baseWsUrl: 'ws://test/collab' }
 
@@ -148,6 +252,8 @@ beforeEach(() => {
   setActivePinia(createPinia())
   store = useCollabSessionStore()
   providers.length = 0
+  idbs.length = 0
+  fake.clearDocument.mockClear()
   token.cached = null
   token.next = null
   token.queue = []
@@ -451,6 +557,147 @@ describe('a note opened with no CSRF cookie while the session is still valid', (
       expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
     }
     expect(providers[0].connectedWith).toEqual(['fresh'])
+  })
+})
+
+// A note's local copy (y-indexeddb) is a cache. Another tab can delete it
+// (the LRU prune, a sign-out purge), and the browser then closes this tab's
+// connection to it; from then on every write to it throws.
+describe("a note's local copy", () => {
+  const TOUCHED = 'nosdesk:collab-idb-touched'
+  const lockName = (docId: string) => `nosdesk:collab-idb:${docId}`
+
+  function withLocks() {
+    const locks = new fake.FakeLocks()
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true })
+    return locks
+  }
+
+  /** `count` stores in the touch map, oldest first. */
+  function seedTouched(count: number, prefix = 'ws-old-') {
+    const map: Record<string, number> = {}
+    for (let i = 0; i < count; i++) map[`${prefix}${i}`] = i + 1
+    localStorage.setItem(TOUCHED, JSON.stringify(map))
+  }
+
+  function touched(): Record<string, number> {
+    return JSON.parse(localStorage.getItem(TOUCHED) ?? '{}') as Record<string, number>
+  }
+
+  beforeEach(() => {
+    localStorage.removeItem('nosdesk:disable-idb-collab')
+    token.cached = 't'
+  })
+  afterEach(() => {
+    Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
+    localStorage.removeItem(TOUCHED)
+  })
+
+  it('never stops an edit reaching the server once its connection closes', async () => {
+    const { ydoc } = store.acquire('ws-a_ticket-1', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    // The browser dropped the connection without an event.
+    idbs[0].connection.close()
+
+    expect(() => ydoc.getText('t').insert(0, 'edit')).not.toThrow()
+    expect(providers[0].sent).toHaveLength(1)
+  })
+
+  it('turns itself off when another tab deletes it, and edits still reach the server', async () => {
+    const warn = vi.spyOn(logger, 'warn')
+    const { ydoc } = store.acquire('ws-a_ticket-1', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    ydoc.getText('t').insert(0, 'before ')
+    expect(idbs[0].stored).toHaveLength(1)
+
+    idbs[0].connection.dispatchEvent(new Event('versionchange'))
+
+    expect(() => ydoc.getText('t').insert(7, 'after')).not.toThrow()
+    expect(providers[0].sent).toHaveLength(2)
+    expect(idbs[0].destroyed).toBe(true)
+    expect(idbs[0].stored).toHaveLength(1)
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('local copy'),
+      expect.objectContaining({ docId: 'ws-a_ticket-1' }),
+    )
+  })
+
+  it('is not pruned while another tab has the note open', async () => {
+    const locks = withLocks()
+    seedTouched(50)
+    locks.heldElsewhere.add(lockName('ws-old-0'))
+
+    store.acquire('ws-new', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(fake.clearDocument.mock.calls.map(([name]) => name)).toEqual(['ws-old-1'])
+    expect(Object.keys(touched())).toHaveLength(50)
+    expect(touched()).toHaveProperty('ws-old-0')
+    expect(touched()).not.toHaveProperty('ws-old-1')
+  })
+
+  it('holds the note open for other tabs while this tab has it, and lets go on close', async () => {
+    const locks = withLocks()
+    store.acquire('ws-a_ticket-1', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(locks.held.get(lockName('ws-a_ticket-1'))?.mode).toBe('shared')
+
+    await store.closeAll()
+
+    expect(locks.held.has(lockName('ws-a_ticket-1'))).toBe(false)
+  })
+
+  it('never holds up closing notes while its lock is queued behind another tab', async () => {
+    const locks = withLocks()
+    // Another tab is deleting this note's store, so the lock is queued.
+    locks.held.set(lockName('ws-a_ticket-1'), { mode: 'exclusive', count: 1 })
+    store.acquire('ws-a_ticket-1', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+
+    let closed = false
+    void store.closeAll().then(() => (closed = true))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(closed).toBe(true)
+  })
+
+  it('is not pruned at all where the browser cannot say which notes other tabs have open', async () => {
+    seedTouched(50)
+
+    store.acquire('ws-new', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(fake.clearDocument).not.toHaveBeenCalled()
+    expect(Object.keys(touched())).toHaveLength(51)
+  })
+
+  it('is cleared on sign-out even while other tabs have the note open', async () => {
+    const locks = withLocks()
+    seedTouched(3)
+    for (let i = 0; i < 3; i++) locks.heldElsewhere.add(lockName(`ws-old-${i}`))
+
+    await purgeAllCollabDocs({ includeOpen: true })
+
+    expect(fake.clearDocument.mock.calls.map(([name]) => name).sort()).toEqual([
+      'ws-old-0',
+      'ws-old-1',
+      'ws-old-2',
+    ])
+    expect(localStorage.getItem(TOUCHED)).toBeNull()
+  })
+
+  it('is kept on a workspace switch while another tab has the note open', async () => {
+    const locks = withLocks()
+    seedTouched(3)
+    locks.heldElsewhere.add(lockName('ws-old-1'))
+
+    await purgeAllCollabDocs({ includeOpen: false })
+
+    expect(fake.clearDocument.mock.calls.map(([name]) => name).sort()).toEqual([
+      'ws-old-0',
+      'ws-old-2',
+    ])
+    expect(Object.keys(touched())).toEqual(['ws-old-1'])
   })
 })
 

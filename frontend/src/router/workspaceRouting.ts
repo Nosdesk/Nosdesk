@@ -164,7 +164,7 @@ export function installWorkspaceGuard(router: Router): void {
           // set it even if the reset fails, so held requests are released.
           beginWorkspaceSwitch();
           try {
-            await resetWorkspaceScopedState();
+            await resetWorkspaceScopedState('switch');
           } finally {
             setActiveWorkspaceSlug(slug);
           }

@@ -418,9 +418,10 @@ export async function hydrate(
     // The collaborative-document caches (separate y-indexeddb
     // databases) aren't covered by the sync-pool wipe above, and on an
     // instance change they're exactly the stale data that resurrects
-    // notes onto recycled ids. Purge them too.
+    // notes onto recycled ids. Purge them too, other tabs' open ones
+    // included: they are the same stale generation.
     if (instanceChanged) {
-      await purgeAllCollabDocs()
+      await purgeAllCollabDocs({ includeOpen: true })
     }
   }
 
