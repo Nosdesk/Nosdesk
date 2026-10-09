@@ -163,4 +163,69 @@ async fn boot_wires_state_and_routes() {
         StatusCode::FORBIDDEN,
         "narrowed token on /api/files/* must be scope-denied => {status}"
     );
+
+    // A request actix can't extract, and a path no API route matches, answer
+    // with the `{error, code}` envelope. An unknown path stays behind its
+    // scope's auth: without a credential it is still a 401.
+    let full = common::mint_api_token(&mut pool.get().expect("conn"), &user, "probe-full");
+    let bearer = format!("Bearer {full}");
+    for (req, want, code) in [
+        (
+            test::TestRequest::post()
+                .uri("/api/auth/login")
+                .insert_header(("Content-Type", "application/json"))
+                .set_payload("{not json"),
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+        ),
+        (
+            test::TestRequest::get().uri("/api/public/no-such-route"),
+            StatusCode::NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+        ),
+        (
+            test::TestRequest::get().uri("/api/auth/no-such-route"),
+            StatusCode::NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+        ),
+        (
+            test::TestRequest::get().uri("/api/no-such-route"),
+            StatusCode::UNAUTHORIZED,
+            "AUTH_REQUIRED",
+        ),
+        (
+            test::TestRequest::get()
+                .uri("/api/no-such-route")
+                .insert_header(("Authorization", bearer.clone())),
+            StatusCode::NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+        ),
+        (
+            test::TestRequest::get().uri("/api/collaboration/no-such-route"),
+            StatusCode::UNAUTHORIZED,
+            "AUTH_REQUIRED",
+        ),
+        (
+            test::TestRequest::get()
+                .uri("/api/collaboration/no-such-route")
+                .insert_header(("Authorization", bearer.clone())),
+            StatusCode::NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+        ),
+    ] {
+        let req = req.to_request();
+        let what = format!("{} {}", req.method(), req.path());
+        let resp = match test::try_call_service(&app, req).await {
+            Ok(r) => r.into_parts().1,
+            Err(e) => e.error_response(),
+        };
+        assert_eq!(resp.status(), want, "{what}");
+        let body = actix_web::body::to_bytes(resp.into_body())
+            .await
+            .expect("body");
+        let json: serde_json::Value = serde_json::from_slice(&body)
+            .unwrap_or_else(|_| panic!("{what}: body is not JSON: {body:?}"));
+        assert!(json["error"].is_string(), "{what}: {json}");
+        assert_eq!(json["code"], code, "{what}: {json}");
+    }
 }

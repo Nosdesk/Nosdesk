@@ -781,10 +781,14 @@ pub fn configure_app(
     workspace_config: &crate::middleware::WorkspaceContextConfig,
     config: &Config,
 ) {
-    let json_config = web::JsonConfig::default().limit(config.max_payload_size);
-    let multipart_config = web::FormConfig::default().limit(config.max_payload_size);
+    // Extractor failures (a body, query or path that doesn't parse) answer
+    // with the `{error, code}` envelope, not actix's plain text.
+    let json_config = crate::errors::json_config(config.max_payload_size);
+    let multipart_config = crate::errors::form_config(config.max_payload_size);
     cfg.app_data(json_config)
         .app_data(multipart_config)
+        .app_data(crate::errors::query_config())
+        .app_data(crate::errors::path_config())
             .app_data(state.auth_limiter_data.clone())
             .app_data(web::Data::new(pool.clone()))
             .app_data(state.yjs_app_state.clone())
@@ -813,7 +817,7 @@ pub fn configure_app(
             // and JSON-capped separately from global config.
             .service(
                 web::resource("/api/debug/frontend-logs")
-                    .app_data(web::JsonConfig::default().limit(512 * 1024))
+                    .app_data(crate::errors::json_config(512 * 1024))
                     // Own bucket (felogs:{ip}); shadows the app-level limiter
                     // for this resource so a log flood can't drain the public
                     // / auth quotas that gate login and MFA.
@@ -858,7 +862,8 @@ pub fn configure_app(
             // so 32KB is generous headroom without expanding the DoS surface.
             .service(
                 web::scope("/api/public")
-                    .app_data(web::JsonConfig::default().limit(32 * 1024))
+                    .default_service(web::to(crate::errors::api_route_not_found))
+                    .app_data(crate::errors::json_config(32 * 1024))
                     .app_data(state.public_limiter_data.clone())
                     .wrap(RateLimiter::default())
                     .configure(crate::handlers::guest::config)
@@ -871,6 +876,7 @@ pub fn configure_app(
             // Public WebSocket for collaboration (auth handled in WebSocket handler)
             .service(
                 web::scope("/api/collaboration")
+                    .default_service(web::to(crate::errors::api_route_not_found))
                     .configure(crate::handlers::collaboration::config)
             )
 
@@ -918,6 +924,7 @@ pub fn configure_app(
             // so the `{filename:.*}` tail can't swallow it.
             .service(
                 web::scope("/api/files")
+                    .default_service(web::to(crate::errors::api_route_not_found))
                     .wrap(actix_web::middleware::from_fn(crate::middleware::dual_auth_middleware))
                     .route("/tickets/{ticket_id}/notes/{filename:.*}", web::get().to(crate::handlers::serve_ticket_note_image))
                     .route("/tickets/{filename:.*}", web::get().to(crate::handlers::serve_ticket_file))
@@ -946,11 +953,13 @@ pub fn configure_app(
             // a forged token costs one signature check.
             .service(
                 web::scope("/api/portal/auth/teams")
+                    .default_service(web::to(crate::errors::api_route_not_found))
                     .wrap(RateLimiter::default())
                     .configure(crate::handlers::teams::portal_auth_config),
             )
             .service(
                 web::scope("/api/portal/auth")
+                    .default_service(web::to(crate::errors::api_route_not_found))
                     // Sign-in, the approval and widget links: the strict public
                     // limiter, not the authenticated one.
                     .app_data(state.public_limiter_data.clone())
@@ -966,8 +975,9 @@ pub fn configure_app(
             // own tickets only, RLS-pinned to the origin's workspace.
             .service(
                 web::scope("/api/portal")
+                    .default_service(web::to(crate::errors::api_route_not_found))
                     // Requests and replies are text; attachments go multipart.
-                    .app_data(web::JsonConfig::default().limit(256 * 1024))
+                    .app_data(crate::errors::json_config(256 * 1024))
                     .wrap(actix_web::middleware::from_fn(
                         crate::handlers::portal::portal_auth_middleware,
                     ))
@@ -978,6 +988,7 @@ pub fn configure_app(
             // Authentication routes (public by design)
             .service(
                 web::scope("/api/auth")
+                    .default_service(web::to(crate::errors::api_route_not_found))
                     // Brute-force defence: auth endpoints get the
                     // stricter public limit (shadows the app-level auth
                     // limiter for this scope). See security-audit-2026-06.
@@ -990,6 +1001,7 @@ pub fn configure_app(
                         // provisions admins, so /setup/admin is never mounted
                         // (a request to it 404s rather than 403s).
                         let setup = web::scope("/setup")
+                            .default_service(web::to(crate::errors::api_route_not_found))
                             .route("/status", web::get().to(crate::handlers::check_setup_status));
                         match workspace_config.mode {
                             crate::middleware::DeploymentMode::SelfHosted => setup
@@ -1017,6 +1029,7 @@ pub fn configure_app(
             // the verified marker (defense-in-depth, fails closed).
             .service(
                 web::scope("/api/internal/v1")
+                    .default_service(web::to(crate::errors::api_route_not_found))
                     .wrap(actix_web::middleware::from_fn(crate::middleware::idempotency_middleware))
                     .wrap(actix_web::middleware::from_fn(crate::extractors::platform_auth_middleware))
                     .configure(crate::handlers::internal_workspaces::config)
@@ -1034,6 +1047,7 @@ pub fn configure_app(
             // Supports both cookie-based auth (browser) and Bearer token auth (API clients)
             .service(
                 web::scope("/api")
+                    .default_service(web::to(crate::errors::api_route_not_found))
                     // Throttle authenticated traffic (per-IP, 600/min via
                     // the auth limiter) so expensive endpoints
                     // (/search/rebuild, /sync/bootstrap, /admin/backup/export)
