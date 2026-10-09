@@ -3,7 +3,8 @@
  * in SSO-only mode would otherwise start a flow, and each flow overwrites the
  * single-slot state cookies (the IdP's login CSRF cookie and our OAuth state
  * binding), so every callback but the last fails. The first window claims the
- * start for a minute; others show the button and wait. A click always starts.
+ * start for a minute; others show the button and wait. A click always starts,
+ * and takes the claim.
  */
 const KEY = 'nosdesk:sso-autostart'
 const TAB_KEY = 'nosdesk:sso-tab'
@@ -19,19 +20,24 @@ function tabId(): string {
   return id
 }
 
-/** Claim the automatic start for this tab. False if another window holds it. */
-export function claimSsoAutoStart(now = Date.now()): boolean {
+/** Another window started SSO in the last minute, so this one waits. */
+export function ssoStartedElsewhere(now = Date.now()): boolean {
   try {
-    const me = tabId()
     const held = JSON.parse(localStorage.getItem(KEY) ?? 'null') as { tab?: string; at?: number } | null
-    if (held?.tab && held.tab !== me && typeof held.at === 'number' && now - held.at < HOLD_MS) {
-      return false
-    }
-    localStorage.setItem(KEY, JSON.stringify({ tab: me, at: now }))
+    return !!held?.tab && held.tab !== tabId() && typeof held.at === 'number' && now - held.at < HOLD_MS
   } catch {
     // Storage unavailable: no coordination, start as before.
+    return false
   }
-  return true
+}
+
+/** This tab is starting SSO, by itself or by a click. */
+export function recordSsoStart(now = Date.now()): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({ tab: tabId(), at: now }))
+  } catch {
+    // ignore
+  }
 }
 
 /** Free the claim, so the next login page can start straight away. */

@@ -25,7 +25,8 @@ import { extractErrorMessage } from "@/utils/errors";
 import { isInAppPath } from "@/utils/inAppPath";
 import { isTauriRuntime } from "@/platform";
 import { getCsrfToken } from "@/utils/csrf";
-import { claimSsoAutoStart } from "@/utils/ssoAutoStart";
+import { recordSsoStart, ssoStartedElsewhere } from "@/utils/ssoAutoStart";
+import { setActiveWorkspaceSlug } from "@/services/activeWorkspace";
 import { useFluent } from "fluent-vue";
 
 // Get branding and theme stores
@@ -153,15 +154,21 @@ onMounted(async () => {
 // SSO-only, web: when one session ends, every open tab lands here at once, and
 // each SSO flow overwrites the single-slot state cookies, so only the last
 // one's callback succeeds. So a tab starts SSO by itself only while it is
-// visible and no other window started it a moment ago (claimSsoAutoStart);
+// visible and no other window started it a moment ago (ssoStartedElsewhere);
 // otherwise it shows the button and waits. A waiting tab goes back into the
 // app when a sign-in completes elsewhere, which shows as a new CSRF cookie.
+let disposed = false;
 let ssoWaiting = false;
 let ssoChecking = false;
 let seenCsrf: string | null = null;
 let signInPoll: ReturnType<typeof setInterval> | undefined;
 
 function waitForSso() {
+  // onMounted awaited the setup status first; the page may be gone by now.
+  if (disposed) return;
+  // The other tab may have signed in as someone outside the workspace this
+  // tab last had; checking under that slug would be refused for it.
+  setActiveWorkspaceSlug(null);
   ssoWaiting = true;
   document.addEventListener("visibilitychange", trySsoAutoStart);
   signInPoll = setInterval(() => void enterIfSignedInElsewhere(), 1000);
@@ -182,7 +189,8 @@ async function enterIfSignedInElsewhere(): Promise<boolean> {
   seenCsrf = csrf;
   ssoChecking = true;
   try {
-    await authStore.fetchUserData({ force: true }).catch(() => null);
+    // A probe: a refusal means "not signed in here", never a sign-out.
+    await authStore.fetchUserData({ force: true, probe: true }).catch(() => null);
     if (!authStore.user) return false;
     stopWaitingForSso();
     await landAfterLogin();
@@ -196,11 +204,14 @@ async function enterIfSignedInElsewhere(): Promise<boolean> {
 async function trySsoAutoStart() {
   if (await enterIfSignedInElsewhere()) return;
   if (!ssoWaiting || ssoChecking) return;
-  if (document.visibilityState !== "visible" || !claimSsoAutoStart()) return;
+  if (document.visibilityState !== "visible" || ssoStartedElsewhere()) return;
   void handleOidcLoginClick();
 }
 
-onBeforeUnmount(stopWaitingForSso);
+onBeforeUnmount(() => {
+  disposed = true;
+  stopWaitingForSso();
+});
 
 const handleLogin = async () => {
   loadingAction.value = 'login';
@@ -500,6 +511,9 @@ const handleOidcLoginClick = async () => {
     return;
   }
 
+  // Hold off other windows' automatic starts, which would overwrite this
+  // flow's state cookies.
+  recordSsoStart();
   try {
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
     const response = await fetch(`${API_BASE_URL}/api/auth/oauth/authorize`, {

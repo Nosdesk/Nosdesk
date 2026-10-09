@@ -3,7 +3,7 @@ import { logger } from '@nosdesk/core/utils/logger';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import apiClient from '@nosdesk/core/apiClient';
-import { setLoggingOut } from '@/services/apiConfig';
+import { isLoggingOut, setLoggingOut } from '@/services/apiConfig';
 import authService from '@nosdesk/core/services/authService';
 import router, { landAfterLogin } from '@/router';
 import type { User, LoginCredentials } from '@nosdesk/core/types';
@@ -99,11 +99,15 @@ export const useAuthStore = defineStore('auth', () => {
   // NOTE: No CSRF cookie guard here. When cookies expire (15 min), the API call
   // will get a 401, and the interceptor in apiConfig.ts will automatically attempt
   // a refresh using the 7-day refresh token before failing.
-  async function fetchUserData(opts?: { force?: boolean }) {
+  async function fetchUserData(opts?: { force?: boolean; probe?: boolean }) {
     // `force` bypasses the dedup + failure cooldown — used when the active
     // workspace changed (a legitimate context switch, not a retry), where
     // an in-flight fetch under the old pin would return the wrong role.
     const force = opts?.force ?? false;
+    // `probe` only looks (the login page checking whether another tab signed
+    // in): a refusal is thrown back and never ends or signs out a session,
+    // which may be one this tab knows nothing about.
+    const probe = opts?.probe ?? false;
 
     // Return existing promise if already fetching
     if (!force && fetchUserDataPromise) {
@@ -162,6 +166,8 @@ export const useAuthStore = defineStore('auth', () => {
             // Rate limit error - don't logout, just show error
             logger.warn('Rate limit exceeded. Please wait before retrying.');
             error.value = translate('auth-login-rate-limited', undefined, 'Too many requests. Please wait a moment.');
+            throw err;
+          } else if (probe && (status === 401 || status === 403)) {
             throw err;
           } else if (status === 401) {
             // The shared refresh decides whether the session is over. Rejected:
@@ -505,10 +511,12 @@ export const useAuthStore = defineStore('auth', () => {
    * over server-side, so this only clears what the tab holds and goes to
    * /login. No /auth/logout: cookies are shared by every tab, and a late one
    * would carry, and end, a session another tab has just signed in with.
-   * Same scoped loggingOut window as `logout()`.
+   * Same scoped loggingOut window as `logout()`, and nothing to do while a
+   * `logout()` runs: it tears down and navigates itself, and owns the window.
    */
   let sessionLostInFlight: Promise<void> | null = null;
   function sessionLost(): Promise<void> {
+    if (isLoggingOut()) return Promise.resolve();
     sessionLostInFlight ??= (async () => {
       // Come back to this page after signing in again.
       const here = window.location.pathname + window.location.search;

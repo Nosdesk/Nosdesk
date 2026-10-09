@@ -102,3 +102,43 @@ describe('a session the server rejects', () => {
     expect(outcome).toBe('failed')
   })
 })
+
+describe('checking for a sign-in from the login page', () => {
+  it('never signs out, even when the profile is refused', async () => {
+    const { auth, sent } = await bootRejected()
+    const { default: apiClient } = await import('@nosdesk/core/apiClient')
+    // Signed in elsewhere, but not into the workspace this tab last had.
+    apiClient.defaults.adapter = async (config) => {
+      sent.push(`${config.method?.toUpperCase()} ${config.url}`)
+      throw httpError(403, config)
+    }
+    auth.user = null
+
+    await auth.fetchUserData({ force: true, probe: true }).catch(() => {})
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(sent.filter((s) => s.includes('/auth/logout'))).toEqual([])
+  })
+})
+
+describe('a session lost while signing out', () => {
+  it('leaves the sign-out its quiet window until it finishes', async () => {
+    const { auth } = await bootRejected()
+    const { default: apiClient } = await import('@nosdesk/core/apiClient')
+    const { isLoggingOut } = await import('@/services/apiConfig')
+    let answerLogout = () => {}
+    apiClient.defaults.adapter = (config) =>
+      new Promise((_, reject) => {
+        answerLogout = () => reject(httpError(401, config))
+      })
+
+    const signingOut = auth.logout()
+    await vi.advanceTimersByTimeAsync(0)
+    await auth.sessionLost()
+
+    expect(isLoggingOut()).toBe(true)
+    answerLogout()
+    await signingOut
+    expect(isLoggingOut()).toBe(false)
+  })
+})
