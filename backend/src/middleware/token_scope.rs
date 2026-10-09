@@ -501,7 +501,7 @@ mod enforcement_tests {
         if allowed {
             next.call(req).await
         } else {
-            Err(actix_web::error::ErrorForbidden(
+            Err(crate::errors::forbidden_error(
                 "API token scope does not permit this request",
             ))
         }

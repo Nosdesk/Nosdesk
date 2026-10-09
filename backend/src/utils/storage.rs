@@ -871,7 +871,7 @@ pub async fn serve_file_from_storage(
     // too; checking here answers it like any missing file.
     if !is_safe_storage_path(path) {
         warn!(path = %path, "rejected storage path with unsafe segments");
-        return Err(actix_web::error::ErrorNotFound("File not found"));
+        return Err(crate::errors::not_found_error("File not found"));
     }
 
     // Extract filename from path for content type detection
@@ -880,7 +880,7 @@ pub async fn serve_file_from_storage(
     // Get file data from storage
     let file_data = storage.get_file(path).await.map_err(|e| {
         error!("Failed to get file from storage: {:?}", e);
-        actix_web::error::ErrorNotFound("File not found")
+        crate::errors::not_found_error("File not found")
     })?;
 
     // Determine content type based on file extension

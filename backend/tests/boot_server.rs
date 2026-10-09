@@ -113,6 +113,18 @@ async fn real_server_boots_and_serves() {
         .await
         .expect("GET /api/users");
     assert_eq!(users.status().as_u16(), 401, "GET /api/users");
+    // Through every app-level wrap, the refusal is the API's JSON envelope
+    // with its challenge.
+    assert_eq!(
+        users
+            .headers()
+            .get("www-authenticate")
+            .and_then(|v| v.to_str().ok()),
+        Some("Bearer"),
+        "GET /api/users challenge"
+    );
+    let body: serde_json::Value = users.json().await.expect("GET /api/users JSON body");
+    assert_eq!(body["code"], "AUTH_REQUIRED", "GET /api/users: {body}");
 
     // Graceful-shutdown drain signal: once begin_shutdown() is called,
     // /readiness must report 503 (so the LB drains this instance) while /health

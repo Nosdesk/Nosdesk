@@ -105,19 +105,13 @@ impl actix_web::ResponseError for TicketAccessError {
     fn error_response(&self) -> HttpResponse {
         match self {
             Self::Auth(e) => e.error_response(),
-            Self::NoTicketIdInRoute => HttpResponse::InternalServerError().json(
-                serde_json::json!({"error": "Server misconfiguration: route is not ticket-scoped"}),
-            ),
-            Self::BadTicketId => HttpResponse::BadRequest().json(serde_json::json!({
-                "error": "Invalid ticket id"
-            })),
-            Self::Database(_) => HttpResponse::InternalServerError().json(serde_json::json!({
-                "error": "Failed to verify ticket access"
-            })),
+            Self::NoTicketIdInRoute => {
+                crate::errors::internal("Server misconfiguration: route is not ticket-scoped")
+            }
+            Self::BadTicketId => crate::errors::bad_request("Invalid ticket id"),
+            Self::Database(_) => crate::errors::internal("Failed to verify ticket access"),
             // OWASP IDOR: deny reads with 404, never 403.
-            Self::NotVisible => HttpResponse::NotFound().json(serde_json::json!({
-                "error": "Ticket not found"
-            })),
+            Self::NotVisible => crate::errors::not_found_msg("Ticket not found"),
         }
     }
 }

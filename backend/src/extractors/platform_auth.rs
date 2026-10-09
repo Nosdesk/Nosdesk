@@ -90,11 +90,21 @@ impl std::fmt::Display for PlatformAuthError {
 impl ResponseError for PlatformAuthError {
     fn error_response(&self) -> HttpResponse {
         match self {
-            Self::NotHosted => HttpResponse::NotFound().finish(),
-            Self::Unauthorized => HttpResponse::Unauthorized().json(json!({
-                "error": "Unauthorized",
-                "message": "invalid or missing platform credential"
-            })),
+            Self::NotHosted => crate::errors::not_found_msg("Not found"),
+            // `message` stays for control planes that read it.
+            Self::Unauthorized => {
+                let mut resp = crate::errors::with_fields(
+                    actix_web::http::StatusCode::UNAUTHORIZED,
+                    "AUTH_REQUIRED",
+                    "Unauthorized",
+                    json!({ "message": "invalid or missing platform credential" }),
+                );
+                resp.headers_mut().insert(
+                    actix_web::http::header::WWW_AUTHENTICATE,
+                    actix_web::http::header::HeaderValue::from_static("Bearer"),
+                );
+                resp
+            }
         }
     }
 }

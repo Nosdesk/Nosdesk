@@ -99,16 +99,16 @@ impl From<FileValidationError> for actix_web::Error {
     fn from(error: FileValidationError) -> Self {
         match error {
             FileValidationError::FileTooLarge { .. } => {
-                actix_web::error::ErrorPayloadTooLarge(error.to_string())
+                crate::errors::payload_too_large_error(error.to_string())
             }
             FileValidationError::BlockedMimeType { .. } => {
-                actix_web::error::ErrorBadRequest(error.to_string())
+                crate::errors::bad_request_error(error.to_string())
             }
             FileValidationError::BlockedExtension { .. } => {
-                actix_web::error::ErrorBadRequest(error.to_string())
+                crate::errors::bad_request_error(error.to_string())
             }
             FileValidationError::InvalidFilename(_) => {
-                actix_web::error::ErrorBadRequest(error.to_string())
+                crate::errors::bad_request_error(error.to_string())
             }
         }
     }

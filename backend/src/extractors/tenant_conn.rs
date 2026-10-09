@@ -145,14 +145,13 @@ impl std::fmt::Display for TenantConnError {
 
 impl actix_web::ResponseError for TenantConnError {
     fn error_response(&self) -> actix_web::HttpResponse {
-        use actix_web::HttpResponse;
         match self {
-            Self::MissingRequestContext => HttpResponse::Unauthorized()
-                .json(serde_json::json!({"error": "Authentication required"})),
-            Self::PoolError(_) => HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": "Internal server error"})),
-            Self::NoWorkspaceSelected => HttpResponse::BadRequest()
-                .json(serde_json::json!({"error": "No workspace selected"})),
+            Self::MissingRequestContext => crate::errors::unauthorized("Authentication required"),
+            Self::PoolError(_) => crate::errors::internal("Internal server error"),
+            Self::NoWorkspaceSelected => crate::errors::bad_request_with_code(
+                "No workspace selected",
+                "NO_WORKSPACE_SELECTED",
+            ),
         }
     }
 }

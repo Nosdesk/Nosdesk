@@ -71,10 +71,10 @@ pub async fn upload_for_asset(
     let asset_id = path.into_inner();
     tc.run(|conn| assets_repo::get_device_by_id(conn, asset_id))
         .map_err(|e| match e {
-            diesel::result::Error::NotFound => actix_web::error::ErrorNotFound("Asset not found"),
+            diesel::result::Error::NotFound => crate::errors::not_found_error("Asset not found"),
             other => {
                 error!(asset_id, error = ?other, "failed to load asset before media upload");
-                actix_web::error::ErrorInternalServerError("Failed to load asset")
+                crate::errors::internal_error("Failed to load asset")
             }
         })?;
 
@@ -90,11 +90,11 @@ pub async fn upload_for_asset(
         let original_filename = field
             .content_disposition()
             .get_filename()
-            .ok_or_else(|| actix_web::error::ErrorBadRequest("Filename is required"))?;
+            .ok_or_else(|| crate::errors::bad_request_error("Filename is required"))?;
         let sanitized_filename =
             FileValidator::sanitize_filename(original_filename).map_err(|e| {
                 warn!(error = ?e, original_filename = %original_filename, "asset media filename sanitization failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid filename: {e}"))
+                crate::errors::bad_request_error(format!("Invalid filename: {e}"))
             })?;
 
         let mut file_data = Vec::new();
@@ -102,11 +102,11 @@ pub async fn upload_for_asset(
         while let Some(chunk) = field.next().await {
             let data = chunk.map_err(|e| {
                 error!(error = ?e, "error reading asset media chunk");
-                actix_web::error::ErrorInternalServerError("Error reading chunk")
+                crate::errors::internal_error("Error reading chunk")
             })?;
             const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
             if total_size + data.len() > MAX_IMAGE_SIZE {
-                return Err(actix_web::error::ErrorBadRequest(
+                return Err(crate::errors::bad_request_error(
                     "File too large (max 10MB)",
                 ));
             }
@@ -117,10 +117,10 @@ pub async fn upload_for_asset(
         let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
                 warn!(error = ?e, filename = %sanitized_filename, "asset media validation failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid file: {e}"))
+                crate::errors::bad_request_error(format!("Invalid file: {e}"))
             })?;
         if !detected_mime.starts_with("image/") {
-            return Err(actix_web::error::ErrorBadRequest(
+            return Err(crate::errors::bad_request_error(
                 "Only image files are allowed",
             ));
         }
@@ -139,7 +139,7 @@ pub async fn upload_for_asset(
             .await
             .map_err(|e| {
                 error!(asset_id, error = ?e, filename = %sanitized_filename, "failed to store asset media");
-                actix_web::error::ErrorInternalServerError("Failed to store file")
+                crate::errors::internal_error("Failed to store file")
             })?;
 
         let url = format!("/api/files/assets/{asset_id}/media/{}", stored_file.id);
@@ -180,7 +180,7 @@ pub async fn upload_for_asset(
 
         let row = tc.run(|conn| repo::create(conn, new_media)).map_err(|e| {
             error!(asset_id, error = ?e, "failed to create asset media row");
-            actix_web::error::ErrorInternalServerError("Failed to create asset media")
+            crate::errors::internal_error("Failed to create asset media")
         })?;
         uploaded.push(row);
     }

@@ -7,26 +7,24 @@ use actix_web::{
     body::MessageBody,
     dev::{ServiceRequest, ServiceResponse},
     middleware::Next,
-    web, Error, HttpMessage, HttpResponse,
+    web, Error, HttpMessage,
 };
 use std::net::IpAddr;
 use tracing::{debug, error, info, warn};
 
-/// Build an RFC 6750 `401` carrying a `WWW-Authenticate: Bearer` challenge.
+/// An RFC 6750 `401` in the API's `{error, code}` envelope, with its
+/// `WWW-Authenticate: Bearer` challenge.
 ///
-/// Per §3, include `error="invalid_token"` only when a credential was presented
-/// and failed; send a bare `Bearer` challenge when none was presented (so a
-/// client isn't told *why* auth is needed when it offered nothing).
+/// Per section 3, include `error="invalid_token"` (code `INVALID_TOKEN`) only
+/// when a credential was presented and failed; send a bare `Bearer` challenge
+/// (code `AUTH_REQUIRED`) when none was presented, so a client isn't told
+/// *why* auth is needed when it offered nothing.
 fn bearer_unauthorized(invalid_token: bool, message: &'static str) -> Error {
-    let challenge = if invalid_token {
-        "Bearer error=\"invalid_token\""
+    if invalid_token {
+        crate::errors::invalid_token_error(message)
     } else {
-        "Bearer"
-    };
-    let response = HttpResponse::Unauthorized()
-        .insert_header(("WWW-Authenticate", challenge))
-        .body(message);
-    actix_web::error::InternalError::from_response(message, response).into()
+        crate::errors::unauthorized_error(message)
+    }
 }
 
 use crate::db::Pool;
@@ -72,9 +70,7 @@ pub fn try_bearer_auth(
     // Validate token format (should start with nsk_)
     if !token.starts_with("nsk_") {
         warn!(path = %req.path(), "Invalid API token format");
-        return Err(actix_web::error::ErrorUnauthorized(
-            "Invalid API token format",
-        ));
+        return Err(bearer_unauthorized(true, "Invalid API token format"));
     }
 
     debug!(path = %req.path(), "Attempting Bearer token authentication");
@@ -82,7 +78,7 @@ pub fn try_bearer_auth(
     // Get database connection
     let mut conn = pool.get().map_err(|e| {
         error!("Database connection failed: {}", e);
-        actix_web::error::ErrorInternalServerError("Database connection failed")
+        crate::errors::internal_error("Database connection failed")
     })?;
 
     // Bearer-token auth runs after the workspace-context middleware
@@ -163,21 +159,15 @@ pub fn try_bearer_auth(
                     "API token refused: its holder has a platform role it wasn't made with"
                 ),
             }
-            return Err(actix_web::error::ErrorUnauthorized(
-                "Invalid or expired API token",
-            ));
+            return Err(bearer_unauthorized(true, "Invalid or expired API token"));
         }
         Err(diesel::result::Error::NotFound) => {
             warn!(path = %req.path(), "API token not found or expired");
-            return Err(actix_web::error::ErrorUnauthorized(
-                "Invalid or expired API token",
-            ));
+            return Err(bearer_unauthorized(true, "Invalid or expired API token"));
         }
         Err(e) => {
             error!("Error looking up API token: {}", e);
-            return Err(actix_web::error::ErrorInternalServerError(
-                "Authentication error",
-            ));
+            return Err(crate::errors::internal_error("Authentication error"));
         }
     };
 
@@ -334,7 +324,7 @@ pub(crate) async fn authenticate<B: MessageBody>(
 
     let pool = req
         .app_data::<web::Data<Pool>>()
-        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Database pool not found"))?
+        .ok_or_else(|| crate::errors::internal_error("Database pool not found"))?
         .clone();
 
     // A Bearer credential is either a personal API token (`nsk_…`, looked up in
@@ -345,15 +335,15 @@ pub(crate) async fn authenticate<B: MessageBody>(
             if accept_api_tokens {
                 let claims = try_bearer_auth(&req, &pool)?
                     .ok_or_else(|| bearer_unauthorized(true, "Invalid API token"))?;
-                let mut conn = pool.get().map_err(|_| {
-                    actix_web::error::ErrorInternalServerError("Database connection failed")
-                })?;
+                let mut conn = pool
+                    .get()
+                    .map_err(|_| crate::errors::internal_error("Database connection failed"))?;
                 // Membership gate plus the token's own workspace binding, so a
                 // token minted in workspace A is refused against workspace B
                 // even when its owner is a member of both. `try_bearer_auth`
                 // always sets the binding.
                 let bound = claims.workspace_uuid.ok_or_else(|| {
-                    actix_web::error::ErrorInternalServerError("API token has no workspace binding")
+                    crate::errors::internal_error("API token has no workspace binding")
                 })?;
                 crate::middleware::cookie_auth::enforce_api_token_workspace(
                     &req, &mut conn, &claims, bound,
@@ -365,9 +355,9 @@ pub(crate) async fn authenticate<B: MessageBody>(
             // cookie below, so API tokens can't authenticate here.
         } else {
             // Session-JWT bearer.
-            let mut conn = pool.get().map_err(|_| {
-                actix_web::error::ErrorInternalServerError("Database connection failed")
-            })?;
+            let mut conn = pool
+                .get()
+                .map_err(|_| crate::errors::internal_error("Database connection failed"))?;
             let (claims, _user) = JwtUtils::authenticate_with_token(&raw, &mut conn)
                 .await
                 .map_err(|err| {
@@ -393,7 +383,7 @@ pub(crate) async fn authenticate<B: MessageBody>(
     // No usable Bearer token — fall back to the access-token cookie (web).
     let mut conn = pool
         .get()
-        .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
+        .map_err(|_| crate::errors::internal_error("Database connection failed"))?;
 
     let token = req
         .cookie(&crate::utils::cookies::cookie_name(
@@ -447,7 +437,7 @@ async fn finalize<B: MessageBody>(
     // `collab` JWT. The policy already returned `Full` for that path; it was
     // simply never asked.
     if !crate::middleware::token_scope::claims_may_call(&claims, req.method(), req.path()) {
-        return Err(actix_web::error::ErrorForbidden(
+        return Err(crate::errors::forbidden_error(
             "API token scope does not permit this request",
         ));
     }

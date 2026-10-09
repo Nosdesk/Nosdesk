@@ -109,7 +109,7 @@ pub fn resolve_pin_and_gate(
     // on every surface that funnels through the gate.
     if claims.scope == PORTAL_SCOPE {
         warn!(user = %claims.sub, "Portal-scope token rejected on the agent surface");
-        return Err(actix_web::error::ErrorForbidden(
+        return Err(crate::errors::forbidden_error(
             "This session cannot access the agent application",
         ));
     }
@@ -120,13 +120,13 @@ pub fn resolve_pin_and_gate(
             // malformed; fail closed (auth already validated the token, so this
             // is unreachable in practice, but the gate must never fail open).
             let user_uuid = uuid::Uuid::parse_str(&claims.sub)
-                .map_err(|_| actix_web::error::ErrorForbidden("Not a member of this workspace"))?;
+                .map_err(|_| crate::errors::forbidden_error("Not a member of this workspace"))?;
             crate::handlers::helpers::pin_workspace(conn, ctx.workspace_id);
             require_workspace_membership(conn, ctx.workspace_id, user_uuid)?;
             Ok(GateOutcome::Scoped(ctx))
         }
         None => match unresolved {
-            UnresolvedPolicy::Deny => Err(actix_web::error::ErrorForbidden(
+            UnresolvedPolicy::Deny => Err(crate::errors::forbidden_error(
                 "Not a member of this workspace",
             )),
             UnresolvedPolicy::AllowRlsBackstop => Ok(GateOutcome::Unscoped),
@@ -160,7 +160,7 @@ fn resolve_carrier(
                             attempted_workspace = %ctx.workspace_uuid,
                             "API token presented against a workspace it is not bound to"
                         );
-                        return Err(actix_web::error::ErrorForbidden(
+                        return Err(crate::errors::forbidden_error(
                             "This API token is bound to a different workspace",
                         ));
                     }
@@ -210,14 +210,12 @@ fn resolve_provided_uuid(
 ) -> Result<crate::extractors::WorkspaceContext, Error> {
     match crate::middleware::workspace_context::resolve_workspace_uuid(conn, uuid) {
         Ok(Some(ctx)) => Ok(ctx),
-        Ok(None) => Err(actix_web::error::ErrorForbidden(
+        Ok(None) => Err(crate::errors::forbidden_error(
             "Not a member of this workspace",
         )),
         Err(e) => {
             error!(error = ?e, "Workspace uuid resolution failed");
-            Err(actix_web::error::ErrorInternalServerError(
-                "Workspace resolution failed",
-            ))
+            Err(crate::errors::internal_error("Workspace resolution failed"))
         }
     }
 }
@@ -308,14 +306,12 @@ fn selected_workspace_context(
     };
     match wc::resolve_selected_context(conn, slug) {
         Ok(Some(ctx)) => Ok(Some(ctx)),
-        Ok(None) => Err(actix_web::error::ErrorForbidden(
+        Ok(None) => Err(crate::errors::forbidden_error(
             "Not a member of this workspace",
         )),
         Err(e) => {
             error!(error = ?e, "Selection-header workspace lookup failed");
-            Err(actix_web::error::ErrorInternalServerError(
-                "Workspace resolution failed",
-            ))
+            Err(crate::errors::internal_error("Workspace resolution failed"))
         }
     }
 }
@@ -399,7 +395,7 @@ fn membership_gate(
                 workspace_id,
                 "Workspace membership 403 gate: a requester on the hosted agent app; denying"
             );
-            Err(actix_web::error::ErrorForbidden(
+            Err(crate::errors::forbidden_error(
                 "Not a member of this workspace",
             ))
         }
@@ -409,13 +405,13 @@ fn membership_gate(
                 workspace_id,
                 "Workspace membership 403 gate: user is not a member; denying"
             );
-            Err(actix_web::error::ErrorForbidden(
+            Err(crate::errors::forbidden_error(
                 "Not a member of this workspace",
             ))
         }
         Err(e) => {
             error!(error = ?e, "Workspace membership lookup failed");
-            Err(actix_web::error::ErrorInternalServerError(
+            Err(crate::errors::internal_error(
                 "Workspace membership check failed",
             ))
         }

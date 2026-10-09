@@ -53,11 +53,11 @@ pub async fn upload_files(
             while let Some(chunk) = field.next().await {
                 let data = chunk.map_err(|e| {
                     error!(error = ?e, "Error reading transcription chunk");
-                    actix_web::error::ErrorInternalServerError("Error reading transcription")
+                    crate::errors::internal_error("Error reading transcription")
                 })?;
 
                 if text_data.len() + data.len() > MAX_TRANSCRIPTION_SIZE {
-                    return Err(actix_web::error::ErrorBadRequest(
+                    return Err(crate::errors::bad_request_error(
                         "Transcription too large (max 64KB)",
                     ));
                 }
@@ -80,13 +80,13 @@ pub async fn upload_files(
         let content_disposition = field.content_disposition();
         let original_filename = content_disposition
             .get_filename()
-            .ok_or_else(|| actix_web::error::ErrorBadRequest("Filename is required"))?;
+            .ok_or_else(|| crate::errors::bad_request_error("Filename is required"))?;
 
         // SECURITY: Sanitize filename to prevent path traversal attacks
         let sanitized_filename = FileValidator::sanitize_filename(original_filename)
             .map_err(|e| {
                 warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid filename: {e}"))
+                crate::errors::bad_request_error(format!("Invalid filename: {e}"))
             })?;
 
         debug!(original_filename = %original_filename, sanitized_filename = %sanitized_filename, "Processing uploaded file");
@@ -98,7 +98,7 @@ pub async fn upload_files(
         while let Some(chunk) = field.next().await {
             let data = chunk.map_err(|e| {
                 error!(error = ?e, "Error reading chunk");
-                actix_web::error::ErrorInternalServerError("Error reading chunk")
+                crate::errors::internal_error("Error reading chunk")
             })?;
 
             // SECURITY: Validate chunk doesn't cause file to exceed max size
@@ -116,7 +116,7 @@ pub async fn upload_files(
         let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
                 warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid file: {e}"))
+                crate::errors::bad_request_error(format!("Invalid file: {e}"))
             })?;
 
         debug!(mime_type = %detected_mime, filename = %sanitized_filename, "File validated");
@@ -137,7 +137,7 @@ pub async fn upload_files(
             .await
             .map_err(|e| {
                 error!(error = ?e, filename = %sanitized_filename, "Failed to store file");
-                actix_web::error::ErrorInternalServerError("Failed to store file")
+                crate::errors::internal_error("Failed to store file")
             })?;
 
         // Generate PDF thumbnail if applicable, beside the PDF in the
@@ -197,7 +197,7 @@ pub async fn upload_files(
             }
             Err(e) => {
                 error!(error = ?e, "Error creating attachment record");
-                return Err(actix_web::error::ErrorInternalServerError(
+                return Err(crate::errors::internal_error(
                     "Error creating attachment record",
                 ));
             }
@@ -268,10 +268,10 @@ fn authorize_ticket_access(
         .run(|conn| ticket_visibility::can_view_ticket(conn, &ctx, ticket_id))
         .map_err(|e| {
             error!(error = ?e, ticket_id, "ticket file authorization lookup failed");
-            actix_web::error::ErrorInternalServerError("Authorization check failed")
+            crate::errors::internal_error("Authorization check failed")
         })?;
     if !allowed {
-        return Err(actix_web::error::ErrorNotFound("File not found"));
+        return Err(crate::errors::not_found_error("File not found"));
     }
     Ok(())
 }
@@ -316,7 +316,7 @@ pub(crate) fn authorize_located<L, T>(
 ) -> Result<(i32, T), actix_web::Error> {
     let mut conn = pool.get().map_err(|e| {
         error!(error = ?e, "file access: pool acquire failed");
-        actix_web::error::ErrorInternalServerError("Database error")
+        crate::errors::internal_error("Database error")
     })?;
 
     let lookup_actor = ActorContext::system("file_access");
@@ -339,9 +339,9 @@ pub(crate) fn authorize_located<L, T>(
     )
     .map_err(|e| {
         error!(error = ?e, "file access: workspace lookup failed");
-        actix_web::error::ErrorInternalServerError("Authorization check failed")
+        crate::errors::internal_error("Authorization check failed")
     })?
-    .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
+    .ok_or_else(|| crate::errors::not_found_error("File not found"))?;
 
     let actor = ActorContext::user_at_workspace(auth.user_uuid, workspace_id);
     let granted = session::with_actor_context(&mut conn, &actor, |c| {
@@ -361,9 +361,9 @@ pub(crate) fn authorize_located<L, T>(
     })
     .map_err(|e| {
         error!(error = ?e, workspace_id, "file access: authorization lookup failed");
-        actix_web::error::ErrorInternalServerError("Authorization check failed")
+        crate::errors::internal_error("Authorization check failed")
     })?
-    .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
+    .ok_or_else(|| crate::errors::not_found_error("File not found"))?;
 
     Ok((workspace_id, granted))
 }
@@ -431,7 +431,7 @@ pub(crate) async fn serve_or_not_found(
         Ok(response) => Ok(response),
         Err(e) => {
             warn!(error = ?e, file_path = %file_path, "Error serving file");
-            Err(actix_web::error::ErrorNotFound("File not found"))
+            Err(crate::errors::not_found_error("File not found"))
         }
     }
 }
@@ -474,13 +474,13 @@ pub async fn upload_ticket_note_image(
         let content_disposition = field.content_disposition();
         let original_filename = content_disposition
             .get_filename()
-            .ok_or_else(|| actix_web::error::ErrorBadRequest("Filename is required"))?;
+            .ok_or_else(|| crate::errors::bad_request_error("Filename is required"))?;
 
         // SECURITY: Sanitize filename to prevent path traversal attacks
         let sanitized_filename = FileValidator::sanitize_filename(original_filename)
             .map_err(|e| {
                 warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid filename: {e}"))
+                crate::errors::bad_request_error(format!("Invalid filename: {e}"))
             })?;
 
         debug!(original_filename = %original_filename, sanitized_filename = %sanitized_filename, "Processing ticket note image");
@@ -492,13 +492,13 @@ pub async fn upload_ticket_note_image(
         while let Some(chunk) = field.next().await {
             let data = chunk.map_err(|e| {
                 error!(error = ?e, "Error reading chunk");
-                actix_web::error::ErrorInternalServerError("Error reading chunk")
+                crate::errors::internal_error("Error reading chunk")
             })?;
 
             // SECURITY: Validate chunk doesn't cause file to exceed max size (10MB for images)
             const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
             if total_size + data.len() > MAX_IMAGE_SIZE {
-                return Err(actix_web::error::ErrorBadRequest(
+                return Err(crate::errors::bad_request_error(
                     "File too large (max 10MB)",
                 ));
             }
@@ -513,12 +513,12 @@ pub async fn upload_ticket_note_image(
         let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
                 warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid file: {e}"))
+                crate::errors::bad_request_error(format!("Invalid file: {e}"))
             })?;
 
         // Only allow image types for ticket note images
         if !detected_mime.starts_with("image/") {
-            return Err(actix_web::error::ErrorBadRequest(
+            return Err(crate::errors::bad_request_error(
                 "Only image files are allowed",
             ));
         }
@@ -533,7 +533,7 @@ pub async fn upload_ticket_note_image(
             .await
             .map_err(|e| {
                 error!(error = ?e, filename = %sanitized_filename, "Failed to store file");
-                actix_web::error::ErrorInternalServerError("Failed to store file")
+                crate::errors::internal_error("Failed to store file")
             })?;
 
         info!(url = %stored_file.url, filename = %sanitized_filename, "Stored ticket note image");

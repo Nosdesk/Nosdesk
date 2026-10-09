@@ -111,10 +111,8 @@ impl std::fmt::Display for PlatformConnError {
 
 impl actix_web::ResponseError for PlatformConnError {
     fn error_response(&self) -> actix_web::HttpResponse {
-        use actix_web::HttpResponse;
         match self {
-            Self::PoolError(_) => HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": "Internal server error"})),
+            Self::PoolError(_) => crate::errors::internal("Internal server error"),
         }
     }
 }

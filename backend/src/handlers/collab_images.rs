@@ -98,11 +98,11 @@ pub async fn upload_collab_document_image(
     match gate {
         Ok(Some(true)) => {}
         Ok(Some(false)) | Ok(None) => {
-            return Err(actix_web::error::ErrorNotFound("Document not found"));
+            return Err(crate::errors::not_found_error("Document not found"));
         }
         Err(e) => {
             error!(doc_id = %doc_id, error = ?e, "Document access check failed on image upload");
-            return Err(actix_web::error::ErrorInternalServerError(
+            return Err(crate::errors::internal_error(
                 "Failed to check document access",
             ));
         }
@@ -120,13 +120,13 @@ pub async fn upload_collab_document_image(
         let original_filename = field
             .content_disposition()
             .get_filename()
-            .ok_or_else(|| actix_web::error::ErrorBadRequest("Filename is required"))?
+            .ok_or_else(|| crate::errors::bad_request_error("Filename is required"))?
             .to_string();
 
         let sanitized_filename = FileValidator::sanitize_filename(&original_filename)
             .map_err(|e| {
                 warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid filename: {e}"))
+                crate::errors::bad_request_error(format!("Invalid filename: {e}"))
             })?;
 
         let mut file_data = Vec::new();
@@ -134,10 +134,10 @@ pub async fn upload_collab_document_image(
         while let Some(chunk) = field.next().await {
             let data = chunk.map_err(|e| {
                 error!(error = ?e, "Error reading chunk");
-                actix_web::error::ErrorInternalServerError("Error reading chunk")
+                crate::errors::internal_error("Error reading chunk")
             })?;
             if total_size + data.len() > MAX_IMAGE_SIZE {
-                return Err(actix_web::error::ErrorBadRequest(
+                return Err(crate::errors::bad_request_error(
                     "File too large (max 10MB)",
                 ));
             }
@@ -148,11 +148,11 @@ pub async fn upload_collab_document_image(
         let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
                 warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid file: {e}"))
+                crate::errors::bad_request_error(format!("Invalid file: {e}"))
             })?;
 
         if !detected_mime.starts_with("image/") {
-            return Err(actix_web::error::ErrorBadRequest(
+            return Err(crate::errors::bad_request_error(
                 "Only image files are allowed",
             ));
         }
@@ -163,7 +163,7 @@ pub async fn upload_collab_document_image(
             .await
             .map_err(|e| {
                 error!(error = ?e, filename = %sanitized_filename, "Failed to store file");
-                actix_web::error::ErrorInternalServerError("Failed to store file")
+                crate::errors::internal_error("Failed to store file")
             })?;
 
         // `stored.id` is the unique `{uuid7}_{filename}` basename, which is the
@@ -207,9 +207,9 @@ pub async fn serve_collab_document_image(
     let (kind_token, uuid_str, filename) = path.into_inner();
 
     let kind = DocKind::from_url_token(&kind_token)
-        .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
-    let resource_uuid = Uuid::parse_str(&uuid_str)
-        .map_err(|_| actix_web::error::ErrorNotFound("File not found"))?;
+        .ok_or_else(|| crate::errors::not_found_error("File not found"))?;
+    let resource_uuid =
+        Uuid::parse_str(&uuid_str).map_err(|_| crate::errors::not_found_error("File not found"))?;
 
     let workspace_id = authorize_collab_file_access(&pool, &auth, kind, resource_uuid)?;
     let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
