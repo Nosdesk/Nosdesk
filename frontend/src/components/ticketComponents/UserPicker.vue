@@ -173,7 +173,11 @@ type Section = 'selected' | 'you' | 'recent' | 'results'
 const sections = computed<{ key: Section; rows: PickerUser[] }[]>(() => {
   const out: { key: Section; rows: PickerUser[] }[] = []
   if (picker.selected.value && !picker.isFiltering.value) out.push({ key: 'selected', rows: [picker.selected.value] })
-  if (picker.currentUserRow.value && !picker.isFiltering.value) out.push({ key: 'you', rows: [picker.currentUserRow.value] })
+  // "You" only when you aren't already the selection, so you're listed once.
+  const you = picker.currentUserRow.value
+  if (you && !picker.isFiltering.value && you.uuid !== picker.selected.value?.uuid) {
+    out.push({ key: 'you', rows: [you] })
+  }
   if (picker.recent.value.length) out.push({ key: 'recent', rows: picker.recent.value })
   if (picker.results.value.length) out.push({ key: 'results', rows: picker.results.value })
   return out

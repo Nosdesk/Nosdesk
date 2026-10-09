@@ -11,7 +11,8 @@ const USERS = [
 ]
 // The auth store drags the router (and every view) in; the picker
 // reads two fields from it.
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: null, isTechnician: false }) }))
+const auth = vi.hoisted(() => ({ user: null as Record<string, unknown> | null, isTechnician: false }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('@/services/userService', () => ({
   default: {
     getPaginatedUsers: async ({ search }: { search?: string }) => {
@@ -30,6 +31,8 @@ beforeEach(() => {
   window.innerWidth = 1024
 })
 afterEach(() => {
+  auth.user = null
+  auth.isTechnician = false
   wrapper?.unmount()
   wrapper = null
   document.body.innerHTML = ''
@@ -68,6 +71,24 @@ async function open(input: HTMLInputElement) {
 }
 
 describe('UserPicker', () => {
+  it('lists you once when the ticket is already yours', async () => {
+    auth.user = { uuid: 'u-2', name: 'Grace Hopper', email: 'grace@example.test', avatar_thumb: null, avatar_url: null }
+    auth.isTechnician = true
+    const input = await mountPicker()
+    await open(input)
+    expect(groups()).toEqual(['ticket-picker-user-section-selected-assignee', 'ticket-picker-user-section-staff'])
+    expect(options().filter((o) => o.textContent?.includes('Grace Hopper'))).toHaveLength(1)
+  })
+
+  it('offers you beside the selection when the ticket is someone else\'s', async () => {
+    auth.user = { uuid: 'u-1', name: 'Ada Lovelace', email: 'ada@example.test', avatar_thumb: null, avatar_url: null }
+    auth.isTechnician = true
+    const input = await mountPicker()
+    await open(input)
+    expect(groups()).toContain('ticket-picker-user-section-you')
+    expect(options().filter((o) => o.textContent?.includes('Ada Lovelace'))).toHaveLength(1)
+  })
+
   it('shows the current name closed and opens a grouped listbox highlighting it', async () => {
     const input = await mountPicker()
     expect(input.value).toBe('Grace Hopper')
