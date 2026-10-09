@@ -361,7 +361,8 @@ pub fn create_ticket_with_annotation(
         };
         // A policy that covers the new ticket gives it its targets now, so
         // it can breach without waiting for its first edit. That may also
-        // start its clock, so the row is read again for the event.
+        // start its clock, so the row is read again for the event. A guest
+        // ticket waiting for confirmation gets none until it's released.
         crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &ticket);
         let ticket: Ticket = tickets::table.find(ticket.id).first(conn)?;
         let groups = groups::for_ticket(conn, &ticket)?;
@@ -462,6 +463,15 @@ pub fn verify_pending_tickets_for_user(
             tickets::updated_at.eq(chrono::Utc::now().naive_utc()),
         ))
         .get_results(conn)?;
+        // Released, it joins the workspace's SLA: its clock and targets
+        // start now (they were held while it waited).
+        let released = released
+            .into_iter()
+            .map(|ticket| {
+                crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &ticket);
+                tickets::table.find(ticket.id).first::<Ticket>(conn)
+            })
+            .collect::<QueryResult<Vec<Ticket>>>()?;
         for ticket in &released {
             let created_via = held_created_via(conn, ticket.id)?.unwrap_or_else(|| {
                 json!({ "source": "guest_portal", "from_email": null, "from_name": null, "subject": ticket.title })

@@ -230,3 +230,41 @@ async fn a_breach_with_no_one_to_tell_notifies_the_workspaces_admins_once() {
         "a later sweep doesn't tell them again"
     );
 }
+
+#[actix_web::test]
+async fn a_ticket_waiting_for_its_guest_to_confirm_doesnt_breach() {
+    use backend::schema::tickets;
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let mut conn = pool.get().expect("conn");
+    let ws = crate::common::seed_two_workspaces(&mut conn);
+    let a = ws.a.workspace_id;
+    let ticket = overdue_ticket(&mut conn, a, "Guest asks for help", None);
+    let actor = ActorContext::system("test:sla_breach_sweep").with_workspace(a);
+    with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+        diesel::update(tickets::table.find(ticket))
+            .set(tickets::verification_state.eq(Some("pending")))
+            .execute(c)
+    })
+    .expect("pending");
+    drop(conn);
+
+    let notifications = Arc::new(NotificationService::new(
+        pool.clone(),
+        Arc::new(RwLock::new(HashMap::new())),
+    ));
+    backend::services::scheduled_jobs::detect_sla_breaches(pool.clone(), notifications)
+        .await
+        .expect("sweep");
+
+    let mut conn = pool.get().expect("conn");
+    let breached = with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+        tickets::table
+            .find(ticket)
+            .select(tickets::sla_response_breached_at)
+            .first::<Option<chrono::NaiveDateTime>>(c)
+    })
+    .expect("ticket");
+    assert_eq!(breached, None, "no one in the workspace can see it yet");
+}

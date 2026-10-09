@@ -561,15 +561,31 @@ pub fn recompute_and_stamp_sla_for_ticket(
     // activation, record a pause start, or push the anchor past a finished pause)
     // so the pill below reflects the fresh anchor. Runs under the caller's actor
     // context, so the audited write on the ticket carries workspace context.
+    // A guest ticket waiting for its email to be confirmed is outside the
+    // workspace until it's released, so it has no SLA yet: no clock and no
+    // targets for the breach sweep. Releasing it stamps it.
+    if is_pending_verification(ticket) {
+        if let Err(e) = write_sla_stamp(conn, ticket.id, &SlaStamp::default()) {
+            tracing::warn!(ticket_id = ticket.id, error = %e, "clearing SLA targets failed");
+        }
+        return serde_json::Value::Null;
+    }
     let mut ticket = ticket.clone();
     advance_sla_clock(conn, &mut ticket);
 
     let pill = load_pill_for_ticket(conn, &ticket);
-    let (response_target, resolution_target) =
-        pill.as_ref().map(targets_from_pill).unwrap_or((None, None));
-    set_sla_targets(conn, ticket.id, response_target, resolution_target);
+    let clock = StateClock::of_state_id(conn, ticket.workflow_state_id);
+    if let Err(e) = write_sla_stamp(conn, ticket.id, &SlaStamp::from_pill(pill.as_ref(), clock)) {
+        tracing::warn!(ticket_id = ticket.id, error = %e, "stamping SLA targets failed");
+    }
     pill.and_then(|p| serde_json::to_value(p).ok())
         .unwrap_or(serde_json::Value::Null)
+}
+
+/// Whether `ticket` is a guest submission still waiting for its email to be
+/// confirmed. It has no SLA until then.
+pub fn is_pending_verification(ticket: &Ticket) -> bool {
+    ticket.verification_state.as_deref() == Some(crate::sync::groups::PENDING_VERIFICATION)
 }
 
 /// Advance one ticket's SLA clock after a workflow transition. Only
@@ -711,62 +727,132 @@ pub fn load_calendar_for_policy(
 /// Recompute the SLA of every open ticket in `workspace_id` after one of
 /// its SLA policies, calendars or holidays changes, so existing tickets
 /// pick up new, changed or removed targets (the breach sweep only scans
-/// stamped targets). Tickets whose targets moved are sent to clients as
-/// `ticket.sla_updated`. One pass over the workspace's open tickets, in the
-/// caller's transaction. Returns how many tickets' targets moved.
+/// stamped targets). Runs in the caller's transaction:
+///
+/// - policies, calendars and holidays are read once, and the tickets are
+///   locked in id order, so overlapping saves can't deadlock;
+/// - a guest ticket still waiting for confirmation is skipped;
+/// - a running ticket whose clock never started gets the time it was
+///   opened as its start, stored once, so a later save never moves it;
+/// - only rows whose SLA changes are written, and those are sent to
+///   clients as `ticket.sla_updated` (a target going away included).
+///
+/// Returns how many tickets changed.
 pub fn restamp_open_tickets(
     conn: &mut crate::db::DbConnection,
     workspace_id: i32,
 ) -> diesel::QueryResult<usize> {
     use crate::schema::{tickets, workflow_states};
-    use crate::sync::emit::{self, SyncEmit};
     use diesel::prelude::*;
 
-    let open_states: Vec<i32> = workflow_states::table
+    let mut ctx = crate::repository::sla::load_for_pill_computation(conn)?;
+    ctx.policies.retain(|p| p.workspace_id == workspace_id);
+    let clocks: HashMap<i32, StateClock> = workflow_states::table
         .filter(workflow_states::workspace_id.eq(workspace_id))
         .load::<crate::models::WorkflowState>(conn)?
-        .into_iter()
-        .filter(|s| StateClock::of(s) != StateClock::Stopped)
-        .map(|s| s.id)
+        .iter()
+        .map(|s| (s.id, StateClock::of(s)))
+        .collect();
+    let open_states: Vec<i32> = clocks
+        .iter()
+        .filter(|(_, clock)| **clock != StateClock::Stopped)
+        .map(|(id, _)| *id)
         .collect();
     let open: Vec<Ticket> = tickets::table
         .filter(tickets::workspace_id.eq(workspace_id))
         .filter(tickets::workflow_state_id.eq_any(&open_states))
+        .filter(
+            tickets::verification_state.is_distinct_from(crate::sync::groups::PENDING_VERIFICATION),
+        )
+        .order(tickets::id.asc())
+        .for_no_key_update()
         .load(conn)?;
 
+    let no_holidays = HashSet::new();
+    let mut groups_by_assignee: HashMap<uuid::Uuid, Vec<i32>> = HashMap::new();
+    let now = Utc::now();
     let mut moved = 0;
-    for ticket in open {
-        let before = (
-            ticket.sla_response_target_at,
-            ticket.sla_resolution_target_at,
-        );
-        let sla = recompute_and_stamp_sla_for_ticket(conn, &ticket);
-        let after: (Option<NaiveDateTime>, Option<NaiveDateTime>) = tickets::table
-            .find(ticket.id)
-            .select((
-                tickets::sla_response_target_at,
-                tickets::sla_resolution_target_at,
-            ))
-            .first(conn)?;
-        if after == before {
+    for mut ticket in open {
+        let clock = clocks
+            .get(&ticket.workflow_state_id)
+            .copied()
+            .unwrap_or(StateClock::Paused);
+        let group_ids = match ticket.assignee_uuid {
+            Some(assignee) => groups_by_assignee
+                .entry(assignee)
+                .or_insert_with(|| {
+                    crate::repository::groups::get_group_ids_for_user(conn, &assignee)
+                        .unwrap_or_default()
+                })
+                .clone(),
+            None => Vec::new(),
+        };
+        let Some(policy) = pick_policy(&ctx.policies, &ticket, &group_ids) else {
+            if write_sla_stamp(conn, ticket.id, &SlaStamp::default())? {
+                moved += 1;
+                emit_sla_updated(conn, &ticket, serde_json::Value::Null)?;
+            }
             continue;
+        };
+
+        let mut changed = false;
+        // A ticket already running under a policy that counts from activation,
+        // with no stored start: it has been running since it was opened (the
+        // pill already counts from there). Store that once.
+        if ticket.sla_override != "none"
+            && !policy.no_sla
+            && ClockStart::parse(&policy.clock_start) == ClockStart::Activated
+            && clock == StateClock::Running
+            && ticket.sla_clock_started_at.is_none()
+        {
+            changed |= diesel::update(tickets::table.find(ticket.id))
+                .filter(tickets::sla_clock_started_at.is_null())
+                .set(tickets::sla_clock_started_at.eq(ticket.created_at))
+                .execute(conn)?
+                > 0;
+            ticket.sla_clock_started_at = Some(ticket.created_at);
         }
-        moved += 1;
-        let groups = crate::sync::groups::for_ticket(conn, &ticket)?;
-        emit::record(
-            conn,
-            SyncEmit {
-                aggregate: crate::models::SyncAggregate::Ticket,
-                aggregate_id: ticket.id.to_string(),
-                op: crate::models::SyncOp::Update,
-                event_type: "ticket.sla_updated",
-                data: serde_json::json!({ "id": ticket.id, "sla": sla }),
-                groups,
-                causation_id: None,
-            },
-        )?;
+
+        let pill = calendar_for_policy(policy, &ctx.calendars_by_id).and_then(|calendar| {
+            let holidays = ctx
+                .holidays_by_calendar
+                .get(&calendar.id)
+                .unwrap_or(&no_holidays);
+            compute_pill(&ticket, clock, policy, calendar, holidays, now)
+        });
+        changed |= write_sla_stamp(conn, ticket.id, &SlaStamp::from_pill(pill.as_ref(), clock))?;
+        if changed {
+            moved += 1;
+            let sla = pill
+                .and_then(|p| serde_json::to_value(p).ok())
+                .unwrap_or(serde_json::Value::Null);
+            emit_sla_updated(conn, &ticket, sla)?;
+        }
     }
     Ok(moved)
+}
+
+/// Send a ticket's new SLA pill to the clients that can see the ticket.
+fn emit_sla_updated(
+    conn: &mut crate::db::DbConnection,
+    ticket: &Ticket,
+    sla: serde_json::Value,
+) -> diesel::QueryResult<()> {
+    use crate::sync::emit::{self, SyncEmit};
+    let groups = crate::sync::groups::for_ticket(conn, ticket)?;
+    emit::record(
+        conn,
+        SyncEmit {
+            aggregate: crate::models::SyncAggregate::Ticket,
+            aggregate_id: ticket.id.to_string(),
+            op: crate::models::SyncOp::Update,
+            event_type: "ticket.sla_updated",
+            data: serde_json::json!({ "id": ticket.id, "sla": sla }),
+            groups,
+            causation_id: None,
+        },
+    )?;
+    Ok(())
 }
 
 /// Load every input the engine needs for one ticket and run
@@ -804,29 +890,75 @@ fn targets_from_pill(
     )
 }
 
-/// Persist the materialised target columns on a ticket. `None` clears
-/// the column so the partial scan index ignores the row. Failures are
-/// logged rather than propagated — a missed stamp is self-healing on
-/// the next mutation or the next breach-detection sweep, and we don't
-/// want one stamp failure to roll back the caller's transaction.
-fn set_sla_targets(
+/// What a recompute writes on a ticket besides its clock: the materialised
+/// targets the breach sweep scans (`None` clears one), and, per timer, the
+/// target a stored breach must precede to still stand.
+#[derive(Debug, Default)]
+struct SlaStamp {
+    response_target: Option<NaiveDateTime>,
+    resolution_target: Option<NaiveDateTime>,
+    /// A stored breach earlier than this target no longer stands: a longer
+    /// target replaced the one it broke. Clearing it lets a later real
+    /// breach notify. Only set for an open ticket; a finished ticket keeps
+    /// the breaches it earned.
+    response_breach_before: Option<NaiveDateTime>,
+    resolution_breach_before: Option<NaiveDateTime>,
+}
+
+impl SlaStamp {
+    fn from_pill(pill: Option<&SlaPill>, clock: StateClock) -> Self {
+        let (response_target, resolution_target) =
+            pill.map(targets_from_pill).unwrap_or((None, None));
+        let open = clock != StateClock::Stopped;
+        let breach_before =
+            |timer: Option<&SlaTimer>| timer.filter(|_| open).map(|t| t.target_at.naive_utc());
+        Self {
+            response_target,
+            resolution_target,
+            response_breach_before: breach_before(pill.and_then(|p| p.response.as_ref())),
+            resolution_breach_before: breach_before(pill.and_then(|p| p.resolution.as_ref())),
+        }
+    }
+}
+
+/// Write a [`SlaStamp`]. Each statement only matches the row when it
+/// changes something, so a ticket whose SLA didn't move isn't written: no
+/// audit row, no dead tuple, no row lock. Returns whether the row changed.
+fn write_sla_stamp(
     conn: &mut crate::db::DbConnection,
     ticket_id: i32,
-    response_target: Option<chrono::NaiveDateTime>,
-    resolution_target: Option<chrono::NaiveDateTime>,
-) {
+    stamp: &SlaStamp,
+) -> diesel::QueryResult<bool> {
     use crate::schema::tickets;
     use diesel::prelude::*;
 
-    if let Err(e) = diesel::update(tickets::table.find(ticket_id))
+    let mut changed = diesel::update(tickets::table.find(ticket_id))
+        .filter(
+            tickets::sla_response_target_at
+                .is_distinct_from(stamp.response_target)
+                .or(tickets::sla_resolution_target_at.is_distinct_from(stamp.resolution_target)),
+        )
         .set((
-            tickets::sla_response_target_at.eq(response_target),
-            tickets::sla_resolution_target_at.eq(resolution_target),
+            tickets::sla_response_target_at.eq(stamp.response_target),
+            tickets::sla_resolution_target_at.eq(stamp.resolution_target),
         ))
-        .execute(conn)
-    {
-        tracing::warn!(ticket_id, error = %e, "set_sla_targets failed");
+        .execute(conn)?
+        > 0;
+    if let Some(target) = stamp.response_breach_before {
+        changed |= diesel::update(tickets::table.find(ticket_id))
+            .filter(tickets::sla_response_breached_at.lt(target))
+            .set(tickets::sla_response_breached_at.eq(None::<NaiveDateTime>))
+            .execute(conn)?
+            > 0;
     }
+    if let Some(target) = stamp.resolution_breach_before {
+        changed |= diesel::update(tickets::table.find(ticket_id))
+            .filter(tickets::sla_resolution_breached_at.lt(target))
+            .set(tickets::sla_resolution_breached_at.eq(None::<NaiveDateTime>))
+            .execute(conn)?
+            > 0;
+    }
+    Ok(changed)
 }
 
 /// Pick the most-specific policy that matches a ticket. Highest-id
