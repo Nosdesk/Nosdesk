@@ -178,4 +178,5 @@ jobs:
 
       - name: npm audit
         working-directory: frontend
-        run: npm audit
+        # Shipped deps only: braces (GHSA-vfj7-8cjw-p6xm, dev-only via the ESLint config) has no patched release.
+        run: npm audit --omit=dev
