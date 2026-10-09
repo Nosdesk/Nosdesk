@@ -30,7 +30,13 @@
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 import { IndexeddbPersistence, clearDocument as clearIdbDocument } from 'y-indexeddb'
-import { COLLAB_IDB_TOUCH_KEY } from '@/utils/collabLocalCache'
+import {
+  COLLAB_IDB_TOUCH_KEY,
+  canSeeOpenDocs,
+  clearCollabDocIfClosed,
+  forgetTouchedDocs,
+  holdCollabDocLock,
+} from '@/utils/collabLocalCache'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
@@ -61,7 +67,7 @@ const MAX_SESSIONS = 8
  * Cap on the number of distinct docs we keep in IndexedDB across
  * sessions, refreshes, and tabs. Crossing this triggers a prune
  * pass that calls `y-indexeddb`'s `clearDocument()` on the
- * least-recently-touched docs until under the cap.
+ * least-recently-touched docs no tab has open, until under the cap.
  *
  * 50 is a generous default for IT-helpdesk usage (a power user
  * touching that many tickets in a session is unusual). Storing
@@ -332,10 +338,14 @@ interface SessionEntry {
    *  consumers must not new it up themselves. */
   permanentUserData: SafePermanentUserData
   /** IndexedDB persistence layer. `null` when disabled by feature
-   *  flag or when construction failed (private window, quota,
-   *  sandboxed origin). The provider alone still works without it,
-   *  the only loss is the cold-load instant-render UX. */
+   *  flag, when construction failed (private window, quota,
+   *  sandboxed origin), or once its database closed or a write to it
+   *  threw. The provider alone still works without it, the only loss
+   *  is the cold-load instant-render UX. */
   idb: IndexeddbPersistence | null
+  /** Lets go of the cross-tab lock that keeps other tabs from deleting
+   *  this doc's local store while it is open here. */
+  releaseDocLock: (() => Promise<void>) | null
   refCount: number
   /** Wallclock ms of the most recent release (refCount → 0). */
   lastReleasedAt: number | null
@@ -396,30 +406,131 @@ function untouchDoc(docId: string): void {
   persistTouchMap(map)
 }
 
+let pruning = false
+
 /**
- * If we've accumulated more IDB docs than the cap, fire-and-forget
- * `clearDocument()` for the oldest entries until we're back under.
- * Active sessions are excluded so an open editor never has its
- * cache yanked from under it.
+ * If we've accumulated more IDB docs than the cap, delete the oldest
+ * ones until we're back under. A doc open in any tab is skipped (this
+ * tab's sessions, and other tabs' through their locks). Where the
+ * browser can't say what other tabs have open, nothing is pruned; the
+ * app shell has no other tabs, so there only this context's sessions
+ * are skipped.
  */
-function pruneIdbStores(): void {
+async function pruneIdbStores(): Promise<void> {
+  if (pruning || !canSeeOpenDocs()) return
   const map = loadTouchMap()
-  if (map.size <= MAX_IDB_DOCS) return
-  const entries = [...map.entries()]
+  let excess = map.size - MAX_IDB_DOCS
+  if (excess <= 0) return
+  pruning = true
+  const oldest = [...map.entries()]
     .filter(([docId]) => !sessions.has(docId))
     .sort((a, b) => a[1] - b[1])
-  const toRemove = map.size - MAX_IDB_DOCS
-  for (let i = 0; i < toRemove && i < entries.length; i++) {
-    const [docId] = entries[i]
-    map.delete(docId)
-    clearIdbDocument(docId).catch((err) => {
-      logger.warn('Collab session: clearIdbDocument during prune failed', {
-        docId,
-        err,
-      })
-    })
+  const cleared: string[] = []
+  try {
+    for (const [docId] of oldest) {
+      if (excess <= 0) break
+      try {
+        if (!(await clearCollabDocIfClosed(docId))) continue
+      } catch (err) {
+        logger.warn('Collab session: clearIdbDocument during prune failed', { docId, err })
+      }
+      cleared.push(docId)
+      excess--
+    }
+  } finally {
+    forgetTouchedDocs(cleared)
+    pruning = false
   }
-  persistTouchMap(map)
+}
+
+/** Lock releases still settling, so `closeAll` can wait for them. */
+const lockReleases = new Set<Promise<void>>()
+
+function releaseDocLock(entry: SessionEntry): void {
+  const release = entry.releaseDocLock
+  if (!release) return
+  entry.releaseDocLock = null
+  const settled = release().finally(() => lockReleases.delete(settled))
+  lockReleases.add(settled)
+}
+
+/**
+ * Turn a doc's local persistence off: its database closed (another tab
+ * deleted it, or the browser dropped the connection) or a write to it
+ * threw. The note carries on from the server alone.
+ */
+function dropPersistence(entry: SessionEntry, idb: IndexeddbPersistence, reason: unknown): void {
+  if (entry.idb !== idb) return
+  entry.idb = null
+  releaseDocLock(entry)
+  destroyQuietly(idb)
+  logger.warn('Collab session: the local copy is unavailable; the note carries on without it', {
+    docId: entry.docId,
+    reason,
+  })
+}
+
+/** Destroy a persistence whose connection may already be gone. */
+function destroyQuietly(idb: IndexeddbPersistence): void {
+  try {
+    idb.destroy().catch(() => {
+      // The connection is already gone; nothing left to close.
+    })
+  } catch {
+    // Its internals aren't what we expect (see `hasGuardableShape`).
+  }
+}
+
+let warnedUnguardable = false
+
+/**
+ * Whether y-indexeddb still has the internals `guardPersistence` wraps:
+ * the doc `update` handler and the connection promise. They are private,
+ * so a version bump could change them. Without them the handler can't be
+ * guarded, and an unguarded one can stop an edit reaching the server, so
+ * persistence is turned off instead (the note opens from the server).
+ */
+function hasGuardableShape(idb: IndexeddbPersistence): boolean {
+  const internals = idb as Partial<Pick<IndexeddbPersistence, '_storeUpdate' | '_db'>>
+  const ok = typeof internals._storeUpdate === 'function' && typeof internals._db?.then === 'function'
+  if (!ok && !warnedUnguardable) {
+    warnedUnguardable = true
+    logger.warn('Collab session: y-indexeddb internals changed; notes open without a local copy')
+  }
+  return ok
+}
+
+/**
+ * Keep the local copy from ever stopping an edit reaching the server.
+ * y-indexeddb's doc `update` handler writes in an IndexedDB transaction,
+ * which throws once the database is closed, and a throwing `update`
+ * handler stops the ones after it. So the handler is wrapped (a throw
+ * turns persistence off instead of escaping), and a closing database
+ * turns persistence off before the next write.
+ */
+function guardPersistence(entry: SessionEntry, idb: IndexeddbPersistence): void {
+  const store = idb._storeUpdate
+  const guarded = (update: Uint8Array, origin: unknown) => {
+    try {
+      store(update, origin)
+    } catch (err) {
+      dropPersistence(entry, idb, err)
+    }
+  }
+  // Swapped on the instance so its own `destroy()` unregisters the wrapper.
+  entry.ydoc.off('update', store)
+  idb._storeUpdate = guarded
+  entry.ydoc.on('update', guarded)
+  idb._db.then(
+    (db) => {
+      // lib0 closes the connection on `versionchange` (a delete from
+      // another tab); `close` is the browser dropping it.
+      const lost = (event: Event) => dropPersistence(entry, idb, event.type)
+      db.addEventListener('versionchange', lost)
+      db.addEventListener('close', lost)
+    },
+    (err: unknown) => dropPersistence(entry, idb, err),
+  )
 }
 
 /**
@@ -595,11 +706,13 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     // explicit "ticket deleted" cleanup in Phase 5.
     if (entry.idb) {
       try {
-        entry.idb.destroy()
+        entry.idb.destroy().catch(() => {})
       } catch (err) {
         logger.warn('Collab session: idb.destroy() threw', { docId, err })
       }
+      entry.idb = null
     }
+    releaseDocLock(entry)
     try {
       entry.provider.off('status', entry.statusListener)
       entry.provider.off('closed', entry.closedListener)
@@ -693,6 +806,17 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     // safe path per yjs README "DocOpts").
     ydoc.gc = false
 
+    // Create disconnected: the collab WS authenticates with a connection token
+    // in the URL query (a browser WebSocket can't send a header or cross-origin
+    // cookie). The store owns fetching it (callers don't), then connects.
+    // Created before the local persistence so the provider's doc `update`
+    // handler runs first; `guardPersistence` below keeps the persistence's
+    // from throwing at all.
+    const provider = new WebsocketProvider(options.baseWsUrl, docId, ydoc, {
+      ...options.providerParams,
+      connect: false,
+    })
+
     // IndexedDB persistence: best-effort. Construction can throw
     // (private windows, sandboxed origins, quota exceeded). When
     // it does, the session degrades to provider-only and the
@@ -701,6 +825,10 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     if (isLocalPersistenceEnabled()) {
       try {
         idb = new IndexeddbPersistence(docId, ydoc)
+        if (!hasGuardableShape(idb)) {
+          destroyQuietly(idb)
+          idb = null
+        }
       } catch (err) {
         logger.warn('Collab session: IndexeddbPersistence construction failed, continuing without local cache', {
           docId,
@@ -708,14 +836,6 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
         })
       }
     }
-
-    // Create disconnected: the collab WS authenticates with a connection token
-    // in the URL query (a browser WebSocket can't send a header or cross-origin
-    // cookie). The store owns fetching it (callers don't), then connects.
-    const provider = new WebsocketProvider(options.baseWsUrl, docId, ydoc, {
-      ...options.providerParams,
-      connect: false,
-    })
     const permanentUserData = new SafePermanentUserData(ydoc)
     // One subscription per provider. Derives status from live state on
     // every transition, including the token fetch and a terminal close,
@@ -769,6 +889,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       badgeTimerFor: null,
       permanentUserData,
       idb,
+      releaseDocLock: idb ? holdCollabDocLock(docId) : null,
       refCount: 1,
       lastReleasedAt: null,
       graceTimer: null,
@@ -780,11 +901,12 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     void attachCollabToken(provider)
     // Seeded synchronously: the token fetch above has already started.
     onStatus()
+    if (idb) guardPersistence(entry, idb)
     sessions.set(docId, entry)
     enforceLruCap()
     if (idb) {
       touchDoc(docId)
-      pruneIdbStores()
+      void pruneIdbStores()
     }
     refreshSnapshot()
     return { ydoc, provider, permanentUserData, isNew: true }
@@ -867,15 +989,18 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
    * Close every open document's connection and drop its session. On a
    * workspace switch or sign-out: the connections belong to the workspace
    * being left, and would otherwise reconnect with the next one's token
-   * and be refused until their grace period ran out.
+   * and be refused until their grace period ran out. Resolves once this
+   * tab has let go of the docs' locks, so a purge that follows doesn't
+   * take them for another tab's.
    */
-  function closeAll(): void {
+  async function closeAll(): Promise<void> {
     for (const docId of [...sessions.keys()]) evict(docId)
+    await Promise.all([...lockReleases])
   }
 
   /** Test helper: wipe all sessions. */
   function destroyAll(): void {
-    closeAll()
+    void closeAll()
   }
 
   return {

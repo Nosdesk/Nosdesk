@@ -531,7 +531,7 @@ export const useAuthStore = defineStore('auth', () => {
     // query key is account-scoped, so clearing `user` switches it to `anon`.
     try {
       const { resetWorkspaceScopedState } = await import('@/stores/workspaceReset');
-      await resetWorkspaceScopedState();
+      await resetWorkspaceScopedState('sign-out');
     } catch (e) {
       logger.error('Failed to reset workspace-scoped state on logout', e);
     }
