@@ -383,7 +383,7 @@ async fn listen(database_url: String, wake: mpsc::Sender<()>) {
         match listen_once(&database_url, &wake).await {
             Ok(()) => backoff = Duration::from_secs(1),
             Err(e) => {
-                debug!(error = %e, "notification outbox listener disconnected; reconnecting");
+                warn!(error = %e, "notification outbox listener disconnected; reconnecting");
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
