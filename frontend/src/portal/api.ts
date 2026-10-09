@@ -7,6 +7,7 @@
 import axios from 'axios'
 
 import { embedBearer, embedHome, isEmbed, signInEmbedded } from './embed'
+import { signInQuery } from './signInRedirect'
 
 function portalCsrfToken(): string | null {
   const match = document.cookie.match(/(?:^|;\s*)(?:__Host-)?portal_csrf=([^;]+)/)
@@ -71,10 +72,12 @@ portalApi.interceptors.response.use(
         return Promise.reject(error)
       }
       if (await refreshSession()) return portalApi(original)
-      // Dynamic import avoids a router <-> api cycle.
+      // Dynamic import avoids a router <-> api cycle. Sign-in returns the
+      // requester to the page they were on.
       const { default: router } = await import('./router')
-      if (router.currentRoute.value.name !== 'login') {
-        router.push('/login')
+      const current = router.currentRoute.value
+      if (current.name !== 'login') {
+        router.push({ path: '/login', query: signInQuery(current.fullPath) })
       }
     }
     return Promise.reject(error)
