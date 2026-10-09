@@ -16,9 +16,8 @@ export function signInDestination(query: LocationQuery): string {
   const redirect = query.redirect
   if (typeof redirect !== 'string') return SIGNED_IN_HOME
   if (!redirect.startsWith('/') || redirect.startsWith('//')) return SIGNED_IN_HOME
-   
   if (/[\\\u0000-\u001f\u007f]/.test(redirect)) return SIGNED_IN_HOME
-  if (/^\/login(?:[/?#]|$)/.test(redirect)) return SIGNED_IN_HOME
+  if (/^\/login(?:[/?#]|$)/i.test(redirect)) return SIGNED_IN_HOME
   return redirect
 }
 

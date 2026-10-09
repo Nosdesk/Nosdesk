@@ -81,7 +81,7 @@ describe('portal sign-in', () => {
   })
 
   it('never follows a destination off the portal', async () => {
-    for (const redirect of ['//evil.example', '/\\evil.example', 'https://evil.example/x', '/login?redirect=/tickets/new']) {
+    for (const redirect of ['//evil.example', '/\\evil.example', 'https://evil.example/x', '/login?redirect=/tickets/new', '/LOGIN']) {
       expect(await signInFrom(`/login?redirect=${encodeURIComponent(redirect)}`)).toBe('/tickets')
     }
   })
