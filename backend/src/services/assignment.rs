@@ -482,6 +482,7 @@ mod tests {
             sla_override: "auto".to_string(),
             approval_state: None,
             number: 1,
+            raised_by_staff: false,
         };
         overrides(&mut ticket);
         ticket

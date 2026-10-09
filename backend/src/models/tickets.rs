@@ -329,9 +329,15 @@ pub struct Ticket {
     pub approval_state: Option<String>,
     /// The ticket's number within its workspace: what people quote, and what
     /// links and email subjects carry. Assigned by the database on insert; `id`
-    /// stays the internal key. Must stay the LAST field to match `schema.rs`
-    /// column order (positional Queryable).
+    /// stays the internal key.
     pub number: i32,
+    /// The requester was staff when the ticket was raised (set by the
+    /// `ticket_raised_by_staff` trigger, never by app code). Organisation
+    /// sharing in the portal leaves these out unless the workspace includes
+    /// them. Server-side only. Must stay the LAST field to match `schema.rs`
+    /// column order (positional Queryable).
+    #[serde(skip_serializing, default)]
+    pub raised_by_staff: bool,
 }
 
 /// Merge metadata for a ticket that was merged into another (the satellite of
@@ -971,6 +977,7 @@ mod new_ticket_write_tests {
             sla_override: "none".into(),
             approval_state: None,
             number: 1,
+            raised_by_staff: false,
         }
     }
 

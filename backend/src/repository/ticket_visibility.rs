@@ -108,6 +108,10 @@ pub struct VisibilityContext {
     /// email domain (the workspace's organisation-visibility setting). Set by
     /// [`Self::portal_sharing`] only after the domain is known to be shareable.
     share_domain: bool,
+    /// With `share_domain`: also requests raised by staff
+    /// (`tickets.raised_by_staff`). Off, a request an agent or admin raised
+    /// under their own name isn't shared.
+    share_staff: bool,
 }
 
 impl VisibilityContext {
@@ -124,6 +128,7 @@ impl VisibilityContext {
             user_uuid,
             sees_all,
             share_domain: false,
+            share_staff: false,
         }
     }
 
@@ -153,6 +158,7 @@ impl VisibilityContext {
             user_uuid,
             sees_all: false,
             share_domain: false,
+            share_staff: false,
         }
     }
 
@@ -164,17 +170,20 @@ impl VisibilityContext {
             user_uuid: auth.user_uuid,
             sees_all: auth.can_handle_tickets(),
             share_domain: false,
+            share_staff: false,
         }
     }
 
     /// [`Self::requester_only`] that also reads requests from colleagues at the
     /// same verified domain. The caller decides the domain may share (setting
-    /// on, viewer's primary address verified, not a free-mail domain).
-    pub fn portal_sharing(user_uuid: Uuid) -> Self {
+    /// on, viewer's primary address verified, not a free-mail domain), and
+    /// whether requests raised by staff are among them (`include_staff`).
+    pub fn portal_sharing(user_uuid: Uuid, include_staff: bool) -> Self {
         Self {
             user_uuid,
             sees_all: false,
             share_domain: true,
+            share_staff: include_staff,
         }
     }
 
@@ -240,10 +249,14 @@ pub fn visible_tickets_query<'a>(ctx: &VisibilityContext) -> tickets::BoxedQuery
             .eq(ctx.user_uuid)
             .or(tickets::id.eq_any(watched_ticket_ids)),
     );
-    if ctx.share_domain {
-        own.or_filter(not_pending().and(same_domain_requester(ctx.user_uuid)))
+    if !ctx.share_domain {
+        return own;
+    }
+    let shared = not_pending().and(same_domain_requester(ctx.user_uuid));
+    if ctx.share_staff {
+        own.or_filter(shared)
     } else {
-        own
+        own.or_filter(shared.and(tickets::raised_by_staff.eq(false)))
     }
 }
 
@@ -536,7 +549,7 @@ mod tests {
         )
         .unwrap();
 
-        let shared = VisibilityContext::portal_sharing(alice.uuid);
+        let shared = VisibilityContext::portal_sharing(alice.uuid, false);
         let own = VisibilityContext::requester_only(alice.uuid);
         assert!(
             can_view_ticket(&mut conn, &shared, bobs.id).unwrap(),
@@ -560,5 +573,131 @@ mod tests {
         )
         .unwrap();
         assert_eq!(listed, [bobs.id].into_iter().collect());
+    }
+
+    #[test]
+    fn portal_sharing_leaves_out_staff_requests_unless_included() {
+        use crate::schema::{users, workspace_members};
+        let mut conn = setup_test_connection();
+        let person = |conn: &mut DbConnection, name: &str, role: &str, email: &str| {
+            let u = TestFixtures::create_user(conn, name, role);
+            TestFixtures::create_user_email(conn, u.uuid, email, true);
+            u
+        };
+        let alice = person(&mut conn, "staff_share_alice", "user", "alice@corp.test");
+        let bob = person(&mut conn, "staff_share_bob", "user", "bob@corp.test");
+        let agent = person(
+            &mut conn,
+            "staff_share_agent",
+            "technician",
+            "agent@corp.test",
+        );
+        let admin = person(&mut conn, "staff_share_admin", "admin", "admin@corp.test");
+        // A platform admin whose membership here is only `member`.
+        let root = person(&mut conn, "staff_share_root", "user", "root@corp.test");
+        diesel::update(users::table.find(root.uuid))
+            .set(users::platform_role.eq(PlatformRole::PlatformAdmin.as_str()))
+            .execute(&mut conn)
+            .unwrap();
+        let former = person(
+            &mut conn,
+            "staff_share_former",
+            "technician",
+            "former@corp.test",
+        );
+
+        let ticket = |conn: &mut DbConnection, who: &crate::models::User| {
+            TestFixtures::create_ticket(conn, &who.name, Some(who.uuid), None).id
+        };
+        let bobs = ticket(&mut conn, &bob);
+        let staff = [
+            ticket(&mut conn, &agent),
+            ticket(&mut conn, &admin),
+            ticket(&mut conn, &root),
+            ticket(&mut conn, &former),
+        ];
+        // The agent leaves after raising theirs: it was still raised by staff.
+        diesel::update(
+            workspace_members::table.filter(workspace_members::user_uuid.eq(former.uuid)),
+        )
+        .set(workspace_members::removed_at.eq(Some(chrono::Utc::now())))
+        .execute(&mut conn)
+        .unwrap();
+        let all: Vec<i32> = std::iter::once(bobs).chain(staff).collect();
+
+        let without = VisibilityContext::portal_sharing(alice.uuid, false);
+        assert_eq!(
+            visible_ticket_ids(&mut conn, &without, &all).unwrap(),
+            [bobs].into_iter().collect(),
+            "only the ordinary colleague's request is shared"
+        );
+        for id in staff {
+            assert!(!can_view_ticket(&mut conn, &without, id).unwrap(), "{id}");
+        }
+
+        let with = VisibilityContext::portal_sharing(alice.uuid, true);
+        assert_eq!(
+            visible_ticket_ids(&mut conn, &with, &all).unwrap(),
+            all.iter().copied().collect(),
+            "staff requests are shared once included"
+        );
+    }
+
+    /// `raised_by_staff` is fixed when the ticket is raised: an update that
+    /// keeps the requester can't rewrite it.
+    #[test]
+    fn raised_by_staff_survives_an_update_that_keeps_the_requester() {
+        let mut conn = setup_test_connection();
+        let agent = TestFixtures::create_user(&mut conn, "raised_keep_agent", "technician");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Offboarding", Some(agent.uuid), None);
+        diesel::update(tickets::table.find(ticket.id))
+            .set((
+                tickets::raised_by_staff.eq(false),
+                tickets::title.eq("Offboarding, done"),
+            ))
+            .execute(&mut conn)
+            .unwrap();
+        let marked: bool = tickets::table
+            .find(ticket.id)
+            .select(tickets::raised_by_staff)
+            .first(&mut conn)
+            .unwrap();
+        assert!(marked, "still raised by staff");
+    }
+
+    /// A workspace import inserts the exported value as it is, whichever of
+    /// tickets and memberships loads first.
+    #[test]
+    fn an_import_keeps_the_exported_raised_by_staff() {
+        let mut conn = setup_test_connection();
+        let agent = TestFixtures::create_user(&mut conn, "raised_import_agent", "technician");
+        let member = TestFixtures::create_user(&mut conn, "raised_import_member", "user");
+        let state = crate::repository::workflow_states::default_state(&mut conn)
+            .unwrap()
+            .id;
+        // What workspace_import sets for its transaction.
+        diesel::sql_query("SET LOCAL nosdesk.in_audit_read = 'true'")
+            .execute(&mut conn)
+            .unwrap();
+        let insert = |conn: &mut DbConnection, requester: Uuid, marked: bool| -> bool {
+            diesel::insert_into(tickets::table)
+                .values((
+                    tickets::title.eq("Imported"),
+                    tickets::workflow_state_id.eq(state),
+                    tickets::requester_uuid.eq(requester),
+                    tickets::raised_by_staff.eq(marked),
+                ))
+                .returning(tickets::raised_by_staff)
+                .get_result(conn)
+                .unwrap()
+        };
+        assert!(
+            !insert(&mut conn, agent.uuid, false),
+            "raised before they were an agent"
+        );
+        assert!(
+            insert(&mut conn, member.uuid, true),
+            "raised while they were staff"
+        );
     }
 }
