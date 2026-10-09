@@ -119,7 +119,11 @@ vi.mock('@nosdesk/core/transport', async (importOriginal) => ({
   transport: () => ({
     auth: {
       hasSession: () => session.present,
-      refresh: async () => session.refreshAnswer,
+      refresh: async () => {
+        // A renewed session comes back with a new CSRF cookie.
+        if (session.refreshAnswer === 'renewed') session.present = true
+        return session.refreshAnswer
+      },
       onSessionLost: () => {
         session.present = false
       },
@@ -423,6 +427,30 @@ describe('signing in again after the session was rejected', () => {
 
     expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
     expect(store.connectionBadge['doc-a']).toBe('reconnecting')
+  })
+})
+
+describe('a note opened with no CSRF cookie while the session is still valid', () => {
+  it('connects once the session is refreshed, and never says signed out', async () => {
+    const { refreshSession } = await import('@nosdesk/core/services/session')
+    // The CSRF cookie expired (a tab idle across the upgrade) but the refresh
+    // cookie is still good: the server renews it.
+    session.present = false
+    session.refreshAnswer = 'renewed'
+    // As apiClient does: the token POST gets a 401, refreshes, and retries.
+    token.queue = [
+      async () => {
+        if ((await refreshSession()) !== 'renewed') throw new Error('401')
+        return 'fresh'
+      },
+    ]
+
+    store.acquire('doc-a', OPTS)
+    for (let i = 0; i < 10; i++) {
+      await vi.advanceTimersByTimeAsync(500)
+      expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
+    }
+    expect(providers[0].connectedWith).toEqual(['fresh'])
   })
 })
 

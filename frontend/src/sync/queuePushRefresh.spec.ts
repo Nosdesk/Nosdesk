@@ -102,7 +102,7 @@ describe('a sync push after the access token expired', () => {
     expect(pending.txs).toEqual([])
   })
 
-  it('backs off, and does not ask again, when the session was rejected', async () => {
+  it('backs off when the session was rejected, without a loop', async () => {
     auth.answer = 'rejected'
     const fetch = vi.fn(async () => new Response(null, { status: 401 }))
     vi.stubGlobal('fetch', fetch)
@@ -112,15 +112,25 @@ describe('a sync push after the access token expired', () => {
     expect(auth.lost).toBe(1)
     expect(fetch).toHaveBeenCalledTimes(1)
 
-    // Nothing more until the backoff runs out, then one more push, but no
-    // second refresh of a session the server already refused.
+    // Nothing more until the backoff runs out, then one more push. (Sign-out
+    // tears the sync runtime down, which ends the retries.)
     await vi.advanceTimersByTimeAsync(499)
     expect(fetch).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
     expect(fetch).toHaveBeenCalledTimes(2)
-    expect(auth.refreshes).toBe(1)
-    expect(auth.lost).toBe(1)
     expect(pending.txs).toEqual([TX])
+  })
+
+  it('stops pushing once the sync runtime is torn down', async () => {
+    auth.answer = 'rejected'
+    const fetch = vi.fn(async () => new Response(null, { status: 401 }))
+    vi.stubGlobal('fetch', fetch)
+
+    await queue.flush()
+    queue.setIdbHandle(null)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(auth.refreshes).toBe(1)
   })
 
   it('backs off without signing out when the server cannot be reached to refresh', async () => {

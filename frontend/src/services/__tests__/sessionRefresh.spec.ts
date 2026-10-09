@@ -5,7 +5,13 @@ import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 
 // session; one that can't reach the server (offline, a 502 while it restarts)
 // signs nobody out.
 
-const logout = vi.hoisted(() => vi.fn(async () => {}))
+// As the real one: a sign-out marks itself under way first.
+const logout = vi.hoisted(() =>
+  vi.fn(async () => {
+    const { setLoggingOut } = await import('@/services/apiConfig')
+    setLoggingOut(true)
+  }),
+)
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ logout }) }))
 
 /** An axios error carrying an HTTP status, or none for a network failure. */
@@ -150,5 +156,44 @@ describe('a raw API request retried after a refresh', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(workspace(0)).toBe('acme')
     expect(workspace(1)).toBe('acme')
+  })
+})
+
+describe('a session the server keeps rejecting', () => {
+  it('signs the person out once, however many requests are refused', async () => {
+    const axios = (await import('axios')).default
+    const post = vi.spyOn(axios, 'post').mockImplementation((() => Promise.reject(httpError(401))) as never)
+    const { configurePlatform } = await import('@/platform')
+    await configurePlatform()
+    const { refreshSession } = await import('@nosdesk/core/services/session')
+
+    // A sync push retried on its backoff, refused each time.
+    for (let i = 0; i < 4; i++) {
+      expect(await refreshSession()).toBe('rejected')
+      await vi.advanceTimersByTimeAsync(30_000)
+    }
+
+    expect(post).toHaveBeenCalledTimes(4)
+    expect(logout).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a CSRF cookie that expired while the session is still good', () => {
+  it('is renewed by the server rather than read as signed out', async () => {
+    document.cookie = `csrf_token=; path=/; ${CSRF_EXPIRED}`
+    const axios = (await import('axios')).default
+    const post = vi.spyOn(axios, 'post').mockImplementation((async () => {
+      // The server's answer sets a fresh CSRF cookie.
+      document.cookie = 'csrf_token=renewed; path=/'
+      return { status: 200, data: {} }
+    }) as never)
+    const { configurePlatform } = await import('@/platform')
+    await configurePlatform()
+    const { refreshSession, sessionGone } = await import('@nosdesk/core/services/session')
+
+    expect(await refreshSession()).toBe('renewed')
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(sessionGone()).toBe(false)
+    expect(logout).not.toHaveBeenCalled()
   })
 })

@@ -11,10 +11,11 @@
  * - `unavailable`: the server couldn't be reached. Nobody is signed out; the
  *   caller backs off and tries later.
  *
- * Whether a session is held is never tracked here: `hasSession()` is the one
- * source of truth (web: the CSRF cookie, which the server sets on every
- * sign-in; mobile: the tokens). So any sign-in, however it happens, ends a
- * lost session without anyone having to say so.
+ * The server decides whether the session is over: a refresh is always asked
+ * of it, even with no session showing on the client (a CSRF cookie that
+ * expired while the refresh cookie is still good just renews). Nothing about
+ * the session is latched here, so any sign-in, however it happens, ends a
+ * lost one without anyone having to say so.
  */
 import { transport, type RefreshResult } from '../transport'
 
@@ -29,17 +30,14 @@ export function setSessionLostHandler(handler: (() => void) | null): void {
   lostHandler = handler
 }
 
-/** The session is gone: the client holds none (a rejected refresh drops it). */
+/** The client holds no session (a rejected refresh drops it). For what the UI
+ *  says; whether to refresh is the server's call, not this. */
 export function sessionGone(): boolean {
   return !transport().auth.hasSession()
 }
 
-/**
- * Refresh the session, acting on a rejection once. With no session held there
- * is nothing to refresh: `rejected`, without asking the server. Never throws.
- */
+/** Refresh the session, acting on a rejection once. Never throws. */
 export function refreshSession(): Promise<RefreshResult> {
-  if (sessionGone()) return Promise.resolve('rejected')
   inFlight ??= (async () => {
     try {
       const result = await transport().auth.refresh()
