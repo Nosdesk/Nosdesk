@@ -495,6 +495,7 @@ ticket-detail-delete-confirm-heading = Delete this ticket?
 ticket-detail-delete-confirm-body = This action cannot be undone. The ticket and its history will be removed.
 ticket-detail-delete-cancel = Cancel
 ticket-detail-delete-confirm = Delete
+ticket-delete-failed = The ticket wasn't deleted. Only admins can delete tickets.
 
 # Localization settings panel. Every string in
 # components/settings/LocalizationSettings.vue resolves through

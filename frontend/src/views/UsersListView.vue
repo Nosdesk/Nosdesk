@@ -142,13 +142,16 @@ function joinBucket(createdAt: string | undefined): (typeof JOIN_BUCKET_ORDER)[n
   return 'older'
 }
 
+/** A role as people read it: `technician` is shown as Agent. */
+const roleLabel = (role: string): string => t(`user-mgmt-role-${role}`)
+
 const allGroupAxes: GroupAxisDef<User>[] = [
   {
     key: 'role',
     labelKey: 'user-mgmt-grouping-role',
     bucketFor: (user) => ({
       key: `role:${effectiveRole(user)}`,
-      label: t(`user-mgmt-role-${effectiveRole(user)}`),
+      label: roleLabel(effectiveRole(user)),
     }),
     sortBy: (bucketKey) => {
       const v = bucketKey.replace('role:', '') as UserRole
@@ -599,7 +602,7 @@ function formatPurgeAt(deletedAt: string): string {
           </template>
 
           <template #cell-role="{ item }">
-            <StatusBadgeCell type="role" :value="effectiveRole(item)" />
+            <StatusBadgeCell type="role" :value="effectiveRole(item)" :label="roleLabel(effectiveRole(item))" />
           </template>
 
           <template #cell-open_ticket_count="{ item }">
@@ -644,7 +647,7 @@ function formatPurgeAt(deletedAt: string): string {
                   'bg-surface-alt text-secondary': effectiveRole(item) === 'user',
                 }"
               >
-                {{ effectiveRole(item).replace('_', ' ') }}
+                {{ roleLabel(effectiveRole(item)) }}
               </span>
               <span v-if="item.open_ticket_count" class="text-secondary tabular-nums">
                 {{ $t('user-mgmt-mobile-tickets', { count: item.open_ticket_count }) }}
@@ -744,7 +747,7 @@ function formatPurgeAt(deletedAt: string): string {
           class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-hover transition-colors text-left disabled:opacity-50"
           @click="applyRoleChange(role.value)"
         >
-          <StatusBadgeCell type="role" :value="role.value" />
+          <StatusBadgeCell type="role" :value="role.value" :label="role.label" />
           <span class="text-primary">{{ role.label }}</span>
         </button>
       </div>

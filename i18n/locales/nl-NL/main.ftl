@@ -465,6 +465,8 @@ ticket-detail-delete-confirm-heading = Dit ticket verwijderen?
 ticket-detail-delete-confirm-body = Dit kan niet ongedaan worden gemaakt. Het ticket en de geschiedenis worden verwijderd.
 ticket-detail-delete-cancel = Annuleren
 ticket-detail-delete-confirm = Verwijderen
+# Ticket verwijderen mislukt (machine, na te kijken door moedertaalspreker).
+ticket-delete-failed = Het ticket is niet verwijderd. Alleen beheerders kunnen tickets verwijderen.
 
 # Settings.
 settings-localization-title = Taal en tijdzone

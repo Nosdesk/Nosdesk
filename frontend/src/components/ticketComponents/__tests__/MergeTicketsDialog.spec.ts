@@ -39,7 +39,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function mountDialog(): VueWrapper {
+function mountDialog(extra: Record<string, unknown> = {}): VueWrapper {
   const bundle = new FluentBundle('en-US', { useIsolating: false })
   bundle.addResource(new FluentResource(enUS))
   const router = createRouter({
@@ -50,7 +50,7 @@ function mountDialog(): VueWrapper {
     setup() {
       return () =>
         h(ConfigProvider, {}, () =>
-          h(TooltipProvider, {}, () => h(MergeTicketsDialog, { open: true, selectedTickets: tickets })),
+          h(TooltipProvider, {}, () => h(MergeTicketsDialog, { open: true, selectedTickets: tickets, ...extra })),
         )
     },
   })
@@ -64,6 +64,15 @@ function mountDialog(): VueWrapper {
 }
 
 describe('MergeTicketsDialog', () => {
+  // "Merge A into B": tick A, right-click B. B is the destination even when
+  // A is older, since there is no unmerge.
+  it('merges into the ticket the agent pointed at, not the oldest', () => {
+    wrapper = mountDialog({ preferredDestinationId: 101 })
+    const sources = wrapper.find('ul').text()
+    expect(sources).toContain('#98')
+    expect(sources).not.toContain('#99')
+  })
+
   it('shows ticket numbers, not internal ids', () => {
     wrapper = mountDialog()
     const sources = wrapper.find('ul').text()

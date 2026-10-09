@@ -469,6 +469,8 @@ ticket-detail-delete-confirm-heading = Supprimer ce ticket ?
 ticket-detail-delete-confirm-body = Cette action est irréversible. Le ticket et son historique seront supprimés.
 ticket-detail-delete-cancel = Annuler
 ticket-detail-delete-confirm = Supprimer
+# Échec de suppression d'un ticket (machine, à relire par un locuteur natif).
+ticket-delete-failed = Le ticket n'a pas été supprimé. Seuls les administrateurs peuvent supprimer des tickets.
 
 # Settings.
 settings-localization-title = Langue et fuseau horaire

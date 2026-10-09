@@ -493,7 +493,17 @@ export function useTicketDetail(
 
   async function deleteTicket(): Promise<void> {
     if (id.value == null) return
-    await ticketService.deleteTicket(id.value)
+    try {
+      await ticketService.deleteTicket(id.value)
+    } catch (err) {
+      // Only admins may delete (the server refuses anyone else with 403);
+      // say so rather than leaving the confirm click with no answer.
+      logger.error('Error deleting ticket', { ticketId: id.value, error: err })
+      useToastStore().error(
+        translate('ticket-delete-failed', undefined, "The ticket wasn't deleted. Only admins can delete tickets."),
+      )
+      return
+    }
     router.push('/tickets')
   }
 
