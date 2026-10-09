@@ -556,3 +556,121 @@ async fn a_target_that_goes_away_reaches_clients() {
         .expect("an sla update for the ticket");
     assert_eq!(last["sla"], Value::Null, "the pill goes away: {last}");
 }
+
+/// A ticket in `state`, opened two hours ago, with no SLA clock start: as
+/// tickets created before creation stamped the SLA were left.
+fn old_ticket_in(pool: &TestPool, ws: &WorkspaceSeed, state: &str) -> i32 {
+    use backend::schema::{tickets, workflow_states};
+    let mut conn = pool.get().expect("conn");
+    let id = with_actor_context::<_, diesel::result::Error>(&mut conn, &pinned(ws), |c| {
+        let state: i32 = workflow_states::table
+            .filter(workflow_states::name.eq(state))
+            .select(workflow_states::id)
+            .first(c)?;
+        diesel::insert_into(tickets::table)
+            .values(&NewTicket {
+                title: "Printer offline".to_string(),
+                workflow_state_id: state,
+                ..Default::default()
+            })
+            .returning(tickets::id)
+            .get_result(c)
+    })
+    .expect("ticket");
+    drop(conn);
+    set_ticket(pool, ws, id, "created_at = now() - interval '2 hours'");
+    id
+}
+
+/// Edit a ticket the way the app does.
+fn edit(pool: &TestPool, ws: &WorkspaceSeed, id: i32, update: backend::models::TicketUpdate) {
+    let mut conn = pool.get().expect("conn");
+    with_actor_context::<_, diesel::result::Error>(&mut conn, &pinned(ws), |c| {
+        Ok(backend::repository::tickets::update_ticket_partial(
+            c, id, update, None,
+        ))
+    })
+    .expect("transaction")
+    .expect("edit");
+}
+
+#[actix_web::test]
+async fn an_edit_starts_a_running_tickets_missing_clock_from_when_it_was_opened() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let ws = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn")).a;
+    let pool = db.runtime_pool(4);
+    // The seeded default policy counts from activation.
+    let ticket = old_ticket_in(&pool, &ws, "In Progress");
+    assert_eq!(ticket_row(&pool, &ws, ticket).sla_clock_started_at, None);
+
+    edit(
+        &pool,
+        &ws,
+        ticket,
+        backend::models::TicketUpdate {
+            priority: Some(backend::models::TicketPriority::High),
+            ..Default::default()
+        },
+    );
+    let row = ticket_row(&pool, &ws, ticket);
+    assert_eq!(
+        row.sla_clock_started_at,
+        Some(row.created_at),
+        "it has been running since it was opened, not since the edit"
+    );
+
+    edit(
+        &pool,
+        &ws,
+        ticket,
+        backend::models::TicketUpdate {
+            priority: Some(backend::models::TicketPriority::Low),
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        ticket_row(&pool, &ws, ticket).sla_clock_started_at,
+        Some(row.created_at),
+        "stored once"
+    );
+}
+
+#[actix_web::test]
+async fn moving_a_ticket_into_a_running_state_starts_its_clock_then() {
+    use backend::schema::workflow_states;
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let ws = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn")).a;
+    let pool = db.runtime_pool(4);
+    // Waited in Backlog, which pauses the clock, for two hours.
+    let ticket = old_ticket_in(&pool, &ws, "Backlog");
+    let mut conn = pool.get().expect("conn");
+    let in_progress: i32 =
+        with_actor_context::<_, diesel::result::Error>(&mut conn, &pinned(&ws), |c| {
+            workflow_states::table
+                .filter(workflow_states::name.eq("In Progress"))
+                .select(workflow_states::id)
+                .first(c)
+        })
+        .expect("state");
+    drop(conn);
+
+    let before = chrono::Utc::now().naive_utc() - chrono::Duration::seconds(5);
+    edit(
+        &pool,
+        &ws,
+        ticket,
+        backend::models::TicketUpdate {
+            workflow_state_id: Some(in_progress),
+            ..Default::default()
+        },
+    );
+    let started = ticket_row(&pool, &ws, ticket)
+        .sla_clock_started_at
+        .expect("started");
+    assert!(
+        started >= before,
+        "work starts now, not when it was opened: {started}"
+    );
+}

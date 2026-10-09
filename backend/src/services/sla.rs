@@ -553,9 +553,58 @@ pub fn pill_json_for_ticket(
 /// `Value::Null` when no policy applies (and the materialised columns
 /// are cleared so the breach scan ignores the row). A finished ticket's
 /// clock is stopped, so its columns are cleared too.
+///
+/// Use this when the write didn't move the ticket into its current
+/// workflow state: a running ticket with no stored clock start has then
+/// been running since it was opened, and that time is stored as its start
+/// (what its pill already counted from). After a state change, use
+/// [`recompute_and_stamp_sla_after_state_change`].
 pub fn recompute_and_stamp_sla_for_ticket(
     conn: &mut crate::db::DbConnection,
     ticket: &Ticket,
+) -> serde_json::Value {
+    recompute_and_stamp(conn, ticket, FirstStart::WhenOpened)
+}
+
+/// [`recompute_and_stamp_sla_for_ticket`] after a write that moved the
+/// ticket from `previous_state_id`. A ticket that only now starts running
+/// starts its clock now; one that was already running keeps the rule
+/// above.
+pub fn recompute_and_stamp_sla_after_state_change(
+    conn: &mut crate::db::DbConnection,
+    ticket: &Ticket,
+    previous_state_id: i32,
+) -> serde_json::Value {
+    let first_start = if StateClock::of_state_id(conn, previous_state_id) == StateClock::Running {
+        FirstStart::WhenOpened
+    } else {
+        FirstStart::Now
+    };
+    recompute_and_stamp(conn, ticket, first_start)
+}
+
+/// [`recompute_and_stamp_sla_for_ticket`] for a guest ticket just released
+/// by its confirmation: it joins the workspace now, so its clock starts now.
+pub fn recompute_and_stamp_sla_on_release(
+    conn: &mut crate::db::DbConnection,
+    ticket: &Ticket,
+) -> serde_json::Value {
+    recompute_and_stamp(conn, ticket, FirstStart::Now)
+}
+
+/// When a running ticket's clock started, if it has no stored start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FirstStart {
+    /// It has been running since it was opened.
+    WhenOpened,
+    /// It starts running with this write.
+    Now,
+}
+
+fn recompute_and_stamp(
+    conn: &mut crate::db::DbConnection,
+    ticket: &Ticket,
+    first_start: FirstStart,
 ) -> serde_json::Value {
     // Advance the activation-clock state machine first (stamp the anchor on first
     // activation, record a pause start, or push the anchor past a finished pause)
@@ -571,7 +620,7 @@ pub fn recompute_and_stamp_sla_for_ticket(
         return serde_json::Value::Null;
     }
     let mut ticket = ticket.clone();
-    advance_sla_clock(conn, &mut ticket);
+    advance_sla_clock(conn, &mut ticket, first_start);
 
     let pill = load_pill_for_ticket(conn, &ticket);
     let clock = StateClock::of_state_id(conn, ticket.workflow_state_id);
@@ -593,11 +642,17 @@ pub fn is_pending_verification(ticket: &Ticket) -> bool {
 /// ticket is left untouched. Mutates the ticket's anchor fields in memory to
 /// match the persisted write so the caller's pill computation sees the fresh
 /// values. State machine over `(sla_clock_started_at, sla_paused_at)`:
-///   - no anchor + now active        -> stamp the anchor (first activation)
+///   - no anchor + now active        -> stamp the anchor (first activation): the
+///                                       time it was opened, or now when this
+///                                       write is what starts it ([`FirstStart`])
 ///   - anchor, running + now paused   -> record the pause start
 ///   - anchor, paused + now active    -> push the anchor past the paused business
 ///                                       time (pausing subtracts) and clear it
-fn advance_sla_clock(conn: &mut crate::db::DbConnection, ticket: &mut Ticket) {
+fn advance_sla_clock(
+    conn: &mut crate::db::DbConnection,
+    ticket: &mut Ticket,
+    first_start: FirstStart,
+) {
     use crate::schema::{sla_policies, tickets};
     use diesel::prelude::*;
 
@@ -627,7 +682,13 @@ fn advance_sla_clock(conn: &mut crate::db::DbConnection, ticket: &mut Ticket) {
     let (new_anchor, new_paused_at): (Option<NaiveDateTime>, Option<NaiveDateTime>) =
         match (ticket.sla_clock_started_at, ticket.sla_paused_at) {
             (None, _) if now_paused => (None, None), // still not started
-            (None, _) => (Some(now.naive_utc()), None), // first activation
+            (None, _) => (
+                Some(match first_start {
+                    FirstStart::WhenOpened => ticket.created_at,
+                    FirstStart::Now => now.naive_utc(),
+                }),
+                None,
+            ), // first activation
             (Some(anchor), None) if now_paused => (Some(anchor), Some(now.naive_utc())), // pause
             (Some(anchor), None) => (Some(anchor), None), // running
             (Some(anchor), Some(paused_at)) if now_paused => (Some(anchor), Some(paused_at)), // held

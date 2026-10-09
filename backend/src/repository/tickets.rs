@@ -468,7 +468,7 @@ pub fn verify_pending_tickets_for_user(
         let released = released
             .into_iter()
             .map(|ticket| {
-                crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &ticket);
+                crate::services::sla::recompute_and_stamp_sla_on_release(conn, &ticket);
                 tickets::table.find(ticket.id).first::<Ticket>(conn)
             })
             .collect::<QueryResult<Vec<Ticket>>>()?;
@@ -685,7 +685,16 @@ pub fn update_ticket_partial(
             || ticket_update.category_id.is_some()
             || ticket_update.sla_override.is_some();
         let sla = if pill_affecting {
-            crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &result)
+            match &previous {
+                Some(previous) if previous.workflow_state_id != result.workflow_state_id => {
+                    crate::services::sla::recompute_and_stamp_sla_after_state_change(
+                        conn,
+                        &result,
+                        previous.workflow_state_id,
+                    )
+                }
+                _ => crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &result),
+            }
         } else {
             crate::services::sla::pill_json_for_ticket(conn, &result)
         };
