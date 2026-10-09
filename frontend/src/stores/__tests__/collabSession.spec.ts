@@ -56,8 +56,15 @@ const fake = vi.hoisted(() => {
     }
     disconnect() {
       this.shouldConnect = false
-      this.wsconnecting = false
-      this.wsconnected = false
+      // As y-websocket: closing the socket reports `connection-close` (and
+      // would reconnect if `shouldConnect` were set again meanwhile).
+      if (this.wsconnected || this.wsconnecting) {
+        this.wsconnecting = false
+        this.wsconnected = false
+        this.closing = true
+        this.emit('connection-close', [{ code: 1000, reason: '' }, this])
+        this.closing = false
+      }
       this.emit('status', [{ status: 'disconnected' }])
     }
     destroyed = false
@@ -267,10 +274,21 @@ beforeEach(() => {
   localStorage.setItem('nosdesk:disable-idb-collab', '1')
 })
 afterEach(() => {
+  setTabHidden(false)
   store.destroyAll()
   vi.useRealTimers()
   Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
 })
+
+/** Hide or show the tab, as the browser reports it. */
+function setTabHidden(hidden: boolean) {
+  Object.defineProperty(document, 'hidden', { value: hidden, configurable: true })
+  Object.defineProperty(document, 'visibilityState', {
+    value: hidden ? 'hidden' : 'visible',
+    configurable: true,
+  })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
 
 describe('a note opening', () => {
   it('is connecting, not disconnected, while its token is on the way', () => {
@@ -747,5 +765,76 @@ describe('a workspace switch', () => {
     expect(providers.map((p) => p.destroyed)).toEqual([true, true])
     expect(store.sessionSnapshot).toEqual([])
     expect(store.connectionStatus).toEqual({})
+  })
+})
+
+describe('a note in a tab that is hidden', () => {
+  it('lets its connection go after a while, and comes back with a fresh token, never the expired one', async () => {
+    token.cached = 'expiring'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+
+    setTabHidden(true)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(providers[0].wsconnected).toBe(false)
+    expect(providers[0].shouldConnect).toBe(false)
+
+    // The token outlived its short life while the tab was hidden.
+    token.cached = null
+    token.next = Promise.resolve('fresh')
+    setTabHidden(false)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(token.fetches).toBe(1)
+    expect(providers[0].connectedWith).toEqual(['expiring', 'fresh'])
+  })
+
+  it('keeps its connection when the tab is shown again soon', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+
+    setTabHidden(true)
+    await vi.advanceTimersByTimeAsync(10_000)
+    setTabHidden(false)
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(providers[0].wsconnected).toBe(true)
+    expect(providers[0].connectedWith).toEqual(['t'])
+  })
+
+  it('dials once when it is reopened before the tab is shown', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+
+    setTabHidden(true)
+    await vi.advanceTimersByTimeAsync(30_000)
+    store.release('doc-a')
+    // Reopened (a prewarm, or a route change) while the tab is still hidden.
+    store.acquire('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    setTabHidden(false)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(providers[0].connectedWith).toEqual(['t', 't'])
+  })
+
+  it('stays disconnected once shown if it was closed meanwhile, until it is opened again', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+
+    setTabHidden(true)
+    await vi.advanceTimersByTimeAsync(30_000)
+    store.release('doc-a')
+    setTabHidden(false)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(providers[0].connectedWith).toEqual(['t'])
+
+    store.acquire('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(providers[0].connectedWith).toEqual(['t', 't'])
   })
 })
