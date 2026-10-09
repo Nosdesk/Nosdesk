@@ -7,10 +7,16 @@ vi.mock('vue-router', () => ({
   useRoute: () => route,
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), currentRoute: { value: route } }),
 }))
-vi.mock('@/router', () => ({ landAfterLogin: vi.fn() }))
-vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({ mfaRequired: false, passkeyMfaRequired: false, clearMfaState: vi.fn() }),
+const landAfterLogin = vi.hoisted(() => vi.fn())
+vi.mock('@/router', () => ({ landAfterLogin }))
+const auth = vi.hoisted(() => ({
+  mfaRequired: false,
+  passkeyMfaRequired: false,
+  user: null as unknown,
+  clearMfaState: () => {},
+  fetchUserData: async () => {},
 }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('@nosdesk/core/stores/mfaSetup', () => ({ useMfaSetupStore: () => ({}) }))
 vi.mock('@/stores/branding', () => ({
   useBrandingStore: () => ({ isLoaded: true, appName: 'Nosdesk', getLogoUrl: () => null }),
@@ -48,6 +54,10 @@ let wrapper: VueWrapper | null = null
 const fetchMock = vi.fn()
 
 beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+  auth.user = null
+  route.query = {}
   fetchMock.mockResolvedValue({ ok: true, json: async () => ({ auth_url: 'about:blank' }) })
   vi.stubGlobal('fetch', fetchMock)
 })
@@ -56,8 +66,20 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = null
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   vi.clearAllMocks()
+  vi.useRealTimers()
+  document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
 })
+
+const authorizeCalls = () =>
+  fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/auth/oauth/authorize'))
+
+/** Make this tab hidden or visible, telling the page as the browser would. */
+function setVisibility(state: DocumentVisibilityState) {
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(state)
+  document.dispatchEvent(new Event('visibilitychange'))
+}
 
 /** The body of the SSO authorize request the page sent on load. */
 async function authorizeBody(query: Record<string, string>): Promise<Record<string, unknown>> {
@@ -82,6 +104,52 @@ describe('LoginView SSO', () => {
       wrapper?.unmount()
       wrapper = null
       fetchMock.mockClear()
+      localStorage.clear()
     }
+  })
+})
+
+describe('LoginView SSO with several tabs open', () => {
+  it('does not start sign-in in a hidden tab, and starts it once the tab is shown', async () => {
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+    expect(authorizeCalls()).toHaveLength(0)
+
+    setVisibility('visible')
+    await flushPromises()
+    expect(authorizeCalls()).toHaveLength(1)
+  })
+
+  it('returns a waiting tab to the app when sign-in completes in another tab', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    auth.fetchUserData = async () => {
+      auth.user = { uuid: 'u-1' }
+    }
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+
+    // Another tab finishes signing in; the server sets the shared CSRF cookie.
+    document.cookie = 'csrf_token=fresh; path=/'
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+
+    expect(landAfterLogin).toHaveBeenCalled()
+    setVisibility('visible')
+    await flushPromises()
+    expect(authorizeCalls()).toHaveLength(0)
+  })
+
+  it('leaves sign-in to the window that started it a moment ago', async () => {
+    localStorage.setItem('nosdesk:sso-autostart', JSON.stringify({ tab: 'other', at: Date.now() }))
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+    expect(authorizeCalls()).toHaveLength(0)
+
+    // The person can still start it here.
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(authorizeCalls()).toHaveLength(1)
   })
 })

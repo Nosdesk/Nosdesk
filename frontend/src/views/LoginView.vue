@@ -1,7 +1,7 @@
 <!-- LoginView.vue -->
 <script setup lang="ts">
 import AssetImg from "@/components/common/AssetImg.vue";
-import { ref, onMounted, nextTick, computed } from "vue";
+import { ref, onMounted, onBeforeUnmount, nextTick, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { landAfterLogin } from "@/router";
 import { useAuthStore } from "@/stores/auth";
@@ -24,6 +24,8 @@ import PasswordInput from "@/components/common/PasswordInput.vue";
 import { extractErrorMessage } from "@/utils/errors";
 import { isInAppPath } from "@/utils/inAppPath";
 import { isTauriRuntime } from "@/platform";
+import { getCsrfToken } from "@/utils/csrf";
+import { claimSsoAutoStart } from "@/utils/ssoAutoStart";
 import { useFluent } from "fluent-vue";
 
 // Get branding and theme stores
@@ -119,7 +121,11 @@ onMounted(async () => {
     // user can't use. The local forms stay hidden (ssoOnly) as a fallback
     // if the redirect is blocked.
     if (ssoOnly.value && oidcEnabled.value && !deniedByCallback) {
-      void handleOidcLoginClick();
+      if (isTauriRuntime()) {
+        void handleOidcLoginClick();
+      } else {
+        waitForSso();
+      }
       return;
     }
   } catch {
@@ -143,6 +149,58 @@ onMounted(async () => {
   // Arm passkey autofill on the login form (no-op if unsupported).
   void startConditionalPasskeyLogin();
 });
+
+// SSO-only, web: when one session ends, every open tab lands here at once, and
+// each SSO flow overwrites the single-slot state cookies, so only the last
+// one's callback succeeds. So a tab starts SSO by itself only while it is
+// visible and no other window started it a moment ago (claimSsoAutoStart);
+// otherwise it shows the button and waits. A waiting tab goes back into the
+// app when a sign-in completes elsewhere, which shows as a new CSRF cookie.
+let ssoWaiting = false;
+let ssoChecking = false;
+let seenCsrf: string | null = null;
+let signInPoll: ReturnType<typeof setInterval> | undefined;
+
+function waitForSso() {
+  ssoWaiting = true;
+  document.addEventListener("visibilitychange", trySsoAutoStart);
+  signInPoll = setInterval(() => void enterIfSignedInElsewhere(), 1000);
+  void trySsoAutoStart();
+}
+
+function stopWaitingForSso() {
+  ssoWaiting = false;
+  document.removeEventListener("visibilitychange", trySsoAutoStart);
+  clearInterval(signInPoll);
+}
+
+/** Enter the app if another tab has signed in since this one last looked. */
+async function enterIfSignedInElsewhere(): Promise<boolean> {
+  if (!ssoWaiting || ssoChecking) return false;
+  const csrf = getCsrfToken();
+  if (!csrf || csrf === seenCsrf) return false;
+  seenCsrf = csrf;
+  ssoChecking = true;
+  try {
+    await authStore.fetchUserData({ force: true }).catch(() => null);
+    if (!authStore.user) return false;
+    stopWaitingForSso();
+    await landAfterLogin();
+    return true;
+  } finally {
+    ssoChecking = false;
+  }
+}
+
+/** Start SSO if this tab is in view and no other window just started it. */
+async function trySsoAutoStart() {
+  if (await enterIfSignedInElsewhere()) return;
+  if (!ssoWaiting || ssoChecking) return;
+  if (document.visibilityState !== "visible" || !claimSsoAutoStart()) return;
+  void handleOidcLoginClick();
+}
+
+onBeforeUnmount(stopWaitingForSso);
 
 const handleLogin = async () => {
   loadingAction.value = 'login';
@@ -407,6 +465,7 @@ const handleMicrosoftLogoutClick = async () => {
 };
 
 const handleOidcLoginClick = async () => {
+  stopWaitingForSso();
   loadingAction.value = 'oidc';
   errorMessage.value = "";
   successMessage.value = "";

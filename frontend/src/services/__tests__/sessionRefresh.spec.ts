@@ -6,12 +6,12 @@ import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 
 // signs nobody out.
 
 // As the real one ends: on the login page.
-const logout = vi.hoisted(() =>
+const sessionLost = vi.hoisted(() =>
   vi.fn(async () => {
     window.history.replaceState({}, '', '/login')
   }),
 )
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ logout }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ sessionLost }) }))
 
 /** An axios error carrying an HTTP status, or none for a network failure. */
 function httpError(status: number | null, config = {} as InternalAxiosRequestConfig): AxiosError {
@@ -27,7 +27,7 @@ const CSRF_EXPIRED = 'expires=Thu, 01 Jan 1970 00:00:00 GMT'
 beforeEach(() => {
   vi.useFakeTimers()
   vi.resetModules()
-  logout.mockClear()
+  sessionLost.mockClear()
   sessionStorage.clear()
   window.history.replaceState({}, '', '/tickets')
   // Signed in: the server set the JS-readable CSRF cookie.
@@ -84,7 +84,7 @@ describe('an API request after the access token expired', () => {
     await expect(apiClient.get('/tickets')).rejects.toBeTruthy()
     await vi.advanceTimersByTimeAsync(1000)
 
-    expect(logout).not.toHaveBeenCalled()
+    expect(sessionLost).not.toHaveBeenCalled()
     expect(sessionStorage.getItem('redirecting-to-login')).toBeNull()
   })
 
@@ -94,7 +94,7 @@ describe('an API request after the access token expired', () => {
     await Promise.allSettled([apiClient.get('/tickets'), apiClient.get('/users')])
     await vi.advanceTimersByTimeAsync(1000)
 
-    expect(logout).toHaveBeenCalledTimes(1)
+    expect(sessionLost).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -125,7 +125,7 @@ describe('a session lost during a deliberate sign-out', () => {
     redirectToLogin()
     await vi.advanceTimersByTimeAsync(1000)
 
-    expect(logout).not.toHaveBeenCalled()
+    expect(sessionLost).not.toHaveBeenCalled()
     setLoggingOut(false)
   })
 })
@@ -173,7 +173,7 @@ describe('a session the server keeps rejecting', () => {
     }
 
     expect(post).toHaveBeenCalledTimes(4)
-    expect(logout).toHaveBeenCalledTimes(1)
+    expect(sessionLost).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -193,7 +193,7 @@ describe('a CSRF cookie that expired while the session is still good', () => {
     expect(await refreshSession()).toBe('renewed')
     expect(post).toHaveBeenCalledTimes(1)
     expect(sessionGone()).toBe(false)
-    expect(logout).not.toHaveBeenCalled()
+    expect(sessionLost).not.toHaveBeenCalled()
   })
 })
 

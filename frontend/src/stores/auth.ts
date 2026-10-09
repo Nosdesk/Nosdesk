@@ -16,6 +16,7 @@ import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
 import { isTauriRuntime } from '@/platform';
 import { nativeLogoutRedirectUri } from '@/platform/oidcScheme';
 import { transport } from '@nosdesk/core/transport';
+import { releaseSsoAutoStart } from '@/utils/ssoAutoStart';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -161,9 +162,14 @@ export const useAuthStore = defineStore('auth', () => {
             logger.warn('Rate limit exceeded. Please wait before retrying.');
             error.value = translate('auth-login-rate-limited', undefined, 'Too many requests. Please wait a moment.');
             throw err;
-          } else if (status === 401 || status === 403) {
-            // Unauthorized/Forbidden - logout and clear cookies
-            logger.debug('Logging out due to authentication error:', status);
+          } else if (status === 401) {
+            // The shared refresh already had its say: the session is over.
+            // Tear down here only; asking the server to sign out could end a
+            // session another tab has just started.
+            logger.debug('Session lost while loading the profile');
+            void sessionLost();
+          } else if (status === 403) {
+            logger.debug('Signing out after the profile was refused:', status);
             logout();
           } else {
             // Other server errors - keep user logged in
@@ -486,7 +492,38 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * The session was lost (the server rejected the refresh): it is already
+   * over server-side, so this only clears what the tab holds and goes to
+   * /login. No /auth/logout: cookies are shared by every tab, and a late one
+   * would carry, and end, a session another tab has just signed in with.
+   * Same scoped loggingOut window as `logout()`.
+   */
+  let sessionLostInFlight: Promise<void> | null = null;
+  function sessionLost(): Promise<void> {
+    sessionLostInFlight ??= (async () => {
+      // Come back to this page after signing in again.
+      const here = window.location.pathname + window.location.search;
+      setLoggingOut(true);
+      try {
+        await clearLocalSession();
+      } finally {
+        setLoggingOut(false);
+      }
+      if (here.startsWith('/login')) return;
+      await router.push(here === '/' ? '/login' : { name: 'login', query: { redirect: here } });
+    })().finally(() => {
+      sessionLostInFlight = null;
+    });
+    return sessionLostInFlight;
+  }
+
+  /** Deliberate sign-out: revoke the server session, clear the tab, and end
+   *  the IdP session for an OIDC sign-in. */
   async function signOut() {
+    // A sign-out is a fresh start: let this tab's login page begin SSO even if
+    // another tab began one a moment ago.
+    releaseSsoAutoStart();
 
     // Per-surface post-logout redirect for RP-initiated (front-channel) logout.
     // Web returns to /login; native returns on its custom scheme (which the app
@@ -519,7 +556,39 @@ export const useAuthStore = defineStore('auth', () => {
       logger.error('Failed to tear down the local session on logout', e);
     }
 
-    // Clear user data
+    await clearLocalSession();
+
+    // RP-initiated logout at the IdP, if the session was an OIDC one. Ending
+    // the IdP session (not just the local one) is what stops a re-login from
+    // silently re-authenticating as the same user.
+    if (logoutUrl) {
+      if (isTauriRuntime()) {
+        // Native: open the end_session URL in the system browser (which clears
+        // the shared IdP cookie) and return on the custom scheme. Best-effort:
+        // the local session is already gone, so a cancel/error must not block
+        // routing back to the login screen.
+        try {
+          const { logoutViaOidc } = await import('@nosdesk/mobile');
+          await logoutViaOidc(logoutUrl);
+        } catch (e) {
+          logger.error('Native IdP logout failed', e);
+        }
+      } else {
+        // Web: full-page navigation to the IdP end_session endpoint, which
+        // redirects back to redirectUri (/login) once the session is ended.
+        window.location.href = logoutUrl;
+        return; // full redirect in progress, skip router navigation
+      }
+    }
+
+    // Return to the login screen (non-OIDC sessions, native, or a failed
+    // web redirect).
+    router.push('/login');
+  }
+
+  /** What this tab holds for the session: the user, every workspace-scoped
+   *  store and cache, the user's theme. No network, no navigation. */
+  async function clearLocalSession() {
     user.value = null;
     resolvedWorkspaceSlug.value = null;
     authProvider.value = null;
@@ -548,38 +617,8 @@ export const useAuthStore = defineStore('auth', () => {
       logger.error('Failed to reset theme on logout', e);
     }
 
-    // Remove from localStorage
     localStorage.removeItem('authProvider');
-
-    // Remove auth provider header
     delete axios.defaults.headers.common['X-Auth-Provider'];
-
-    // RP-initiated logout at the IdP, if the session was an OIDC one. Ending
-    // the IdP session (not just the local one) is what stops a re-login from
-    // silently re-authenticating as the same user.
-    if (logoutUrl) {
-      if (isTauriRuntime()) {
-        // Native: open the end_session URL in the system browser (which clears
-        // the shared IdP cookie) and return on the custom scheme. Best-effort:
-        // the local session is already gone, so a cancel/error must not block
-        // routing back to the login screen.
-        try {
-          const { logoutViaOidc } = await import('@nosdesk/mobile');
-          await logoutViaOidc(logoutUrl);
-        } catch (e) {
-          logger.error('Native IdP logout failed', e);
-        }
-      } else {
-        // Web: full-page navigation to the IdP end_session endpoint, which
-        // redirects back to redirectUri (/login) once the session is ended.
-        window.location.href = logoutUrl;
-        return; // full redirect in progress, skip router navigation
-      }
-    }
-
-    // Return to the login screen (non-OIDC sessions, native, or a failed
-    // web redirect).
-    router.push('/login');
   }
 
   // Helper method to set auth provider consistently
@@ -611,6 +650,7 @@ export const useAuthStore = defineStore('auth', () => {
     completeMfaSetupAndLogin,
     clearMfaState,
     logout,
+    sessionLost,
     fetchUserData,
     ensureWorkspaceIdentity,
     setExternalAuth,
