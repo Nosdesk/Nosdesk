@@ -128,8 +128,11 @@ jobs:
         id: vars
         run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      # Derives image tags from the git tag: v0.1.0-rc.5 -> 0.1.0-rc.5.
-      # `latest` is applied only to stable tags (no -rc/-beta prerelease).
+      # Derives image tags from the git tag: v1.1.0 -> 1.1.0, 1.1 and latest;
+      # v1.1.0-rc.4 -> 1.1.0-rc.4 only. `1.1` (a minor's newest patch) and
+      # `latest` (the newest stable release) go to stable tags only. There is
+      # no major-only tag. release/1.0.x publishes 1.0.x and `1.0`, never
+      # `latest`.
       - name: Image metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -141,6 +144,7 @@ jobs:
             name=docker.io/nosdesk/nosdesk,enable=${{ !contains(github.ref_name, '-') }}
           tags: |
             type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Set up Buildx
@@ -191,7 +195,9 @@ jobs:
       # Publish the GitHub Release once the image is up. Prerelease tags
       # (anything with a `-`, e.g. -rc.5/-beta) are marked prerelease, so the
       # in-app updater's /releases/latest query keeps skipping them and only
-      # surfaces stable releases. Idempotent: a re-run updates the release.
+      # surfaces stable releases. `make_latest` is set rather than left to
+      # GitHub's default: only a stable release becomes /releases/latest.
+      # Idempotent: a re-run updates the release.
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -199,6 +205,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ steps.meta.outputs.version }}
           prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           generate_release_notes: true
           body: |
             Container image `${{ steps.meta.outputs.version }}`:
