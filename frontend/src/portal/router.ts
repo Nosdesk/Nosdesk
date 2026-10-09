@@ -30,6 +30,8 @@ const router = createRouter({
     { path: '/login', name: 'login', component: LoginView },
     { path: '/tickets', name: 'tickets', component: TicketsView },
     { path: '/tickets/new', name: 'ticket-new', component: NewTicketView },
+    // A short link to a new request.
+    { path: '/new', redirect: '/tickets/new' },
     // The request's number, as the requester quotes it.
     { path: '/tickets/:number(\\d+)', name: 'ticket', component: TicketView, props: true },
     // Requests waiting for the signed-in person's approval.
