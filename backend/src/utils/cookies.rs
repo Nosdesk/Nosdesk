@@ -111,8 +111,9 @@ pub fn delete_csrf_token_cookie() -> Cookie<'static> {
         .finish()
 }
 
-/// Expire the three agent session cookies (sign-out, or a refresh the server
-/// refused because the session is gone).
+/// Expire the three agent session cookies on sign-out. Never on a refused
+/// refresh: that request may be stale, and the deletion would hit the cookies
+/// of a session signed in since.
 pub fn delete_agent_cookies() -> [Cookie<'static>; 3] {
     [
         delete_access_token_cookie(),
@@ -204,8 +205,9 @@ pub fn create_portal_csrf_cookie(
         .finish()
 }
 
-/// Expire the three portal cookies (sign-out, or a refused refresh). Same attributes as the setters
-/// so the browser matches and drops them.
+/// Expire the three portal cookies on sign-out (never on a refused refresh;
+/// see `delete_agent_cookies`). Same attributes as the setters so the browser
+/// matches and drops them.
 pub fn delete_portal_cookies() -> [Cookie<'static>; 3] {
     let expire = |name: &'static str, http_only: bool| {
         Cookie::build(cookie_name(name), "")

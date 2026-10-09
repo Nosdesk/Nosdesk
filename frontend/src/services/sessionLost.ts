@@ -2,10 +2,11 @@ import { isLoggingOut } from '@/services/apiConfig'
 
 /**
  * What the web app does when its session is lost (a refresh was rejected):
- * sign out locally and land on /login. Only pushing /login is not enough,
- * since the router sends a still-populated auth store straight back home, and
- * the workspace data would stay on screen. logout() clears both; its own
- * server call 401s quietly because it marks the session as tearing down.
+ * clear the tab's session state and land on /login. Only pushing /login is not
+ * enough, since the router sends a still-populated auth store straight back
+ * home, and the workspace data would stay on screen. This is not a sign-out:
+ * the session is already over, and an /auth/logout sent now would carry the
+ * shared cookies of any session another tab has since signed in with.
  *
  * Registered with core's `setSessionLostHandler` at web bootstrap, so the
  * shared refresh runs it whoever hit the 401.
@@ -25,7 +26,7 @@ export function redirectToLogin(): void {
   setTimeout(async () => {
     try {
       const { useAuthStore } = await import('@/stores/auth')
-      await useAuthStore().logout()
+      await useAuthStore().sessionLost()
     } finally {
       sessionStorage.removeItem('redirecting-to-login')
     }

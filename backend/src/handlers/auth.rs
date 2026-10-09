@@ -2818,28 +2818,6 @@ where
     })
 }
 
-/// A refresh the server refused because the session is gone (401): the error
-/// response, carrying `expired` so the browser drops the realm's session
-/// cookies with it. Without that the JS-readable CSRF cookie outlives the
-/// session and the client keeps reading itself as signed in. Other errors
-/// (a server fault) leave the cookies alone, since the session may be fine.
-pub(crate) fn refresh_refused(
-    err: ApiError,
-    expired: impl IntoIterator<Item = actix_web::cookie::Cookie<'static>>,
-) -> Result<HttpResponse, ApiError> {
-    use actix_web::ResponseError as _;
-    if !matches!(err, ApiError::Unauthorized(_)) {
-        return Err(err);
-    }
-    let mut res = err.error_response();
-    for cookie in expired {
-        if let Err(e) = res.add_cookie(&cookie) {
-            tracing::warn!(error = %e, "refresh: could not expire a session cookie");
-        }
-    }
-    Ok(res)
-}
-
 /// Refresh an agent access token (reuse detection and grace period live in
 /// [`rotate_refresh_family`]).
 pub async fn refresh_token(
@@ -2862,15 +2840,10 @@ pub async fn refresh_token(
         .and_then(|b| b.refresh_token.clone())
         .filter(|t| !t.is_empty());
     let bearer_mode = from_body.is_some() || auth_mode_from_request(&request) == AuthMode::Bearer;
-    // A native client holds no cookies, so it gets no Set-Cookie either way.
-    let refused = |err: ApiError| {
-        let expired = if bearer_mode {
-            Vec::new()
-        } else {
-            crate::utils::cookies::delete_agent_cookies().to_vec()
-        };
-        refresh_refused(err, expired)
-    };
+    // A refused refresh sets no cookies. The browser can't scope a deletion to
+    // the refused token's value, so expiring them here could wipe a session
+    // another tab signed in with while this request was out. The client drops
+    // its CSRF cookie itself, only if it still holds the one it refreshed with.
     let refresh_raw = match from_body.or_else(|| {
         request
             .cookie(&crate::utils::cookies::cookie_name(
@@ -2880,11 +2853,11 @@ pub async fn refresh_token(
     }) {
         Some(token) => token,
         None => {
-            return refused(ApiError::Unauthorized("Refresh token not found".into()));
+            return Err(ApiError::Unauthorized("Refresh token not found".into()));
         }
     };
 
-    let rotated = match rotate_refresh_family(
+    let rotated = rotate_refresh_family(
         &mut conn,
         &request,
         &refresh_raw,
@@ -2893,10 +2866,7 @@ pub async fn refresh_token(
             JwtUtils::create_token(user, session_id)
                 .map_err(|_| ApiError::Internal("Failed to create access token".into()))
         },
-    ) {
-        Ok(rotated) => rotated,
-        Err(err) => return refused(err),
-    };
+    )?;
     let new_access_token = rotated.access_token;
     let new_refresh_raw = rotated.refresh_token;
     let expires_at = rotated.expires_at;
@@ -2967,7 +2937,7 @@ mod tests {
     }
 
     /// A refresh that fails because the database did is not a refused session:
-    /// a 401 here would expire the cookies and sign the person out.
+    /// a 401 here would sign the person out.
     #[actix_web::test]
     async fn a_database_failure_during_refresh_is_not_a_401() {
         use diesel::RunQueryDsl as _;

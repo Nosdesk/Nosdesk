@@ -302,17 +302,15 @@ pub async fn refresh_portal_session(
         .map(|c| c.value().to_string())
         .filter(|t| !t.is_empty())
     else {
-        return crate::handlers::auth::refresh_refused(
-            ApiError::Unauthorized("Refresh token not found".into()),
-            crate::utils::cookies::delete_portal_cookies(),
-        );
+        // Sets no cookies, like the agent refresh: see `auth::refresh_token`.
+        return Err(ApiError::Unauthorized("Refresh token not found".into()));
     };
 
     let mut conn = crate::handlers::helpers::db_conn(&db_pool)?;
 
     let workspace_uuid = ctx.workspace_uuid;
     let workspace_id = ctx.workspace_id;
-    let rotated = match crate::handlers::auth::rotate_refresh_family(
+    let rotated = crate::handlers::auth::rotate_refresh_family(
         &mut conn,
         &request,
         &refresh_raw,
@@ -341,15 +339,7 @@ pub async fn refresh_portal_session(
             crate::utils::jwt::JwtUtils::create_portal_token(user, workspace_uuid, session_id)
                 .map_err(|_| ApiError::Internal("Failed to create access token".into()))
         },
-    ) {
-        Ok(rotated) => rotated,
-        Err(err) => {
-            return crate::handlers::auth::refresh_refused(
-                err,
-                crate::utils::cookies::delete_portal_cookies(),
-            )
-        }
-    };
+    )?;
 
     // Portal clients are browsers, so the rotated tokens go back as cookies
     // only; there is no bearer mode to serve here.

@@ -45,19 +45,30 @@ function clearCsrfCookie(): void {
   document.cookie = `csrf_token=; path=/; ${expired}`
 }
 
+// The CSRF cookie the last refresh went out with. Cookies are shared by every
+// tab, so by the time a refusal lands another tab may have signed in and set
+// a new one; only the session that was refused is dropped.
+let refreshSentWith: string | null = null
+
 const cookieAuthStrategy: AuthStrategy = {
   authHeaders(): Record<string, string> {
     const csrf = getCsrfToken()
     return csrf ? { 'X-CSRF-Token': csrf } : {}
   },
   useCredentials: true,
-  refresh: refreshAccessToken,
+  refresh() {
+    refreshSentWith = getCsrfToken()
+    return refreshAccessToken()
+  },
   hasSession() {
     return getCsrfToken() !== null
   },
   // The refresh was rejected: the session is over, so this browser no longer
-  // holds one. The next sign-in, of any kind, sets a new CSRF cookie.
-  onSessionLost: clearCsrfCookie,
+  // holds one, unless a newer sign-in replaced its CSRF cookie meanwhile. The
+  // server sets no cookies on a refusal, so this is the only clearing.
+  onSessionLost() {
+    if (getCsrfToken() === refreshSentWith) clearCsrfCookie()
+  },
   // Intentional sign-out. The server's /auth/logout clears the httpOnly cookies.
   async endSession() {
     clearCsrfCookie()
