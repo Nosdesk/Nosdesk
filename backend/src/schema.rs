@@ -1585,6 +1585,7 @@ diesel::table! {
         approval_auto_approve_days -> Nullable<Int4>,
         email_logo -> Nullable<Jsonb>,
         email_logo_light -> Nullable<Jsonb>,
+        portal_share_staff_requests -> Bool,
     }
 }
 

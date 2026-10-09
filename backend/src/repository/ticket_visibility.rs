@@ -46,7 +46,7 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::extractors::AuthContext;
 use crate::models::{Claims, PlatformRole, WorkspaceRole};
-use crate::schema::{ticket_watchers, tickets};
+use crate::schema::{ticket_watchers, tickets, users, workspace_members};
 
 /// Which comments a reader may see on a ticket they can already reach.
 ///
@@ -108,6 +108,9 @@ pub struct VisibilityContext {
     /// email domain (the workspace's organisation-visibility setting). Set by
     /// [`Self::portal_sharing`] only after the domain is known to be shareable.
     share_domain: bool,
+    /// With `share_domain`: also requests whose requester is staff. Off, a
+    /// request an agent or admin raised under their own name isn't shared.
+    share_staff: bool,
 }
 
 impl VisibilityContext {
@@ -124,6 +127,7 @@ impl VisibilityContext {
             user_uuid,
             sees_all,
             share_domain: false,
+            share_staff: false,
         }
     }
 
@@ -153,6 +157,7 @@ impl VisibilityContext {
             user_uuid,
             sees_all: false,
             share_domain: false,
+            share_staff: false,
         }
     }
 
@@ -164,17 +169,20 @@ impl VisibilityContext {
             user_uuid: auth.user_uuid,
             sees_all: auth.can_handle_tickets(),
             share_domain: false,
+            share_staff: false,
         }
     }
 
     /// [`Self::requester_only`] that also reads requests from colleagues at the
     /// same verified domain. The caller decides the domain may share (setting
-    /// on, viewer's primary address verified, not a free-mail domain).
-    pub fn portal_sharing(user_uuid: Uuid) -> Self {
+    /// on, viewer's primary address verified, not a free-mail domain), and
+    /// whether requests raised by staff are among them (`include_staff`).
+    pub fn portal_sharing(user_uuid: Uuid, include_staff: bool) -> Self {
         Self {
             user_uuid,
             sees_all: false,
             share_domain: true,
+            share_staff: include_staff,
         }
     }
 
@@ -203,6 +211,39 @@ fn same_domain_requester(
         )
         .bind::<diesel::sql_types::Uuid, _>(viewer)
         .sql(" AND me.is_primary AND me.is_verified LIMIT 1))"),
+    )
+}
+
+/// Tickets whose requester is staff in the pinned workspace: a platform admin,
+/// or a member at agent tier or above (the split `VisibilityContext::new`
+/// draws). A removed staff member counts too, so a request they raised under
+/// their own name doesn't become shared when they leave.
+/// Nullable because `requester_uuid` is: a ticket with no requester yields
+/// NULL, which no shared-view clause admits anyway.
+fn staff_requester() -> Box<
+    dyn diesel::BoxableExpression<
+        tickets::table,
+        Pg,
+        SqlType = diesel::sql_types::Nullable<diesel::sql_types::Bool>,
+    >,
+> {
+    let staff_roles: Vec<&'static str> = WorkspaceRole::ALL
+        .iter()
+        .filter(|r| r.is_staff())
+        .map(|r| r.as_str())
+        .collect();
+    // members-any-status: a request raised as staff stays unshared after its author leaves
+    let staff_members = workspace_members::table
+        .filter(workspace_members::workspace_id.eq(crate::repository::pinned_workspace()))
+        .filter(workspace_members::role.eq_any(staff_roles))
+        .select(workspace_members::user_uuid.nullable());
+    let platform_admins = users::table
+        .filter(users::platform_role.eq(PlatformRole::PlatformAdmin.as_str()))
+        .select(users::uuid.nullable());
+    Box::new(
+        tickets::requester_uuid
+            .eq_any(staff_members)
+            .or(tickets::requester_uuid.eq_any(platform_admins)),
     )
 }
 
@@ -240,10 +281,14 @@ pub fn visible_tickets_query<'a>(ctx: &VisibilityContext) -> tickets::BoxedQuery
             .eq(ctx.user_uuid)
             .or(tickets::id.eq_any(watched_ticket_ids)),
     );
-    if ctx.share_domain {
-        own.or_filter(not_pending().and(same_domain_requester(ctx.user_uuid)))
+    if !ctx.share_domain {
+        return own;
+    }
+    let shared = not_pending().and(same_domain_requester(ctx.user_uuid));
+    if ctx.share_staff {
+        own.or_filter(shared)
     } else {
-        own
+        own.or_filter(shared.and(diesel::dsl::not(staff_requester())))
     }
 }
 
@@ -536,7 +581,7 @@ mod tests {
         )
         .unwrap();
 
-        let shared = VisibilityContext::portal_sharing(alice.uuid);
+        let shared = VisibilityContext::portal_sharing(alice.uuid, false);
         let own = VisibilityContext::requester_only(alice.uuid);
         assert!(
             can_view_ticket(&mut conn, &shared, bobs.id).unwrap(),
@@ -560,5 +605,72 @@ mod tests {
         )
         .unwrap();
         assert_eq!(listed, [bobs.id].into_iter().collect());
+    }
+
+    #[test]
+    fn portal_sharing_leaves_out_staff_requests_unless_included() {
+        let mut conn = setup_test_connection();
+        let person = |conn: &mut DbConnection, name: &str, role: &str, email: &str| {
+            let u = TestFixtures::create_user(conn, name, role);
+            TestFixtures::create_user_email(conn, u.uuid, email, true);
+            u
+        };
+        let alice = person(&mut conn, "staff_share_alice", "user", "alice@corp.test");
+        let bob = person(&mut conn, "staff_share_bob", "user", "bob@corp.test");
+        let agent = person(
+            &mut conn,
+            "staff_share_agent",
+            "technician",
+            "agent@corp.test",
+        );
+        let admin = person(&mut conn, "staff_share_admin", "admin", "admin@corp.test");
+        // A platform admin whose membership here is only `member`.
+        let root = person(&mut conn, "staff_share_root", "user", "root@corp.test");
+        diesel::update(users::table.find(root.uuid))
+            .set(users::platform_role.eq(PlatformRole::PlatformAdmin.as_str()))
+            .execute(&mut conn)
+            .unwrap();
+        // An agent who has since left the workspace.
+        let former = person(
+            &mut conn,
+            "staff_share_former",
+            "technician",
+            "former@corp.test",
+        );
+        diesel::update(
+            workspace_members::table.filter(workspace_members::user_uuid.eq(former.uuid)),
+        )
+        .set(workspace_members::removed_at.eq(Some(chrono::Utc::now())))
+        .execute(&mut conn)
+        .unwrap();
+
+        let ticket = |conn: &mut DbConnection, who: &crate::models::User| {
+            TestFixtures::create_ticket(conn, &who.name, Some(who.uuid), None).id
+        };
+        let bobs = ticket(&mut conn, &bob);
+        let staff = [
+            ticket(&mut conn, &agent),
+            ticket(&mut conn, &admin),
+            ticket(&mut conn, &root),
+            ticket(&mut conn, &former),
+        ];
+        let all: Vec<i32> = std::iter::once(bobs).chain(staff).collect();
+
+        let without = VisibilityContext::portal_sharing(alice.uuid, false);
+        assert_eq!(
+            visible_ticket_ids(&mut conn, &without, &all).unwrap(),
+            [bobs].into_iter().collect(),
+            "only the ordinary colleague's request is shared"
+        );
+        for id in staff {
+            assert!(!can_view_ticket(&mut conn, &without, id).unwrap(), "{id}");
+        }
+
+        let with = VisibilityContext::portal_sharing(alice.uuid, true);
+        assert_eq!(
+            visible_ticket_ids(&mut conn, &with, &all).unwrap(),
+            all.iter().copied().collect(),
+            "staff requests are shared once included"
+        );
     }
 }

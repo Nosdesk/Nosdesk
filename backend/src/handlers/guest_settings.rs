@@ -80,6 +80,7 @@ pub struct UpdateGuestSettingsRequest {
     pub guest_ticket_attachments_enabled: Option<bool>,
     pub guest_ticket_intro_message: Option<Option<String>>,
     pub portal_share_by_domain: Option<bool>,
+    pub portal_share_staff_requests: Option<bool>,
 }
 
 pub async fn get_guest_settings(
@@ -172,6 +173,7 @@ pub async fn update_guest_settings(
         guest_ticket_attachments_enabled: body.guest_ticket_attachments_enabled,
         guest_ticket_intro_message: intro_update,
         portal_share_by_domain: body.portal_share_by_domain,
+        portal_share_staff_requests: body.portal_share_staff_requests,
         ..Default::default()
     };
 

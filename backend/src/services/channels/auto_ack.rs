@@ -397,6 +397,7 @@ mod tests {
             approval_auto_approve_days: None,
             email_logo: None,
             email_logo_light: None,
+            portal_share_staff_requests: false,
         }
     }
 

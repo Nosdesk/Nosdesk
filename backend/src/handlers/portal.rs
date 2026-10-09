@@ -1020,15 +1020,16 @@ impl CustomerTicket {
 
 /// How much of the workspace a portal user can read: their own requests and
 /// the ones they were added to, plus (when the workspace shares by domain) the
-/// requests of people at their verified, non-free-mail domain. Writes never
+/// requests of people at their verified, non-free-mail domain, leaving out
+/// requests raised by staff unless the workspace includes them. Writes never
 /// use this; they stay on [`VisibilityContext::requester_only`].
 pub(crate) fn portal_visibility(
     conn: &mut DbConnection,
     viewer: Uuid,
 ) -> QueryResult<VisibilityContext> {
     use crate::schema::user_emails;
-    let shares = crate::repository::site_settings::get_site_settings(conn)?.portal_share_by_domain;
-    if !shares {
+    let settings = crate::repository::site_settings::get_site_settings(conn)?;
+    if !settings.portal_share_by_domain {
         return Ok(VisibilityContext::requester_only(viewer));
     }
     let verified: Option<String> = user_emails::table
@@ -1040,7 +1041,7 @@ pub(crate) fn portal_visibility(
         .optional()?;
     Ok(match verified {
         Some(email) if !crate::utils::free_mail::is_free_mail(&email) => {
-            VisibilityContext::portal_sharing(viewer)
+            VisibilityContext::portal_sharing(viewer, settings.portal_share_staff_requests)
         }
         _ => VisibilityContext::requester_only(viewer),
     })

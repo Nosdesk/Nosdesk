@@ -179,6 +179,8 @@ export interface AdminGuestSettings {
   guest_ticket_intro_message: string | null;
   /** Requesters also see requests from colleagues at their verified domain. */
   portal_share_by_domain: boolean;
+  /** With sharing on, also share requests staff raised under their own name. */
+  portal_share_staff_requests: boolean;
 }
 
 export interface AdminGuestSettingsUpdate {
@@ -193,6 +195,7 @@ export interface AdminGuestSettingsUpdate {
   guest_ticket_attachments_enabled?: boolean;
   guest_ticket_intro_message?: string | null;
   portal_share_by_domain?: boolean;
+  portal_share_staff_requests?: boolean;
 }
 
 export const adminGuestSettingsService = {

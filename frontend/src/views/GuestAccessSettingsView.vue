@@ -43,7 +43,7 @@
                 :label="toggle.label"
                 :description="toggle.description"
                 :model-value="settings[toggle.key]"
-                :disabled="toggle.key === 'guest_kb_search_enabled' && !settings.guest_public_docs_enabled"
+                :disabled="toggle.requires !== undefined && !settings[toggle.requires]"
                 @update:model-value="settings![toggle.key] = $event"
               />
             </div>
@@ -187,7 +187,8 @@ type ToggleKey =
   | 'guest_public_docs_enabled'
   | 'guest_kb_search_enabled'
   | 'guest_help_page_enabled'
-  | 'portal_share_by_domain';
+  | 'portal_share_by_domain'
+  | 'portal_share_staff_requests';
 
 // Settings are fetched through Pinia Colada so a revisit renders the
 // form instantly from cache and revalidates silently. The form seeds
@@ -216,7 +217,10 @@ const errorMessage = ref('');
 // Full portal URLs, since on hosted the portal is not this page's origin.
 const { portalUrl } = useWorkspacePortal();
 
-const toggles = computed<Array<{ key: ToggleKey; label: string; description: string }>>(() => [
+// `requires`: the toggle that must be on for this one to apply.
+const toggles = computed<
+  Array<{ key: ToggleKey; label: string; description: string; requires?: ToggleKey }>
+>(() => [
   {
     key: 'guest_tickets_enabled',
     label: t('admin-guest-toggle-tickets-label'),
@@ -235,7 +239,8 @@ const toggles = computed<Array<{ key: ToggleKey; label: string; description: str
   {
     key: 'guest_kb_search_enabled',
     label: t('admin-guest-toggle-kb-search-label'),
-    description: t('admin-guest-toggle-kb-search-description')
+    description: t('admin-guest-toggle-kb-search-description'),
+    requires: 'guest_public_docs_enabled'
   },
   {
     key: 'guest_help_page_enabled',
@@ -246,6 +251,12 @@ const toggles = computed<Array<{ key: ToggleKey; label: string; description: str
     key: 'portal_share_by_domain',
     label: t('admin-guest-toggle-share-domain-label'),
     description: t('admin-guest-toggle-share-domain-description')
+  },
+  {
+    key: 'portal_share_staff_requests',
+    label: t('admin-guest-toggle-share-staff-label'),
+    description: t('admin-guest-toggle-share-staff-description'),
+    requires: 'portal_share_by_domain'
   }
 ]);
 
@@ -319,7 +330,8 @@ async function save() {
       guest_ticket_attachments_enabled: settings.value.guest_ticket_attachments_enabled,
       guest_ticket_intro_message:
         (settings.value.guest_ticket_intro_message ?? '').trim() || null,
-      portal_share_by_domain: settings.value.portal_share_by_domain
+      portal_share_by_domain: settings.value.portal_share_by_domain,
+      portal_share_staff_requests: settings.value.portal_share_staff_requests
     });
     settings.value = data;
     pristine.value = { ...data };

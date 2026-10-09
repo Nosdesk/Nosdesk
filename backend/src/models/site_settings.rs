@@ -80,6 +80,11 @@ pub struct SiteSettings {
     pub email_logo: Option<serde_json::Value>,
     /// The email-ready copy of `logo_light_url`.
     pub email_logo_light: Option<serde_json::Value>,
+    /// With `portal_share_by_domain` on, also share requests whose requester
+    /// is workspace staff (agent, admin, owner). Off: staff raising a request
+    /// under their own name (offboarding, incident follow-ups) keeps it out of
+    /// the shared view.
+    pub portal_share_staff_requests: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -114,6 +119,7 @@ pub struct UpdateSiteSettings {
     /// template: `Some(None)` reverts to the built-in default.
     pub email_security_note_template: Option<Option<String>>,
     pub portal_share_by_domain: Option<bool>,
+    pub portal_share_staff_requests: Option<bool>,
     pub approval_waiting_display: Option<String>,
     pub approval_skip_by: Option<String>,
     pub approval_auto_approve_days: Option<Option<i32>>,
@@ -157,6 +163,8 @@ pub struct SiteSettingsResponse {
     pub email_security_note_template: Option<String>,
     /// See [`SiteSettings::portal_share_by_domain`].
     pub portal_share_by_domain: bool,
+    /// See [`SiteSettings::portal_share_staff_requests`].
+    pub portal_share_staff_requests: bool,
 }
 
 impl From<SiteSettings> for SiteSettingsResponse {
@@ -184,6 +192,7 @@ impl From<SiteSettings> for SiteSettingsResponse {
             email_security_note_enabled: settings.email_security_note_enabled,
             email_security_note_template: settings.email_security_note_template,
             portal_share_by_domain: settings.portal_share_by_domain,
+            portal_share_staff_requests: settings.portal_share_staff_requests,
         }
     }
 }
