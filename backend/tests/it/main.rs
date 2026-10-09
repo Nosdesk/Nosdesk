@@ -109,6 +109,7 @@ mod route_auth_funnel_lint;
 mod rules_in_workspace;
 mod scheduler_status;
 mod search_by_ticket_number;
+mod session_csrf_lifetime;
 mod site_settings_per_workspace;
 mod sla_breach_sweep;
 mod sla_defaults;

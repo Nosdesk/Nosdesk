@@ -528,9 +528,11 @@ pub(crate) fn build_auth_response(
             ))
             .cookie(crate::utils::cookies::create_refresh_token_cookie(
                 &tokens.refresh_token,
+                tokens.expires_at,
             ))
             .cookie(crate::utils::cookies::create_csrf_token_cookie(
                 &tokens.csrf_token,
+                tokens.expires_at,
             ))
             .json(body),
         AuthMode::Bearer => {
@@ -568,9 +570,11 @@ pub(crate) fn build_auth_cookie_redirect(
         ))
         .cookie(crate::utils::cookies::create_refresh_token_cookie(
             &tokens.refresh_token,
+            tokens.expires_at,
         ))
         .cookie(crate::utils::cookies::create_csrf_token_cookie(
             &tokens.csrf_token,
+            tokens.expires_at,
         ))
         .append_header(("Location", location))
         .finish()
@@ -1092,10 +1096,6 @@ pub async fn logout(
     req: HttpRequest,
     body: Option<web::Json<LogoutRequest>>,
 ) -> impl Responder {
-    use crate::utils::cookies::{
-        delete_access_token_cookie, delete_csrf_token_cookie, delete_refresh_token_cookie,
-    };
-
     let redirect_uri = body.and_then(|b| b.into_inner().redirect_uri);
     let mut logout_url: Option<String> = None;
 
@@ -1139,18 +1139,18 @@ pub async fn logout(
         }
     }
 
-    HttpResponse::Ok()
-        .cookie(delete_access_token_cookie())
-        .cookie(delete_refresh_token_cookie())
-        .cookie(delete_csrf_token_cookie())
-        .json(json!({
-            "success": true,
-            "message": "Logged out successfully",
-            // Null unless this was an OIDC session and a redirect_uri was given.
-            // The client navigates here (web) / opens it in the system browser
-            // (mobile) to end the IdP session too.
-            "logout_url": logout_url
-        }))
+    let mut res = HttpResponse::Ok();
+    for cookie in crate::utils::cookies::delete_agent_cookies() {
+        res.cookie(cookie);
+    }
+    res.json(json!({
+        "success": true,
+        "message": "Logged out successfully",
+        // Null unless this was an OIDC session and a redirect_uri was given.
+        // The client navigates here (web) / opens it in the system browser
+        // (mobile) to end the IdP session too.
+        "logout_url": logout_url
+    }))
 }
 
 pub async fn change_password(
@@ -2587,6 +2587,8 @@ pub async fn revoke_all_other_sessions(
 pub(crate) struct RotatedSession {
     pub access_token: String,
     pub refresh_token: String,
+    /// When the rotated refresh token (and the session) expires.
+    pub expires_at: chrono::NaiveDateTime,
 }
 
 /// The realm-agnostic half of a token refresh: from "a refresh token was
@@ -2604,6 +2606,19 @@ pub(crate) struct RotatedSession {
 /// so a realm can also run its own checks there: the portal needs the subject
 /// to still be a member of the origin's workspace, and running that inside the
 /// mint means a failure refuses before the family is rotated.
+/// A refresh lookup that found nothing means the session is gone: 401, which
+/// ends it. Any other database error is the database failing, not the
+/// session, so it is a 503: the client keeps its cookies and can try again.
+pub(crate) fn refresh_lookup_failed(err: diesel::result::Error, refused: &str) -> ApiError {
+    match err {
+        diesel::result::Error::NotFound => ApiError::Unauthorized(refused.into()),
+        err => {
+            tracing::error!(error = %err, "Refresh: database lookup failed");
+            ApiError::ServiceUnavailable("Couldn't refresh the session. Try again.".into())
+        }
+    }
+}
+
 pub(crate) fn rotate_refresh_family<F>(
     conn: &mut crate::db::DbConnection,
     request: &HttpRequest,
@@ -2623,11 +2638,7 @@ where
     let old_token =
         match crate::repository::refresh_tokens::get_refresh_token_by_hash(conn, &token_hash) {
             Ok(token) => token,
-            Err(_) => {
-                return Err(ApiError::Unauthorized(
-                    "Invalid or expired refresh token".into(),
-                ))
-            }
+            Err(e) => return Err(refresh_lookup_failed(e, "Invalid or expired refresh token")),
         };
 
     // 1b. Realm check. Each endpoint mints a session for exactly one realm, so
@@ -2690,9 +2701,7 @@ where
     // 4. Get user
     let user = match repository::get_user_by_uuid(&old_token.user_uuid, conn) {
         Ok(user) => user,
-        Err(_) => {
-            return Err(ApiError::Unauthorized("User not found".into()));
-        }
+        Err(e) => return Err(refresh_lookup_failed(e, "User not found")),
     };
 
     // 5. Determine session_id (from token, or create new session for tokens without one)
@@ -2703,7 +2712,7 @@ where
                 // The session is gone (revoked, evicted at the cap, or pruned
                 // as expired). The refresh token outlives it only in the window
                 // before the cascade lands, so treat it as revoked.
-                Err(_) => return Err(ApiError::Unauthorized("Session no longer active".into())),
+                Err(e) => return Err(refresh_lookup_failed(e, "Session no longer active")),
             }
         }
         None => {
@@ -2805,7 +2814,30 @@ where
     Ok(RotatedSession {
         access_token: new_access_token,
         refresh_token: new_refresh_raw,
+        expires_at: new_refresh_expires,
     })
+}
+
+/// A refresh the server refused because the session is gone (401): the error
+/// response, carrying `expired` so the browser drops the realm's session
+/// cookies with it. Without that the JS-readable CSRF cookie outlives the
+/// session and the client keeps reading itself as signed in. Other errors
+/// (a server fault) leave the cookies alone, since the session may be fine.
+pub(crate) fn refresh_refused(
+    err: ApiError,
+    expired: impl IntoIterator<Item = actix_web::cookie::Cookie<'static>>,
+) -> Result<HttpResponse, ApiError> {
+    use actix_web::ResponseError as _;
+    if !matches!(err, ApiError::Unauthorized(_)) {
+        return Err(err);
+    }
+    let mut res = err.error_response();
+    for cookie in expired {
+        if let Err(e) = res.add_cookie(&cookie) {
+            tracing::warn!(error = %e, "refresh: could not expire a session cookie");
+        }
+    }
+    Ok(res)
 }
 
 /// Refresh an agent access token (reuse detection and grace period live in
@@ -2830,6 +2862,15 @@ pub async fn refresh_token(
         .and_then(|b| b.refresh_token.clone())
         .filter(|t| !t.is_empty());
     let bearer_mode = from_body.is_some() || auth_mode_from_request(&request) == AuthMode::Bearer;
+    // A native client holds no cookies, so it gets no Set-Cookie either way.
+    let refused = |err: ApiError| {
+        let expired = if bearer_mode {
+            Vec::new()
+        } else {
+            crate::utils::cookies::delete_agent_cookies().to_vec()
+        };
+        refresh_refused(err, expired)
+    };
     let refresh_raw = match from_body.or_else(|| {
         request
             .cookie(&crate::utils::cookies::cookie_name(
@@ -2839,11 +2880,11 @@ pub async fn refresh_token(
     }) {
         Some(token) => token,
         None => {
-            return Err(ApiError::Unauthorized("Refresh token not found".into()));
+            return refused(ApiError::Unauthorized("Refresh token not found".into()));
         }
     };
 
-    let rotated = rotate_refresh_family(
+    let rotated = match rotate_refresh_family(
         &mut conn,
         &request,
         &refresh_raw,
@@ -2852,9 +2893,13 @@ pub async fn refresh_token(
             JwtUtils::create_token(user, session_id)
                 .map_err(|_| ApiError::Internal("Failed to create access token".into()))
         },
-    )?;
+    ) {
+        Ok(rotated) => rotated,
+        Err(err) => return refused(err),
+    };
     let new_access_token = rotated.access_token;
     let new_refresh_raw = rotated.refresh_token;
+    let expires_at = rotated.expires_at;
 
     // 11. Return new tokens, the way the client asked for them.
     let new_csrf_token = crate::utils::csrf::generate_csrf_token();
@@ -2886,9 +2931,11 @@ pub async fn refresh_token(
         ))
         .cookie(crate::utils::cookies::create_refresh_token_cookie(
             &new_refresh_raw,
+            expires_at,
         ))
         .cookie(crate::utils::cookies::create_csrf_token_cookie(
             &new_csrf_token,
+            expires_at,
         ))
         .json(response))
 }
@@ -2917,6 +2964,113 @@ mod tests {
             .route("/setup/status", web::get().to(check_setup_status))
             .route("/login", web::post().to(login))
             .route("/me", web::get().to(get_current_user))
+    }
+
+    /// A refresh that fails because the database did is not a refused session:
+    /// a 401 here would expire the cookies and sign the person out.
+    #[actix_web::test]
+    async fn a_database_failure_during_refresh_is_not_a_401() {
+        use diesel::RunQueryDsl as _;
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        // Abort the connection's transaction, so every query after this fails.
+        let _ = diesel::sql_query("SELECT * FROM no_such_table").execute(&mut conn);
+        let request = test::TestRequest::default().to_http_request();
+        let refused = rotate_refresh_family(
+            &mut conn,
+            &request,
+            "any-refresh-token",
+            crate::models::REFRESH_AUDIENCE_AGENT,
+            |_, _, _| Ok(String::new()),
+        );
+        let Err(err) = refused else {
+            panic!("a refresh on a failing database can't succeed")
+        };
+        assert_eq!(
+            actix_web::ResponseError::status_code(&err),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    /// A lookup that found nothing ends the session; any other database error
+    /// does not.
+    #[actix_web::test]
+    async fn only_a_missing_row_refuses_a_refresh() {
+        use actix_web::ResponseError as _;
+        assert_eq!(
+            refresh_lookup_failed(diesel::result::Error::NotFound, "gone").status_code(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            refresh_lookup_failed(diesel::result::Error::BrokenTransactionManager, "gone")
+                .status_code(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    /// The portal refresh, on a database that fails, keeps the session cookies
+    /// and answers 503.
+    #[actix_web::test]
+    async fn a_database_failure_during_a_portal_refresh_keeps_the_session() {
+        use actix_web::HttpMessage as _;
+        use diesel::RunQueryDsl as _;
+        let pool = setup_test_pool();
+        {
+            // The pool's one connection, its transaction aborted.
+            let mut conn = pool.get().expect("conn");
+            let _ = diesel::sql_query("SELECT * FROM no_such_table").execute(&mut conn);
+        }
+        let request = test::TestRequest::post()
+            .cookie(actix_web::cookie::Cookie::new(
+                crate::utils::cookies::cookie_name(
+                    crate::utils::cookies::PORTAL_REFRESH_TOKEN_COOKIE,
+                ),
+                "any-refresh-token",
+            ))
+            .to_http_request();
+        request
+            .extensions_mut()
+            .insert(crate::extractors::WorkspaceContext {
+                workspace_id: 1,
+                workspace_uuid: uuid::Uuid::new_v4(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+                custom_domain: None,
+                organisation_id: None,
+            });
+        let res = match crate::handlers::portal::refresh_portal_session(
+            web::Data::new(pool.clone()),
+            request,
+        )
+        .await
+        {
+            Ok(res) => res,
+            Err(e) => actix_web::ResponseError::error_response(&e),
+        };
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(res.cookies().count(), 0, "the session cookies stay");
+    }
+
+    /// An unknown refresh token is still refused as a dead session.
+    #[actix_web::test]
+    async fn an_unknown_refresh_token_is_a_401() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let request = test::TestRequest::default().to_http_request();
+        let refused = rotate_refresh_family(
+            &mut conn,
+            &request,
+            "no-such-refresh-token",
+            crate::models::REFRESH_AUDIENCE_AGENT,
+            |_, _, _| Ok(String::new()),
+        );
+        let Err(err) = refused else {
+            panic!("an unknown refresh token can't rotate")
+        };
+        assert_eq!(
+            actix_web::ResponseError::status_code(&err),
+            StatusCode::UNAUTHORIZED
+        );
     }
 
     // =========================================================================

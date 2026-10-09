@@ -436,6 +436,9 @@ pub mod helpers {
         pub access_token: String,
         pub refresh_token: String,
         pub csrf_token: String,
+        /// When the session (and so its refresh token) expires. The refresh
+        /// and CSRF cookies live exactly until then.
+        pub expires_at: chrono::NaiveDateTime,
     }
 
     /// Generate access token, refresh token (stored in DB), and CSRF token.
@@ -451,8 +454,9 @@ pub mod helpers {
         let refresh_token = JwtUtils::generate_refresh_token();
         let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
 
+        // A new session: the idle window, clamped to the session's ceiling.
         let refresh_expires =
-            chrono::Utc::now().naive_utc() + crate::utils::session_policy::idle_ttl();
+            crate::utils::session_policy::next_expiry(chrono::Utc::now().naive_utc());
         crate::repository::refresh_tokens::create_refresh_token(
             conn,
             crate::models::NewRefreshToken {
@@ -475,6 +479,7 @@ pub mod helpers {
             access_token,
             refresh_token,
             csrf_token,
+            expires_at: refresh_expires,
         })
     }
 
@@ -494,8 +499,9 @@ pub mod helpers {
 
         let refresh_token = JwtUtils::generate_refresh_token();
         let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
+        // A new session: the idle window, clamped to the session's ceiling.
         let refresh_expires =
-            chrono::Utc::now().naive_utc() + crate::utils::session_policy::idle_ttl();
+            crate::utils::session_policy::next_expiry(chrono::Utc::now().naive_utc());
         crate::repository::refresh_tokens::create_refresh_token(
             conn,
             crate::models::NewRefreshToken {
@@ -518,6 +524,7 @@ pub mod helpers {
             access_token,
             refresh_token,
             csrf_token,
+            expires_at: refresh_expires,
         })
     }
 

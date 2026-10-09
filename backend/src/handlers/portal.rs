@@ -237,8 +237,14 @@ pub(crate) fn mint_portal_session(
 
     Ok(PortalSessionCookies {
         access: crate::utils::cookies::create_portal_access_cookie(&tokens.access_token),
-        refresh: crate::utils::cookies::create_portal_refresh_cookie(&tokens.refresh_token),
-        csrf: crate::utils::cookies::create_portal_csrf_cookie(&tokens.csrf_token),
+        refresh: crate::utils::cookies::create_portal_refresh_cookie(
+            &tokens.refresh_token,
+            tokens.expires_at,
+        ),
+        csrf: crate::utils::cookies::create_portal_csrf_cookie(
+            &tokens.csrf_token,
+            tokens.expires_at,
+        ),
         csrf_token: tokens.csrf_token,
     })
 }
@@ -296,14 +302,17 @@ pub async fn refresh_portal_session(
         .map(|c| c.value().to_string())
         .filter(|t| !t.is_empty())
     else {
-        return Err(ApiError::Unauthorized("Refresh token not found".into()));
+        return crate::handlers::auth::refresh_refused(
+            ApiError::Unauthorized("Refresh token not found".into()),
+            crate::utils::cookies::delete_portal_cookies(),
+        );
     };
 
     let mut conn = crate::handlers::helpers::db_conn(&db_pool)?;
 
     let workspace_uuid = ctx.workspace_uuid;
     let workspace_id = ctx.workspace_id;
-    let rotated = crate::handlers::auth::rotate_refresh_family(
+    let rotated = match crate::handlers::auth::rotate_refresh_family(
         &mut conn,
         &request,
         &refresh_raw,
@@ -321,12 +330,26 @@ pub async fn refresh_portal_session(
             // cannot be told apart from the ordinary case of a customer whose
             // membership was removed, and burning their family adds nothing
             // once the refresh is already refused.
-            require_portal_membership(conn, workspace_id, user.uuid)
-                .map_err(|_| ApiError::Unauthorized("Invalid or expired refresh token".into()))?;
+            require_portal_membership(conn, workspace_id, user.uuid).map_err(|e| {
+                // A failed lookup is the database, not a lost membership.
+                if e.as_response_error().status_code().is_server_error() {
+                    ApiError::ServiceUnavailable("Couldn't refresh the session. Try again.".into())
+                } else {
+                    ApiError::Unauthorized("Invalid or expired refresh token".into())
+                }
+            })?;
             crate::utils::jwt::JwtUtils::create_portal_token(user, workspace_uuid, session_id)
                 .map_err(|_| ApiError::Internal("Failed to create access token".into()))
         },
-    )?;
+    ) {
+        Ok(rotated) => rotated,
+        Err(err) => {
+            return crate::handlers::auth::refresh_refused(
+                err,
+                crate::utils::cookies::delete_portal_cookies(),
+            )
+        }
+    };
 
     // Portal clients are browsers, so the rotated tokens go back as cookies
     // only; there is no bearer mode to serve here.
@@ -337,9 +360,11 @@ pub async fn refresh_portal_session(
         ))
         .cookie(crate::utils::cookies::create_portal_refresh_cookie(
             &rotated.refresh_token,
+            rotated.expires_at,
         ))
         .cookie(crate::utils::cookies::create_portal_csrf_cookie(
             &csrf_token,
+            rotated.expires_at,
         ))
         .json(json!({
             "success": true,
