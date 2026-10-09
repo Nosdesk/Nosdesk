@@ -14,7 +14,7 @@ vi.mock('../../../mobile/node_modules/@tauri-apps/api/core.js', () => ({
   invoke: vi.fn(async () => undefined),
 }))
 
-import { configureServer, setSecureStore } from '@nosdesk/mobile/transport'
+import { clearSession, configureServer, setSecureStore } from '@nosdesk/mobile/transport'
 import { transport } from '@nosdesk/core/transport'
 
 function deferred<T>() {
@@ -38,8 +38,29 @@ describe('two requests refused at once with an expired token', () => {
 
     const results = await Promise.all([sync, api])
     expect(http.fetch).toHaveBeenCalledTimes(1)
-    expect(results).toEqual([true, true])
+    expect(results).toEqual(['renewed', 'renewed'])
     expect(http.fetch).toHaveBeenCalledTimes(1)
     expect(transport().auth.authHeaders().Authorization).toBe('Bearer access-2')
+  })
+})
+
+describe('signing out while a refresh is on its way', () => {
+  it('does not bring the session back when the refresh answers', async () => {
+    const save = vi.fn(async () => {})
+    setSecureStore({ load: async () => 'refresh-1', save, clear: vi.fn(async () => {}) })
+    await configureServer('https://help.example.com')
+
+    const answer = deferred<Response>()
+    http.fetch.mockReturnValueOnce(answer.promise)
+    const refreshing = transport().auth.refresh()
+    await clearSession()
+    answer.resolve(
+      new Response(JSON.stringify({ access_token: 'access-2', refresh_token: 'refresh-2' }), { status: 200 }),
+    )
+
+    expect(await refreshing).not.toBe('renewed')
+    expect(transport().auth.hasSession()).toBe(false)
+    expect(transport().auth.authHeaders().Authorization).toBeUndefined()
+    expect(save).not.toHaveBeenCalled()
   })
 })

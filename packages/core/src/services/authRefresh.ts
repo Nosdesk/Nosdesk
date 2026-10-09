@@ -14,29 +14,29 @@
  * without an import cycle through apiConfig.
  */
 import axios from 'axios'
-import { apiBaseUrl, transport } from '../transport'
+import { apiBaseUrl, transport, type RefreshResult } from '../transport'
 
-let inFlight: Promise<boolean> | null = null
+let inFlight: Promise<RefreshResult> | null = null
 
 /**
  * Refresh the access token, coordinating with any refresh already in
- * flight. Resolves `true` when the session was renewed, `false` when the
- * refresh was rejected (session genuinely expired) or the request
- * failed. Never throws. Callers retry their request on `true` and give
- * up on `false` (the axios interceptor owns the redirect-to-login).
+ * flight. Never throws. Only a 401 from the refresh endpoint means the
+ * session is over (`rejected`); no answer or any other failure (offline, a
+ * 5xx while the server restarts) is `unavailable`, and nobody is signed out
+ * for it. Callers go through `refreshSession()`, which acts on a rejection.
  */
-export function refreshAccessToken(): Promise<boolean> {
+export function refreshAccessToken(): Promise<RefreshResult> {
   if (inFlight) return inFlight
-  inFlight = (async () => {
+  inFlight = (async (): Promise<RefreshResult> => {
     try {
-      const res = await axios.post(
+      await axios.post(
         `${apiBaseUrl()}/auth/refresh`,
         {},
         { withCredentials: transport().auth.useCredentials },
       )
-      return res.status === 200
-    } catch {
-      return false
+      return 'renewed'
+    } catch (err) {
+      return axios.isAxiosError(err) && err.response?.status === 401 ? 'rejected' : 'unavailable'
     } finally {
       inFlight = null
     }

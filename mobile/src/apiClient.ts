@@ -13,10 +13,11 @@ import {
   apiBaseUrl,
   passRequestGates,
   refuseResponse,
+  hostHeadersFor,
   rememberHostHeaders,
-  requestHeaders,
   transport,
 } from '@nosdesk/core/transport'
+import { refreshSession } from '@nosdesk/core/services/session'
 import axios, { CanceledError } from 'axios'
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { tauriHttpAdapter } from './tauriHttpAdapter'
@@ -52,8 +53,9 @@ export function setupApiClient(): void {
     }
     // Host per-request headers (workspace selection + diagnostics) from the
     // seam: the web apiConfig attaches these, but this bootstrap cleared it, so
-    // apply the composed union here.
-    const hostHeaders = requestHeaders()
+    // apply the composed union here. A retry after a refresh reuses its first
+    // attempt's headers, so it can't move to another workspace.
+    const hostHeaders = hostHeadersFor(config)
     for (const [key, value] of Object.entries(hostHeaders)) {
       config.headers.set(key, value)
     }
@@ -76,11 +78,9 @@ export function setupApiClient(): void {
         return Promise.reject(error)
       }
       original._retry = true
-      // The transport shares one in-flight refresh with the sync runtime.
-      const refreshed = await transport().auth.refresh()
-      if (refreshed) return apiClient(original)
-      // Session can't be renewed: clear local state and surface the 401.
-      transport().auth.onSessionLost()
+      // One in-flight refresh, shared with the sync runtime. A rejected one
+      // has already cleared the session (refreshSession); surface the 401.
+      if ((await refreshSession()) === 'renewed') return apiClient(original)
       return Promise.reject(error)
     },
   )

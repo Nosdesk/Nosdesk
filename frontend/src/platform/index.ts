@@ -17,6 +17,9 @@ async function setupWebPlatform(): Promise<void> {
   await import('@/utils/storageSetup')
   await import('@/services/transport')
   await import('@/services/apiConfig')
+  const { setSessionLostHandler } = await import('@nosdesk/core/services/session')
+  const { redirectToLogin } = await import('@/services/sessionLost')
+  setSessionLostHandler(redirectToLogin)
 }
 
 async function setupTauriPlatform(): Promise<void> {

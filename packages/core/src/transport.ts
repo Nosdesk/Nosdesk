@@ -22,6 +22,13 @@
  */
 
 /**
+ * What a session refresh found: `renewed` (new tokens), `rejected` (the server
+ * refused the refresh token: the session is over) or `unavailable` (the server
+ * couldn't be reached or failed; the session may well be fine, try later).
+ */
+export type RefreshResult = 'renewed' | 'rejected' | 'unavailable'
+
+/**
  * How one surface authenticates a request and recovers a lost session.
  * Implemented per host (web: cookie + CSRF; mobile: bearer token).
  */
@@ -30,11 +37,17 @@ export interface AuthStrategy {
   authHeaders(): Record<string, string>
   /** Send ambient credentials (cookies)? Web: true. Mobile: false. */
   readonly useCredentials: boolean
-  /** Rotate the session. Resolves true on success. Hosts dedup concurrent calls. */
-  refresh(): Promise<boolean>
+  /**
+   * Rotate the session. Hosts dedup concurrent calls. Callers use
+   * `refreshSession()` (`services/session`), which also handles a rejection.
+   */
+  refresh(): Promise<RefreshResult>
   /** Is a session plausibly present? Web: CSRF cookie set. Mobile: token held. */
   hasSession(): boolean
-  /** Tear down local session state after an unrecoverable 401. Web: no-op. */
+  /**
+   * Tear down local session state after a rejected refresh, so `hasSession()`
+   * reads false. Web: clear the CSRF cookie. Mobile: drop the tokens.
+   */
   onSessionLost(): void
   /**
    * Intentional sign-out teardown of the client-held session, distinct from
@@ -87,6 +100,18 @@ export function requestHeaders(): Record<string, string> {
   const out: Record<string, string> = {}
   for (const provider of requestHeaderProviders) Object.assign(out, provider())
   return out
+}
+
+/**
+ * The host headers to send a request with. Built once per request and kept on
+ * its config, so a retry (after a session refresh) goes out with the headers
+ * its first attempt carried: above all the workspace, which a switch in the
+ * meantime must not change.
+ */
+export function hostHeadersFor(requestConfig: object): Record<string, string> {
+  const config = requestConfig as { _hostHeaders?: Record<string, string> }
+  config._hostHeaders ??= requestHeaders()
+  return config._hostHeaders
 }
 
 // Hosts can hold requests until they may be sent (a workspace switch in

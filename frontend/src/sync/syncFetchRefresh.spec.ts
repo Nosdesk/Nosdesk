@@ -13,8 +13,10 @@ vi.mock('@nosdesk/core/transport', async (importOriginal) => ({
       authHeaders: () => ({ Authorization: `Bearer ${auth.token}` }),
       refresh: async () => {
         auth.token = 'fresh'
-        return true
+        return 'renewed'
       },
+      hasSession: () => true,
+      onSessionLost: () => {},
     },
   }),
 }))

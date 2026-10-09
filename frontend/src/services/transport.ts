@@ -33,6 +33,18 @@ function deriveCollabWsBaseUrl(): string {
   return baseUrl.replace(/^http/, 'ws') + '/collaboration/ws'
 }
 
+/**
+ * Clear the JS-readable CSRF cookie, so `hasSession()` (and the store's
+ * isAuthenticated) flips false at once. The httpOnly access/refresh cookies
+ * are the server's to clear. The name is `__Host-csrf_token` on https (which
+ * needs `secure` in the clearing string) and `csrf_token` on plain-http dev.
+ */
+function clearCsrfCookie(): void {
+  const expired = 'expires=Thu, 01 Jan 1970 00:00:00 GMT'
+  document.cookie = `__Host-csrf_token=; path=/; secure; ${expired}`
+  document.cookie = `csrf_token=; path=/; ${expired}`
+}
+
 const cookieAuthStrategy: AuthStrategy = {
   authHeaders(): Record<string, string> {
     const csrf = getCsrfToken()
@@ -43,18 +55,12 @@ const cookieAuthStrategy: AuthStrategy = {
   hasSession() {
     return getCsrfToken() !== null
   },
-  // The auth cookies are httpOnly, so JS can't clear them; the server's
-  // /auth/logout does. A no-op here keeps the long-standing web behaviour.
-  onSessionLost() {},
+  // The refresh was rejected: the session is over, so this browser no longer
+  // holds one. The next sign-in, of any kind, sets a new CSRF cookie.
+  onSessionLost: clearCsrfCookie,
+  // Intentional sign-out. The server's /auth/logout clears the httpOnly cookies.
   async endSession() {
-    // Clear the JS-accessible CSRF cookie on intentional sign-out so
-    // `hasSession()` (and the store's isAuthenticated) flips false at once.
-    // The httpOnly access/refresh cookies are cleared server-side by
-    // /auth/logout. The name is `__Host-csrf_token` on https (which needs
-    // `secure` in the clearing string) and `csrf_token` on plain-http dev.
-    const expired = 'expires=Thu, 01 Jan 1970 00:00:00 GMT'
-    document.cookie = `__Host-csrf_token=; path=/; secure; ${expired}`
-    document.cookie = `csrf_token=; path=/; ${expired}`
+    clearCsrfCookie()
   },
 }
 
