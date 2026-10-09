@@ -79,6 +79,7 @@ mod migration_backfill_existing_workspace;
 mod migration_email_suppressions_scope;
 mod migration_knowledge_gap_subject_page;
 mod migration_merge_notes_internal;
+mod migration_portal_share_staff_requests;
 mod migration_reserved_slugs;
 mod migration_ticket_numbers;
 mod migration_version_lint;

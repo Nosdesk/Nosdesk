@@ -756,3 +756,85 @@ fn a_push_to_a_merged_ticket_the_caller_cant_see_is_forbidden() {
     .expect_err("refused");
     assert_eq!(reason, "forbidden");
 }
+
+/// A requester set through push is judged by their role at that moment: the
+/// ticket handed to an agent is raised by staff and stays out of a colleague's
+/// shared portal view after the agent is demoted, and one handed back to an
+/// ordinary requester is shared again.
+#[test]
+fn push_setting_the_requester_decides_whether_staff_raised_it() {
+    use super::push::PushTransaction;
+    use crate::db::DbConnection;
+    use crate::repository::ticket_visibility::{can_view_ticket, VisibilityContext};
+    use crate::schema::workspace_members;
+
+    let mut conn = setup_test_connection();
+    let person = |conn: &mut DbConnection, name: &str, role: &str, email: &str| {
+        let u = TestFixtures::create_user(conn, name, role);
+        TestFixtures::create_user_email(conn, u.uuid, email, true);
+        u
+    };
+    let admin = TestFixtures::create_user(&mut conn, "sync_push_raised_admin", "admin");
+    let viewer = person(
+        &mut conn,
+        "sync_push_raised_viewer",
+        "user",
+        "viewer@raised.test",
+    );
+    let colleague = person(
+        &mut conn,
+        "sync_push_raised_colleague",
+        "user",
+        "colleague@raised.test",
+    );
+    let agent = person(
+        &mut conn,
+        "sync_push_raised_agent",
+        "technician",
+        "agent@raised.test",
+    );
+    let ticket = TestFixtures::create_ticket(
+        &mut conn,
+        "Badge stopped working",
+        Some(colleague.uuid),
+        None,
+    );
+    let shared = VisibilityContext::portal_sharing(viewer.uuid, false);
+    assert!(
+        can_view_ticket(&mut conn, &shared, ticket.id).unwrap(),
+        "a colleague's request"
+    );
+
+    let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
+    let push_requester = |conn: &mut DbConnection, requester: Uuid| {
+        let tx = PushTransaction {
+            tx_id: Uuid::now_v7().to_string(),
+            aggregate: SyncAggregate::Ticket,
+            model_id: ticket.id.to_string(),
+            op: SyncOp::Update,
+            patch: json!({ "requester_uuid": requester.to_string() }),
+            base_sync_id: None,
+        };
+        super::push::apply_transaction_for_test(conn, &tx, &actor).expect("push");
+    };
+
+    push_requester(&mut conn, agent.uuid);
+    diesel::update(
+        workspace_members::table
+            .filter(workspace_members::user_uuid.eq(agent.uuid))
+            .filter(workspace_members::removed_at.is_null()),
+    )
+    .set(workspace_members::role.eq("member"))
+    .execute(&mut conn)
+    .expect("demote the agent");
+    assert!(
+        !can_view_ticket(&mut conn, &shared, ticket.id).unwrap(),
+        "handed to an agent: raised by staff, demoted or not"
+    );
+
+    push_requester(&mut conn, colleague.uuid);
+    assert!(
+        can_view_ticket(&mut conn, &shared, ticket.id).unwrap(),
+        "handed back to a requester: shared again"
+    );
+}

@@ -80,10 +80,10 @@ pub struct SiteSettings {
     pub email_logo: Option<serde_json::Value>,
     /// The email-ready copy of `logo_light_url`.
     pub email_logo_light: Option<serde_json::Value>,
-    /// With `portal_share_by_domain` on, also share requests whose requester
-    /// is workspace staff (agent, admin, owner). Off: staff raising a request
-    /// under their own name (offboarding, incident follow-ups) keeps it out of
-    /// the shared view.
+    /// With `portal_share_by_domain` on, also share requests raised by staff
+    /// (`tickets.raised_by_staff`). Off: a request an agent or admin raised
+    /// under their own name (offboarding, incident follow-ups) stays out of the
+    /// shared view.
     pub portal_share_staff_requests: bool,
 }
 

@@ -46,7 +46,7 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::extractors::AuthContext;
 use crate::models::{Claims, PlatformRole, WorkspaceRole};
-use crate::schema::{ticket_watchers, tickets, users, workspace_members};
+use crate::schema::{ticket_watchers, tickets};
 
 /// Which comments a reader may see on a ticket they can already reach.
 ///
@@ -108,8 +108,9 @@ pub struct VisibilityContext {
     /// email domain (the workspace's organisation-visibility setting). Set by
     /// [`Self::portal_sharing`] only after the domain is known to be shareable.
     share_domain: bool,
-    /// With `share_domain`: also requests whose requester is staff. Off, a
-    /// request an agent or admin raised under their own name isn't shared.
+    /// With `share_domain`: also requests raised by staff
+    /// (`tickets.raised_by_staff`). Off, a request an agent or admin raised
+    /// under their own name isn't shared.
     share_staff: bool,
 }
 
@@ -214,39 +215,6 @@ fn same_domain_requester(
     )
 }
 
-/// Tickets whose requester is staff in the pinned workspace: a platform admin,
-/// or a member at agent tier or above (the split `VisibilityContext::new`
-/// draws). A removed staff member counts too, so a request they raised under
-/// their own name doesn't become shared when they leave.
-/// Nullable because `requester_uuid` is: a ticket with no requester yields
-/// NULL, which no shared-view clause admits anyway.
-fn staff_requester() -> Box<
-    dyn diesel::BoxableExpression<
-        tickets::table,
-        Pg,
-        SqlType = diesel::sql_types::Nullable<diesel::sql_types::Bool>,
-    >,
-> {
-    let staff_roles: Vec<&'static str> = WorkspaceRole::ALL
-        .iter()
-        .filter(|r| r.is_staff())
-        .map(|r| r.as_str())
-        .collect();
-    // members-any-status: a request raised as staff stays unshared after its author leaves
-    let staff_members = workspace_members::table
-        .filter(workspace_members::workspace_id.eq(crate::repository::pinned_workspace()))
-        .filter(workspace_members::role.eq_any(staff_roles))
-        .select(workspace_members::user_uuid.nullable());
-    let platform_admins = users::table
-        .filter(users::platform_role.eq(PlatformRole::PlatformAdmin.as_str()))
-        .select(users::uuid.nullable());
-    Box::new(
-        tickets::requester_uuid
-            .eq_any(staff_members)
-            .or(tickets::requester_uuid.eq_any(platform_admins)),
-    )
-}
-
 /// Tickets not awaiting guest email confirmation (NULL or any other state).
 fn not_pending() -> diesel::dsl::Or<
     diesel::dsl::IsNull<tickets::verification_state>,
@@ -288,7 +256,7 @@ pub fn visible_tickets_query<'a>(ctx: &VisibilityContext) -> tickets::BoxedQuery
     if ctx.share_staff {
         own.or_filter(shared)
     } else {
-        own.or_filter(shared.and(diesel::dsl::not(staff_requester())))
+        own.or_filter(shared.and(tickets::raised_by_staff.eq(false)))
     }
 }
 
@@ -609,6 +577,7 @@ mod tests {
 
     #[test]
     fn portal_sharing_leaves_out_staff_requests_unless_included() {
+        use crate::schema::{users, workspace_members};
         let mut conn = setup_test_connection();
         let person = |conn: &mut DbConnection, name: &str, role: &str, email: &str| {
             let u = TestFixtures::create_user(conn, name, role);
@@ -630,19 +599,12 @@ mod tests {
             .set(users::platform_role.eq(PlatformRole::PlatformAdmin.as_str()))
             .execute(&mut conn)
             .unwrap();
-        // An agent who has since left the workspace.
         let former = person(
             &mut conn,
             "staff_share_former",
             "technician",
             "former@corp.test",
         );
-        diesel::update(
-            workspace_members::table.filter(workspace_members::user_uuid.eq(former.uuid)),
-        )
-        .set(workspace_members::removed_at.eq(Some(chrono::Utc::now())))
-        .execute(&mut conn)
-        .unwrap();
 
         let ticket = |conn: &mut DbConnection, who: &crate::models::User| {
             TestFixtures::create_ticket(conn, &who.name, Some(who.uuid), None).id
@@ -654,6 +616,13 @@ mod tests {
             ticket(&mut conn, &root),
             ticket(&mut conn, &former),
         ];
+        // The agent leaves after raising theirs: it was still raised by staff.
+        diesel::update(
+            workspace_members::table.filter(workspace_members::user_uuid.eq(former.uuid)),
+        )
+        .set(workspace_members::removed_at.eq(Some(chrono::Utc::now())))
+        .execute(&mut conn)
+        .unwrap();
         let all: Vec<i32> = std::iter::once(bobs).chain(staff).collect();
 
         let without = VisibilityContext::portal_sharing(alice.uuid, false);
@@ -671,6 +640,64 @@ mod tests {
             visible_ticket_ids(&mut conn, &with, &all).unwrap(),
             all.iter().copied().collect(),
             "staff requests are shared once included"
+        );
+    }
+
+    /// `raised_by_staff` is fixed when the ticket is raised: an update that
+    /// keeps the requester can't rewrite it.
+    #[test]
+    fn raised_by_staff_survives_an_update_that_keeps_the_requester() {
+        let mut conn = setup_test_connection();
+        let agent = TestFixtures::create_user(&mut conn, "raised_keep_agent", "technician");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Offboarding", Some(agent.uuid), None);
+        diesel::update(tickets::table.find(ticket.id))
+            .set((
+                tickets::raised_by_staff.eq(false),
+                tickets::title.eq("Offboarding, done"),
+            ))
+            .execute(&mut conn)
+            .unwrap();
+        let marked: bool = tickets::table
+            .find(ticket.id)
+            .select(tickets::raised_by_staff)
+            .first(&mut conn)
+            .unwrap();
+        assert!(marked, "still raised by staff");
+    }
+
+    /// A workspace import inserts the exported value as it is, whichever of
+    /// tickets and memberships loads first.
+    #[test]
+    fn an_import_keeps_the_exported_raised_by_staff() {
+        let mut conn = setup_test_connection();
+        let agent = TestFixtures::create_user(&mut conn, "raised_import_agent", "technician");
+        let member = TestFixtures::create_user(&mut conn, "raised_import_member", "user");
+        let state = crate::repository::workflow_states::default_state(&mut conn)
+            .unwrap()
+            .id;
+        // What workspace_import sets for its transaction.
+        diesel::sql_query("SET LOCAL nosdesk.in_audit_read = 'true'")
+            .execute(&mut conn)
+            .unwrap();
+        let insert = |conn: &mut DbConnection, requester: Uuid, marked: bool| -> bool {
+            diesel::insert_into(tickets::table)
+                .values((
+                    tickets::title.eq("Imported"),
+                    tickets::workflow_state_id.eq(state),
+                    tickets::requester_uuid.eq(requester),
+                    tickets::raised_by_staff.eq(marked),
+                ))
+                .returning(tickets::raised_by_staff)
+                .get_result(conn)
+                .unwrap()
+        };
+        assert!(
+            !insert(&mut conn, agent.uuid, false),
+            "raised before they were an agent"
+        );
+        assert!(
+            insert(&mut conn, member.uuid, true),
+            "raised while they were staff"
         );
     }
 }

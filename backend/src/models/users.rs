@@ -81,9 +81,6 @@ pub enum WorkspaceRole {
 }
 
 impl WorkspaceRole {
-    /// Every role, lowest first.
-    pub const ALL: [WorkspaceRole; 4] = [Self::Member, Self::Agent, Self::Admin, Self::Owner];
-
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Owner => "owner",

@@ -438,6 +438,7 @@ mod tests {
             sla_override: "auto".to_string(),
             approval_state: None,
             number: 7,
+            raised_by_staff: false,
         }
     }
 
