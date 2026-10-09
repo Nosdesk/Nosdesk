@@ -38,7 +38,7 @@ describe('two requests refused at once with an expired token', () => {
 
     const results = await Promise.all([sync, api])
     expect(http.fetch).toHaveBeenCalledTimes(1)
-    expect(results).toEqual([true, true])
+    expect(results).toEqual(['renewed', 'renewed'])
     expect(http.fetch).toHaveBeenCalledTimes(1)
     expect(transport().auth.authHeaders().Authorization).toBe('Bearer access-2')
   })

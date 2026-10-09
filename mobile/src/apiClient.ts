@@ -17,6 +17,7 @@ import {
   requestHeaders,
   transport,
 } from '@nosdesk/core/transport'
+import { refreshSession } from '@nosdesk/core/services/session'
 import axios, { CanceledError } from 'axios'
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { tauriHttpAdapter } from './tauriHttpAdapter'
@@ -76,11 +77,9 @@ export function setupApiClient(): void {
         return Promise.reject(error)
       }
       original._retry = true
-      // The transport shares one in-flight refresh with the sync runtime.
-      const refreshed = await transport().auth.refresh()
-      if (refreshed) return apiClient(original)
-      // Session can't be renewed: clear local state and surface the 401.
-      transport().auth.onSessionLost()
+      // One in-flight refresh, shared with the sync runtime. A rejected one
+      // has already cleared the session (refreshSession); surface the 401.
+      if ((await refreshSession()) === 'renewed') return apiClient(original)
       return Promise.reject(error)
     },
   )

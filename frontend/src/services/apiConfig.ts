@@ -6,6 +6,8 @@ import { ErrorTracker } from '@/utils/errorTracking';
 import { getSSEClientId } from '@/services/sseService';
 import { getSessionId as getDiagnosticsSessionId } from '@/services/diagnostics/session';
 import { pushApi as pushApiBreadcrumb } from '@/services/diagnostics/breadcrumbs';
+import { redirectToLogin } from '@/services/sessionLost';
+import { refreshSession } from '@nosdesk/core/services/session';
 // Transport seam: base URL, credential mode, and auth headers are resolved at
 // request time so the same axios client serves both the web (cookie + CSRF)
 // and mobile (bearer) surfaces. The host wires the active strategy at
@@ -106,25 +108,6 @@ function onRefreshComplete(success: boolean) {
   refreshSubscribers = [];
 }
 
-
-// The session can't be renewed (it expired, or was revoked elsewhere): sign
-// out locally and land on /login. Only pushing /login is not enough, since the
-// router sends a still-populated auth store straight back home, and the
-// workspace data would stay on screen. logout() clears both; its own server
-// call 401s quietly because it marks the session as tearing down.
-function redirectToLogin() {
-  sessionStorage.setItem('redirecting-to-login', 'true');
-  localStorage.removeItem('authProvider');
-
-  setTimeout(async () => {
-    try {
-      const { useAuthStore } = await import('@/stores/auth');
-      await useAuthStore().logout();
-    } finally {
-      sessionStorage.removeItem('redirecting-to-login');
-    }
-  }, 100);
-}
 
 // Add request interceptor for CSRF token and correlation ID
 apiClient.interceptors.request.use(
@@ -285,13 +268,8 @@ apiClient.interceptors.response.use(
       // A 401 from the refresh endpoint itself means the session
       // genuinely can't be renewed -> send the user to login.
       if (originalRequest.url?.includes('/auth/refresh')) {
-        const onPublicAuthPage =
-          window.location.pathname.includes('/login') ||
-          window.location.pathname.includes('/onboarding');
-        if (!onPublicAuthPage && !sessionStorage.getItem('redirecting-to-login')) {
-          logger.warn('Session expired (refresh rejected) - redirecting to login', { correlationId });
-          redirectToLogin();
-        }
+        logger.warn('Session expired (refresh rejected) - redirecting to login', { correlationId });
+        redirectToLogin();
         return Promise.reject(appError);
       }
 
@@ -329,9 +307,12 @@ apiClient.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const refreshSuccess = await transport().auth.refresh();
+        // The shared refresh: a rejected one signs the person out (once,
+        // whoever hit the 401); an unreachable server signs nobody out, and
+        // this request fails like any other while offline.
+        const result = await refreshSession();
 
-        if (refreshSuccess) {
+        if (result === 'renewed') {
           logger.debug('Token refreshed successfully', { correlationId });
           onRefreshComplete(true);
           isRefreshing = false;
@@ -339,17 +320,9 @@ apiClient.interceptors.response.use(
           // Retry original request
           return apiClient(originalRequest);
         } else {
-          logger.warn('Token refresh failed', { correlationId });
+          logger.warn('Token refresh failed', { correlationId, result });
           onRefreshComplete(false);
           isRefreshing = false;
-
-          // Redirect to login (but not from first-run setup)
-          const onPublicAuthPage =
-            window.location.pathname.includes('/login') ||
-            window.location.pathname.includes('/onboarding');
-          if (!onPublicAuthPage && !sessionStorage.getItem('redirecting-to-login')) {
-            redirectToLogin();
-          }
         }
       } catch {
         onRefreshComplete(false);

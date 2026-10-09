@@ -17,7 +17,9 @@ import {
   configureTransport,
   proxiedAssetResolver,
   type AuthStrategy,
+  type RefreshResult,
 } from '@nosdesk/core/transport'
+import { sessionStarted } from '@nosdesk/core/services/session'
 import { resetInstanceConfig } from '@nosdesk/core/services/instanceConfig'
 import { apiBaseUrlFor, collabWsBaseUrlFor, storeServer } from './serverConfig'
 import type { SecureStore } from './secureStore'
@@ -76,6 +78,7 @@ export function setSecureStore(secureStore: SecureStore): void {
 export async function setSession(access: string, refresh: string): Promise<void> {
   accessToken = access
   refreshToken = refresh
+  sessionStarted()
   await store?.save(refresh)
   syncAssetProxy()
 }
@@ -97,9 +100,13 @@ export async function clearSession(): Promise<void> {
   syncAssetProxy()
 }
 
-/** Trade the refresh token for a new pair. Called only through `refresh()`. */
-async function rotateTokens(): Promise<boolean> {
-  if (!refreshToken) return false
+/**
+ * Trade the refresh token for a new pair. Called only through `refresh()`.
+ * Only a 401 means the session is over; no answer or another failure leaves
+ * the tokens in place for a later try.
+ */
+async function rotateTokens(): Promise<RefreshResult> {
+  if (!refreshToken) return 'rejected'
   try {
     // Native fetch (off the webview / off the axios interceptor stack).
     const res = await tauriFetch(`${apiBaseUrl()}/auth/refresh`, {
@@ -107,20 +114,21 @@ async function rotateTokens(): Promise<boolean> {
       headers: { 'Content-Type': 'application/json', 'X-Auth-Mode': 'bearer' },
       body: JSON.stringify({ refresh_token: refreshToken }),
     })
-    if (!res.ok) return false
+    if (res.status === 401) return 'rejected'
+    if (!res.ok) return 'unavailable'
     const data = (await res.json()) as BearerTokens
-    if (!data.access_token || !data.refresh_token) return false
+    if (!data.access_token || !data.refresh_token) return 'unavailable'
     accessToken = data.access_token
     refreshToken = data.refresh_token
     await store?.save(data.refresh_token)
     syncAssetProxy()
-    return true
+    return 'renewed'
   } catch {
-    return false
+    return 'unavailable'
   }
 }
 
-let refreshInFlight: Promise<boolean> | null = null
+let refreshInFlight: Promise<RefreshResult> | null = null
 
 const bearerAuthStrategy: AuthStrategy = {
   authHeaders() {

@@ -21,7 +21,7 @@ import { setReferenceFetcher } from '@nosdesk/core/sync/composables'
 import { notifySyncActions } from '@nosdesk/core/sync/observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
-import { syncFetch } from './syncFetch'
+import { authFetch } from '@/services/authFetch'
 import { workspaceReady, workspaceReadyRef } from '@/services/activeWorkspace'
 import type {
   BootstrapLine,
@@ -470,7 +470,7 @@ export async function fetchServerIdentity(): Promise<{
   instanceId: string
 }> {
   try {
-    const res = await syncFetch('/sync/schema')
+    const res = await authFetch('/sync/schema')
     if (!res.ok) return { schemaHash: 'unknown', instanceId: '' }
     const body = (await res.json()) as { server_schema?: string; instance_id?: string }
     return {
@@ -587,7 +587,7 @@ export async function pullDelta(): Promise<boolean> {
   if (fromXid8 > 0) url += `&from_xid8=${fromXid8}`
   const epoch = pool.currentEpoch()
   try {
-    const res = await syncFetch(url)
+    const res = await authFetch(url)
     if (!res.ok) {
       logger.warn('sync delta failed', { status: res.status })
       return false
@@ -690,7 +690,7 @@ async function runBootstrap(groups: string[]): Promise<void> {
   const epoch = pool.currentEpoch()
   let res: Response
   try {
-    res = await syncFetch(url)
+    res = await authFetch(url)
   } catch (e) {
     logger.error('sync bootstrap network error', { error: e })
     return

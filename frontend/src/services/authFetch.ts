@@ -1,22 +1,20 @@
 import { apiBaseUrl, transport } from '@nosdesk/core/transport'
+import { refreshSession } from '@nosdesk/core/services/session'
 import { workspaceHeaders } from '@/services/activeWorkspace'
 
 /**
- * `fetch` for the sync runtime that survives an expired (15 min) access
- * token. Sync uses raw fetch (streaming bootstrap, no axios), so it doesn't
- * inherit the axios client's refresh-on-401. On a 401 it runs the shared,
- * deduplicated refresh once and retries; that single refresh is coordinated
- * with the axios client so the token-rotating endpoint is never hit twice
- * concurrently. On refresh failure the original 401 response is returned and
- * the caller backs off (the axios client owns redirect-to-login for a dead
- * session).
+ * `fetch` an API path with the transport's auth, for callers that can't use
+ * the axios client (streaming sync, the sync push, file downloads). On a 401
+ * it runs the shared refresh once and retries. A rejected refresh has already
+ * signed the person out and an unreachable server signs nobody out; either
+ * way the original 401 comes back and the caller backs off.
  *
  * Base URL, auth headers (the CSRF middleware requires the double-submit
  * header on a POST), the selection header (empty in host mode) and credential
  * mode all come from the transport seam. `init.body` must be resendable (a
  * string), since a 401 sends it twice.
  */
-export async function syncFetch(path: string, init: RequestInit = {}): Promise<Response> {
+export async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const url = `${apiBaseUrl()}${path}`
   const credentials: RequestCredentials = transport().auth.useCredentials ? 'include' : 'omit'
   // Built per attempt: a refresh replaces a bearer client's (mobile's) token,
@@ -34,7 +32,6 @@ export async function syncFetch(path: string, init: RequestInit = {}): Promise<R
     })
   const res = await attempt()
   if (res.status !== 401) return res
-  const refreshed = await transport().auth.refresh()
-  if (!refreshed) return res
+  if ((await refreshSession()) !== 'renewed') return res
   return attempt()
 }

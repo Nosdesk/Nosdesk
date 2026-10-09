@@ -111,14 +111,13 @@ vi.mock('@/services/collabToken', () => ({
   },
 }))
 
-// Whether the app still holds a session (the transport's `hasSession()`).
+// Whether the app still holds a session: core's `sessionGone()` is true once
+// the shared refresh was rejected or no session is held.
 const session = vi.hoisted(() => ({ present: true }))
-vi.mock('@nosdesk/core/transport', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@nosdesk/core/transport')>()),
-  transport: () => ({ auth: { hasSession: () => session.present } }),
-}))
+vi.mock('@nosdesk/core/services/session', () => ({ sessionGone: () => !session.present }))
 
 import { useCollabSessionStore } from '@/stores/collabSession'
+import { logger } from '@nosdesk/core/utils/logger'
 
 const OPTS = { baseWsUrl: 'ws://test/collab' }
 
@@ -269,17 +268,35 @@ describe('a note the server refuses', () => {
     expect(store.connectionRefusal['doc-a']).toBe('signed-out')
   })
 
-  it('does not say signed out when a fresh token is refused but the session holds', async () => {
+  it('keeps fetching fresh tokens, spaced out, when a fresh one is refused but the session holds', async () => {
+    const warn = vi.spyOn(logger, 'warn')
     openNote()
-    providers[0].open()
-    providers[0].serverClose(4401)
     await vi.advanceTimersByTimeAsync(0)
+    token.next = Promise.resolve('fresh-1')
 
     providers[0].open()
     providers[0].serverClose(4401)
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(token.resets).toBe(1)
-    expect(store.connectionRefusal['doc-a']).toBe('no-access')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(providers[0].connectedWith.at(-1)).toBe('fresh-1')
+    token.next = Promise.resolve('fresh-2')
+
+    // The fresh token is refused too: not signed out, not "no access".
+    providers[0].open()
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
+    expect(store.connectionBadge['doc-a']).toBe('reconnecting')
+    expect(providers[0].connectedWith.at(-1)).toBe('fresh-1')
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('refused a fresh token'),
+      expect.anything(),
+    )
+
+    // After the backoff, another fresh token.
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(providers[0].connectedWith.at(-1)).toBe('fresh-2')
+    expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
+    warn.mockRestore()
   })
 
   it('reconnects with a new token when the first fetch for one fails, and never says signed out', async () => {

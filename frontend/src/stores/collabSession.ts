@@ -36,7 +36,8 @@ import { ref } from 'vue'
 
 import { logger } from '@nosdesk/core/utils/logger'
 import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData'
-import { collabWsBaseUrl, transport } from '@nosdesk/core/transport'
+import { collabWsBaseUrl } from '@nosdesk/core/transport'
+import { sessionGone } from '@nosdesk/core/services/session'
 import { discardCollabToken, getCollabToken, peekCollabToken } from '@/services/collabToken'
 
 /**
@@ -136,7 +137,8 @@ interface LinkState {
   attempt: number
   /** The next try at fetching a token, after a failed one. */
   retryTimer: ReturnType<typeof setTimeout> | null
-  /** Failed token fetches in a row; spaces out the retries. */
+  /** Failed or refused tokens since the server last served the doc; spaces
+   *  out the retries. */
   tokenFailures: number
   /** The server closed the socket for good (a 44xx close). Cleared when a
    *  connect is started again. */
@@ -204,12 +206,6 @@ const TOKEN_RETRY_MAX_MS = 30_000
  *  must not reconnect them. */
 const retiredProviders = new WeakSet<WebsocketProvider>()
 
-/** Whether the app still holds a session. Only when it doesn't is a refused
- *  token "signed out"; the app decides that, not the collab connection. */
-function sessionPresent(): boolean {
-  return transport().auth.hasSession()
-}
-
 /** Stop any connect in progress: a pending token fetch or retry no longer
  *  connects when it finishes. */
 function stopConnecting(provider: WebsocketProvider): void {
@@ -232,7 +228,8 @@ function stopConnecting(provider: WebsocketProvider): void {
  * A failed fetch never connects with the token the provider already holds
  * (the server may have refused it): the doc stays reconnecting and the fetch
  * is retried with backoff, or at once when the device comes back online. If
- * the session is gone, the doc is signed out instead.
+ * the session is gone (`sessionGone`: the shared refresh was rejected, or no
+ * session is held), the doc is signed out instead.
  */
 async function connectWithValidToken(provider: WebsocketProvider): Promise<void> {
   stopConnecting(provider)
@@ -273,25 +270,34 @@ async function connectWithValidToken(provider: WebsocketProvider): Promise<void>
   }
   if (token !== null) {
     link.tokenPending = false
-    link.tokenFailures = 0
     provider.params = { token }
     provider.connect()
     link.changed()
     return
   }
-  if (!sessionPresent()) {
+  if (sessionGone()) {
     link.tokenPending = false
     link.terminal = true
     link.refusal = 'signed-out'
     link.changed()
     return
   }
+  retryTokenLater(provider)
+}
+
+/** Fetch a fresh token and connect after a backoff; reconnecting meanwhile. */
+function retryTokenLater(provider: WebsocketProvider): void {
+  const link = linkState(provider)
+  if (link.retryTimer) clearTimeout(link.retryTimer)
+  provider.shouldConnect = false
+  link.tokenPending = true
   const delay = Math.min(TOKEN_RETRY_MAX_MS, TOKEN_RETRY_FIRST_MS * 2 ** link.tokenFailures)
   link.tokenFailures++
   link.retryTimer = setTimeout(() => {
     link.retryTimer = null
     void connectWithValidToken(provider)
   }, delay)
+  link.changed()
 }
 
 /**
@@ -719,25 +725,38 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       const link = linkState(provider)
       const refusal = refusalFor(event?.code)
       // A refused token may only be stale (it outlived its short life, or a
-      // clock is off): fetch a fresh one and try once more before saying the
-      // person is signed out.
+      // clock is off): fetch a fresh one and try again at once.
       if (refusal === 'signed-out' && !link.retriedToken) {
         link.retriedToken = true
         discardCollabToken()
         void connectWithValidToken(provider)
         return
       }
+      // A fresh token refused too, while the session holds, is a token
+      // problem, not the person signed out: keep fetching fresh ones, spaced
+      // out, and say so in the log in case the server keeps refusing.
+      if (refusal === 'signed-out' && !sessionGone()) {
+        logger.warn('Collab session: the server refused a fresh token; fetching another', {
+          docId,
+          attempts: link.tokenFailures + 1,
+        })
+        stopConnecting(provider)
+        discardCollabToken()
+        retryTokenLater(provider)
+        return
+      }
       link.terminal = true
-      // A refused token means signed out only once the session is gone. A
-      // fresh token refused while it holds is this connection being refused.
-      link.refusal = refusal === 'signed-out' && sessionPresent() ? 'no-access' : refusal
+      link.refusal = refusal
       refreshStatus(entry)
     }
     // The server served the document: a later refused token is a new
     // problem, worth one fresh token again. Not on `connected`: a refused
     // connection is upgraded (and so reports connected) before it is closed.
     const onSync = (synced: boolean) => {
-      if (synced) linkState(provider).retriedToken = false
+      if (!synced) return
+      const link = linkState(provider)
+      link.retriedToken = false
+      link.tokenFailures = 0
     }
     const entry: SessionEntry = {
       docId,

@@ -1,6 +1,7 @@
 // Service for handling authenticated file access
 import { logger } from '@nosdesk/core/utils/logger';
 import { assetUrl } from '@nosdesk/core/transport';
+import { authFetch } from '@/services/authFetch';
 
 // Generate an authenticated URL for a file
 // Note: Authentication is handled via httpOnly cookies automatically by the browser
@@ -26,14 +27,11 @@ export const convertToAuthenticatedPath = (originalPath: string): string => {
   return assetUrl(path)
 }
 
-// Download a file with authentication
-// Note: Authentication is handled via httpOnly cookies sent automatically
+// Download a file (an `/api/files/...` path) with the transport's auth,
+// refreshing an expired session once.
 export const downloadAuthenticatedFile = async (filePath: string, filename?: string): Promise<void> => {
   try {
-    // Fetch includes credentials (cookies) automatically with same-origin requests
-    const response = await fetch(filePath, {
-      credentials: 'same-origin'
-    })
+    const response = await authFetch(filePath.replace(/^\/api(?=\/)/, ''))
 
     if (!response.ok) {
       throw new Error(`Failed to download file: ${response.statusText}`)

@@ -13,7 +13,7 @@
  * next boot.
  */
 import { logger } from '@nosdesk/core/utils/logger'
-import { syncFetch } from './syncFetch'
+import { authFetch } from '@/services/authFetch'
 import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
 import type { PushResponse, PushTransaction, SyncAggregate } from '@nosdesk/core/sync/types'
@@ -169,9 +169,9 @@ export async function flush(): Promise<void> {
       let response: PushResponse | null = null
       const epoch = pool.currentEpoch()
       try {
-        // Raw fetch (not apiClient) by design; `syncFetch` refreshes an
+        // Raw fetch (not apiClient) by design; `authFetch` refreshes an
         // expired session and retries once, like every other sync request.
-        const res = await syncFetch('/sync/push', {
+        const res = await authFetch('/sync/push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(wirePayload),
