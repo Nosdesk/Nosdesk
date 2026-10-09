@@ -195,6 +195,18 @@ impl SlaPolicyBody {
     }
 }
 
+impl SlaPolicyBody {
+    /// Refuses a target under one minute. Zero would read as "no target"
+    /// and switch that timer off; a policy leaves a target out for none.
+    pub fn check_targets(&self) -> Result<(), &'static str> {
+        let targets = [self.target_response_minutes, self.target_resolution_minutes];
+        if targets.into_iter().flatten().any(|minutes| minutes < 1) {
+            return Err("An SLA target must be at least 1 minute. Leave it empty for no target");
+        }
+        Ok(())
+    }
+}
+
 /// A policy's stored priority filter; `None` when it has none or no such
 /// policy exists.
 pub fn stored_priority_filter(conn: &mut DbConnection, id: i32) -> QueryResult<Option<String>> {

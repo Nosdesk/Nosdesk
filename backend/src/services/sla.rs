@@ -646,27 +646,9 @@ fn push_anchor_past_pause(
     paused_at: NaiveDateTime,
     now: DateTime<Utc>,
 ) -> NaiveDateTime {
-    use crate::schema::{working_calendar_holidays, working_calendars};
-    use diesel::prelude::*;
-
-    let Some(cal_id) = policy.working_calendar_id else {
+    let Some((calendar, holidays)) = load_calendar_for_policy(conn, policy) else {
         return anchor;
     };
-    let Ok(calendar) = working_calendars::table
-        .find(cal_id)
-        .first::<WorkingCalendar>(conn)
-    else {
-        return anchor;
-    };
-    let holiday_rows: Vec<WorkingCalendarHoliday> = working_calendar_holidays::table
-        .filter(working_calendar_holidays::calendar_id.eq(cal_id))
-        .load(conn)
-        .unwrap_or_default();
-    let year = Utc::now().year();
-    let holidays: HashSet<NaiveDate> = holiday_rows
-        .iter()
-        .flat_map(|h| crate::repository::sla::expand_holiday(h, year))
-        .collect();
 
     let paused_from = DateTime::<Utc>::from_naive_utc_and_offset(paused_at, Utc);
     let paused_business = business_minutes_between(paused_from, now, &calendar, &holidays);
@@ -674,13 +656,126 @@ fn push_anchor_past_pause(
     add_business_minutes(anchor_utc, paused_business, &calendar, &holidays).naive_utc()
 }
 
+/// The calendar a policy's targets are measured on. A policy without one of
+/// its own (none was chosen, or its calendar was deleted, which clears the
+/// link) uses its workspace's default calendar, else the workspace's first.
+/// `None` only when the workspace has no calendar at all. Before, such a
+/// policy switched SLA off for every ticket it matched.
+pub fn calendar_for_policy<'a>(
+    policy: &SlaPolicy,
+    calendars: &'a HashMap<i32, WorkingCalendar>,
+) -> Option<&'a WorkingCalendar> {
+    if let Some(own) = policy.working_calendar_id.and_then(|id| calendars.get(&id)) {
+        return Some(own);
+    }
+    let mut same_workspace = calendars
+        .values()
+        .filter(|c| c.workspace_id == policy.workspace_id);
+    let first = same_workspace.clone().min_by_key(|c| c.id);
+    same_workspace.find(|c| c.is_default).or(first)
+}
+
+/// [`calendar_for_policy`] read from the database, with the chosen
+/// calendar's holidays expanded into dates.
+pub fn load_calendar_for_policy(
+    conn: &mut crate::db::DbConnection,
+    policy: &SlaPolicy,
+) -> Option<(WorkingCalendar, HashSet<NaiveDate>)> {
+    use crate::schema::{working_calendar_holidays, working_calendars};
+    use diesel::prelude::*;
+
+    let calendars: HashMap<i32, WorkingCalendar> = working_calendars::table
+        .filter(working_calendars::workspace_id.eq(policy.workspace_id))
+        .load::<WorkingCalendar>(conn)
+        .ok()?
+        .into_iter()
+        .map(|c| (c.id, c))
+        .collect();
+    let calendar = calendar_for_policy(policy, &calendars)?.clone();
+    // Pull the full rows so annual-recurrence holidays expand into
+    // their concrete dates for the year window the engine touches.
+    // expand_holiday lives in the repository so the bootstrap path
+    // and this per-ticket path share the same rule.
+    let holiday_rows: Vec<WorkingCalendarHoliday> = working_calendar_holidays::table
+        .filter(working_calendar_holidays::calendar_id.eq(calendar.id))
+        .load(conn)
+        .unwrap_or_default();
+    let current_year = Utc::now().year();
+    let holidays: HashSet<NaiveDate> = holiday_rows
+        .iter()
+        .flat_map(|h| crate::repository::sla::expand_holiday(h, current_year))
+        .collect();
+    Some((calendar, holidays))
+}
+
+/// Recompute the SLA of every open ticket in `workspace_id` after one of
+/// its SLA policies, calendars or holidays changes, so existing tickets
+/// pick up new, changed or removed targets (the breach sweep only scans
+/// stamped targets). Tickets whose targets moved are sent to clients as
+/// `ticket.sla_updated`. One pass over the workspace's open tickets, in the
+/// caller's transaction. Returns how many tickets' targets moved.
+pub fn restamp_open_tickets(
+    conn: &mut crate::db::DbConnection,
+    workspace_id: i32,
+) -> diesel::QueryResult<usize> {
+    use crate::schema::{tickets, workflow_states};
+    use crate::sync::emit::{self, SyncEmit};
+    use diesel::prelude::*;
+
+    let open_states: Vec<i32> = workflow_states::table
+        .filter(workflow_states::workspace_id.eq(workspace_id))
+        .load::<crate::models::WorkflowState>(conn)?
+        .into_iter()
+        .filter(|s| StateClock::of(s) != StateClock::Stopped)
+        .map(|s| s.id)
+        .collect();
+    let open: Vec<Ticket> = tickets::table
+        .filter(tickets::workspace_id.eq(workspace_id))
+        .filter(tickets::workflow_state_id.eq_any(&open_states))
+        .load(conn)?;
+
+    let mut moved = 0;
+    for ticket in open {
+        let before = (
+            ticket.sla_response_target_at,
+            ticket.sla_resolution_target_at,
+        );
+        let sla = recompute_and_stamp_sla_for_ticket(conn, &ticket);
+        let after: (Option<NaiveDateTime>, Option<NaiveDateTime>) = tickets::table
+            .find(ticket.id)
+            .select((
+                tickets::sla_response_target_at,
+                tickets::sla_resolution_target_at,
+            ))
+            .first(conn)?;
+        if after == before {
+            continue;
+        }
+        moved += 1;
+        let groups = crate::sync::groups::for_ticket(conn, &ticket)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: crate::models::SyncAggregate::Ticket,
+                aggregate_id: ticket.id.to_string(),
+                op: crate::models::SyncOp::Update,
+                event_type: "ticket.sla_updated",
+                data: serde_json::json!({ "id": ticket.id, "sla": sla }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+    }
+    Ok(moved)
+}
+
 /// Load every input the engine needs for one ticket and run
 /// `compute_pill`. Returns `None` when any link in the chain is
-/// missing (no matching policy, policy without a calendar, calendar
-/// row gone, no configured targets) — callers either return null JSON
-/// or clear the materialised columns accordingly.
+/// missing (no matching policy, no calendar in the workspace, no
+/// configured targets) — callers either return null JSON or clear the
+/// materialised columns accordingly.
 fn load_pill_for_ticket(conn: &mut crate::db::DbConnection, ticket: &Ticket) -> Option<SlaPill> {
-    use crate::schema::{sla_policies, working_calendar_holidays, working_calendars};
+    use crate::schema::sla_policies;
     use diesel::prelude::*;
 
     let policies: Vec<SlaPolicy> = sla_policies::table.load(conn).ok()?;
@@ -689,21 +784,7 @@ fn load_pill_for_ticket(conn: &mut crate::db::DbConnection, ticket: &Ticket) -> 
         .and_then(|u| crate::repository::groups::get_group_ids_for_user(conn, &u).ok())
         .unwrap_or_default();
     let policy = pick_policy(&policies, ticket, &group_ids)?;
-    let cal_id = policy.working_calendar_id?;
-    let calendar: WorkingCalendar = working_calendars::table.find(cal_id).first(conn).ok()?;
-    // Pull the full rows so annual-recurrence holidays expand into
-    // their concrete dates for the year window the engine touches.
-    // expand_holiday lives in the repository so the bootstrap path
-    // and this per-ticket path share the same rule.
-    let holiday_rows: Vec<WorkingCalendarHoliday> = working_calendar_holidays::table
-        .filter(working_calendar_holidays::calendar_id.eq(cal_id))
-        .load(conn)
-        .unwrap_or_default();
-    let current_year = Utc::now().year();
-    let holidays: HashSet<NaiveDate> = holiday_rows
-        .iter()
-        .flat_map(|h| crate::repository::sla::expand_holiday(h, current_year))
-        .collect();
+    let (calendar, holidays) = load_calendar_for_policy(conn, policy)?;
     let clock = StateClock::of_state_id(conn, ticket.workflow_state_id);
     compute_pill(ticket, clock, policy, &calendar, &holidays, Utc::now())
 }
@@ -927,22 +1008,17 @@ pub fn scan_open_ticket_buckets(
             continue;
         }
 
-        // No calendar attached -> no pill; the policy still matches
-        // the ticket so it counts toward `total` but lands in
+        // No calendar in the workspace -> no pill; the policy still
+        // matches the ticket so it counts toward `total` but lands in
         // `on_track` as a neutral default.
-        let pill = policy
-            .working_calendar_id
-            .and_then(|cal_id| {
-                ctx.calendars_by_id.get(&cal_id).map(|calendar| {
-                    let holidays = ctx
-                        .holidays_by_calendar
-                        .get(&cal_id)
-                        .cloned()
-                        .unwrap_or_default();
-                    compute_pill(&ticket, clock, policy, calendar, &holidays, now)
-                })
-            })
-            .flatten();
+        let pill = calendar_for_policy(policy, &ctx.calendars_by_id).and_then(|calendar| {
+            let holidays = ctx
+                .holidays_by_calendar
+                .get(&calendar.id)
+                .cloned()
+                .unwrap_or_default();
+            compute_pill(&ticket, clock, policy, calendar, &holidays, now)
+        });
 
         by_policy
             .entry(policy.id)
@@ -1016,6 +1092,46 @@ mod tests {
             // No need to backfill new ticket fields; the matcher
             // doesn't read them and Ticket is built per-test.
         }
+    }
+
+    #[test]
+    fn a_policy_without_a_calendar_uses_its_workspaces_default() {
+        let calendar = |id: i32, workspace_id: i32, is_default: bool| WorkingCalendar {
+            id,
+            workspace_id,
+            is_default,
+            ..cal(serde_json::json!({}))
+        };
+        let calendars: HashMap<i32, WorkingCalendar> = [
+            calendar(1, 1, false),
+            calendar(2, 1, true),
+            calendar(3, 2, true),
+        ]
+        .into_iter()
+        .map(|c| (c.id, c))
+        .collect();
+        let own = policy(1, None, false);
+        assert_eq!(calendar_for_policy(&own, &calendars).map(|c| c.id), Some(1));
+        let none = SlaPolicy {
+            working_calendar_id: None,
+            ..policy(2, None, false)
+        };
+        assert_eq!(
+            calendar_for_policy(&none, &calendars).map(|c| c.id),
+            Some(2),
+            "its own workspace's default, not another workspace's"
+        );
+        let without_default: HashMap<i32, WorkingCalendar> =
+            [calendar(5, 1, false), calendar(4, 1, false)]
+                .into_iter()
+                .map(|c| (c.id, c))
+                .collect();
+        assert_eq!(
+            calendar_for_policy(&none, &without_default).map(|c| c.id),
+            Some(4),
+            "with no default, the workspace's first calendar"
+        );
+        assert!(calendar_for_policy(&none, &HashMap::new()).is_none());
     }
 
     fn ticket(assignee: Option<Uuid>) -> Ticket {

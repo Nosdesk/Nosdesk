@@ -359,6 +359,11 @@ pub fn create_ticket_with_annotation(
         } else {
             None
         };
+        // A policy that covers the new ticket gives it its targets now, so
+        // it can breach without waiting for its first edit. That may also
+        // start its clock, so the row is read again for the event.
+        crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &ticket);
+        let ticket: Ticket = tickets::table.find(ticket.id).first(conn)?;
         let groups = groups::for_ticket(conn, &ticket)?;
         // `created_via` is an additive nested object: legacy
         // consumers that look at the existing top-level fields keep
@@ -1144,11 +1149,10 @@ pub fn get_complete_ticket(
                 .and_then(|u| crate::repository::groups::get_group_ids_for_user(conn, &u).ok())
                 .unwrap_or_default();
             let policy = crate::services::sla::pick_policy(&ctx.policies, &ticket, &group_ids)?;
-            let cal_id = policy.working_calendar_id?;
-            let calendar = ctx.calendars_by_id.get(&cal_id)?;
+            let calendar = crate::services::sla::calendar_for_policy(policy, &ctx.calendars_by_id)?;
             let holidays = ctx
                 .holidays_by_calendar
-                .get(&cal_id)
+                .get(&calendar.id)
                 .cloned()
                 .unwrap_or_default();
             // What the ticket's state does to the clock: its category
