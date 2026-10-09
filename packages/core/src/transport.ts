@@ -44,7 +44,10 @@ export interface AuthStrategy {
   refresh(): Promise<RefreshResult>
   /** Is a session plausibly present? Web: CSRF cookie set. Mobile: token held. */
   hasSession(): boolean
-  /** Tear down local session state after a rejected refresh. Web: no-op. */
+  /**
+   * Tear down local session state after a rejected refresh, so `hasSession()`
+   * reads false. Web: clear the CSRF cookie. Mobile: drop the tokens.
+   */
   onSessionLost(): void
   /**
    * Intentional sign-out teardown of the client-held session, distinct from

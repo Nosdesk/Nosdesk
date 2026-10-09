@@ -4,7 +4,7 @@ import { workspaceHeaders } from '@/services/activeWorkspace'
 
 /**
  * `fetch` an API path with the transport's auth, for callers that can't use
- * the axios client (streaming sync, the sync push, file downloads). On a 401
+ * the axios client (the sync runtime's bootstrap, delta and push). On a 401
  * it runs the shared refresh once and retries. A rejected refresh has already
  * signed the person out and an unreachable server signs nobody out; either
  * way the original 401 comes back and the caller backs off.
@@ -17,16 +17,19 @@ import { workspaceHeaders } from '@/services/activeWorkspace'
 export async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const url = `${apiBaseUrl()}${path}`
   const credentials: RequestCredentials = transport().auth.useCredentials ? 'include' : 'omit'
-  // Built per attempt: a refresh replaces a bearer client's (mobile's) token,
-  // so the retry must carry the new one, not the expired one it just got a
-  // 401 for.
+  // The workspace is fixed at the first attempt: a retry after a switch must
+  // still go to the workspace the request was made for, not the new one.
+  const workspace = workspaceHeaders()
+  // Auth headers are built per attempt: a refresh replaces a bearer client's
+  // (mobile's) token, so the retry must carry the new one, not the expired
+  // one it just got a 401 for.
   const attempt = () =>
     fetch(url, {
       ...init,
       credentials,
       headers: {
         ...(init.headers as Record<string, string> | undefined),
-        ...workspaceHeaders(),
+        ...workspace,
         ...transport().auth.authHeaders(),
       },
     })

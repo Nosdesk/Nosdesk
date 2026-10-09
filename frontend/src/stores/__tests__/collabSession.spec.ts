@@ -111,10 +111,21 @@ vi.mock('@/services/collabToken', () => ({
   },
 }))
 
-// Whether the app still holds a session: core's `sessionGone()` is true once
-// the shared refresh was rejected or no session is held.
-const session = vi.hoisted(() => ({ present: true }))
-vi.mock('@nosdesk/core/services/session', () => ({ sessionGone: () => !session.present }))
+// Whether the app holds a session (the transport's `hasSession()`: on the web,
+// a CSRF cookie). A rejected refresh drops it; signing in sets it again.
+const session = vi.hoisted(() => ({ present: true, refreshAnswer: 'rejected' as string }))
+vi.mock('@nosdesk/core/transport', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@nosdesk/core/transport')>()),
+  transport: () => ({
+    auth: {
+      hasSession: () => session.present,
+      refresh: async () => session.refreshAnswer,
+      onSessionLost: () => {
+        session.present = false
+      },
+    },
+  }),
+}))
 
 import { useCollabSessionStore } from '@/stores/collabSession'
 import { logger } from '@nosdesk/core/utils/logger'
@@ -139,6 +150,7 @@ beforeEach(() => {
   token.fetches = 0
   token.resets = 0
   session.present = true
+  session.refreshAnswer = 'rejected'
   localStorage.setItem('nosdesk:disable-idb-collab', '1')
 })
 afterEach(() => {
@@ -385,6 +397,32 @@ describe('a note the server refuses', () => {
     providers[0].serverClose(1006)
     expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
     expect(providers[0].shouldConnect).toBe(true)
+  })
+})
+
+describe('signing in again after the session was rejected', () => {
+  it('is not signed out, so a note whose token fetch fails stays reconnecting', async () => {
+    const { refreshSession, sessionGone } = await import('@nosdesk/core/services/session')
+    // The session expired: the shared refresh is rejected.
+    expect(await refreshSession()).toBe('rejected')
+    expect(sessionGone()).toBe(true)
+
+    // Signed in again by passkey: the user is set directly and the server
+    // sets a new CSRF cookie. Nothing else is told.
+    session.present = true
+    expect(sessionGone()).toBe(false)
+
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    token.next = Promise.reject(new Error('network'))
+    token.next.catch(() => {})
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
+    expect(store.connectionBadge['doc-a']).toBe('reconnecting')
   })
 })
 

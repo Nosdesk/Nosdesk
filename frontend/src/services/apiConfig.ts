@@ -6,7 +6,6 @@ import { ErrorTracker } from '@/utils/errorTracking';
 import { getSSEClientId } from '@/services/sseService';
 import { getSessionId as getDiagnosticsSessionId } from '@/services/diagnostics/session';
 import { pushApi as pushApiBreadcrumb } from '@/services/diagnostics/breadcrumbs';
-import { redirectToLogin } from '@/services/sessionLost';
 import { refreshSession } from '@nosdesk/core/services/session';
 // Transport seam: base URL, credential mode, and auth headers are resolved at
 // request time so the same axios client serves both the web (cookie + CSRF)
@@ -263,14 +262,6 @@ apiClient.interceptors.response.use(
       // machine-readable `code` and show a localised message.
       if (originalRequest.url?.includes('/auth/setup/')) {
         return Promise.reject(error);
-      }
-
-      // A 401 from the refresh endpoint itself means the session
-      // genuinely can't be renewed -> send the user to login.
-      if (originalRequest.url?.includes('/auth/refresh')) {
-        logger.warn('Session expired (refresh rejected) - redirecting to login', { correlationId });
-        redirectToLogin();
-        return Promise.reject(appError);
       }
 
       // Already refreshed once and retried, yet the endpoint still 401s.

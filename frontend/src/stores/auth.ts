@@ -4,7 +4,6 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 import apiClient from '@nosdesk/core/apiClient';
 import { setLoggingOut } from '@/services/apiConfig';
-import { sessionStarted } from '@nosdesk/core/services/session';
 import authService from '@nosdesk/core/services/authService';
 import router, { landAfterLogin } from '@/router';
 import type { User, LoginCredentials } from '@nosdesk/core/types';
@@ -131,7 +130,6 @@ export const useAuthStore = defineStore('auth', () => {
         const userData = await authService.getCurrentUser();
         // A confirmed authenticated session ends any prior teardown window.
         setLoggingOut(false);
-        sessionStarted();
         user.value = userData;
         // /auth/me is resolved under the request's pinned workspace, so the
         // role we just got belongs to the active workspace. Record it so
@@ -377,7 +375,6 @@ export const useAuthStore = defineStore('auth', () => {
       // A fresh authenticated session ends any prior sign-out teardown
       // window, so 401-suppression no longer applies.
       setLoggingOut(false);
-      sessionStarted();
       user.value = userData;
       // The login/MFA response is workspace-agnostic on the central app
       // (no workspace pinned at login), so its `workspace_role` isn't

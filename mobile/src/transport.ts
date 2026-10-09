@@ -19,7 +19,6 @@ import {
   type AuthStrategy,
   type RefreshResult,
 } from '@nosdesk/core/transport'
-import { sessionStarted } from '@nosdesk/core/services/session'
 import { resetInstanceConfig } from '@nosdesk/core/services/instanceConfig'
 import { apiBaseUrlFor, collabWsBaseUrlFor, storeServer } from './serverConfig'
 import type { SecureStore } from './secureStore'
@@ -78,7 +77,6 @@ export function setSecureStore(secureStore: SecureStore): void {
 export async function setSession(access: string, refresh: string): Promise<void> {
   accessToken = access
   refreshToken = refresh
-  sessionStarted()
   await store?.save(refresh)
   syncAssetProxy()
 }
@@ -103,10 +101,13 @@ export async function clearSession(): Promise<void> {
 /**
  * Trade the refresh token for a new pair. Called only through `refresh()`.
  * Only a 401 means the session is over; no answer or another failure leaves
- * the tokens in place for a later try.
+ * the tokens in place for a later try. If the session changed while the
+ * refresh was out (signed out, signed in again, another server), its answer
+ * belongs to the old one and is dropped.
  */
 async function rotateTokens(): Promise<RefreshResult> {
   if (!refreshToken) return 'rejected'
+  const sent = refreshToken
   try {
     // Native fetch (off the webview / off the axios interceptor stack).
     const res = await tauriFetch(`${apiBaseUrl()}/auth/refresh`, {
@@ -114,10 +115,11 @@ async function rotateTokens(): Promise<RefreshResult> {
       headers: { 'Content-Type': 'application/json', 'X-Auth-Mode': 'bearer' },
       body: JSON.stringify({ refresh_token: refreshToken }),
     })
+    if (refreshToken !== sent) return 'unavailable'
     if (res.status === 401) return 'rejected'
     if (!res.ok) return 'unavailable'
     const data = (await res.json()) as BearerTokens
-    if (!data.access_token || !data.refresh_token) return 'unavailable'
+    if (refreshToken !== sent || !data.access_token || !data.refresh_token) return 'unavailable'
     accessToken = data.access_token
     refreshToken = data.refresh_token
     await store?.save(data.refresh_token)
