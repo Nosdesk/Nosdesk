@@ -68,11 +68,35 @@ describe('a note whose content arrives after its editor opens', () => {
 
   it('adds nothing to the shared note until someone types', () => {
     const local = new Y.Doc({ gc: false })
-    openEditor(local)
+    const view = openEditor(local)
+    // Transactions that change no content still run y-prosemirror's sync of
+    // the editor into Yjs; the starting paragraph must not be written by it.
+    view.dispatch(view.state.tr.setSelection(TextSelection.atEnd(view.state.doc)))
+    view.dispatch(view.state.tr.setMeta('focus', true))
     expect(local.getXmlFragment('prosemirror').length).toBe(0)
 
     Y.applyUpdate(local, Y.encodeStateAsUpdate(peerWith(NOTE)), 'remote')
     expect(textOf(local)).toBe(`<paragraph>${NOTE}</paragraph>`)
+  })
+})
+
+describe('a note this editor cannot show any of', () => {
+  // A newer client can write a block an older build has no node for. The
+  // editor then builds no blocks from the fragment, which is the same empty
+  // document, with the same selection, as an empty fragment.
+  it('still starts with a caret, so content arriving later is not selected', () => {
+    const local = new Y.Doc({ gc: false })
+    const unknown = new Y.XmlElement('no_such_node')
+    unknown.insert(0, [new Y.XmlText('from a newer client')])
+    local.getXmlFragment('prosemirror').insert(0, [unknown])
+    const view = openEditor(local)
+    expect(view.state.selection).toBeInstanceOf(TextSelection)
+
+    const peer = peerWith(NOTE)
+    Y.applyUpdate(local, Y.encodeStateAsUpdate(peer), 'remote')
+    expect(view.state.selection.empty).toBe(true)
+    type(view, ' after 117')
+    expect(view.state.doc.textContent).toContain(NOTE)
   })
 })
 
