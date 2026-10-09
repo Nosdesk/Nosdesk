@@ -28,16 +28,16 @@ pub fn csrf_cookie_for_path(path: &str) -> &'static str {
     }
 }
 
-/// The access cookie (base name) that authenticates a request on this path:
-/// `portal_access` under `/api/portal/`, `access_token` everywhere else. The
-/// two auth middlewares read only these (or a bearer), so a request carrying
-/// neither has no session for a forged request to ride on.
-pub fn access_cookie_for_path(path: &str) -> &'static str {
-    if path.starts_with("/api/portal/") {
-        crate::utils::cookies::PORTAL_ACCESS_TOKEN_COOKIE
-    } else {
-        crate::utils::cookies::ACCESS_TOKEN_COOKIE
-    }
+/// Whether the request carries an access cookie of either realm. The two
+/// auth middlewares read only these (or a bearer), so a request with none
+/// has no ambient credential for a forged request to ride on. Deliberately
+/// not inferred from the path: any session cookie at all means the
+/// double-submit check applies.
+fn carries_session_cookie(req: &ServiceRequest) -> bool {
+    use crate::utils::cookies::{cookie_name, ACCESS_TOKEN_COOKIE, PORTAL_ACCESS_TOKEN_COOKIE};
+    [ACCESS_TOKEN_COOKIE, PORTAL_ACCESS_TOKEN_COOKIE]
+        .into_iter()
+        .any(|base| req.cookie(&cookie_name(base)).is_some())
 }
 
 pub fn validate_csrf_token(provided: &str, expected: &str) -> bool {
@@ -174,12 +174,17 @@ where
             });
         }
 
+        // The percent-decoded path, which is what the router matches. The raw
+        // `req.path()` can spell a portal route as `/api/%70ortal/...`, and
+        // the realm (and so the CSRF cookie) must be the one the request is
+        // routed to.
+        let path = req.match_info().as_str();
+
         // Origin check, ahead of the public-endpoint exemption so it also
         // covers the login endpoints, which are necessarily exempt from the
         // double-submit check yet still CSRF targets (login CSRF). Browsers
         // send `Origin` on every POST/PUT/PATCH/DELETE; an absent header is
         // a non-browser client, which falls through to the cookie check.
-        let path = req.path();
         if !skips_origin_check(path) {
             let origin = req
                 .headers()
@@ -217,6 +222,8 @@ where
             || path == "/api/auth/logout"
             || path == "/api/auth/refresh"
             || path == "/api/auth/mfa-login"
+            // Recovery-code sign-in: a login like the others, no session yet.
+            || path == "/api/auth/recovery-login"
             || path == "/api/auth/mfa-setup-login"
             || path == "/api/auth/mfa-enable-login"
             || path == "/api/auth/passkey-setup-login/start"
@@ -272,17 +279,12 @@ where
             });
         }
 
-        // No session to forge against: neither a bearer (handled above) nor
-        // this realm's access cookie. Let auth answer, which is a 401 the
+        // No session to forge against: no bearer (handled above) and no
+        // access cookie of either realm. Let auth answer, which is a 401 the
         // client refreshes on, rather than a CSRF 403 it can't recover from
         // (an idle tab's access cookie has simply expired). The Origin check
         // above has already run.
-        let has_session_cookie = req
-            .cookie(&crate::utils::cookies::cookie_name(access_cookie_for_path(
-                path,
-            )))
-            .is_some();
-        if !has_session_cookie {
+        if !carries_session_cookie(&req) {
             tracing::debug!(path = %path, "CSRF: no session cookie, leaving the request to auth");
             let fut = self.service.call(req);
             return Box::pin(async move {
@@ -395,20 +397,6 @@ mod tests {
     #[test]
     fn validate_matching_tokens() {
         assert!(validate_csrf_token("abc123", "abc123"));
-    }
-
-    #[test]
-    fn portal_paths_are_authenticated_by_the_portal_access_cookie() {
-        use crate::utils::cookies::{ACCESS_TOKEN_COOKIE, PORTAL_ACCESS_TOKEN_COOKIE};
-        assert_eq!(
-            access_cookie_for_path("/api/portal/tickets"),
-            PORTAL_ACCESS_TOKEN_COOKIE
-        );
-        assert_eq!(access_cookie_for_path("/api/tickets"), ACCESS_TOKEN_COOKIE);
-        assert_eq!(
-            access_cookie_for_path("/api/collaboration/token"),
-            ACCESS_TOKEN_COOKIE
-        );
     }
 
     #[test]
