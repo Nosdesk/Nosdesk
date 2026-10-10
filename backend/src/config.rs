@@ -80,20 +80,17 @@ fn fatal(reason: &str) -> std::io::Error {
 
 impl Config {
     /// Parse and validate the real process environment. Thin wrapper over
-    /// [`Config::from_source`] that supplies `env::var` and the build-time
-    /// plugin-root presence.
+    /// [`Config::from_source`] that supplies `env::var`.
     pub fn from_env() -> Result<Config, std::io::Error> {
-        let plugin_root_present = crate::services::plugins::signing::root_pubkey().is_some();
-        Self::from_source(&|k| env::var(k).ok(), plugin_root_present)
+        Self::from_source(&|k| env::var(k).ok())
     }
 
-    /// The testable core: reads every value through `get` and takes the
-    /// build-time plugin-root presence as an explicit flag, so unit tests can
-    /// drive every fatal path without touching process env or the build
-    /// constant. Logs operator-facing guidance on each fatal path (same
-    /// messages as before) and returns `Err` so the caller exits non-zero.
-    /// Never constructs global state.
-    pub fn from_source(get: EnvGet, plugin_root_present: bool) -> Result<Config, std::io::Error> {
+    /// The testable core: reads every value through `get`, so unit tests can
+    /// drive every fatal path without touching process env. Logs
+    /// operator-facing guidance on each fatal path (same messages as before)
+    /// and returns `Err` so the caller exits non-zero. Never constructs global
+    /// state.
+    pub fn from_source(get: EnvGet) -> Result<Config, std::io::Error> {
         let environment = get("ENVIRONMENT").unwrap_or_else(|| "development".to_string());
         // Fail-closed: an unset / empty / non-canonical `ENVIRONMENT` (a prod
         // deploy that forgot it, or `staging` / `prod` / `Production`) must still
@@ -106,7 +103,6 @@ impl Config {
         info!("Environment: {}", environment);
 
         validate_jwt_secret(get, is_production)?;
-        validate_plugin_trust_root(is_production, plugin_root_present)?;
         validate_default_credentials(get, is_production)?;
         warn_insecure_production_urls(get, is_production);
 
@@ -288,24 +284,6 @@ fn validate_jwt_secret(get: EnvGet, is_production: bool) -> Result<(), std::io::
     Ok(())
 }
 
-/// NOSDESK_ROOT_PUBKEY is baked in at build time via option_env! (see
-/// services/plugins/signing.rs). Without it the plugin trust chain can't verify
-/// Official / Verified tiers; only `local` (CLI-installed) plugins work. That's
-/// acceptable for an unconfigured fork but not for a production deployment.
-fn validate_plugin_trust_root(
-    is_production: bool,
-    plugin_root_present: bool,
-) -> Result<(), std::io::Error> {
-    if is_production && !plugin_root_present {
-        error!("NOSDESK_ROOT_PUBKEY was not set at build time");
-        error!("Refusing to start in production without a plugin trust root");
-        error!("Rebuild with: docker build --build-arg NOSDESK_ROOT_PUBKEY=<base64> ...");
-        error!("(Forks running their own registry should override with their own root key.)");
-        return Err(fatal("plugin trust root missing"));
-    }
-    Ok(())
-}
-
 /// docker.env.example default credentials must never ship to production.
 fn validate_default_credentials(get: EnvGet, is_production: bool) -> Result<(), std::io::Error> {
     if !is_production {
@@ -360,10 +338,8 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    /// Build a Config from an in-memory var map (no process env touched), with
-    /// an explicit plugin-root-present flag. `plugin_root=true` keeps the
-    /// plugin-root check from short-circuiting the production-only cases below.
-    fn build(pairs: &[(&str, &str)], plugin_root: bool) -> Result<Config, std::io::Error> {
+    /// Build a Config from an in-memory var map (no process env touched).
+    fn build(pairs: &[(&str, &str)]) -> Result<Config, std::io::Error> {
         let mut map: HashMap<String, String> = pairs
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -375,7 +351,7 @@ mod tests {
         map.entry("ENVIRONMENT".to_string())
             .or_insert_with(|| "development".to_string());
         let get = |k: &str| map.get(k).cloned();
-        Config::from_source(&get, plugin_root)
+        Config::from_source(&get)
     }
 
     // A valid, non-placeholder, >=32 char secret for the happy paths.
@@ -383,7 +359,7 @@ mod tests {
 
     #[test]
     fn dev_defaults_are_accepted() {
-        let c = build(&[("JWT_SECRET", GOOD_JWT)], true).unwrap();
+        let c = build(&[("JWT_SECRET", GOOD_JWT)]).unwrap();
         assert!(!c.is_production);
         assert_eq!(c.redis_url, "redis://localhost:6379"); // dev fallback
         assert_eq!(c.port, 8080);
@@ -393,7 +369,7 @@ mod tests {
 
     #[test]
     fn jwt_missing_is_fatal() {
-        let err = build(&[], true).unwrap_err();
+        let err = build(&[]).unwrap_err();
         assert_eq!(err.to_string(), "JWT_SECRET must be set");
     }
 
@@ -406,69 +382,45 @@ mod tests {
             "JWT_SECRET" => Some("short".to_string()),
             _ => None,
         };
-        let err = Config::from_source(&get, true).unwrap_err();
+        let err = Config::from_source(&get).unwrap_err();
         assert_eq!(err.to_string(), "JWT_SECRET is too short");
     }
 
     #[test]
     fn jwt_placeholder_in_production_is_fatal() {
-        let err = build(
-            &[
-                ("ENVIRONMENT", "production"),
-                ("JWT_SECRET", "your-super-secret-change-this-in-production"),
-            ],
-            true,
-        )
+        let err = build(&[
+            ("ENVIRONMENT", "production"),
+            ("JWT_SECRET", "your-super-secret-change-this-in-production"),
+        ])
         .unwrap_err();
         assert_eq!(err.to_string(), "JWT_SECRET is a placeholder");
     }
 
     #[test]
     fn jwt_too_short_in_production_is_fatal() {
-        let err = build(
-            &[("ENVIRONMENT", "production"), ("JWT_SECRET", "short")],
-            true,
-        )
-        .unwrap_err();
+        let err = build(&[("ENVIRONMENT", "production"), ("JWT_SECRET", "short")]).unwrap_err();
         assert_eq!(err.to_string(), "JWT_SECRET is too short");
     }
 
     #[test]
     fn short_jwt_in_dev_is_allowed() {
         // dev only warns; still builds.
-        assert!(build(&[("JWT_SECRET", "short")], true).is_ok());
-    }
-
-    #[test]
-    fn plugin_root_missing_in_production_is_fatal() {
-        let err = build(
-            &[("ENVIRONMENT", "production"), ("JWT_SECRET", GOOD_JWT)],
-            false, // no build-time pubkey
-        )
-        .unwrap_err();
-        assert_eq!(err.to_string(), "plugin trust root missing");
+        assert!(build(&[("JWT_SECRET", "short")]).is_ok());
     }
 
     #[test]
     fn redis_required_in_production() {
-        let err = build(
-            &[("ENVIRONMENT", "production"), ("JWT_SECRET", GOOD_JWT)],
-            true,
-        )
-        .unwrap_err();
+        let err = build(&[("ENVIRONMENT", "production"), ("JWT_SECRET", GOOD_JWT)]).unwrap_err();
         assert_eq!(err.to_string(), "REDIS_URL is required in production");
     }
 
     #[test]
     fn frontend_url_required_in_production() {
-        let err = build(
-            &[
-                ("ENVIRONMENT", "production"),
-                ("JWT_SECRET", GOOD_JWT),
-                ("REDIS_URL", "redis://cache:6379"),
-            ],
-            true,
-        )
+        let err = build(&[
+            ("ENVIRONMENT", "production"),
+            ("JWT_SECRET", GOOD_JWT),
+            ("REDIS_URL", "redis://cache:6379"),
+        ])
         .unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -478,66 +430,53 @@ mod tests {
 
     #[test]
     fn default_postgres_password_in_production_is_fatal() {
-        let err = build(
-            &[
-                ("ENVIRONMENT", "production"),
-                ("JWT_SECRET", GOOD_JWT),
-                ("REDIS_URL", "redis://cache:6379"),
-                ("FRONTEND_URL", "https://app.example.com"),
-                ("POSTGRES_PASSWORD", "nosdesk_password"),
-            ],
-            true,
-        )
+        let err = build(&[
+            ("ENVIRONMENT", "production"),
+            ("JWT_SECRET", GOOD_JWT),
+            ("REDIS_URL", "redis://cache:6379"),
+            ("FRONTEND_URL", "https://app.example.com"),
+            ("POSTGRES_PASSWORD", "nosdesk_password"),
+        ])
         .unwrap_err();
         assert_eq!(err.to_string(), "POSTGRES_PASSWORD is a documented default");
     }
 
     #[test]
     fn insecure_defaults_escape_hatch_allows_sample_creds() {
-        let c = build(
-            &[
-                ("ENVIRONMENT", "production"),
-                ("JWT_SECRET", GOOD_JWT),
-                ("REDIS_URL", "redis://cache:6379"),
-                ("FRONTEND_URL", "https://app.example.com"),
-                ("POSTGRES_PASSWORD", "nosdesk_password"),
-                ("ALLOW_INSECURE_DEFAULT_SECRETS", "1"),
-            ],
-            true,
-        )
+        let c = build(&[
+            ("ENVIRONMENT", "production"),
+            ("JWT_SECRET", GOOD_JWT),
+            ("REDIS_URL", "redis://cache:6379"),
+            ("FRONTEND_URL", "https://app.example.com"),
+            ("POSTGRES_PASSWORD", "nosdesk_password"),
+            ("ALLOW_INSECURE_DEFAULT_SECRETS", "1"),
+        ])
         .unwrap();
         assert!(c.is_production);
     }
 
     #[test]
     fn invalid_port_is_fatal() {
-        let err = build(&[("JWT_SECRET", GOOD_JWT), ("PORT", "not-a-port")], true).unwrap_err();
+        let err = build(&[("JWT_SECRET", GOOD_JWT), ("PORT", "not-a-port")]).unwrap_err();
         assert_eq!(err.to_string(), "Invalid PORT");
     }
 
     #[test]
     fn rate_limits_are_clamped() {
-        let c = build(
-            &[("JWT_SECRET", GOOD_JWT), ("RATE_LIMIT_PER_MINUTE", "5")],
-            true,
-        )
-        .unwrap();
+        let c = build(&[("JWT_SECRET", GOOD_JWT), ("RATE_LIMIT_PER_MINUTE", "5")]).unwrap();
         assert_eq!(c.rate_limit_per_minute, 30); // clamped up to the floor
     }
 
     #[test]
     fn cors_origins_and_tenant_domain_parse() {
-        let c = build(
-            &[
-                ("JWT_SECRET", GOOD_JWT),
-                (
-                    "ADDITIONAL_CORS_ORIGINS",
-                    " https://a.com , ,https://b.com ",
-                ),
-                ("NOSDESK_TENANT_DOMAIN", " nosdesk.app "),
-            ],
-            true,
-        )
+        let c = build(&[
+            ("JWT_SECRET", GOOD_JWT),
+            (
+                "ADDITIONAL_CORS_ORIGINS",
+                " https://a.com , ,https://b.com ",
+            ),
+            ("NOSDESK_TENANT_DOMAIN", " nosdesk.app "),
+        ])
         .unwrap();
         assert_eq!(c.additional_origins, vec!["https://a.com", "https://b.com"]);
         assert_eq!(c.tenant_domain.as_deref(), Some("nosdesk.app"));
@@ -547,13 +486,10 @@ mod tests {
     fn hosted_mode_requires_tenant_domain() {
         // Hosted with no tenant domain fails fast rather than silently
         // stranding identity-less workspaces' outbound mail.
-        let err = build(
-            &[
-                ("JWT_SECRET", GOOD_JWT),
-                ("NOSDESK_DEPLOYMENT_MODE", "hosted"),
-            ],
-            true,
-        )
+        let err = build(&[
+            ("JWT_SECRET", GOOD_JWT),
+            ("NOSDESK_DEPLOYMENT_MODE", "hosted"),
+        ])
         .unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -561,14 +497,11 @@ mod tests {
         );
 
         // With the tenant domain present it builds.
-        let c = build(
-            &[
-                ("JWT_SECRET", GOOD_JWT),
-                ("NOSDESK_DEPLOYMENT_MODE", "Hosted"),
-                ("NOSDESK_TENANT_DOMAIN", "nosdesk.app"),
-            ],
-            true,
-        )
+        let c = build(&[
+            ("JWT_SECRET", GOOD_JWT),
+            ("NOSDESK_DEPLOYMENT_MODE", "Hosted"),
+            ("NOSDESK_TENANT_DOMAIN", "nosdesk.app"),
+        ])
         .unwrap();
         assert_eq!(c.tenant_domain.as_deref(), Some("nosdesk.app"));
     }
@@ -577,33 +510,27 @@ mod tests {
     fn self_hosted_without_tenant_domain_builds() {
         // The tenant-domain requirement is hosted-only; self-hosted (the
         // default mode) has no such dependency.
-        let c = build(&[("JWT_SECRET", GOOD_JWT)], true).unwrap();
+        let c = build(&[("JWT_SECRET", GOOD_JWT)]).unwrap();
         assert!(c.tenant_domain.is_none());
     }
 
     #[test]
     fn shutdown_timeout_defaults_and_parses() {
-        let c = build(&[("JWT_SECRET", GOOD_JWT)], true).unwrap();
+        let c = build(&[("JWT_SECRET", GOOD_JWT)]).unwrap();
         assert_eq!(c.shutdown_timeout_secs, 25); // default
 
-        let c = build(
-            &[
-                ("JWT_SECRET", GOOD_JWT),
-                ("NOSDESK_SHUTDOWN_TIMEOUT_SECS", "40"),
-            ],
-            true,
-        )
+        let c = build(&[
+            ("JWT_SECRET", GOOD_JWT),
+            ("NOSDESK_SHUTDOWN_TIMEOUT_SECS", "40"),
+        ])
         .unwrap();
         assert_eq!(c.shutdown_timeout_secs, 40);
 
         // Garbage falls back to the default rather than failing the boot.
-        let c = build(
-            &[
-                ("JWT_SECRET", GOOD_JWT),
-                ("NOSDESK_SHUTDOWN_TIMEOUT_SECS", "soon"),
-            ],
-            true,
-        )
+        let c = build(&[
+            ("JWT_SECRET", GOOD_JWT),
+            ("NOSDESK_SHUTDOWN_TIMEOUT_SECS", "soon"),
+        ])
         .unwrap();
         assert_eq!(c.shutdown_timeout_secs, 25);
     }

@@ -49,16 +49,15 @@ async fn the_app_boots_on_an_upgraded_1_0_12_database() {
         Scratch(std::env::temp_dir().join(format!("nosdesk-upgrade-{}", std::process::id())));
     std::env::set_var("NOSDESK_UPLOAD_DIR", scratch.0.join("uploads"));
     std::env::set_var("SEARCH_INDEX_PATH", scratch.0.join("search"));
+    // No registry sync: it would fetch https://nosdesk.com/registry.
+    std::env::set_var("NOSDESK_REGISTRY_URL", "");
 
-    let config = Config::from_source(
-        &|k| match k {
-            "ENVIRONMENT" => Some("development".to_string()),
-            "JWT_SECRET" => Some("0123456789abcdef0123456789abcdef01".to_string()),
-            "REDIS_URL" => Some(redis.clone()),
-            _ => None,
-        },
-        true,
-    )
+    let config = Config::from_source(&|k| match k {
+        "ENVIRONMENT" => Some("development".to_string()),
+        "JWT_SECRET" => Some("0123456789abcdef0123456789abcdef01".to_string()),
+        "REDIS_URL" => Some(redis.clone()),
+        _ => None,
+    })
     .expect("test config builds");
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");

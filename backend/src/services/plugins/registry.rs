@@ -14,8 +14,8 @@
 //! Both `.json` documents carry a monotonically-increasing `version`
 //! field. Each `.sig` is base64 of an Ed25519 signature over
 //! `b"nosdesk-registry-v1:" || <literal bytes of the JSON file>`,
-//! produced by the Nosdesk root key whose public half is baked into
-//! this binary via `signing::root_pubkey()`.
+//! produced by the Nosdesk root key whose public half is compiled into
+//! this binary as `signing::ROOT_PUBKEY`.
 //!
 //! Anti-rollback: the instance persists the highest version it has
 //! accepted for each document in `plugin_registry_state` and refuses
@@ -40,6 +40,7 @@ use tracing::{debug, error, info, warn};
 use crate::db::{DbConnection, Pool};
 use crate::models::{NewTrustedPublisher, PluginRegistryStateUpdate};
 use crate::repository::plugin_publishers;
+use crate::services::plugins::signing;
 use crate::sync::actor::ActorContext;
 use crate::sync::session as actor_session;
 
@@ -241,10 +242,6 @@ impl PluginIndexEntry {
 
 #[derive(Debug)]
 pub enum RegistryError {
-    /// `signing::root_pubkey()` returned None. Without a trust root
-    /// we can't verify any signature, so every sync operation is
-    /// refused.
-    RootKeyNotConfigured,
     /// HTTP transport layer failure — DNS, TCP, TLS, 4xx/5xx, timeout.
     Fetch(String),
     /// Fetched bytes exceed `MAX_JSON_SIZE`/`MAX_SIG_SIZE`.
@@ -253,8 +250,12 @@ pub enum RegistryError {
     Malformed(String),
     /// Base64 or 64-byte check on the signature file failed.
     InvalidSignature,
-    /// Ed25519 verify failed against the root pubkey.
-    BadSignature,
+    /// Ed25519 verify failed against the root pubkey: the registry is
+    /// signed by a different root, or the document was changed.
+    BadSignature {
+        document: String,
+        expected_fingerprint: String,
+    },
     /// Snapshot's `version` is <= the highest version we've previously
     /// accepted for that document. Defends against replay of older
     /// signed snapshots.
@@ -269,10 +270,6 @@ pub enum RegistryError {
 impl std::fmt::Display for RegistryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::RootKeyNotConfigured => write!(
-                f,
-                "NOSDESK_ROOT_PUBKEY is not configured; cannot verify the registry"
-            ),
             Self::Fetch(m) => write!(f, "registry fetch failed: {m}"),
             Self::TooLarge => write!(f, "registry document exceeds size limit"),
             Self::Malformed(m) => write!(f, "registry document is malformed: {m}"),
@@ -282,7 +279,15 @@ impl std::fmt::Display for RegistryError {
                     "registry signature file is not valid base64 or wrong length"
                 )
             }
-            Self::BadSignature => write!(f, "registry signature verification failed"),
+            Self::BadSignature {
+                document,
+                expected_fingerprint,
+            } => write!(
+                f,
+                "registry signature check failed for {document}: this build trusts root key \
+                 {expected_fingerprint}, and the registry is signed by a different root key \
+                 (or the file was changed in transit)"
+            ),
             Self::Rollback {
                 document,
                 seen,
@@ -330,13 +335,19 @@ pub async fn sync_once(
     pool: &Pool,
     cache: &SharedCache,
 ) -> Result<(), RegistryError> {
+    // Don't hold a pooled connection across the network fetch.
+    let state = {
+        let mut conn = pool
+            .get()
+            .map_err(|e| RegistryError::Fetch(format!("db pool: {e}")))?;
+        plugin_publishers::get_registry_state(&mut conn)?
+    };
+
+    let (publishers, index) = fetch_and_verify(http, base_url, &state).await?;
+
     let mut conn = pool
         .get()
         .map_err(|e| RegistryError::Fetch(format!("db pool: {e}")))?;
-
-    let state = plugin_publishers::get_registry_state(&mut conn)?;
-
-    let (publishers, index) = fetch_and_verify(http, base_url, &state).await?;
 
     // Exact-version replay is a no-op. Combined with the strict
     // anti-rollback in `fetch_and_verify`, an attacker can at most
@@ -501,14 +512,7 @@ async fn fetch_and_verify(
     base_url: &str,
     state: &crate::models::PluginRegistryState,
 ) -> Result<(PublishersSnapshot, IndexSnapshot), RegistryError> {
-    let root_b64 = crate::services::plugins::signing::root_pubkey()
-        .ok_or(RegistryError::RootKeyNotConfigured)?;
-    let root_bytes = BASE64
-        .decode(root_b64.as_bytes())
-        .map_err(|_| RegistryError::InvalidSignature)?;
-    if root_bytes.len() != 32 {
-        return Err(RegistryError::InvalidSignature);
-    }
+    let root_bytes = signing::root_pubkey_bytes();
 
     // Fetch both documents concurrently — unrelated URLs, no data
     // dependency between them.
@@ -583,8 +587,24 @@ async fn fetch_signed<T: for<'de> Deserialize<'de>>(
     let doc_bytes = doc_bytes?;
     let sig_bytes = sig_bytes?;
 
+    verify_document(&doc_url, &doc_bytes, &sig_bytes, root_bytes)?;
+
+    // Signature passed; now and only now do we trust the bytes
+    // enough to hand them to serde.
+    serde_json::from_slice::<T>(&doc_bytes).map_err(|e| RegistryError::Malformed(e.to_string()))
+}
+
+/// Check one registry document's `.sig` file against `root_bytes`.
+/// Pure: no I/O, so tests drive it with captured registry files.
+/// `document` names the file in the error (the fetch passes its URL).
+fn verify_document(
+    document: &str,
+    doc_bytes: &[u8],
+    sig_file: &[u8],
+    root_bytes: &[u8],
+) -> Result<(), RegistryError> {
     // Signature file is base64 of the raw 64-byte Ed25519 signature.
-    let sig_str = std::str::from_utf8(&sig_bytes)
+    let sig_str = std::str::from_utf8(sig_file)
         .map_err(|_| RegistryError::InvalidSignature)?
         .trim();
     let sig = BASE64
@@ -596,15 +616,14 @@ async fn fetch_signed<T: for<'de> Deserialize<'de>>(
 
     let mut signed_input = Vec::with_capacity(REGISTRY_SIGNING_PREFIX.len() + doc_bytes.len());
     signed_input.extend_from_slice(REGISTRY_SIGNING_PREFIX);
-    signed_input.extend_from_slice(&doc_bytes);
+    signed_input.extend_from_slice(doc_bytes);
 
     UnparsedPublicKey::new(&ED25519, root_bytes)
         .verify(&signed_input, &sig)
-        .map_err(|_| RegistryError::BadSignature)?;
-
-    // Signature passed; now and only now do we trust the bytes
-    // enough to hand them to serde.
-    serde_json::from_slice::<T>(&doc_bytes).map_err(|e| RegistryError::Malformed(e.to_string()))
+        .map_err(|_| RegistryError::BadSignature {
+            document: document.to_string(),
+            expected_fingerprint: signing::fingerprint(root_bytes),
+        })
 }
 
 async fn fetch_bytes(
@@ -765,4 +784,50 @@ fn reconcile(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The live registry at https://nosdesk.com/registry, captured byte for
+    // byte. Signed by the current root key.
+    const PUBLISHERS: &[u8] = include_bytes!("../../../tests/fixtures/registry/publishers.json");
+    const PUBLISHERS_SIG: &[u8] =
+        include_bytes!("../../../tests/fixtures/registry/publishers.json.sig");
+    const INDEX: &[u8] = include_bytes!("../../../tests/fixtures/registry/index.json");
+    const INDEX_SIG: &[u8] = include_bytes!("../../../tests/fixtures/registry/index.json.sig");
+
+    #[test]
+    fn baked_root_verifies_the_published_registry() {
+        let root = signing::root_pubkey_bytes();
+        verify_document("publishers.json", PUBLISHERS, PUBLISHERS_SIG, &root)
+            .expect("publishers.json verifies against the baked root");
+        verify_document("index.json", INDEX, INDEX_SIG, &root)
+            .expect("index.json verifies against the baked root");
+        // And the wire types still parse what the registry serves.
+        serde_json::from_slice::<PublishersSnapshot>(PUBLISHERS).expect("publishers.json parses");
+        serde_json::from_slice::<IndexSnapshot>(INDEX).expect("index.json parses");
+    }
+
+    #[test]
+    fn bad_signature_names_the_root_this_build_expects() {
+        // Any other valid Ed25519 key stands in for a rotated root.
+        let other = signing::generate_keypair().expect("keypair").1;
+        let err = verify_document("index.json", INDEX, INDEX_SIG, &other)
+            .expect_err("a different root must not verify");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("signed by a different root key"),
+            "message should say the root differs: {msg}"
+        );
+        assert!(
+            msg.contains(&signing::fingerprint(&other)),
+            "message should name the expected root fingerprint: {msg}"
+        );
+        assert!(
+            msg.contains("index.json"),
+            "message should name the file: {msg}"
+        );
+    }
 }

@@ -9,11 +9,12 @@ name: Release
 # Does wait for CodeQL's analysis of the tag (codeql.yml runs on v* tags), and
 # publishes nothing while the tag has an open high or critical alert. A release
 # therefore lands about two hours after the tag.
+# Also publishes nothing unless the live plugin registry verifies against the
+# root key compiled into this commit (registry-root.yml).
 #
 # Required repository secrets:
 #   DOCKERHUB_USERNAME  - Docker Hub account/org with push access to nosdesk/nosdesk
 #   DOCKERHUB_TOKEN     - Docker Hub access token (write)
-#   NOSDESK_ROOT_PUBKEY - plugin root public key baked into the image
 # GHCR needs no secret: the built-in GITHUB_TOKEN authenticates via the
 # `packages: write` permission below. First push to a pre-existing org
 # package can 403 until the package is linked to this repo with write access
@@ -112,9 +113,13 @@ jobs:
           fi
           echo "CodeQL: no open high or critical alerts on $TAG."
 
+  registry-root:
+    name: Registry root key
+    uses: ./.github/workflows/registry-root.yml
+
   image:
     name: Build & push image
-    needs: codeql-gate
+    needs: [codeql-gate, registry-root]
     runs-on: ubuntu-latest
     permissions:
       contents: write   # create the GitHub Release
@@ -181,7 +186,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            NOSDESK_ROOT_PUBKEY=${{ secrets.NOSDESK_ROOT_PUBKEY }}
             NOSDESK_VERSION=${{ steps.meta.outputs.version }}
             VITE_BUILD_SHA=${{ steps.vars.outputs.sha }}
           provenance: false

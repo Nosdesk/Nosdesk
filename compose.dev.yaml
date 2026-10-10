@@ -167,10 +167,6 @@ services:
       # MIGRATION_DATABASE_URL, which also sidesteps the diesel-table grant gap.
       - DATABASE_URL=postgres://nosdesk_app:nosdesk_app_dev@postgres:5432/nosdesk
       - MIGRATION_DATABASE_URL=postgres://${POSTGRES_USER:-nosdesk}:${POSTGRES_PASSWORD:-nosdesk_password}@postgres:5432/nosdesk
-      # NOSDESK_ROOT_PUBKEY is loaded from .env via env_file. Do
-      # not redeclare it here, since environment: would override the
-      # .env value with whatever the host shell has (typically
-      # empty) and break option_env! at compile time inside bacon.
       # Default the dev backend to the production registry so the
       # admin /plugins/registry view shows real data without
       # extra config. Override to a fork's registry by setting

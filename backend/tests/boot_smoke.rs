@@ -50,20 +50,19 @@ async fn boot_wires_state_and_routes() {
     // The /readiness handler pings Redis via `get_redis_url()`, which reads the
     // REDIS_URL process env — point it at the test Redis for this binary.
     std::env::set_var("REDIS_URL", &redis);
+    // No registry sync: it would fetch https://nosdesk.com/registry.
+    std::env::set_var("NOSDESK_REGISTRY_URL", "");
 
     // A development config pointed at the test Redis. Reuses the injectable
     // `from_source` so this doesn't touch process env — which means the explicit
     // ENVIRONMENT=development is required here, since an unset value now assumes
     // production (fail-closed) and would demand FRONTEND_URL etc.
-    let config = Config::from_source(
-        &|k| match k {
-            "ENVIRONMENT" => Some("development".to_string()),
-            "JWT_SECRET" => Some("0123456789abcdef0123456789abcdef01".to_string()),
-            "REDIS_URL" => Some(redis.clone()),
-            _ => None,
-        },
-        true,
-    )
+    let config = Config::from_source(&|k| match k {
+        "ENVIRONMENT" => Some("development".to_string()),
+        "JWT_SECRET" => Some("0123456789abcdef0123456789abcdef01".to_string()),
+        "REDIS_URL" => Some(redis.clone()),
+        _ => None,
+    })
     .expect("test config builds");
 
     // Keep the Tantivy index out of the source tree.

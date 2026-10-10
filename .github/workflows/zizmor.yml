@@ -4,7 +4,7 @@ name: Actions audit
 # credential leaks, permission misconfiguration, unpinned actions).
 #
 # This is the cheap deterministic half of the CI-supply-chain problem. The
-# workflows here hold DOCKERHUB_TOKEN, FLY_API_TOKEN, and NOSDESK_ROOT_PUBKEY,
+# workflows here hold DOCKERHUB_TOKEN and FLY_API_TOKEN,
 # and release.yml publishes the images operators actually pull, so a regression
 # in this file set is worth a blocking check. It runs in seconds.
 
