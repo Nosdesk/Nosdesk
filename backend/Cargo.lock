@@ -123,17 +123,17 @@ dependencies = [
 
 [[package]]
 name = "actix-limitation"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bf9d4ce7fd50ab56efde47127bd5a2e5e27ae1dc3edbcb85be16672f477ff0a"
+checksum = "92bff47d4fc59d98133e61640c1fe3bdd8cb98d76e7fe8573fc596f818ed6df3"
 dependencies = [
  "actix-session",
  "actix-utils",
  "actix-web",
  "chrono",
- "derive_more 0.99.20",
+ "derive_more 2.1.1",
  "log",
- "redis 0.23.5",
+ "redis",
  "time",
 ]
 
@@ -241,16 +241,16 @@ dependencies = [
 
 [[package]]
 name = "actix-session"
-version = "0.8.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e6a28f813a6671e1847d005cad0be36ae4d016287690f765c303379837c13d6"
+checksum = "400c27fd4cdbe0082b7bbd29ac44a3070cbda1b2114138dc106ba39fe2f90dff"
 dependencies = [
  "actix-service",
  "actix-utils",
  "actix-web",
  "anyhow",
- "async-trait",
- "derive_more 0.99.20",
+ "derive_more 2.1.1",
+ "rand 0.9.4",
  "serde",
  "serde_json",
  "tracing",
@@ -1312,7 +1312,7 @@ dependencies = [
  "r2d2",
  "rand 0.10.3",
  "rcgen",
- "redis 1.7.1",
+ "redis",
  "regex",
  "reqwest 0.13.5",
  "ring",
@@ -5656,25 +5656,6 @@ dependencies = [
  "rustls-pki-types",
  "time",
  "yasna",
-]
-
-[[package]]
-name = "redis"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44e3fd704e6060c496523638d371b2db66d07d5f9692d7ce244b39723491ebad"
-dependencies = [
- "async-trait",
- "bytes",
- "combine",
- "futures-util",
- "itoa",
- "percent-encoding",
- "pin-project-lite",
- "ryu",
- "tokio",
- "tokio-util",
- "url",
 ]
 
 [[package]]

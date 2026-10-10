@@ -129,7 +129,7 @@ image = { version = "0.25", default-features = false, features = ["webp", "jpeg"
 pdfium-render = { version = "0.8", features = ["image", "thread_safe"] }
 
 # Rate limiting for security
-actix-limitation = "0.5.1"
+actix-limitation = "0.6.0"
 redis = { version = "1.5", features = ["tokio-comp", "connection-manager"] }
 
 # MFA (Multi-Factor Authentication) dependencies
