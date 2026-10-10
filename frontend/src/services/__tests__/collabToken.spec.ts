@@ -3,10 +3,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 let calls = 0
 /** Calls that fail, as when the API is briefly unreachable. */
 let failNext = 0
+/** Calls that never answer, as on a connection that died unnoticed. */
+let hangNext = 0
+/** The request config of each call. */
+const configs: Array<{ timeout?: number } | undefined> = []
 vi.mock('@nosdesk/core/apiClient', () => ({
   default: {
-    post: vi.fn(async () => {
+    post: vi.fn(async (_url: string, _body?: unknown, config?: { timeout?: number }) => {
       calls++
+      configs.push(config)
+      if (hangNext > 0) {
+        hangNext--
+        return new Promise(() => {})
+      }
       if (failNext > 0) {
         failNext--
         throw new Error('network down')
@@ -29,6 +38,8 @@ import { getCollabToken, peekCollabToken, resetCollabToken } from '@/services/co
 beforeEach(() => {
   calls = 0
   failNext = 0
+  hangNext = 0
+  configs.length = 0
   routing.mode = 'host'
   setVisibility('visible')
   resetCollabToken()
@@ -140,5 +151,45 @@ describe('a token kept ready in path routing', () => {
     collabToken.keepCollabTokenWarm('acme')
     await vi.advanceTimersByTimeAsync(0)
     expect(calls).toBe(1)
+  })
+})
+
+describe('a token fetch when the device comes back online', () => {
+  it('starts afresh rather than waiting on one still on its way from before', async () => {
+    hangNext = 1
+    void getCollabToken()
+    window.dispatchEvent(new Event('online'))
+
+    await expect(getCollabToken()).resolves.toBe('t2')
+    expect(calls).toBe(2)
+  })
+
+  it('is still shared by every note asking at once', async () => {
+    hangNext = 1
+    void getCollabToken()
+    window.dispatchEvent(new Event('online'))
+
+    const tokens = await Promise.all([getCollabToken(), getCollabToken(), getCollabToken()])
+    expect(tokens).toEqual(['t2', 't2', 't2'])
+    expect(calls).toBe(2)
+  })
+
+  it('gives up on a fetch that never answers, so a retry can follow', async () => {
+    await getCollabToken()
+    expect(configs[0]?.timeout).toBeGreaterThan(0)
+  })
+
+  it('keeps a token ready again at once, without waiting out the retry delay', async () => {
+    vi.useFakeTimers()
+    failNext = 2
+    collabToken.keepCollabTokenWarm('acme')
+    await vi.advanceTimersByTimeAsync(5_000)
+    // Two failures: the next try is 10 seconds off.
+    expect(calls).toBe(2)
+
+    window.dispatchEvent(new Event('online'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls).toBe(3)
+    expect(peekCollabToken()).toBe('t3')
   })
 })

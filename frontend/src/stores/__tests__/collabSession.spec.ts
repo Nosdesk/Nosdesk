@@ -13,6 +13,13 @@ const fake = vi.hoisted(() => {
     wsconnecting = false
     shouldConnect = false
     params: Record<string, string> = {}
+    /** y-websocket's backoff counter and last-message clock. */
+    wsUnsuccessfulReconnects = 0
+    wsLastMessageReceived = 0
+    /** The attached socket, as y-websocket holds it while connecting or open. */
+    get ws(): object | null {
+      return this.wsconnecting || this.wsconnected ? {} : null
+    }
     awareness = { setLocalState: () => {} }
     private listeners = new Map<string, Set<Listener>>()
     /** Updates handed to the socket, as y-websocket's doc `update` handler
@@ -76,7 +83,15 @@ const fake = vi.hoisted(() => {
     open() {
       this.wsconnecting = false
       this.wsconnected = true
+      this.wsLastMessageReceived = Date.now()
       this.emit('status', [{ status: 'connected' }])
+    }
+    /** y-websocket's backoff timer firing: it dials if still asked to. */
+    dialScheduled() {
+      if (!this.shouldConnect || this.ws) return
+      this.connectedWith.push(this.params.token)
+      this.wsconnecting = true
+      this.emit('status', [{ status: 'connecting' }])
     }
     /** The socket dropped; y-websocket retries on its own. */
     drop() {
@@ -277,7 +292,9 @@ afterEach(() => {
   setTabHidden(false)
   store.destroyAll()
   vi.useRealTimers()
+  // Back online, so no test inherits another's offline state.
   Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+  window.dispatchEvent(new Event('online'))
 })
 
 /** Hide or show the tab, as the browser reports it. */
@@ -836,5 +853,158 @@ describe('a note in a tab that is hidden', () => {
     store.acquire('doc-a', OPTS)
     await vi.advanceTimersByTimeAsync(0)
     expect(providers[0].connectedWith).toEqual(['t', 't'])
+  })
+})
+
+/** Take the device offline or back online, as the browser reports it. */
+function setOnline(online: boolean) {
+  Object.defineProperty(navigator, 'onLine', { value: online, configurable: true })
+  window.dispatchEvent(new Event(online ? 'online' : 'offline'))
+}
+
+/** Open a note, then lose the network long enough that its token ran out and
+ *  the token retries backed off to their 30 s cap. */
+async function outage() {
+  token.cached = 't'
+  store.acquire('doc-a', OPTS)
+  await vi.advanceTimersByTimeAsync(0)
+  providers[0].open()
+  setOnline(false)
+  providers[0].drop()
+  token.cached = null
+  token.next = Promise.reject(new Error('offline'))
+  token.next.catch(() => {})
+  providers[0].drop()
+  await vi.advanceTimersByTimeAsync(3 * 60_000)
+}
+
+describe('a note coming back online', () => {
+  it('fetches a token and dials at once, despite a pending 30 s backoff', async () => {
+    await outage()
+    const fetches = token.fetches
+    const dials = providers[0].connectedWith.length
+
+    token.next = Promise.resolve('fresh')
+    setOnline(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(token.fetches).toBe(fetches + 1)
+    expect(providers[0].connectedWith.length).toBe(dials + 1)
+    expect(providers[0].connectedWith.at(-1)).toBe('fresh')
+  })
+
+  it("retries soon when the first try after coming back fails, not after the outage's backoff", async () => {
+    await outage()
+    // The first request after the network returns fails (it isn't quite back),
+    // the next one works.
+    token.queue = [() => Promise.reject(new Error('not yet')), () => Promise.resolve('fresh')]
+    setOnline(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(providers[0].connectedWith.at(-1)).not.toBe('fresh')
+
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(providers[0].connectedWith.at(-1)).toBe('fresh')
+  })
+
+  it('fetches afresh instead of waiting on a token fetch still on its way from before', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    setOnline(false)
+    token.cached = null
+    // A fetch started as the network went; it never answers.
+    token.next = new Promise<string>(() => {})
+    providers[0].drop()
+    await vi.advanceTimersByTimeAsync(10_000)
+    const fetches = token.fetches
+
+    token.next = Promise.resolve('fresh')
+    setOnline(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(token.fetches).toBe(fetches + 1)
+    expect(providers[0].connectedWith.at(-1)).toBe('fresh')
+  })
+
+  it('redials a socket still stuck connecting', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    setOnline(false)
+    providers[0].drop()
+    // y-websocket's next dial hangs: the socket never opens or fails.
+    providers[0].dialScheduled()
+    expect(providers[0].wsconnecting).toBe(true)
+    await vi.advanceTimersByTimeAsync(10_000)
+    const dials = providers[0].connectedWith.length
+
+    setOnline(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(providers[0].connectedWith.length).toBe(dials + 1)
+    expect(providers[0].wsconnecting).toBe(true)
+  })
+
+  it('redials a socket that heard nothing while the device was offline', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    setOnline(false)
+    await vi.advanceTimersByTimeAsync(20_000)
+    // Still reads as connected: nothing told the socket the network went.
+    expect(providers[0].wsconnected).toBe(true)
+    const dials = providers[0].connectedWith.length
+
+    setOnline(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(providers[0].connectedWith.length).toBe(dials + 1)
+  })
+
+  it('leaves alone a socket that stayed connected and the device stayed online', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    const dials = providers[0].connectedWith.length
+
+    window.dispatchEvent(new Event('online'))
+    setTabHidden(true)
+    setTabHidden(false)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(providers[0].connectedWith.length).toBe(dials)
+    expect(providers[0].wsconnected).toBe(true)
+  })
+
+  it('resets the backoff of y-websocket itself', async () => {
+    await outage()
+    providers[0].wsUnsuccessfulReconnects = 40
+    token.next = Promise.resolve('fresh')
+    setOnline(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(providers[0].wsUnsuccessfulReconnects).toBe(0)
+  })
+})
+
+describe('a note in a tab shown again', () => {
+  it('fetches a token at once when it was waiting out a token backoff', async () => {
+    await outage()
+    setOnline(true)
+    // Back online but the API is still unreachable: the doc waits to retry.
+    await vi.advanceTimersByTimeAsync(0)
+    setTabHidden(true)
+    await vi.advanceTimersByTimeAsync(1_000)
+    const fetches = token.fetches
+
+    token.next = Promise.resolve('fresh')
+    setTabHidden(false)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(token.fetches).toBe(fetches + 1)
+    expect(providers[0].connectedWith.at(-1)).toBe('fresh')
   })
 })
