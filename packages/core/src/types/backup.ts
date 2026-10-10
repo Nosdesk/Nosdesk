@@ -65,6 +65,11 @@ export interface RestorePreview {
 export interface RestoreUpgrade {
   from_version: string;
   to_version: string;
+  /**
+   * Live tables the backup predates that hold rows now: the restore
+   * replaces them, and settings in them return to their defaults.
+   */
+  replaced_tables: string[];
 }
 
 export interface RestoreResult {

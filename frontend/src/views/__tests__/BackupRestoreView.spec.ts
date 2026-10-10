@@ -104,12 +104,16 @@ describe('BackupRestoreView restoring a backup without sensitive data', () => {
 })
 
 describe('BackupRestoreView restoring a backup from an earlier version', () => {
-  it('says the backup is upgraded as it restores', async () => {
+  it('says the backup is upgraded as it restores, and which tables it replaces', async () => {
     service.getRestorePreview.mockResolvedValue({
       encrypted: true,
       password_required: false,
       manifest: { ...manifest, nosdesk_version: '1.0.12' },
-      upgrade: { from_version: '1.0.12', to_version: '1.1.0' },
+      upgrade: {
+        from_version: '1.0.12',
+        to_version: '1.1.0',
+        replaced_tables: ['workspace_widget_settings', 'ticket_ratings'],
+      },
       warnings: [],
     })
     const w = await upload()
@@ -117,6 +121,8 @@ describe('BackupRestoreView restoring a backup from an earlier version', () => {
     const notice = w.find('[data-test="restore-upgrade"]')
     expect(notice.exists()).toBe(true)
     expect(notice.text()).toContain('admin-backup-restore-upgrade')
+    const replaced = w.find('[data-test="restore-replaced-tables"]')
+    expect(replaced.text()).toContain('workspace_widget_settings, ticket_ratings')
     expect(restoreButton(w).exists()).toBe(true)
   })
 
@@ -132,21 +138,23 @@ describe('BackupRestoreView restoring a backup from an earlier version', () => {
     expect(restoreButton(w).exists()).toBe(false)
   })
 
-  it('says when the database role cannot create the upgrade database', async () => {
+  it.each([
+    ['BACKUP_NEEDS_PRIVILEGES', 500, 'admin-backup-restore-needs-privileges'],
+    ['BACKUP_RESTORE_IN_PROGRESS', 409, 'admin-backup-restore-in-progress'],
+  ])('says why the restore was refused (%s)', async (code, status, key) => {
     service.getRestorePreview.mockResolvedValue({
       encrypted: true,
       password_required: false,
       manifest,
-      upgrade: { from_version: '1.0.12', to_version: '1.1.0' },
+      upgrade: { from_version: '1.0.12', to_version: '1.1.0', replaced_tables: [] },
       warnings: [],
     })
-    service.executeRestore.mockRejectedValue({
-      response: { status: 500, data: { error: 'x', code: 'BACKUP_NEEDS_CREATEDB' } },
-    })
+    service.executeRestore.mockRejectedValue({ response: { status, data: { error: 'x', code } } })
     const w = await upload()
+    expect(w.find('[data-test="restore-replaced-tables"]').exists()).toBe(false)
     await restoreButton(w).trigger('click')
     await flushPromises()
 
-    expect(w.find('[data-test="restore-refused"]').text()).toContain('admin-backup-restore-needs-createdb')
+    expect(w.find('[data-test="restore-refused"]').text()).toContain(key)
   })
 })

@@ -312,6 +312,20 @@
               </p>
             </div>
 
+            <!-- Tables the backup predates lose their current rows -->
+            <div
+              v-if="restorePreview.upgrade?.replaced_tables?.length"
+              data-test="restore-replaced-tables"
+              class="p-3 bg-status-warning/10 border border-status-warning/30 rounded-lg flex flex-col gap-1"
+            >
+              <p class="text-xs sm:text-sm text-status-warning">
+                {{ $t('admin-backup-restore-replaced-tables', { from: restorePreview.upgrade.from_version }) }}
+              </p>
+              <p class="text-xs sm:text-sm text-status-warning font-mono break-words">
+                {{ restorePreview.upgrade.replaced_tables.join(', ') }}
+              </p>
+            </div>
+
             <!-- Warnings -->
             <div v-if="restorePreview.warnings.length > 0" class="p-3 bg-status-warning/10 border border-status-warning/30 rounded-lg">
               <h4 class="text-xs sm:text-sm font-medium text-status-warning mb-2">{{ $t('admin-backup-warnings-heading') }}</h4>
@@ -428,7 +442,8 @@ const errorCode = (error: unknown) =>
 const REFUSAL_KEYS: Record<string, string> = {
   BACKUP_FROM_NEWER_VERSION: 'admin-backup-restore-from-newer',
   BACKUP_SCHEMA_UNKNOWN: 'admin-backup-restore-schema-unknown',
-  BACKUP_NEEDS_CREATEDB: 'admin-backup-restore-needs-createdb',
+  BACKUP_NEEDS_PRIVILEGES: 'admin-backup-restore-needs-privileges',
+  BACKUP_RESTORE_IN_PROGRESS: 'admin-backup-restore-in-progress',
 };
 const refusalFor = (error: unknown) => {
   const key = REFUSAL_KEYS[errorCode(error) ?? ''];
