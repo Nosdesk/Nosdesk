@@ -15,10 +15,12 @@
 //! - **bootstrap** (snapshot): filters at the query level via
 //!   [`bootstrap_ticket_query`], and projects its `user` rows with
 //!   [`project_row`].
-//! - **delta** (pull) and the live **SSE** `SyncActions` stream: filter a
-//!   batch of actions via [`filter_actions`], which returns a keep-mask so
-//!   each path rebuilds its own representation, then [`project_row`] each
-//!   kept row.
+//! - **delta** (pull) and the live **SSE** `SyncActions` stream: decide a
+//!   batch of actions via [`deliveries`], which returns a [`Delivery`] per
+//!   row so each path rebuilds its own representation, then [`project_row`]
+//!   each sent row. A documentation record the viewer can't open is sent as
+//!   a delete naming only its id ([`Retraction`]): losing access reads as a
+//!   delete, and hidden reads as absent.
 //!
 //! Source of truth stays [`crate::repository::ticket_visibility`] + the
 //! documentation access fns; this module only orchestrates them.
@@ -82,7 +84,7 @@ impl SyncViewer {
     }
 
     /// The documentation reader this viewer is.
-    fn pages(&self) -> documentation::PageAudience {
+    pub fn pages(&self) -> documentation::PageAudience {
         documentation::PageAudience::User {
             user_uuid: self.ctx.user_uuid,
             is_admin: self.is_admin,
@@ -249,6 +251,122 @@ impl Resolved {
     }
 }
 
+/// What a viewer gets of one action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delivery {
+    /// The row as recorded (then [`project_row`]).
+    Send,
+    /// A delete naming only the row's id ([`Retraction`]): a documentation
+    /// record the viewer can't open, so a client that holds it drops it.
+    Retract,
+    /// Nothing.
+    Drop,
+    /// A documentation row whose visibility couldn't be looked up. Neither
+    /// sent (it may be closed to the viewer) nor dropped (it may withdraw
+    /// their access, and a cursor moved past it would never bring that
+    /// back): the delta and the live stream fail the batch, and the client
+    /// asks again.
+    Unclassified,
+}
+
+/// Whether a batch holds a row that couldn't be classified, so the reader
+/// must fail it rather than move past it.
+pub fn any_unclassified(decided: &[Delivery]) -> bool {
+    decided.contains(&Delivery::Unclassified)
+}
+
+/// What `viewer` gets of one action: the row when they may see it; for a
+/// documentation record they can't open, a delete, so a client that had it
+/// drops it; otherwise nothing. A documentation row whose lookup failed is
+/// [`Delivery::Unclassified`].
+fn action_delivery(v: &ActionView, viewer: &SyncViewer, r: &Resolved) -> Delivery {
+    let is_doc = v
+        .aggregate
+        .is_some_and(|agg| audience(agg) == Audience::Docs);
+    if is_doc && r.doc_fail {
+        return Delivery::Unclassified;
+    }
+    if action_is_visible(v, viewer, r) {
+        return Delivery::Send;
+    }
+    if is_doc && v.aggregate_id.is_some() {
+        Delivery::Retract
+    } else {
+        Delivery::Drop
+    }
+}
+
+/// The delete a [`Delivery::Retract`] sends in place of a documentation row.
+/// It reads as the record's own delete does, and carries only what a client
+/// needs to apply it: no actor, no correlation, no time.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Retraction {
+    pub sync_id: i64,
+    pub aggregate: SyncAggregate,
+    pub aggregate_id: String,
+    pub op: SyncOp,
+    pub event_type: &'static str,
+    pub schema_version: i16,
+    /// `{"id": <id>}`.
+    pub data: serde_json::Value,
+    pub groups: Vec<Option<String>>,
+}
+
+impl Retraction {
+    /// The retraction of a row. `None` for a kind that is never retracted.
+    pub fn of(
+        sync_id: i64,
+        aggregate: SyncAggregate,
+        aggregate_id: &str,
+        schema_version: i16,
+        groups: Vec<Option<String>>,
+    ) -> Option<Self> {
+        let event_type = match aggregate {
+            SyncAggregate::DocumentationPage => "documentation_page.deleted",
+            SyncAggregate::DocumentationCollection => "documentation_collection.deleted",
+            _ => return None,
+        };
+        let id: i32 = aggregate_id.parse().ok()?;
+        Some(Self {
+            sync_id,
+            aggregate,
+            aggregate_id: aggregate_id.to_string(),
+            op: SyncOp::Delete,
+            event_type,
+            schema_version,
+            data: serde_json::json!({ "id": id }),
+            groups,
+        })
+    }
+
+    /// The retraction of a serialized action row (the live stream's shape).
+    pub fn of_wire_row(row: &serde_json::Value) -> Option<Self> {
+        let aggregate = row
+            .get("aggregate")
+            .cloned()
+            .and_then(|v| serde_json::from_value::<SyncAggregate>(v).ok())?;
+        let groups = row
+            .get("groups")
+            .cloned()
+            .and_then(|g| serde_json::from_value::<Vec<Option<String>>>(g).ok())
+            .unwrap_or_default();
+        Self::of(
+            row.get("sync_id")
+                .and_then(|v| v.as_i64())
+                .unwrap_or_default(),
+            aggregate,
+            row.get("aggregate_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            row.get("schema_version")
+                .and_then(|v| v.as_i64())
+                .and_then(|v| i16::try_from(v).ok())
+                .unwrap_or(1),
+            groups,
+        )
+    }
+}
+
 /// Pure keep/drop decision for one action, from its kind's
 /// [`audience`] and what the batch resolved.
 fn action_is_visible(v: &ActionView, viewer: &SyncViewer, r: &Resolved) -> bool {
@@ -353,16 +471,31 @@ fn ticket_row_is_visible(
 }
 
 /// Filter a batch of actions for a viewer, returning a keep-mask
-/// parallel to `items`. Runs a few batched, indexed queries, and only
-/// for the families the batch actually contains. Never errors: a
-/// visibility-lookup failure drops the affected family wholesale
-/// (fail-closed) so a restricted viewer is never 500'd.
+/// parallel to `items`: [`deliveries`] for a reader that only keeps or
+/// drops (a retraction is dropped).
 pub fn filter_actions<T>(
     conn: &mut DbConnection,
     viewer: &SyncViewer,
     items: &[T],
     extract: impl Fn(&T) -> ActionView,
 ) -> Vec<bool> {
+    deliveries(conn, viewer, items, extract)
+        .into_iter()
+        .map(|d| d == Delivery::Send)
+        .collect()
+}
+
+/// Decide a batch of actions for a viewer, returning a [`Delivery`]
+/// parallel to `items`. Runs a few batched, indexed queries, and only
+/// for the families the batch actually contains. Never errors: a
+/// visibility-lookup failure drops the affected family wholesale
+/// (fail-closed) so a restricted viewer is never 500'd.
+pub fn deliveries<T>(
+    conn: &mut DbConnection,
+    viewer: &SyncViewer,
+    items: &[T],
+    extract: impl Fn(&T) -> ActionView,
+) -> Vec<Delivery> {
     let views: Vec<ActionView> = items.iter().map(extract).collect();
     let sees_all = viewer.sees_all();
     let viewer_uuid = viewer.ctx.user_uuid;
@@ -406,13 +539,7 @@ pub fn filter_actions<T>(
     {
         (HashSet::new(), HashSet::new(), false)
     } else {
-        match documentation::hidden_documentation_ids(
-            conn,
-            &page_ids,
-            &collection_ids,
-            &viewer.ctx.user_uuid,
-            viewer.is_admin,
-        ) {
+        match viewer.pages().hidden(conn, &page_ids, &collection_ids) {
             Ok((hp, hc)) => (hp, hc, false),
             Err(e) => {
                 tracing::error!(error = %e, "sync visibility: documentation filter failed; dropping doc rows (fail-closed)");
@@ -516,7 +643,7 @@ pub fn filter_actions<T>(
     };
     views
         .iter()
-        .map(|v| action_is_visible(v, viewer, &resolved))
+        .map(|v| action_delivery(v, viewer, &resolved))
         .collect()
 }
 
@@ -567,7 +694,7 @@ pub fn wire_aggregate_is_gated(wire: &str, viewer: &SyncViewer) -> bool {
 /// stream). The pin matters: on an unpinned connection row security hides
 /// every row the filter reads, and a documentation page it cannot load is not
 /// counted as hidden, so the filter would let restricted pages through. A pool
-/// or pin failure gives [`fail_closed_mask`].
+/// or pin failure gives [`fail_closed_deliveries`].
 pub fn filter_actions_pinned<T>(
     pool: &crate::db::Pool,
     workspace_id: i32,
@@ -575,32 +702,48 @@ pub fn filter_actions_pinned<T>(
     items: &[T],
     extract: impl Fn(&T) -> ActionView,
 ) -> Vec<bool> {
+    deliveries_pinned(pool, workspace_id, viewer, items, extract)
+        .into_iter()
+        .map(|d| d == Delivery::Send)
+        .collect()
+}
+
+/// [`deliveries`] on a pinned connection from `pool`, as
+/// [`filter_actions_pinned`] explains. A pool or pin failure gives
+/// [`fail_closed_deliveries`].
+pub fn deliveries_pinned<T>(
+    pool: &crate::db::Pool,
+    workspace_id: i32,
+    viewer: &SyncViewer,
+    items: &[T],
+    extract: impl Fn(&T) -> ActionView,
+) -> Vec<Delivery> {
     let actor =
         crate::sync::actor::ActorContext::user_at_workspace(viewer.ctx.user_uuid, workspace_id);
-    let filtered = pool.get().ok().and_then(|mut conn| {
+    let decided = pool.get().ok().and_then(|mut conn| {
         crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
-            Ok::<_, diesel::result::Error>(filter_actions(c, viewer, items, &extract))
+            Ok::<_, diesel::result::Error>(deliveries(c, viewer, items, &extract))
         })
         .ok()
     });
-    filtered.unwrap_or_else(|| fail_closed_mask(viewer, items, extract))
+    decided.unwrap_or_else(|| fail_closed_deliveries(viewer, items, extract))
 }
 
-/// Fail-closed keep-mask computed with no DB access: drops every family
+/// Fail-closed deliveries computed with no DB access: drops every family
 /// that needs a lookup (documentation and knowledge gaps for all viewers,
 /// every user row but the viewer's own, the ticket family for restricted
 /// viewers) and keeps what the viewer's role alone decides. Used by the SSE
 /// path when the off-thread visibility lookup can't run (e.g. pool
 /// exhaustion), so a transient failure never widens what a viewer gets.
-pub fn fail_closed_mask<T>(
+pub fn fail_closed_deliveries<T>(
     viewer: &SyncViewer,
     items: &[T],
     extract: impl Fn(&T) -> ActionView,
-) -> Vec<bool> {
+) -> Vec<Delivery> {
     let failed = Resolved::failed(viewer);
     items
         .iter()
-        .map(|it| action_is_visible(&extract(it), viewer, &failed))
+        .map(|it| action_delivery(&extract(it), viewer, &failed))
         .collect()
 }
 
@@ -861,16 +1004,69 @@ mod tests {
         hidden.aggregate_id = Some(5);
         let mut visible = view(SyncAggregate::DocumentationPage, false);
         visible.aggregate_id = Some(6);
-        // Even a staff viewer is gated on docs.
+        // Even a staff viewer is gated on docs. A record they can't open is
+        // sent as a delete, so one they held goes away.
         let mut r = resolved(&staff());
         r.hidden_pages = HashSet::from([5]);
-        assert!(
-            !action_is_visible(&hidden, &staff(), &r),
-            "hidden doc dropped even for staff"
+        assert_eq!(
+            action_delivery(&hidden, &staff(), &r),
+            Delivery::Retract,
+            "hidden doc retracted even for staff"
         );
-        assert!(
-            action_is_visible(&visible, &staff(), &r),
+        assert_eq!(
+            action_delivery(&visible, &staff(), &r),
+            Delivery::Send,
             "non-hidden doc kept"
+        );
+        // A failed lookup neither sends nor drops: the reader fails the batch.
+        r.doc_fail = true;
+        assert_eq!(
+            action_delivery(&hidden, &staff(), &r),
+            Delivery::Unclassified
+        );
+        assert_eq!(
+            action_delivery(&visible, &staff(), &r),
+            Delivery::Unclassified
+        );
+    }
+
+    #[test]
+    fn a_retraction_names_only_the_record() {
+        let row = serde_json::json!({
+            "sync_id": 9,
+            "aggregate": "documentation_page",
+            "aggregate_id": "5",
+            "op": "U",
+            "event_type": "documentation_page.visibility_changed",
+            "schema_version": 1,
+            "data": { "id": 5, "title": "Salaries" },
+            "groups": ["workspace:1"],
+            "actor_uuid": Uuid::new_v4(),
+            "actor_kind": "user",
+            "actor_ref": null,
+            "correlation_id": Uuid::new_v4(),
+            "causation_id": null,
+            "occurred_at": "2026-10-11T00:00:00Z",
+        });
+        let retraction =
+            serde_json::to_value(Retraction::of_wire_row(&row).expect("a retraction")).unwrap();
+        assert_eq!(
+            retraction,
+            serde_json::json!({
+                "sync_id": 9,
+                "aggregate": "documentation_page",
+                "aggregate_id": "5",
+                "op": "D",
+                "event_type": "documentation_page.deleted",
+                "schema_version": 1,
+                "data": { "id": 5 },
+                "groups": ["workspace:1"],
+            })
+        );
+        let ticket = serde_json::json!({ "aggregate": "ticket", "aggregate_id": "5" });
+        assert!(
+            Retraction::of_wire_row(&ticket).is_none(),
+            "only documentation retracts"
         );
     }
 

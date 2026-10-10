@@ -497,6 +497,18 @@ pub fn move_page_to_parent(
 /// (collection add / remove / move) but not the page row itself, so
 /// the sync pool's page row reflects its new collection membership.
 pub fn emit_page_membership_changed(conn: &mut DbConnection, page_id: i32) -> Result<(), Error> {
+    emit_page_row(conn, page_id, "documentation_page.metadata_changed")
+}
+
+/// Emit the page's whole sync row under `event_type`. Who may open a page
+/// is decided as each reader receives the row, so re-emitting it after a
+/// change to its rules (its own, or its collection's) sends it to whoever
+/// can open it now and a delete to whoever no longer can.
+pub fn emit_page_row(
+    conn: &mut DbConnection,
+    page_id: i32,
+    event_type: &'static str,
+) -> Result<(), Error> {
     let page: DocumentationPage = documentation_pages::table.find(page_id).first(conn)?;
     let collection_id = collection_id_for_page(conn, page_id)?;
     emit::record(
@@ -505,7 +517,7 @@ pub fn emit_page_membership_changed(conn: &mut DbConnection, page_id: i32) -> Re
             aggregate: SyncAggregate::DocumentationPage,
             aggregate_id: page.id.to_string(),
             op: SyncOp::Update,
-            event_type: "documentation_page.metadata_changed",
+            event_type,
             data: page_sync_payload(&page, collection_id),
             groups: crate::sync::groups::workspace(),
             causation_id: None,
@@ -834,6 +846,30 @@ use crate::schema::{
     documentation_page_visibility, groups,
 };
 
+/// Give page `to` the page-level rules of page `from`, if it has any, so a
+/// copy is closed to the same people as the original.
+pub fn copy_page_rules(
+    conn: &mut DbConnection,
+    from: i32,
+    to: i32,
+    created_by: Option<uuid::Uuid>,
+) -> Result<(), Error> {
+    let rules: Vec<(Option<i32>, Option<uuid::Uuid>)> = documentation_page_visibility::table
+        .filter(documentation_page_visibility::page_id.eq(from))
+        .select((
+            documentation_page_visibility::group_id,
+            documentation_page_visibility::user_uuid,
+        ))
+        .load(conn)?;
+    if rules.is_empty() {
+        return Ok(());
+    }
+    let groups: Vec<i32> = rules.iter().filter_map(|(g, _)| *g).collect();
+    let users: Vec<uuid::Uuid> = rules.iter().filter_map(|(_, u)| *u).collect();
+    set_page_visibility(conn, to, groups, users, created_by)?;
+    Ok(())
+}
+
 /// Get the groups that have explicit page-level visibility for a page.
 pub fn get_visible_groups_for_page(
     conn: &mut DbConnection,
@@ -936,6 +972,10 @@ pub fn set_page_visibility(
                     .get_results(conn)?
             };
 
+        // The whole page, not just its new rules: the sync feed sends it to
+        // whoever can open it now and a delete to whoever no longer can.
+        let page: DocumentationPage = documentation_pages::table.find(page_id).first(conn)?;
+        let collection_id = collection_id_for_page(conn, page_id)?;
         emit::record(
             conn,
             SyncEmit {
@@ -943,11 +983,7 @@ pub fn set_page_visibility(
                 aggregate_id: page_id.to_string(),
                 op: SyncOp::Update,
                 event_type: "documentation_page.visibility_changed",
-                data: json!({
-                    "page_id": page_id,
-                    "group_ids": group_ids,
-                    "user_uuids": user_uuids,
-                }),
+                data: page_sync_payload(&page, collection_id),
                 groups: crate::sync::groups::workspace(),
                 causation_id: None,
             },
@@ -957,18 +993,19 @@ pub fn set_page_visibility(
     })
 }
 
-/// Who a page render is for, so the ACL can travel with a recursion.
+/// Who is reading documentation, and the one place that decides which pages
+/// and collections they may open. Every reader asks it: the REST routes, the
+/// sync bootstrap and feed, the collab editor and the exporter. A page or
+/// collection it says no to reads as absent everywhere.
 ///
 /// The markdown exporter follows `embedded_document` nodes, and a page the
-/// caller may read can embed one they may not. Checking only the top-level
-/// page therefore checks the wrong thing. Carrying the audience down the
-/// recursion means every page the output contains is checked, once, by the
-/// same predicate the ordinary page read uses.
+/// caller may read can embed one they may not, so it carries the audience
+/// down the recursion and checks every page the output contains.
 ///
 /// The comment-side analogue is `ticket_visibility::CommentAudience`.
 #[derive(Clone, Copy)]
 pub enum PageAudience {
-    /// A specific caller. Every page is filtered by [`can_user_access_page`].
+    /// A specific caller, filtered by the rules on each page and collection.
     User {
         user_uuid: uuid::Uuid,
         is_admin: bool,
@@ -988,23 +1025,31 @@ impl PageAudience {
         }
     }
 
+    /// The reader `user` is in the connection's workspace.
+    pub fn for_user(conn: &mut DbConnection, user: &crate::models::User) -> Self {
+        PageAudience::User {
+            user_uuid: user.uuid,
+            is_admin: crate::repository::user_helpers::user_is_admin(conn, user),
+        }
+    }
+
     /// Fails closed: a lookup error reads as "not accessible", matching the
     /// handlers, which turn a visibility-check failure into a refusal rather
     /// than falling through to the content.
     pub fn can_read(&self, conn: &mut DbConnection, page_id: i32) -> bool {
-        match self {
-            PageAudience::Unrestricted => true,
-            PageAudience::User {
-                user_uuid,
-                is_admin,
-            } => can_user_access_page(conn, page_id, user_uuid, *is_admin).unwrap_or(false),
-        }
+        self.try_can_read(conn, page_id).unwrap_or(false)
+    }
+
+    /// Whether this audience may read the page, with a lookup error left to
+    /// the caller (a route answers it with a 500, not a 404).
+    pub fn try_can_read(&self, conn: &mut DbConnection, page_id: i32) -> Result<bool, Error> {
+        Ok(!self.hidden_pages(conn, &[page_id])?.contains(&page_id))
     }
 
     /// Whether the page exists and this audience may read it. A route answers
     /// a page it may not read like a missing one, with the same 404, and
-    /// changes nothing. `can_read` alone isn't enough here: an id with no row
-    /// has no visibility rules, so it reads as public.
+    /// changes nothing. (An admin may read any id, so the row is checked
+    /// too.)
     pub fn can_open_page(&self, conn: &mut DbConnection, page_id: i32) -> Result<bool, Error> {
         let exists = documentation_pages::table
             .find(page_id)
@@ -1015,8 +1060,8 @@ impl PageAudience {
         Ok(exists && self.can_read(conn, page_id))
     }
 
-    /// Which of `page_ids` this audience may not read. An id with no page is
-    /// not hidden (there is nothing to name).
+    /// Which of `page_ids` this audience may not read. An id with no row is
+    /// hidden: it may have been a page they could not open.
     pub fn hidden_pages(
         &self,
         conn: &mut DbConnection,
@@ -1046,21 +1091,62 @@ impl PageAudience {
         }
     }
 
-    /// Fails closed, like [`PageAudience::can_read`].
-    pub fn can_read_collection(&self, conn: &mut DbConnection, collection_id: i32) -> bool {
+    /// Which of `page_ids` and `collection_ids` this audience may not open.
+    /// An id with no row is hidden: it may have been one they could not open.
+    pub fn hidden(
+        &self,
+        conn: &mut DbConnection,
+        page_ids: &[i32],
+        collection_ids: &[i32],
+    ) -> Result<
+        (
+            std::collections::HashSet<i32>,
+            std::collections::HashSet<i32>,
+        ),
+        Error,
+    > {
         match self {
-            PageAudience::Unrestricted => true,
+            PageAudience::Unrestricted => Ok(Default::default()),
             PageAudience::User {
                 user_uuid,
                 is_admin,
-            } => crate::repository::documentation_collections::can_user_access_collection(
-                conn,
-                collection_id,
-                user_uuid,
-                *is_admin,
-            )
-            .unwrap_or(false),
+            } => hidden_documentation_ids(conn, page_ids, collection_ids, user_uuid, *is_admin),
         }
+    }
+
+    /// Fails closed, like [`PageAudience::can_read`].
+    pub fn can_read_collection(&self, conn: &mut DbConnection, collection_id: i32) -> bool {
+        self.try_can_read_collection(conn, collection_id)
+            .unwrap_or(false)
+    }
+
+    /// Whether this audience may see the collection, with a lookup error left
+    /// to the caller.
+    pub fn try_can_read_collection(
+        &self,
+        conn: &mut DbConnection,
+        collection_id: i32,
+    ) -> Result<bool, Error> {
+        Ok(!self
+            .hidden(conn, &[], &[collection_id])?
+            .1
+            .contains(&collection_id))
+    }
+
+    /// The items in `items` whose collection (named by `id`) this audience
+    /// may see.
+    pub fn filter_collections<T>(
+        &self,
+        conn: &mut DbConnection,
+        items: Vec<T>,
+        id: impl Fn(&T) -> i32,
+    ) -> Result<Vec<T>, Error> {
+        let ids: Vec<i32> = items.iter().map(&id).collect();
+        let (_, hidden) = self.hidden(conn, &[], &ids)?;
+        Ok(items
+            .into_iter()
+            .filter(|item| !hidden.contains(&id(item)))
+            .collect())
     }
 
     /// Whether the collection exists and this audience may see it. Same
@@ -1094,109 +1180,9 @@ impl PageAudience {
     }
 }
 
-/// Check whether a single user can access a page.
-/// Logic: admin → true; page has override → check page groups + user;
-///        else inherit from collections (no collections = public,
-///        any public collection = public, else check group/user intersection).
-pub fn can_user_access_page(
-    conn: &mut DbConnection,
-    page_id: i32,
-    user_uuid: &uuid::Uuid,
-    is_admin: bool,
-) -> Result<bool, Error> {
-    if is_admin {
-        return Ok(true);
-    }
-
-    let user_group_ids = crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?;
-
-    // Check page-level override — count total entries to know if override exists
-    let page_vis_count: i64 = documentation_page_visibility::table
-        .filter(documentation_page_visibility::page_id.eq(page_id))
-        .count()
-        .get_result(conn)?;
-
-    if page_vis_count > 0 {
-        // Page has explicit override — check direct user grant
-        let has_user_grant: i64 = documentation_page_visibility::table
-            .filter(documentation_page_visibility::page_id.eq(page_id))
-            .filter(documentation_page_visibility::user_uuid.eq(user_uuid))
-            .count()
-            .get_result(conn)?;
-
-        if has_user_grant > 0 {
-            return Ok(true);
-        }
-
-        // Check group grants
-        let page_group_ids: Vec<Option<i32>> = documentation_page_visibility::table
-            .filter(documentation_page_visibility::page_id.eq(page_id))
-            .filter(documentation_page_visibility::group_id.is_not_null())
-            .select(documentation_page_visibility::group_id)
-            .load(conn)?;
-
-        let page_group_ids: Vec<i32> = page_group_ids.into_iter().flatten().collect();
-        return Ok(user_group_ids
-            .iter()
-            .any(|uid| page_group_ids.contains(uid)));
-    }
-
-    // Inherit from collections
-    let collection_ids: Vec<i32> = documentation_collection_pages::table
-        .filter(documentation_collection_pages::page_id.eq(page_id))
-        .select(documentation_collection_pages::collection_id)
-        .load(conn)?;
-
-    if collection_ids.is_empty() {
-        // Page belongs to no collection → public
-        return Ok(true);
-    }
-
-    // For each collection, check if it's public or the user has access
-    for coll_id in &collection_ids {
-        let coll_vis_count: i64 = documentation_collection_visibility::table
-            .filter(documentation_collection_visibility::collection_id.eq(*coll_id))
-            .count()
-            .get_result(conn)?;
-
-        if coll_vis_count == 0 {
-            // This collection is public
-            return Ok(true);
-        }
-
-        // Check direct user grant on collection
-        let has_user_grant: i64 = documentation_collection_visibility::table
-            .filter(documentation_collection_visibility::collection_id.eq(*coll_id))
-            .filter(documentation_collection_visibility::user_uuid.eq(user_uuid))
-            .count()
-            .get_result(conn)?;
-
-        if has_user_grant > 0 {
-            return Ok(true);
-        }
-
-        // Check group grant on collection
-        let coll_group_ids: Vec<Option<i32>> = documentation_collection_visibility::table
-            .filter(documentation_collection_visibility::collection_id.eq(*coll_id))
-            .filter(documentation_collection_visibility::group_id.is_not_null())
-            .select(documentation_collection_visibility::group_id)
-            .load(conn)?;
-
-        let coll_group_ids: Vec<i32> = coll_group_ids.into_iter().flatten().collect();
-        if user_group_ids
-            .iter()
-            .any(|uid| coll_group_ids.contains(uid))
-        {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
-}
-
 /// Batch-filter a list of pages for a user. Uses bulk queries to avoid N+1.
 /// Returns only the pages the user can access.
-pub fn filter_pages_for_user(
+fn filter_pages_for_user(
     conn: &mut DbConnection,
     pages: Vec<DocumentationPage>,
     user_uuid: &uuid::Uuid,
@@ -1395,14 +1381,12 @@ pub fn filter_pages_for_user(
     Ok(filtered)
 }
 
-/// For a batch of documentation sync rows, return the page and collection
-/// ids the user may NOT see, so the sync read path can drop those rows.
-/// Reuses the canonical access logic (`filter_pages_for_user` +
-/// `can_user_access_collection`) so visibility can't drift from the REST
-/// path. Admins hide nothing. Ids not found (already-deleted rows) are
-/// never hidden: a delete of an item the user could not see is harmless
-/// and cannot be visibility-evaluated anyway.
-pub fn hidden_documentation_ids(
+/// The page and collection ids among these the user may NOT see. Admins
+/// hide nothing. An id with no row (a page or collection deleted for good)
+/// is hidden: nothing shows it was open to them, and the sync feed still
+/// holds its old rows, which must reach them only as a delete. Reached
+/// through [`PageAudience::hidden`].
+fn hidden_documentation_ids(
     conn: &mut DbConnection,
     page_ids: &[i32],
     collection_ids: &[i32],
@@ -1426,28 +1410,53 @@ pub fn hidden_documentation_ids(
         let pages: Vec<DocumentationPage> = documentation_pages::table
             .filter(documentation_pages::id.eq_any(page_ids))
             .load(conn)?;
-        let loaded: HashSet<i32> = pages.iter().map(|p| p.id).collect();
         let visible: HashSet<i32> = filter_pages_for_user(conn, pages, user_uuid, false)?
             .iter()
             .map(|p| p.id)
             .collect();
-        hidden_pages = loaded.difference(&visible).copied().collect();
+        hidden_pages = page_ids
+            .iter()
+            .filter(|id| !visible.contains(id))
+            .copied()
+            .collect();
     }
 
     let mut hidden_collections: HashSet<i32> = HashSet::new();
-    for &cid in collection_ids {
-        let exists: i64 = documentation_collections::table
-            .filter(documentation_collections::id.eq(cid))
-            .count()
-            .get_result(conn)?;
-        if exists == 0 {
-            // Deleted collection → cannot evaluate, not hidden.
-            continue;
-        }
-        if !crate::repository::documentation_collections::can_user_access_collection(
-            conn, cid, user_uuid, false,
-        )? {
-            hidden_collections.insert(cid);
+    if !collection_ids.is_empty() {
+        // A collection with no grants is open to everyone; one with grants,
+        // to the people and groups named.
+        let existing: Vec<i32> = documentation_collections::table
+            .filter(documentation_collections::id.eq_any(collection_ids))
+            .select(documentation_collections::id)
+            .load(conn)?;
+        hidden_collections.extend(collection_ids.iter().filter(|id| !existing.contains(id)));
+        let grants: Vec<(i32, Option<i32>, Option<uuid::Uuid>)> =
+            documentation_collection_visibility::table
+                .filter(documentation_collection_visibility::collection_id.eq_any(&existing))
+                .select((
+                    documentation_collection_visibility::collection_id,
+                    documentation_collection_visibility::group_id,
+                    documentation_collection_visibility::user_uuid,
+                ))
+                .load(conn)?;
+        let user_groups: HashSet<i32> = if grants.is_empty() {
+            HashSet::new()
+        } else {
+            crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?
+                .into_iter()
+                .collect()
+        };
+        for cid in existing {
+            let mut rules = grants.iter().filter(|(c, _, _)| *c == cid).peekable();
+            if rules.peek().is_none() {
+                continue;
+            }
+            let open = rules.any(|(_, group, user)| {
+                user.as_ref() == Some(user_uuid) || group.is_some_and(|g| user_groups.contains(&g))
+            });
+            if !open {
+                hidden_collections.insert(cid);
+            }
         }
     }
 
@@ -1611,13 +1620,24 @@ mod tests {
             hidden_documentation_ids(&mut conn, &[page_id], &[], &outsider.uuid, true).unwrap();
         assert!(hidden.is_empty(), "admin must see all documentation");
 
-        // An unknown (already-deleted) id is never hidden.
-        let (hidden, _) =
-            hidden_documentation_ids(&mut conn, &[page_id + 99999], &[], &outsider.uuid, false)
-                .unwrap();
+        // An id with no row (a hard-deleted page or collection) can't be
+        // shown to be open, so it is hidden: its old rows reach a reader
+        // only as a delete.
+        let (hidden_pages, hidden_collections) = hidden_documentation_ids(
+            &mut conn,
+            &[page_id + 99999],
+            &[i32::MAX],
+            &outsider.uuid,
+            false,
+        )
+        .unwrap();
         assert!(
-            hidden.is_empty(),
-            "a delete of an unseen page must not be filtered"
+            hidden_pages.contains(&(page_id + 99999)),
+            "a page with no row"
+        );
+        assert!(
+            hidden_collections.contains(&i32::MAX),
+            "a collection with no row"
         );
     }
 

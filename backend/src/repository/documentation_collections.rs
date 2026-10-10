@@ -96,6 +96,25 @@ pub fn create_collection(
     })
 }
 
+/// Create a collection open to `group_ids` and `user_uuids` (to everyone
+/// when both are empty), in one transaction, so it is never open to anyone
+/// else in between.
+pub fn create_collection_open_to(
+    conn: &mut DbConnection,
+    new_collection: NewDocumentationCollection,
+    group_ids: Vec<i32>,
+    user_uuids: Vec<Uuid>,
+    created_by: Option<Uuid>,
+) -> QueryResult<DocumentationCollection> {
+    conn.transaction(|conn| {
+        let collection = create_collection(conn, new_collection)?;
+        if !group_ids.is_empty() || !user_uuids.is_empty() {
+            set_collection_visibility(conn, collection.id, group_ids, user_uuids, created_by)?;
+        }
+        Ok(collection)
+    })
+}
+
 pub fn get_collection(
     conn: &mut DbConnection,
     collection_id: i32,
@@ -572,52 +591,6 @@ pub fn get_visible_users_for_collection(
         })
 }
 
-/// Whether a user can see a collection. Mirrors the collection branch of
-/// `documentation::can_user_access_page`: admins see all; a collection
-/// with no visibility overrides is public; otherwise access needs a direct
-/// user grant or membership in a granted group.
-pub fn can_user_access_collection(
-    conn: &mut DbConnection,
-    collection_id: i32,
-    user_uuid: &Uuid,
-    is_admin: bool,
-) -> Result<bool, Error> {
-    if is_admin {
-        return Ok(true);
-    }
-
-    let override_count: i64 = documentation_collection_visibility::table
-        .filter(documentation_collection_visibility::collection_id.eq(collection_id))
-        .count()
-        .get_result(conn)?;
-    if override_count == 0 {
-        // No override → public.
-        return Ok(true);
-    }
-
-    let has_user_grant: i64 = documentation_collection_visibility::table
-        .filter(documentation_collection_visibility::collection_id.eq(collection_id))
-        .filter(documentation_collection_visibility::user_uuid.eq(user_uuid))
-        .count()
-        .get_result(conn)?;
-    if has_user_grant > 0 {
-        return Ok(true);
-    }
-
-    let user_group_ids = crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?;
-    let coll_group_ids: Vec<i32> = documentation_collection_visibility::table
-        .filter(documentation_collection_visibility::collection_id.eq(collection_id))
-        .filter(documentation_collection_visibility::group_id.is_not_null())
-        .select(documentation_collection_visibility::group_id)
-        .load::<Option<i32>>(conn)?
-        .into_iter()
-        .flatten()
-        .collect();
-    Ok(user_group_ids
-        .iter()
-        .any(|uid| coll_group_ids.contains(uid)))
-}
-
 pub fn set_collection_visibility(
     conn: &mut DbConnection,
     collection_id: i32,
@@ -666,6 +639,11 @@ pub fn set_collection_visibility(
                     .get_results(conn)?
             };
 
+        // The whole collection and every page in it: the sync feed sends each
+        // to whoever can open it now and a delete to whoever no longer can.
+        let collection: DocumentationCollection = documentation_collections::table
+            .find(collection_id)
+            .first(conn)?;
         emit::record(
             conn,
             SyncEmit {
@@ -673,15 +651,22 @@ pub fn set_collection_visibility(
                 aggregate_id: collection_id.to_string(),
                 op: SyncOp::Update,
                 event_type: "documentation_collection.visibility_changed",
-                data: json!({
-                    "collection_id": collection_id,
-                    "group_ids": group_ids,
-                    "user_uuids": user_uuids,
-                }),
+                data: collection_sync_payload(&collection),
                 groups: crate::sync::groups::workspace(),
                 causation_id: None,
             },
         )?;
+        let page_ids: Vec<i32> = documentation_collection_pages::table
+            .filter(documentation_collection_pages::collection_id.eq(collection_id))
+            .select(documentation_collection_pages::page_id)
+            .load(conn)?;
+        for page_id in page_ids {
+            crate::repository::documentation::emit_page_row(
+                conn,
+                page_id,
+                "documentation_page.visibility_changed",
+            )?;
+        }
 
         Ok(entries)
     })
@@ -800,29 +785,35 @@ fn collections_with_details(conn: &mut DbConnection) -> Result<Vec<CollectionWit
         .collect())
 }
 
+/// The collections `audience` may see, each with the number of its pages
+/// they may open.
 pub fn get_collections_for_user(
     conn: &mut DbConnection,
-    user_uuid: &Uuid,
-    is_admin: bool,
+    audience: &crate::repository::documentation::PageAudience,
 ) -> Result<Vec<CollectionWithDetails>, Error> {
     let all = collections_with_details(conn)?;
+    let mut visible = audience.filter_collections(conn, all, |c| c.collection.id)?;
 
-    // Admins see every collection; everyone else sees public collections
-    // plus those shared with one of their groups or with them directly.
-    if is_admin {
-        return Ok(all);
+    let ids: Vec<i32> = visible.iter().map(|c| c.collection.id).collect();
+    let members: Vec<(i32, i32)> = documentation_collection_pages::table
+        .filter(documentation_collection_pages::collection_id.eq_any(&ids))
+        .select((
+            documentation_collection_pages::collection_id,
+            documentation_collection_pages::page_id,
+        ))
+        .load(conn)?;
+    let page_ids: Vec<i32> = members.iter().map(|(_, p)| *p).collect();
+    let hidden = audience.hidden_pages(conn, &page_ids)?;
+    let mut counts: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
+    for (collection_id, page_id) in members {
+        if !hidden.contains(&page_id) {
+            *counts.entry(collection_id).or_default() += 1;
+        }
     }
-    let user_group_ids = crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?;
-    Ok(all
-        .into_iter()
-        .filter(|c| {
-            c.is_public
-                || c.visible_to_groups
-                    .iter()
-                    .any(|g| user_group_ids.contains(&g.id))
-                || c.visible_to_users.iter().any(|u| u.uuid == *user_uuid)
-        })
-        .collect())
+    for c in &mut visible {
+        c.page_count = counts.get(&c.collection.id).copied().unwrap_or(0);
+    }
+    Ok(visible)
 }
 
 /// Get all collections with visibility details (for admin views)

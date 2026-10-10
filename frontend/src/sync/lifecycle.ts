@@ -340,9 +340,8 @@ const COMPOSITE_KEY: Partial<
  * The pool key for a sync row. Junction aggregates derive it from
  * their fields (see COMPOSITE_KEY). Every other aggregate keys on its
  * own primary key carried in the payload — and for those, a payload
- * lacking both `id` and `uuid` is a *side event* (e.g. documentation
- * `visibility_changed`, knowledge_gap signals, the synthetic `data`
- * audit events): it references a row by aggregate_id without carrying
+ * lacking both `id` and `uuid` is a *side event* (e.g. knowledge_gap
+ * signals, the synthetic `data` audit events): it references a row by aggregate_id without carrying
  * the row, so it returns null and the caller skips the pool write
  * rather than minting a partial/phantom row. Used by both the
  * bootstrap snapshot loader and the live delta/SSE applier so the two
@@ -820,10 +819,10 @@ function applyActions(actions: SyncAction[]): void {
       continue
     }
     // `rowKey` returns null for side events (an own-pk aggregate whose
-    // payload carries no primary key — e.g. documentation
-    // visibility_changed). Skipping those avoids writing a partial row
-    // over the cached one; observers still receive them via
-    // notifySyncActions for consumers that care.
+    // payload carries no primary key, e.g. a knowledge_gap signal).
+    // Skipping those avoids writing a partial row over the cached one;
+    // observers still receive them via notifySyncActions for consumers
+    // that care.
     const id = rowKey(action.aggregate, action.data)
     if (id == null) continue
     // An update for a row this pool never received: its create was

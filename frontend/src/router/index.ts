@@ -542,6 +542,10 @@ const router = createRouter({
         to.meta.titleKeyArgs = undefined;
         to.meta.preloadedDocument = undefined;
 
+        // A page that doesn't exist and one the viewer can't open read the
+        // same: the not-found page, not the documentation index.
+        const docNotFound = { name: 'error', params: { code: '404' }, replace: true } as const;
+
         // Preload document data so the view renders instantly
         const path = to.params.path?.toString();
         if (path) {
@@ -555,7 +559,7 @@ const router = createRouter({
               if (!('children' in result && Array.isArray(result.children)) && 'id' in result) {
                 const articleData = await getArticleById(String(result.id));
                 if (articleData) doc = articleData;
-                else return '/documentation'; // not found, redirect
+                else return docNotFound;
               }
               to.meta.preloadedDocument = doc;
               // Document title is user content, not translatable. Set as
@@ -565,10 +569,10 @@ const router = createRouter({
                 to.meta.titleKey = undefined;
               }
             } else {
-              return '/documentation'; // not found, redirect
+              return docNotFound;
             }
           } catch {
-            return '/documentation';
+            return docNotFound;
           }
         }
       }

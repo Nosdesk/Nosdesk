@@ -115,7 +115,6 @@ src/handlers/cycles.rs uuid
 src/handlers/debug.rs data
 src/handlers/debug.rs timestamp
 src/handlers/debug.rs url
-src/handlers/documentation.rs collection_id
 src/handlers/documentation.rs deleted_by
 src/handlers/documentation.rs new_parent_id
 src/handlers/documentation.rs page_id

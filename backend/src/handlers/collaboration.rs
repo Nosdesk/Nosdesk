@@ -403,6 +403,16 @@ static MAINTENANCE_INTERVAL: once_cell::sync::Lazy<Duration> = once_cell::sync::
         .map(Duration::from_millis)
         .unwrap_or(Duration::from_secs(30))
 });
+// A pause between the handshake's access check and a session joining its
+// room. Zero in production; a test sets it (`NOSDESK_COLLAB_JOIN_DELAY_MS`)
+// to change access in between.
+static JOIN_DELAY: once_cell::sync::Lazy<Duration> = once_cell::sync::Lazy::new(|| {
+    std::env::var("NOSDESK_COLLAB_JOIN_DELAY_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::ZERO)
+});
 // An editing session ends when everyone leaves the document, or when nobody
 // has changed it for this long while someone still has it open (a second
 // tab, a colleague reading along). Either way its changes become a revision.
@@ -690,6 +700,14 @@ impl DocAccessor {
         }
     }
 
+    /// The documentation reader this accessor is.
+    fn pages(&self) -> repository::PageAudience {
+        repository::PageAudience::User {
+            user_uuid: self.vis.user_uuid,
+            is_admin: self.is_workspace_admin,
+        }
+    }
+
     /// Staff (agents and up, and platform admins) edit collaborative
     /// documents. Anyone else who can open one reads it.
     pub(crate) fn can_edit(&self) -> bool {
@@ -737,20 +755,8 @@ pub(crate) fn can_access_document(
         DocumentType::Ticket(id) => {
             crate::repository::ticket_visibility::can_view_ticket(conn, &accessor.vis, *id)
         }
-        DocumentType::Documentation(id) => repository::can_user_access_page(
-            conn,
-            *id,
-            &accessor.vis.user_uuid,
-            accessor.is_workspace_admin,
-        ),
-        DocumentType::Collection(id) => {
-            repository::documentation_collections::can_user_access_collection(
-                conn,
-                *id,
-                &accessor.vis.user_uuid,
-                accessor.is_workspace_admin,
-            )
-        }
+        DocumentType::Documentation(id) => accessor.pages().try_can_read(conn, *id),
+        DocumentType::Collection(id) => accessor.pages().try_can_read_collection(conn, *id),
     }
 }
 
@@ -1184,6 +1190,12 @@ struct SessionInfo {
     /// session in the room so they tear down and the client reconnects,
     /// re-routing to the new owner. Unused in single-instance mode.
     cancel: Arc<Notify>,
+    /// Closes this session with "no access" (4403): the user can no longer
+    /// open the document. Unlike `cancel`, the session leaves normally and
+    /// the client stops reconnecting.
+    revoke: Arc<Notify>,
+    /// The workspace the session opened the document in.
+    workspace_id: i32,
     /// Integer-keyed document type resolved from the doc_id's immutable
     /// resource UUID at session open. The presence sites
     /// (`update_session_activity`, `remove_session`,
@@ -1290,6 +1302,29 @@ impl YjsAppState {
                 // mode); no-op otherwise.
                 if let Some(ownership) = &state_clone.ownership {
                     ownership.register_self().await;
+                }
+            }
+        });
+
+        // Close the sessions of anyone who loses access to an open page or
+        // collection. Every machine's sync outbox raises the change, so the
+        // machine holding the room hears it wherever the change was made.
+        let access_state = state.clone();
+        let mut access_changes = access_state.sse_state.subscribe_doc_access();
+        actix_web::rt::spawn(async move {
+            use tokio::sync::broadcast::error::RecvError;
+            loop {
+                match access_changes.recv().await {
+                    Ok(change) => {
+                        access_state
+                            .close_sessions_without_access(Some(change))
+                            .await
+                    }
+                    // Missed changes: re-check every open page and collection.
+                    Err(RecvError::Lagged(_)) => {
+                        access_state.close_sessions_without_access(None).await
+                    }
+                    Err(RecvError::Closed) => break,
                 }
             }
         });
@@ -1416,6 +1451,97 @@ impl YjsAppState {
                 info.cancel.notify_one();
             }
         }
+    }
+
+    /// Close, with "no access", the open sessions on the page or collection
+    /// `change` names whose user may no longer open it (every open page and
+    /// collection when `None`). A failed check leaves the session open: the
+    /// next connect checks again.
+    async fn close_sessions_without_access(
+        &self,
+        change: Option<crate::handlers::sse::DocAccessChange>,
+    ) {
+        use crate::handlers::sse::DocAccessChange;
+        let target = change.map(|c| match c {
+            DocAccessChange::Page {
+                workspace_id,
+                page_id,
+            } => (workspace_id, DocumentType::Documentation(page_id)),
+            DocAccessChange::Collection {
+                workspace_id,
+                collection_id,
+            } => (workspace_id, DocumentType::Collection(collection_id)),
+        });
+        let open: Vec<(i32, Uuid, DocumentType, Arc<Notify>)> = {
+            let sessions = self.sessions.read().await;
+            sessions
+                .values()
+                .flat_map(|room| room.values())
+                .filter(|info| match target {
+                    Some((ws, doc)) => info.workspace_id == ws && info.doc_type == doc,
+                    None => !matches!(info.doc_type, DocumentType::Ticket(_)),
+                })
+                .map(|info| {
+                    (
+                        info.workspace_id,
+                        info.user_uuid,
+                        info.doc_type,
+                        info.revoke.clone(),
+                    )
+                })
+                .collect()
+        };
+        if open.is_empty() {
+            return;
+        }
+        let checks: Vec<(i32, Uuid, DocumentType)> =
+            open.iter().map(|(ws, u, d, _)| (*ws, *u, *d)).collect();
+        let denied = self.access_withdrawn(checks).await;
+        for ((_, _, _, revoke), denied) in open.iter().zip(denied) {
+            if denied {
+                revoke.notify_one();
+            }
+        }
+    }
+
+    /// For each `(workspace, user, document)`, whether the user can no longer
+    /// open the page or collection (a ticket is never re-checked here). A
+    /// failed check reads as not withdrawn: the next connect checks again.
+    async fn access_withdrawn(&self, checks: Vec<(i32, Uuid, DocumentType)>) -> Vec<bool> {
+        let pool = self.pool.clone();
+        web::block(move || -> Vec<bool> {
+            let Ok(mut conn) = pool.get() else {
+                return vec![false; checks.len()];
+            };
+            checks
+                .iter()
+                .map(|(workspace_id, user_uuid, doc)| {
+                    let actor = yjs_session_actor(*workspace_id);
+                    let allowed = session::with_actor_context(&mut conn, &actor, |conn| {
+                        let user = match repository::users::get_user_by_uuid(user_uuid, conn) {
+                            Ok(user) => user,
+                            Err(diesel::result::Error::NotFound) => return Ok(false),
+                            Err(e) => return Err(e),
+                        };
+                        let pages = repository::PageAudience::for_user(conn, &user);
+                        match doc {
+                            DocumentType::Documentation(id) => pages.try_can_read(conn, *id),
+                            DocumentType::Collection(id) => pages.try_can_read_collection(conn, *id),
+                            DocumentType::Ticket(_) => Ok(true),
+                        }
+                    });
+                    match allowed {
+                        Ok(allowed) => !allowed,
+                        Err(e) => {
+                            warn!(error = ?e, "collab access re-check failed; leaving the session open");
+                            false
+                        }
+                    }
+                })
+                .collect()
+        })
+        .await
+        .unwrap_or_default()
     }
 
     /// Drop the room of a document whose ticket or page was deleted while
@@ -1882,6 +2008,8 @@ impl YjsAppState {
         tx: OutboundTx,
         user_uuid: Uuid,
         cancel: Arc<Notify>,
+        revoke: Arc<Notify>,
+        workspace_id: i32,
         doc_type: DocumentType,
     ) {
         let mut sessions = self.sessions.write().await;
@@ -1904,6 +2032,8 @@ impl YjsAppState {
                 user_uuid,
                 yjs_client_id: None,
                 cancel,
+                revoke,
+                workspace_id,
                 doc_type,
             },
         );
@@ -3073,6 +3203,11 @@ async fn session_task(
     // document (lost ownership lease, Phase 2 affinity), so this task
     // tears down and the client reconnects to the new owner.
     let cancel = Arc::new(Notify::new());
+    // Access withdrawn while the document is open.
+    let revoke = Arc::new(Notify::new());
+    if !JOIN_DELAY.is_zero() {
+        tokio::time::sleep(*JOIN_DELAY).await;
+    }
     app_state
         .register_session(
             &doc_id,
@@ -3080,9 +3215,24 @@ async fn session_task(
             tx.clone(),
             user_uuid,
             cancel.clone(),
+            revoke.clone(),
+            workspace_id,
             doc_type,
         )
         .await;
+    // The handshake checked access before this session was in the room, so
+    // a withdrawal in between reached no one: check again now it can hear
+    // the next one.
+    if !matches!(doc_type, DocumentType::Ticket(_))
+        && app_state
+            .access_withdrawn(vec![(workspace_id, user_uuid, doc_type)])
+            .await
+            .first()
+            .copied()
+            .unwrap_or(false)
+    {
+        revoke.notify_one();
+    }
 
     // Per the yjs sync protocol spec, the server proactively sends
     // SyncStep1 + all known awareness states to newly-connected
@@ -3131,6 +3281,17 @@ async fn session_task(
                     "Session evicted for ownership handoff; closing");
                 evicted = true;
                 break None;
+            }
+            // The user can no longer open this document: leave as usual,
+            // closing with "no access" so the client stops reconnecting.
+            _ = revoke.notified() => {
+                info!(session_id = %session_id, doc_id = %doc_id,
+                    "Session closed: access to the document was withdrawn");
+                let refusal = CollabRefusal::NoAccess;
+                break Some(CloseReason {
+                    code: CloseCode::Other(refusal.code()),
+                    description: Some(refusal.reason().to_string()),
+                });
             }
             // Outbound: broadcast payloads from `app_state.broadcast`,
             // self-generated protocol responses, awareness updates, etc.

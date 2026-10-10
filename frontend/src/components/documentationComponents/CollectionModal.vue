@@ -243,6 +243,8 @@ async function handleCreate() {
   const { groupIds, userUuids } = visibilityFromSelection(selectedItems.value)
 
   try {
+    // Who may open the collection is part of the create, so it is never
+    // open to everyone in between.
     const created = await createCollection({
       name: trimmedName,
       slug: finalSlug,
@@ -250,19 +252,12 @@ async function handleCreate() {
       icon: icon.value || undefined,
       color: color.value || undefined,
       visible_to_group_ids: groupIds.length > 0 ? groupIds : undefined,
+      visible_to_user_uuids: userUuids.length > 0 ? userUuids : undefined,
     })
 
     if (!created) {
       saveError.value = t('docs-create-collection-error')
       return
-    }
-
-    if (userUuids.length > 0) {
-      const visibilityOk = await setCollectionVisibility(created.id, groupIds, userUuids)
-      if (!visibilityOk) {
-        saveError.value = t('docs-create-collection-error')
-        return
-      }
     }
 
     if (hideTitles.value || requireVerification.value) {

@@ -57,12 +57,14 @@ export interface SyncAction {
    * keep the surface honest about the substrate.
    */
   groups: Array<string | null>
-  actor_uuid: string | null
-  actor_kind: string
-  actor_ref: string | null
-  correlation_id: string | null
-  causation_id: string | null
-  occurred_at: string
+  // A delete standing in for a documentation record the viewer can't open
+  // carries none of the fields below: nothing about who changed it or when.
+  actor_uuid?: string | null
+  actor_kind?: string
+  actor_ref?: string | null
+  correlation_id?: string | null
+  causation_id?: string | null
+  occurred_at?: string
 }
 
 export interface DeltaResponse {

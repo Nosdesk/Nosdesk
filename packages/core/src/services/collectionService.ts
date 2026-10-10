@@ -121,6 +121,8 @@ export const createCollection = async (data: {
   icon?: string;
   color?: string;
   visible_to_group_ids?: number[];
+  /** People the collection is open to, set with it in one step. */
+  visible_to_user_uuids?: string[];
 }): Promise<Collection | null> => {
   const response = await apiClient.post('/documentation/collections', data);
   return response.data;

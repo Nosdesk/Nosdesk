@@ -237,6 +237,31 @@ async fn listen_loop(
     Err(anyhow::anyhow!("notification stream closed"))
 }
 
+/// The documentation access change a row records, if any: a change to a
+/// page's or collection's rules, or a page moving between collections.
+fn doc_access_change(row: &ActionRow) -> Option<crate::handlers::sse::DocAccessChange> {
+    use crate::handlers::sse::DocAccessChange;
+    use crate::models::{SyncAggregate, SyncOp};
+    let changes_access = row.event_type.ends_with(".visibility_changed")
+        || row.event_type == "documentation_page.metadata_changed";
+    if row.op == SyncOp::Delete || !changes_access {
+        return None;
+    }
+    let id: i32 = row.aggregate_id.parse().ok()?;
+    let workspace_id = row.workspace_id;
+    match row.aggregate {
+        SyncAggregate::DocumentationPage => Some(DocAccessChange::Page {
+            workspace_id,
+            page_id: id,
+        }),
+        SyncAggregate::DocumentationCollection => Some(DocAccessChange::Collection {
+            workspace_id,
+            collection_id: id,
+        }),
+        _ => None,
+    }
+}
+
 async fn drain_since(
     pool: &Pool,
     sse: &SseState,
@@ -315,6 +340,14 @@ async fn drain_since(
             std::collections::BTreeMap::new();
         for row in &rows {
             by_workspace.entry(row.workspace_id).or_default().push(row);
+        }
+        // Changes that can withdraw someone's access to a documentation
+        // page or collection: the collab editor on this machine re-checks
+        // the sessions it holds open on it.
+        for row in &rows {
+            if let Some(change) = doc_access_change(row) {
+                sse.signal_doc_access(change);
+            }
         }
         for (workspace_id, batch) in &by_workspace {
             let batch_last = batch.last().unwrap();

@@ -49,6 +49,9 @@ fn install_fast_heartbeat() {
         // cut by quiet lands well inside a test's wait.
         std::env::set_var("NOSDESK_COLLAB_MAINTENANCE_MS", "100");
         std::env::set_var("NOSDESK_REVISION_QUIET_MS", "300");
+        // Hold each session for a moment between the access check and
+        // joining its room, so a test can change access in between.
+        std::env::set_var("NOSDESK_COLLAB_JOIN_DELAY_MS", "300");
         // JWT_SECRET must be stable across the test process; main.rs
         // refuses placeholder secrets in production, but tests run in
         // dev/test mode.
@@ -65,8 +68,16 @@ fn install_fast_heartbeat() {
 /// Build a real `YjsAppState` against the test sandbox DB and a temp
 /// Tantivy index dir.
 fn build_app_state(pool_inner: &backend::db::Pool) -> (YjsAppState, tempfile::TempDir) {
+    build_app_state_with_sse(pool_inner, web::Data::new(SseState::new()))
+}
+
+/// [`build_app_state`] on a given live-event state, for a test that runs the
+/// sync outbox into it.
+fn build_app_state_with_sse(
+    pool_inner: &backend::db::Pool,
+    sse_state: web::Data<SseState>,
+) -> (YjsAppState, tempfile::TempDir) {
     let pool_data = web::Data::new(pool_inner.clone());
-    let sse_state = web::Data::new(SseState::new());
     let tmp_search = tempfile::tempdir().expect("temp dir for search index");
     let search =
         Arc::new(SearchService::new(tmp_search.path(), pool_inner).expect("init search service"));
@@ -970,5 +981,247 @@ async fn a_quiet_note_gets_a_revision_while_someone_keeps_it_open() {
         ticket_revisions(&mut pool.get().expect("conn"), ticket_uuid).len(),
         1,
         "an unchanged note gets no second revision"
+    );
+}
+
+/// Someone with a page open in the editor who loses access to it is closed
+/// out with "no access", which tells the client to stop reconnecting. The
+/// change reaches the editor the way it reaches every machine: through the
+/// sync feed.
+#[actix_web::test]
+async fn losing_access_closes_an_open_page_with_no_access() {
+    use diesel::prelude::*;
+
+    install_fast_heartbeat();
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+    let ws1_uuid = backend::repository::workspaces::find_by_id(&mut pool.get().expect("conn"), 1)
+        .expect("ws lookup")
+        .expect("bootstrap workspace exists")
+        .uuid;
+    let admin = common::insert_user(&mut pool.get().expect("conn"), "Revoke Admin");
+    let agent = common::insert_plain_user(&mut pool.get().expect("conn"), "Revoke Agent");
+    let in_workspace =
+        |f: &mut dyn FnMut(&mut backend::db::DbConnection) -> Result<(), diesel::result::Error>| {
+            let mut conn = pool.get().expect("conn");
+            let actor =
+                backend::sync::actor::ActorContext::user(admin.uuid, None).with_workspace(1);
+            backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+                &mut conn,
+                &actor,
+                |c| f(c),
+            )
+            .expect("write in workspace 1");
+        };
+    in_workspace(&mut |c| {
+        for (user, role) in [(admin.uuid, "admin"), (agent, "agent")] {
+            backend::repository::workspaces::add_membership(
+                c,
+                1,
+                user,
+                role,
+                backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+            )?;
+        }
+        Ok(())
+    });
+    let page_uuid = uuid::Uuid::new_v4();
+    let mut page_id = 0;
+    in_workspace(&mut |c| {
+        use backend::schema::documentation_pages as dp;
+        page_id = diesel::insert_into(dp::table)
+            .values((
+                dp::uuid.eq(page_uuid),
+                dp::title.eq("Runbook"),
+                dp::slug.eq(format!("runbook-{}", page_uuid.simple())),
+                dp::created_by.eq(admin.uuid),
+                dp::last_edited_by.eq(admin.uuid),
+            ))
+            .returning(dp::id)
+            .get_result(c)?;
+        Ok(())
+    });
+
+    // The sync outbox feeds the live-event state every machine's editor
+    // listens to.
+    let sse = Arc::new(SseState::new());
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let _outbox = backend::services::sync_outbox::spawn(
+        test_db.url().to_string(),
+        pool.clone(),
+        sse.clone(),
+        shutdown.clone(),
+    );
+    let state_pool_inner = pool.clone();
+    let srv = actix_test::start(move || {
+        let (state, _tmp) =
+            build_app_state_with_sse(&state_pool_inner, web::Data::from(sse.clone()));
+        std::mem::forget(_tmp);
+        App::new()
+            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(state_pool_inner.clone()))
+            .route("/ws/{doc}", web::get().to(ws_handler))
+    });
+
+    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid))
+        .expect("mint collab token");
+    let (_resp, mut conn) = awc::Client::new()
+        .ws(srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}")))
+        .connect()
+        .await
+        .expect("the agent opens the page");
+    let first = tokio::time::timeout(Duration::from_secs(2), conn.next())
+        .await
+        .expect("initial frame timeout")
+        .expect("stream ended before initial frame")
+        .expect("initial frame error");
+    assert!(
+        matches!(first, ws::Frame::Binary(_)),
+        "expected Binary SyncStep1, got {first:?}"
+    );
+
+    // The page is restricted to the admin. The feed delivers only settled
+    // rows (the commit horizon is cluster-wide, so another test's open
+    // transaction, even another process's, can hold it back for a while), so
+    // the change is repeated until it lands.
+    let mut closed_with = None;
+    for _ in 0..60 {
+        in_workspace(&mut |c| {
+            backend::repository::set_page_visibility(c, page_id, vec![], vec![admin.uuid], None)
+                .map(|_| ())
+        });
+        let wait = tokio::time::sleep(Duration::from_millis(500));
+        tokio::pin!(wait);
+        loop {
+            tokio::select! {
+                _ = &mut wait => break,
+                frame = conn.next() => match frame {
+                    Some(Ok(ws::Frame::Close(reason))) => {
+                        closed_with = Some(reason.map_or(0, |r| u16::from(r.code)));
+                        break;
+                    }
+                    Some(Ok(_)) => continue,
+                    Some(Err(_)) | None => {
+                        closed_with = Some(0);
+                        break;
+                    }
+                },
+            }
+        }
+        if closed_with.is_some() {
+            break;
+        }
+    }
+    shutdown.cancel();
+    assert_eq!(
+        closed_with,
+        Some(4403),
+        "the editor is closed with no access once the page is restricted"
+    );
+}
+
+/// Access withdrawn between the connect-time check and the session joining
+/// its room still closes the session: it checks again once it has joined, so
+/// a change the editor heard before the session was in the room isn't missed.
+#[actix_web::test]
+async fn access_withdrawn_while_connecting_still_closes_the_page() {
+    use diesel::prelude::*;
+
+    install_fast_heartbeat();
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+    let ws1_uuid = backend::repository::workspaces::find_by_id(&mut pool.get().expect("conn"), 1)
+        .expect("ws lookup")
+        .expect("bootstrap workspace exists")
+        .uuid;
+    let admin = common::insert_user(&mut pool.get().expect("conn"), "Race Admin");
+    let agent = common::insert_plain_user(&mut pool.get().expect("conn"), "Race Agent");
+    let in_workspace =
+        |f: &mut dyn FnMut(&mut backend::db::DbConnection) -> Result<(), diesel::result::Error>| {
+            let mut conn = pool.get().expect("conn");
+            let actor =
+                backend::sync::actor::ActorContext::user(admin.uuid, None).with_workspace(1);
+            backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+                &mut conn,
+                &actor,
+                |c| f(c),
+            )
+            .expect("write in workspace 1");
+        };
+    in_workspace(&mut |c| {
+        for (user, role) in [(admin.uuid, "admin"), (agent, "agent")] {
+            backend::repository::workspaces::add_membership(
+                c,
+                1,
+                user,
+                role,
+                backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+            )?;
+        }
+        Ok(())
+    });
+    let page_uuid = uuid::Uuid::new_v4();
+    let mut page_id = 0;
+    in_workspace(&mut |c| {
+        use backend::schema::documentation_pages as dp;
+        page_id = diesel::insert_into(dp::table)
+            .values((
+                dp::uuid.eq(page_uuid),
+                dp::title.eq("Rota"),
+                dp::slug.eq(format!("rota-{}", page_uuid.simple())),
+                dp::created_by.eq(admin.uuid),
+                dp::last_edited_by.eq(admin.uuid),
+            ))
+            .returning(dp::id)
+            .get_result(c)?;
+        Ok(())
+    });
+
+    // No sync outbox here: the only way the session learns of the change is
+    // the check it makes once it has joined.
+    let state_pool_inner = pool.clone();
+    let srv = actix_test::start(move || {
+        let (state, _tmp) = build_app_state(&state_pool_inner);
+        std::mem::forget(_tmp);
+        App::new()
+            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(state_pool_inner.clone()))
+            .route("/ws/{doc}", web::get().to(ws_handler))
+    });
+    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid))
+        .expect("mint collab token");
+    let (_resp, mut conn) = awc::Client::new()
+        .ws(srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}")))
+        .connect()
+        .await
+        .expect("the agent passes the connect-time check");
+    in_workspace(&mut |c| {
+        backend::repository::set_page_visibility(c, page_id, vec![], vec![admin.uuid], None)
+            .map(|_| ())
+    });
+
+    let mut closed_with = None;
+    let wait = tokio::time::sleep(Duration::from_secs(3));
+    tokio::pin!(wait);
+    loop {
+        tokio::select! {
+            _ = &mut wait => break,
+            frame = conn.next() => match frame {
+                Some(Ok(ws::Frame::Close(reason))) => {
+                    closed_with = Some(reason.map_or(0, |r| u16::from(r.code)));
+                    break;
+                }
+                Some(Ok(_)) => continue,
+                Some(Err(_)) | None => {
+                    closed_with = Some(0);
+                    break;
+                }
+            },
+        }
+    }
+    assert_eq!(
+        closed_with,
+        Some(4403),
+        "the session is closed with no access once it has joined"
     );
 }
