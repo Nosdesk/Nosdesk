@@ -78,6 +78,23 @@ const LEGACY_SCHEMA_POINTS: &[LegacySchemaPoint] = &[
     },
 ];
 
+/// A release from 1.1.0 on, whose backups name their migration and digest.
+/// Read by the shipped-schema test.
+#[cfg_attr(not(test), allow(dead_code))]
+struct ReleasedSchemaPoint {
+    #[allow(dead_code)] // names the release for whoever reads the list
+    release: &'static str,
+    migration: &'static str,
+    prefix_sha256: &'static str,
+}
+
+/// Every release since 1.1.0 that shipped a new migration, pinned like the
+/// 1.0.x points so editing or inserting a shipped migration fails CI rather
+/// than leave that release's backups unrestorable. Add the release here when
+/// it is tagged (DEVELOPMENT.md, "Releases"); 1.1.0 is the first.
+#[cfg_attr(not(test), allow(dead_code))]
+const RELEASED_SCHEMA_POINTS: &[ReleasedSchemaPoint] = &[];
+
 /// Where a backup's schema sits relative to this build's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchemaPoint {
@@ -194,6 +211,7 @@ pub(crate) fn upgrade_archive(
     server_url: &str,
     inner_zip: &[u8],
     migration: &str,
+    chunk_bytes: usize,
 ) -> Result<Vec<u8>, BackupError> {
     let scratch = ScratchDatabase::create(conn, server_url)?;
     let pool = r2d2::Pool::builder()
@@ -211,6 +229,8 @@ pub(crate) fn upgrade_archive(
         &mut scratch_conn,
         inner_zip,
         super::backup::LoadInto::Scratch,
+        &[],
+        chunk_bytes,
     )?;
     migrate(&mut scratch_conn, None)?;
     let upgraded = super::backup::build_inner_zip(&mut scratch_conn, true, false)?;
@@ -222,22 +242,92 @@ pub(crate) fn upgrade_archive(
 }
 
 /// Refuse early, before anything is touched, when the role restore runs as
-/// can't create the scratch database an upgrade needs.
-pub(crate) fn require_create_database(conn: &mut DbConnection) -> Result<(), BackupError> {
+/// can't do what an upgrade takes: create the scratch database (`CREATEDB`)
+/// and read every workspace's rows back out of it past row-level security
+/// (`BYPASSRLS`). A superuser has both.
+pub(crate) fn require_upgrade_privileges(conn: &mut DbConnection) -> Result<(), BackupError> {
     #[derive(QueryableByName)]
-    struct Can {
+    struct Role {
         #[diesel(sql_type = diesel::sql_types::Bool)]
-        can: bool,
+        rolsuper: bool,
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        rolcreatedb: bool,
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        rolbypassrls: bool,
     }
-    let row: Can = sql_query(
-        "SELECT (rolsuper OR rolcreatedb) AS can FROM pg_roles WHERE rolname = current_user",
+    let role: Role = sql_query(
+        "SELECT rolsuper, rolcreatedb, rolbypassrls FROM pg_roles WHERE rolname = current_user",
     )
     .get_result(conn)
     .map_err(BackupError::DatabaseError)?;
-    if row.can {
+    let mut missing = Vec::new();
+    if !(role.rolsuper || role.rolcreatedb) {
+        missing.push("CREATEDB");
+    }
+    if !(role.rolsuper || role.rolbypassrls) {
+        missing.push("BYPASSRLS");
+    }
+    if missing.is_empty() {
         Ok(())
     } else {
-        Err(BackupError::CannotCreateDatabase)
+        Err(BackupError::MissingPrivileges(missing))
+    }
+}
+
+/// The name prefix of the scratch databases a restore of the database `conn`
+/// is on creates: tied to that database, so restores of another database on
+/// the same server never touch them.
+fn scratch_prefix(conn: &mut DbConnection) -> Result<String, BackupError> {
+    #[derive(QueryableByName)]
+    struct Oid {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        oid: String,
+    }
+    let row: Oid =
+        sql_query("SELECT oid::text AS oid FROM pg_database WHERE datname = current_database()")
+            .get_result(conn)
+            .map_err(BackupError::DatabaseError)?;
+    Ok(format!("nosdesk_restore_{}_", row.oid))
+}
+
+/// Drop scratch databases an earlier restore of this database left behind,
+/// as one killed mid-upgrade does. Runs under the restore lock, so none of
+/// them is in use. Best effort: a role that can't drop them only logs.
+pub(crate) fn drop_leftover_scratch_databases(conn: &mut DbConnection) {
+    #[derive(QueryableByName)]
+    struct Name {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        datname: String,
+    }
+    let leftovers = scratch_prefix(conn).and_then(|prefix| {
+        sql_query("SELECT datname::text AS datname FROM pg_database WHERE starts_with(datname, $1)")
+            .bind::<diesel::sql_types::Text, _>(prefix)
+            .load::<Name>(conn)
+            .map_err(BackupError::DatabaseError)
+    });
+    let leftovers = match leftovers {
+        Ok(names) => names,
+        Err(e) => {
+            tracing::warn!(error = %e, "restore: couldn't list leftover scratch databases");
+            return;
+        }
+    };
+    for Name { datname } in leftovers {
+        let dropped = sql_query(format!(
+            "DROP DATABASE IF EXISTS \"{}\" WITH (FORCE)",
+            datname.replace('"', "\"\"")
+        ))
+        .execute(conn);
+        match dropped {
+            Ok(_) => {
+                tracing::info!(scratch_database = %datname, "restore: dropped a leftover scratch database")
+            }
+            Err(e) => tracing::warn!(
+                scratch_database = %datname,
+                error = %e,
+                "restore: couldn't drop a leftover scratch database"
+            ),
+        }
     }
 }
 
@@ -272,7 +362,8 @@ struct ScratchDatabase {
 impl ScratchDatabase {
     fn create(conn: &mut DbConnection, server_url: &str) -> Result<Self, BackupError> {
         let name = format!(
-            "nosdesk_restore_{}",
+            "{}{}",
+            scratch_prefix(conn)?,
             &uuid::Uuid::new_v4().simple().to_string()[..16]
         );
         // template0: a clean database, whatever extensions template1 carries.
@@ -367,17 +458,30 @@ mod tests {
 
     /// The pinned 1.0.x points still name this build's migrations, byte for
     /// byte. Fails when a shipped migration is edited.
+    /// The CI guard for shipped schemas: the migrations up to every pinned
+    /// release point are still the ones it shipped. A migration edited after
+    /// it shipped, or a new one that sorts before a shipped point, changes
+    /// that prefix's digest.
     #[test]
-    fn legacy_schema_points_pin_their_migration_prefixes() {
-        for point in LEGACY_SCHEMA_POINTS {
+    fn shipped_schema_points_pin_their_migration_prefixes() {
+        let shipped = LEGACY_SCHEMA_POINTS
+            .iter()
+            .map(|p| (p.migration, p.prefix_sha256))
+            .chain(
+                RELEASED_SCHEMA_POINTS
+                    .iter()
+                    .map(|p| (p.migration, p.prefix_sha256)),
+            );
+        for (migration, prefix_sha256) in shipped {
             let prefix = MIGRATION_PREFIXES
                 .iter()
-                .find(|p| p.version == point.migration)
-                .unwrap_or_else(|| panic!("migration {} is gone", point.migration));
+                .find(|p| p.version == migration)
+                .unwrap_or_else(|| panic!("migration {migration} is gone"));
             assert_eq!(
-                prefix.sha256, point.prefix_sha256,
-                "migrations up to {} changed after they shipped",
-                point.migration
+                prefix.sha256, prefix_sha256,
+                "the migrations up to {migration}, which a release shipped, changed: one was \
+                 edited, or a new one sorts before it. A migration in a patch release must sort \
+                 after everything main has already shipped (DEVELOPMENT.md, \"Releases\")."
             );
         }
     }

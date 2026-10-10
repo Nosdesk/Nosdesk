@@ -422,6 +422,7 @@ pub async fn upload_restore(
 /// `password_required`, no manifest), and the preview comes from the POST
 /// with the password.
 pub async fn preview_restore(
+    pool: web::Data<Pool>,
     mut tc: TenantConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
@@ -437,7 +438,7 @@ pub async fn preview_restore(
             "manifest": null,
             "warnings": [],
         })),
-        Ok(false) => preview_response(&file_path, None),
+        Ok(false) => preview_response(&pool, &file_path, None),
         Err(e) => preview_error(e, false),
     }
 }
@@ -445,6 +446,7 @@ pub async fn preview_restore(
 /// Preview an encrypted backup with its password
 /// POST /api/admin/backup/restore/{id}/preview
 pub async fn unlock_restore_preview(
+    pool: web::Data<Pool>,
     mut tc: TenantConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
@@ -454,7 +456,7 @@ pub async fn unlock_restore_preview(
         Ok(file_path) => file_path,
         Err(refused) => return actix_web::ResponseError::error_response(&refused),
     };
-    preview_response(&file_path, body.password.as_deref())
+    preview_response(&pool, &file_path, body.password.as_deref())
 }
 
 /// The uploaded backup behind restore job `job_id`, for a platform admin on
@@ -497,9 +499,14 @@ fn not_restorable(reason: &backup_service::NotRestorable) -> HttpResponse {
 }
 
 /// The preview of a readable backup: `password_required` is false.
-fn preview_response(file_path: &std::path::Path, password: Option<&str>) -> HttpResponse {
+fn preview_response(
+    pool: &Pool,
+    file_path: &std::path::Path,
+    password: Option<&str>,
+) -> HttpResponse {
     match backup_service::preview_restore(file_path, password) {
-        Ok(preview) => {
+        Ok(mut preview) => {
+            backup_service::list_replaced_tables(pool, &mut preview);
             let mut body = json!(preview);
             body["password_required"] = json!(false);
             HttpResponse::Ok().json(body)
@@ -611,20 +618,49 @@ pub async fn execute_restore(
         )
     });
 
-    // Restore database first, then files. `restore_instance` runs it as
-    // the migration role when one is configured.
-    let (stats, mut conn) = match backup_service::restore_instance(
-        &pool,
-        &file_path,
-        body.password.as_deref(),
-        // Admin auth is the upstream gate for this endpoint; the
-        // operator explicitly chose to restore over the live DB.
-        backup_service::RestoreOptions {
-            force_non_empty: true,
-            ..Default::default()
-        },
-    ) {
-        Ok(s) => s,
+    // Restore database first, then files, off the async workers: upgrading
+    // an older backup runs every later migration and can take minutes.
+    // `restore_instance` runs it as the migration role when one is
+    // configured, and holds the restore lock, so a retry while this one runs
+    // is refused rather than racing it.
+    let password = body.password.clone();
+    let restore_path = file_path.clone();
+    let runtime = pool.get_ref().clone();
+    let restored = web::block(move || {
+        let (stats, conn) = backup_service::restore_instance(
+            &runtime,
+            &restore_path,
+            password.as_deref(),
+            // Admin auth is the upstream gate for this endpoint; the
+            // operator explicitly chose to restore over the live DB.
+            backup_service::RestoreOptions {
+                force_non_empty: true,
+                ..Default::default()
+            },
+        )?;
+        // Files restore is best-effort: a missing or partial files payload
+        // shouldn't undo the database restore that just completed.
+        let files_restored =
+            match backup_service::restore_backup_files(&restore_path, password.as_deref()) {
+                Ok(count) => count,
+                Err(e) => {
+                    tracing::warn!(error = %e, "File restore had issues during admin restore");
+                    0
+                }
+            };
+        Ok::<_, backup_service::BackupError>((stats, conn, files_restored))
+    })
+    .await
+    .map_err(|e| ApiError::Internal(format!("Database restore failed: {e}")))?;
+    let (stats, mut conn, files_restored) = match restored {
+        Ok(restored) => restored,
+        Err(backup_service::BackupError::RestoreInProgress) => {
+            // This job's state belongs to the restore that holds the lock.
+            return Ok(errors::conflict_with_code(
+                backup_service::BackupError::RestoreInProgress.to_string(),
+                "BACKUP_RESTORE_IN_PROGRESS",
+            ));
+        }
         Err(e) => {
             let _ = tc.run(|conn| {
                 backup_repo::update_backup_job(
@@ -642,8 +678,11 @@ pub async fn execute_restore(
             // Fixed text for a connection failure: its cause, which names
             // the database host and user, is in the log.
             let message = format!("Database restore failed: {e}");
-            if let backup_service::BackupError::CannotCreateDatabase = e {
-                return Ok(errors::internal_with_code(message, "BACKUP_NEEDS_CREATEDB"));
+            if let backup_service::BackupError::MissingPrivileges(_) = e {
+                return Ok(errors::internal_with_code(
+                    message,
+                    "BACKUP_NEEDS_PRIVILEGES",
+                ));
             }
             return Err(if e.is_connection() {
                 ApiError::ServiceUnavailable(message)
@@ -652,17 +691,6 @@ pub async fn execute_restore(
             });
         }
     };
-
-    // Files restore is best-effort: a missing or partial files payload
-    // shouldn't undo the database restore that just completed.
-    let files_restored =
-        match backup_service::restore_backup_files(&file_path, body.password.as_deref()) {
-            Ok(count) => count,
-            Err(e) => {
-                tracing::warn!(error = %e, "File restore had issues during admin restore");
-                0
-            }
-        };
 
     // Thumbnails aren't carried in the backup (skipped as cheap to
     // regenerate), so rebuild them from the restored avatar originals.

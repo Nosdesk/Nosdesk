@@ -877,8 +877,10 @@ fn db_restore(
     // verification — a successful preview means the archive
     // header parsed and (if encrypted) the password decrypted
     // the inner zip.
-    let preview = backup_service::preview_restore(file, password.as_deref())
+    let mut preview = backup_service::preview_restore(file, password.as_deref())
         .map_err(|e| anyhow!("preview failed: {e}"))?;
+    let pool = db::establish_connection_pool();
+    backup_service::list_replaced_tables(&pool, &mut preview);
 
     let manifest = &preview.manifest;
     println!("Restore preview:");
@@ -901,6 +903,23 @@ fn db_restore(
     for (name, info) in tables {
         println!("    - {name}: {} rows", info.count);
     }
+    if let Some(upgrade) = preview
+        .upgrade
+        .as_ref()
+        .filter(|u| !u.replaced_tables.is_empty())
+    {
+        eprintln!(
+            "  warning: the backup predates these tables; their current rows are replaced \
+             (settings return to their defaults): {}",
+            upgrade.replaced_tables.join(", ")
+        );
+    }
+    if !preview.encrypted {
+        eprintln!(
+            "  warning: this backup holds no passwords or MFA; restoring it clears them for \
+             everyone. Set a new one afterwards with `nosdesk-cli admin reset-password`."
+        );
+    }
     for warning in &preview.warnings {
         eprintln!("  warning: {warning}");
     }
@@ -913,7 +932,7 @@ fn db_restore(
     // Runs as the migration role when MIGRATION_DATABASE_URL is set, like
     // the admin restore: the app role can't truncate and reload tables.
     let (stats, mut conn) = backup_service::restore_instance(
-        &db::establish_connection_pool(),
+        &pool,
         file,
         password.as_deref(),
         backup_service::RestoreOptions {

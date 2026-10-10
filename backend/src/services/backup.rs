@@ -226,9 +226,12 @@ pub enum BackupError {
     ConnectionUnavailable(String),
     /// The backup's schema isn't one this build can restore.
     NotRestorable(super::backup_upgrade::NotRestorable),
-    /// An older backup needs a scratch database, and the role restore runs
-    /// as can't create one.
-    CannotCreateDatabase,
+    /// An older backup is upgraded in a scratch database and exported again
+    /// across every workspace; the role restore runs as lacks a privilege
+    /// that takes (`CREATEDB`, `BYPASSRLS`).
+    MissingPrivileges(Vec<&'static str>),
+    /// Another restore of this database is running.
+    RestoreInProgress,
     /// Upgrading an older backup's rows to this build's schema failed.
     UpgradeFailed(String),
 }
@@ -267,12 +270,20 @@ impl std::fmt::Display for BackupError {
             }
             BackupError::ConnectionUnavailable(_) => write!(f, "Database connection unavailable"),
             BackupError::NotRestorable(reason) => write!(f, "Can't restore: {reason}"),
-            BackupError::CannotCreateDatabase => write!(
+            BackupError::MissingPrivileges(missing) => write!(
                 f,
                 "Restoring a backup from an earlier Nosdesk version upgrades it in a temporary \
-                 database, and the database role restore runs as (MIGRATION_DATABASE_URL, or \
-                 DATABASE_URL when that isn't set) can't create one. Grant it CREATEDB: see \
-                 https://nosdesk.com/docs/operations/backup-restore#restoring-a-backup-from-an-earlier-version"
+                 database and reads it back across every workspace, which needs a database role \
+                 with CREATEDB and BYPASSRLS, or a superuser. The role restore runs as \
+                 (MIGRATION_DATABASE_URL, or DATABASE_URL when that isn't set) lacks {}. Nothing \
+                 was changed. See \
+                 https://nosdesk.com/docs/operations/backup-restore#restoring-a-backup-from-an-earlier-version",
+                missing.join(" and ")
+            ),
+            BackupError::RestoreInProgress => write!(
+                f,
+                "Another restore of this database is running. Wait for it to finish, then check \
+                 the result before restoring again."
             ),
             BackupError::UpgradeFailed(e) => write!(f, "Upgrading the backup failed: {e}"),
         }
@@ -753,6 +764,7 @@ pub fn preview_restore(
             SchemaPoint::Earlier { .. } => Some(RestoreUpgrade {
                 from_version: manifest.nosdesk_version.clone(),
                 to_version: env!("CARGO_PKG_VERSION").to_string(),
+                replaced_tables: Vec::new(),
             }),
         };
 
@@ -875,6 +887,10 @@ pub struct RestoreOptions {
     /// database created there; without a URL such a backup is refused.
     /// [`restore_instance`] fills it in.
     pub server_url: Option<String>,
+    /// Row JSON per load statement; [`RESTORE_CHUNK_BYTES`] when unset.
+    /// Tests set it small to exercise chunking without large fixtures.
+    #[doc(hidden)]
+    pub chunk_bytes: Option<usize>,
 }
 
 /// Leaves the URL out: it carries the role's password.
@@ -883,7 +899,43 @@ impl std::fmt::Debug for RestoreOptions {
         f.debug_struct("RestoreOptions")
             .field("force_non_empty", &self.force_non_empty)
             .field("server_url", &self.server_url.as_ref().map(|_| "<set>"))
+            .field("chunk_bytes", &self.chunk_bytes)
             .finish()
+    }
+}
+
+/// A connection as the role an instance restore runs as: the migration role
+/// when `MIGRATION_DATABASE_URL` is set (an error when it can't be reached),
+/// else `runtime`.
+pub fn restore_connection(runtime: &crate::db::Pool) -> Result<DbConnection, BackupError> {
+    let migration_role = crate::db::migration_role_pool().map_err(|e| {
+        tracing::error!(error = %e, "restore: MIGRATION_DATABASE_URL is set but couldn't connect");
+        BackupError::MigrationRoleUnreachable(e.to_string())
+    })?;
+    match migration_role {
+        Some(pool) => pool.get(),
+        None => runtime.get(),
+    }
+    .map_err(|e| {
+        tracing::error!(error = %e, "restore: no database connection");
+        BackupError::ConnectionUnavailable(e.to_string())
+    })
+}
+
+/// Fill in which live tables an upgrade restore of `preview`'s backup
+/// replaces (see [`tables_backup_predates`]). Best effort: the preview stands
+/// without the list when the restore role can't be reached.
+pub fn list_replaced_tables(runtime: &crate::db::Pool, preview: &mut RestorePreview) {
+    let Some(upgrade) = preview.upgrade.as_mut() else {
+        return;
+    };
+    let listed = restore_connection(runtime)
+        .and_then(|mut conn| tables_backup_predates(&mut conn, &preview.manifest));
+    match listed {
+        Ok(tables) => upgrade.replaced_tables = tables,
+        Err(e) => {
+            tracing::warn!(error = %e, "restore preview: couldn't list the tables it replaces")
+        }
     }
 }
 
@@ -905,24 +957,23 @@ pub fn restore_instance(
     password: Option<&str>,
     mut options: RestoreOptions,
 ) -> Result<(RestoreStats, DbConnection), BackupError> {
-    let migration_role = crate::db::migration_role_pool().map_err(|e| {
-        tracing::error!(error = %e, "restore: MIGRATION_DATABASE_URL is set but couldn't connect");
-        BackupError::MigrationRoleUnreachable(e.to_string())
-    })?;
-    let mut conn = match migration_role {
-        Some(pool) => pool.get(),
-        None => runtime.get(),
-    }
-    .map_err(|e| {
-        tracing::error!(error = %e, "restore: no database connection");
-        BackupError::ConnectionUnavailable(e.to_string())
-    })?;
+    let mut conn = restore_connection(runtime)?;
     if options.server_url.is_none() {
         options.server_url = crate::db::migration_database_url();
     }
     let stats = restore_database(&mut conn, backup_path, password, options)?;
     Ok((stats, conn))
 }
+
+/// Session advisory lock a restore holds on the database it restores, so a
+/// second restore (a double click, or a retry after a proxy timeout) is
+/// refused rather than racing the first.
+pub const RESTORE_LOCK_KEY: i64 = 0x6e6f_7364_7273_746f; // "nosdrsto"
+
+/// Instance-wide tables a backup from an earlier version can predate.
+/// Restoring such a backup leaves their live rows as they are rather than
+/// clearing them: the backup has nothing to say about them.
+const KEEP_LIVE_WHEN_PREDATED: &[&str] = &["instance_settings"];
 
 /// Restore a backup archive into the database `conn` points at.
 /// Outside tests, call [`restore_instance`], which picks the connection.
@@ -932,7 +983,7 @@ pub fn restore_instance(
 /// database at the schema they were taken at, the later migrations run over
 /// them as an in-place upgrade would, and the result loads here
 /// (`backup_upgrade`). A backup this build can't place is refused before
-/// anything changes.
+/// anything changes, and so is a second restore while one runs.
 ///
 /// The load runs inside a single transaction with
 /// `session_replication_role = 'replica'`, so:
@@ -958,11 +1009,63 @@ pub fn restore_database(
     password: Option<&str>,
     options: RestoreOptions,
 ) -> Result<RestoreStats, BackupError> {
+    use diesel::prelude::*;
+    use diesel::sql_query;
+    use diesel::sql_types::BigInt;
+
+    #[derive(QueryableByName)]
+    struct Locked {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        locked: bool,
+    }
+    let locked: Locked = sql_query("SELECT pg_try_advisory_lock($1) AS locked")
+        .bind::<BigInt, _>(RESTORE_LOCK_KEY)
+        .get_result(conn)
+        .map_err(BackupError::DatabaseError)?;
+    if !locked.locked {
+        return Err(BackupError::RestoreInProgress);
+    }
+    // The connection goes back to a pool, so the lock is released however
+    // the restore ends, a panic included; a lock left on it would refuse
+    // every later restore.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        restore_database_locked(conn, backup_path, password, options)
+    }));
+    if let Err(e) = sql_query("SELECT pg_advisory_unlock($1)")
+        .bind::<BigInt, _>(RESTORE_LOCK_KEY)
+        .execute(conn)
+    {
+        tracing::warn!(error = %e, "restore: couldn't release the restore lock; it ends with the session");
+    }
+    match result {
+        Ok(Ok(stats)) => {
+            tracing::info!(count = stats.records_restored, "restore: finished");
+            Ok(stats)
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "restore: failed; the database is as it was");
+            Err(e)
+        }
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+/// [`restore_database`], holding the restore lock.
+fn restore_database_locked(
+    conn: &mut DbConnection,
+    backup_path: &Path,
+    password: Option<&str>,
+    options: RestoreOptions,
+) -> Result<RestoreStats, BackupError> {
     use diesel::deserialize::QueryableByName;
     use diesel::prelude::*;
     use diesel::sql_query;
     use diesel::sql_types::BigInt;
     use std::io::Cursor;
+
+    // Scratch databases a killed restore left behind. Nothing else uses them
+    // while this restore holds the lock.
+    super::backup_upgrade::drop_leftover_scratch_databases(conn);
 
     // ---- Load the inner zip (decrypts if encrypted) and place it ----
     let inner_zip = load_inner_zip(backup_path, password)?;
@@ -976,7 +1079,7 @@ pub fn restore_database(
                 "no database URL to create the upgrade database with".to_string(),
             ));
         }
-        super::backup_upgrade::require_create_database(conn)?;
+        super::backup_upgrade::require_upgrade_privileges(conn)?;
     }
 
     // ---- Pre-flight empty-target check ----
@@ -997,8 +1100,9 @@ pub fn restore_database(
         }
     }
 
-    let rows = match point {
-        SchemaPoint::Current => inner_zip,
+    let chunk_bytes = options.chunk_bytes.unwrap_or(RESTORE_CHUNK_BYTES);
+    let (rows, keep_live, into) = match point {
+        SchemaPoint::Current => (inner_zip, Vec::new(), LoadInto::Live),
         SchemaPoint::Earlier { migration } => {
             let server_url = options
                 .server_url
@@ -1009,10 +1113,68 @@ pub fn restore_database(
                 backup_migration = migration,
                 "restore: upgrading a backup from an earlier version"
             );
-            super::backup_upgrade::upgrade_archive(conn, server_url, &inner_zip, migration)?
+            let upgraded = super::backup_upgrade::upgrade_archive(
+                conn,
+                server_url,
+                &inner_zip,
+                migration,
+                chunk_bytes,
+            )?;
+            let upgraded_manifest = manifest_of(&mut ZipArchive::new(Cursor::new(&upgraded[..]))?)?;
+            // A table the backup predates comes out of the upgrade empty;
+            // an instance-wide one keeps its live rows instead.
+            let keep_live = KEEP_LIVE_WHEN_PREDATED
+                .iter()
+                .filter(|t| !manifest.tables.contains_key(**t))
+                .filter(|t| {
+                    upgraded_manifest
+                        .tables
+                        .get(**t)
+                        .is_none_or(|m| m.count == 0)
+                })
+                .map(|t| t.to_string())
+                .collect();
+            (upgraded, keep_live, LoadInto::LiveUpgraded)
         }
     };
-    load_archive(conn, &rows, LoadInto::Live)
+    load_archive(conn, &rows, into, &keep_live, chunk_bytes)
+}
+
+/// Tables in this database that `manifest`'s backup predates and that hold
+/// rows now: restoring it replaces them with what the upgrade produces,
+/// which for settings means their defaults. Instance-wide tables the restore
+/// keeps are left out. Needs a connection that sees every row.
+pub fn tables_backup_predates(
+    conn: &mut DbConnection,
+    manifest: &BackupManifest,
+) -> Result<Vec<String>, BackupError> {
+    use diesel::prelude::*;
+    use diesel::sql_query;
+    use diesel::sql_types::Bool;
+
+    #[derive(QueryableByName)]
+    struct HasRows {
+        #[diesel(sql_type = Bool)]
+        has_rows: bool,
+    }
+    let mut predated = Vec::new();
+    for table in discover_user_tables(conn)? {
+        if manifest.tables.contains_key(&table) || KEEP_LIVE_WHEN_PREDATED.contains(&table.as_str())
+        {
+            continue;
+        }
+        // `table` came from the catalogue; quote it all the same.
+        let row: HasRows = sql_query(format!(
+            "SELECT EXISTS (SELECT 1 FROM public.\"{}\") AS has_rows",
+            table.replace('"', "\"\"")
+        ))
+        .get_result(conn)
+        .map_err(BackupError::DatabaseError)?;
+        if row.has_rows {
+            predated.push(table);
+        }
+    }
+    Ok(predated)
 }
 
 /// Which database [`load_archive`] fills.
@@ -1020,16 +1182,21 @@ pub fn restore_database(
 pub(crate) enum LoadInto {
     /// The live database, at this build's schema.
     Live,
+    /// The live database, with the rows of an upgraded older backup.
+    LiveUpgraded,
     /// A scratch database at an older backup's own schema, to be migrated.
     Scratch,
 }
 
 /// Replace the tables of the database `conn` points at with the rows of
 /// `inner_zip`, an archive at that database's schema, in one transaction.
+/// Tables in `keep` are left as they are.
 pub(crate) fn load_archive(
     conn: &mut DbConnection,
     inner_zip: &[u8],
     into: LoadInto,
+    keep: &[String],
+    chunk_bytes: usize,
 ) -> Result<RestoreStats, BackupError> {
     use diesel::connection::Connection;
     use diesel::prelude::*;
@@ -1053,6 +1220,9 @@ pub(crate) fn load_archive(
     let restore_order: Vec<String> = backup_tables
         .into_iter()
         .filter(|t| {
+            if keep.contains(t) {
+                return false;
+            }
             if partition_children.contains(t) {
                 skipped_partition.push(t.clone());
                 return false;
@@ -1149,7 +1319,7 @@ pub(crate) fn load_archive(
                 });
                 continue;
             }
-            let rows_loaded = restore_table_data(c, table_name, payload)?;
+            let rows_loaded = restore_table_data_in_chunks(c, table_name, payload, chunk_bytes)?;
             if rows_loaded > 0 {
                 stats.tables_restored += 1;
                 stats.records_restored += rows_loaded;
@@ -1168,9 +1338,15 @@ pub(crate) fn load_archive(
         // off, so move each workspace's sequence past its highest. A scratch
         // database at an older schema may predate them; its migrations number
         // the tickets, and the live load that follows runs this.
-        if into == LoadInto::Live {
+        if into != LoadInto::Scratch {
             sql_query("SELECT public.sync_ticket_number_sequences()")
                 .execute(c)
+                .map_err(BackupError::DatabaseError)?;
+        }
+        if into == LoadInto::LiveUpgraded {
+            // The rows carry the schema fingerprint of the server that made
+            // the backup; this server's is the one that holds now.
+            crate::sync::system_meta::set_schema_hash(c, SERVER_SCHEMA_HASH)
                 .map_err(BackupError::DatabaseError)?;
         }
         Ok(stats)
@@ -1256,7 +1432,58 @@ fn reset_sequences(conn: &mut DbConnection) -> Result<(), BackupError> {
 /// per-column conversion against the target record type. Extra
 /// JSON keys are ignored; missing keys default to NULL, except a
 /// column in `MISSING_COLUMNS`.
+#[cfg(test)]
 fn restore_table_data(
+    conn: &mut DbConnection,
+    table_name: &str,
+    payload: &str,
+) -> Result<usize, BackupError> {
+    restore_table_data_in_chunks(conn, table_name, payload, RESTORE_CHUNK_BYTES)
+}
+
+/// How much row JSON one restore statement carries. Postgres caps a jsonb
+/// array at 256 MB, so a large table loads in several statements, all in
+/// the restore's one transaction.
+pub(crate) const RESTORE_CHUNK_BYTES: usize = 32 * 1024 * 1024;
+
+/// [`restore_table_data`], loading at most about `chunk_bytes` of row JSON
+/// per statement (always at least one row).
+fn restore_table_data_in_chunks(
+    conn: &mut DbConnection,
+    table_name: &str,
+    payload: &str,
+    chunk_bytes: usize,
+) -> Result<usize, BackupError> {
+    if payload.len() <= chunk_bytes {
+        return restore_rows(conn, table_name, payload);
+    }
+    // Split without parsing values: `RawValue` keeps each row's text as it
+    // is, so numbers keep their precision.
+    let rows: Vec<&serde_json::value::RawValue> = serde_json::from_str(payload)?;
+    let mut loaded = 0;
+    let mut chunk = String::from("[");
+    for row in rows {
+        let text = row.get();
+        if chunk.len() > 1 && chunk.len() + text.len() + 2 > chunk_bytes {
+            chunk.push(']');
+            loaded += restore_rows(conn, table_name, &chunk)?;
+            chunk.clear();
+            chunk.push('[');
+        }
+        if chunk.len() > 1 {
+            chunk.push(',');
+        }
+        chunk.push_str(text);
+    }
+    if chunk.len() > 1 {
+        chunk.push(']');
+        loaded += restore_rows(conn, table_name, &chunk)?;
+    }
+    Ok(loaded)
+}
+
+/// Load one JSON array of `table_name` rows.
+fn restore_rows(
     conn: &mut DbConnection,
     table_name: &str,
     payload: &str,

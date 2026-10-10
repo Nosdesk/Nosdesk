@@ -157,4 +157,9 @@ pub struct RestoreUpgrade {
     pub from_version: String,
     /// This server's version.
     pub to_version: String,
+    /// Live tables the backup predates that hold rows now. The restore
+    /// replaces them with what the upgrade produces, which for settings
+    /// means their defaults. Filled where the preview can reach the
+    /// database.
+    pub replaced_tables: Vec<String>,
 }
