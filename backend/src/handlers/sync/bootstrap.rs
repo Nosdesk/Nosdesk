@@ -363,18 +363,11 @@ fn stream_bootstrap_inner(
     // them. This mirrors the read-side filter on /api/sync/delta;
     // both reuse the canonical access logic so they cannot drift.
     if want_all {
-        let is_admin = viewer.is_admin;
+        let audience = viewer.pages();
 
         let collections: Vec<crate::models::DocumentationCollection> =
             crate::schema::documentation_collections::table.load(conn)?;
-        for c in collections {
-            if !is_admin
-                && !crate::repository::documentation_collections::can_user_access_collection(
-                    conn, c.id, &user.uuid, false,
-                )?
-            {
-                continue;
-            }
+        for c in audience.filter_collections(conn, collections, |c| c.id)? {
             send(
                 tx,
                 json!({
@@ -399,9 +392,7 @@ fn stream_bootstrap_inner(
 
         let all_pages: Vec<crate::models::DocumentationPage> =
             crate::schema::documentation_pages::table.load(conn)?;
-        let visible_pages = crate::repository::documentation::filter_pages_for_user(
-            conn, all_pages, &user.uuid, is_admin,
-        )?;
+        let visible_pages = audience.filter_pages(conn, all_pages)?;
         // Denormalised collection membership (one collection per page,
         // UNIQUE(page_id)) so the page row is self-contained for the
         // pool — mirrors `page_sync_payload`'s collection_id field.

@@ -539,7 +539,9 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
 /**
  * Create a new article
  */
-export const createArticle = async (article: Partial<Page>): Promise<Page | null> => {
+export const createArticle = async (
+  article: Partial<Page> & { collection_id?: number | null },
+): Promise<Page | null> => {
   try {
     // Convert status string to enum value expected by backend
     let statusValue;
@@ -558,7 +560,7 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
     // the backend cascades from `parent_id` (so creating a
     // child of an existing page inherits the parent's collection
     // automatically).
-    const collectionId = (article as Partial<Page> & { collection_id?: number }).collection_id;
+    const collectionId = article.collection_id ?? undefined;
     const payload = {
       title: article.title || translate('docs-untitled-page', undefined, 'Untitled'),
       icon: article.icon || '📄',

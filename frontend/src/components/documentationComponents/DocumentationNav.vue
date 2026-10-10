@@ -414,12 +414,15 @@ const handleContextMenuSelect = async (actionId: string) => {
 
     case 'duplicate':
       try {
+        // The copy goes in the original's collection, so it is closed to
+        // the same people from the start.
         const newPage = await documentationService.createArticle({
           title: t('docs-nav-duplicate-suffix', { title: page.title }),
           content: '',
           description: '',
           status: 'draft',
           icon: page.icon || '📄',
+          collection_id: pageToCollectionMap.value[String(page.id)] ?? null,
         })
         if (newPage?.id) {
           docsEmitter.emit('doc:created', { id: newPage.id })

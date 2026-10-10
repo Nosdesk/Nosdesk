@@ -44,7 +44,11 @@ pub fn get_page_subscribers_who_can_read(
             || roles
                 .get(&uuid)
                 .is_some_and(|r| r.meets(WorkspaceRole::Admin));
-        if crate::repository::documentation::can_user_access_page(conn, page_id, &uuid, is_admin)? {
+        let audience = crate::repository::documentation::PageAudience::User {
+            user_uuid: uuid,
+            is_admin,
+        };
+        if audience.try_can_read(conn, page_id)? {
             readers.push(uuid);
         }
     }

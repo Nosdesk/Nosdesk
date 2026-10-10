@@ -568,12 +568,11 @@ fn to_page_responses(
 
 // Get all documentation pages
 pub async fn get_documentation_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    let is_admin_user = auth.is_workspace_admin();
-    let user_uuid = auth.user_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let result = tc.run(|conn| {
         let pages = repository::get_documentation_pages(conn)?;
-        let pages = repository::filter_pages_for_user(conn, pages, &user_uuid, is_admin_user)?;
+        let pages = audience.filter_pages(conn, pages)?;
         let responses = to_page_responses(pages, conn).map_err(|_| {
             diesel::result::Error::QueryBuilderError("Failed to build page responses".into())
         })?;
@@ -622,8 +621,7 @@ pub async fn get_documentation_page(
 ) -> impl Responder {
     let page_id = id.into_inner();
     let want_tickets = embed_includes(&query.embed, "tickets");
-    let is_admin_user = auth.is_workspace_admin();
-    let user_uuid = auth.user_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
     let ticket_ctx = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
@@ -631,7 +629,7 @@ pub async fn get_documentation_page(
             Ok(p) => p,
             Err(_) => return Ok(PageLoadOutcome::NotFound),
         };
-        match repository::can_user_access_page(conn, page.id, &user_uuid, is_admin_user) {
+        match audience.try_can_read(conn, page.id) {
             Ok(true) => {}
             Ok(false) => return Ok(PageLoadOutcome::NotFound),
             Err(_) => return Ok(PageLoadOutcome::VisibilityCheckFailed),
@@ -677,8 +675,7 @@ pub async fn get_documentation_page_by_slug(
 ) -> impl Responder {
     let page_slug = slug.into_inner();
     let want_tickets = embed_includes(&query.embed, "tickets");
-    let is_admin_user = auth.is_workspace_admin();
-    let user_uuid = auth.user_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
     let ticket_ctx = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
@@ -686,7 +683,7 @@ pub async fn get_documentation_page_by_slug(
             Ok(p) => p,
             Err(_) => return Ok(PageLoadOutcome::NotFound),
         };
-        match repository::can_user_access_page(conn, page.id, &user_uuid, is_admin_user) {
+        match audience.try_can_read(conn, page.id) {
             Ok(true) => {}
             Ok(false) => return Ok(PageLoadOutcome::NotFound),
             Err(_) => return Ok(PageLoadOutcome::VisibilityCheckFailed),
@@ -744,15 +741,14 @@ pub async fn get_documentation_page_content_by_uuid(
         Ok(u) => u,
         Err(_) => return errors::bad_request("Invalid UUID"),
     };
-    let is_admin_user = auth.is_workspace_admin();
-    let user_uuid = auth.user_uuid;
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
         let page = match repository::get_documentation_page_by_uuid(&page_uuid, conn) {
             Ok(p) => p,
             Err(_) => return Ok(PageContentOutcome::NotFound),
         };
-        match repository::can_user_access_page(conn, page.id, &user_uuid, is_admin_user) {
+        match audience.try_can_read(conn, page.id) {
             Ok(true) => {}
             Ok(false) => return Ok(PageContentOutcome::NotFound),
             Err(_) => return Ok(PageContentOutcome::VisibilityCheckFailed),
@@ -957,11 +953,9 @@ pub async fn create_documentation_page(
                 page_id: created_page.id,
                 created_by: Some(user_uuid),
             };
-            if let Err(e) =
-                repository::documentation_collections::add_page_to_collection(conn, entry)
-            {
-                error!(error = ?e, page_id = created_page.id, collection_id = cid, "Failed to assign page to collection");
-            }
+            // In the same transaction as the create: a page meant for a
+            // collection is never left open to everyone instead.
+            repository::documentation_collections::add_page_to_collection(conn, entry)?;
         }
 
         let response = to_page_response(created_page.clone(), conn).map_err(|_| {
@@ -1288,8 +1282,7 @@ enum PageListOutcome {
 
 fn run_page_list<F>(
     tc: &mut TenantConn,
-    user_uuid: Uuid,
-    is_admin_user: bool,
+    audience: repository::PageAudience,
     load: F,
 ) -> diesel::QueryResult<PageListOutcome>
 where
@@ -1297,8 +1290,7 @@ where
 {
     tc.run(|conn| {
         let pages = load(conn)?;
-        let pages = match repository::filter_pages_for_user(conn, pages, &user_uuid, is_admin_user)
-        {
+        let pages = match audience.filter_pages(conn, pages) {
             Ok(p) => p,
             Err(_) => return Ok(PageListOutcome::VisibilityCheckFailed),
         };
@@ -1332,9 +1324,11 @@ pub async fn get_top_level_documentation_pages(
     mut tc: TenantConn,
     auth: AuthContext,
 ) -> impl Responder {
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
-        repository::get_top_level_pages(conn)
-    });
+    let outcome = run_page_list(
+        &mut tc,
+        repository::PageAudience::from_auth(&auth),
+        repository::get_top_level_pages,
+    );
     respond_page_list(outcome, "Failed to fetch top-level pages")
 }
 
@@ -1345,9 +1339,11 @@ pub async fn get_documentation_pages_by_parent_id(
     auth: AuthContext,
 ) -> impl Responder {
     let parent = parent_id.into_inner();
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
-        repository::get_pages_by_parent_id(parent, conn)
-    });
+    let outcome = run_page_list(
+        &mut tc,
+        repository::PageAudience::from_auth(&auth),
+        |conn| repository::get_pages_by_parent_id(parent, conn),
+    );
     respond_page_list(outcome, "Failed to fetch pages by parent ID")
 }
 
@@ -1366,8 +1362,7 @@ pub async fn get_page_with_children_by_parent_id(
     auth: AuthContext,
 ) -> impl Responder {
     let page_id = id.into_inner();
-    let user_uuid = auth.user_uuid;
-    let is_admin_user = auth.is_workspace_admin();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
         let page = match repository::get_documentation_page(page_id, conn) {
@@ -1375,14 +1370,14 @@ pub async fn get_page_with_children_by_parent_id(
             Err(_) => return Ok(PageWithChildrenOutcome::NotFound),
         };
 
-        match repository::can_user_access_page(conn, page.id, &user_uuid, is_admin_user) {
+        match audience.try_can_read(conn, page.id) {
             Ok(true) => {}
             Ok(false) => return Ok(PageWithChildrenOutcome::NotFound),
             Err(_) => return Ok(PageWithChildrenOutcome::VisibilityCheckFailed),
         }
 
         let children = match repository::get_pages_by_parent_id(page_id, conn) {
-            Ok(c) => match repository::filter_pages_for_user(conn, c, &user_uuid, is_admin_user) {
+            Ok(c) => match audience.filter_pages(conn, c) {
                 Ok(filtered) => filtered,
                 Err(_) => return Ok(PageWithChildrenOutcome::VisibilityCheckFailed),
             },
@@ -1415,8 +1410,7 @@ pub async fn get_page_with_ordered_children(
     auth: AuthContext,
 ) -> impl Responder {
     let page_id = id.into_inner();
-    let user_uuid = auth.user_uuid;
-    let is_admin_user = auth.is_workspace_admin();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
         let mut page_with_children = match repository::get_page_with_ordered_children(conn, page_id)
@@ -1424,22 +1418,13 @@ pub async fn get_page_with_ordered_children(
             Ok(p) => p,
             Err(_) => return Ok(PageWithChildrenOutcome::NotFound),
         };
-        match repository::can_user_access_page(
-            conn,
-            page_with_children.page.id,
-            &user_uuid,
-            is_admin_user,
-        ) {
+        match audience.try_can_read(conn, page_with_children.page.id) {
             Ok(true) => {}
             Ok(false) => return Ok(PageWithChildrenOutcome::NotFound),
             Err(_) => return Ok(PageWithChildrenOutcome::VisibilityCheckFailed),
         }
-        page_with_children.children = match repository::filter_pages_for_user(
-            conn,
-            page_with_children.children,
-            &user_uuid,
-            is_admin_user,
-        ) {
+        page_with_children.children = match audience.filter_pages(conn, page_with_children.children)
+        {
             Ok(c) => c,
             Err(_) => return Ok(PageWithChildrenOutcome::VisibilityCheckFailed),
         };
@@ -1468,9 +1453,11 @@ pub async fn get_ordered_pages_by_parent_id(
     auth: AuthContext,
 ) -> impl Responder {
     let parent = parent_id.into_inner();
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
-        repository::get_ordered_pages_by_parent_id(conn, parent)
-    });
+    let outcome = run_page_list(
+        &mut tc,
+        repository::PageAudience::from_auth(&auth),
+        |conn| repository::get_ordered_pages_by_parent_id(conn, parent),
+    );
     respond_page_list(outcome, "Failed to fetch ordered pages by parent ID")
 }
 
@@ -1597,9 +1584,11 @@ enum MoveOutcome {
 
 // Get top-level pages (with ordering)
 pub async fn get_ordered_top_level_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
-        repository::get_ordered_top_level_pages(conn)
-    });
+    let outcome = run_page_list(
+        &mut tc,
+        repository::PageAudience::from_auth(&auth),
+        repository::get_ordered_top_level_pages,
+    );
     respond_page_list(outcome, "Failed to fetch top-level pages")
 }
 
@@ -1610,8 +1599,7 @@ pub async fn get_documentation_page_by_slug_with_children(
     auth: AuthContext,
 ) -> impl Responder {
     let page_slug = slug.into_inner();
-    let user_uuid = auth.user_uuid;
-    let is_admin_user = auth.is_workspace_admin();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
         let page = match repository::get_documentation_page_by_slug(&page_slug, conn) {
@@ -1619,14 +1607,14 @@ pub async fn get_documentation_page_by_slug_with_children(
             Err(_) => return Ok(PageWithChildrenOutcome::NotFound),
         };
 
-        match repository::can_user_access_page(conn, page.id, &user_uuid, is_admin_user) {
+        match audience.try_can_read(conn, page.id) {
             Ok(true) => {}
             Ok(false) => return Ok(PageWithChildrenOutcome::NotFound),
             Err(_) => return Ok(PageWithChildrenOutcome::VisibilityCheckFailed),
         }
 
         let children = match repository::get_pages_by_parent_id(page.id, conn) {
-            Ok(c) => match repository::filter_pages_for_user(conn, c, &user_uuid, is_admin_user) {
+            Ok(c) => match audience.filter_pages(conn, c) {
                 Ok(filtered) => filtered,
                 Err(_) => return Ok(PageWithChildrenOutcome::VisibilityCheckFailed),
             },
@@ -1659,9 +1647,11 @@ pub async fn get_documentation_pages_by_ticket_id(
     auth: AuthContext,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
-        repository::get_documentation_pages_by_ticket_id(conn, ticket_id)
-    });
+    let outcome = run_page_list(
+        &mut tc,
+        repository::PageAudience::from_auth(&auth),
+        |conn| repository::get_documentation_pages_by_ticket_id(conn, ticket_id),
+    );
     if let Ok(PageListOutcome::Ok(ref r)) = outcome {
         debug!(
             ticket_id = ticket_id,
@@ -1951,17 +1941,21 @@ pub async fn create_documentation_page_from_ticket(
 
 // Get archived documentation pages
 pub async fn get_archived_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
-        repository::get_pages_by_status(conn, DocumentationStatus::Archived)
-    });
+    let outcome = run_page_list(
+        &mut tc,
+        repository::PageAudience::from_auth(&auth),
+        |conn| repository::get_pages_by_status(conn, DocumentationStatus::Archived),
+    );
     respond_page_list(outcome, "Failed to fetch archived pages")
 }
 
 // Get trashed (soft-deleted) documentation pages
 pub async fn get_trashed_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
-        repository::get_pages_by_status(conn, DocumentationStatus::Deleted)
-    });
+    let outcome = run_page_list(
+        &mut tc,
+        repository::PageAudience::from_auth(&auth),
+        |conn| repository::get_pages_by_status(conn, DocumentationStatus::Deleted),
+    );
     respond_page_list(outcome, "Failed to fetch trashed pages")
 }
 
@@ -2272,12 +2266,11 @@ pub async fn unsubscribe_from_page(
 /// are left out.
 pub async fn get_starred_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     let user_uuid = auth.user_uuid;
-    let is_admin = auth.is_workspace_admin();
+    let audience = repository::PageAudience::from_auth(&auth);
     match tc.run(|conn| {
         let starred = documentation_starred_pages::get_user_starred_pages(conn, user_uuid);
         let page_ids: Vec<i32> = starred.iter().map(|s| s.page_id).collect();
-        let (hidden, _) =
-            repository::hidden_documentation_ids(conn, &page_ids, &[], &user_uuid, is_admin)?;
+        let hidden = audience.hidden_pages(conn, &page_ids)?;
         Ok::<_, diesel::result::Error>(
             starred
                 .into_iter()
@@ -2551,8 +2544,7 @@ pub async fn list_ticket_doc_links(
     auth: AuthContext,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
-    let user_uuid = auth.user_uuid;
-    let is_admin_user = auth.is_workspace_admin();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
         let links = repository::documentation_page_tickets::links_for_ticket(conn, ticket_id)?;
@@ -2579,8 +2571,7 @@ pub async fn list_ticket_doc_links(
         // Apply per-user visibility filtering — the same page_visibility
         // rules that gate page reads must gate this list, otherwise the
         // ticket panel would leak doc titles past their group boundary.
-        let pages = match repository::filter_pages_for_user(conn, pages, &user_uuid, is_admin_user)
-        {
+        let pages = match audience.filter_pages(conn, pages) {
             Ok(p) => p,
             Err(_) => return Ok(TicketDocLinksOutcome::FilterFailed),
         };

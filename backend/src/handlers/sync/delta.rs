@@ -18,6 +18,7 @@ use tracing::error;
 use crate::errors;
 use crate::extractors::{SyncContext, TenantConn};
 use crate::schema::sync_actions;
+use crate::sync::visibility::Delivery;
 
 #[derive(Debug, Deserialize)]
 pub struct DeltaQuery {
@@ -284,15 +285,15 @@ pub async fn delta(
         .unwrap_or(query.from_xid8.unwrap_or(0));
 
     // Read-side visibility, via the shared sync-visibility layer: each
-    // kind of record reaches only its audience (`sync::audience`), and a
-    // kept `user` row only the fields this viewer may see.
-    // `filter_actions` returns a keep-mask and never errors: a
-    // visibility-lookup failure fails closed (drops the affected family)
-    // rather than 500'ing the poll.
-    let (actions, keep) = match tc.run(move |conn| {
-        let keep =
-            crate::sync::visibility::filter_actions(conn, &viewer, &actions, action_row_to_view);
-        Ok::<(Vec<ActionRow>, Vec<bool>), diesel::result::Error>((actions, keep))
+    // kind of record reaches only its audience (`sync::audience`), a
+    // documentation record the viewer can't open arrives as a delete, and
+    // a kept `user` row carries only the fields this viewer may see.
+    // `deliveries` never errors: a visibility-lookup failure fails closed
+    // (drops the affected family) rather than 500'ing the poll.
+    let (actions, decided) = match tc.run(move |conn| {
+        let decided =
+            crate::sync::visibility::deliveries(conn, &viewer, &actions, action_row_to_view);
+        Ok::<_, diesel::result::Error>((actions, decided))
     }) {
         Ok(x) => x,
         Err(e) => {
@@ -300,12 +301,33 @@ pub async fn delta(
             return errors::internal("Failed to load sync delta");
         }
     };
-    let mut actions = actions;
-    let mut keep_iter = keep.into_iter();
-    actions.retain(|_| keep_iter.next().unwrap_or(false));
-    for action in &mut actions {
-        crate::sync::visibility::project_row(&viewer, Some(action.aggregate), &mut action.data);
-    }
+    let actions: Vec<ActionRow> = actions
+        .into_iter()
+        .zip(decided)
+        .filter_map(|(mut action, delivery)| match delivery {
+            Delivery::Send => {
+                crate::sync::visibility::project_row(
+                    &viewer,
+                    Some(action.aggregate),
+                    &mut action.data,
+                );
+                Some(action)
+            }
+            Delivery::Retract => {
+                let (event_type, data) =
+                    crate::sync::visibility::retraction(action.aggregate, &action.aggregate_id)?;
+                action.op = crate::models::SyncOp::Delete;
+                action.event_type = event_type.to_string();
+                action.data = data;
+                action.actor_uuid = None;
+                action.actor_ref = None;
+                action.correlation_id = None;
+                action.causation_id = None;
+                Some(action)
+            }
+            Delivery::Drop => None,
+        })
+        .collect();
 
     HttpResponse::Ok().json(DeltaResponse {
         actions,

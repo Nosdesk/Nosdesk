@@ -169,6 +169,21 @@ impl TopicChannel {
     }
 }
 
+/// A committed change that can change who may open a documentation page or
+/// collection. The sync outbox raises one per such row on every machine, and
+/// the collab editor closes the sessions that may no longer read it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocAccessChange {
+    Page {
+        workspace_id: i32,
+        page_id: i32,
+    },
+    Collection {
+        workspace_id: i32,
+        collection_id: i32,
+    },
+}
+
 /// Topic-routed event bus. Replaces the prior single global broadcast
 /// channel. Topics are created lazily on first publish or first
 /// subscribe, so the map only holds keys we actually need.
@@ -176,6 +191,8 @@ pub struct SseState {
     topics: DashMap<TopicKey, Arc<TopicChannel>>,
     seq: AtomicU64,
     pub clients: Arc<Mutex<HashMap<String, ClientInfo>>>,
+    /// Documentation access changes, for this machine's collab editor.
+    doc_access: broadcast::Sender<DocAccessChange>,
 }
 
 impl Default for SseState {
@@ -190,7 +207,18 @@ impl SseState {
             topics: DashMap::new(),
             seq: AtomicU64::new(0),
             clients: Arc::new(Mutex::new(HashMap::new())),
+            doc_access: broadcast::channel(1024).0,
         }
+    }
+
+    /// Raise a documentation access change. Nobody listening is fine.
+    pub fn signal_doc_access(&self, change: DocAccessChange) {
+        let _ = self.doc_access.send(change);
+    }
+
+    /// Listen for documentation access changes.
+    pub fn subscribe_doc_access(&self) -> broadcast::Receiver<DocAccessChange> {
+        self.doc_access.subscribe()
     }
 
     fn topic(&self, key: TopicKey) -> Arc<TopicChannel> {
@@ -508,12 +536,13 @@ async fn filter_sync_actions_frame(
     // The filter reads in the stream's workspace (see `filter_actions_pinned`).
     // With no workspace there is nothing to read in, so gated rows are dropped.
     let Some(workspace_id) = workspace_id else {
-        let mask = crate::sync::visibility::fail_closed_mask(&viewer, &rows, json_row_to_view);
-        return frame_filtered(env, rows, mask, &viewer);
+        let decided =
+            crate::sync::visibility::fail_closed_deliveries(&viewer, &rows, json_row_to_view);
+        return frame_filtered(env, rows, decided, &viewer);
     };
     let rows_for_block = rows.clone();
-    let mask = match web::block(move || {
-        crate::sync::visibility::filter_actions_pinned(
+    let decided = match web::block(move || {
+        crate::sync::visibility::deliveries_pinned(
             &pool,
             workspace_id,
             &viewer,
@@ -526,18 +555,18 @@ async fn filter_sync_actions_frame(
         Ok(m) => m,
         Err(_) => {
             tracing::error!("SSE sync visibility filter failed; failing closed");
-            crate::sync::visibility::fail_closed_mask(&viewer, &rows, json_row_to_view)
+            crate::sync::visibility::fail_closed_deliveries(&viewer, &rows, json_row_to_view)
         }
     };
-    frame_filtered(env, rows, mask, &viewer)
+    frame_filtered(env, rows, decided, &viewer)
 }
 
-/// Frame a `SyncActions` envelope with only the rows `mask` keeps, each as
-/// `viewer` may see it.
+/// Frame a `SyncActions` envelope with each row as `decided` says: as
+/// `viewer` may see it, as a delete naming only the record, or not at all.
 fn frame_filtered(
     env: Envelope,
     rows: Vec<serde_json::Value>,
-    mask: Vec<bool>,
+    decided: Vec<crate::sync::visibility::Delivery>,
     viewer: &crate::sync::visibility::SyncViewer,
 ) -> String {
     let Envelope {
@@ -554,19 +583,23 @@ fn frame_filtered(
     else {
         return String::new();
     };
+    use crate::sync::visibility::Delivery;
     let kept: Vec<serde_json::Value> = rows
         .into_iter()
-        .zip(mask)
-        .filter(|(_, keep)| *keep)
-        .map(|(mut row, _)| {
-            let aggregate = row
-                .get("aggregate")
-                .cloned()
-                .and_then(|v| serde_json::from_value::<crate::models::SyncAggregate>(v).ok());
-            if let Some(data) = row.get_mut("data") {
-                crate::sync::visibility::project_row(viewer, aggregate, data);
+        .zip(decided)
+        .filter_map(|(mut row, delivery)| match delivery {
+            Delivery::Send => {
+                let aggregate = row
+                    .get("aggregate")
+                    .cloned()
+                    .and_then(|v| serde_json::from_value::<crate::models::SyncAggregate>(v).ok());
+                if let Some(data) = row.get_mut("data") {
+                    crate::sync::visibility::project_row(viewer, aggregate, data);
+                }
+                Some(row)
             }
-            row
+            Delivery::Retract => crate::sync::visibility::retract_wire_row(&mut row).then_some(row),
+            Delivery::Drop => None,
         })
         .collect();
 

@@ -78,11 +78,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 
 /// List collections visible to the current user
 pub async fn get_collections(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    let user_uuid = auth.user_uuid;
-    let is_admin = auth.is_workspace_admin();
+    let audience = repository::PageAudience::from_auth(&auth);
 
     match tc.run(|conn| {
-        repository::documentation_collections::get_collections_for_user(conn, &user_uuid, is_admin)
+        repository::documentation_collections::get_collections_for_user(conn, &audience)
     }) {
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
@@ -258,6 +257,9 @@ pub struct CreateCollectionRequest {
     pub icon: Option<String>,
     pub color: Option<String>,
     pub visible_to_group_ids: Option<Vec<i32>>,
+    /// People the collection is open to, alongside the groups. Set in the
+    /// same transaction as the create.
+    pub visible_to_user_uuids: Option<Vec<Uuid>>,
 }
 
 /// Create a new collection (technician+)
@@ -302,21 +304,13 @@ pub async fn create_collection(
             created_by,
         };
 
-        let collection =
-            repository::documentation_collections::create_collection(conn, new_collection)?;
-        if let Some(ref group_ids) = body.visible_to_group_ids {
-            if !group_ids.is_empty() {
-                if let Err(e) = repository::documentation_collections::set_collection_visibility(
-                    conn,
-                    collection.id,
-                    group_ids.clone(),
-                    Vec::new(),
-                    created_by,
-                ) {
-                    error!(error = ?e, "Failed to set collection visibility");
-                }
-            }
-        }
+        let collection = repository::documentation_collections::create_collection_open_to(
+            conn,
+            new_collection,
+            body.visible_to_group_ids.clone().unwrap_or_default(),
+            body.visible_to_user_uuids.clone().unwrap_or_default(),
+            created_by,
+        )?;
         let payload = collection_response(conn, collection, workspace_uuid, &audience);
         Ok(CreateCollectionOutcome::Created(payload))
     });
