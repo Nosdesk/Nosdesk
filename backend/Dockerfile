@@ -83,22 +83,6 @@ COPY backend/data ./data
 # workspace layout at /i18n inside the container.
 COPY i18n /i18n
 
-# Ed25519 root pubkey for the plugin registry trust chain. Baked
-# into the compiled binary via `option_env!("NOSDESK_ROOT_PUBKEY")`
-# in services/plugins/signing.rs. Published at
-# https://nosdesk.com/registry/root.pub for anyone reproducing an
-# official Nosdesk build. Forks that want their own trust root
-# override this at build time:
-#
-#     docker build --build-arg NOSDESK_ROOT_PUBKEY='<base64>' ...
-#
-# Empty default: a binary built without the arg has `root_pubkey()
-# == None`, official + verified installs fail closed, only the
-# CLI-installed `local` tier and filesystem-provisioned plugins
-# work. Correct for an unconfigured fork, useless for an official
-# release — CI must set the arg.
-ARG NOSDESK_ROOT_PUBKEY=""
-
 # Release version baked into the binary (e.g. 0.1.0-rc.5) for the admin
 # System Information card, read via option_env!("NOSDESK_VERSION"). Empty in
 # local/dev builds, where it falls back to the crate version. CI passes the
@@ -108,12 +92,8 @@ ARG NOSDESK_VERSION=""
 
 # Build the server + the nosdesk-cli admin tool together; both
 # link against the same library crate and the extra binary is a
-# trivial addition to a build we're doing anyway. The pubkey is
-# passed inline rather than via `ENV` so it doesn't persist into
-# the layer's metadata; it IS a public value, but keeping build
-# secrets discipline tidy by convention.
-RUN NOSDESK_ROOT_PUBKEY="$NOSDESK_ROOT_PUBKEY" \
-    NOSDESK_VERSION="$NOSDESK_VERSION" \
+# trivial addition to a build we're doing anyway.
+RUN NOSDESK_VERSION="$NOSDESK_VERSION" \
     sh -c 'if [ "$CARGO_PROFILE" = "release" ]; then \
       cargo build --release --bin backend --bin nosdesk-cli; \
     else \

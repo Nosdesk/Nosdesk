@@ -19,7 +19,6 @@ name: Dev deploy
 # input chooses what to BUILD and can be any branch.
 #
 # Secrets:
-#   NOSDESK_ROOT_PUBKEY — as Release.
 #   FLY_API_TOKEN       — an APP-SCOPED deploy token, minted with
 #                         `fly tokens create deploy -a nosdesk-dev`. Deliberately
 #                         not an account token: this repo should not hold
@@ -105,7 +104,6 @@ jobs:
           push: true
           tags: registry.fly.io/nosdesk-dev:dev-${{ steps.vars.outputs.sha }}
           build-args: |
-            NOSDESK_ROOT_PUBKEY=${{ secrets.NOSDESK_ROOT_PUBKEY }}
             NOSDESK_VERSION=dev-${{ steps.vars.outputs.sha }}
             VITE_BUILD_SHA=${{ steps.vars.outputs.sha }}
             CARGO_PROFILE=fast
