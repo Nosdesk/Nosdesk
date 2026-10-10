@@ -423,6 +423,56 @@ ticket-list-bulk-priority = Prioriteit
 ticket-list-bulk-assign = Toewijzen
 ticket-list-bulk-clear-title = Selectie wissen (Esc)
 ticket-list-bulk-clear = Wissen
+
+# Wijziging die de server weigerde en die is teruggedraaid (machine, na te kijken door moedertaalspreker).
+sync-rejected-assign = { $count ->
+    [one] Kan 1 ticket niet toewijzen
+   *[other] Kan { $count } tickets niet toewijzen
+}
+sync-rejected-status = { $count ->
+    [one] Kan de status van 1 ticket niet wijzigen
+   *[other] Kan de status van { $count } tickets niet wijzigen
+}
+sync-rejected-priority = { $count ->
+    [one] Kan de prioriteit van 1 ticket niet wijzigen
+   *[other] Kan de prioriteit van { $count } tickets niet wijzigen
+}
+sync-rejected-rename = { $count ->
+    [one] Kan 1 ticket niet hernoemen
+   *[other] Kan { $count } tickets niet hernoemen
+}
+sync-rejected-tags = { $count ->
+    [one] Kan de tags van 1 ticket niet wijzigen
+   *[other] Kan de tags van { $count } tickets niet wijzigen
+}
+sync-rejected-dates = { $count ->
+    [one] Kan de datums van 1 ticket niet wijzigen
+   *[other] Kan de datums van { $count } tickets niet wijzigen
+}
+sync-rejected-ticket = { $count ->
+    [one] Kan 1 ticket niet bijwerken
+   *[other] Kan { $count } tickets niet bijwerken
+}
+sync-rejected-project = { $count ->
+    [one] Kan 1 project niet bijwerken
+   *[other] Kan { $count } projecten niet bijwerken
+}
+sync-rejected-other = { $count ->
+    [one] Kan 1 wijziging niet opslaan
+   *[other] Kan { $count } wijzigingen niet opslaan
+}
+sync-rejected-reason-invalid-assignee = Alleen agents en beheerders kunnen tickets toegewezen krijgen.
+sync-rejected-reason-forbidden = Je hebt geen toestemming om deze wijziging te maken.
+sync-rejected-reason-ticket-merged = Samengevoegde tickets kunnen niet worden gewijzigd.
+sync-rejected-reason-approval-pending = Aanvragen die op goedkeuring wachten blijven open. Keur eerst goed of sla de goedkeuring over.
+sync-rejected-reason-invalid-reference = De wijziging verwijst naar iets dat niet meer bestaat.
+sync-rejected-reason-not-found = { $count ->
+    [one] Het is verwijderd, of je kunt het niet meer zien.
+   *[other] Ze zijn verwijderd, of je kunt ze niet meer zien.
+}
+sync-rejected-reason-internal = Er ging iets mis op de server. Probeer het opnieuw.
+sync-rejected-reason-unsupported = Deze wijziging kan hier niet worden opgeslagen. Laad de pagina opnieuw en probeer het nog eens.
+sync-rejected-reason-generic = De server heeft de wijziging niet geaccepteerd.
 # MACHINE TRANSLATION, pending native review
 ticket-list-context-copy-number = Ticketnummer kopiëren
 ticket-list-context-assign-to-me = Aan mij toewijzen

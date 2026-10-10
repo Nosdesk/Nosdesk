@@ -455,6 +455,57 @@ ticket-list-bulk-assign = Assign
 ticket-list-bulk-merge = Merge
 ticket-list-bulk-clear-title = Clear selection (Esc)
 ticket-list-bulk-clear = Clear
+
+# A change the server refused and the app rolled back. The title names the
+# change; the message says why.
+sync-rejected-assign = { $count ->
+    [one] Couldn't assign 1 ticket
+   *[other] Couldn't assign { $count } tickets
+}
+sync-rejected-status = { $count ->
+    [one] Couldn't change the status of 1 ticket
+   *[other] Couldn't change the status of { $count } tickets
+}
+sync-rejected-priority = { $count ->
+    [one] Couldn't change the priority of 1 ticket
+   *[other] Couldn't change the priority of { $count } tickets
+}
+sync-rejected-rename = { $count ->
+    [one] Couldn't rename 1 ticket
+   *[other] Couldn't rename { $count } tickets
+}
+sync-rejected-tags = { $count ->
+    [one] Couldn't change the tags on 1 ticket
+   *[other] Couldn't change the tags on { $count } tickets
+}
+sync-rejected-dates = { $count ->
+    [one] Couldn't change the dates of 1 ticket
+   *[other] Couldn't change the dates of { $count } tickets
+}
+sync-rejected-ticket = { $count ->
+    [one] Couldn't update 1 ticket
+   *[other] Couldn't update { $count } tickets
+}
+sync-rejected-project = { $count ->
+    [one] Couldn't update 1 project
+   *[other] Couldn't update { $count } projects
+}
+sync-rejected-other = { $count ->
+    [one] Couldn't save 1 change
+   *[other] Couldn't save { $count } changes
+}
+sync-rejected-reason-invalid-assignee = Only agents and admins can be assigned tickets.
+sync-rejected-reason-forbidden = You don't have permission to make this change.
+sync-rejected-reason-ticket-merged = Merged tickets can't be changed.
+sync-rejected-reason-approval-pending = Requests waiting for approval stay open. Approve or skip the approval first.
+sync-rejected-reason-invalid-reference = The change refers to something that no longer exists.
+sync-rejected-reason-not-found = { $count ->
+    [one] It was deleted, or you can no longer see it.
+   *[other] They were deleted, or you can no longer see them.
+}
+sync-rejected-reason-internal = Something went wrong on the server. Try again.
+sync-rejected-reason-unsupported = This change can't be saved from here. Reload the page and try again.
+sync-rejected-reason-generic = The server didn't accept the change.
 ticket-list-context-copy-number = Copy ticket number
 ticket-list-context-assign-to-me = Assign to me
 ticket-list-context-actions-heading = Actions

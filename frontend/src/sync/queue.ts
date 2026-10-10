@@ -4,7 +4,7 @@
  * Writes go to the pool immediately, get persisted to IndexedDB,
  * then flushed to /api/sync/push in background. On rejection the
  * inverse patch reverts the optimistic apply and the user is
- * notified.
+ * told why (see `./rejections`).
  *
  * Persistence-before-network is the crash safety guarantee: a
  * tab crash or refresh between optimistic apply and POST returns
@@ -16,6 +16,8 @@ import { logger } from '@nosdesk/core/utils/logger'
 import { authFetch } from '@/services/authFetch'
 import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
+import { summariseRejections, type RejectedChange } from './rejections'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 import type { PushResponse, PushTransaction, SyncAggregate } from '@nosdesk/core/sync/types'
 
 let handle: idb.IdbHandle | null = null
@@ -151,6 +153,9 @@ export async function dispatchOptimistic<T extends object>(
 export async function flush(): Promise<void> {
   if (flushing || !handle) return
   flushing = true
+  // Refusals across the whole drain, told to the person once at the end:
+  // a bulk change can span more than one push.
+  const refused: RejectedChange[] = []
   try {
     while (true) {
       const all = await idb.loadTransactions(handle)
@@ -187,7 +192,10 @@ export async function flush(): Promise<void> {
       }
       // The workspace was torn down while this push was in flight; its
       // rejections must not roll back rows in the next workspace's pool.
-      if (pool.currentEpoch() !== epoch) return
+      if (pool.currentEpoch() !== epoch) {
+        refused.length = 0
+        return
+      }
 
       backoffMs = 0
       // A push does not advance the read cursor. The read cursor is the
@@ -214,11 +222,21 @@ export async function flush(): Promise<void> {
           tx_id: r.tx_id,
           detail: r.detail,
         })
+        refused.push({ aggregate: tx?.aggregate ?? '', patch: tx?.patch, reason: r.reason })
       }
     }
   } finally {
     flushing = false
+    tellRefused(refused)
   }
+}
+
+/** The person made these changes and watched them roll back, so they are
+ *  told why: one toast per kind of change and reason. */
+function tellRefused(refused: RejectedChange[]): void {
+  if (refused.length === 0) return
+  const toast = useToastStore()
+  for (const notice of summariseRejections(refused)) toast.error(notice.title, notice.message)
 }
 
 let flushTimer: ReturnType<typeof setTimeout> | null = null

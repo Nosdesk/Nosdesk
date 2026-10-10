@@ -427,6 +427,56 @@ ticket-list-bulk-priority = Priorité
 ticket-list-bulk-assign = Assigner
 ticket-list-bulk-clear-title = Effacer la sélection (Échap)
 ticket-list-bulk-clear = Effacer
+
+# Modification refusée par le serveur et annulée (machine, à relire par un locuteur natif).
+sync-rejected-assign = { $count ->
+    [one] Impossible d'assigner 1 ticket
+   *[other] Impossible d'assigner { $count } tickets
+}
+sync-rejected-status = { $count ->
+    [one] Impossible de changer le statut de 1 ticket
+   *[other] Impossible de changer le statut de { $count } tickets
+}
+sync-rejected-priority = { $count ->
+    [one] Impossible de changer la priorité de 1 ticket
+   *[other] Impossible de changer la priorité de { $count } tickets
+}
+sync-rejected-rename = { $count ->
+    [one] Impossible de renommer 1 ticket
+   *[other] Impossible de renommer { $count } tickets
+}
+sync-rejected-tags = { $count ->
+    [one] Impossible de modifier les étiquettes de 1 ticket
+   *[other] Impossible de modifier les étiquettes de { $count } tickets
+}
+sync-rejected-dates = { $count ->
+    [one] Impossible de modifier les dates de 1 ticket
+   *[other] Impossible de modifier les dates de { $count } tickets
+}
+sync-rejected-ticket = { $count ->
+    [one] Impossible de mettre à jour 1 ticket
+   *[other] Impossible de mettre à jour { $count } tickets
+}
+sync-rejected-project = { $count ->
+    [one] Impossible de mettre à jour 1 projet
+   *[other] Impossible de mettre à jour { $count } projets
+}
+sync-rejected-other = { $count ->
+    [one] Impossible d'enregistrer 1 modification
+   *[other] Impossible d'enregistrer { $count } modifications
+}
+sync-rejected-reason-invalid-assignee = Seuls les agents et les administrateurs peuvent se voir assigner des tickets.
+sync-rejected-reason-forbidden = Vous n'avez pas l'autorisation d'effectuer cette modification.
+sync-rejected-reason-ticket-merged = Les tickets fusionnés ne peuvent pas être modifiés.
+sync-rejected-reason-approval-pending = Les demandes en attente d'approbation restent ouvertes. Approuvez ou passez outre l'approbation d'abord.
+sync-rejected-reason-invalid-reference = La modification fait référence à un élément qui n'existe plus.
+sync-rejected-reason-not-found = { $count ->
+    [one] Il a été supprimé, ou vous ne pouvez plus le voir.
+   *[other] Ils ont été supprimés, ou vous ne pouvez plus les voir.
+}
+sync-rejected-reason-internal = Une erreur s'est produite sur le serveur. Veuillez réessayer.
+sync-rejected-reason-unsupported = Cette modification ne peut pas être enregistrée ici. Rechargez la page et réessayez.
+sync-rejected-reason-generic = Le serveur n'a pas accepté la modification.
 # MACHINE TRANSLATION, pending native review
 ticket-list-context-copy-number = Copier le numéro du ticket
 ticket-list-context-assign-to-me = Me l'attribuer
