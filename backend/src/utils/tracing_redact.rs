@@ -171,6 +171,12 @@ const ALLOWED_FIELDS: &[&str] = &[
     "partitions",
     // workspace restore: how many files landed before a put failed.
     "files_restored",
+    // Instance restore of an older backup: the Nosdesk version that made it,
+    // the migration it was taken at, and the scratch database restore named.
+    // A release string, a migration version and a generated name.
+    "backup_from_version",
+    "backup_migration",
+    "scratch_database",
     // notification outbox: per-row intent and recipient counts.
     "intents",
     "recipients",

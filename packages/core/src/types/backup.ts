@@ -56,7 +56,15 @@ export interface RestorePreview {
   manifest: BackupManifest | null;
   encrypted: boolean;
   password_required: boolean;
+  /** Set when an earlier Nosdesk made the backup: restoring upgrades it. */
+  upgrade?: RestoreUpgrade | null;
   warnings: string[];
+}
+
+/** The versions a restore upgrades a backup between. */
+export interface RestoreUpgrade {
+  from_version: string;
+  to_version: string;
 }
 
 export interface RestoreResult {

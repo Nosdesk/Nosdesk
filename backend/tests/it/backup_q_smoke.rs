@@ -152,7 +152,7 @@ fn q_smoke_full_workspace_encrypted_round_trip() {
         Some("q-smoke-correct-horse-battery-staple"),
         backup_service::RestoreOptions {
             force_non_empty: true,
-            ignore_schema_mismatch: false,
+            ..Default::default()
         },
     )
     .expect("restore with correct password");

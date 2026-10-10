@@ -234,6 +234,15 @@
             </div>
           </div>
 
+          <!-- A backup this server can't restore, and why -->
+          <div
+            v-if="restoreRefusal"
+            data-test="restore-refused"
+            class="p-3 bg-status-error/10 border border-status-error/30 rounded-lg"
+          >
+            <p class="text-xs sm:text-sm text-status-error">{{ restoreRefusal }}</p>
+          </div>
+
           <!-- Encrypted backup: its password opens the preview -->
           <div v-if="restorePreview?.password_required" class="flex flex-col gap-3">
             <p class="text-xs sm:text-sm text-secondary">{{ $t('admin-backup-restore-locked') }}</p>
@@ -290,6 +299,17 @@
                   </span>
                 </div>
               </div>
+            </div>
+
+            <!-- A backup from an earlier version is upgraded as it restores -->
+            <div
+              v-if="restorePreview.upgrade"
+              data-test="restore-upgrade"
+              class="p-3 bg-accent/10 border border-accent/30 rounded-lg"
+            >
+              <p class="text-xs sm:text-sm text-primary">
+                {{ $t('admin-backup-restore-upgrade', { from: restorePreview.upgrade.from_version, to: restorePreview.upgrade.to_version }) }}
+              </p>
             </div>
 
             <!-- Warnings -->
@@ -398,6 +418,22 @@ const restorePassword = ref('');
 const isUnlocking = ref(false);
 const credentialLossConfirmed = ref(false);
 const isRestoring = ref(false);
+const restoreRefusal = ref<string | null>(null);
+
+/** The server's code for a failed backup request, if it sent one. */
+const errorCode = (error: unknown) =>
+  (error as { response?: { data?: { code?: string } } }).response?.data?.code;
+
+/** Why the server won't restore this backup, for the codes that say so. */
+const REFUSAL_KEYS: Record<string, string> = {
+  BACKUP_FROM_NEWER_VERSION: 'admin-backup-restore-from-newer',
+  BACKUP_SCHEMA_UNKNOWN: 'admin-backup-restore-schema-unknown',
+  BACKUP_NEEDS_CREATEDB: 'admin-backup-restore-needs-createdb',
+};
+const refusalFor = (error: unknown) => {
+  const key = REFUSAL_KEYS[errorCode(error) ?? ''];
+  return key ? t(key) : null;
+};
 
 // Documentation export state
 const isExportingDocs = ref(false);
@@ -508,11 +544,18 @@ const uploadFile = async (file: File) => {
     return;
   }
 
+  restoreRefusal.value = null;
   try {
     const job = await backupService.uploadRestore(file);
     restoreJobId.value = job.id;
     restorePreview.value = await backupService.getRestorePreview(job.id);
   } catch (error) {
+    const refusal = refusalFor(error);
+    if (refusal) {
+      cancelRestore();
+      restoreRefusal.value = refusal;
+      return;
+    }
     console.error('Failed to upload backup:', error);
     toast.error(t('admin-backup-upload-error'));
   }
@@ -525,7 +568,13 @@ const unlockPreview = async () => {
   try {
     restorePreview.value = await backupService.unlockRestorePreview(restoreJobId.value, restorePassword.value);
   } catch (error) {
-    const code = (error as { response?: { data?: { code?: string } } }).response?.data?.code;
+    const refusal = refusalFor(error);
+    if (refusal) {
+      cancelRestore();
+      restoreRefusal.value = refusal;
+      return;
+    }
+    const code = errorCode(error);
     toast.error(t(code === 'BACKUP_WRONG_PASSWORD' ? 'admin-backup-restore-wrong-password' : 'admin-backup-restore-unlock-error'));
   } finally {
     isUnlocking.value = false;
@@ -546,7 +595,12 @@ const executeRestore = async () => {
     await loadJobs();
   } catch (error) {
     console.error('Failed to restore backup:', error);
-    toast.error(t('admin-backup-restore-error'));
+    const refusal = refusalFor(error);
+    if (refusal) {
+      restoreRefusal.value = refusal;
+    } else {
+      toast.error(t('admin-backup-restore-error'));
+    }
   } finally {
     isRestoring.value = false;
   }
@@ -557,6 +611,7 @@ const cancelRestore = () => {
   restorePreview.value = null;
   restorePassword.value = '';
   credentialLossConfirmed.value = false;
+  restoreRefusal.value = null;
   if (fileInput.value) {
     fileInput.value.value = '';
   }

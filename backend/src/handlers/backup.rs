@@ -487,6 +487,15 @@ fn restore_file(
         .ok_or_else(|| ApiError::BadRequest("No backup file available".into()))
 }
 
+/// A backup this server can't restore, refused with the reason.
+fn not_restorable(reason: &backup_service::NotRestorable) -> HttpResponse {
+    let code = match reason {
+        backup_service::NotRestorable::Newer { .. } => "BACKUP_FROM_NEWER_VERSION",
+        backup_service::NotRestorable::Unknown { .. } => "BACKUP_SCHEMA_UNKNOWN",
+    };
+    errors::bad_request_with_code(format!("Can't restore: {reason}"), code)
+}
+
 /// The preview of a readable backup: `password_required` is false.
 fn preview_response(file_path: &std::path::Path, password: Option<&str>) -> HttpResponse {
     match backup_service::preview_restore(file_path, password) {
@@ -512,6 +521,7 @@ fn preview_error(e: backup_service::BackupError, password_given: bool) -> HttpRe
             "This backup is encrypted; enter its password",
             "BACKUP_PASSWORD_REQUIRED",
         ),
+        BackupError::NotRestorable(reason) => not_restorable(&reason),
         BackupError::ZipError(_)
         | BackupError::JsonError(_)
         | BackupError::CorruptedBackup(_)
@@ -578,8 +588,12 @@ pub async fn execute_restore(
     // backups without a password fail here with a clear
     // "password required" error; wrong-password backups fail
     // with a decryption error.
-    if let Err(e) = backup_service::preview_restore(&file_path, body.password.as_deref()) {
-        return Err(ApiError::BadRequest(format!("Preview failed: {}", e)));
+    match backup_service::preview_restore(&file_path, body.password.as_deref()) {
+        Ok(_) => {}
+        Err(backup_service::BackupError::NotRestorable(reason)) => {
+            return Ok(not_restorable(&reason))
+        }
+        Err(e) => return Err(ApiError::BadRequest(format!("Preview failed: {}", e))),
     }
 
     // Update job status
@@ -607,7 +621,7 @@ pub async fn execute_restore(
         // operator explicitly chose to restore over the live DB.
         backup_service::RestoreOptions {
             force_non_empty: true,
-            ignore_schema_mismatch: false,
+            ..Default::default()
         },
     ) {
         Ok(s) => s,
@@ -628,6 +642,9 @@ pub async fn execute_restore(
             // Fixed text for a connection failure: its cause, which names
             // the database host and user, is in the log.
             let message = format!("Database restore failed: {e}");
+            if let backup_service::BackupError::CannotCreateDatabase = e {
+                return Ok(errors::internal_with_code(message, "BACKUP_NEEDS_CREATEDB"));
+            }
             return Err(if e.is_connection() {
                 ApiError::ServiceUnavailable(message)
             } else {

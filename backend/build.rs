@@ -7,8 +7,14 @@
 //! all we need is a value that changes deterministically when any
 //! migration is added or modified, not a cryptographic primitive.
 //!
-//! Uses `std::collections::hash_map::DefaultHasher` (SipHash-2-4) so
-//! we don't pull in `sha2` for a non-security-relevant fingerprint.
+//! Uses `std::collections::hash_map::DefaultHasher`, whose algorithm Rust
+//! doesn't promise to keep, so nothing that outlives a build (a backup) may
+//! depend on it.
+//!
+//! It also writes `migration_schema.rs` into `OUT_DIR`: for every prefix of
+//! the migrations, its last migration's version and a SHA-256 of the files up
+//! to it. Backups record the full set's entry, and restore reads a backup's
+//! schema point back from this list.
 
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
@@ -28,6 +34,13 @@ fn main() {
     let hash = hash_migrations_dir(&migrations_dir);
     println!("cargo:rustc-env=NOSDESK_SCHEMA_HASH={hash:016x}");
 
+    let out_dir = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR");
+    fs::write(
+        Path::new(&out_dir).join("migration_schema.rs"),
+        migration_prefixes_source(&migrations_dir),
+    )
+    .expect("write migration_schema.rs");
+
     // get_current_version() reads option_env!("NOSDESK_VERSION"); without this
     // a changed version wouldn't trigger a recompile of the crate that bakes it.
     println!("cargo:rerun-if-env-changed=NOSDESK_VERSION");
@@ -44,6 +57,54 @@ fn hash_migrations_dir(root: &Path) -> u64 {
         content.hash(&mut hasher);
     }
     hasher.finish()
+}
+
+/// `MIGRATION_PREFIXES`, as Rust source: one entry per migration directory, in
+/// order, with the SHA-256 of every `.sql` file up to and including it. Each
+/// file goes in as its path and its bytes, both length-prefixed, so no two
+/// sets of files share a digest.
+fn migration_prefixes_source(root: &Path) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut entries = walk_sql_files(root);
+    entries.sort();
+    let mut hasher = Sha256::new();
+    let mut out = String::from("&[\n");
+    let mut i = 0;
+    while i < entries.len() {
+        let dir = top_dir(&entries[i].0).to_string();
+        while i < entries.len() && top_dir(&entries[i].0) == dir {
+            let (relpath, content) = &entries[i];
+            hasher.update((relpath.len() as u64).to_le_bytes());
+            hasher.update(relpath.as_bytes());
+            hasher.update((content.len() as u64).to_le_bytes());
+            hasher.update(content);
+            i += 1;
+        }
+        let version: String = dir
+            .split('_')
+            .next()
+            .unwrap_or(&dir)
+            .chars()
+            .filter(|c| *c != '-')
+            .collect();
+        let digest: String = hasher
+            .clone()
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        out.push_str(&format!(
+            "    MigrationPrefix {{ version: \"{version}\", sha256: \"{digest}\" }},\n"
+        ));
+    }
+    out.push(']');
+    out
+}
+
+/// A migration file's directory: the first component of its relative path.
+fn top_dir(relpath: &str) -> &str {
+    relpath.split('/').next().unwrap_or(relpath)
 }
 
 fn walk_sql_files(root: &Path) -> Vec<(String, Vec<u8>)> {

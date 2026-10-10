@@ -229,7 +229,9 @@ enum DbCommand {
     /// Restore the database and uploaded files from a backup zip.
     /// Destructive: tables are replaced. Prompts unless --yes.
     /// Refuses on a non-empty target database unless --force.
-    /// Requires DATABASE_URL and the encryption env.
+    /// Requires DATABASE_URL and the encryption env. A backup from an
+    /// earlier version is upgraded as it restores, which needs a role
+    /// that can create databases (CREATEDB).
     Restore {
         #[arg(value_name = "FILE")]
         file: PathBuf,
@@ -244,11 +246,6 @@ enum DbCommand {
             help = "Allow restore over a non-empty target database (replaces existing data)"
         )]
         force: bool,
-        #[arg(
-            long,
-            help = "Restore even if the backup's schema hash doesn't match this build (use only if you've verified compatibility)"
-        )]
-        ignore_schema_mismatch: bool,
     },
 }
 
@@ -859,15 +856,7 @@ fn run_db(cmd: DbCommand) -> Result<()> {
             password_env,
             yes,
             force,
-            ignore_schema_mismatch,
-        } => db_restore(
-            &file,
-            password,
-            password_env,
-            yes,
-            force,
-            ignore_schema_mismatch,
-        ),
+        } => db_restore(&file, password, password_env, yes, force),
     }
 }
 
@@ -877,7 +866,6 @@ fn db_restore(
     password_env: Option<String>,
     yes: bool,
     force: bool,
-    ignore_schema_mismatch: bool,
 ) -> Result<()> {
     if !file.exists() {
         bail!("backup file not found: {}", file.display());
@@ -897,6 +885,12 @@ fn db_restore(
     println!("  source:       {}", file.display());
     println!("  created:      {}", manifest.created_at);
     println!("  version:      {}", manifest.nosdesk_version);
+    if let Some(upgrade) = &preview.upgrade {
+        println!(
+            "  upgrade:      from {} to {}, as the backup restores",
+            upgrade.from_version, upgrade.to_version
+        );
+    }
     println!(
         "  files:        {} ({} bytes)",
         manifest.files.total_count, manifest.files.total_size_bytes
@@ -924,7 +918,7 @@ fn db_restore(
         password.as_deref(),
         backup_service::RestoreOptions {
             force_non_empty: force,
-            ignore_schema_mismatch,
+            ..Default::default()
         },
     )
     .map_err(|e| match e.connection_cause() {

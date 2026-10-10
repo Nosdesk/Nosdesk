@@ -36,6 +36,7 @@ mod backup_basic;
 mod backup_encryption;
 mod backup_plaintext;
 mod backup_q_smoke;
+mod backup_restore_from_1_0;
 mod backup_restore_preview;
 mod backup_sequences;
 mod backup_tamper;

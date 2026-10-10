@@ -249,6 +249,11 @@ metrics = "0.24"
 fluent-bundle = "0.16"
 unic-langid = "0.9"
 
+# build.rs: the stable schema fingerprint backups carry (sha256 of each
+# migration prefix). Already in the tree as a normal dependency.
+[build-dependencies]
+sha2 = "0.10"
+
 # For testing only
 [dev-dependencies]
 # actix-test ships a real WS client (`srv.ws_at(path)`) so the

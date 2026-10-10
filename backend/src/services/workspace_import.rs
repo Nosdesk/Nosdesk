@@ -63,6 +63,20 @@ pub struct FkEdge {
     pub parent_table: String,
 }
 
+/// Whether `manifest` was exported at this build's schema. Compared by the
+/// stable SHA-256 of the migrations when the archive records it; an archive
+/// from before that falls back to `build.rs`'s older fingerprint.
+fn same_schema(manifest: &WorkspaceExportManifest) -> bool {
+    let current = crate::services::backup_upgrade::current_schema();
+    match &manifest.schema_sha256 {
+        Some(sha256) => {
+            sha256 == current.sha256
+                && manifest.migration_version.as_deref() == Some(current.version)
+        }
+        None => manifest.schema_hash == env!("NOSDESK_SCHEMA_HASH"),
+    }
+}
+
 /// Read + verify an export archive from bytes. Unseals when the `NODB` envelope
 /// is present (password required), then unzips and parses the manifest, the
 /// per-table row arrays, and the file blobs. Refuses on a schema-hash or
@@ -94,12 +108,11 @@ pub fn read_archive(
         serde_json::from_str(&s).map_err(BackupError::JsonError)?
     };
 
-    let server_schema = env!("NOSDESK_SCHEMA_HASH");
-    if manifest.schema_hash != server_schema {
+    if !same_schema(&manifest) {
         return Err(BackupError::CorruptedBackup(format!(
-            "schema hash mismatch: archive {} vs server {server_schema}; import needs a matching \
-             schema so the FK graph and columns line up",
-            manifest.schema_hash
+            "schema mismatch: the archive was exported by Nosdesk {} at another schema; import \
+             needs a matching schema so the FK graph and columns line up",
+            manifest.nosdesk_version
         )));
     }
 
@@ -721,6 +734,51 @@ fn remap_insert_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn export_manifest(schema_hash: &str, point: Option<(&str, &str)>) -> WorkspaceExportManifest {
+        WorkspaceExportManifest {
+            workspace_export_format_version: 1,
+            nosdesk_version: "1.1.0".to_string(),
+            schema_hash: schema_hash.to_string(),
+            migration_version: point.map(|(v, _)| v.to_string()),
+            schema_sha256: point.map(|(_, s)| s.to_string()),
+            created_at: String::new(),
+            workspace_id: 1,
+            workspace_slug: "acme".to_string(),
+            workspace_uuid: String::new(),
+            member_user_uuids: Vec::new(),
+            tables: HashMap::new(),
+            files: Default::default(),
+        }
+    }
+
+    /// Import goes by the stable SHA-256 of the migrations when the archive
+    /// carries it, whatever the toolchain-dependent fingerprint says, and
+    /// falls back to that fingerprint only for an archive without it.
+    #[test]
+    fn import_compares_the_stable_schema_digest() {
+        let current = crate::services::backup_upgrade::current_schema();
+        let stable = Some((current.version, current.sha256));
+        assert!(same_schema(&export_manifest(
+            "from-another-toolchain",
+            stable
+        )));
+        assert!(!same_schema(&export_manifest(
+            env!("NOSDESK_SCHEMA_HASH"),
+            Some((current.version, "0000"))
+        )));
+        let earlier = crate::services::backup_upgrade::MIGRATION_PREFIXES
+            [crate::services::backup_upgrade::MIGRATION_PREFIXES.len() - 2];
+        assert!(!same_schema(&export_manifest(
+            env!("NOSDESK_SCHEMA_HASH"),
+            Some((earlier.version, earlier.sha256))
+        )));
+        assert!(same_schema(&export_manifest(
+            env!("NOSDESK_SCHEMA_HASH"),
+            None
+        )));
+        assert!(!same_schema(&export_manifest("0123456789abcdef", None)));
+    }
 
     fn edge(child: &str, col: &str, parent: &str) -> FkEdge {
         FkEdge {

@@ -102,3 +102,51 @@ describe('BackupRestoreView restoring a backup without sensitive data', () => {
     expect(service.executeRestore).toHaveBeenCalledWith('job-1', { password: undefined })
   })
 })
+
+describe('BackupRestoreView restoring a backup from an earlier version', () => {
+  it('says the backup is upgraded as it restores', async () => {
+    service.getRestorePreview.mockResolvedValue({
+      encrypted: true,
+      password_required: false,
+      manifest: { ...manifest, nosdesk_version: '1.0.12' },
+      upgrade: { from_version: '1.0.12', to_version: '1.1.0' },
+      warnings: [],
+    })
+    const w = await upload()
+
+    const notice = w.find('[data-test="restore-upgrade"]')
+    expect(notice.exists()).toBe(true)
+    expect(notice.text()).toContain('admin-backup-restore-upgrade')
+    expect(restoreButton(w).exists()).toBe(true)
+  })
+
+  it('refuses a backup this server cannot restore, at the preview', async () => {
+    service.getRestorePreview.mockRejectedValue({
+      response: { status: 400, data: { error: 'Can\'t restore', code: 'BACKUP_SCHEMA_UNKNOWN' } },
+    })
+    const w = await upload()
+
+    const refusal = w.find('[data-test="restore-refused"]')
+    expect(refusal.exists()).toBe(true)
+    expect(refusal.text()).toContain('admin-backup-restore-schema-unknown')
+    expect(restoreButton(w).exists()).toBe(false)
+  })
+
+  it('says when the database role cannot create the upgrade database', async () => {
+    service.getRestorePreview.mockResolvedValue({
+      encrypted: true,
+      password_required: false,
+      manifest,
+      upgrade: { from_version: '1.0.12', to_version: '1.1.0' },
+      warnings: [],
+    })
+    service.executeRestore.mockRejectedValue({
+      response: { status: 500, data: { error: 'x', code: 'BACKUP_NEEDS_CREATEDB' } },
+    })
+    const w = await upload()
+    await restoreButton(w).trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-test="restore-refused"]').text()).toContain('admin-backup-restore-needs-createdb')
+  })
+})

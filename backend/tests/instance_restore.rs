@@ -12,6 +12,7 @@ use actix_web::dev::{Service, ServiceResponse};
 use actix_web::http::StatusCode;
 use actix_web::test as http_test;
 use actix_web::{web, App, HttpMessage};
+use diesel::prelude::*;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -136,6 +137,30 @@ async fn restore_runs_as_the_migration_role_and_hosted_refuses_it() {
         "{body}"
     );
 
+    // A 1.0.12 backup previews as an upgrade and restores, upgraded.
+    let old_job = restore_job_for(&db, &common::fixture_path("backups/1.0.12/plain.zip"));
+    let preview = as_operator(
+        &pool,
+        http_test::TestRequest::get().uri(&format!("/api/admin/backup/restore/{old_job}/preview")),
+    )
+    .await;
+    assert_eq!(preview.status(), StatusCode::OK);
+    let body: serde_json::Value = http_test::read_body_json(preview).await;
+    assert_eq!(body["upgrade"]["from_version"], "1.0.12", "{body}");
+    let restored = as_operator(
+        &pool,
+        http_test::TestRequest::post()
+            .uri(&format!("/api/admin/backup/restore/{old_job}/execute"))
+            .set_json(json!({ "password": null })),
+    )
+    .await;
+    assert_eq!(restored.status(), StatusCode::OK);
+    let merges: i64 =
+        diesel::dsl::sql::<diesel::sql_types::BigInt>("SELECT count(*) FROM ticket_merges")
+            .get_result(&mut db.conn())
+            .expect("ticket_merges");
+    assert_eq!(merges, 1, "the 1.0 merge survives the upgrade");
+
     // Hosted doesn't offer it.
     std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
     assert_eq!(
@@ -148,6 +173,34 @@ async fn restore_runs_as_the_migration_role_and_hosted_refuses_it() {
         as_operator(&pool, preview).await.status(),
         StatusCode::FORBIDDEN
     );
+}
+
+/// A restore job pointing at `archive`.
+fn restore_job_for(db: &common::TestDb, archive: &std::path::Path) -> Uuid {
+    let mut conn = db.conn();
+    let job = backup_repo::create_backup_job(
+        &mut conn,
+        NewBackupJob {
+            job_type: "restore".to_string(),
+            status: "pending".to_string(),
+            include_sensitive: false,
+            created_by: None,
+        },
+    )
+    .expect("restore job");
+    backup_repo::update_backup_job(
+        &mut conn,
+        job.id,
+        BackupJobUpdate {
+            status: None,
+            file_path: Some(archive.to_string_lossy().into_owned()),
+            file_size: None,
+            error_message: None,
+            completed_at: None,
+        },
+    )
+    .expect("point the job at the archive");
+    job.id
 }
 
 /// Nothing listens on the discard port, so a connection here is refused.
