@@ -284,14 +284,37 @@ pub fn get_pending_retries(
 /// fills fast on a busy webhook (every event = one row per subscriber).
 pub fn prune_deliveries_older_than(
     conn: &mut DbConnection,
+    workspace_id: i32,
     older_than_days: i32,
 ) -> Result<usize, diesel::result::Error> {
-    use diesel::dsl::sql;
-    use diesel::sql_types::Timestamptz;
+    diesel::delete(
+        webhook_deliveries::table
+            .filter(webhook_deliveries::workspace_id.eq(workspace_id))
+            .filter(webhook_deliveries::created_at.lt(delivery_cutoff(older_than_days))),
+    )
+    .execute(conn)
+}
 
-    let cutoff = sql::<Timestamptz>(&format!("NOW() - INTERVAL '{older_than_days} days'"));
-    diesel::delete(webhook_deliveries::table.filter(webhook_deliveries::created_at.lt(cutoff)))
-        .execute(conn)
+// sync-audit-only: read-only scan for the retention sweep
+/// Workspaces holding webhook_deliveries rows older than `older_than_days`.
+/// Cross-workspace (run under the bypass context); each is then pruned
+/// pinned to its own workspace so the audit trigger records the deletes there.
+pub fn workspaces_with_deliveries_older_than(
+    conn: &mut DbConnection,
+    older_than_days: i32,
+) -> Result<Vec<i32>, diesel::result::Error> {
+    webhook_deliveries::table
+        .filter(webhook_deliveries::created_at.lt(delivery_cutoff(older_than_days)))
+        .select(webhook_deliveries::workspace_id)
+        .distinct()
+        .order(webhook_deliveries::workspace_id)
+        .load(conn)
+}
+
+fn delivery_cutoff(
+    older_than_days: i32,
+) -> diesel::expression::SqlLiteral<diesel::sql_types::Timestamptz> {
+    diesel::dsl::sql(&format!("NOW() - INTERVAL '{older_than_days} days'"))
 }
 
 #[cfg(test)]

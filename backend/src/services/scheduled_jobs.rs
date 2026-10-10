@@ -625,13 +625,28 @@ pub async fn prune_security_events(pool: Pool) -> Result<()> {
 /// `WEBHOOK_DELIVERY_RETENTION_DAYS`; default 30 days.
 pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
     let days = retention_days("WEBHOOK_DELIVERY_RETENTION_DAYS", 30);
-    // webhook_deliveries is RLS-enabled; cross-tenant prune.
-    let removed =
-        // cross-tenant: cross-workspace retention prune of webhook_deliveries.
+    let workspaces =
+        // cross-tenant: finds which workspaces hold expired deliveries; each is pruned pinned to its own workspace below.
         crate::sync::session::background_run(&pool, "scheduler:prune_webhook_deliveries", |conn| {
-            crate::repository::webhooks::prune_deliveries_older_than(conn, days)
+            crate::repository::webhooks::workspaces_with_deliveries_older_than(conn, days)
         })
-        .map_err(|e| anyhow::anyhow!("prune webhook deliveries: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("scan webhook deliveries: {e}"))?;
+    // webhook_deliveries is audited: each delete is recorded in its own
+    // workspace, so prune one workspace at a time, pinned.
+    let mut removed = 0usize;
+    for workspace_id in workspaces {
+        match crate::sync::session::run_in_workspace(
+            &pool,
+            "scheduler:prune_webhook_deliveries",
+            workspace_id,
+            |conn| {
+                crate::repository::webhooks::prune_deliveries_older_than(conn, workspace_id, days)
+            },
+        ) {
+            Ok(n) => removed += n,
+            Err(e) => warn!(workspace_id, error = ?e, "scheduler: webhook delivery prune failed"),
+        }
+    }
     if removed > 0 {
         info!(
             count = removed,
@@ -802,9 +817,9 @@ pub async fn reverify_dkim_domains(pool: Pool) -> Result<()> {
 /// those rows after the configurable retention window
 /// (`NOSDESK_USER_PURGE_GRACE_DAYS`, default 30).
 ///
-/// Each purge gets its own savepoint via `with_actor_context` so an
-/// FK violation on one user doesn't abort the whole sweep. The
-/// "scheduler:user_purge" system actor lands in the audit_log for
+/// Each purge gets its own transaction so an FK violation on one user
+/// doesn't abort the whole sweep. The "scheduler:user_purge" system
+/// actor lands in the audit_log, in the user's home workspace, for
 /// every purged row so the eventual hard-delete is traceable.
 ///
 /// Search-index removal flows through the same
@@ -834,14 +849,16 @@ pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) ->
     let mut purged = 0usize;
     let mut failed = 0usize;
     for user in pending {
-        // cross-tenant: purging a user reaches every workspace they belong to.
-        let result = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
-            &mut conn,
-            &actor,
-            |conn| crate::repository::users::purge_user(&user.uuid, conn, Some(&search)),
-        );
+        let result = purge_account_in_home_workspace(&mut conn, &actor, &user.uuid, Some(&search));
         match result {
-            Ok(_) => {
+            Ok(None) => {
+                failed += 1;
+                warn!(
+                    user_uuid = %user.uuid,
+                    "scheduler:user_purge: skipped, the account is in no workspace to record the purge in"
+                );
+            }
+            Ok(Some(_)) => {
                 purged += 1;
                 info!(
                     user_uuid = %user.uuid,
@@ -867,6 +884,32 @@ pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) ->
         "scheduler: soft-deleted users sweep complete"
     );
     Ok(())
+}
+
+/// Purge one account as `actor`, recorded in the account's home workspace
+/// ([`crate::repository::users::home_workspace_id`]). The purge runs under
+/// the bypass role because an account's rows can reach every workspace it
+/// belongs to, but the audit trigger still needs a workspace for the rows it
+/// writes, and a background connection starts with none. `Ok(None)` when the
+/// account is in no workspace; it is left in place.
+///
+/// For an account in several workspaces, rows the purge touches in the
+/// others are recorded in the home workspace too.
+fn purge_account_in_home_workspace(
+    conn: &mut DbConnection,
+    actor: &crate::sync::actor::ActorContext,
+    user_uuid: &uuid::Uuid,
+    observer: Option<&dyn crate::repository::users::UserDeletedObserver>,
+) -> std::result::Result<Option<usize>, diesel::result::Error> {
+    // cross-tenant: purging an account reaches every workspace it belongs to.
+    crate::sync::session::with_actor_bypass_context(conn, actor, |conn| {
+        let Some(workspace_id) = crate::repository::users::home_workspace_id(conn, user_uuid)?
+        else {
+            return Ok(None);
+        };
+        crate::sync::session::pin_workspace(conn, workspace_id)?;
+        crate::repository::users::purge_user(user_uuid, conn, observer).map(Some)
+    })
 }
 
 /// Hard-delete archived workspaces whose grace window has elapsed
@@ -1677,8 +1720,9 @@ pub async fn approval_timeouts(pool: Pool) -> Result<()> {
 /// requests never confirmed within [`guest_residue::UNCONFIRMED_DAYS`], uploads
 /// never attached (after a day), and accounts made for an address that never
 /// confirmed anything and were never used. Each is found cross-workspace and
-/// removed pinned to its own workspace (accounts, which span workspaces, under
-/// the bypass context like the soft-delete purge).
+/// removed pinned to its own workspace (accounts, which can span workspaces,
+/// under the bypass context pinned to their home workspace, like the
+/// soft-delete purge).
 pub async fn guest_residue_cleanup(pool: Pool, search: Arc<SearchService>) -> Result<()> {
     let _lock = match try_job_lock(&pool, GUEST_RESIDUE_LOCK, "guest_residue.cleanup")? {
         Some(guard) => guard,
@@ -1767,19 +1811,17 @@ pub async fn guest_residue_sweep(pool: &Pool, search: Option<&Arc<SearchService>
     let mut conn = pool.get().context("db pool")?;
     let actor = crate::sync::actor::ActorContext::system("scheduler:guest_residue_purge");
     for uuid in accounts {
-        // cross-tenant: purges never-confirmed guest accounts, which span workspaces.
-        match crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
+        match purge_account_in_home_workspace(
             &mut conn,
             &actor,
-            |conn| {
-                crate::repository::users::purge_user(
-                    &uuid,
-                    conn,
-                    search.map(|s| s as &dyn crate::repository::users::UserDeletedObserver),
-                )
-            },
+            &uuid,
+            search.map(|s| s as &dyn crate::repository::users::UserDeletedObserver),
         ) {
-            Ok(_) => purged += 1,
+            Ok(Some(_)) => purged += 1,
+            Ok(None) => warn!(
+                user_uuid = %uuid,
+                "scheduler:guest_residue: account skipped, it is in no workspace"
+            ),
             Err(e) => warn!(error = ?e, "scheduler:guest_residue: account purge failed"),
         }
     }
