@@ -81,13 +81,15 @@ pub fn name_after_workspace(conn: &mut DbConnection) -> QueryResult<bool> {
     Ok(written > 0)
 }
 
-/// Every workspace whose portal and emails are still unnamed: no settings row,
-/// or `app_name` still the default. Reads across workspaces, so the connection
-/// must be elevated.
+/// Every provisioned workspace whose portal and emails are still unnamed: no
+/// settings row, or `app_name` still the default. Leaves out the bootstrap
+/// workspace every install starts with (plan `self_hosted`), whose name is a
+/// placeholder. Reads across workspaces, so the connection must be elevated.
 pub fn workspaces_with_default_app_name(conn: &mut DbConnection) -> QueryResult<Vec<i32>> {
     use crate::schema::workspaces;
     workspaces::table
         .left_join(site_settings::table)
+        .filter(workspaces::plan.ne("self_hosted"))
         .filter(
             site_settings::id
                 .is_null()

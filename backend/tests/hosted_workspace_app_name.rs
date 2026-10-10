@@ -1,7 +1,7 @@
 //! Hosted: a workspace's portal and emails carry the workspace's name, not
 //! "Nosdesk". Covers the control-plane create, a rename (followed only while
-//! the name was never changed), and the boot task that names workspaces
-//! provisioned before this.
+//! the name was never changed), and the one-time boot task that names
+//! workspaces provisioned before this.
 //!
 //! Its own binary: hosted mode is a process-wide env var.
 
@@ -146,7 +146,9 @@ async fn hosted_workspaces_are_named_after_the_workspace() {
     assert_eq!(app_name(&pool, acme).as_deref(), Some("Acme Help"));
 
     // Boot task: workspaces provisioned before this, unnamed or never named,
-    // take the workspace's name; one an admin named keeps it.
+    // take the workspace's name; one an admin named keeps it, and the
+    // bootstrap workspace (id 1, plan self_hosted) is left alone.
+    let bootstrap_before = app_name(&pool, 1);
     let mut conn = pool.get().expect("conn");
     let no_row = common::mint_workspace(&mut conn, "bravo-co", "Bravo");
     let default_row = common::mint_workspace(&mut conn, "gamma-co", "Gamma");
@@ -155,12 +157,16 @@ async fn hosted_workspaces_are_named_after_the_workspace() {
     set_app_name(&pool, default_row, "Nosdesk");
     set_app_name(&pool, named_row, "Delta Desk");
 
-    assert!(backend::services::seed::name_hosted_workspaces(&runtime) >= 2);
+    assert_eq!(backend::services::seed::name_hosted_workspaces(&runtime), 2);
     assert_eq!(app_name(&pool, no_row).as_deref(), Some("Bravo"));
     assert_eq!(app_name(&pool, default_row).as_deref(), Some("Gamma"));
     assert_eq!(app_name(&pool, named_row).as_deref(), Some("Delta Desk"));
     assert_eq!(app_name(&pool, acme).as_deref(), Some("Acme Help"));
+    assert_eq!(app_name(&pool, 1), bootstrap_before);
+    assert_ne!(app_name(&pool, 1).as_deref(), Some("Workspace"));
 
-    // Every boot after that finds nothing to do.
+    // It runs once: an admin who then sets "Nosdesk" keeps it across boots.
+    set_app_name(&pool, default_row, "Nosdesk");
     assert_eq!(backend::services::seed::name_hosted_workspaces(&runtime), 0);
+    assert_eq!(app_name(&pool, default_row).as_deref(), Some("Nosdesk"));
 }
