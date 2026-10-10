@@ -233,7 +233,10 @@ pub struct Ticket {
     pub closed_by: Option<Uuid>,
     pub category_id: Option<i32>,
     pub submitted_via: Option<String>,
-    #[serde(serialize_with = "serialize_optional_uuid_as_string")]
+    /// Opens the guest status page (`/ticket-status/{token}`) for whoever
+    /// holds it, so it is a guest's capability, not ticket data: the guest
+    /// gets it when they submit, and no API response carries it.
+    #[serde(skip_serializing, default)]
     pub guest_lookup_token: Option<Uuid>,
     pub verification_state: Option<String>,
     /// FK to the channel this ticket originated from (email mailbox, Slack
@@ -369,7 +372,11 @@ pub struct NewTicketMerge {
 
 // Ticket implementation removed - serialization now handled by serde attributes
 
-/// Insert payload for `tickets`. `Default` is implemented so call
+/// Insert payload for `tickets`, and the body of `POST` and `PUT
+/// /api/tickets`. The columns the server owns are never read from a body
+/// (`skip_deserializing`): a request can't set them, and a body that carries
+/// them in another shape (a ticket as GET returns it) still parses.
+/// `Default` is implemented so call
 /// sites can write `NewTicket { title: ..., workflow_state_id: ...,
 /// ..Default::default() }` without spelling out every nullable
 /// field. Adding a new optional column on `tickets` then becomes a
@@ -386,20 +393,25 @@ pub struct NewTicket {
     pub requester_uuid: Option<Uuid>,
     pub assignee_uuid: Option<Uuid>,
     pub category_id: Option<i32>,
+    #[serde(skip_deserializing)]
     pub submitted_via: Option<String>,
+    #[serde(skip_deserializing)]
     pub guest_lookup_token: Option<Uuid>,
+    #[serde(skip_deserializing)]
     pub verification_state: Option<String>,
+    #[serde(skip_deserializing)]
     pub origin_channel_id: Option<i32>,
+    #[serde(skip_deserializing)]
     pub triage_state: Option<String>,
     pub due_date: Option<NaiveDateTime>,
     pub start_date: Option<NaiveDateTime>,
     pub recurrence_rule: Option<String>,
+    #[serde(skip_deserializing)]
     pub recurrence_template_id: Option<i32>,
     pub resolution_notes: Option<String>,
     /// Defaults false; set true by the inbound pipeline when the source
-    /// message was flagged as spam. A request body may leave it out: the
-    /// server owns it, so POST and PUT ignore it.
-    #[serde(default)]
+    /// message was flagged as spam.
+    #[serde(skip_deserializing)]
     pub spam_suspected: bool,
 }
 
@@ -424,8 +436,9 @@ impl NewTicket {
     /// ticket came from (`submitted_via`, `origin_channel_id`), guest access
     /// and verification (`guest_lookup_token`, `verification_state`), the
     /// inbound pipeline's `triage_state` and `spam_suspected`, and the
-    /// recurrence scheduler's `recurrence_template_id`. The one place that list
-    /// is kept. Destructured field by field so that adding a column to
+    /// recurrence scheduler's `recurrence_template_id`. The same fields carry
+    /// `#[serde(skip_deserializing)]` on `NewTicket`, so a body can't set them
+    /// either; change both together. Destructured field by field so that adding a column to
     /// `NewTicket` fails to compile here until someone decides who may set it.
     fn into_client_columns(self) -> ClientTicketColumns {
         let Self {
@@ -1148,5 +1161,49 @@ mod new_ticket_write_tests {
         assert_eq!(out.priority, TicketPriority::default());
         assert_eq!(out.recurrence_rule, None);
         assert_eq!(out.resolution_notes, None);
+    }
+
+    /// A client that reads a ticket can send the body straight back as a PUT.
+    #[test]
+    fn a_ticket_as_sent_reads_back_as_a_put_body() {
+        let mut ticket = existing_ticket();
+        ticket.guest_lookup_token = None;
+        let wire = serde_json::to_value(&ticket).expect("serialize ticket");
+        let body = serde_json::from_value::<NewTicket>(wire);
+        assert!(body.is_ok(), "a GET body is a valid PUT body: {body:?}");
+    }
+
+    /// The columns the server owns aren't read from a body at all, so a value
+    /// of the wrong shape for one can't fail the request.
+    #[test]
+    fn a_body_never_reads_the_server_columns() {
+        let body: NewTicket = serde_json::from_value(serde_json::json!({
+            "title": "Printer jammed",
+            "workflow_state_id": 1,
+            "priority": "low",
+            "submitted_via": 5,
+            "guest_lookup_token": "",
+            "verification_state": [],
+            "origin_channel_id": "x",
+            "triage_state": {},
+            "recurrence_template_id": "y",
+            "spam_suspected": "yes",
+        }))
+        .expect("server columns are not parsed");
+        assert_eq!(body.submitted_via, None);
+        assert_eq!(body.guest_lookup_token, None);
+        assert_eq!(body.verification_state, None);
+        assert_eq!(body.origin_channel_id, None);
+        assert_eq!(body.triage_state, None);
+        assert_eq!(body.recurrence_template_id, None);
+        assert!(!body.spam_suspected);
+    }
+
+    /// The guest lookup token opens the guest status page for whoever holds
+    /// it, so a ticket as the API sends it leaves the token out.
+    #[test]
+    fn a_ticket_is_sent_without_its_guest_lookup_token() {
+        let wire = serde_json::to_value(existing_ticket()).expect("serialize ticket");
+        assert!(wire.get("guest_lookup_token").is_none(), "{wire}");
     }
 }
