@@ -1973,8 +1973,10 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-        // The sweep caught it a minute after the target.
-        let stamp = now - Duration::hours(2) + Duration::minutes(1);
+        // The sweep caught it a minute after the target. Postgres keeps
+        // microseconds, so compare at that precision.
+        let stamp =
+            chrono::SubsecRound::trunc_subsecs(now - Duration::hours(2) + Duration::minutes(1), 6);
         diesel::update(tickets::table.find(ticket.id))
             .set(tickets::sla_response_breached_at.eq(Some(stamp)))
             .execute(&mut conn)
