@@ -128,17 +128,42 @@ pub fn delete_agent_cookies() -> [Cookie<'static>; 3] {
 /// state, so an attacker can't CSRF their own `(code, state)` onto a victim.
 pub const OAUTH_STATE_COOKIE: &str = "oauth_state";
 
+/// How long a started OAuth/OIDC sign-in may take to come back to the
+/// callback: the lifetime of the signed state (its `exp`) and of the
+/// [`OAUTH_STATE_COOKIE`] binding it, which must match.
+///
+/// It has to outlast the identity provider's own login challenge, or a person
+/// who signs in slowly but within the provider's window comes back to a dead
+/// state. The hosted IdP (Ory Hydra) runs with `ttl.login_consent_request` at
+/// 15 minutes and Hydra's default is 30, and the control plane waking from
+/// autostop or a mistyped password adds minutes on top, so 30 minutes covers
+/// both.
+///
+/// The trade-off is replay: the state is a signed token, not a one-time
+/// record, so it stays acceptable for the whole window. That buys an attacker
+/// little: the state only works in the browser holding the binding cookie,
+/// and the authorization code it pairs with is single use. PKCE adds nothing
+/// against someone holding the callback URL, since the verifier rides inside
+/// the signed (not encrypted) state; the binding cookie is what protects a
+/// leaked code and state. What the longer window does allow is a stale
+/// callback in that same browser (a back button, a reopened tab) to finish
+/// the sign-in the person started.
+pub const OAUTH_STATE_LIFETIME: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 /// Cookie binding an OAuth flow to its initiating user-agent. `SameSite=Lax`
 /// (NOT Strict): the IdP redirects the browser back to the callback as a
 /// cross-site top-level navigation, and a Strict cookie would not be sent. Lives
-/// as long as the state JWT (10 min). `Path=/` for the `__Host-` prefix.
+/// as long as the state JWT ([`OAUTH_STATE_LIFETIME`]). `Path=/` for the
+/// `__Host-` prefix.
 pub fn create_oauth_state_cookie(binding: &str) -> Cookie<'static> {
     Cookie::build(cookie_name(OAUTH_STATE_COOKIE), binding.to_string())
         .path("/")
         .http_only(true)
         .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Lax)
-        .max_age(actix_web::cookie::time::Duration::minutes(10))
+        .max_age(actix_web::cookie::time::Duration::seconds(
+            OAUTH_STATE_LIFETIME.as_secs() as i64,
+        ))
         .finish()
 }
 

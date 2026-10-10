@@ -493,7 +493,46 @@ fn replace_state_in_url(url: &str, new_state: &str) -> String {
     }
 }
 
-// Handle OAuth callback and token exchange
+/// Why an OAuth/OIDC callback couldn't sign the person in. Every one lands
+/// the browser on the sign-in page with a code it explains (see
+/// [`callback_failure_response`]); the detail goes to the log only.
+#[derive(Debug)]
+enum CallbackFailure {
+    /// The signed state didn't verify (expired or tampered with), or this
+    /// browser doesn't hold the cookie binding it. Signing in again fixes it.
+    StateExpired(String),
+    /// The identity provider sent the person back with `error=`: they
+    /// cancelled, or it refused them.
+    ProviderDenied(String),
+    /// A denial with its own code on the sign-in page (no seat, no email, an
+    /// unverified email), already logged where it was decided.
+    Denied(&'static str),
+    /// Anything else.
+    Failed(String),
+}
+
+impl From<ApiError> for CallbackFailure {
+    fn from(e: ApiError) -> Self {
+        Self::Failed(e.to_string())
+    }
+}
+
+impl CallbackFailure {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::StateExpired(_) => AUTH_ERROR_STATE_EXPIRED,
+            Self::ProviderDenied(_) => AUTH_ERROR_PROVIDER_DENIED,
+            Self::Denied(code) => code,
+            Self::Failed(_) => AUTH_ERROR_SIGNIN_FAILED,
+        }
+    }
+}
+
+/// `GET /api/auth/oauth/callback`, where the identity provider sends the
+/// browser back (Microsoft and OIDC alike). It is a top-level page load, so it
+/// always answers with a redirect: into the app once signed in, otherwise to
+/// the sign-in page with an `auth_error` code, never a JSON error body. A
+/// failure also clears the flow's `oauth_state` cookie.
 pub async fn oauth_callback(
     db_pool: web::Data<Pool>,
     query: web::Query<OAuthExchangeRequest>,
@@ -501,32 +540,48 @@ pub async fn oauth_callback(
     // the search subsystem (and test apps need not wire it).
     search_service: Option<web::Data<Arc<SearchService>>>,
     request: actix_web::HttpRequest,
-) -> Result<HttpResponse, ApiError> {
-    // Get database connection
-    let mut conn = helpers::db_conn(&db_pool)?;
-
-    // Verify state parameter is present
-    let state = match &query.state {
-        Some(state) => state,
-        None => return Err(ApiError::BadRequest("Missing state parameter".into())),
+) -> HttpResponse {
+    // The provider reports a cancelled or refused sign-in with `error=` and
+    // no code. Read it first, so it isn't mistaken for a broken callback.
+    if let Some(error) = &query.error {
+        let connect_return = verify_callback_state(&query, &request)
+            .ok()
+            .and_then(|state| connect_return_path(&state));
+        return callback_failure_response(
+            CallbackFailure::ProviderDenied(format!(
+                "{error:?} {:?}",
+                query.error_description.as_deref().unwrap_or_default()
+            )),
+            connect_return.as_deref(),
+        );
+    }
+    let state_data = match verify_callback_state(&query, &request) {
+        Ok(state) => state,
+        Err(failure) => return callback_failure_response(failure, None),
     };
-
-    // Verify code parameter is present
-    let code = match &query.code {
-        Some(code) => code,
-        None => return Err(ApiError::BadRequest("Missing authorization code".into())),
+    let connect_return = connect_return_path(&state_data);
+    let Some(code) = query.code.as_deref() else {
+        return callback_failure_response(
+            CallbackFailure::Failed("missing authorization code".into()),
+            connect_return.as_deref(),
+        );
     };
+    match complete_oauth_callback(&db_pool, state_data, code, search_service, &request).await {
+        Ok(response) => response,
+        Err(failure) => callback_failure_response(failure, connect_return.as_deref()),
+    }
+}
 
-    // Verify the state JWT
-    let state_data = match verify_oauth_state(state) {
-        Ok(data) => data,
-        Err(e) => {
-            warn!(error = %e, "Failed to verify OAuth state");
-            return Err(ApiError::BadRequest(
-                "Invalid or expired state parameter".into(),
-            ));
-        }
+/// The signed state from the callback, once it verifies and this browser holds
+/// the cookie binding it.
+fn verify_callback_state(
+    query: &OAuthExchangeRequest,
+    request: &HttpRequest,
+) -> Result<OAuthState, CallbackFailure> {
+    let Some(state) = query.state.as_deref() else {
+        return Err(CallbackFailure::Failed("missing state parameter".into()));
     };
+    let state_data = verify_oauth_state(state).map_err(CallbackFailure::StateExpired)?;
 
     // RFC 9700 §2.1: confirm this callback completes in the SAME user-agent that
     // started the flow. The signed state has integrity but is not session-bound,
@@ -545,22 +600,79 @@ pub async fn oauth_callback(
             .map(|p| constant_time_eq::constant_time_eq(p.as_bytes(), expected.as_bytes()))
             .unwrap_or(false);
         if !matches {
-            warn!("OAuth callback rejected: state-binding cookie missing or mismatched");
-            return Err(ApiError::BadRequest(
-                "Invalid or expired state parameter".into(),
+            return Err(CallbackFailure::StateExpired(
+                "state-binding cookie missing or mismatched".into(),
             ));
         }
     }
     // `binding == None` is a legacy in-flight state minted before this field
     // existed; allowed transitionally, and such states expire within the
-    // 10-minute state lifetime, after which the binding check is mandatory.
+    // state lifetime, after which the binding check is mandatory.
+    Ok(state_data)
+}
+
+/// Where a connect flow's result goes: the signed-in page that started it. A
+/// connect starts from inside the app, so its failures go back there rather
+/// than to the sign-in page.
+fn connect_return_path(state: &OAuthState) -> Option<String> {
+    state
+        .user_connection
+        .unwrap_or(false)
+        .then(|| state.redirect_uri.clone())
+}
+
+/// The redirect for a callback that couldn't sign the person in: back to the
+/// connect flow's page for a connect (`connect_return`), else the sign-in page
+/// with the failure's code. Clears the `oauth_state` cookie either way, since
+/// the flow it bound is over.
+fn callback_failure_response(
+    failure: CallbackFailure,
+    connect_return: Option<&str>,
+) -> HttpResponse {
+    match &failure {
+        CallbackFailure::StateExpired(detail) => {
+            warn!(error = %detail, "OAuth callback rejected: state expired or not bound to this browser")
+        }
+        CallbackFailure::ProviderDenied(detail) => {
+            warn!(error = %detail, "OAuth callback: the identity provider returned an error")
+        }
+        // Logged where the denial was decided.
+        CallbackFailure::Denied(_) => {}
+        CallbackFailure::Failed(detail) => {
+            warn!(error = %detail, "OAuth callback could not complete sign-in")
+        }
+    }
+    let mut response = match connect_return {
+        Some(return_to) => connect_result_redirect(
+            return_to,
+            &format!("auth_error={AUTH_ERROR_CONNECT_FAILED}"),
+        ),
+        None => auth_error_redirect(failure.code()),
+    };
+    if let Err(e) = response.add_cookie(&crate::utils::cookies::delete_oauth_state_cookie()) {
+        error!(error = %e, "OAuth callback: could not clear the state cookie");
+    }
+    response
+}
+
+/// The rest of the callback once the state has verified: exchange the code,
+/// resolve the user, and start the session (or link the identity for a
+/// connect flow).
+async fn complete_oauth_callback(
+    db_pool: &web::Data<Pool>,
+    state_data: OAuthState,
+    code: &str,
+    search_service: Option<web::Data<Arc<SearchService>>>,
+    request: &HttpRequest,
+) -> Result<HttpResponse, CallbackFailure> {
+    let mut conn = helpers::db_conn(db_pool)?;
 
     // Get the provider by type
     let provider_type = &state_data.provider_type;
     let provider = match get_provider_by_type(provider_type) {
         Ok(p) => {
             if !p.enabled {
-                return Err(ApiError::BadRequest(format!(
+                return Err(CallbackFailure::Failed(format!(
                     "{} authentication is not enabled",
                     p.name
                 )));
@@ -569,7 +681,9 @@ pub async fn oauth_callback(
         }
         Err(e) => {
             error!(provider = %provider_type, error = ?e, "Failed to get provider in callback");
-            return Err(ApiError::Internal("Authentication provider error".into()));
+            return Err(CallbackFailure::Failed(
+                "Authentication provider error".into(),
+            ));
         }
     };
 
@@ -583,7 +697,7 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_id for Microsoft provider in callback");
-                return Err(ApiError::Internal(format!(
+                return Err(CallbackFailure::Failed(format!(
                     "Microsoft authentication is not properly configured: {}",
                     e
                 )));
@@ -594,7 +708,7 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get tenant_id for Microsoft provider in callback");
-                return Err(ApiError::Internal(format!(
+                return Err(CallbackFailure::Failed(format!(
                     "Microsoft authentication is not properly configured: {}",
                     e
                 )));
@@ -605,7 +719,7 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_secret for Microsoft provider in callback");
-                return Err(ApiError::Internal(format!(
+                return Err(CallbackFailure::Failed(format!(
                     "Microsoft authentication is not properly configured: {}",
                     e
                 )));
@@ -616,7 +730,7 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get redirect_uri for Microsoft provider in callback");
-                return Err(ApiError::Internal(format!(
+                return Err(CallbackFailure::Failed(format!(
                     "Microsoft authentication is not properly configured: {}",
                     e
                 )));
@@ -631,7 +745,7 @@ pub async fn oauth_callback(
             Some(v) => v.clone(),
             None => {
                 warn!("Microsoft callback missing PKCE verifier in state");
-                return Err(ApiError::BadRequest(
+                return Err(CallbackFailure::Failed(
                     "Invalid authentication state (missing PKCE verifier)".into(),
                 ));
             }
@@ -640,7 +754,7 @@ pub async fn oauth_callback(
             Some(n) => n.clone(),
             None => {
                 warn!("Microsoft callback missing nonce in state");
-                return Err(ApiError::BadRequest(
+                return Err(CallbackFailure::Failed(
                     "Invalid authentication state (missing nonce)".into(),
                 ));
             }
@@ -663,7 +777,7 @@ pub async fn oauth_callback(
                     Some(t) => t,
                     None => {
                         error!("Microsoft callback: token response carried no id_token");
-                        return Err(ApiError::Internal(
+                        return Err(CallbackFailure::Failed(
                             "Microsoft did not return an ID token".into(),
                         ));
                     }
@@ -672,7 +786,7 @@ pub async fn oauth_callback(
                     oidc::verify_microsoft_id_token(id_token, &tenant_id, &client_id, &nonce).await
                 {
                     error!(error = %e, "Microsoft ID token verification failed");
-                    return Err(ApiError::Unauthorized(
+                    return Err(CallbackFailure::Failed(
                         "Microsoft authentication could not be verified".into(),
                     ));
                 }
@@ -682,7 +796,7 @@ pub async fn oauth_callback(
                     Ok(info) => info,
                     Err(e) => {
                         error!(error = ?e, "Failed to get Microsoft user info");
-                        return Err(ApiError::Internal(
+                        return Err(CallbackFailure::Failed(
                             "Failed to get user information from Microsoft".into(),
                         ));
                     }
@@ -695,7 +809,7 @@ pub async fn oauth_callback(
                 // Microsoft always yields an email (mail or UPN); guard anyway.
                 if user_info.email.is_none() {
                     error!("No email found in Microsoft user info");
-                    return Err(ApiError::Internal(
+                    return Err(CallbackFailure::Failed(
                         "Invalid user information from Microsoft (no email)".into(),
                     ));
                 }
@@ -716,7 +830,7 @@ pub async fn oauth_callback(
                             ) {
                                 Ok(_user) => {
                                     // User exists, can't reconnect
-                                    return Err(ApiError::BadRequest("This Microsoft account is already connected to another user account".into()));
+                                    return Err(CallbackFailure::Failed("This Microsoft account is already connected to another user account".into()));
                                 }
                                 Err(_) => {
                                     // User doesn't exist (orphaned record) - clean it up and proceed
@@ -744,7 +858,7 @@ pub async fn oauth_callback(
                         }
                         Err(e) => {
                             error!(error = ?e, "Failed to check existing identity");
-                            return Err(ApiError::Internal(
+                            return Err(CallbackFailure::Failed(
                                 "Failed to verify Microsoft account status".into(),
                             ));
                         }
@@ -810,18 +924,19 @@ pub async fn oauth_callback(
                     }
                     crate::handlers::auth::complete_login_redirect(
                         user,
-                        &request,
+                        request,
                         &mut conn,
                         &safe_post_login_location(&state_data.redirect_uri),
                         // Microsoft logout uses its own endpoint (no id_token_hint
                         // requirement), so nothing to store here.
                         None,
                     )
+                    .map_err(CallbackFailure::from)
                 }
             }
             Err(e) => {
                 error!(error = ?e, "Failed to exchange code for token");
-                Err(ApiError::Internal(
+                Err(CallbackFailure::Failed(
                     "Failed to authenticate with Microsoft".into(),
                 ))
             }
@@ -832,7 +947,7 @@ pub async fn oauth_callback(
             Some(v) => v.clone(),
             None => {
                 warn!("OIDC callback missing PKCE verifier in state");
-                return Err(ApiError::BadRequest(
+                return Err(CallbackFailure::Failed(
                     "Invalid authentication state (missing PKCE verifier)".into(),
                 ));
             }
@@ -842,7 +957,7 @@ pub async fn oauth_callback(
             Some(n) => n.clone(),
             None => {
                 warn!("OIDC callback missing nonce in state");
-                return Err(ApiError::BadRequest(
+                return Err(CallbackFailure::Failed(
                     "Invalid authentication state (missing nonce)".into(),
                 ));
             }
@@ -875,7 +990,7 @@ pub async fn oauth_callback(
                                 &mut conn,
                             ) {
                                 Ok(_user) => {
-                                    return Err(ApiError::BadRequest("This OIDC account is already connected to another user account".into()));
+                                    return Err(CallbackFailure::Failed("This OIDC account is already connected to another user account".into()));
                                 }
                                 Err(_) => {
                                     // User doesn't exist (orphaned record) - clean it up
@@ -901,7 +1016,7 @@ pub async fn oauth_callback(
                         }
                         Err(e) => {
                             error!(error = ?e, "Failed to check existing OIDC identity");
-                            return Err(ApiError::Internal(
+                            return Err(CallbackFailure::Failed(
                                 "Failed to verify OIDC account status".into(),
                             ));
                         }
@@ -923,13 +1038,13 @@ pub async fn oauth_callback(
                         Some(uuid_str) => match uuid::Uuid::parse_str(&uuid_str) {
                             Ok(uuid) => uuid,
                             Err(_) => {
-                                return Err(ApiError::BadRequest(
+                                return Err(CallbackFailure::Failed(
                                     "Invalid user UUID in redirect URI".into(),
                                 ));
                             }
                         },
                         None => {
-                            return Err(ApiError::BadRequest(
+                            return Err(CallbackFailure::Failed(
                                 "Missing user UUID for account connection".into(),
                             ));
                         }
@@ -986,23 +1101,24 @@ pub async fn oauth_callback(
                     }
                     crate::handlers::auth::complete_login_redirect(
                         user,
-                        &request,
+                        request,
                         &mut conn,
                         &safe_post_login_location(&state_data.redirect_uri),
                         Some(&id_token),
                     )
+                    .map_err(CallbackFailure::from)
                 }
             }
             Err(e) => {
                 error!(error = %e, "Failed to exchange OIDC code for token");
-                Err(ApiError::Internal(format!(
+                Err(CallbackFailure::Failed(format!(
                     "Failed to authenticate with OIDC provider: {}",
                     e
                 )))
             }
         }
     } else {
-        Err(ApiError::BadRequest(format!(
+        Err(CallbackFailure::Failed(format!(
             "{} authentication callback is not implemented",
             provider.name
         )))
@@ -1136,12 +1252,12 @@ fn create_oauth_state_with_oidc(
     // Get the JWT secret from environment or configuration
     let secret = JWT_SECRET.clone();
 
-    // Create expiration timestamp (10 minutes from now)
+    // The state expires with its binding cookie (see OAUTH_STATE_LIFETIME).
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs() as usize;
-    let exp = now + (10 * 60); // 10 minutes
+    let exp = now + crate::utils::cookies::OAUTH_STATE_LIFETIME.as_secs() as usize;
 
     // One 128-bit random value serves as both the (legacy) state value and the
     // user-agent binding. It rides inside the signed, tamper-proof JWT AND is
@@ -1391,11 +1507,10 @@ fn callback_redirect_for(
 /// given, so an attacker-initiated flow would carry a validly signed hostile
 /// URL and this redirect would be an open redirector (RFC 9700 section 4.11).
 /// A denial always lands on the login page, so no return path is needed.
-fn auth_error_redirect(code: &str) -> actix_web::Error {
-    let resp = HttpResponse::Found()
+fn auth_error_redirect(code: &str) -> HttpResponse {
+    HttpResponse::Found()
         .append_header(("Location", format!("/login?auth_error={code}")))
-        .finish();
-    errors::from_response("auth_error_redirect", resp)
+        .finish()
 }
 
 /// The resolved identity holds no seat; provisioning happens upstream.
@@ -1405,6 +1520,14 @@ const AUTH_ERROR_NO_EMAIL: &str = "no_email";
 /// The provider did not vouch the email as verified, so the email-fallback
 /// seat link was refused (see `resolve_user_by_identity_or_email`).
 const AUTH_ERROR_EMAIL_UNVERIFIED: &str = "email_unverified";
+/// The sign-in took longer than the state lifetime, or came back to a
+/// different browser than the one that started it. Signing in again fixes it.
+const AUTH_ERROR_STATE_EXPIRED: &str = "state_expired";
+/// The identity provider returned an error, most often because the person
+/// cancelled.
+const AUTH_ERROR_PROVIDER_DENIED: &str = "provider_denied";
+/// Any other failure to finish signing in; the detail is in the server log.
+const AUTH_ERROR_SIGNIN_FAILED: &str = "signin_failed";
 
 /// Longest return path sign-in follows; a longer one falls back to "/".
 const MAX_RETURN_PATH_LEN: usize = 2048;
@@ -1608,13 +1731,12 @@ fn issuer_for_identity(
 ///   a hosted deployment, unsupported since per-tenant federation was retired
 ///   (hosted login is Model C). Fail closed.
 ///
-/// Returns the resolved user, or the error (auth-error redirect / 500) the
-/// caller should return directly.
+/// Returns the resolved user, or why sign-in can't go on.
 async fn resolve_login_user(
     claims: &OAuthLoginClaims,
     iss: &str,
     conn: &mut DbConnection,
-) -> actix_web::Result<crate::models::User> {
+) -> Result<crate::models::User, CallbackFailure> {
     if crate::middleware::workspace_context::selection_resolution_enabled() {
         return resolve_existing_seat_user(claims, iss, conn);
     }
@@ -1622,14 +1744,16 @@ async fn resolve_login_user(
         crate::middleware::DeploymentMode::SelfHosted => crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
         crate::middleware::DeploymentMode::Hosted => {
             error!("hosted OAuth login reached without selection mode; per-tenant federation is retired");
-            return Err(ApiError::Internal("Authentication is misconfigured".into()).into());
+            return Err(CallbackFailure::Failed(
+                "Authentication is misconfigured".into(),
+            ));
         }
     };
     find_or_create_oauth_user(claims, iss, conn, workspace_id)
         .await
         .map_err(|e| {
             error!(error = ?e, "Failed to find or create user during login");
-            ApiError::Internal("Failed to authenticate user".into()).into()
+            CallbackFailure::Failed("Failed to authenticate user".into())
         })
 }
 
@@ -1639,10 +1763,10 @@ fn resolve_existing_seat_user(
     claims: &OAuthLoginClaims,
     iss: &str,
     conn: &mut DbConnection,
-) -> actix_web::Result<crate::models::User> {
+) -> Result<crate::models::User, CallbackFailure> {
     let email = claims.require_email().map_err(|e| {
         error!(error = %e, "Central-origin login: cannot read email from user_info");
-        auth_error_redirect(AUTH_ERROR_NO_EMAIL)
+        CallbackFailure::Denied(AUTH_ERROR_NO_EMAIL)
     })?;
     // Resolve-only: pass no metadata / password_hash since we never create here.
     match crate::services::oauth_provisioning::resolve_user_by_identity_or_email(
@@ -1664,14 +1788,12 @@ fn resolve_existing_seat_user(
                 && !crate::repository::workspaces::staff_seat_holders(conn, &[user.uuid])
                     .map_err(|e| {
                         error!(error = %e, "Seat lookup failed during central-origin login");
-                        actix_web::Error::from(ApiError::Internal(
-                            "Failed to authenticate user".into(),
-                        ))
+                        CallbackFailure::Failed("Failed to authenticate user".into())
                     })?
                     .contains(&user.uuid) =>
         {
             warn!(%email, "Central-origin login denied: no staff seat for this identity");
-            Err(auth_error_redirect(AUTH_ERROR_NO_SEAT))
+            Err(CallbackFailure::Denied(AUTH_ERROR_NO_SEAT))
         }
         Ok(Some(user)) => Ok(user),
         // An unverified email gets its own code: the resolver refused the
@@ -1681,15 +1803,17 @@ fn resolve_existing_seat_user(
         // so it stays enumeration-safe.
         Ok(None) if !claims.email_verified => {
             warn!(%email, "Central-origin login denied: provider did not verify the email");
-            Err(auth_error_redirect(AUTH_ERROR_EMAIL_UNVERIFIED))
+            Err(CallbackFailure::Denied(AUTH_ERROR_EMAIL_UNVERIFIED))
         }
         Ok(None) => {
             warn!(%email, "Central-origin login denied: no seat for this identity");
-            Err(auth_error_redirect(AUTH_ERROR_NO_SEAT))
+            Err(CallbackFailure::Denied(AUTH_ERROR_NO_SEAT))
         }
         Err(e) => {
             error!(error = %e, "Seat resolution failed during central-origin login");
-            Err(ApiError::Internal("Failed to authenticate user".into()).into())
+            Err(CallbackFailure::Failed(
+                "Failed to authenticate user".into(),
+            ))
         }
     }
 }
@@ -2054,6 +2178,30 @@ mod oauth_state_binding_tests {
         assert_eq!(state.binding.as_deref(), Some(binding.as_str()));
     }
 
+    /// The signed state and the cookie binding it expire together.
+    #[test]
+    fn state_and_its_cookie_share_one_lifetime() {
+        ensure_jwt_secret();
+        let lifetime = crate::utils::cookies::OAUTH_STATE_LIFETIME;
+        let (token, binding) = create_oauth_state("oidc", None, None).unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as usize;
+        let exp = verify_oauth_state(&token).unwrap().exp;
+        assert!(
+            exp.abs_diff(now + lifetime.as_secs() as usize) <= 2,
+            "state exp {exp} is not now + {lifetime:?}"
+        );
+        let cookie = crate::utils::cookies::create_oauth_state_cookie(&binding);
+        assert_eq!(
+            cookie.max_age(),
+            Some(actix_web::cookie::time::Duration::seconds(
+                lifetime.as_secs() as i64
+            ))
+        );
+    }
+
     #[test]
     fn two_flows_get_distinct_bindings() {
         ensure_jwt_secret();
@@ -2261,7 +2409,7 @@ mod login_claims_tests {
 
     #[test]
     fn auth_error_redirect_is_fixed_target_with_code() {
-        let resp = auth_error_redirect(super::AUTH_ERROR_NO_SEAT).error_response();
+        let resp = auth_error_redirect(super::AUTH_ERROR_NO_SEAT);
         assert_eq!(resp.status(), actix_web::http::StatusCode::FOUND);
         let loc = resp.headers().get("location").unwrap().to_str().unwrap();
         assert_eq!(loc, "/login?auth_error=no_seat");

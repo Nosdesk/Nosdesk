@@ -92,6 +92,7 @@ mod notification_digest;
 mod notification_inbox_filters;
 mod notification_outbox;
 mod notification_workspace_scope;
+mod oauth_callback_errors;
 mod outbound_note_lint;
 mod partition_prune;
 mod people_removed_under_1_0;

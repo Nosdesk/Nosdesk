@@ -109,6 +109,20 @@ describe('LoginView SSO', () => {
   })
 })
 
+describe('LoginView after a sign-in the callback could not finish', () => {
+  it.each([
+    ['state_expired', 'login-error-state-expired'],
+    ['provider_denied', 'login-error-provider-denied'],
+    ['signin_failed', 'login-error-signin-failed'],
+  ])('explains %s and does not start sign-in again by itself', async (code, message) => {
+    route.query = { auth_error: code }
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+    expect(wrapper.text()).toContain(message)
+    expect(authorizeCalls()).toHaveLength(0)
+  })
+})
+
 describe('LoginView SSO with several tabs open', () => {
   it('does not start sign-in in a hidden tab, and starts it once the tab is shown', async () => {
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
