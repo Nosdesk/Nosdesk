@@ -353,10 +353,13 @@ on later versions (`backend/src/services/backup_upgrade.rs`):
   release, its last migration's version and that migration prefix's
   SHA-256 (`MIGRATION_PREFIXES` in the build's `OUT_DIR/migration_schema.rs`).
   1.1.0 is the first entry.
-- **A migration in a patch release sorts after everything main has
-  shipped.** Never edit a shipped migration, and never add one that sorts
-  before a shipped point. `shipped_schema_points_pin_their_migration_prefixes`
-  fails CI when either happens.
+- **A migration in a patch release sorts after everything already shipped
+  and before every migration on main that hasn't shipped yet.** Otherwise
+  the patch release's prefix differs from main's at the same version, and
+  main can't place its backups. Never edit a shipped migration, and never
+  add one that sorts before a shipped point;
+  `shipped_schema_points_pin_their_migration_prefixes` fails CI when either
+  happens.
 
 ---
 
