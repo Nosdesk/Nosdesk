@@ -500,6 +500,12 @@ pub fn set_group_members(
     created_by: Option<Uuid>,
 ) -> QueryResult<Vec<UserGroup>> {
     conn.transaction(|conn| {
+        let previous: std::collections::HashSet<Uuid> = user_groups::table
+            .filter(user_groups::group_id.eq(group_id))
+            .select(user_groups::user_uuid)
+            .load::<Uuid>(conn)?
+            .into_iter()
+            .collect();
         // Delete all existing members
         diesel::delete(user_groups::table.filter(user_groups::group_id.eq(group_id)))
             .execute(conn)?;
@@ -537,7 +543,12 @@ pub fn set_group_members(
                 causation_id: None,
             },
         )?;
-        crate::repository::documentation::emit_records_granted_to_groups(conn, &[group_id])?;
+        // A directory sync sets the same members on every run: only a real
+        // change in who is in the group changes what anyone may open.
+        let now: std::collections::HashSet<Uuid> = member_uuids.iter().copied().collect();
+        if now != previous {
+            crate::repository::documentation::emit_records_granted_to_groups(conn, &[group_id])?;
+        }
         Ok(inserted)
     })
 }
@@ -591,9 +602,14 @@ pub fn set_user_groups(
                 causation_id: None,
             },
         )?;
-        let mut changed = previous;
-        changed.extend(group_ids.iter().copied());
-        crate::repository::documentation::emit_records_granted_to_groups(conn, &changed)?;
+        // Only groups the person actually joined or left change what they
+        // may open; a directory sync that finds the same groups emits none.
+        let before: std::collections::HashSet<i32> = previous.into_iter().collect();
+        let after: std::collections::HashSet<i32> = group_ids.iter().copied().collect();
+        let changed: Vec<i32> = before.symmetric_difference(&after).copied().collect();
+        if !changed.is_empty() {
+            crate::repository::documentation::emit_records_granted_to_groups(conn, &changed)?;
+        }
         Ok(inserted)
     })
 }
@@ -918,7 +934,7 @@ pub fn add_group_include(
             created_by,
         };
 
-        diesel::insert_into(group_includes::table)
+        let added = diesel::insert_into(group_includes::table)
             .values(&new_include)
             .on_conflict((
                 group_includes::parent_group_id,
@@ -947,7 +963,9 @@ pub fn add_group_include(
                 causation_id: None,
             },
         )?;
-        crate::repository::documentation::emit_records_granted_to_groups(conn, &[parent_id])?;
+        if added > 0 {
+            crate::repository::documentation::emit_records_granted_to_groups(conn, &[parent_id])?;
+        }
         Ok(include)
     })
 }

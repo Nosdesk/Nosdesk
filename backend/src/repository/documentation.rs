@@ -1271,8 +1271,72 @@ impl PageAudience {
                 user_uuid,
                 is_admin,
             } => hidden_documentation_ids(conn, page_ids, collection_ids, user_uuid, *is_admin),
-            PageAudience::Guest => hidden_ids(conn, page_ids, collection_ids, Reader::Guest),
+            PageAudience::Guest => {
+                hidden_ids(conn, page_ids, collection_ids, Reader::Guest, Trash::Absent)
+            }
         }
+    }
+
+    /// [`PageAudience::hidden`], but a page in the trash reads as its rules
+    /// say rather than as absent: for the trash list, restoring from it, and
+    /// the sync rows the trash view is built from. Admins hide nothing.
+    pub fn hidden_with_trash(
+        &self,
+        conn: &mut DbConnection,
+        page_ids: &[i32],
+        collection_ids: &[i32],
+    ) -> Result<
+        (
+            std::collections::HashSet<i32>,
+            std::collections::HashSet<i32>,
+        ),
+        Error,
+    > {
+        match self {
+            PageAudience::Unrestricted | PageAudience::User { is_admin: true, .. } => {
+                Ok(Default::default())
+            }
+            PageAudience::User { user_uuid, .. } => hidden_ids(
+                conn,
+                page_ids,
+                collection_ids,
+                Reader::Member(user_uuid),
+                Trash::ByRules,
+            ),
+            // The portal never shows the trash.
+            PageAudience::Guest => self.hidden(conn, page_ids, collection_ids),
+        }
+    }
+
+    /// The pages in `pages` this audience may see with the trash read by its
+    /// rules (see [`PageAudience::hidden_with_trash`]).
+    pub fn filter_pages_with_trash(
+        &self,
+        conn: &mut DbConnection,
+        pages: Vec<DocumentationPage>,
+    ) -> Result<Vec<DocumentationPage>, Error> {
+        let ids: Vec<i32> = pages.iter().map(|p| p.id).collect();
+        let (hidden, _) = self.hidden_with_trash(conn, &ids, &[])?;
+        Ok(pages
+            .into_iter()
+            .filter(|p| !hidden.contains(&p.id))
+            .collect())
+    }
+
+    /// Whether the page exists and this audience may restore it: one in the
+    /// trash or archived that they could open under its rules.
+    pub fn can_restore_page(&self, conn: &mut DbConnection, page_id: i32) -> Result<bool, Error> {
+        let exists = documentation_pages::table
+            .find(page_id)
+            .select(documentation_pages::id)
+            .first::<i32>(conn)
+            .optional()?
+            .is_some();
+        Ok(exists
+            && !self
+                .hidden_with_trash(conn, &[page_id], &[])?
+                .0
+                .contains(&page_id))
     }
 
     /// Fails closed, like [`PageAudience::can_read`].
@@ -1341,6 +1405,15 @@ impl PageAudience {
     }
 }
 
+/// Whether a page in the trash reads as absent (every route but the trash
+/// itself) or as its rules say (the trash list, restoring from it, and the
+/// sync rows the trash view is built from).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Trash {
+    Absent,
+    ByRules,
+}
+
 /// Who the documentation rule is deciding for.
 #[derive(Clone, Copy)]
 enum Reader<'a> {
@@ -1362,7 +1435,7 @@ fn filter_pages_for_user(
         return Ok(pages);
     }
     let ids: Vec<i32> = pages.iter().map(|p| p.id).collect();
-    let (hidden, _) = hidden_ids(conn, &ids, &[], Reader::Member(user_uuid))?;
+    let (hidden, _) = hidden_ids(conn, &ids, &[], Reader::Member(user_uuid), Trash::Absent)?;
     Ok(pages
         .into_iter()
         .filter(|p| !hidden.contains(&p.id))
@@ -1387,7 +1460,13 @@ fn hidden_documentation_ids(
     if is_admin {
         return Ok(Default::default());
     }
-    hidden_ids(conn, page_ids, collection_ids, Reader::Member(user_uuid))
+    hidden_ids(
+        conn,
+        page_ids,
+        collection_ids,
+        Reader::Member(user_uuid),
+        Trash::Absent,
+    )
 }
 
 /// The documentation rule. Which of these pages and collections `reader`
@@ -1396,7 +1475,9 @@ fn hidden_documentation_ids(
 /// - An id with no row (deleted for good) is hidden: nothing shows it was
 ///   open to them, and the sync feed still holds its old rows, which must
 ///   reach them only as a delete.
-/// - A page in the trash is hidden.
+/// - A page in the trash is hidden, except where `trash` says it reads as
+///   its rules say (the trash list, restoring, and the sync rows the trash
+///   view is built from).
 /// - A restricted collection is open only to the people and groups it
 ///   names; one that names nobody is open to admins only. An unrestricted
 ///   collection is open to everyone in the workspace.
@@ -1412,6 +1493,7 @@ fn hidden_ids(
     page_ids: &[i32],
     collection_ids: &[i32],
     reader: Reader<'_>,
+    trash: Trash,
 ) -> Result<
     (
         std::collections::HashSet<i32>,
@@ -1541,7 +1623,7 @@ fn hidden_ids(
     let open_pages: HashSet<i32> = pages
         .iter()
         .filter(|(id, restricted, status, is_public)| {
-            if *status == DocumentationStatus::Deleted {
+            if *status == DocumentationStatus::Deleted && trash == Trash::Absent {
                 return false;
             }
             if matches!(reader, Reader::Guest) && !*is_public {

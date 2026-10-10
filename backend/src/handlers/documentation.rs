@@ -1973,16 +1973,21 @@ pub async fn get_archived_pages(mut tc: TenantConn, auth: AuthContext) -> impl R
 }
 
 // Get trashed (soft-deleted) documentation pages
-/// The trash is for admins: a page in it is open to no one else.
+/// The trash shows a page to whoever could open it under its rules; every
+/// other route treats a trashed page as absent to anyone but an admin.
 pub async fn get_trashed_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    if !auth.is_workspace_admin() {
-        return errors::forbidden("Admin required");
-    }
-    let outcome = run_page_list(
-        &mut tc,
-        repository::PageAudience::from_auth(&auth),
-        |conn| repository::get_pages_by_status(conn, DocumentationStatus::Deleted),
-    );
+    let audience = repository::PageAudience::from_auth(&auth);
+    let outcome = tc.run(|conn| {
+        let pages = repository::get_pages_by_status(conn, DocumentationStatus::Deleted)?;
+        let pages = match audience.filter_pages_with_trash(conn, pages) {
+            Ok(p) => p,
+            Err(_) => return Ok(PageListOutcome::VisibilityCheckFailed),
+        };
+        match to_page_responses(pages, conn) {
+            Ok(r) => Ok::<_, diesel::result::Error>(PageListOutcome::Ok(r)),
+            Err(err) => Ok(PageListOutcome::ResponseBuildFailed(err)),
+        }
+    });
     respond_page_list(outcome, "Failed to fetch trashed pages")
 }
 
@@ -2114,7 +2119,7 @@ pub async fn restore_page(
     let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        if !audience.can_open_page(conn, page_id)? {
+        if !audience.can_restore_page(conn, page_id)? {
             return Ok(RestorePageOutcome::NotFound);
         }
         let now = chrono::Utc::now().naive_utc();

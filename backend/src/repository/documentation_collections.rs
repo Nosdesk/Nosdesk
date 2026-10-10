@@ -250,6 +250,47 @@ pub fn delete_collection(conn: &mut DbConnection, collection_id: i32) -> QueryRe
     })
 }
 
+/// Before page `page_id` leaves collection `collection_id`: when the
+/// collection is restricted and the page follows it, the page takes the
+/// collection's rules as its own, so leaving never opens it. An admin can
+/// change them after. A page with no collection and no rules of its own is
+/// open to everyone.
+pub fn keep_rules_on_leaving(
+    conn: &mut DbConnection,
+    collection_id: i32,
+    page_id: i32,
+) -> QueryResult<()> {
+    let collection_restricted: Option<bool> = documentation_collections::table
+        .find(collection_id)
+        .select(documentation_collections::restricted)
+        .first(conn)
+        .optional()?;
+    let page_restricted: Option<bool> = documentation_pages::table
+        .find(page_id)
+        .select(documentation_pages::restricted)
+        .first(conn)
+        .optional()?;
+    if collection_restricted != Some(true) || page_restricted != Some(false) {
+        return Ok(());
+    }
+    let grants: Vec<(Option<i32>, Option<Uuid>)> = documentation_collection_visibility::table
+        .filter(documentation_collection_visibility::collection_id.eq(collection_id))
+        .select((
+            documentation_collection_visibility::group_id,
+            documentation_collection_visibility::user_uuid,
+        ))
+        .load(conn)?;
+    crate::repository::documentation::set_page_rules(
+        conn,
+        page_id,
+        true,
+        grants.iter().filter_map(|(g, _)| *g).collect(),
+        grants.iter().filter_map(|(_, u)| *u).collect(),
+        None,
+    )?;
+    Ok(())
+}
+
 /// Move every page in this collection to the trash ahead of deleting the
 /// collection. The page rows survive (authorship and revision history) and
 /// can be restored from the trash. A page that followed a restricted
@@ -278,27 +319,8 @@ pub fn soft_delete_pages_in_collection(
             .load(conn)?;
 
         if collection.restricted {
-            let grants: Vec<(Option<i32>, Option<Uuid>)> =
-                documentation_collection_visibility::table
-                    .filter(documentation_collection_visibility::collection_id.eq(collection_id))
-                    .select((
-                        documentation_collection_visibility::group_id,
-                        documentation_collection_visibility::user_uuid,
-                    ))
-                    .load(conn)?;
-            let groups: Vec<i32> = grants.iter().filter_map(|(g, _)| *g).collect();
-            let users: Vec<Uuid> = grants.iter().filter_map(|(_, u)| *u).collect();
-            for (page_id, restricted) in &pages {
-                if !restricted {
-                    crate::repository::documentation::set_page_rules(
-                        conn,
-                        *page_id,
-                        true,
-                        groups.clone(),
-                        users.clone(),
-                        None,
-                    )?;
-                }
+            for (page_id, _) in &pages {
+                keep_rules_on_leaving(conn, collection_id, *page_id)?;
             }
         }
 
@@ -426,6 +448,14 @@ pub fn add_page_to_collection_at_root(
 ) -> QueryResult<DocumentationCollectionPage> {
     let page_id = new_entry.page_id;
     conn.transaction::<_, Error, _>(|tx| {
+        let previous: Option<i32> = documentation_collection_pages::table
+            .filter(documentation_collection_pages::page_id.eq(page_id))
+            .select(documentation_collection_pages::collection_id)
+            .first(tx)
+            .optional()?;
+        if let Some(previous) = previous.filter(|c| *c != new_entry.collection_id) {
+            keep_rules_on_leaving(tx, previous, page_id)?;
+        }
         // Detach any existing junction row for this page; UNIQUE
         // would otherwise reject the insert.
         diesel::delete(
@@ -490,6 +520,9 @@ pub fn cascade_collection_membership(
     if child_collection == Some(parent_collection_id) {
         return Ok(());
     }
+    if let Some(old_collection_id) = child_collection {
+        keep_rules_on_leaving(conn, old_collection_id, child_page_id)?;
+    }
     diesel::delete(
         documentation_collection_pages::table
             .filter(documentation_collection_pages::page_id.eq(child_page_id)),
@@ -540,6 +573,16 @@ pub fn remove_page_from_collection(
     page_id: i32,
 ) -> QueryResult<usize> {
     conn.transaction(|conn| {
+        let member = documentation_collection_pages::table
+            .filter(documentation_collection_pages::collection_id.eq(collection_id))
+            .filter(documentation_collection_pages::page_id.eq(page_id))
+            .select(documentation_collection_pages::page_id)
+            .first::<i32>(conn)
+            .optional()?
+            .is_some();
+        if member {
+            keep_rules_on_leaving(conn, collection_id, page_id)?;
+        }
         let count = diesel::delete(
             documentation_collection_pages::table
                 .filter(documentation_collection_pages::collection_id.eq(collection_id))

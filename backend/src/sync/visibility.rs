@@ -539,7 +539,12 @@ pub fn deliveries<T>(
     {
         (HashSet::new(), HashSet::new(), false)
     } else {
-        match viewer.pages().hidden(conn, &page_ids, &collection_ids) {
+        // The trash view is built from these rows, so a page in the trash
+        // reaches whoever could open it under its rules.
+        match viewer
+            .pages()
+            .hidden_with_trash(conn, &page_ids, &collection_ids)
+        {
             Ok((hp, hc)) => (hp, hc, false),
             Err(e) => {
                 tracing::error!(error = %e, "sync visibility: documentation filter failed; dropping doc rows (fail-closed)");

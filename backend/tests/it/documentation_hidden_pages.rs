@@ -1291,8 +1291,8 @@ async fn a_page_shared_with_an_erased_person_stays_restricted() {
 }
 
 /// Deleting a restricted collection leaves its pages in the trash, closed to
-/// the same people: out of every non-admin route, the trash among them, and
-/// still restricted once an admin restores one.
+/// the same people: out of every non-admin route, in the trash only for those
+/// the collection's rules let in, and still restricted once restored.
 #[actix_web::test]
 async fn a_deleted_restricted_collection_keeps_its_pages_closed() {
     common::ensure_test_keyring();
@@ -1322,11 +1322,20 @@ async fn a_deleted_restricted_collection_keeps_its_pages_closed() {
             StatusCode::NOT_FOUND,
             "{user}: in the trash"
         );
-        assert_eq!(
-            status_of!(app, user, "/api/documentation/pages/trash".to_string()),
-            StatusCode::FORBIDDEN,
-            "{user}: the trash"
-        );
+        // The trash shows it only to whoever its carried-over rules let in.
+        let resp = http_test::call_service(
+            &app,
+            request(Method::GET, "/api/documentation/pages/trash", user, None).to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let trash: Value = http_test::read_body_json(resp).await;
+        let listed = trash
+            .as_array()
+            .expect("array")
+            .iter()
+            .any(|p| p["id"] == json!(f.in_secret));
+        assert_eq!(listed, user == f.insider, "{user}: the trash");
     }
     let (rows, _) = delta_after!(app, f, pool, f.outsider, before);
     assert!(
@@ -1443,6 +1452,216 @@ async fn leaving_a_group_reads_as_a_delete() {
     assert!(
         only_deletes(&rows, "documentation_page", in_collection),
         "its page: {rows:?}"
+    );
+}
+
+/// Taking a page out of a restricted collection doesn't open it: the page
+/// keeps the collection's rules as its own until an admin changes them.
+#[actix_web::test]
+async fn a_page_taken_out_of_a_restricted_collection_stays_closed() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let (_, before) = delta_after!(app, f, pool, f.outsider, (0, 0));
+
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::DELETE,
+            &format!(
+                "/api/documentation/collections/{}/pages/{}",
+                f.secret, f.in_secret
+            ),
+            f.admin,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let page_uri = format!("/api/documentation/pages/{}", f.in_secret);
+    assert_eq!(
+        status_of!(app, f.outsider, page_uri.clone()),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(status_of!(app, f.insider, page_uri.clone()), StatusCode::OK);
+    let (rows, _) = delta_after!(app, f, pool, f.outsider, before);
+    assert!(
+        only_deletes(&rows, "documentation_page", f.in_secret),
+        "the outsider's delta deletes the page: {rows:?}"
+    );
+}
+
+/// The trash shows a page to whoever could open it under its rules, and they
+/// can restore it; elsewhere a trashed page is absent to everyone but admins.
+#[actix_web::test]
+async fn an_agent_restores_a_page_they_can_open_from_the_trash() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    run_in_workspace(&pool, REF, f.workspace.workspace_id, |c| {
+        documentation_collections::add_page_to_collection(
+            c,
+            NewDocumentationCollectionPage {
+                collection_id: f.open_collection,
+                page_id: f.open,
+                created_by: None,
+            },
+        )
+        .map(|_| ())
+    })
+    .expect("file the open page");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let delete = |user: Uuid, page: i32| {
+        request(
+            Method::DELETE,
+            &format!("/api/documentation/pages/{page}"),
+            user,
+            None,
+        )
+        .to_request()
+    };
+    assert_eq!(
+        http_test::call_service(&app, delete(f.outsider, f.open))
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        http_test::call_service(&app, delete(f.admin, f.in_secret))
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+
+    // Absent everywhere but the trash.
+    assert_eq!(
+        status_of!(
+            app,
+            f.outsider,
+            format!("/api/documentation/pages/{}", f.open)
+        ),
+        StatusCode::NOT_FOUND
+    );
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::GET,
+            "/api/documentation/pages/trash",
+            f.outsider,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let trash: Value = http_test::read_body_json(resp).await;
+    let ids: Vec<i64> = trash
+        .as_array()
+        .expect("array")
+        .iter()
+        .filter_map(|p| p["id"].as_i64())
+        .collect();
+    assert!(
+        ids.contains(&(f.open as i64)),
+        "their own trashed page: {trash}"
+    );
+    assert!(
+        !ids.contains(&(f.in_secret as i64)),
+        "a page they can't open: {trash}"
+    );
+
+    let restore = |page: i32| {
+        request(
+            Method::POST,
+            &format!("/api/documentation/pages/{page}/restore"),
+            f.outsider,
+            None,
+        )
+        .to_request()
+    };
+    assert_eq!(
+        http_test::call_service(&app, restore(f.in_secret))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        http_test::call_service(&app, restore(f.open))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        status_of!(
+            app,
+            f.outsider,
+            format!("/api/documentation/pages/{}", f.open)
+        ),
+        StatusCode::OK
+    );
+}
+
+/// A directory sync that finds the same members it found last time changes
+/// no one's access, so it emits no documentation rows.
+#[test]
+fn an_unchanged_directory_sync_emits_no_documentation_rows() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let group = group_with(&pool, &f, &[f.outsider]);
+    let doc_rows = |pool: &TestPool| {
+        use backend::schema::sync_actions;
+        run_in_workspace(pool, REF, ws, |c| {
+            sync_actions::table
+                .filter(sync_actions::aggregate.eq_any([
+                    backend::models::SyncAggregate::DocumentationPage,
+                    backend::models::SyncAggregate::DocumentationCollection,
+                ]))
+                .count()
+                .get_result::<i64>(c)
+        })
+        .expect("count doc rows")
+    };
+    run_in_workspace(&pool, REF, ws, |c| {
+        let collection = collection(
+            c,
+            "Rota",
+            &format!("rota-{}", &Uuid::new_v4().simple().to_string()[..8]),
+        );
+        documentation_collections::set_collection_visibility(
+            c,
+            collection,
+            vec![group],
+            vec![],
+            None,
+        )
+        .map(|_| ())
+    })
+    .expect("share a collection with the group");
+
+    let before = doc_rows(&pool);
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::set_group_members(c, group, vec![f.outsider], None)?;
+        backend::repository::groups::set_user_groups(c, f.outsider, vec![group], None)?;
+        Ok(())
+    })
+    .expect("sync the same membership");
+    assert_eq!(doc_rows(&pool), before, "nothing changed, nothing emitted");
+
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::set_group_members(c, group, vec![], None).map(|_| ())
+    })
+    .expect("sync a removal");
+    assert!(
+        doc_rows(&pool) > before,
+        "a removal re-emits what it touched"
     );
 }
 
