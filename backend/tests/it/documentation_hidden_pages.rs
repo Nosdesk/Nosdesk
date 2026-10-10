@@ -706,10 +706,18 @@ macro_rules! docs_and_sync_app {
 type Cursor = (i64, i64);
 
 /// The newest action recorded in the workspace.
-fn newest_action(pool: &TestPool, ws: i32) -> i64 {
+/// The newest action in the workspace that `user`'s delta can reach: one for
+/// the workspace or addressed to them (a row addressed only to someone else
+/// never moves their cursor).
+fn newest_action(pool: &TestPool, ws: i32, user: Uuid) -> i64 {
     use backend::schema::sync_actions;
+    let reachable = vec![
+        Some(format!("workspace:{ws}")),
+        Some(format!("user:{user}")),
+    ];
     run_in_workspace(pool, REF, ws, |c| {
         sync_actions::table
+            .filter(sync_actions::groups.overlaps_with(reachable.clone()))
             .select(diesel::dsl::max(sync_actions::sync_id))
             .first::<Option<i64>>(c)
     })
@@ -723,11 +731,12 @@ fn newest_action(pool: &TestPool, ws: i32) -> i64 {
 /// the newest rows back for a moment.
 macro_rules! delta_after {
     ($app:expr, $f:expr, $pool:expr, $user:expr, $cursor:expr) => {{
-        let newest = newest_action(&$pool, $f.workspace.workspace_id);
+        let newest = newest_action(&$pool, $f.workspace.workspace_id, $user);
         let (from, from_xid8): Cursor = $cursor;
         let uri = format!(
-            "/api/sync/delta?from={from}&from_xid8={from_xid8}&limit=5000&groups=workspace:{}",
-            $f.workspace.workspace_id
+            "/api/sync/delta?from={from}&from_xid8={from_xid8}&limit=5000&groups=workspace:{},user:{}",
+            $f.workspace.workspace_id,
+            $user
         );
         let mut out: Option<(Vec<Value>, Cursor)> = None;
         for _ in 0..200 {
@@ -2024,4 +2033,295 @@ async fn saving_unchanged_rules_emits_nothing() {
         assert_eq!(resp.status(), StatusCode::OK, "{uri}");
     }
     assert_eq!(doc_rows(), before, "the same rules, nothing re-sent");
+}
+
+/// Every action recorded in workspace `ws` after `after`, as the live stream
+/// carries them.
+fn wire_rows_after(pool: &TestPool, ws: i32, after: i64) -> Vec<Value> {
+    use backend::handlers::sync::delta::ActionRow;
+    use backend::schema::sync_actions;
+    run_in_workspace(pool, REF, ws, |c| {
+        sync_actions::table
+            .filter(sync_actions::sync_id.gt(after))
+            .order(sync_actions::sync_id.asc())
+            .select((
+                sync_actions::sync_id,
+                sync_actions::aggregate,
+                sync_actions::aggregate_id,
+                sync_actions::op,
+                sync_actions::event_type,
+                sync_actions::schema_version,
+                sync_actions::data,
+                sync_actions::groups,
+                sync_actions::actor_uuid,
+                sync_actions::actor_kind,
+                sync_actions::actor_ref,
+                sync_actions::correlation_id,
+                sync_actions::causation_id,
+                sync_actions::occurred_at,
+                sync_actions::xid8,
+            ))
+            .load::<ActionRow>(c)
+    })
+    .expect("load actions")
+    .iter()
+    .map(|r| serde_json::to_value(r).expect("row json"))
+    .collect()
+}
+
+/// An admin demoted while their live stream is open has the stream ended at
+/// the change, before anything recorded after it: the stream decided what they
+/// may see when it connected. Reconnected, the delta reads them as they are
+/// now and sends deletes.
+#[actix_web::test]
+async fn a_demotion_ends_the_live_stream_it_outdates() {
+    use backend::handlers::sse::{Envelope, SseEvent, SseState, SseStream};
+    use backend::sync::visibility::SyncViewer;
+    use futures::StreamExt;
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let demoted = common::insert_plain_user(&mut pool.get().expect("conn"), "Demoted Admin");
+    run_in_workspace(&pool, REF, ws, |c| {
+        add_membership(c, ws, demoted, "admin", SeatWriteAuthority::ControlPlane).map(|_| ())
+    })
+    .expect("membership");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let (_, before) = delta_after!(app, f, pool, demoted, (0, 0));
+
+    // The stream as it was resolved when it connected: an admin's.
+    let (viewer, allowed) = run_in_workspace(&pool, REF, ws, |c| {
+        let user = backend::repository::users::get_user_by_uuid(&demoted, c)?;
+        Ok::<_, diesel::result::Error>((
+            SyncViewer::resolve(c, &user),
+            backend::sync::groups::allowed_for_user(c, &user)?,
+        ))
+    })
+    .expect("viewer");
+
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::users::set_user_roles(
+            c,
+            ws,
+            demoted,
+            "user",
+            "agent",
+            SeatWriteAuthority::ControlPlane,
+        )
+        .map(|_| ())
+    })
+    .expect("demote");
+    // A restricted page edited after the demotion.
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::emit_page_row(c, f.hidden, "documentation_page.metadata_changed")
+    })
+    .expect("edit the restricted page");
+
+    let registry =
+        Arc::new(backend::services::connection_registry::ConnectionRegistry::with_limits(4, 16));
+    let guard = registry
+        .try_acquire((demoted, ws))
+        .expect("connection slot");
+    let mut stream = SseStream::new(
+        Vec::new(),
+        vec![Envelope {
+            id: 1,
+            event: SseEvent::SyncActions {
+                actions: Value::Array(wire_rows_after(&pool, ws, before.0)),
+                last_xid8: 0,
+                last_sync_id: 0,
+                timestamp: chrono::Utc::now(),
+            },
+            source_client_id: None,
+        }],
+        format!("demoted-{demoted}"),
+        web::Data::new(SseState::new()),
+        web::Data::new(pool.clone()),
+        viewer,
+        Some(ws),
+        Arc::new(
+            allowed
+                .into_iter()
+                .collect::<std::collections::HashSet<String>>(),
+        ),
+        guard,
+    );
+    let next = stream.next().await;
+    assert!(
+        next.is_none(),
+        "the stream ends at the demotion; it sent: {:?}",
+        next.map(|f| f.map(|b| String::from_utf8_lossy(&b).to_string()))
+    );
+
+    // A stream that connects after the demotion reads them as they are now:
+    // the same batch replayed doesn't end it again.
+    let (viewer, allowed) = run_in_workspace(&pool, REF, ws, |c| {
+        let user = backend::repository::users::get_user_by_uuid(&demoted, c)?;
+        Ok::<_, diesel::result::Error>((
+            SyncViewer::resolve(c, &user),
+            backend::sync::groups::allowed_for_user(c, &user)?,
+        ))
+    })
+    .expect("viewer after");
+    let guard = registry
+        .try_acquire((demoted, ws))
+        .expect("connection slot");
+    let mut stream = SseStream::new(
+        Vec::new(),
+        vec![Envelope {
+            id: 1,
+            event: SseEvent::SyncActions {
+                actions: Value::Array(wire_rows_after(&pool, ws, before.0)),
+                last_xid8: 0,
+                last_sync_id: 0,
+                timestamp: chrono::Utc::now(),
+            },
+            source_client_id: None,
+        }],
+        format!("reconnected-{demoted}"),
+        web::Data::new(SseState::new()),
+        web::Data::new(pool.clone()),
+        viewer,
+        Some(ws),
+        Arc::new(
+            allowed
+                .into_iter()
+                .collect::<std::collections::HashSet<String>>(),
+        ),
+        guard,
+    );
+    let frame = stream
+        .next()
+        .await
+        .expect("the reconnected stream carries on")
+        .expect("frame bytes");
+    let frame = String::from_utf8_lossy(&frame).to_string();
+    assert!(!frame.contains("user.access_changed"), "{frame}");
+
+    let (rows, _) = delta_after!(app, f, pool, demoted, before);
+    assert!(
+        only_deletes(&rows, "documentation_page", f.hidden),
+        "the delta deletes the restricted page: {rows:?}"
+    );
+    assert!(
+        only_deletes(&rows, "documentation_collection", f.secret),
+        "and the restricted collection: {rows:?}"
+    );
+}
+
+/// Someone who comes back to a workspace as an admin gets the restricted
+/// records re-sent.
+#[actix_web::test]
+async fn coming_back_as_an_admin_resends_the_restricted_records() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let returning = common::insert_plain_user(&mut pool.get().expect("conn"), "Returning");
+    run_in_workspace(&pool, REF, ws, |c| {
+        add_membership(c, ws, returning, "agent", SeatWriteAuthority::ControlPlane).map(|_| ())
+    })
+    .expect("membership");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::workspaces::remove_membership(
+            c,
+            ws,
+            returning,
+            SeatWriteAuthority::ControlPlane,
+        )
+        .map(|_| ())
+    })
+    .expect("leave");
+    // Where their feed stood while they were away.
+    let (_, before) = delta_after!(app, f, pool, f.admin, (0, 0));
+    run_in_workspace(&pool, REF, ws, |c| {
+        add_membership(c, ws, returning, "admin", SeatWriteAuthority::ControlPlane).map(|_| ())
+    })
+    .expect("come back as an admin");
+
+    let (rows, _) = delta_after!(app, f, pool, returning, before);
+    assert!(
+        carries_row(&rows, "documentation_page", f.hidden),
+        "the restricted page is re-sent: {rows:?}"
+    );
+}
+
+/// A platform role holds in every workspace: losing it re-sends to the person
+/// in each workspace they belong to, not only the one the change was made in.
+#[test]
+fn a_platform_role_change_resends_in_every_workspace() {
+    use backend::schema::sync_actions;
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let (a, b) = (seeded.a.workspace_id, seeded.b.workspace_id);
+    let operator = common::insert_user(&mut pool.get().expect("conn"), "Operator").uuid;
+    for ws in [a, b] {
+        run_in_workspace(&pool, REF, ws, |c| {
+            add_membership(c, ws, operator, "agent", SeatWriteAuthority::ControlPlane).map(|_| ())
+        })
+        .expect("membership");
+    }
+    let restricted_in_b = run_in_workspace(&pool, REF, b, |c| {
+        let id = page(c, "Salaries", seeded.b.admin_uuid);
+        backend::repository::set_page_visibility(c, id, vec![], vec![seeded.b.admin_uuid], None)?;
+        Ok(id)
+    })
+    .expect("restricted page in B");
+
+    #[derive(diesel::QueryableByName)]
+    struct Session {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        role: String,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        workspace: String,
+    }
+    let after = run_in_workspace(&pool, REF, a, |c| {
+        let before: Session = diesel::sql_query(
+            "SELECT current_user::text AS role, current_setting('app.workspace_id', true) AS workspace",
+        )
+        .get_result(c)?;
+        backend::repository::users::set_user_roles(
+            c,
+            a,
+            operator,
+            "user",
+            "agent",
+            SeatWriteAuthority::ControlPlane,
+        )?;
+        // The read across workspaces didn't leave the transaction elevated or
+        // re-pinned.
+        let after: Session = diesel::sql_query(
+            "SELECT current_user::text AS role, current_setting('app.workspace_id', true) AS workspace",
+        )
+        .get_result(c)?;
+        Ok((before.role, before.workspace, after.role, after.workspace))
+    })
+    .expect("drop the platform role, from A");
+    assert_eq!(
+        (after.2.clone(), after.3.clone()),
+        (after.0.clone(), after.1.clone())
+    );
+
+    let addressed = format!("user:{operator}");
+    let resent_in_b: i64 = run_in_workspace(&pool, REF, b, |c| {
+        sync_actions::table
+            .filter(sync_actions::aggregate.eq(backend::models::SyncAggregate::DocumentationPage))
+            .filter(sync_actions::aggregate_id.eq(restricted_in_b.to_string()))
+            .filter(sync_actions::groups.contains(vec![Some(addressed.clone())]))
+            .count()
+            .get_result(c)
+    })
+    .expect("rows in B");
+    assert!(
+        resent_in_b > 0,
+        "the restricted page in B is re-sent to them"
+    );
 }

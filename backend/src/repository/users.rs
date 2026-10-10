@@ -942,7 +942,9 @@ pub fn set_user_roles(
     if authority.refuses_change(&current, workspace_role) {
         return Ok(SetUserRolesOutcome::ExternallyManaged);
     }
-    let access = crate::repository::documentation::doc_access(conn, workspace_id, user_uuid)?;
+    // The platform role holds in every workspace they belong to; the
+    // workspace role in this one.
+    let access = crate::repository::documentation::doc_access_everywhere(conn, user_uuid)?;
     diesel::update(users::table.find(user_uuid))
         .set((
             users::platform_role.eq(platform_role),
@@ -958,12 +960,7 @@ pub fn set_user_roles(
     .set(workspace_members::role.eq(workspace_role))
     .execute(conn)?;
     // What this person may open can change with either role.
-    crate::repository::documentation::emit_if_access_changed(
-        conn,
-        workspace_id,
-        user_uuid,
-        &access,
-    )?;
+    crate::repository::documentation::emit_if_access_changed_everywhere(conn, user_uuid, &access)?;
     Ok(SetUserRolesOutcome::Applied)
 }
 

@@ -1497,23 +1497,33 @@ impl YjsAppState {
         change: Option<crate::handlers::sse::DocAccessChange>,
     ) {
         use crate::handlers::sse::DocAccessChange;
-        let target = change.map(|c| match c {
-            DocAccessChange::Page {
-                workspace_id,
-                page_id,
-            } => (workspace_id, DocumentType::Documentation(page_id)),
-            DocAccessChange::Collection {
-                workspace_id,
-                collection_id,
-            } => (workspace_id, DocumentType::Collection(collection_id)),
-        });
+        let person = matches!(change, Some(DocAccessChange::Person { .. }));
         let open: Vec<(i32, Uuid, DocumentType, Arc<Revoke>)> = {
             let sessions = self.sessions.read().await;
             sessions
                 .values()
                 .flat_map(|room| room.values())
-                .filter(|info| match target {
-                    Some((ws, doc)) => info.workspace_id == ws && info.doc_type == doc,
+                .filter(|info| match change {
+                    Some(DocAccessChange::Page {
+                        workspace_id,
+                        page_id,
+                    }) => {
+                        info.workspace_id == workspace_id
+                            && info.doc_type == DocumentType::Documentation(page_id)
+                    }
+                    Some(DocAccessChange::Collection {
+                        workspace_id,
+                        collection_id,
+                    }) => {
+                        info.workspace_id == workspace_id
+                            && info.doc_type == DocumentType::Collection(collection_id)
+                    }
+                    // Every session the person holds in the workspace, tickets
+                    // included.
+                    Some(DocAccessChange::Person {
+                        workspace_id,
+                        user_uuid,
+                    }) => info.workspace_id == workspace_id && info.user_uuid == user_uuid,
                     None => !matches!(info.doc_type, DocumentType::Ticket(_)),
                 })
                 .map(|info| {
@@ -1533,6 +1543,13 @@ impl YjsAppState {
             open.iter().map(|(ws, u, d, _)| (*ws, *u, *d)).collect();
         let verdicts = self.recheck_access(checks).await;
         for ((_, _, _, revoke), verdict) in open.iter().zip(verdicts) {
+            // A person's roles changed: a session they may still open
+            // reconnects anyway, so the handshake sets its edit rights again.
+            let verdict = if person && verdict == Recheck::Allowed {
+                Recheck::Unknown
+            } else {
+                verdict
+            };
             revoke.close_for(verdict);
         }
     }
@@ -1558,16 +1575,24 @@ impl YjsAppState {
                             Err(diesel::result::Error::NotFound) => return Ok(false),
                             Err(e) => return Err(e),
                         };
-                        // Someone no longer in the workspace opens nothing in it.
+                        // Someone no longer in the workspace opens nothing in
+                        // it. A failed lookup is an error, not "not a member",
+                        // so it closes the session to retry rather than for good.
                         let platform_admin =
                             crate::models::PlatformRole::from_db(&user.platform_role)
                                 .is_platform_admin();
-                        if !platform_admin
-                            && repository::user_helpers::workspace_role(conn, user.uuid).is_none()
-                        {
+                        let membership =
+                            repository::workspaces::membership(conn, *workspace_id, user.uuid)?;
+                        if !platform_admin && membership.is_none() {
                             return Ok(false);
                         }
-                        let pages = repository::PageAudience::for_user(conn, &user);
+                        let pages = repository::PageAudience::User {
+                            user_uuid: user.uuid,
+                            is_admin: platform_admin
+                                || membership
+                                    .as_ref()
+                                    .is_some_and(|m| matches!(m.role.as_str(), "owner" | "admin")),
+                        };
                         match doc {
                             DocumentType::Documentation(id) => pages.try_can_read(conn, *id),
                             DocumentType::Collection(id) => pages.try_can_read_collection(conn, *id),

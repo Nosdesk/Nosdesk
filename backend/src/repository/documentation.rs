@@ -615,14 +615,30 @@ pub fn emit_records_granted_to_groups(
     emit_records(conn, &collections, &pages, crate::sync::groups::workspace())
 }
 
-/// What decides which documentation a person may open in a workspace: whether
-/// they are a member, whether they are an admin (workspace owner or admin, or
-/// platform admin), and every group they are in, the including groups too.
+/// What decides what a person may see in a workspace: whether they are a
+/// member and in what role, their platform role, and every group they are in
+/// (the including groups too). Documentation follows membership, admin
+/// (workspace owner or admin, or platform admin) and groups; the rest of the
+/// sync feed and the editor's edit rights follow the roles.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocAccess {
-    member: bool,
-    admin: bool,
+    role: Option<String>,
+    platform_role: String,
     groups: std::collections::BTreeSet<i32>,
+}
+
+impl DocAccess {
+    fn member(&self) -> bool {
+        self.role.is_some()
+    }
+
+    fn admin(&self) -> bool {
+        crate::models::PlatformRole::from_db(&self.platform_role).is_platform_admin()
+            || self
+                .role
+                .as_deref()
+                .is_some_and(|r| matches!(r, "owner" | "admin"))
+    }
 }
 
 /// Run `f` pinned to `workspace_id`, inside a transaction (a savepoint when
@@ -660,12 +676,12 @@ pub fn doc_access(
             .select(workspace_members::role)
             .first(conn)
             .optional()?;
-        let platform_admin = users::table
+        let platform_role = users::table
             .find(user_uuid)
             .select(users::platform_role)
             .first::<String>(conn)
             .optional()?
-            .is_some_and(|r| crate::models::PlatformRole::from_db(&r).is_platform_admin());
+            .unwrap_or_default();
         let groups = if role.is_some() {
             crate::repository::groups::get_group_ids_for_user(conn, &user_uuid)?
                 .into_iter()
@@ -674,57 +690,100 @@ pub fn doc_access(
             Default::default()
         };
         Ok(DocAccess {
-            member: role.is_some(),
-            admin: platform_admin
-                || role
-                    .as_deref()
-                    .is_some_and(|r| matches!(r, "owner" | "admin")),
+            role,
+            platform_role,
             groups,
         })
     })
 }
 
-/// After a write that may have changed what `user_uuid` may open in
-/// `workspace_id`: compare with `before` and, only on a real change, re-emit
-/// to that person the records it touches. Becoming or no longer being a
-/// member or an admin touches every restricted record; joining or leaving
-/// groups touches the records those groups are granted. Other readers'
-/// access didn't change, so the rows are addressed to this person alone.
+/// [`DocAccess`] for `user_uuid` in every workspace they are a member of, for
+/// a write that changes something global (their platform role).
+pub fn doc_access_everywhere(
+    conn: &mut DbConnection,
+    user_uuid: uuid::Uuid,
+) -> Result<Vec<(i32, DocAccess)>, Error> {
+    crate::repository::workspaces::workspace_ids_of_user(conn, user_uuid)?
+        .into_iter()
+        .map(|ws| Ok((ws, doc_access(conn, ws, user_uuid)?)))
+        .collect()
+}
+
+/// [`emit_if_access_changed`] for each workspace [`doc_access_everywhere`]
+/// read.
+pub fn emit_if_access_changed_everywhere(
+    conn: &mut DbConnection,
+    user_uuid: uuid::Uuid,
+    before: &[(i32, DocAccess)],
+) -> Result<(), Error> {
+    for (workspace_id, access) in before {
+        emit_if_access_changed(conn, *workspace_id, user_uuid, access)?;
+    }
+    Ok(())
+}
+
+/// After a write that may have changed what `user_uuid` may see in
+/// `workspace_id`: compare with `before`, and on a real change:
+///
+/// - Record `user.access_changed`, addressed to that person alone. It ends
+///   their live event streams in the workspace (which decided what they may
+///   see when they connected), so they reconnect and catch up with a delta
+///   read as they are now, and it re-checks their open editor sessions. It is
+///   recorded whether or not any documentation is restricted.
+/// - Re-send to them the documentation it touches: every restricted record
+///   when they became or stopped being an admin, or became a member again;
+///   the records granted to the groups they joined or left. Other readers'
+///   access didn't change, so the rows are addressed to this person alone.
 pub fn emit_if_access_changed(
     conn: &mut DbConnection,
     workspace_id: i32,
     user_uuid: uuid::Uuid,
     before: &DocAccess,
 ) -> Result<(), Error> {
-    // Someone who just joined holds nothing yet: their first sync brings it.
-    if !before.member {
-        return Ok(());
-    }
     let after = doc_access(conn, workspace_id, user_uuid)?;
     if after == *before {
         return Ok(());
     }
     in_workspace(conn, workspace_id, |conn| {
-        let (collections, pages) = if after.member != before.member || after.admin != before.admin {
-            let collections: Vec<i32> = documentation_collections::table
-                .filter(documentation_collections::workspace_id.eq(workspace_id))
-                .filter(documentation_collections::restricted.eq(true))
-                .select(documentation_collections::id)
-                .load(conn)?;
-            let pages: Vec<i32> = documentation_pages::table
-                .filter(documentation_pages::workspace_id.eq(workspace_id))
-                .filter(documentation_pages::restricted.eq(true))
-                .select(documentation_pages::id)
-                .load(conn)?;
-            (collections, pages)
-        } else {
-            let changed: Vec<i32> = before
-                .groups
-                .symmetric_difference(&after.groups)
-                .copied()
-                .collect();
-            records_granted_to_groups(conn, &changed)?
-        };
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::User,
+                aggregate_id: user_uuid.to_string(),
+                op: SyncOp::Update,
+                event_type: ACCESS_CHANGED,
+                data: json!({ "uuid": user_uuid }),
+                groups: crate::sync::groups::private_to_user(user_uuid),
+                causation_id: None,
+            },
+        )?;
+        // Someone no longer in the workspace reads none of it.
+        if !after.member() {
+            return Ok(());
+        }
+        let (collections, pages) =
+            if after.member() != before.member() || after.admin() != before.admin() {
+                let collections: Vec<i32> = documentation_collections::table
+                    .filter(documentation_collections::workspace_id.eq(workspace_id))
+                    .filter(documentation_collections::restricted.eq(true))
+                    .select(documentation_collections::id)
+                    .load(conn)?;
+                let pages: Vec<i32> = documentation_pages::table
+                    .filter(documentation_pages::workspace_id.eq(workspace_id))
+                    .filter(documentation_pages::restricted.eq(true))
+                    .select(documentation_pages::id)
+                    .load(conn)?;
+                (collections, pages)
+            } else if after.groups != before.groups {
+                let changed: Vec<i32> = before
+                    .groups
+                    .symmetric_difference(&after.groups)
+                    .copied()
+                    .collect();
+                records_granted_to_groups(conn, &changed)?
+            } else {
+                return Ok(());
+            };
         emit_records(
             conn,
             &collections,
@@ -733,6 +792,10 @@ pub fn emit_if_access_changed(
         )
     })
 }
+
+/// The event type of the row that marks a change in what someone may see in
+/// a workspace (see [`emit_if_access_changed`]).
+pub const ACCESS_CHANGED: &str = "user.access_changed";
 
 // Get page with ordered children
 pub fn get_page_with_ordered_children(

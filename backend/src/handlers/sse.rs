@@ -182,6 +182,13 @@ pub enum DocAccessChange {
         workspace_id: i32,
         collection_id: i32,
     },
+    /// What one person may see in the workspace changed (a role, a
+    /// membership, a group): every session they hold open there is checked
+    /// again, and reconnects to pick up its new rights.
+    Person {
+        workspace_id: i32,
+        user_uuid: uuid::Uuid,
+    },
 }
 
 /// Topic-routed event bus. Replaces the prior single global broadcast
@@ -538,6 +545,30 @@ async fn filter_sync_actions_frame(
         _ => return Some(frame_envelope(&env)),
     };
 
+    // What this viewer may see changed (a role, a membership, a group). The
+    // stream decided who they are when it connected; if that no longer holds,
+    // it ends here, before this batch, and the client reconnects as they are
+    // now and catches up with a delta, which reads them afresh. A stream that
+    // connected after the change (a replay on reconnect) reads them as they
+    // are, so it carries on without the marker.
+    let mut rows = rows;
+    if rows.iter().any(|row| marks_access_change_for(row, &viewer)) {
+        let current = match workspace_id {
+            Some(ws) => {
+                let pool = pool.clone();
+                web::block(move || viewer_still_current(pool.get_ref(), ws, &viewer))
+                    .await
+                    .unwrap_or(false)
+            }
+            None => false,
+        };
+        if !current {
+            tracing::info!("SSE: the viewer's access changed; ending the stream");
+            return None;
+        }
+        rows.retain(|row| !marks_access_change_for(row, &viewer));
+    }
+
     // The filter reads in the stream's workspace (see `filter_actions_pinned`).
     // With no workspace there is nothing to read in, so gated rows are dropped.
     let Some(workspace_id) = workspace_id else {
@@ -564,6 +595,41 @@ async fn filter_sync_actions_frame(
         }
     };
     frame_filtered(env, rows, decided, &viewer)
+}
+
+/// Whether `viewer`, resolved when the stream connected, still describes the
+/// person: still a member of `workspace_id`, with the same staff and admin
+/// standing. A failed read says no, which ends the stream.
+fn viewer_still_current(
+    pool: &crate::db::Pool,
+    workspace_id: i32,
+    viewer: &crate::sync::visibility::SyncViewer,
+) -> bool {
+    let uuid = viewer.ctx.user_uuid;
+    let actor = crate::sync::actor::ActorContext::user_at_workspace(uuid, workspace_id);
+    let Ok(mut conn) = pool.get() else {
+        return false;
+    };
+    crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        let member = crate::repository::workspaces::membership(c, workspace_id, uuid)?.is_some();
+        let user = crate::repository::users::get_user_by_uuid(&uuid, c)?;
+        let now = crate::sync::visibility::SyncViewer::resolve(c, &user);
+        Ok::<_, diesel::result::Error>(
+            member && now.sees_all() == viewer.sees_all() && now.is_admin == viewer.is_admin,
+        )
+    })
+    .unwrap_or(false)
+}
+
+/// Whether `row` records a change in what `viewer` may see.
+fn marks_access_change_for(
+    row: &serde_json::Value,
+    viewer: &crate::sync::visibility::SyncViewer,
+) -> bool {
+    row.get("event_type").and_then(|v| v.as_str())
+        == Some(crate::repository::documentation::ACCESS_CHANGED)
+        && row.get("aggregate_id").and_then(|v| v.as_str())
+            == Some(viewer.ctx.user_uuid.to_string().as_str())
 }
 
 /// Frame a `SyncActions` envelope with each row as `decided` says: as

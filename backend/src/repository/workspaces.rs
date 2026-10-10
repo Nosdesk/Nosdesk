@@ -346,6 +346,37 @@ pub fn membership(
         .optional()
 }
 
+/// The workspaces `user_uuid` is an active member of, whatever workspace the
+/// connection is pinned to (row security would show only that one). For a
+/// write that changes something global about them, such as their platform
+/// role.
+///
+/// Reads through the bypass role inside a savepoint that is then rolled
+/// back, so the elevation, and the system actor it sets, end with the read and
+/// the caller's transaction carries on as it was.
+pub fn workspace_ids_of_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Vec<i32>> {
+    let mut ids = None;
+    let outcome = conn.transaction::<(), DieselError, _>(|conn| {
+        let actor = crate::sync::actor::ActorContext::system("repository:workspace_ids_of_user");
+        // cross-tenant: a person's memberships across every workspace, for a change to their platform role, which holds in all of them; ids only, and rolled back with the savepoint.
+        let read = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            workspace_members::table
+                .filter(workspace_members::user_uuid.eq(user_uuid))
+                .filter(workspace_members::removed_at.is_null())
+                .select(workspace_members::workspace_id)
+                .order(workspace_members::workspace_id.asc())
+                .load::<i32>(conn)
+        })?;
+        ids = Some(read);
+        Err(DieselError::RollbackTransaction)
+    });
+    match (ids, outcome) {
+        (Some(ids), _) => Ok(ids),
+        (None, Err(e)) => Err(e),
+        (None, Ok(())) => Err(DieselError::NotFound),
+    }
+}
+
 /// Outcome of [`add_membership`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum AddMembershipOutcome {
