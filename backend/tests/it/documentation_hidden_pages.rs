@@ -1152,3 +1152,98 @@ async fn a_copy_is_closed_to_the_same_people() {
     .await;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+/// A search's total counts only the hits the caller gets, not documentation
+/// pages they can't open. (The index's total is the size of the page of hits
+/// it returns, so the filter's count is the whole answer.)
+#[actix_web::test]
+async fn a_search_total_counts_only_what_the_caller_gets() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let pages: Vec<backend::models::DocumentationPage> = run_in_workspace(&pool, REF, ws, |c| {
+        let open = page(c, "Quokka handbook", f.admin);
+        let mut ids = vec![open];
+        for title in ["Quokka salaries", "Quokka bonuses"] {
+            let id = page(c, title, f.admin);
+            backend::repository::set_page_visibility(c, id, vec![], vec![f.insider], None)?;
+            ids.push(id);
+        }
+        backend::schema::documentation_pages::table
+            .filter(backend::schema::documentation_pages::id.eq_any(ids))
+            .load(c)
+    })
+    .expect("seed pages");
+    let search_dir = tempfile::tempdir().expect("tempdir");
+    let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
+    for p in &pages {
+        search.index_documentation(p).expect("index page");
+    }
+    search.commit().expect("commit index");
+
+    let workspace = f.workspace.clone();
+    let corr = Uuid::now_v7();
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(search.clone()))
+            .wrap_fn(move |req, srv| {
+                let user = req
+                    .headers()
+                    .get(AS)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| Uuid::parse_str(v).ok())
+                    .expect("caller header");
+                let actor =
+                    ActorContext::user(user, Some(corr)).with_workspace(workspace.workspace_id);
+                req.extensions_mut().insert(workspace.clone());
+                req.extensions_mut().insert(claims(user));
+                req.extensions_mut()
+                    .insert(RequestContext::new(corr, actor));
+                srv.call(req)
+            })
+            .service(web::scope("/api").configure(backend::handlers::search::config)),
+    )
+    .await;
+    let search_as = |user: Uuid| {
+        let app = &app;
+        async move {
+            let resp = http_test::call_service(
+                app,
+                request(
+                    Method::GET,
+                    "/api/search?q=quokka&types=documentation&limit=10",
+                    user,
+                    None,
+                )
+                .to_request(),
+            )
+            .await;
+            assert_eq!(resp.status(), StatusCode::OK);
+            let body: Value = http_test::read_body_json(resp).await;
+            body
+        }
+    };
+
+    // The index answers once its reader reloads after the commit.
+    let mut admin_total = 0;
+    for _ in 0..100 {
+        admin_total = search_as(f.admin).await["total"].as_u64().unwrap_or(0);
+        if admin_total == 3 {
+            break;
+        }
+        actix_web::rt::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(admin_total, 3, "an admin's total counts every page");
+
+    let body = search_as(f.outsider).await;
+    let returned = body["results"].as_array().expect("results").len() as u64;
+    let total = body["total"].as_u64().expect("total");
+    assert_eq!(
+        (total, returned),
+        (1, 1),
+        "the outsider can open one page: {body}"
+    );
+}
