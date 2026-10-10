@@ -16,6 +16,7 @@ import TicketPickerModal from '@/components/ticketComponents/TicketPickerModal.v
 import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { assetLifecycleKeys } from '@nosdesk/core/services/assetLifecycleService';
 import { useSyncActions } from '@/composables/useSyncActions';
+import { queryLoadError } from '@/composables/queryLoadError';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { formatCompactDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import { loanDue } from './loanDue';
@@ -52,7 +53,7 @@ const pastLoans = computed<AssetLoan[]>(() => loans.value.filter((l) => l.return
 const isFirstLoad = computed(
   () => loansQuery.status.value === 'pending' && loansQuery.data.value === undefined,
 );
-const loadError = computed(() => (loansQuery.error.value ? t('asset-loan-load-error') : ''));
+const loadError = queryLoadError(loansQuery, () => t('asset-loan-load-error'));
 
 // Only in-service / in-stock assets with no active loan can be loaned out.
 const canLoan = computed(

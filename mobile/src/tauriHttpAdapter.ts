@@ -63,11 +63,26 @@ export const tauriHttpAdapter: AxiosAdapter = async (config) => {
     }
   }
 
+  // Honour axios's `timeout` and `signal`, which the native fetch would
+  // otherwise ignore. A controller rather than AbortSignal.any/timeout, which
+  // older iOS webviews lack.
+  const controller = new AbortController()
+  const timer = config.timeout ? setTimeout(() => controller.abort(), config.timeout) : null
+  const callerSignal = config.signal as AbortSignal | undefined
+  if (callerSignal?.aborted) controller.abort()
+  else callerSignal?.addEventListener?.('abort', () => controller.abort(), { once: true })
+  init.signal = controller.signal
+
   let response: Response
   try {
     response = await tauriFetch(buildUrl(config), init)
   } catch (e) {
+    if (controller.signal.aborted && !callerSignal?.aborted) {
+      throw new AxiosError(`timeout of ${config.timeout}ms exceeded`, AxiosError.ECONNABORTED, config)
+    }
     throw new AxiosError((e as Error).message || 'Network Error', AxiosError.ERR_NETWORK, config)
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 
   const headers = new AxiosHeaders()
