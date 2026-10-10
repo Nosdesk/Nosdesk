@@ -4205,12 +4205,16 @@ docs-collection-tree-list-empty = Nog geen pagina's in deze collectie.
 
 # Docs: zichtbaarheid collectie (CollectionVisibilityModal)
 docs-collection-visibility-title = Toegang tot collectie
-docs-collection-visibility-description = Selecteer welke groepen en gebruikers toegang hebben tot deze collectie. Een lege selectie maakt de collectie openbaar (zichtbaar voor iedereen).
+docs-collection-visibility-description = Kies wie deze collectie kan openen.
 docs-collection-visibility-public = Openbaar, zichtbaar voor alle gebruikers
 docs-collection-visibility-picker-placeholder = Zoek gebruikers en groepen...
 docs-collection-visibility-cancel = Annuleren
 docs-collection-visibility-save = Opslaan
 docs-collection-visibility-saving = Opslaan...
+docs-access-label = Wie het kan openen
+docs-access-everyone = Iedereen in de werkruimte
+docs-access-chosen = Alleen gekozen personen en groepen
+docs-access-admins-only = Alleen beheerders kunnen het openen totdat je personen of groepen toevoegt.
 
 # Gedeelde toewijzingskiezer (AssignmentPicker)
 assignment-picker-loading = Zoeken…
@@ -4369,9 +4373,6 @@ docs-collection-appearance-open-aria = Pictogram en kleur van collectie wijzigen
 docs-edit-collection-description = Korte omschrijving
 docs-edit-collection-description-placeholder = Optionele tagline boven het overzicht van de collectie
 docs-edit-collection-description-help = Het volledige overzicht bewerk je rechtstreeks op de landingspagina van de collectie.
-docs-edit-collection-hide-titles-aria = Paginatitels verbergen voor niet-leden
-docs-edit-collection-hide-titles-label = Paginatitels verbergen voor niet-leden
-docs-edit-collection-hide-titles-help = Wikilinks tussen collecties tonen "Beperkte pagina" voor lezers zonder toegang, in plaats van de titel te lekken. Aanbevolen voor gevoelige collecties.
 docs-edit-collection-require-verification-aria = Verificatie vereisen voor pagina's in deze collectie
 docs-edit-collection-require-verification-label = Verificatie vereisen
 docs-edit-collection-require-verification-help = Niet-geverifieerde pagina's tonen een "verificatie vereist"-melding. Gebruik voor compliance-inhoud zoals beleid en procedures. Standaard uit, een niet-geverifieerde pagina blijft neutraal.

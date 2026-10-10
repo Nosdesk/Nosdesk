@@ -80,6 +80,7 @@ mod logging_pii_guardrail;
 mod merged_ticket_writes;
 mod migration_api_token_role_ceiling;
 mod migration_backfill_existing_workspace;
+mod migration_documentation_restriction;
 mod migration_email_suppressions_scope;
 mod migration_knowledge_gap_subject_page;
 mod migration_merge_notes_internal;

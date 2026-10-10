@@ -46,6 +46,9 @@ pub struct DocumentationCollection {
     /// verified surface a "needs verification" prompt. Off by
     /// default: an unverified page is neutral, not unchecked.
     pub require_verification: bool,
+    /// Open only to its grants (admins only when it has none). Unrestricted
+    /// is open to everyone in the workspace.
+    pub restricted: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]

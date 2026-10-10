@@ -139,6 +139,15 @@ pub fn pin_workspace(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<
     set_config(conn, "app.workspace_id", &workspace_id.to_string())
 }
 
+/// Put back a pin [`current_workspace_id`] read before a [`pin_workspace`]:
+/// that workspace, or none. Transaction-local, like `pin_workspace`.
+pub fn restore_workspace_pin(conn: &mut DbConnection, previous: Option<i32>) -> QueryResult<()> {
+    match previous {
+        Some(workspace_id) => pin_workspace(conn, workspace_id),
+        None => set_config(conn, "app.workspace_id", ""),
+    }
+}
+
 /// Run a closure inside a transaction with the actor GUCs primed, so
 /// any `audit_log` triggers fired by the contained writes attribute
 /// the change to `actor`. The GUCs are scoped to the transaction

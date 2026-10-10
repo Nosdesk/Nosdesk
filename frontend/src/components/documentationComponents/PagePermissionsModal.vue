@@ -60,7 +60,7 @@ const save = async () => {
   }
   // 'inherit' mode sends empty arrays to clear override
 
-  const success = await setPageVisibility(props.pageId, groupIds, userUuids)
+  const success = await setPageVisibility(props.pageId, groupIds, userUuids, mode.value === 'custom')
   saving.value = false
   if (success) {
     emit('updated')
@@ -77,7 +77,8 @@ onMounted(async () => {
 
   pageCollections.value = collections
 
-  const hasOverride = visibility.groups.length > 0 || visibility.users.length > 0
+  const hasOverride =
+    visibility.restricted ?? (visibility.groups.length > 0 || visibility.users.length > 0)
 
   if (hasOverride) {
     mode.value = 'custom'

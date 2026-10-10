@@ -1193,7 +1193,7 @@ struct SessionInfo {
     /// Closes this session with "no access" (4403): the user can no longer
     /// open the document. Unlike `cancel`, the session leaves normally and
     /// the client stops reconnecting.
-    revoke: Arc<Notify>,
+    revoke: Arc<Revoke>,
     /// The workspace the session opened the document in.
     workspace_id: i32,
     /// Integer-keyed document type resolved from the doc_id's immutable
@@ -1203,6 +1203,41 @@ struct SessionInfo {
     /// doc_id, so they need no DB round-trip and presence stays keyed on
     /// the stable ticket id.
     doc_type: DocumentType,
+}
+
+/// The result of re-checking someone's access to an open page or collection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Recheck {
+    Allowed,
+    Withdrawn,
+    /// The check couldn't be made (a database error).
+    Unknown,
+}
+
+/// Closes one session from outside its task: `code` is the close code its
+/// task sends when `notify` fires.
+#[derive(Default)]
+struct Revoke {
+    notify: Notify,
+    code: std::sync::atomic::AtomicU16,
+}
+
+/// "Try again later": the client reconnects, and the handshake checks again.
+const CLOSE_RETRY: u16 = 1013;
+
+impl Revoke {
+    /// Close the session as `verdict` calls for: not at all when access
+    /// holds, with "no access" when it was withdrawn, and with "try again
+    /// later" when it couldn't be checked.
+    fn close_for(&self, verdict: Recheck) {
+        let code = match verdict {
+            Recheck::Allowed => return,
+            Recheck::Withdrawn => CollabRefusal::NoAccess.code(),
+            Recheck::Unknown => CLOSE_RETRY,
+        };
+        self.code.store(code, std::sync::atomic::Ordering::SeqCst);
+        self.notify.notify_one();
+    }
 }
 
 type RoomSessions = HashMap<DocumentId, HashMap<SessionId, SessionInfo>>;
@@ -1472,7 +1507,7 @@ impl YjsAppState {
                 collection_id,
             } => (workspace_id, DocumentType::Collection(collection_id)),
         });
-        let open: Vec<(i32, Uuid, DocumentType, Arc<Notify>)> = {
+        let open: Vec<(i32, Uuid, DocumentType, Arc<Revoke>)> = {
             let sessions = self.sessions.read().await;
             sessions
                 .values()
@@ -1496,22 +1531,22 @@ impl YjsAppState {
         }
         let checks: Vec<(i32, Uuid, DocumentType)> =
             open.iter().map(|(ws, u, d, _)| (*ws, *u, *d)).collect();
-        let denied = self.access_withdrawn(checks).await;
-        for ((_, _, _, revoke), denied) in open.iter().zip(denied) {
-            if denied {
-                revoke.notify_one();
-            }
+        let verdicts = self.recheck_access(checks).await;
+        for ((_, _, _, revoke), verdict) in open.iter().zip(verdicts) {
+            revoke.close_for(verdict);
         }
     }
 
-    /// For each `(workspace, user, document)`, whether the user can no longer
-    /// open the page or collection (a ticket is never re-checked here). A
-    /// failed check reads as not withdrawn: the next connect checks again.
-    async fn access_withdrawn(&self, checks: Vec<(i32, Uuid, DocumentType)>) -> Vec<bool> {
+    /// For each `(workspace, user, document)`, whether the user may still open
+    /// the page or collection (a ticket is never re-checked here). A check
+    /// that can't be made says so, and the session is closed to retry rather
+    /// than kept open on a page no one could vouch for.
+    async fn recheck_access(&self, checks: Vec<(i32, Uuid, DocumentType)>) -> Vec<Recheck> {
         let pool = self.pool.clone();
-        web::block(move || -> Vec<bool> {
+        let count = checks.len();
+        web::block(move || -> Vec<Recheck> {
             let Ok(mut conn) = pool.get() else {
-                return vec![false; checks.len()];
+                return vec![Recheck::Unknown; checks.len()];
             };
             checks
                 .iter()
@@ -1523,6 +1558,15 @@ impl YjsAppState {
                             Err(diesel::result::Error::NotFound) => return Ok(false),
                             Err(e) => return Err(e),
                         };
+                        // Someone no longer in the workspace opens nothing in it.
+                        let platform_admin =
+                            crate::models::PlatformRole::from_db(&user.platform_role)
+                                .is_platform_admin();
+                        if !platform_admin
+                            && repository::user_helpers::workspace_role(conn, user.uuid).is_none()
+                        {
+                            return Ok(false);
+                        }
                         let pages = repository::PageAudience::for_user(conn, &user);
                         match doc {
                             DocumentType::Documentation(id) => pages.try_can_read(conn, *id),
@@ -1531,17 +1575,18 @@ impl YjsAppState {
                         }
                     });
                     match allowed {
-                        Ok(allowed) => !allowed,
+                        Ok(true) => Recheck::Allowed,
+                        Ok(false) => Recheck::Withdrawn,
                         Err(e) => {
-                            warn!(error = ?e, "collab access re-check failed; leaving the session open");
-                            false
+                            warn!(error = ?e, "collab access re-check failed; closing the session to retry");
+                            Recheck::Unknown
                         }
                     }
                 })
                 .collect()
         })
         .await
-        .unwrap_or_default()
+        .unwrap_or_else(|_| vec![Recheck::Unknown; count])
     }
 
     /// Drop the room of a document whose ticket or page was deleted while
@@ -2008,7 +2053,7 @@ impl YjsAppState {
         tx: OutboundTx,
         user_uuid: Uuid,
         cancel: Arc<Notify>,
-        revoke: Arc<Notify>,
+        revoke: Arc<Revoke>,
         workspace_id: i32,
         doc_type: DocumentType,
     ) {
@@ -3204,7 +3249,7 @@ async fn session_task(
     // tears down and the client reconnects to the new owner.
     let cancel = Arc::new(Notify::new());
     // Access withdrawn while the document is open.
-    let revoke = Arc::new(Notify::new());
+    let revoke = Arc::new(Revoke::default());
     if !JOIN_DELAY.is_zero() {
         tokio::time::sleep(*JOIN_DELAY).await;
     }
@@ -3223,15 +3268,14 @@ async fn session_task(
     // The handshake checked access before this session was in the room, so
     // a withdrawal in between reached no one: check again now it can hear
     // the next one.
-    if !matches!(doc_type, DocumentType::Ticket(_))
-        && app_state
-            .access_withdrawn(vec![(workspace_id, user_uuid, doc_type)])
+    if !matches!(doc_type, DocumentType::Ticket(_)) {
+        let verdict = app_state
+            .recheck_access(vec![(workspace_id, user_uuid, doc_type)])
             .await
             .first()
             .copied()
-            .unwrap_or(false)
-    {
-        revoke.notify_one();
+            .unwrap_or(Recheck::Unknown);
+        revoke.close_for(verdict);
     }
 
     // Per the yjs sync protocol spec, the server proactively sends
@@ -3282,15 +3326,22 @@ async fn session_task(
                 evicted = true;
                 break None;
             }
-            // The user can no longer open this document: leave as usual,
-            // closing with "no access" so the client stops reconnecting.
-            _ = revoke.notified() => {
-                info!(session_id = %session_id, doc_id = %doc_id,
-                    "Session closed: access to the document was withdrawn");
-                let refusal = CollabRefusal::NoAccess;
+            // The user can no longer open this document, or it couldn't be
+            // checked: leave as usual, closing with "no access" (the client
+            // stops reconnecting) or "try again later" (it reconnects, and the
+            // handshake checks again).
+            _ = revoke.notify.notified() => {
+                let code = revoke.code.load(std::sync::atomic::Ordering::SeqCst);
+                info!(session_id = %session_id, doc_id = %doc_id, code,
+                    "Session closed: access to the document was withdrawn or couldn't be checked");
+                let description = if code == CollabRefusal::NoAccess.code() {
+                    CollabRefusal::NoAccess.reason()
+                } else {
+                    "try again later"
+                };
                 break Some(CloseReason {
-                    code: CloseCode::Other(refusal.code()),
-                    description: Some(refusal.reason().to_string()),
+                    code: CloseCode::Other(code),
+                    description: Some(description.to_string()),
                 });
             }
             // Outbound: broadcast payloads from `app_state.broadcast`,

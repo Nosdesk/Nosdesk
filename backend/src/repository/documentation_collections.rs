@@ -62,9 +62,40 @@ fn collection_sync_payload(c: &DocumentationCollection) -> serde_json::Value {
         "description_text": c.description_text,
         "hide_titles_from_non_members": c.hide_titles_from_non_members,
         "require_verification": c.require_verification,
+        "restricted": c.restricted,
         "created_at": c.created_at,
         "updated_at": c.updated_at,
     })
+}
+
+/// Emit the collection's whole row under `event_type` to the sync `groups`.
+/// Who may see a collection is decided as each reader receives the row.
+pub fn emit_collection_row_to(
+    conn: &mut DbConnection,
+    collection_id: i32,
+    event_type: &'static str,
+    groups: Vec<String>,
+) -> QueryResult<()> {
+    let Some(collection) = documentation_collections::table
+        .find(collection_id)
+        .first::<DocumentationCollection>(conn)
+        .optional()?
+    else {
+        return Ok(());
+    };
+    emit::record(
+        conn,
+        SyncEmit {
+            aggregate: SyncAggregate::DocumentationCollection,
+            aggregate_id: collection_id.to_string(),
+            op: SyncOp::Update,
+            event_type,
+            data: collection_sync_payload(&collection),
+            groups,
+            causation_id: None,
+        },
+    )?;
+    Ok(())
 }
 
 // ============================================================================
@@ -96,22 +127,24 @@ pub fn create_collection(
     })
 }
 
-/// Create a collection open to `group_ids` and `user_uuids` (to everyone
-/// when both are empty), in one transaction, so it is never open to anyone
-/// else in between.
+/// Create a collection, restricted to `group_ids` and `user_uuids` (admins
+/// only when both are empty) or open to everyone, in one transaction, so it
+/// is never open to anyone else in between.
 pub fn create_collection_open_to(
     conn: &mut DbConnection,
     new_collection: NewDocumentationCollection,
+    restricted: bool,
     group_ids: Vec<i32>,
     user_uuids: Vec<Uuid>,
     created_by: Option<Uuid>,
 ) -> QueryResult<DocumentationCollection> {
     conn.transaction(|conn| {
         let collection = create_collection(conn, new_collection)?;
-        if !group_ids.is_empty() || !user_uuids.is_empty() {
-            set_collection_visibility(conn, collection.id, group_ids, user_uuids, created_by)?;
+        if !restricted {
+            return Ok(collection);
         }
-        Ok(collection)
+        set_collection_rules(conn, collection.id, true, group_ids, user_uuids, created_by)?;
+        get_collection(conn, collection.id)
     })
 }
 
@@ -217,35 +250,110 @@ pub fn delete_collection(conn: &mut DbConnection, collection_id: i32) -> QueryRe
     })
 }
 
-// sync-audit-only: bulk cascade run as part of collection teardown; the documentation_collection.deleted event captures the operation and per-page deleted events would require a fan-out fetch of every member page id
-/// Soft-delete every page that lives in this collection. Called
-/// before `delete_collection` so the page rows survive (preserving
-/// authorship + revision history) but vanish from every tree
-/// traversal. Pages can later be permanently deleted from the
-/// trash view, or restored into a different collection if the
-/// admin changes their mind. With `UNIQUE(page_id)` on the
-/// junction, "every page in this collection" is unambiguous: each
-/// page belongs to exactly one collection.
+/// Before page `page_id` leaves collection `collection_id`: when the
+/// collection is restricted and the page follows it, the page takes the
+/// collection's rules as its own, so leaving never opens it. An admin can
+/// change them after. A page with no collection and no rules of its own is
+/// open to everyone.
+pub fn keep_rules_on_leaving(
+    conn: &mut DbConnection,
+    collection_id: i32,
+    page_id: i32,
+) -> QueryResult<()> {
+    let collection_restricted: Option<bool> = documentation_collections::table
+        .find(collection_id)
+        .select(documentation_collections::restricted)
+        .first(conn)
+        .optional()?;
+    let page_restricted: Option<bool> = documentation_pages::table
+        .find(page_id)
+        .select(documentation_pages::restricted)
+        .first(conn)
+        .optional()?;
+    if collection_restricted != Some(true) || page_restricted != Some(false) {
+        return Ok(());
+    }
+    let grants: Vec<(Option<i32>, Option<Uuid>)> = documentation_collection_visibility::table
+        .filter(documentation_collection_visibility::collection_id.eq(collection_id))
+        .select((
+            documentation_collection_visibility::group_id,
+            documentation_collection_visibility::user_uuid,
+        ))
+        .load(conn)?;
+    crate::repository::documentation::set_page_rules(
+        conn,
+        page_id,
+        true,
+        grants.iter().filter_map(|(g, _)| *g).collect(),
+        grants.iter().filter_map(|(_, u)| *u).collect(),
+        None,
+    )?;
+    Ok(())
+}
+
+/// Move every page in this collection to the trash ahead of deleting the
+/// collection. The page rows survive (authorship and revision history) and
+/// can be restored from the trash. A page that followed a restricted
+/// collection takes the collection's rules as its own first, so it stays
+/// closed to the same people once the collection is gone: a page with no
+/// collection and no rules of its own is open to everyone. Each page's new
+/// row is emitted. With `UNIQUE(page_id)` on the junction, "every page in
+/// this collection" is unambiguous.
 pub fn soft_delete_pages_in_collection(
     conn: &mut DbConnection,
     collection_id: i32,
 ) -> QueryResult<usize> {
-    let now = chrono::Utc::now().naive_utc();
-    diesel::update(
-        documentation_pages::table.filter(
-            documentation_pages::id.eq_any(
-                documentation_collection_pages::table
-                    .filter(documentation_collection_pages::collection_id.eq(collection_id))
-                    .select(documentation_collection_pages::page_id),
-            ),
-        ),
-    )
-    .set((
-        documentation_pages::status.eq(DocumentationStatus::Deleted),
-        documentation_pages::archived_at.eq(now),
-        documentation_pages::updated_at.eq(now),
-    ))
-    .execute(conn)
+    conn.transaction(|conn| {
+        let collection: DocumentationCollection = documentation_collections::table
+            .find(collection_id)
+            .first(conn)?;
+        let pages: Vec<(i32, bool)> = documentation_pages::table
+            .filter(
+                documentation_pages::id.eq_any(
+                    documentation_collection_pages::table
+                        .filter(documentation_collection_pages::collection_id.eq(collection_id))
+                        .select(documentation_collection_pages::page_id),
+                ),
+            )
+            .select((documentation_pages::id, documentation_pages::restricted))
+            .load(conn)?;
+
+        if collection.restricted {
+            for (page_id, _) in &pages {
+                keep_rules_on_leaving(conn, collection_id, *page_id)?;
+            }
+        }
+
+        let now = chrono::Utc::now().naive_utc();
+        let ids: Vec<i32> = pages.iter().map(|(id, _)| *id).collect();
+        let count =
+            diesel::update(documentation_pages::table.filter(documentation_pages::id.eq_any(&ids)))
+                .set((
+                    documentation_pages::status.eq(DocumentationStatus::Deleted),
+                    documentation_pages::archived_at.eq(now),
+                    documentation_pages::deleted_at.eq(now),
+                    documentation_pages::updated_at.eq(now),
+                ))
+                .execute(conn)?;
+        for page_id in ids {
+            let page: DocumentationPage = documentation_pages::table.find(page_id).first(conn)?;
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::DocumentationPage,
+                    aggregate_id: page_id.to_string(),
+                    op: SyncOp::Update,
+                    event_type: "documentation_page.metadata_changed",
+                    // The collection is about to go, and its junction rows
+                    // with it.
+                    data: crate::repository::documentation::page_sync_payload(&page, None),
+                    groups: crate::sync::groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(count)
+    })
 }
 
 // sync-audit-only: collaborative-editor CRDT auto-save for the collection's rich description; the body flows through the Yjs WebSocket channel, not the sync_actions stream
@@ -340,6 +448,14 @@ pub fn add_page_to_collection_at_root(
 ) -> QueryResult<DocumentationCollectionPage> {
     let page_id = new_entry.page_id;
     conn.transaction::<_, Error, _>(|tx| {
+        let previous: Option<i32> = documentation_collection_pages::table
+            .filter(documentation_collection_pages::page_id.eq(page_id))
+            .select(documentation_collection_pages::collection_id)
+            .first(tx)
+            .optional()?;
+        if let Some(previous) = previous.filter(|c| *c != new_entry.collection_id) {
+            keep_rules_on_leaving(tx, previous, page_id)?;
+        }
         // Detach any existing junction row for this page; UNIQUE
         // would otherwise reject the insert.
         diesel::delete(
@@ -404,6 +520,9 @@ pub fn cascade_collection_membership(
     if child_collection == Some(parent_collection_id) {
         return Ok(());
     }
+    if let Some(old_collection_id) = child_collection {
+        keep_rules_on_leaving(conn, old_collection_id, child_page_id)?;
+    }
     diesel::delete(
         documentation_collection_pages::table
             .filter(documentation_collection_pages::page_id.eq(child_page_id)),
@@ -454,6 +573,16 @@ pub fn remove_page_from_collection(
     page_id: i32,
 ) -> QueryResult<usize> {
     conn.transaction(|conn| {
+        let member = documentation_collection_pages::table
+            .filter(documentation_collection_pages::collection_id.eq(collection_id))
+            .filter(documentation_collection_pages::page_id.eq(page_id))
+            .select(documentation_collection_pages::page_id)
+            .first::<i32>(conn)
+            .optional()?
+            .is_some();
+        if member {
+            keep_rules_on_leaving(conn, collection_id, page_id)?;
+        }
         let count = diesel::delete(
             documentation_collection_pages::table
                 .filter(documentation_collection_pages::collection_id.eq(collection_id))
@@ -591,6 +720,9 @@ pub fn get_visible_users_for_collection(
         })
 }
 
+/// Set a collection's rules from grants alone: some grants restrict it to
+/// them, none opens it to everyone. A caller that can say "restricted to
+/// nobody" uses [`set_collection_rules`].
 pub fn set_collection_visibility(
     conn: &mut DbConnection,
     collection_id: i32,
@@ -598,7 +730,60 @@ pub fn set_collection_visibility(
     user_uuids: Vec<Uuid>,
     created_by: Option<Uuid>,
 ) -> QueryResult<Vec<DocumentationCollectionVisibility>> {
+    let restricted = !(group_ids.is_empty() && user_uuids.is_empty());
+    set_collection_rules(
+        conn,
+        collection_id,
+        restricted,
+        group_ids,
+        user_uuids,
+        created_by,
+    )
+}
+
+/// Set a collection's rules (delete-all + re-insert). Restricted is open
+/// only to the grants, or to admins only when there are none; unrestricted
+/// drops the grants and is open to everyone in the workspace.
+pub fn set_collection_rules(
+    conn: &mut DbConnection,
+    collection_id: i32,
+    restricted: bool,
+    group_ids: Vec<i32>,
+    user_uuids: Vec<Uuid>,
+    created_by: Option<Uuid>,
+) -> QueryResult<Vec<DocumentationCollectionVisibility>> {
+    let (group_ids, user_uuids) = if restricted {
+        (group_ids, user_uuids)
+    } else {
+        (Vec::new(), Vec::new())
+    };
     conn.transaction(|conn| {
+        // The same rules saved again change no one's access: nothing to write
+        // or re-send.
+        let current: Vec<DocumentationCollectionVisibility> =
+            documentation_collection_visibility::table
+                .filter(documentation_collection_visibility::collection_id.eq(collection_id))
+                .load(conn)?;
+        let was_restricted: bool = documentation_collections::table
+            .find(collection_id)
+            .select(documentation_collections::restricted)
+            .first(conn)?;
+        let same_groups = current
+            .iter()
+            .filter_map(|v| v.group_id)
+            .collect::<std::collections::BTreeSet<_>>()
+            == group_ids.iter().copied().collect();
+        let same_users = current
+            .iter()
+            .filter_map(|v| v.user_uuid)
+            .collect::<std::collections::BTreeSet<_>>()
+            == user_uuids.iter().copied().collect();
+        if was_restricted == restricted && same_groups && same_users {
+            return Ok(current);
+        }
+        diesel::update(documentation_collections::table.find(collection_id))
+            .set(documentation_collections::restricted.eq(restricted))
+            .execute(conn)?;
         // Delete all existing visibility entries
         diesel::delete(
             documentation_collection_visibility::table
@@ -772,7 +957,7 @@ fn collections_with_details(conn: &mut DbConnection) -> Result<Vec<CollectionWit
         .map(|collection| {
             let visible_groups = groups_map.remove(&collection.id).unwrap_or_default();
             let visible_users = users_map.remove(&collection.id).unwrap_or_default();
-            let is_public = visible_groups.is_empty() && visible_users.is_empty();
+            let is_public = !collection.restricted;
             let page_count = count_map.get(&collection.id).copied().unwrap_or(0);
             CollectionWithDetails {
                 collection,

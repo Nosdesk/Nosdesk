@@ -689,6 +689,10 @@ macro_rules! docs_and_sync_app {
                 })
                 .service(
                     web::scope("/api")
+                        .route(
+                            "/public/docs/{slug}",
+                            web::get().to(backend::handlers::guest::get_public_doc),
+                        )
                         .configure(backend::handlers::documentation::config)
                         .configure(backend::handlers::documentation_collections::config)
                         .configure(backend::handlers::sync::config),
@@ -1153,6 +1157,568 @@ async fn a_copy_is_closed_to_the_same_people() {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
+/// GET `uri` as `user`, and the status.
+macro_rules! status_of {
+    ($app:expr, $user:expr, $uri:expr) => {{
+        http_test::call_service(&$app, request(Method::GET, &$uri, $user, None).to_request())
+            .await
+            .status()
+    }};
+}
+
+/// A group created in the fixture's workspace with `members` in it.
+fn group_with(pool: &TestPool, f: &Fixture, members: &[Uuid]) -> i32 {
+    run_in_workspace(pool, REF, f.workspace.workspace_id, |c| {
+        let group = backend::repository::groups::create_group(
+            c,
+            backend::models::NewGroup {
+                name: format!("Payroll {}", &Uuid::new_v4().simple().to_string()[..6]),
+                description: None,
+                color: None,
+                created_by: None,
+            },
+        )?;
+        for member in members {
+            backend::repository::groups::add_user_to_group(c, *member, group.id, None)?;
+        }
+        Ok(group.id)
+    })
+    .expect("group")
+}
+
+/// A collection and a page shared only with a group stay closed when the
+/// group is deleted: an empty set of grants is admins only, not everyone.
+#[actix_web::test]
+async fn a_record_shared_with_a_deleted_group_stays_restricted() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let group = group_with(&pool, &f, &[f.member]);
+    let (collection, in_collection, own_rules) = run_in_workspace(&pool, REF, ws, |c| {
+        let collection = collection(
+            c,
+            "Payroll",
+            &format!("payroll-{}", &Uuid::new_v4().simple().to_string()[..8]),
+        );
+        documentation_collections::set_collection_visibility(
+            c,
+            collection,
+            vec![group],
+            vec![],
+            None,
+        )?;
+        let in_collection = page(c, "Salaries", f.admin);
+        documentation_collections::add_page_to_collection(
+            c,
+            NewDocumentationCollectionPage {
+                collection_id: collection,
+                page_id: in_collection,
+                created_by: None,
+            },
+        )?;
+        let own_rules = page(c, "Bonuses", f.admin);
+        backend::repository::set_page_visibility(c, own_rules, vec![group], vec![], None)?;
+        Ok((collection, in_collection, own_rules))
+    })
+    .expect("seed");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    assert_eq!(
+        status_of!(
+            app,
+            f.member,
+            format!("/api/documentation/collections/{collection}")
+        ),
+        StatusCode::OK,
+        "the group's member opens it"
+    );
+
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::delete_group(c, group)
+    })
+    .expect("delete the group");
+
+    for user in [f.member, f.outsider] {
+        for uri in [
+            format!("/api/documentation/collections/{collection}"),
+            format!("/api/documentation/pages/{in_collection}"),
+            format!("/api/documentation/pages/{own_rules}"),
+        ] {
+            assert_eq!(
+                status_of!(app, user, uri),
+                StatusCode::NOT_FOUND,
+                "{user}: {uri}"
+            );
+        }
+    }
+    assert_eq!(
+        status_of!(
+            app,
+            f.admin,
+            format!("/api/documentation/pages/{own_rules}")
+        ),
+        StatusCode::OK,
+        "an admin still opens it"
+    );
+}
+
+/// A page shared only with one person stays closed when that person's
+/// account is erased.
+#[actix_web::test]
+async fn a_page_shared_with_an_erased_person_stays_restricted() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    run_in_workspace(&pool, REF, f.workspace.workspace_id, |c| {
+        backend::repository::users::purge_user(&f.insider, c, None).map(|_| ())
+    })
+    .expect("erase the insider");
+
+    for uri in [
+        format!("/api/documentation/pages/{}", f.hidden),
+        format!("/api/documentation/collections/{}", f.secret),
+        format!("/api/documentation/pages/{}", f.in_secret),
+    ] {
+        assert_eq!(
+            status_of!(app, f.outsider, uri),
+            StatusCode::NOT_FOUND,
+            "{uri}"
+        );
+    }
+}
+
+/// Deleting a restricted collection leaves its pages in the trash, closed to
+/// the same people: out of every non-admin route, in the trash only for those
+/// the collection's rules let in, and still restricted once restored.
+#[actix_web::test]
+async fn a_deleted_restricted_collection_keeps_its_pages_closed() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let (_, before) = delta_after!(app, f, pool, f.outsider, (0, 0));
+
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::DELETE,
+            &format!("/api/documentation/collections/{}", f.secret),
+            f.admin,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let page_uri = format!("/api/documentation/pages/{}", f.in_secret);
+    for user in [f.outsider, f.insider, f.member] {
+        assert_eq!(
+            status_of!(app, user, page_uri.clone()),
+            StatusCode::NOT_FOUND,
+            "{user}: in the trash"
+        );
+        // The trash shows it only to whoever its carried-over rules let in.
+        let resp = http_test::call_service(
+            &app,
+            request(Method::GET, "/api/documentation/pages/trash", user, None).to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let trash: Value = http_test::read_body_json(resp).await;
+        let listed = trash
+            .as_array()
+            .expect("array")
+            .iter()
+            .any(|p| p["id"] == json!(f.in_secret));
+        assert_eq!(listed, user == f.insider, "{user}: the trash");
+    }
+    let (rows, _) = delta_after!(app, f, pool, f.outsider, before);
+    assert!(
+        only_deletes(&rows, "documentation_page", f.in_secret),
+        "the outsider's delta deletes the page: {rows:?}"
+    );
+
+    // Restored, it is still closed to the outsider and open to the insider.
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::POST,
+            &format!("/api/documentation/pages/{}/restore", f.in_secret),
+            f.admin,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        status_of!(app, f.outsider, page_uri.clone()),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(status_of!(app, f.insider, page_uri.clone()), StatusCode::OK);
+}
+
+/// A page published to guests inside a restricted collection isn't served on
+/// the guest portal: the restriction wins.
+#[actix_web::test]
+async fn the_portal_serves_no_page_a_restriction_covers() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let (secret_slug, open_slug) = run_in_workspace(&pool, REF, ws, |c| {
+        use backend::schema::{documentation_pages as dp, site_settings};
+        backend::repository::site_settings::get_site_settings(c)?;
+        diesel::update(site_settings::table)
+            .set(site_settings::guest_public_docs_enabled.eq(true))
+            .execute(c)?;
+        diesel::update(dp::table.filter(dp::id.eq_any([f.in_secret, f.open])))
+            .set(dp::is_public.eq(true))
+            .execute(c)?;
+        let slug_of = |c: &mut backend::db::DbConnection, id: i32| {
+            dp::table.find(id).select(dp::slug).first::<String>(c)
+        };
+        Ok((slug_of(c, f.in_secret)?, slug_of(c, f.open)?))
+    })
+    .expect("publish two pages");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+
+    assert_eq!(
+        status_of!(app, f.outsider, format!("/api/public/docs/{open_slug}")),
+        StatusCode::OK,
+        "an open published page is served"
+    );
+    assert_eq!(
+        status_of!(app, f.outsider, format!("/api/public/docs/{secret_slug}")),
+        StatusCode::NOT_FOUND,
+        "a published page in a restricted collection is not"
+    );
+}
+
+/// Leaving the only group a collection is shared with reaches the client as
+/// deletes of the collection and its pages.
+#[actix_web::test]
+async fn leaving_a_group_reads_as_a_delete() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let group = group_with(&pool, &f, &[f.outsider]);
+    let (collection, in_collection) = run_in_workspace(&pool, REF, ws, |c| {
+        let collection = collection(
+            c,
+            "Rota",
+            &format!("rota-{}", &Uuid::new_v4().simple().to_string()[..8]),
+        );
+        documentation_collections::set_collection_visibility(
+            c,
+            collection,
+            vec![group],
+            vec![],
+            None,
+        )?;
+        let in_collection = page(c, "Weekend rota", f.admin);
+        documentation_collections::add_page_to_collection(
+            c,
+            NewDocumentationCollectionPage {
+                collection_id: collection,
+                page_id: in_collection,
+                created_by: None,
+            },
+        )?;
+        Ok((collection, in_collection))
+    })
+    .expect("seed");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let (_, before) = delta_after!(app, f, pool, f.outsider, (0, 0));
+
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::remove_user_from_group(c, &f.outsider, group).map(|_| ())
+    })
+    .expect("leave the group");
+
+    let (rows, _) = delta_after!(app, f, pool, f.outsider, before);
+    assert!(
+        only_deletes(&rows, "documentation_collection", collection),
+        "the collection: {rows:?}"
+    );
+    assert!(
+        only_deletes(&rows, "documentation_page", in_collection),
+        "its page: {rows:?}"
+    );
+}
+
+/// Taking a page out of a restricted collection doesn't open it: the page
+/// keeps the collection's rules as its own until an admin changes them.
+#[actix_web::test]
+async fn a_page_taken_out_of_a_restricted_collection_stays_closed() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let (_, before) = delta_after!(app, f, pool, f.outsider, (0, 0));
+
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::DELETE,
+            &format!(
+                "/api/documentation/collections/{}/pages/{}",
+                f.secret, f.in_secret
+            ),
+            f.admin,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let page_uri = format!("/api/documentation/pages/{}", f.in_secret);
+    assert_eq!(
+        status_of!(app, f.outsider, page_uri.clone()),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(status_of!(app, f.insider, page_uri.clone()), StatusCode::OK);
+    let (rows, _) = delta_after!(app, f, pool, f.outsider, before);
+    assert!(
+        only_deletes(&rows, "documentation_page", f.in_secret),
+        "the outsider's delta deletes the page: {rows:?}"
+    );
+
+    // Its access editor shows the rules it now has of its own.
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::GET,
+            &format!("{page_uri}/visibility"),
+            f.admin,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let rules: Value = http_test::read_body_json(resp).await;
+    assert_eq!(rules["restricted"], json!(true), "{rules}");
+    assert!(
+        rules["users"]
+            .as_array()
+            .expect("users")
+            .iter()
+            .any(|u| u["uuid"] == json!(f.insider)),
+        "{rules}"
+    );
+}
+
+/// The trash shows a page to whoever could open it under its rules, and they
+/// can restore it; elsewhere a trashed page is absent to everyone but admins.
+#[actix_web::test]
+async fn an_agent_restores_a_page_they_can_open_from_the_trash() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    run_in_workspace(&pool, REF, f.workspace.workspace_id, |c| {
+        documentation_collections::add_page_to_collection(
+            c,
+            NewDocumentationCollectionPage {
+                collection_id: f.open_collection,
+                page_id: f.open,
+                created_by: None,
+            },
+        )
+        .map(|_| ())
+    })
+    .expect("file the open page");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let delete = |user: Uuid, page: i32| {
+        request(
+            Method::DELETE,
+            &format!("/api/documentation/pages/{page}"),
+            user,
+            None,
+        )
+        .to_request()
+    };
+    assert_eq!(
+        http_test::call_service(&app, delete(f.outsider, f.open))
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        http_test::call_service(&app, delete(f.admin, f.in_secret))
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+
+    // Absent everywhere but the trash.
+    assert_eq!(
+        status_of!(
+            app,
+            f.outsider,
+            format!("/api/documentation/pages/{}", f.open)
+        ),
+        StatusCode::NOT_FOUND
+    );
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::GET,
+            "/api/documentation/pages/trash",
+            f.outsider,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let trash: Value = http_test::read_body_json(resp).await;
+    let ids: Vec<i64> = trash
+        .as_array()
+        .expect("array")
+        .iter()
+        .filter_map(|p| p["id"].as_i64())
+        .collect();
+    assert!(
+        ids.contains(&(f.open as i64)),
+        "their own trashed page: {trash}"
+    );
+    assert!(
+        !ids.contains(&(f.in_secret as i64)),
+        "a page they can't open: {trash}"
+    );
+
+    let restore = |page: i32| {
+        request(
+            Method::POST,
+            &format!("/api/documentation/pages/{page}/restore"),
+            f.outsider,
+            None,
+        )
+        .to_request()
+    };
+    assert_eq!(
+        http_test::call_service(&app, restore(f.in_secret))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        http_test::call_service(&app, restore(f.open))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        status_of!(
+            app,
+            f.outsider,
+            format!("/api/documentation/pages/{}", f.open)
+        ),
+        StatusCode::OK
+    );
+}
+
+/// A directory sync that finds the same members it found last time changes
+/// no one's access, so it emits no documentation rows.
+#[test]
+fn an_unchanged_directory_sync_emits_no_documentation_rows() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let group = group_with(&pool, &f, &[f.outsider]);
+    let doc_rows = |pool: &TestPool| {
+        use backend::schema::sync_actions;
+        run_in_workspace(pool, REF, ws, |c| {
+            sync_actions::table
+                .filter(sync_actions::aggregate.eq_any([
+                    backend::models::SyncAggregate::DocumentationPage,
+                    backend::models::SyncAggregate::DocumentationCollection,
+                ]))
+                .count()
+                .get_result::<i64>(c)
+        })
+        .expect("count doc rows")
+    };
+    run_in_workspace(&pool, REF, ws, |c| {
+        let collection = collection(
+            c,
+            "Rota",
+            &format!("rota-{}", &Uuid::new_v4().simple().to_string()[..8]),
+        );
+        documentation_collections::set_collection_visibility(
+            c,
+            collection,
+            vec![group],
+            vec![],
+            None,
+        )
+        .map(|_| ())
+    })
+    .expect("share a collection with the group");
+
+    let before = doc_rows(&pool);
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::set_group_members(c, group, vec![f.outsider], None)?;
+        backend::repository::groups::set_user_groups(c, f.outsider, vec![group], None)?;
+        Ok(())
+    })
+    .expect("sync the same membership");
+    assert_eq!(doc_rows(&pool), before, "nothing changed, nothing emitted");
+
+    // A group including the shared one, set to the same inclusion twice.
+    let parent = group_with(&pool, &f, &[]);
+    run_in_workspace(&pool, REF, ws, |c| {
+        let collection = collection(
+            c,
+            "Pager",
+            &format!("pager-{}", &Uuid::new_v4().simple().to_string()[..8]),
+        );
+        documentation_collections::set_collection_visibility(
+            c,
+            collection,
+            vec![parent],
+            vec![],
+            None,
+        )?;
+        backend::repository::groups::set_group_includes(c, parent, vec![group], None)?;
+        Ok(())
+    })
+    .expect("include the group");
+    let included = doc_rows(&pool);
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::set_group_includes(c, parent, vec![group], None).map(|_| ())
+    })
+    .expect("set the same inclusion");
+    assert_eq!(
+        doc_rows(&pool),
+        included,
+        "the same inclusion, nothing emitted"
+    );
+
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::set_group_members(c, group, vec![], None).map(|_| ())
+    })
+    .expect("sync a removal");
+    assert!(
+        doc_rows(&pool) > before,
+        "a removal re-emits what it touched"
+    );
+}
+
 /// A search's total counts only the hits the caller gets, not documentation
 /// pages they can't open. (The index's total is the size of the page of hits
 /// it returns, so the filter's count is the whole answer.)
@@ -1246,4 +1812,216 @@ async fn a_search_total_counts_only_what_the_caller_gets() {
         (1, 1),
         "the outsider can open one page: {body}"
     );
+}
+
+/// The docs, sync and people routes, the caller riding in [`AS`], with
+/// `$operator` signed in as a platform admin.
+macro_rules! people_and_sync_app {
+    ($pool:expr, $workspace:expr, $operator:expr) => {{
+        let search_dir = tempfile::tempdir().expect("tempdir");
+        let search = Arc::new(SearchService::new(search_dir.path(), &$pool).expect("init search"));
+        std::mem::forget(search_dir);
+        let workspace: WorkspaceContext = $workspace;
+        let operator: Uuid = $operator;
+        let corr = Uuid::now_v7();
+        http_test::init_service(
+            App::new()
+                .app_data(web::Data::new($pool.clone()))
+                .app_data(web::Data::new(search))
+                .wrap_fn(move |req, srv| {
+                    let user = req
+                        .headers()
+                        .get(AS)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| Uuid::parse_str(v).ok())
+                        .expect("caller header");
+                    let actor =
+                        ActorContext::user(user, Some(corr)).with_workspace(workspace.workspace_id);
+                    let mut claims = claims(user);
+                    if user == operator {
+                        claims.platform_role = "platform_admin".to_string();
+                    }
+                    req.extensions_mut().insert(workspace.clone());
+                    req.extensions_mut().insert(claims);
+                    req.extensions_mut()
+                        .insert(RequestContext::new(corr, actor));
+                    srv.call(req)
+                })
+                .service(
+                    web::scope("/api")
+                        .configure(backend::handlers::users::config)
+                        .configure(backend::handlers::sync::config),
+                ),
+        )
+        .await
+    }};
+}
+
+/// Someone who stops being an admin, by any route that sets a role, gets
+/// deletes for the restricted records an admin could open and they can't.
+#[actix_web::test]
+async fn losing_admin_by_any_route_reads_as_a_delete() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let (operator, by_edit, by_bulk, platform_admin) = {
+        let mut conn = pool.get().expect("conn");
+        (
+            common::insert_user(&mut conn, "Operator").uuid,
+            common::insert_plain_user(&mut conn, "Edited Admin"),
+            common::insert_plain_user(&mut conn, "Bulk Admin"),
+            common::insert_user(&mut conn, "Platform Agent").uuid,
+        )
+    };
+    run_in_workspace(&pool, REF, ws, |c| {
+        for (user, role) in [
+            (operator, "admin"),
+            (by_edit, "admin"),
+            (by_bulk, "admin"),
+            (platform_admin, "agent"),
+        ] {
+            add_membership(c, ws, user, role, SeatWriteAuthority::ControlPlane)?;
+        }
+        Ok(())
+    })
+    .expect("memberships");
+    let app = people_and_sync_app!(pool, f.workspace.clone(), operator);
+    let (_, before) = delta_after!(app, f, pool, by_edit, (0, 0));
+
+    let edit = http_test::call_service(
+        &app,
+        request(
+            Method::PUT,
+            &format!("/api/users/{by_edit}"),
+            operator,
+            Some(json!({ "role": "technician" })),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(edit.status(), StatusCode::OK);
+    // The platform admin's "technician" role drops platform_role to user.
+    let bulk = http_test::call_service(
+        &app,
+        request(
+            Method::POST,
+            "/api/users/bulk",
+            operator,
+            Some(json!({
+                "action": "set-role",
+                "ids": [by_bulk.to_string(), platform_admin.to_string()],
+                "value": "technician",
+            })),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(bulk.status(), StatusCode::OK);
+
+    for (user, how) in [
+        (by_edit, "an edit"),
+        (by_bulk, "a bulk set-role"),
+        (platform_admin, "a platform role change"),
+    ] {
+        let (rows, _) = delta_after!(app, f, pool, user, before);
+        assert!(
+            only_deletes(&rows, "documentation_page", f.hidden),
+            "{how}: the restricted page: {rows:?}"
+        );
+        assert!(
+            only_deletes(&rows, "documentation_collection", f.secret),
+            "{how}: the restricted collection: {rows:?}"
+        );
+    }
+}
+
+/// Joining a group re-sends what it opens to the person who joined, and to
+/// no one else.
+#[actix_web::test]
+async fn joining_a_group_reaches_only_the_person_who_joined() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let group = group_with(&pool, &f, &[]);
+    let collection = run_in_workspace(&pool, REF, ws, |c| {
+        let collection = collection(
+            c,
+            "On call",
+            &format!("oncall-{}", &Uuid::new_v4().simple().to_string()[..8]),
+        );
+        documentation_collections::set_collection_visibility(
+            c,
+            collection,
+            vec![group],
+            vec![],
+            None,
+        )?;
+        Ok(collection)
+    })
+    .expect("seed");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let (_, before) = delta_after!(app, f, pool, f.outsider, (0, 0));
+
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::add_user_to_group(c, f.member, group, None).map(|_| ())
+    })
+    .expect("join");
+
+    let (joined, _) = delta_after!(app, f, pool, f.member, before);
+    assert!(
+        carries_row(&joined, "documentation_collection", collection),
+        "the person who joined gets the collection: {joined:?}"
+    );
+    let (others, _) = delta_after!(app, f, pool, f.outsider, before);
+    assert!(
+        about(&others, "documentation_collection", collection).is_empty(),
+        "no one else gets a row about it: {others:?}"
+    );
+}
+
+/// Saving a page's or a collection's rules unchanged re-sends nothing.
+#[actix_web::test]
+async fn saving_unchanged_rules_emits_nothing() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let doc_rows = || {
+        use backend::schema::sync_actions;
+        run_in_workspace(&pool, REF, ws, |c| {
+            sync_actions::table
+                .filter(sync_actions::aggregate.eq_any([
+                    backend::models::SyncAggregate::DocumentationPage,
+                    backend::models::SyncAggregate::DocumentationCollection,
+                ]))
+                .count()
+                .get_result::<i64>(c)
+        })
+        .expect("count doc rows")
+    };
+    let before = doc_rows();
+    for uri in [
+        format!("/api/documentation/collections/{}/visibility", f.secret),
+        format!("/api/documentation/pages/{}/visibility", f.hidden),
+    ] {
+        let resp = http_test::call_service(
+            &app,
+            request(
+                Method::PUT,
+                &uri,
+                f.admin,
+                Some(json!({ "group_ids": [], "user_uuids": [f.insider.to_string()] })),
+            )
+            .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK, "{uri}");
+    }
+    assert_eq!(doc_rows(), before, "the same rules, nothing re-sent");
 }

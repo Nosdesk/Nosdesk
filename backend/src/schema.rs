@@ -729,6 +729,7 @@ diesel::table! {
         workspace_id -> Int4,
         fence_token -> Nullable<Int8>,
         require_verification -> Bool,
+        restricted -> Bool,
     }
 }
 
@@ -800,6 +801,7 @@ diesel::table! {
         verify_interval_days -> Nullable<Int4>,
         workspace_id -> Int4,
         fence_token -> Nullable<Int8>,
+        restricted -> Bool,
     }
 }
 

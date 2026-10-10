@@ -26,6 +26,7 @@ import ColorHueSlider from '@/components/common/ColorHueSlider.vue'
 import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import AssignmentPicker from '@/components/common/AssignmentPicker.vue'
+import DocAccessMode from '@/components/documentationComponents/DocAccessMode.vue'
 import type { SelectedPrincipal } from '@/components/common/AssignmentPicker.vue'
 
 const props = defineProps<{
@@ -51,8 +52,17 @@ const slugManuallyEdited = ref(false)
 const description = ref('')
 const icon = ref('📁')
 const color = ref(randomAccentColor())
-const hideTitles = ref(false)
 const requireVerification = ref(false)
+// Open only to the people and groups chosen (admins only when none are).
+const restricted = ref(false)
+// Who could open it when the edit form opened, to save access only when it
+// changed (a save re-sends the collection and its pages to everyone).
+const seededAccess = ref('')
+
+function accessKey(isRestricted: boolean, items: SelectedPrincipal[]) {
+  const keys = isRestricted ? items.map((i) => `${i.type}:${i.id}`).sort() : []
+  return `${isRestricted}|${keys.join(',')}`
+}
 const selectedItems = ref<SelectedPrincipal[]>([])
 const saving = ref(false)
 const saveError = ref('')
@@ -95,7 +105,6 @@ const slugFieldDescription = computed(() => {
   return t('docs-edit-collection-slug-help')
 })
 
-const isPublic = computed(() => selectedItems.value.length === 0)
 
 const canSubmit = computed(
   () =>
@@ -151,7 +160,6 @@ function visibilityFromSelection(items: SelectedPrincipal[]) {
     userUuids,
     visible_to_groups,
     visible_to_users,
-    is_public: items.length === 0,
   }
 }
 
@@ -162,8 +170,8 @@ function resetCreateForm() {
   description.value = ''
   icon.value = '📁'
   color.value = randomAccentColor()
-  hideTitles.value = false
   requireVerification.value = false
+  restricted.value = false
   selectedItems.value = []
   saveError.value = ''
 }
@@ -175,9 +183,10 @@ function seedEditForm(collection: CollectionWithDetails) {
   description.value = collection.description ?? ''
   icon.value = collection.icon || '📁'
   color.value = collection.color || '#6366f1'
-  hideTitles.value = collection.hide_titles_from_non_members ?? false
   requireVerification.value = collection.require_verification ?? false
+  restricted.value = collection.restricted ?? !collection.is_public
   selectedItems.value = principalsFromCollection(collection)
+  seededAccess.value = accessKey(restricted.value, selectedItems.value)
   saveError.value = ''
 }
 
@@ -253,6 +262,7 @@ async function handleCreate() {
       color: color.value || undefined,
       visible_to_group_ids: groupIds.length > 0 ? groupIds : undefined,
       visible_to_user_uuids: userUuids.length > 0 ? userUuids : undefined,
+      restricted: restricted.value,
     })
 
     if (!created) {
@@ -260,9 +270,8 @@ async function handleCreate() {
       return
     }
 
-    if (hideTitles.value || requireVerification.value) {
+    if (requireVerification.value) {
       const updated = await updateCollection(created.id, {
-        hide_titles_from_non_members: hideTitles.value,
         require_verification: requireVerification.value,
       })
       if (!updated) {
@@ -315,7 +324,6 @@ async function handleEdit() {
       description: description.value.trim(),
       icon: icon.value.trim() || undefined,
       color: color.value.trim() || undefined,
-      hide_titles_from_non_members: hideTitles.value,
       require_verification: requireVerification.value,
     })
     if (!updated) {
@@ -323,11 +331,12 @@ async function handleEdit() {
       return
     }
 
-    const visibilityOk = await setCollectionVisibility(
-      props.collection.id,
-      visibility.groupIds,
-      visibility.userUuids,
-    )
+    const accessChanged = accessKey(restricted.value, selectedItems.value) !== seededAccess.value
+    const visibilityOk = !accessChanged
+      ? true
+      : restricted.value
+        ? await setCollectionVisibility(props.collection.id, visibility.groupIds, visibility.userUuids, true)
+        : await setCollectionVisibility(props.collection.id, [], [], false)
     if (!visibilityOk) {
       saveError.value = t('docs-edit-collection-save-error')
       return
@@ -336,9 +345,10 @@ async function handleEdit() {
     emit('saved', {
       ...props.collection,
       ...updated,
-      visible_to_groups: visibility.visible_to_groups,
-      visible_to_users: visibility.visible_to_users,
-      is_public: visibility.is_public,
+      visible_to_groups: restricted.value ? visibility.visible_to_groups : [],
+      visible_to_users: restricted.value ? visibility.visible_to_users : [],
+      is_public: !restricted.value,
+      restricted: restricted.value,
     } as CollectionWithDetails)
     emit('close')
   } catch (error) {
@@ -414,40 +424,19 @@ function handleSubmit() {
             {{ $t('docs-create-collection-access-heading') }}
           </span>
           <span
-            v-if="isPublic"
+            v-if="!restricted"
             class="text-2xs text-status-success shrink-0"
           >
             {{ $t('collection-badge-public') }}
           </span>
         </div>
+        <DocAccessMode v-model="restricted" :nobody-chosen="selectedItems.length === 0" />
         <AssignmentPicker
+          v-if="restricted"
           :selectedItems="selectedItems"
           @update:selectedItems="selectedItems = $event"
           :placeholder="$t('docs-collection-visibility-picker-placeholder')"
         />
-      </div>
-
-      <!-- Privacy -->
-      <div class="flex gap-2.5">
-        <div class="flex h-[18px] shrink-0 items-center">
-          <Checkbox
-            :id="`${mode}-collection-hide-titles`"
-            v-model="hideTitles"
-            size="sm"
-            :aria-label="$t('docs-edit-collection-hide-titles-aria')"
-          />
-        </div>
-        <div class="min-w-0 flex flex-col gap-0.5">
-          <label
-            :for="`${mode}-collection-hide-titles`"
-            class="cursor-pointer text-xs font-medium leading-snug text-primary"
-          >
-            {{ $t('docs-edit-collection-hide-titles-label') }}
-          </label>
-          <p class="text-2xs leading-snug text-tertiary">
-            {{ $t('docs-edit-collection-hide-titles-help') }}
-          </p>
-        </div>
       </div>
 
       <!-- Verification policy -->
