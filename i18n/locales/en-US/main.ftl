@@ -512,10 +512,7 @@ ticket-list-context-actions-heading = Actions
 ticket-list-context-selection-heading = Selection
 ticket-list-context-select = Select
 ticket-list-context-deselect = Deselect
-ticket-list-context-merge = { $count ->
-    [one] Merge ticket…
-   *[other] Merge { $count } tickets…
-}
+ticket-list-context-merge-into = Merge into #{ $number }…
 ticket-list-context-merge-hint = Select at least 2 tickets to merge
 ticket-list-context-flagged-toast = Flagged for documentation
 ticket-flag-already-documented = Already documented in “{ $title }”

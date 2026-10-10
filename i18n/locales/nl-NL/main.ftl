@@ -480,10 +480,8 @@ ticket-list-context-actions-heading = Acties
 ticket-list-context-selection-heading = Selectie
 ticket-list-context-select = Selecteren
 ticket-list-context-deselect = Deselecteren
-ticket-list-context-merge = { $count ->
-    [one] Ticket samenvoegen…
-   *[other] { $count } tickets samenvoegen…
-}
+# Machine translation, pending native review.
+ticket-list-context-merge-into = Samenvoegen in #{ $number }…
 ticket-list-context-merge-hint = Selecteer minimaal 2 tickets om samen te voegen
 ticket-list-context-flagged-toast = Gemarkeerd voor documentatie
 ticket-flag-already-documented = Al gedocumenteerd in ‘{ $title }’

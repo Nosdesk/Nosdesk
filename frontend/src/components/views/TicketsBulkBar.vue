@@ -47,6 +47,10 @@ const props = defineProps<{
   /** Total ticket count matching the current view; drives the
    *  "Select all N" affordance. Optional. */
   totalCount?: number
+  /** The ticket last ticked on, which a merge goes into by default.
+   *  `null` after a select-all or a range, so the merge dialog falls back
+   *  to the oldest rather than to whatever the sort put last. */
+  preferredDestinationId?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -435,7 +439,7 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
   <MergeTicketsDialog
     :open="showMergeDialog"
     :selected-tickets="selectedTickets"
-    :preferred-destination-id="ids.at(-1) ?? null"
+    :preferred-destination-id="preferredDestinationId ?? null"
     @close="showMergeDialog = false"
     @merged="onMerged"
   />

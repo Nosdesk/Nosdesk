@@ -86,7 +86,8 @@ import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities
 import { FACET_ORDER } from '@/components/views/filterFacets'
 import { TICKET_COLUMNS } from '@nosdesk/core/sync/views/ticketColumns'
 import { shareableTicketUrl } from '@/utils/shareUrl'
-import { pooledTicketNumber, ticketPathForId, ticketRoute } from '@/utils/ticketNumbers'
+import { pooledTicketNumber, ticketNumber, ticketPathForId, ticketRoute } from '@/utils/ticketNumbers'
+import { mergeDestination } from '@/utils/mergeDestination'
 
 const router = useRouter()
 const route = useRoute()
@@ -308,6 +309,11 @@ const bulkSelection = useBulkSelection<CardData>({
   cacheKey: bulkCacheKey,
   totalCount: computed(() => sortedCards.value.length),
 })
+// The ticket last ticked on is where a bulk merge goes by default.
+const bulkMergeDestinationId = computed<number | null>(() => {
+  const id = bulkSelection.lastTickedId.value
+  return id == null ? null : Number(id)
+})
 // Every matching card is on the client, so "select all" is the
 // visible set.
 function selectAllCards() {
@@ -484,6 +490,12 @@ const mergeCandidateTickets = computed<MergeDialogTicket[]>(() => {
   ]
 })
 
+/** Where a merge from the context menu goes: the right-clicked ticket when
+ *  it is one of the candidates, else the oldest, as the dialog picks. */
+const contextMergeDestination = computed(() =>
+  mergeDestination(mergeCandidateTickets.value, contextMenuTicketId.value),
+)
+
 const ticketContextMenuItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = [
     {
@@ -553,10 +565,11 @@ const ticketContextMenuItems = computed<MenuItem[]>(() => {
     checked: contextMenuBulkSelected.value,
   })
 
-  if (mergeCandidateTickets.value.length >= 2) {
+  const destination = contextMergeDestination.value
+  if (mergeCandidateTickets.value.length >= 2 && destination) {
     items.push({
       id: 'merge',
-      label: t('ticket-list-context-merge', { count: mergeCandidateTickets.value.length }),
+      label: t('ticket-list-context-merge-into', { number: String(ticketNumber(destination)) }),
       icon: ICON_REGISTRY.link.d,
     })
   }
@@ -1149,6 +1162,7 @@ function startPaneResize(event: PointerEvent): void {
     <TicketsBulkBar
       :selected-ids="bulkSelection.selectedIds.value"
       :total-count="sortedCards.length"
+      :preferred-destination-id="bulkMergeDestinationId"
       @select-all="selectAllCards"
       @clear="bulkSelection.clear"
       @set-status="handleBulkSetStatus"
