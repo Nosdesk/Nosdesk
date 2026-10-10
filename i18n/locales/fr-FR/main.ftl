@@ -484,10 +484,8 @@ ticket-list-context-actions-heading = Actions
 ticket-list-context-selection-heading = Sélection
 ticket-list-context-select = Sélectionner
 ticket-list-context-deselect = Désélectionner
-ticket-list-context-merge = { $count ->
-    [one] Fusionner le ticket…
-   *[other] Fusionner { $count } tickets…
-}
+# Machine translation, pending native review.
+ticket-list-context-merge-into = Fusionner dans #{ $number }…
 ticket-list-context-merge-hint = Sélectionnez au moins 2 tickets à fusionner
 ticket-list-context-flagged-toast = Signalé pour la documentation
 ticket-flag-already-documented = Déjà documenté dans « { $title } »
