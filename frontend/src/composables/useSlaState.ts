@@ -167,11 +167,13 @@ export function deriveSlaState(
   if (!sla) return null
   const target = fullDateTime(sla.target_at)
 
-  // A breach the server has judged stands whatever else is true: a
-  // response met after its target, or a timer that breached before the
-  // state paused the clock. It is the same breach the notification
-  // reported, so the pill must say so too.
-  if (sla.breached) return breachedState(sla, target)
+  // `breached` is the ticket's: true when any of its timers breached,
+  // the same breach the notification reported, whatever else is true.
+  // The flattened timer is the one to count down to (the next unmet
+  // target), so a ticket can be breached and still counting down.
+  // With nothing left to count down to (met, or frozen), a breach shows
+  // as plain Breached.
+  if ((sla.met_at || sla.paused) && sla.breached) return breachedState(sla, target)
 
   // Met on time: the timer is done, render as done. `met_at` is
   // server-authoritative (set when first_response_at lands); we don't
@@ -210,8 +212,8 @@ export function deriveSlaState(
   const remaining = liveSecondsRemaining(sla.target_at, now)
 
   // Pre-flip when the live clock has crossed `target_at`. The server
-  // leads with the timer due first, so this is the first timer to
-  // breach. The breach-detection job catches up within 60s and emits an
+  // counts down to the unmet timer due first, so this is the next timer
+  // to breach. The breach-detection job catches up within 60s and emits an
   // authoritative sla_updated that is consistent with what we already
   // showed; pre-flipping avoids a 60s window of stale on-track tone.
   if (remaining < 0) return breachedState(sla, target)
@@ -219,6 +221,21 @@ export function deriveSlaState(
   const compact = compactRemaining(remaining)
   const detail = `${detailRemaining(remaining)} · target ${target}`
   const fraction = progressFraction(sla.start_at, sla.target_at, now)
+
+  // Another timer breached: red, still counting down to this target.
+  if (sla.breached) {
+    return {
+      compactLabel: compact,
+      statusLabel: 'Breached',
+      toneClass: 'text-rose-600 dark:text-rose-400',
+      barClass: 'bg-rose-500',
+      fraction,
+      detail,
+      target,
+      breached: true,
+      paused: false,
+    }
+  }
 
   // At-risk client-side: within 25% of the window remaining flips
   // amber. Computed from start_at + target_at + now so the green →

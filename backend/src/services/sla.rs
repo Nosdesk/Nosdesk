@@ -270,18 +270,22 @@ impl SlaTimer {
     }
 }
 
-/// Full SLA payload for one ticket. The leading timer's fields are
-/// flattened to the top level so every v1 consumer (`TicketRow` pill
-/// column, the filter facet, `KanbanBoard`, the policy counts) reads
-/// `sla.breached` / `sla.paused` / `sla.target_at` / etc. for the
-/// ticket as a whole. The nested `response` + `resolution` sub-objects
-/// are consumed by the preview pane to stack both timers.
+/// Full SLA payload for one ticket. One timer is flattened to the top
+/// level for every v1 consumer (`TicketRow` pill column, the filter
+/// facet, `KanbanBoard`, the calendar, the policy counts). The nested
+/// `response` + `resolution` sub-objects carry each timer as it is, for
+/// the preview pane to stack.
 ///
-/// The leading timer is a breached one if any timer breached (the
-/// earliest to breach), else the unmet timer due first. So the pill
-/// reads breached exactly when some timer on the ticket breached, the
-/// same breach the breach job notifies about, and while nothing has
-/// breached the pill counts down to the next target to fall.
+/// The flattened state and countdown are separate:
+/// - `breached` (and `pill_color` red) is the ticket's: true when any
+///   timer breached, computed or stamped by the breach job, and not met
+///   in time. So the pill never disagrees with a breach notification.
+/// - `target_at`, `start_at`, `met_at`, `paused` and `seconds_remaining`
+///   are the timer to count down to: the unmet timer due first, else
+///   the earliest breached timer, else whichever exists.
+///
+/// After a late response the pill is red and counts down to the
+/// resolution target.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SlaPill {
     #[serde(flatten)]
@@ -293,13 +297,11 @@ pub struct SlaPill {
 }
 
 /// Compute a single timer's render state given its target window and
-/// optional met-at moment. Shared by response + resolution: the
-/// response timer passes `met_at = Some(first_response_at)` once a
-/// staff comment lands; the resolution timer leaves it `None`.
+/// what has already happened to it. Shared by response + resolution.
 fn compute_timer(
     target_minutes: i64,
     start_from: DateTime<Utc>,
-    met_at: Option<DateTime<Utc>>,
+    events: TimerEvents,
     paused: bool,
     calendar: &WorkingCalendar,
     holidays: &HashSet<NaiveDate>,
@@ -307,13 +309,18 @@ fn compute_timer(
 ) -> SlaTimer {
     let target_at = add_business_minutes(start_from, target_minutes, calendar, holidays);
 
+    let met_at = events.met_at;
     // A met timer is judged against when it was met, not the wall
     // clock — so a response that lands 1m before the target is "met
-    // on time" even if we're observing 3h later.
+    // on time" even if we're observing 3h later. An unmet timer the
+    // breach job stamped stays breached while the clock is paused or
+    // stopped: that breach was notified. A stamp from before the target
+    // doesn't stand (the target moved later since; the recompute clears
+    // it, see `SlaStamp`).
+    let stamped = events.breached_at.is_some_and(|at| at >= target_at);
     let breached = match met_at {
         Some(met) => met > target_at,
-        None if paused => false,
-        None => now > target_at,
+        None => stamped || (!paused && now > target_at),
     };
 
     let seconds_remaining = if met_at.is_some() {
@@ -353,6 +360,16 @@ fn compute_timer(
         pill_color,
         seconds_remaining,
     }
+}
+
+/// What has already happened to one timer.
+#[derive(Debug, Clone, Copy, Default)]
+struct TimerEvents {
+    /// When it was satisfied: `first_response_at` for the response
+    /// timer; the resolution timer is never met.
+    met_at: Option<DateTime<Utc>>,
+    /// When the breach job stamped it breached (`sla_*_breached_at`).
+    breached_at: Option<DateTime<Utc>>,
 }
 
 /// When a policy's SLA clock starts.
@@ -449,7 +466,8 @@ pub fn compute_pill(
         return None;
     }
 
-    let created_utc = DateTime::<Utc>::from_naive_utc_and_offset(ticket.created_at, Utc);
+    let utc = |t: NaiveDateTime| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc);
+    let created_utc = utc(ticket.created_at);
     let paused = clock != StateClock::Running;
 
     // Resolve the effective anchor (where the clock counts from) and whether it's
@@ -481,13 +499,13 @@ pub fn compute_pill(
         .target_response_minutes
         .filter(|m| *m > 0)
         .map(|minutes| {
-            let met_at = ticket
-                .first_response_at
-                .map(|t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
             compute_timer(
                 minutes as i64,
                 anchor,
-                met_at,
+                TimerEvents {
+                    met_at: ticket.first_response_at.map(utc),
+                    breached_at: ticket.sla_response_breached_at.map(utc),
+                },
                 effective_paused,
                 calendar,
                 holidays,
@@ -502,7 +520,10 @@ pub fn compute_pill(
             compute_timer(
                 minutes as i64,
                 anchor,
-                None,
+                TimerEvents {
+                    met_at: None,
+                    breached_at: ticket.sla_resolution_breached_at.map(utc),
+                },
                 effective_paused,
                 calendar,
                 holidays,
@@ -510,7 +531,7 @@ pub fn compute_pill(
             )
         });
 
-    let primary = leading_timer(response.as_ref(), resolution.as_ref())?.clone();
+    let primary = flattened_timer(response.as_ref(), resolution.as_ref())?;
 
     Some(SlaPill {
         primary,
@@ -519,23 +540,24 @@ pub fn compute_pill(
     })
 }
 
-/// The timer a pill leads with (see [`SlaPill`]): the earliest-breached
-/// timer, else the unmet timer due first, else whichever exists (a response
-/// met on time with no resolution target).
-fn leading_timer<'a>(
-    response: Option<&'a SlaTimer>,
-    resolution: Option<&'a SlaTimer>,
-) -> Option<&'a SlaTimer> {
+/// The pill's flattened timer (see [`SlaPill`]). Its countdown fields are
+/// the unmet timer due first, else (nothing left to meet) the earliest
+/// breached timer, else whichever exists (a response met on time with no
+/// resolution target). Its `breached` is the ticket's: true when any timer
+/// breached, with `pill_color` red to match.
+fn flattened_timer(response: Option<&SlaTimer>, resolution: Option<&SlaTimer>) -> Option<SlaTimer> {
     let timers = || response.into_iter().chain(resolution);
-    timers()
-        .filter(|t| t.breached)
+    let mut flat = timers()
+        .filter(|t| t.met_at.is_none())
         .min_by_key(|t| t.target_at)
-        .or_else(|| {
-            timers()
-                .filter(|t| t.met_at.is_none())
-                .min_by_key(|t| t.target_at)
-        })
-        .or_else(|| timers().next())
+        .or_else(|| timers().filter(|t| t.breached).min_by_key(|t| t.target_at))
+        .or_else(|| timers().next())?
+        .clone();
+    if timers().any(|t| t.breached) {
+        flat.breached = true;
+        flat.pill_color = "red";
+    }
+    Some(flat)
 }
 
 /// One ticket's SLA pill as it stands, for a sync row. Reads only: the
@@ -1109,10 +1131,10 @@ pub struct PolicyMatchCounts {
 
 impl PolicyMatchCounts {
     /// Increment `total` and bucket the ticket by its pill state.
-    /// The pill leads with a breached timer whenever any timer
-    /// breached, so a ticket counts as breached exactly when the pill
-    /// shows it. Breached wins over paused: a paused ticket whose
-    /// response was met late still counts as breached.
+    /// `breached` is the ticket's (any timer breached, see
+    /// [`SlaPill`]), so a ticket counts as breached exactly when the
+    /// pill shows it, and breached wins over paused and at-risk.
+    /// Paused and at-risk go by the timer the pill counts down to.
     fn add_pill(&mut self, pill: Option<&SlaPill>) {
         self.total += 1;
         match pill {
@@ -1667,7 +1689,67 @@ mod tests {
             Utc.with_ymd_and_hms(2026, 5, 4, 11, 40, 0).unwrap(),
         );
         assert!(pill.primary.breached, "pill breached");
+        assert_eq!(pill.primary.pill_color, "red");
         assert_eq!(bucket(&pill).breached, 1, "counted as breached");
+        // Red, but still counting down to the resolution target.
+        assert_eq!(
+            pill.primary.target_at,
+            Utc.with_ymd_and_hms(2026, 5, 4, 14, 0, 0).unwrap()
+        );
+        assert_eq!(pill.primary.met_at, None);
+        assert_eq!(pill.primary.seconds_remaining, Some(140 * 60));
+    }
+
+    /// A breach the breach job stamped stands while the ticket sits in a
+    /// state that pauses the clock: the notification went out, so the pill
+    /// and the count say breached, not paused.
+    #[test]
+    fn a_stamped_breach_shows_while_the_clock_is_paused() {
+        let mut t = ticket(None);
+        let created = Utc.with_ymd_and_hms(2026, 5, 4, 10, 0, 0).unwrap();
+        t.created_at = created.naive_utc();
+        t.sla_clock_started_at = Some(created.naive_utc());
+        // Breached at 11:00, stamped a minute later, then moved to a pausing
+        // state at 11:05.
+        t.sla_response_breached_at = Some((created + Duration::minutes(61)).naive_utc());
+        t.sla_paused_at = Some((created + Duration::minutes(65)).naive_utc());
+        let pill = compute_pill(
+            &t,
+            StateClock::Paused,
+            &activated_policy(),
+            &all_hours_cal(),
+            &HashSet::new(),
+            created + Duration::minutes(90),
+        )
+        .expect("a pill");
+        assert!(
+            pill.response.as_ref().unwrap().breached,
+            "response breached"
+        );
+        assert!(pill.primary.breached, "pill breached");
+        assert_eq!(bucket(&pill).breached, 1, "counted as breached");
+    }
+
+    /// A stamp from before the target moved later (a longer target, or time
+    /// paused since) no longer stands, as the recompute that clears it says.
+    #[test]
+    fn a_stamp_before_the_target_does_not_stand() {
+        let mut t = ticket(None);
+        let created = Utc.with_ymd_and_hms(2026, 5, 4, 10, 0, 0).unwrap();
+        t.created_at = created.naive_utc();
+        t.sla_clock_started_at = Some((created + Duration::minutes(30)).naive_utc());
+        t.sla_response_breached_at = Some((created + Duration::minutes(61)).naive_utc());
+        let pill = compute_pill(
+            &t,
+            StateClock::Paused,
+            &activated_policy(),
+            &all_hours_cal(),
+            &HashSet::new(),
+            created + Duration::minutes(80),
+        )
+        .expect("a pill");
+        assert!(!pill.primary.breached);
+        assert!(pill.primary.paused);
     }
 
     /// With nothing breached, the timer due first leads, even when it's the

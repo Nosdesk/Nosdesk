@@ -340,3 +340,58 @@ fn a_late_close_comes_back_one_period_after_the_old_due_date() {
         (due + chrono::Duration::days(7)).and_hms_opt(0, 0, 0)
     );
 }
+
+/// A monthly ticket due on the 31st comes back on the last day of a shorter
+/// month, then on the 31st again: the series keeps the first ticket's day.
+#[test]
+fn a_monthly_ticket_due_on_the_31st_keeps_its_day() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let mut conn = pool.get().expect("conn");
+    let ws = common::seed_two_workspaces(&mut conn).a;
+    let admin = ActorContext::user(ws.admin_uuid, None).with_workspace(ws.workspace_id);
+    let day = |y, m, d| {
+        chrono::NaiveDate::from_ymd_opt(y, m, d)
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .expect("date")
+    };
+    let dues = with_actor_context(&mut conn, &admin, |c| {
+        let open = workflow_states::default_state(c)?.id;
+        let done = workflow_states::first_in_category(c, WorkflowStateCategory::Done)?.id;
+        let first: i32 = diesel::insert_into(tickets::table)
+            .values(&NewTicket {
+                title: "Run payroll".to_string(),
+                workflow_state_id: open,
+                requester_uuid: Some(ws.member_uuid),
+                due_date: Some(day(2027, 1, 31)),
+                recurrence_rule: Some("FREQ=MONTHLY".to_string()),
+                ..Default::default()
+            })
+            .returning(tickets::id)
+            .get_result(c)?;
+        let mut dues = Vec::new();
+        let mut current = first;
+        for _ in 0..2 {
+            ticket_repo::update_ticket_partial(
+                c,
+                current,
+                TicketUpdate {
+                    workflow_state_id: Some(done),
+                    ..Default::default()
+                },
+                None,
+            )?;
+            let (next, due): (i32, Option<chrono::NaiveDateTime>) = tickets::table
+                .filter(tickets::recurrence_template_id.eq(first))
+                .filter(tickets::id.ne(current))
+                .order(tickets::id.desc())
+                .select((tickets::id, tickets::due_date))
+                .first(c)?;
+            dues.push(due);
+            current = next;
+        }
+        Ok::<_, ticket_repo::TicketWriteError>(dues)
+    })
+    .expect("close twice");
+    assert_eq!(dues, vec![Some(day(2027, 2, 28)), Some(day(2027, 3, 31))]);
+}

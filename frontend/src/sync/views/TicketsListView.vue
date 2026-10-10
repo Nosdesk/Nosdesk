@@ -887,6 +887,9 @@ const slaOverlays = computed<CalendarOverlay[]>(() => {
     if (!sla || sla.paused) continue
     const target = new Date(sla.target_at)
     if (Number.isNaN(target.getTime())) continue
+    // `target_at` is the next unmet target; `breached` is the ticket's.
+    // Mark the date breached only when this target is the one that fell.
+    const fell = sla.breached && (!!sla.met_at || target.getTime() < Date.now())
     const y = target.getFullYear()
     const m = String(target.getMonth() + 1).padStart(2, '0')
     const d = String(target.getDate()).padStart(2, '0')
@@ -894,7 +897,7 @@ const slaOverlays = computed<CalendarOverlay[]>(() => {
       id: `sla:${card.id}`,
       date: `${y}-${m}-${d}`,
       kind: 'sla_breach',
-      label: sla.breached
+      label: fell
         ? `SLA breached: ${card.title}`
         : `SLA target: ${card.title}`,
       href: ticketRoute(card.number),

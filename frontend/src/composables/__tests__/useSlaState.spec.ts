@@ -42,4 +42,17 @@ describe('deriveSlaState', () => {
     const state = deriveSlaState(timer({ target_at: '2026-05-04T11:39:00Z' }), NOW)
     expect(state?.breached).toBe(true)
   })
+
+  it('stays red but counts down to the next target after another timer breached', () => {
+    // The response was met late; the flattened timer is the resolution,
+    // due at 14:00, and the server marks the ticket breached.
+    const state = deriveSlaState(
+      timer({ target_at: '2026-05-04T14:00:00Z', breached: true, pill_color: 'red' }),
+      NOW,
+    )
+    expect(state?.breached).toBe(true)
+    expect(state?.statusLabel).toBe('Breached')
+    expect(state?.toneClass).toContain('rose')
+    expect(state?.compactLabel).toBe('3h')
+  })
 })
