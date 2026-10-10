@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import { withWorkspaceRouting, installWorkspaceGuard, installSlugCarrier, workspaceSlugOf } from './workspaceRouting'
 import { installNavigationTracking } from './navigation'
+import { canOpenRoute, isGatedRoute, routeViewer } from './access'
 import { fetchInstanceConfig, getWorkspaceRouting, isHostedDeployment } from '@nosdesk/core/services/instanceConfig'
 import { lastWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
 import DashboardView from '../views/DashboardView.vue'
@@ -47,7 +48,7 @@ declare module 'vue-router' {
     /** Gate to platform admins only (Nosdesk operators). Operator/instance
      * surfaces a workspace admin must never reach even in the /admin console:
      * cross-tenant workspace lifecycle, backups, search index, auth providers.
-     * Further restricts an `adminRequired` subtree (see checkPlatformAdminAccess). */
+     * Further restricts an `adminRequired` subtree (see ./access). */
     platformAdminRequired?: boolean;
     /** Within an adminRequired subtree, also allow the standalone
      * audit_reviewer role to reach this route (Item C/D4). */
@@ -977,6 +978,15 @@ const router = createRouter({
           name: 'admin-backup-restore',
           component: () => import('../views/BackupRestoreView.vue'),
           meta: { titleKey: 'route-title-admin-backup-restore', platformAdminRequired: true }
+        },
+        {
+          // An /admin URL that isn't a page. It sits inside the admin record so
+          // the admin gate sees it first: a non-admin goes back to the
+          // dashboard as from any admin page, and only an admin gets the 404.
+          path: ':pathMatch(.*)*',
+          name: 'admin-not-found',
+          component: ErrorView,
+          beforeEnter: () => ({ name: 'error', params: { code: '404' }, replace: true })
         }
       ]
     },
@@ -1266,9 +1276,8 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
 
   // Workspace-scoped identity. `workspace_role` is resolved per the pinned
   // workspace, so once a workspace is active (path mode, slug now in the URL),
-  // resolve the user under it BEFORE the role-gated guards (checkAdminAccess /
-  // checkWorkspaceAdminAccess, registered after this one) and any
-  // workspace-scoped view renders. Awaiting here is the gate: login, refresh,
+  // resolve the user under it BEFORE the role-gated guard (checkRouteAccess,
+  // registered after this one) and any workspace-scoped view renders. Awaiting here is the gate: login, refresh,
   // and switch all converge on one pinned /auth/me and the first paint already
   // carries the correct role. No-op in host mode and once already resolved.
   if (authStore.isAuthenticated && authStore.user) {
@@ -1328,58 +1337,21 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
 }
 
 /**
- * Check admin access for admin-only routes
+ * Role-gated routes (admin, workspace admin, platform admin) send anyone who
+ * may not open them back to the dashboard. The same check decides whether a
+ * link to the route is offered at all; see ./access.
  */
-async function checkAdminAccess(to: RouteLocationNormalized, _from: RouteLocationNormalized) {
-  const requiresAdmin = to.matched.some((record) => record.meta.adminRequired);
-
-  if (requiresAdmin) {
-    const { useAuthStore } = await import('@/stores/auth');
-    const authStore = useAuthStore();
-
-    if (authStore.isAdmin) return;
-
-    // The audit_reviewer role may reach only routes explicitly flagged
-    // auditReviewerAllowed (the unified audit feed); every other admin
-    // route still redirects them home.
-    const auditAllowed = to.matched.some((record) => record.meta.auditReviewerAllowed);
-    if (auditAllowed && authStore.isAuditReviewer) return;
-
-    return { name: 'home' };
-  }
-}
-
-// Gate tenant self-serve workspace-admin routes to owners/admins of the
-// CURRENT workspace. Unlike `checkAdminAccess`, a platform admin who is
-// not a member of this workspace does NOT pass — those operators use the
-// /admin console instead.
-async function checkWorkspaceAdminAccess(to: RouteLocationNormalized) {
-  const needs = to.matched.some((record) => record.meta.workspaceAdminRequired);
-  if (!needs) return;
+async function checkRouteAccess(to: RouteLocationNormalized) {
+  if (!isGatedRoute(to.matched)) return;
   const { useAuthStore } = await import('@/stores/auth');
-  const role = useAuthStore().user?.workspace_role;
-  if (role === 'owner' || role === 'admin') return;
-  return { name: 'home' };
-}
-
-// Gate operator/instance routes to platform admins only. Runs after
-// checkAdminAccess (which admits workspace admins on an adminRequired subtree),
-// so it further restricts the operator subset a tenant admin must never reach,
-// matching the backend `require_platform_admin` gate on these handlers.
-async function checkPlatformAdminAccess(to: RouteLocationNormalized) {
-  const needs = to.matched.some((record) => record.meta.platformAdminRequired);
-  if (!needs) return;
-  const { useAuthStore } = await import('@/stores/auth');
-  if (useAuthStore().isPlatformAdmin) return;
+  if (canOpenRoute(to.matched, routeViewer(useAuthStore()))) return;
   return { name: 'home' };
 }
 
 // Register middleware in order of execution
 router.beforeEach(checkOnboarding);
 router.beforeEach(checkAuthentication);
-router.beforeEach(checkAdminAccess);
-router.beforeEach(checkWorkspaceAdminAccess);
-router.beforeEach(checkPlatformAdminAccess);
+router.beforeEach(checkRouteAccess);
 
 // Diagnostic breadcrumb on every successful navigation. Uses
 // `to.path` (no query/fragment) and scrubUrl masks UUID segments

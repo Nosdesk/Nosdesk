@@ -4,8 +4,9 @@
 //! on every HTTP response: Content-Security-Policy (CSP),
 //! X-Content-Type-Options, X-Frame-Options, Referrer-Policy,
 //! Permissions-Policy, Strict-Transport-Security (production),
-//! Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy, and
-//! environment-aware Cache-Control for static assets.
+//! Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy,
+//! environment-aware Cache-Control for static assets, and a UTF-8
+//! charset on script and stylesheet responses.
 //!
 //! ## Why a typed CSP builder
 //!
@@ -419,6 +420,25 @@ impl SecurityHeaders {
     }
 }
 
+/// A script or stylesheet Content-Type with `charset=utf-8` added, or None when
+/// it already names a charset or isn't one of those. Everything we serve is
+/// UTF-8; without the parameter a browser decodes a classic script in the
+/// encoding of the page that loads it.
+fn with_utf8_charset(content_type: &str) -> Option<header::HeaderValue> {
+    let mut parts = content_type.split(';');
+    let essence = parts.next()?.trim().to_ascii_lowercase();
+    if !matches!(
+        essence.as_str(),
+        "text/javascript" | "application/javascript" | "text/css"
+    ) {
+        return None;
+    }
+    if parts.any(|p| p.trim().to_ascii_lowercase().starts_with("charset=")) {
+        return None;
+    }
+    header::HeaderValue::from_str(&format!("{content_type}; charset=utf-8")).ok()
+}
+
 /// Whether the request reached us on the resolved workspace's custom domain
 /// (as opposed to the platform's own hosts, where the tenant subdomain is
 /// ours to cover). Compares the `Host` header against the context the
@@ -556,6 +576,16 @@ where
                     .insert(header::RETRY_AFTER, "60".parse().unwrap());
             }
             let headers = res.headers_mut();
+
+            // Scripts and styles say they are UTF-8. actix-files adds the
+            // charset to CSS but not to `text/javascript`.
+            if let Some(ct) = headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(with_utf8_charset)
+            {
+                headers.insert(header::CONTENT_TYPE, ct);
+            }
 
             // X-Content-Type-Options: nosniff. Always.
             if !headers.contains_key(header::X_CONTENT_TYPE_OPTIONS) {
@@ -873,5 +903,61 @@ mod tests {
         let (value, _) = SecurityHeaders::build_csp_value();
         assert!(!value.is_empty());
         assert!(value.contains("default-src"));
+    }
+
+    // ── Text asset charset ──────────────────────────────────────
+
+    /// The built app's scripts and styles say they are UTF-8. A browser
+    /// decodes a classic script with no charset in the encoding of the page
+    /// that loads it, so a non-ASCII string in one would turn to mojibake on
+    /// a page in another encoding.
+    #[actix_web::test]
+    async fn static_scripts_and_styles_declare_utf8() {
+        use actix_web::{test, App};
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("main-abc.js"),
+            "export const a = '\u{2192}'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("main-abc.css"),
+            "a::after { content: '\u{2192}' }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("logo.png"), [0x89u8, b'P', b'N', b'G']).unwrap();
+        let app = test::init_service(
+            App::new()
+                .wrap(SecurityHeaders)
+                .service(actix_files::Files::new("/static", dir.path())),
+        )
+        .await;
+
+        for (file, expected) in [
+            ("main-abc.js", "text/javascript; charset=utf-8"),
+            ("main-abc.css", "text/css; charset=utf-8"),
+            ("logo.png", "image/png"),
+        ] {
+            let req = test::TestRequest::get()
+                .uri(&format!("/static/{file}"))
+                .to_request();
+            let res = test::call_service(&app, req).await;
+            assert!(res.status().is_success(), "{file}: {}", res.status());
+            let ct = res.headers().get(header::CONTENT_TYPE).unwrap();
+            assert_eq!(ct.to_str().unwrap(), expected, "{file}");
+        }
+    }
+
+    #[test]
+    fn charset_is_added_only_where_missing() {
+        let added = |ct: &str| with_utf8_charset(ct).map(|v| v.to_str().unwrap().to_string());
+        assert_eq!(
+            added("application/javascript").as_deref(),
+            Some("application/javascript; charset=utf-8")
+        );
+        assert_eq!(added("text/javascript; charset=utf-8"), None);
+        assert_eq!(added("text/css; Charset=UTF-8"), None);
+        assert_eq!(added("text/html"), None);
+        assert_eq!(added("application/json"), None);
     }
 }
