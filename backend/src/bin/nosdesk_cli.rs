@@ -229,7 +229,9 @@ enum DbCommand {
     /// Restore the database and uploaded files from a backup zip.
     /// Destructive: tables are replaced. Prompts unless --yes.
     /// Refuses on a non-empty target database unless --force.
-    /// Requires DATABASE_URL and the encryption env.
+    /// Requires DATABASE_URL and the encryption env. A backup from an
+    /// earlier version is upgraded as it restores, which needs a superuser
+    /// role, as a fresh install does.
     Restore {
         #[arg(value_name = "FILE")]
         file: PathBuf,
@@ -244,11 +246,6 @@ enum DbCommand {
             help = "Allow restore over a non-empty target database (replaces existing data)"
         )]
         force: bool,
-        #[arg(
-            long,
-            help = "Restore even if the backup's schema hash doesn't match this build (use only if you've verified compatibility)"
-        )]
-        ignore_schema_mismatch: bool,
     },
 }
 
@@ -859,15 +856,7 @@ fn run_db(cmd: DbCommand) -> Result<()> {
             password_env,
             yes,
             force,
-            ignore_schema_mismatch,
-        } => db_restore(
-            &file,
-            password,
-            password_env,
-            yes,
-            force,
-            ignore_schema_mismatch,
-        ),
+        } => db_restore(&file, password, password_env, yes, force),
     }
 }
 
@@ -877,7 +866,6 @@ fn db_restore(
     password_env: Option<String>,
     yes: bool,
     force: bool,
-    ignore_schema_mismatch: bool,
 ) -> Result<()> {
     if !file.exists() {
         bail!("backup file not found: {}", file.display());
@@ -889,14 +877,22 @@ fn db_restore(
     // verification — a successful preview means the archive
     // header parsed and (if encrypted) the password decrypted
     // the inner zip.
-    let preview = backup_service::preview_restore(file, password.as_deref())
+    let mut preview = backup_service::preview_restore(file, password.as_deref())
         .map_err(|e| anyhow!("preview failed: {e}"))?;
+    let pool = db::establish_connection_pool();
+    backup_service::list_replaced_tables(&pool, &mut preview);
 
     let manifest = &preview.manifest;
     println!("Restore preview:");
     println!("  source:       {}", file.display());
     println!("  created:      {}", manifest.created_at);
     println!("  version:      {}", manifest.nosdesk_version);
+    if let Some(upgrade) = &preview.upgrade {
+        println!(
+            "  upgrade:      from {} to {}, as the backup restores",
+            upgrade.from_version, upgrade.to_version
+        );
+    }
     println!(
         "  files:        {} ({} bytes)",
         manifest.files.total_count, manifest.files.total_size_bytes
@@ -906,6 +902,23 @@ fn db_restore(
     println!("  tables:");
     for (name, info) in tables {
         println!("    - {name}: {} rows", info.count);
+    }
+    if let Some(upgrade) = preview
+        .upgrade
+        .as_ref()
+        .filter(|u| !u.replaced_tables.is_empty())
+    {
+        eprintln!(
+            "  warning: the backup predates these tables; their current rows are replaced \
+             (settings return to their defaults): {}",
+            upgrade.replaced_tables.join(", ")
+        );
+    }
+    if !preview.encrypted {
+        eprintln!(
+            "  warning: this backup holds no passwords or MFA; restoring it clears them for \
+             everyone. Set a new one afterwards with `nosdesk-cli admin reset-password`."
+        );
     }
     for warning in &preview.warnings {
         eprintln!("  warning: {warning}");
@@ -919,12 +932,12 @@ fn db_restore(
     // Runs as the migration role when MIGRATION_DATABASE_URL is set, like
     // the admin restore: the app role can't truncate and reload tables.
     let (stats, mut conn) = backup_service::restore_instance(
-        &db::establish_connection_pool(),
+        &pool,
         file,
         password.as_deref(),
         backup_service::RestoreOptions {
             force_non_empty: force,
-            ignore_schema_mismatch,
+            ..Default::default()
         },
     )
     .map_err(|e| match e.connection_cause() {

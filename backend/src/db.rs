@@ -138,6 +138,13 @@ fn migration_url() -> Result<(String, &'static str), Box<dyn std::error::Error +
     Ok((url, "DATABASE_URL"))
 }
 
+/// The URL migrations run through (`MIGRATION_DATABASE_URL`, else
+/// `DATABASE_URL`), when either is set. The instance restore creates its
+/// scratch database with it.
+pub fn migration_database_url() -> Option<String> {
+    migration_url().ok().map(|(url, _)| url)
+}
+
 /// Run `f` while holding the migration advisory lock on `conn`. Session-level
 /// (not `_xact_`), so it spans Diesel's per-migration transactions and
 /// auto-releases if the connection drops — a crashed runner never wedges the

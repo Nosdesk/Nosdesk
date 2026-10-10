@@ -72,7 +72,17 @@ const EXCLUDE_FROM_WORKSPACE_EXPORT: &[&str] =
 pub struct WorkspaceExportManifest {
     pub workspace_export_format_version: u32,
     pub nosdesk_version: String,
+    /// `build.rs`'s `DefaultHasher` fingerprint of the migrations. Read only
+    /// for an archive without `schema_sha256`: its hasher can change with the
+    /// toolchain.
     pub schema_hash: String,
+    /// The last migration applied when the export was taken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migration_version: Option<String>,
+    /// SHA-256 of every migration up to `migration_version` (`build.rs`), the
+    /// schema marker import compares.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_sha256: Option<String>,
     pub created_at: String,
     pub workspace_id: i32,
     pub workspace_slug: String,
@@ -421,6 +431,16 @@ pub fn assemble_workspace_archive(
         workspace_export_format_version: WORKSPACE_EXPORT_FORMAT_VERSION,
         nosdesk_version: env!("CARGO_PKG_VERSION").to_string(),
         schema_hash: env!("NOSDESK_SCHEMA_HASH").to_string(),
+        migration_version: Some(
+            crate::services::backup_upgrade::current_schema()
+                .version
+                .to_string(),
+        ),
+        schema_sha256: Some(
+            crate::services::backup_upgrade::current_schema()
+                .sha256
+                .to_string(),
+        ),
         created_at: Utc::now().to_rfc3339(),
         workspace_id,
         workspace_slug: meta.slug.clone(),

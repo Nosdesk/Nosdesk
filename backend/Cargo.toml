@@ -37,7 +37,7 @@ bigdecimal = { version = "0.4", features = ["serde"] }
 # `dotenvy::dotenv` path), so callers only change their import line.
 dotenvy = "0.15"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["raw_value"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"  # SLA business-hours arithmetic walks named timezones
 rrule = "0.14"     # RFC 5545 RRULE parsing for recurring tickets
@@ -248,6 +248,11 @@ metrics = "0.24"
 # across the Fluent ecosystem.
 fluent-bundle = "0.16"
 unic-langid = "0.9"
+
+# build.rs: the stable schema fingerprint backups carry (sha256 of each
+# migration prefix). Already in the tree as a normal dependency.
+[build-dependencies]
+sha2 = "0.10"
 
 # For testing only
 [dev-dependencies]
