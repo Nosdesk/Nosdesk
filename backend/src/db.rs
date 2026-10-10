@@ -569,6 +569,27 @@ fn redact_db_url(url: &str) -> String {
     }
 }
 
+/// The runtime pool every request handler and background job uses: one
+/// [`ResettingManager`] connection per checkout, scrubbed of `app.*` GUCs and
+/// reset to the login role, so nothing starts pinned to a workspace. Tests
+/// build their production-shaped pool through this too.
+pub fn build_runtime_pool(
+    database_url: impl Into<String>,
+    max_size: u32,
+    min_idle: u32,
+    connection_timeout_secs: u64,
+) -> Result<Pool, r2d2::PoolError> {
+    r2d2::Pool::builder()
+        .max_size(max_size)
+        .min_idle(Some(min_idle))
+        .connection_timeout(Duration::from_secs(connection_timeout_secs))
+        // Scrub per-request GUCs on every checkout (ResettingManager::is_valid).
+        // test_on_check_out is on by default; set explicitly because the GUC
+        // scrub, and the tenant isolation that depends on it, relies on it.
+        .test_on_check_out(true)
+        .build(ResettingManager::new(database_url))
+}
+
 pub fn establish_connection_pool() -> Pool {
     dotenv().ok();
 
@@ -621,18 +642,7 @@ pub fn establish_connection_pool() -> Pool {
     );
 
     info!("Attempting to create database connection pool");
-    let manager = ResettingManager::new(database_url);
-
-    match r2d2::Pool::builder()
-        .max_size(max_size)
-        .min_idle(Some(min_idle))
-        .connection_timeout(Duration::from_secs(connection_timeout))
-        // Scrub per-request GUCs on every checkout (ResettingManager::is_valid).
-        // test_on_check_out is on by default; set explicitly because the GUC
-        // scrub — and the tenant isolation that depends on it — relies on it.
-        .test_on_check_out(true)
-        .build(manager)
-    {
+    match build_runtime_pool(database_url, max_size, min_idle, connection_timeout) {
         Ok(pool) => {
             info!("Database connection pool created successfully");
             pool

@@ -43,11 +43,18 @@ async fn a_soft_deleted_user_past_the_grace_window_is_purged_and_audited() {
     let ws = seeded.b.workspace_id;
     let gone = seeded.b.member_uuid;
     let restorable = seeded.a.member_uuid;
+    // In no workspace: nowhere to record its purge, so it stays (and the job
+    // says so once per run).
+    let homeless = crate::common::insert_plain_user(&mut conn, "Homeless");
 
-    diesel::sql_query("UPDATE users SET deleted_at = now() - interval '400 days' WHERE uuid = $1")
-        .bind::<SqlUuid, _>(gone)
+    for uuid in [gone, homeless] {
+        diesel::sql_query(
+            "UPDATE users SET deleted_at = now() - interval '400 days' WHERE uuid = $1",
+        )
+        .bind::<SqlUuid, _>(uuid)
         .execute(&mut conn)
         .expect("soft-delete long ago");
+    }
     diesel::sql_query("UPDATE users SET deleted_at = now() WHERE uuid = $1")
         .bind::<SqlUuid, _>(restorable)
         .execute(&mut conn)
@@ -56,7 +63,7 @@ async fn a_soft_deleted_user_past_the_grace_window_is_purged_and_audited() {
     let tmp = tempfile::tempdir().expect("temp search dir");
     let search =
         Arc::new(backend::services::search::SearchService::new(tmp.path(), &pool).expect("search"));
-    backend::services::scheduled_jobs::purge_soft_deleted_users(db.runtime_pool(2), search)
+    backend::services::scheduled_jobs::purge_soft_deleted_users(db.job_pool(), search)
         .await
         .expect("purge");
 
@@ -81,6 +88,11 @@ async fn a_soft_deleted_user_past_the_grace_window_is_purged_and_audited() {
         remaining(&mut conn, restorable),
         1,
         "still within its window"
+    );
+    assert_eq!(
+        remaining(&mut conn, homeless),
+        1,
+        "no workspace to record it in"
     );
 }
 
@@ -123,7 +135,7 @@ async fn webhook_deliveries_past_retention_are_pruned_and_audited() {
     let old_b = seed(seeded.b.workspace_id, seeded.b.webhook_id, 45);
     let new_b = seed(seeded.b.workspace_id, seeded.b.webhook_id, 1);
 
-    backend::services::scheduled_jobs::prune_webhook_deliveries(db.runtime_pool(2))
+    backend::services::scheduled_jobs::prune_webhook_deliveries(db.job_pool())
         .await
         .expect("prune");
 

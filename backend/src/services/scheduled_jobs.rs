@@ -848,16 +848,11 @@ pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) ->
     let actor = crate::sync::actor::ActorContext::system("scheduler:user_purge");
     let mut purged = 0usize;
     let mut failed = 0usize;
+    let mut homeless = 0usize;
     for user in pending {
         let result = purge_account_in_home_workspace(&mut conn, &actor, &user.uuid, Some(&search));
         match result {
-            Ok(None) => {
-                failed += 1;
-                warn!(
-                    user_uuid = %user.uuid,
-                    "scheduler:user_purge: skipped, the account is in no workspace to record the purge in"
-                );
-            }
+            Ok(None) => homeless += 1,
             Ok(Some(_)) => {
                 purged += 1;
                 info!(
@@ -877,6 +872,7 @@ pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) ->
             }
         }
     }
+    warn_homeless_accounts("scheduler:user_purge", homeless);
     info!(
         purged,
         failed,
@@ -891,7 +887,8 @@ pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) ->
 /// the bypass role because an account's rows can reach every workspace it
 /// belongs to, but the audit trigger still needs a workspace for the rows it
 /// writes, and a background connection starts with none. `Ok(None)` when the
-/// account is in no workspace; it is left in place.
+/// account is in no workspace; it is left in place (see
+/// [`warn_homeless_accounts`]).
 ///
 /// For an account in several workspaces, rows the purge touches in the
 /// others are recorded in the home workspace too.
@@ -910,6 +907,17 @@ fn purge_account_in_home_workspace(
         crate::sync::session::pin_workspace(conn, workspace_id)?;
         crate::repository::users::purge_user(user_uuid, conn, observer).map(Some)
     })
+}
+
+/// One warning per run for the accounts a purge job left because they are in
+/// no workspace: the audit trigger needs one to record the purge in. They
+/// stay in the job's scan, so the warning repeats until someone acts.
+fn warn_homeless_accounts(job: &str, count: usize) {
+    if count > 0 {
+        warn!(
+            "{job}: {count} account(s) left in place, they are in no workspace to record the purge in"
+        );
+    }
 }
 
 /// Hard-delete archived workspaces whose grace window has elapsed
@@ -1810,6 +1818,7 @@ pub async fn guest_residue_sweep(pool: &Pool, search: Option<&Arc<SearchService>
     let mut purged = 0usize;
     let mut conn = pool.get().context("db pool")?;
     let actor = crate::sync::actor::ActorContext::system("scheduler:guest_residue_purge");
+    let mut homeless = 0usize;
     for uuid in accounts {
         match purge_account_in_home_workspace(
             &mut conn,
@@ -1818,13 +1827,11 @@ pub async fn guest_residue_sweep(pool: &Pool, search: Option<&Arc<SearchService>
             search.map(|s| s as &dyn crate::repository::users::UserDeletedObserver),
         ) {
             Ok(Some(_)) => purged += 1,
-            Ok(None) => warn!(
-                user_uuid = %uuid,
-                "scheduler:guest_residue: account skipped, it is in no workspace"
-            ),
+            Ok(None) => homeless += 1,
             Err(e) => warn!(error = ?e, "scheduler:guest_residue: account purge failed"),
         }
     }
+    warn_homeless_accounts("scheduler:guest_residue", homeless);
     info!("scheduler:guest_residue: removed {requests} unconfirmed requests, {files} abandoned uploads, {purged} unused guest accounts");
     Ok(())
 }

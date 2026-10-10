@@ -357,11 +357,17 @@ impl TestDb {
     pub fn runtime_pool(&self, max_size: u32) -> TestPool {
         let sep = if self.url.contains('?') { '&' } else { '?' };
         let url = format!("{}{sep}options=-c%20role%3Dnosdesk_app", self.url);
-        r2d2::Pool::builder()
-            .max_size(max_size)
-            .test_on_check_out(true)
-            .build(backend::db::ResettingManager::new(url))
-            .expect("build runtime pool")
+        backend::db::build_runtime_pool(url, max_size, 0, 30).expect("build runtime pool")
+    }
+
+    /// The pool production's scheduled jobs and background workers run on,
+    /// built by the same code (`backend::db::build_runtime_pool`): the
+    /// `nosdesk_app` role, no workspace pinned, every checkout scrubbed. A
+    /// job that writes an audited row without pinning a workspace fails
+    /// here as it does in production, where on [`Self::pool_with_size`] the
+    /// seeded workspace 1 would hide it.
+    pub fn job_pool(&self) -> TestPool {
+        self.runtime_pool(4)
     }
 }
 

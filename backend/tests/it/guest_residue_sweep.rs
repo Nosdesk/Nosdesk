@@ -191,7 +191,7 @@ async fn an_unconfirmed_request_and_its_unused_account_are_removed() {
     let tmp = tempfile::tempdir().expect("temp search dir");
     let search =
         Arc::new(backend::services::search::SearchService::new(tmp.path(), &pool).expect("search"));
-    let runtime = db.runtime_pool(2);
+    let runtime = db.job_pool();
     backend::services::scheduled_jobs::guest_residue_sweep(&runtime, Some(&search))
         .await
         .expect("sweep");

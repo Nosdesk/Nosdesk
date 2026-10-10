@@ -81,9 +81,9 @@ pub fn orphan_guest_uploads(
 /// Accounts the request form made for an address that never confirmed and
 /// that were never used for anything: only unconfirmed request-form email,
 /// no requests, comments, sign-in identities, followed requests or roles
-/// above requester anywhere, created before `cutoff`. Only accounts still in
-/// some workspace: the purge is recorded in that workspace, and one in none
-/// has nowhere to record it.
+/// above requester anywhere, created before `cutoff`. Accounts in no
+/// workspace come last: the purge skips them (it has no workspace to record
+/// the purge in), and they must not crowd out the ones it can remove.
 // members-any-status: anyone who ever held a staff seat, even a removed one, is never an unused guest
 // sync-audit-only: a read-only scan (raw SELECT), no write
 pub fn never_confirmed_guests(
@@ -103,8 +103,9 @@ pub fn never_confirmed_guests(
            AND NOT EXISTS (SELECT 1 FROM ticket_watchers w WHERE w.user_uuid = u.uuid) \
            AND NOT EXISTS (SELECT 1 FROM workspace_members m WHERE m.user_uuid = u.uuid \
                            AND m.role <> 'member') \
-           AND EXISTS (SELECT 1 FROM workspace_members m WHERE m.user_uuid = u.uuid) \
-         ORDER BY u.created_at LIMIT $3",
+         ORDER BY NOT EXISTS (SELECT 1 FROM workspace_members m WHERE m.user_uuid = u.uuid), \
+                  u.created_at \
+         LIMIT $3",
     )
     .bind::<Timestamptz, _>(cutoff)
     .bind::<Text, _>(crate::repository::user_helpers::GUEST_EMAIL_SOURCE)
