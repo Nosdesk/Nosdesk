@@ -191,7 +191,7 @@ lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", 
 # fallback for the multipart/alternative email body. `html-escape` is the
 # small, focused crate we use whenever we need to embed a plaintext string
 # safely inside an HTML body (signature lines, quote attribution).
-html2text = "0.12"
+html2text = "0.17"
 html-escape = "0.2"
 # Server-side HTML sanitiser for inbound email rendering. Built on
 # html5ever (the Servo HTML parser), so it's the right tool for
