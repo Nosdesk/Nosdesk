@@ -141,9 +141,11 @@ pub const OAUTH_STATE_COOKIE: &str = "oauth_state";
 ///
 /// The trade-off is replay: the state is a signed token, not a one-time
 /// record, so it stays acceptable for the whole window. That buys an attacker
-/// little. The state only works in the browser holding the binding cookie, and
-/// the authorization code it pairs with is single use and bound by PKCE to the
-/// verifier inside the state. What the longer window does allow is a stale
+/// little: the state only works in the browser holding the binding cookie,
+/// and the authorization code it pairs with is single use. PKCE adds nothing
+/// against someone holding the callback URL, since the verifier rides inside
+/// the signed (not encrypted) state; the binding cookie is what protects a
+/// leaked code and state. What the longer window does allow is a stale
 /// callback in that same browser (a back button, a reopened tab) to finish
 /// the sign-in the person started.
 pub const OAUTH_STATE_LIFETIME: std::time::Duration = std::time::Duration::from_secs(30 * 60);
