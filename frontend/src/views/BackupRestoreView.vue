@@ -442,7 +442,7 @@ const errorCode = (error: unknown) =>
 const REFUSAL_KEYS: Record<string, string> = {
   BACKUP_FROM_NEWER_VERSION: 'admin-backup-restore-from-newer',
   BACKUP_SCHEMA_UNKNOWN: 'admin-backup-restore-schema-unknown',
-  BACKUP_NEEDS_PRIVILEGES: 'admin-backup-restore-needs-privileges',
+  BACKUP_NEEDS_SUPERUSER: 'admin-backup-restore-needs-superuser',
   BACKUP_RESTORE_IN_PROGRESS: 'admin-backup-restore-in-progress',
 };
 const refusalFor = (error: unknown) => {

@@ -73,56 +73,53 @@ fn as_role(db: &TestDb, role: &str) -> backend::db::DbConnection {
         .expect("connection")
 }
 
+/// An upgrade builds its scratch database from the first migration, which
+/// takes a superuser, so a role without superuser is refused before anything
+/// changes, CREATEDB and BYPASSRLS notwithstanding.
 #[test]
-fn a_role_without_the_upgrade_privileges_is_refused_before_anything_changes() {
+fn an_upgrade_restore_needs_a_superuser_and_refuses_before_anything_changes() {
     with_upload_dir();
     let db = TestDb::new();
     let before = hash_table(&mut db.conn(), "site_settings");
 
-    // `nosdesk_app` has neither CREATEDB nor BYPASSRLS.
-    let refused = backup_service::restore_database(
-        &mut as_role(&db, "nosdesk_app"),
-        &plain_1_0_12(),
-        None,
-        options(&db),
-    )
-    .expect_err("refused");
-    match &refused {
-        backup_service::BackupError::MissingPrivileges(missing) => {
-            assert_eq!(missing, &["CREATEDB", "BYPASSRLS"])
-        }
-        other => panic!("refused for another reason: {other}"),
-    }
-
-    // CREATEDB alone isn't enough: the upgraded rows are read back across
-    // every workspace.
     let role = format!(
-        "nosdesk_test_createdb_{}",
+        "nosdesk_test_restorer_{}",
         &uuid::Uuid::new_v4().simple().to_string()[..12]
     );
     db.conn()
-        .batch_execute(&format!("CREATE ROLE {role} NOLOGIN CREATEDB"))
+        .batch_execute(&format!(
+            "CREATE ROLE {role} NOLOGIN NOSUPERUSER CREATEDB BYPASSRLS"
+        ))
         .expect("create role");
-    let refused = backup_service::restore_database(
+    let refused_privileged = backup_service::restore_database(
         &mut as_role(&db, &role),
         &plain_1_0_12(),
         None,
         options(&db),
-    )
-    .expect_err("refused");
+    );
+    let refused_app = backup_service::restore_database(
+        &mut as_role(&db, "nosdesk_app"),
+        &plain_1_0_12(),
+        None,
+        options(&db),
+    );
     db.conn()
         .batch_execute(&format!("DROP ROLE {role}"))
         .expect("drop role");
-    match &refused {
-        backup_service::BackupError::MissingPrivileges(missing) => {
-            assert_eq!(missing, &["BYPASSRLS"])
-        }
-        other => panic!("refused for another reason: {other}"),
+    for refused in [refused_privileged, refused_app] {
+        let refused = refused.expect_err("refused without superuser");
+        assert!(
+            matches!(refused, backup_service::BackupError::NeedsSuperuser),
+            "{refused}"
+        );
+        assert!(refused.to_string().contains("superuser"), "{refused}");
     }
-    assert!(refused.to_string().contains("BYPASSRLS"), "{refused}");
-
     assert_eq!(hash_table(&mut db.conn(), "site_settings"), before);
     assert_eq!(scratch_databases(&db), 0);
+
+    // The test role is a superuser: the same restore goes through.
+    backup_service::restore_database(&mut db.conn(), &plain_1_0_12(), None, options(&db))
+        .expect("a superuser restores");
 }
 
 /// A migration that fails on the backup's rows stops the restore: the live

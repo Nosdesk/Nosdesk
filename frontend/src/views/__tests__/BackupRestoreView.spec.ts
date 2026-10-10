@@ -139,7 +139,7 @@ describe('BackupRestoreView restoring a backup from an earlier version', () => {
   })
 
   it.each([
-    ['BACKUP_NEEDS_PRIVILEGES', 500, 'admin-backup-restore-needs-privileges'],
+    ['BACKUP_NEEDS_SUPERUSER', 500, 'admin-backup-restore-needs-superuser'],
     ['BACKUP_RESTORE_IN_PROGRESS', 409, 'admin-backup-restore-in-progress'],
   ])('says why the restore was refused (%s)', async (code, status, key) => {
     service.getRestorePreview.mockResolvedValue({

@@ -161,6 +161,29 @@ async fn restore_runs_as_the_migration_role_and_hosted_refuses_it() {
             .expect("ticket_merges");
     assert_eq!(merges, 1, "the 1.0 merge survives the upgrade");
 
+    // While another restore runs, this one is refused with 409 and its job
+    // keeps the status it had.
+    let waiting_job = restore_job_for(&db, &common::fixture_path("backups/1.0.12/plain.zip"));
+    let mut holder = diesel::PgConnection::establish(db.url()).expect("connect");
+    diesel::sql_query("SELECT pg_advisory_lock($1)")
+        .bind::<diesel::sql_types::BigInt, _>(backup_service::RESTORE_LOCK_KEY)
+        .execute(&mut holder)
+        .expect("stand in for a running restore");
+    let refused = as_operator(
+        &pool,
+        http_test::TestRequest::post()
+            .uri(&format!("/api/admin/backup/restore/{waiting_job}/execute"))
+            .set_json(json!({ "password": null })),
+    )
+    .await;
+    drop(holder);
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
+    let job = backup_repo::get_backup_job(&mut db.conn(), waiting_job).expect("job");
+    assert_eq!(
+        job.status, "pending",
+        "a refused restore leaves its job as it was"
+    );
+
     // Hosted doesn't offer it.
     std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
     assert_eq!(

@@ -242,35 +242,24 @@ pub(crate) fn upgrade_archive(
 }
 
 /// Refuse early, before anything is touched, when the role restore runs as
-/// can't do what an upgrade takes: create the scratch database (`CREATEDB`)
-/// and read every workspace's rows back out of it past row-level security
-/// (`BYPASSRLS`). A superuser has both.
+/// isn't a superuser. The scratch database starts from template0, so the
+/// upgrade runs every migration from the first, as a fresh install does, and
+/// that takes a superuser: the initial schema disables system triggers and
+/// grants role membership, and the load sets `session_replication_role`.
+/// CREATEDB and BYPASSRLS without superuser aren't enough.
 pub(crate) fn require_upgrade_privileges(conn: &mut DbConnection) -> Result<(), BackupError> {
     #[derive(QueryableByName)]
     struct Role {
         #[diesel(sql_type = diesel::sql_types::Bool)]
         rolsuper: bool,
-        #[diesel(sql_type = diesel::sql_types::Bool)]
-        rolcreatedb: bool,
-        #[diesel(sql_type = diesel::sql_types::Bool)]
-        rolbypassrls: bool,
     }
-    let role: Role = sql_query(
-        "SELECT rolsuper, rolcreatedb, rolbypassrls FROM pg_roles WHERE rolname = current_user",
-    )
-    .get_result(conn)
-    .map_err(BackupError::DatabaseError)?;
-    let mut missing = Vec::new();
-    if !(role.rolsuper || role.rolcreatedb) {
-        missing.push("CREATEDB");
-    }
-    if !(role.rolsuper || role.rolbypassrls) {
-        missing.push("BYPASSRLS");
-    }
-    if missing.is_empty() {
+    let role: Role = sql_query("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+        .get_result(conn)
+        .map_err(BackupError::DatabaseError)?;
+    if role.rolsuper {
         Ok(())
     } else {
-        Err(BackupError::MissingPrivileges(missing))
+        Err(BackupError::NeedsSuperuser)
     }
 }
 

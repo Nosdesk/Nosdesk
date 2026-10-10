@@ -226,10 +226,10 @@ pub enum BackupError {
     ConnectionUnavailable(String),
     /// The backup's schema isn't one this build can restore.
     NotRestorable(super::backup_upgrade::NotRestorable),
-    /// An older backup is upgraded in a scratch database and exported again
-    /// across every workspace; the role restore runs as lacks a privilege
-    /// that takes (`CREATEDB`, `BYPASSRLS`).
-    MissingPrivileges(Vec<&'static str>),
+    /// An older backup is upgraded in a scratch database built from the
+    /// first migration, which takes a superuser, and the role restore runs
+    /// as isn't one.
+    NeedsSuperuser,
     /// Another restore of this database is running.
     RestoreInProgress,
     /// Upgrading an older backup's rows to this build's schema failed.
@@ -270,15 +270,13 @@ impl std::fmt::Display for BackupError {
             }
             BackupError::ConnectionUnavailable(_) => write!(f, "Database connection unavailable"),
             BackupError::NotRestorable(reason) => write!(f, "Can't restore: {reason}"),
-            BackupError::MissingPrivileges(missing) => write!(
+            BackupError::NeedsSuperuser => write!(
                 f,
                 "Restoring a backup from an earlier Nosdesk version upgrades it in a temporary \
-                 database and reads it back across every workspace, which needs a database role \
-                 with CREATEDB and BYPASSRLS, or a superuser. The role restore runs as \
-                 (MIGRATION_DATABASE_URL, or DATABASE_URL when that isn't set) lacks {}. Nothing \
-                 was changed. See \
-                 https://nosdesk.com/docs/operations/backup-restore#restoring-a-backup-from-an-earlier-version",
-                missing.join(" and ")
+                 database built the way a fresh install is, which needs a superuser role, as a \
+                 fresh install does. The role restore runs as (MIGRATION_DATABASE_URL, or \
+                 DATABASE_URL when that isn't set) isn't one. Nothing was changed. See \
+                 https://nosdesk.com/docs/operations/backup-restore#restoring-a-backup-from-an-earlier-version"
             ),
             BackupError::RestoreInProgress => write!(
                 f,

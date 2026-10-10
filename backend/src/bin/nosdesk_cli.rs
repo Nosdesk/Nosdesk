@@ -230,8 +230,8 @@ enum DbCommand {
     /// Destructive: tables are replaced. Prompts unless --yes.
     /// Refuses on a non-empty target database unless --force.
     /// Requires DATABASE_URL and the encryption env. A backup from an
-    /// earlier version is upgraded as it restores, which needs a role
-    /// that can create databases (CREATEDB).
+    /// earlier version is upgraded as it restores, which needs a superuser
+    /// role, as a fresh install does.
     Restore {
         #[arg(value_name = "FILE")]
         file: PathBuf,
