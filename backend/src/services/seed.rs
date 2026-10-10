@@ -42,7 +42,9 @@ pub fn run_seeds(conn: &mut DbConnection) {
 /// Seed the functional defaults a freshly-provisioned workspace needs to be
 /// usable: workflow states (the ticket-creation blocker), a working
 /// calendar + SLA policy, and ticket categories. Idempotent per workspace;
-/// each sub-seed no-ops when its rows already exist.
+/// each sub-seed no-ops when its rows already exist. On hosted, the portal and
+/// emails are also named after the workspace (self-hosted keeps "Nosdesk" until
+/// an admin names them).
 ///
 /// Starter docs are deliberately NOT seeded here: the welcome page's author
 /// columns are NOT NULL with an FK to `users`, and at hosted create time no
@@ -61,7 +63,53 @@ pub fn seed_workspace_defaults(
     repository::sla_admin::seed_defaults_if_empty(conn, created_by)?;
     repository::categories::seed_defaults_if_empty(conn, created_by)?;
     repository::asset_kinds::seed_defaults_if_empty(conn, created_by)?;
+    if crate::middleware::workspace_context::is_hosted() {
+        repository::site_settings::name_after_workspace(conn)?;
+    }
     Ok(())
+}
+
+/// Hosted: name every workspace whose portal and emails still say "Nosdesk"
+/// after the workspace. Workspaces provisioned before naming moved into
+/// [`seed_workspace_defaults`] were left on the default. Runs at every boot;
+/// once each workspace is named it finds nothing to do. A workspace admins
+/// have named is never touched. Returns how many it named.
+pub fn name_hosted_workspaces(pool: &crate::db::Pool) -> usize {
+    if !crate::middleware::workspace_context::is_hosted() {
+        return 0;
+    }
+    // cross-tenant: lists every workspace whose settings are still unnamed.
+    let pending = match crate::sync::session::background_run(
+        pool,
+        "startup:hosted_app_name",
+        repository::site_settings::workspaces_with_default_app_name,
+    ) {
+        Ok(ids) => ids,
+        Err(e) => {
+            warn!(error = %e, "Could not list workspaces still named Nosdesk");
+            return 0;
+        }
+    };
+    let mut named = 0;
+    for workspace_id in pending {
+        match crate::sync::session::run_in_workspace(
+            pool,
+            "startup:hosted_app_name",
+            workspace_id,
+            repository::site_settings::name_after_workspace,
+        ) {
+            Ok(true) => named += 1,
+            Ok(false) => {}
+            Err(e) => warn!(workspace_id, error = %e, "Could not name a workspace's portal"),
+        }
+    }
+    if named > 0 {
+        info!(
+            count = named,
+            "Named hosted workspaces' portals after the workspace"
+        );
+    }
+    named
 }
 
 /// Resolve the system user to credit seed content to: the first platform

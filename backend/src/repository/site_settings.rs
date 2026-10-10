@@ -55,6 +55,74 @@ pub fn update_site_settings(
         .get_result(conn)
 }
 
+/// The name a workspace's `site_settings.app_name` starts with (the column
+/// default). A row still holding it has never been named.
+pub const DEFAULT_APP_NAME: &str = "Nosdesk";
+
+// sync-audit-only: Workspace settings; covered by the audit_log trigger on site_settings, sync clients don't subscribe
+/// Name the pinned workspace's portal and emails after the workspace, unless
+/// an admin has already named them: creates the row with the workspace's name,
+/// or replaces `app_name` only while it is still the default. Returns whether
+/// it wrote. A no-op on an unpinned connection.
+///
+/// Hosted only; the caller checks. Must run pinned to the workspace (as the app
+/// role, or under bypass after `pin_workspace`) so the audit trigger attributes
+/// the write to it.
+pub fn name_after_workspace(conn: &mut DbConnection) -> QueryResult<bool> {
+    let written = diesel::sql_query(
+        "INSERT INTO site_settings (app_name) \
+         SELECT w.name FROM workspaces w \
+         WHERE w.id = NULLIF(current_setting('app.workspace_id', true), '')::int \
+         ON CONFLICT (workspace_id) DO UPDATE SET app_name = EXCLUDED.app_name \
+         WHERE site_settings.app_name = $1",
+    )
+    .bind::<diesel::sql_types::Text, _>(DEFAULT_APP_NAME)
+    .execute(conn)?;
+    Ok(written > 0)
+}
+
+/// Every workspace whose portal and emails are still unnamed: no settings row,
+/// or `app_name` still the default. Reads across workspaces, so the connection
+/// must be elevated.
+pub fn workspaces_with_default_app_name(conn: &mut DbConnection) -> QueryResult<Vec<i32>> {
+    use crate::schema::workspaces;
+    workspaces::table
+        .left_join(site_settings::table)
+        .filter(
+            site_settings::id
+                .is_null()
+                .or(site_settings::app_name.eq(DEFAULT_APP_NAME)),
+        )
+        .select(workspaces::id)
+        .order(workspaces::id)
+        .load(conn)
+}
+
+// sync-audit-only: Workspace settings; covered by the audit_log trigger on site_settings, sync clients don't subscribe
+/// Ahead of renaming a workspace, carry `app_name` to `new_name` when it still
+/// equals the workspace's current name (nobody named it anything else). Call
+/// in the rename's transaction, before the rename. Pins `workspace_id` for the
+/// rest of the transaction so the audit row lands in that workspace; the
+/// explicit filter keeps an elevated connection to that one row.
+pub fn follow_workspace_rename(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    new_name: &str,
+) -> QueryResult<bool> {
+    crate::sync::session::pin_workspace(conn, workspace_id)?;
+    let updated = diesel::sql_query(
+        "UPDATE site_settings SET app_name = $1 \
+         FROM workspaces w \
+         WHERE w.id = site_settings.workspace_id \
+           AND site_settings.workspace_id = $2 \
+           AND site_settings.app_name = w.name",
+    )
+    .bind::<diesel::sql_types::Text, _>(new_name)
+    .bind::<diesel::sql_types::Integer, _>(workspace_id)
+    .execute(conn)?;
+    Ok(updated > 0)
+}
+
 /// One of the workspace's two logos.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Logo {
