@@ -266,8 +266,9 @@ pub struct OAuthState {
     /// `oauth_state` cookie (RFC 9700 §2.1). The callback rejects unless the
     /// cookie matches this value, so an attacker can't CSRF their own
     /// `(code, state)` onto a victim (login-CSRF / session swap). `None` for
-    /// legacy in-flight tokens minted before this field existed (a <=10-minute
-    /// transition window, after which every state carries a binding).
+    /// legacy in-flight tokens minted before this field existed (gone once
+    /// the state lifetime has passed, after which every state carries a
+    /// binding).
     #[serde(default)]
     pub binding: Option<String>,
 }

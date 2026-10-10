@@ -339,12 +339,25 @@ pub async fn sso_callback(
             return Ok(back_to_login("failed"));
         }
     };
-    let mut conn = pool
-        .get()
-        .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
-    let user = crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn)
-        .map_err(|_| ApiError::Unauthorized("That account isn't active".into()))?;
-    let session = mint_portal_session(&user, ws.workspace_uuid, &req, &mut conn)?;
+    // A browser load: what goes wrong from here lands on the sign-in page too.
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(e) => {
+            tracing::error!(error = %e, "portal sso: no database connection");
+            return Ok(back_to_login("failed"));
+        }
+    };
+    let Ok(user) = crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn) else {
+        tracing::warn!("portal sso: the account isn't active");
+        return Ok(back_to_login("failed"));
+    };
+    let session = match mint_portal_session(&user, ws.workspace_uuid, &req, &mut conn) {
+        Ok(session) => session,
+        Err(e) => {
+            tracing::error!(error = %e, "portal sso: starting the session failed");
+            return Ok(back_to_login("failed"));
+        }
+    };
     Ok(HttpResponse::Found()
         .cookie(state_cookie(String::new(), 0))
         .cookie(session.access)
