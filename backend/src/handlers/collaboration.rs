@@ -403,6 +403,16 @@ static MAINTENANCE_INTERVAL: once_cell::sync::Lazy<Duration> = once_cell::sync::
         .map(Duration::from_millis)
         .unwrap_or(Duration::from_secs(30))
 });
+// A pause between the handshake's access check and a session joining its
+// room. Zero in production; a test sets it (`NOSDESK_COLLAB_JOIN_DELAY_MS`)
+// to change access in between.
+static JOIN_DELAY: once_cell::sync::Lazy<Duration> = once_cell::sync::Lazy::new(|| {
+    std::env::var("NOSDESK_COLLAB_JOIN_DELAY_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::ZERO)
+});
 // An editing session ends when everyone leaves the document, or when nobody
 // has changed it for this long while someone still has it open (a second
 // tab, a colleague reading along). Either way its changes become a revision.
@@ -1484,10 +1494,22 @@ impl YjsAppState {
         if open.is_empty() {
             return;
         }
-        let pool = self.pool.clone();
         let checks: Vec<(i32, Uuid, DocumentType)> =
             open.iter().map(|(ws, u, d, _)| (*ws, *u, *d)).collect();
-        let denied = web::block(move || -> Vec<bool> {
+        let denied = self.access_withdrawn(checks).await;
+        for ((_, _, _, revoke), denied) in open.iter().zip(denied) {
+            if denied {
+                revoke.notify_one();
+            }
+        }
+    }
+
+    /// For each `(workspace, user, document)`, whether the user can no longer
+    /// open the page or collection (a ticket is never re-checked here). A
+    /// failed check reads as not withdrawn: the next connect checks again.
+    async fn access_withdrawn(&self, checks: Vec<(i32, Uuid, DocumentType)>) -> Vec<bool> {
+        let pool = self.pool.clone();
+        web::block(move || -> Vec<bool> {
             let Ok(mut conn) = pool.get() else {
                 return vec![false; checks.len()];
             };
@@ -1519,12 +1541,7 @@ impl YjsAppState {
                 .collect()
         })
         .await
-        .unwrap_or_default();
-        for ((_, _, _, revoke), denied) in open.iter().zip(denied) {
-            if denied {
-                revoke.notify_one();
-            }
-        }
+        .unwrap_or_default()
     }
 
     /// Drop the room of a document whose ticket or page was deleted while
@@ -3188,6 +3205,9 @@ async fn session_task(
     let cancel = Arc::new(Notify::new());
     // Access withdrawn while the document is open.
     let revoke = Arc::new(Notify::new());
+    if !JOIN_DELAY.is_zero() {
+        tokio::time::sleep(*JOIN_DELAY).await;
+    }
     app_state
         .register_session(
             &doc_id,
@@ -3200,6 +3220,19 @@ async fn session_task(
             doc_type,
         )
         .await;
+    // The handshake checked access before this session was in the room, so
+    // a withdrawal in between reached no one: check again now it can hear
+    // the next one.
+    if !matches!(doc_type, DocumentType::Ticket(_))
+        && app_state
+            .access_withdrawn(vec![(workspace_id, user_uuid, doc_type)])
+            .await
+            .first()
+            .copied()
+            .unwrap_or(false)
+    {
+        revoke.notify_one();
+    }
 
     // Per the yjs sync protocol spec, the server proactively sends
     // SyncStep1 + all known awareness states to newly-connected

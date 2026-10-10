@@ -233,14 +233,15 @@ pub async fn search(
                     .into_iter()
                     .filter(|id| !hidden.contains(id))
                     .collect();
-                let before = response.results.len();
                 response.results.retain(|r| {
                     r.entity_type != "documentation"
                         || i32::try_from(r.entity_id).is_ok_and(|id| allowed.contains(&id))
                 });
-                response.total = response
-                    .total
-                    .saturating_sub(before - response.results.len());
+            }
+            // The index's total counts documentation hits past this page too,
+            // including pages the caller can't open; count only what they get.
+            if log_doc_search && !auth.is_workspace_admin() {
+                response.total = response.results.len();
             }
 
             // The index links a hit to its ticket by id; people know the

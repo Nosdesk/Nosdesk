@@ -355,3 +355,33 @@ fn pinned_filter_hides_restricted_pages_in_the_viewers_workspace() {
     };
     assert_eq!(filter(&doc_admin), vec![true, true]);
 }
+
+/// A documentation row whose visibility lookup fails is neither sent nor
+/// dropped: the delta and the live stream fail the batch instead, so the
+/// client asks again rather than moving its cursor past a row that may have
+/// been a withdrawal of access.
+#[test]
+fn a_doc_row_whose_lookup_fails_is_not_passed_over() {
+    use backend::sync::visibility::{deliveries, Delivery};
+
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(1);
+    let mut conn = pool.get().expect("conn");
+    let viewer = member_viewer(Uuid::new_v4());
+    let _ = conn.transaction::<(), diesel::result::Error, _>(|c| {
+        // Every query after this one fails: the transaction is aborted.
+        let _ = diesel::sql_query("SELECT 1/0").execute(c);
+        let rows = vec![ActionView {
+            aggregate_id: Some(1),
+            ..av(SyncAggregate::DocumentationPage)
+        }];
+        let decided = deliveries(c, &viewer, &rows, |v: &ActionView| v.clone());
+        assert!(
+            decided
+                .iter()
+                .all(|d| !matches!(d, Delivery::Send | Delivery::Drop)),
+            "a doc row whose lookup failed: {decided:?}"
+        );
+        Err(diesel::result::Error::RollbackTransaction)
+    });
+}

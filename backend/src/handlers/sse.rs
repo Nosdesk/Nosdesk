@@ -414,7 +414,9 @@ pub struct SseStream {
     /// In-flight filter for a `SyncActions` batch that needs per-viewer
     /// visibility filtering. Held across polls because the visibility
     /// check is a blocking DB call run off-thread via `web::block`.
-    pending: Option<Pin<Box<dyn Future<Output = String> + Send>>>,
+    /// `None` from it ends the stream (a documentation row it couldn't
+    /// classify; the client reconnects and catches up).
+    pending: Option<Pin<Box<dyn Future<Output = Option<String>> + Send>>>,
     /// Holds this connection's slot in the shared connection cap. Dropped with
     /// the stream (alongside `remove_client`), releasing the slot on every
     /// stream-end path.
@@ -515,7 +517,10 @@ fn json_row_to_view(row: &serde_json::Value) -> crate::sync::visibility::ActionV
 /// same brain the REST delta/bootstrap paths use): each kind of record
 /// reaches only its audience, and a kept `user` row only the fields this
 /// viewer may see. The lookup runs off-thread via `web::block`; on failure
-/// it fails closed (drops every family that needs a lookup).
+/// it fails closed (drops every family that needs a lookup), except that a
+/// documentation row it couldn't classify ends the stream (`None`): the
+/// client reconnects and catches up through the delta rather than moving
+/// past what may be a withdrawal of access.
 /// `last_sync_id` is preserved so the client's cursor still advances past
 /// the (filtered) batch.
 async fn filter_sync_actions_frame(
@@ -523,14 +528,14 @@ async fn filter_sync_actions_frame(
     viewer: crate::sync::visibility::SyncViewer,
     workspace_id: Option<i32>,
     env: Envelope,
-) -> String {
+) -> Option<String> {
     let rows: Vec<serde_json::Value> = match &env.event {
         SseEvent::SyncActions { actions, .. } => match actions.as_array() {
             Some(a) => a.clone(),
-            None => return frame_envelope(&env),
+            None => return Some(frame_envelope(&env)),
         },
         // Unreachable: the caller only routes SyncActions envelopes here.
-        _ => return frame_envelope(&env),
+        _ => return Some(frame_envelope(&env)),
     };
 
     // The filter reads in the stream's workspace (see `filter_actions_pinned`).
@@ -563,12 +568,17 @@ async fn filter_sync_actions_frame(
 
 /// Frame a `SyncActions` envelope with each row as `decided` says: as
 /// `viewer` may see it, as a delete naming only the record, or not at all.
+/// `None` when a row couldn't be classified: the stream ends instead.
 fn frame_filtered(
     env: Envelope,
     rows: Vec<serde_json::Value>,
     decided: Vec<crate::sync::visibility::Delivery>,
     viewer: &crate::sync::visibility::SyncViewer,
-) -> String {
+) -> Option<String> {
+    if crate::sync::visibility::any_unclassified(&decided) {
+        tracing::error!("SSE: documentation visibility lookup failed; ending the stream");
+        return None;
+    }
     let Envelope {
         id,
         event,
@@ -581,29 +591,29 @@ fn frame_filtered(
         ..
     } = event
     else {
-        return String::new();
+        return Some(String::new());
     };
     use crate::sync::visibility::Delivery;
-    let kept: Vec<serde_json::Value> = rows
-        .into_iter()
-        .zip(decided)
-        .filter_map(|(mut row, delivery)| match delivery {
-            Delivery::Send => {
-                let aggregate = row
-                    .get("aggregate")
-                    .cloned()
-                    .and_then(|v| serde_json::from_value::<crate::models::SyncAggregate>(v).ok());
-                if let Some(data) = row.get_mut("data") {
-                    crate::sync::visibility::project_row(viewer, aggregate, data);
+    let kept: Vec<serde_json::Value> =
+        rows.into_iter()
+            .zip(decided)
+            .filter_map(|(mut row, delivery)| match delivery {
+                Delivery::Send => {
+                    let aggregate = row.get("aggregate").cloned().and_then(|v| {
+                        serde_json::from_value::<crate::models::SyncAggregate>(v).ok()
+                    });
+                    if let Some(data) = row.get_mut("data") {
+                        crate::sync::visibility::project_row(viewer, aggregate, data);
+                    }
+                    Some(row)
                 }
-                Some(row)
-            }
-            Delivery::Retract => crate::sync::visibility::retract_wire_row(&mut row).then_some(row),
-            Delivery::Drop => None,
-        })
-        .collect();
+                Delivery::Retract => crate::sync::visibility::Retraction::of_wire_row(&row)
+                    .and_then(|r| serde_json::to_value(r).ok()),
+                Delivery::Drop | Delivery::Unclassified => None,
+            })
+            .collect();
 
-    frame_envelope(&Envelope {
+    Some(frame_envelope(&Envelope {
         id,
         event: SseEvent::SyncActions {
             actions: serde_json::Value::Array(kept),
@@ -612,7 +622,7 @@ fn frame_filtered(
             timestamp,
         },
         source_client_id,
-    })
+    }))
 }
 
 fn frame_envelope(env: &Envelope) -> String {
@@ -647,9 +657,13 @@ impl Stream for SseStream {
             //    if one is running. It produces the already-framed bytes.
             if let Some(fut) = this.pending.as_mut() {
                 match fut.as_mut().poll(cx) {
-                    Poll::Ready(frame) => {
+                    Poll::Ready(Some(frame)) => {
                         this.pending = None;
                         return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame))));
+                    }
+                    Poll::Ready(None) => {
+                        this.pending = None;
+                        return Poll::Ready(None);
                     }
                     Poll::Pending => return Poll::Pending,
                 }

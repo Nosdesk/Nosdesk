@@ -364,6 +364,12 @@ pub struct CreateDocumentationPageRequest {
     /// drafts on the page, and resolves when the page is published.
     #[serde(default)]
     pub gap_id: Option<i64>,
+    /// A page this one copies: the new page goes in that page's collection
+    /// and takes its page-level rules, in the same transaction, so a copy is
+    /// never open to more people than the original. Refused like a missing
+    /// page when the caller can't open it.
+    #[serde(default)]
+    pub copy_access_from: Option<i32>,
 }
 
 /// Resolve the Yjs document for a page: try the page's own yjs_document
@@ -869,6 +875,16 @@ pub async fn create_documentation_page(
                 return Ok(CreatePageOutcome::InvalidCollection);
             }
         }
+        // A copy's source decides its collection and rules.
+        let copied_collection = match request.copy_access_from {
+            Some(source) => {
+                if !audience.can_open_page(conn, source)? {
+                    return Ok(CreatePageOutcome::InvalidSource);
+                }
+                Some(repository::collection_id_for_page(conn, source)?)
+            }
+            None => None,
+        };
         // So is a gap naming a page the caller can't open (as on the gap
         // routes): writing a page for it would move it to drafting.
         if let Some(gap_id) = request.gap_id {
@@ -936,9 +952,10 @@ pub async fn create_documentation_page(
         // Either way, write the junction row directly without
         // touching parent_id (which the create flow already set
         // correctly).
-        let target_collection_id: Option<i32> = match request.collection_id {
-            Some(id) => Some(id),
-            None => match request.parent_id {
+        let target_collection_id: Option<i32> = match (copied_collection, request.collection_id) {
+            (Some(source_collection), _) => source_collection,
+            (None, Some(id)) => Some(id),
+            (None, None) => match request.parent_id {
                 Some(pid) => {
                     repository::documentation_collections::get_collections_for_page(conn, pid)
                         .ok()
@@ -956,6 +973,9 @@ pub async fn create_documentation_page(
             // In the same transaction as the create: a page meant for a
             // collection is never left open to everyone instead.
             repository::documentation_collections::add_page_to_collection(conn, entry)?;
+        }
+        if let Some(source) = request.copy_access_from {
+            repository::copy_page_rules(conn, source, created_page.id, Some(user_uuid))?;
         }
 
         let response = to_page_response(created_page.clone(), conn).map_err(|_| {
@@ -979,6 +999,7 @@ pub async fn create_documentation_page(
         }
         Ok(CreatePageOutcome::InvalidParent) => errors::bad_request(INVALID_PARENT),
         Ok(CreatePageOutcome::InvalidCollection) => errors::bad_request(INVALID_COLLECTION),
+        Ok(CreatePageOutcome::InvalidSource) => errors::bad_request(INVALID_SOURCE),
         Ok(CreatePageOutcome::GapNotFound) => errors::not_found("Gap"),
         Err(_) => errors::internal("Failed to create page"),
     }
@@ -989,6 +1010,7 @@ enum CreatePageOutcome {
     Created(DocumentationPage, DocumentationPageResponse),
     InvalidParent,
     InvalidCollection,
+    InvalidSource,
     GapNotFound,
 }
 
@@ -998,6 +1020,7 @@ const INVALID_PARENT: &str = "Invalid parent page";
 
 /// A collection that doesn't exist or that the caller can't see.
 const INVALID_COLLECTION: &str = "Invalid collection";
+const INVALID_SOURCE: &str = "Invalid page to copy";
 
 // DTO for updating documentation pages (partial update)
 #[derive(Debug, Deserialize)]

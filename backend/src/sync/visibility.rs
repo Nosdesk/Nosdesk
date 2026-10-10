@@ -19,7 +19,7 @@
 //!   batch of actions via [`deliveries`], which returns a [`Delivery`] per
 //!   row so each path rebuilds its own representation, then [`project_row`]
 //!   each sent row. A documentation record the viewer can't open is sent as
-//!   a delete naming only its id ([`retraction`]): losing access reads as a
+//!   a delete naming only its id ([`Retraction`]): losing access reads as a
 //!   delete, and hidden reads as absent.
 //!
 //! Source of truth stays [`crate::repository::ticket_visibility`] + the
@@ -256,81 +256,115 @@ impl Resolved {
 pub enum Delivery {
     /// The row as recorded (then [`project_row`]).
     Send,
-    /// A delete naming only the row's id ([`retraction`]): a documentation
+    /// A delete naming only the row's id ([`Retraction`]): a documentation
     /// record the viewer can't open, so a client that holds it drops it.
     Retract,
     /// Nothing.
     Drop,
+    /// A documentation row whose visibility couldn't be looked up. Neither
+    /// sent (it may be closed to the viewer) nor dropped (it may withdraw
+    /// their access, and a cursor moved past it would never bring that
+    /// back): the delta and the live stream fail the batch, and the client
+    /// asks again.
+    Unclassified,
+}
+
+/// Whether a batch holds a row that couldn't be classified, so the reader
+/// must fail it rather than move past it.
+pub fn any_unclassified(decided: &[Delivery]) -> bool {
+    decided.contains(&Delivery::Unclassified)
 }
 
 /// What `viewer` gets of one action: the row when they may see it; for a
 /// documentation record they can't open, a delete, so a client that had it
-/// drops it; otherwise nothing. A failed lookup drops rather than retracts,
-/// so a transient error never empties a viewer's documentation.
+/// drops it; otherwise nothing. A documentation row whose lookup failed is
+/// [`Delivery::Unclassified`].
 fn action_delivery(v: &ActionView, viewer: &SyncViewer, r: &Resolved) -> Delivery {
+    let is_doc = v
+        .aggregate
+        .is_some_and(|agg| audience(agg) == Audience::Docs);
+    if is_doc && r.doc_fail {
+        return Delivery::Unclassified;
+    }
     if action_is_visible(v, viewer, r) {
         return Delivery::Send;
     }
-    let retractable = v
-        .aggregate
-        .is_some_and(|agg| audience(agg) == Audience::Docs)
-        && !r.doc_fail
-        && v.aggregate_id.is_some();
-    if retractable {
+    if is_doc && v.aggregate_id.is_some() {
         Delivery::Retract
     } else {
         Delivery::Drop
     }
 }
 
-/// The delete a [`Delivery::Retract`] sends in place of a documentation
-/// row: its event type and a payload naming only its id. It reads exactly
-/// as the record's own delete does. `None` for a kind that is never
-/// retracted.
-pub fn retraction(
-    aggregate: SyncAggregate,
-    aggregate_id: &str,
-) -> Option<(&'static str, serde_json::Value)> {
-    let event_type = match aggregate {
-        SyncAggregate::DocumentationPage => "documentation_page.deleted",
-        SyncAggregate::DocumentationCollection => "documentation_collection.deleted",
-        _ => return None,
-    };
-    let id: i32 = aggregate_id.parse().ok()?;
-    Some((event_type, serde_json::json!({ "id": id })))
+/// The delete a [`Delivery::Retract`] sends in place of a documentation row.
+/// It reads as the record's own delete does, and carries only what a client
+/// needs to apply it: no actor, no correlation, no time.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Retraction {
+    pub sync_id: i64,
+    pub aggregate: SyncAggregate,
+    pub aggregate_id: String,
+    pub op: SyncOp,
+    pub event_type: &'static str,
+    pub schema_version: i16,
+    /// `{"id": <id>}`.
+    pub data: serde_json::Value,
+    pub groups: Vec<Option<String>>,
 }
 
-/// Rewrite a serialized action row (the live stream's shape) as its
-/// [`retraction`]: a delete naming only the record, with nothing about who
-/// changed it. `false` when the row can't be retracted.
-pub fn retract_wire_row(row: &mut serde_json::Value) -> bool {
-    let aggregate = row
-        .get("aggregate")
-        .cloned()
-        .and_then(|v| serde_json::from_value::<SyncAggregate>(v).ok());
-    let aggregate_id = row
-        .get("aggregate_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let Some((event_type, data)) = aggregate.and_then(|agg| retraction(agg, &aggregate_id)) else {
-        return false;
-    };
-    let Some(obj) = row.as_object_mut() else {
-        return false;
-    };
-    obj.insert(
-        "op".into(),
-        serde_json::to_value(SyncOp::Delete).unwrap_or_default(),
-    );
-    obj.insert("event_type".into(), event_type.into());
-    obj.insert("data".into(), data);
-    for key in ["actor_uuid", "actor_ref", "correlation_id", "causation_id"] {
-        if obj.contains_key(key) {
-            obj.insert(key.into(), serde_json::Value::Null);
-        }
+impl Retraction {
+    /// The retraction of a row. `None` for a kind that is never retracted.
+    pub fn of(
+        sync_id: i64,
+        aggregate: SyncAggregate,
+        aggregate_id: &str,
+        schema_version: i16,
+        groups: Vec<Option<String>>,
+    ) -> Option<Self> {
+        let event_type = match aggregate {
+            SyncAggregate::DocumentationPage => "documentation_page.deleted",
+            SyncAggregate::DocumentationCollection => "documentation_collection.deleted",
+            _ => return None,
+        };
+        let id: i32 = aggregate_id.parse().ok()?;
+        Some(Self {
+            sync_id,
+            aggregate,
+            aggregate_id: aggregate_id.to_string(),
+            op: SyncOp::Delete,
+            event_type,
+            schema_version,
+            data: serde_json::json!({ "id": id }),
+            groups,
+        })
     }
-    true
+
+    /// The retraction of a serialized action row (the live stream's shape).
+    pub fn of_wire_row(row: &serde_json::Value) -> Option<Self> {
+        let aggregate = row
+            .get("aggregate")
+            .cloned()
+            .and_then(|v| serde_json::from_value::<SyncAggregate>(v).ok())?;
+        let groups = row
+            .get("groups")
+            .cloned()
+            .and_then(|g| serde_json::from_value::<Vec<Option<String>>>(g).ok())
+            .unwrap_or_default();
+        Self::of(
+            row.get("sync_id")
+                .and_then(|v| v.as_i64())
+                .unwrap_or_default(),
+            aggregate,
+            row.get("aggregate_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            row.get("schema_version")
+                .and_then(|v| v.as_i64())
+                .and_then(|v| i16::try_from(v).ok())
+                .unwrap_or(1),
+            groups,
+        )
+    }
 }
 
 /// Pure keep/drop decision for one action, from its kind's
@@ -984,35 +1018,54 @@ mod tests {
             Delivery::Send,
             "non-hidden doc kept"
         );
-        // A failed lookup drops rather than retracts.
+        // A failed lookup neither sends nor drops: the reader fails the batch.
         r.doc_fail = true;
-        assert_eq!(action_delivery(&hidden, &staff(), &r), Delivery::Drop);
-        assert_eq!(action_delivery(&visible, &staff(), &r), Delivery::Drop);
+        assert_eq!(
+            action_delivery(&hidden, &staff(), &r),
+            Delivery::Unclassified
+        );
+        assert_eq!(
+            action_delivery(&visible, &staff(), &r),
+            Delivery::Unclassified
+        );
     }
 
     #[test]
     fn a_retraction_names_only_the_record() {
-        let mut row = serde_json::json!({
+        let row = serde_json::json!({
             "sync_id": 9,
             "aggregate": "documentation_page",
             "aggregate_id": "5",
             "op": "U",
             "event_type": "documentation_page.visibility_changed",
+            "schema_version": 1,
             "data": { "id": 5, "title": "Salaries" },
+            "groups": ["workspace:1"],
             "actor_uuid": Uuid::new_v4(),
             "actor_kind": "user",
             "actor_ref": null,
             "correlation_id": Uuid::new_v4(),
             "causation_id": null,
+            "occurred_at": "2026-10-11T00:00:00Z",
         });
-        assert!(retract_wire_row(&mut row));
-        assert_eq!(row["op"], "D");
-        assert_eq!(row["event_type"], "documentation_page.deleted");
-        assert_eq!(row["data"], serde_json::json!({ "id": 5 }));
-        assert!(row["actor_uuid"].is_null() && row["correlation_id"].is_null());
-        let mut ticket = serde_json::json!({ "aggregate": "ticket", "aggregate_id": "5" });
+        let retraction =
+            serde_json::to_value(Retraction::of_wire_row(&row).expect("a retraction")).unwrap();
+        assert_eq!(
+            retraction,
+            serde_json::json!({
+                "sync_id": 9,
+                "aggregate": "documentation_page",
+                "aggregate_id": "5",
+                "op": "D",
+                "event_type": "documentation_page.deleted",
+                "schema_version": 1,
+                "data": { "id": 5 },
+                "groups": ["workspace:1"],
+            })
+        );
+        let ticket = serde_json::json!({ "aggregate": "ticket", "aggregate_id": "5" });
         assert!(
-            !retract_wire_row(&mut ticket),
+            Retraction::of_wire_row(&ticket).is_none(),
             "only documentation retracts"
         );
     }

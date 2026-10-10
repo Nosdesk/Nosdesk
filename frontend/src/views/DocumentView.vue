@@ -381,16 +381,15 @@ const handleDuplicatePage = async () => {
   if (!document.value) return
 
   try {
-    // The copy goes in the original's collection, so it is closed to the
-    // same people from the start.
-    const collectionId = poolPage.value?.collection_id ?? null
+    // The copy goes in the original's collection and takes its rules, so it
+    // is closed to the same people from the start.
     const newPage = await documentationService.createArticle({
       title: t('doc-detail-duplicate-suffix', { title: document.value.title }),
       content: document.value.content || '',
       description: document.value.description || '',
       status: 'draft',
       icon: document.value.icon || '📄',
-      collection_id: collectionId,
+      copy_access_from: Number(document.value.id),
     })
 
     if (newPage?.id) {

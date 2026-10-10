@@ -18,7 +18,7 @@ use tracing::error;
 use crate::errors;
 use crate::extractors::{SyncContext, TenantConn};
 use crate::schema::sync_actions;
-use crate::sync::visibility::Delivery;
+use crate::sync::visibility::{Delivery, Retraction};
 
 #[derive(Debug, Deserialize)]
 pub struct DeltaQuery {
@@ -68,9 +68,18 @@ pub struct ActionRow {
     pub xid8: i64,
 }
 
+/// One action in a delta: the row as recorded, or the bare delete that
+/// stands in for a documentation record the viewer can't open.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum DeltaAction {
+    Row(ActionRow),
+    Retraction(crate::sync::visibility::Retraction),
+}
+
 #[derive(Debug, Serialize)]
 pub struct DeltaResponse {
-    pub actions: Vec<ActionRow>,
+    pub actions: Vec<DeltaAction>,
     /// Commit-safe cursor for the next request: `(last_xid8,
     /// last_sync_id)`. Advances over visibility-dropped rows too.
     pub last_xid8: i64,
@@ -288,8 +297,10 @@ pub async fn delta(
     // kind of record reaches only its audience (`sync::audience`), a
     // documentation record the viewer can't open arrives as a delete, and
     // a kept `user` row carries only the fields this viewer may see.
-    // `deliveries` never errors: a visibility-lookup failure fails closed
-    // (drops the affected family) rather than 500'ing the poll.
+    // A visibility-lookup failure drops the affected family, except for
+    // documentation: a doc row that couldn't be classified fails the poll,
+    // so the client asks again instead of moving its cursor past what may
+    // be a withdrawal of access.
     let (actions, decided) = match tc.run(move |conn| {
         let decided =
             crate::sync::visibility::deliveries(conn, &viewer, &actions, action_row_to_view);
@@ -301,7 +312,11 @@ pub async fn delta(
             return errors::internal("Failed to load sync delta");
         }
     };
-    let actions: Vec<ActionRow> = actions
+    if crate::sync::visibility::any_unclassified(&decided) {
+        error!("delta: documentation visibility lookup failed; failing the poll");
+        return errors::internal("Failed to load sync delta");
+    }
+    let actions: Vec<DeltaAction> = actions
         .into_iter()
         .zip(decided)
         .filter_map(|(mut action, delivery)| match delivery {
@@ -311,21 +326,17 @@ pub async fn delta(
                     Some(action.aggregate),
                     &mut action.data,
                 );
-                Some(action)
+                Some(DeltaAction::Row(action))
             }
-            Delivery::Retract => {
-                let (event_type, data) =
-                    crate::sync::visibility::retraction(action.aggregate, &action.aggregate_id)?;
-                action.op = crate::models::SyncOp::Delete;
-                action.event_type = event_type.to_string();
-                action.data = data;
-                action.actor_uuid = None;
-                action.actor_ref = None;
-                action.correlation_id = None;
-                action.causation_id = None;
-                Some(action)
-            }
-            Delivery::Drop => None,
+            Delivery::Retract => Retraction::of(
+                action.sync_id,
+                action.aggregate,
+                &action.aggregate_id,
+                action.schema_version,
+                action.groups,
+            )
+            .map(DeltaAction::Retraction),
+            Delivery::Drop | Delivery::Unclassified => None,
         })
         .collect();
 

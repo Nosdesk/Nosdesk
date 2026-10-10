@@ -757,13 +757,31 @@ fn about<'a>(rows: &'a [Value], aggregate: &str, id: i32) -> Vec<&'a Value> {
         .collect()
 }
 
-/// Every row about the record is a delete naming only its id.
+/// Every row about the record is a delete naming only its id, with nothing
+/// about who changed it or when.
 fn only_deletes(rows: &[Value], aggregate: &str, id: i32) -> bool {
     let rows = about(rows, aggregate, id);
+    let bare = |r: &Value| {
+        r.as_object().is_some_and(|o| {
+            o.keys().all(|k| {
+                matches!(
+                    k.as_str(),
+                    "sync_id"
+                        | "aggregate"
+                        | "aggregate_id"
+                        | "op"
+                        | "event_type"
+                        | "schema_version"
+                        | "data"
+                        | "groups"
+                )
+            })
+        })
+    };
     !rows.is_empty()
         && rows
             .iter()
-            .all(|r| r["op"] == json!("D") && r["data"] == json!({ "id": id }))
+            .all(|r| r["op"] == json!("D") && r["data"] == json!({ "id": id }) && bare(r))
 }
 
 /// A row about the record that carries it whole (a `title` or a `name`).
@@ -1042,4 +1060,95 @@ async fn a_collections_page_count_leaves_out_pages_the_caller_cant_open() {
             .unwrap_or_else(|| panic!("the open collection is listed: {list}"));
         assert_eq!(row["page_count"], json!(expected), "{user}: {row}");
     }
+}
+
+/// A restricted page or collection that is deleted for good reaches a reader
+/// who couldn't open it only as deletes, even from the start of the feed.
+#[actix_web::test]
+async fn a_deleted_restricted_record_never_replays_its_row() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    run_in_workspace(&pool, REF, f.workspace.workspace_id, |c| {
+        backend::repository::permanently_delete_page(f.hidden, c)?;
+        documentation_collections::delete_collection(c, f.secret)?;
+        Ok(())
+    })
+    .expect("delete the restricted page and collection");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+
+    let (rows, _) = delta_after!(app, f, pool, f.outsider, (0, 0));
+    assert!(
+        only_deletes(&rows, "documentation_page", f.hidden),
+        "the deleted page reaches the outsider only as deletes: {:?}",
+        about(&rows, "documentation_page", f.hidden)
+    );
+    assert!(
+        only_deletes(&rows, "documentation_collection", f.secret),
+        "the deleted collection reaches the outsider only as deletes: {:?}",
+        about(&rows, "documentation_collection", f.secret)
+    );
+}
+
+/// A copy of a page is closed to the same people as the original: it goes
+/// in the original's collection and takes its page-level rules.
+#[actix_web::test]
+async fn a_copy_is_closed_to_the_same_people() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+
+    for (source, what) in [
+        (f.hidden, "a page shared by its own rules"),
+        (f.in_secret, "a page in a restricted collection"),
+    ] {
+        let resp = http_test::call_service(
+            &app,
+            request(
+                Method::POST,
+                "/api/documentation/pages",
+                f.insider,
+                Some(json!({ "title": "Copy", "copy_access_from": source })),
+            )
+            .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::CREATED, "{what}");
+        let copy: Value = http_test::read_body_json(resp).await;
+        let copy = copy["id"].as_i64().expect("copy id");
+        for (user, expected) in [
+            (f.outsider, StatusCode::NOT_FOUND),
+            (f.insider, StatusCode::OK),
+        ] {
+            let resp = http_test::call_service(
+                &app,
+                request(
+                    Method::GET,
+                    &format!("/api/documentation/pages/{copy}"),
+                    user,
+                    None,
+                )
+                .to_request(),
+            )
+            .await;
+            assert_eq!(resp.status(), expected, "{what}: {user}");
+        }
+    }
+
+    // A page the caller can't open can't be copied.
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::POST,
+            "/api/documentation/pages",
+            f.outsider,
+            Some(json!({ "title": "Copy", "copy_access_from": f.hidden })),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
