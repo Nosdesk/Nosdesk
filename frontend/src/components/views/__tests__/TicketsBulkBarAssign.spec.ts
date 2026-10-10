@@ -7,24 +7,32 @@ import { mountWithProviders } from '@/test/mountWithProviders'
 // picker offers. The server refuses anyone else (`invalid_assignee`), so a
 // requester in the list is a pick that silently does nothing.
 
-const USERS = [
-  { uuid: 'u-admin', name: 'Ada Admin', email: 'ada@example.test', platform_role: 'user', workspace_role: 'admin' },
-  { uuid: 'u-agent', name: 'Grace Agent', email: 'grace@example.test', platform_role: 'user', workspace_role: 'agent' },
-  { uuid: 'u-req', name: 'Rita Requester', email: 'rita@example.test', platform_role: 'user', workspace_role: 'member' },
-  { uuid: 'u-plat', name: 'Paul Platform', email: 'paul@example.test', platform_role: 'platform_admin', workspace_role: null },
+// More requesters than a first page holds, all sorting before the staff.
+const REQUESTERS = Array.from({ length: 60 }, (_, i) => ({
+  uuid: `u-req-${i}`,
+  name: `Aa Requester ${String(i).padStart(2, '0')}`,
+  email: `req${i}@example.test`,
+  platform_role: 'user',
+  workspace_role: 'member',
+}))
+const STAFF = [
+  { uuid: 'u-admin', name: 'Zz Admin', email: 'admin@example.test', platform_role: 'user', workspace_role: 'admin' },
+  { uuid: 'u-agent', name: 'Zz Agent', email: 'agent@example.test', platform_role: 'user', workspace_role: 'agent' },
 ]
+const USERS = [...REQUESTERS, ...STAFF]
 
-const server = vi.hoisted(() => ({ honoursRoleFilter: true, roles: [] as Array<string | undefined> }))
+const server = vi.hoisted(() => ({ params: [] as Array<Record<string, unknown>> }))
 vi.mock('@/services/userService', () => ({
   default: {
-    // As `/users/paginated` does: `admin,technician` is a platform admin or
-    // a workspace owner, admin or agent.
-    getPaginatedUsers: async ({ role }: { role?: string }) => {
-      server.roles.push(role)
-      const staff = (u: (typeof USERS)[number]) =>
-        u.platform_role === 'platform_admin' || ['owner', 'admin', 'agent'].includes(u.workspace_role ?? '')
-      const data = server.honoursRoleFilter && role === 'admin,technician' ? USERS.filter(staff) : USERS
-      return { data, total: data.length, page: 1, page_size: 50, total_pages: 1 }
+    // As `/users/paginated` does: `assignable=true` filters to who can be
+    // assigned, then the page is cut from the sorted result.
+    getPaginatedUsers: async (params: { assignable?: boolean; pageSize?: number; page?: number }) => {
+      server.params.push(params)
+      const pool = params.assignable ? STAFF : USERS
+      const size = params.pageSize ?? 25
+      const start = ((params.page ?? 1) - 1) * size
+      const data = [...pool].sort((a, b) => a.name.localeCompare(b.name)).slice(start, start + size)
+      return { data, total: pool.length, page: params.page ?? 1, page_size: size, total_pages: Math.ceil(pool.length / size) }
     },
   },
 }))
@@ -45,8 +53,7 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = null
   document.body.innerHTML = ''
-  server.honoursRoleFilter = true
-  server.roles = []
+  server.params = []
 })
 
 async function openAssign(): Promise<string[]> {
@@ -62,16 +69,9 @@ async function openAssign(): Promise<string[]> {
 }
 
 describe('the bulk assign dialog', () => {
-  it('lists only people who can be assigned tickets, never a requester', async () => {
+  it('asks the server for the people who can be assigned, and lists only them', async () => {
     const names = await openAssign()
-    expect(server.roles).toEqual(['admin,technician'])
-    expect(names).toEqual(['Ada Admin', 'Grace Agent', 'Paul Platform'])
-  })
-
-  it('still drops a requester the server returned', async () => {
-    server.honoursRoleFilter = false
-    const names = await openAssign()
-    expect(names).not.toContain('Rita Requester')
-    expect(names).toHaveLength(3)
+    expect(server.params.map((p) => p.assignable)).toEqual([true])
+    expect(names).toEqual(['Zz Admin', 'Zz Agent'])
   })
 })

@@ -16,30 +16,21 @@ const PAGE_SIZE = 50
 type RoleFields = { platform_role?: PlatformRole | null; workspace_role?: WorkspaceRole | null }
 
 /** Who can be assigned a ticket: a platform admin, or a workspace owner,
- *  admin or agent. The one client copy of the server's rule
- *  (`repository/assignees.rs::is_assignable`); every assignee list in
- *  the app filters through it, so none can offer someone the server
- *  refuses. */
+ *  admin or agent. The server owns the rule (`assignees::is_assignable`)
+ *  and filters the list by it; this copy only guards rows the picker holds
+ *  without asking, a cached user or a recents entry from before someone's
+ *  role changed. */
 function isAssignableUser(u: RoleFields): boolean {
   return u.platform_role === 'platform_admin' || isStaffWorkspaceRole(u.workspace_role)
 }
 
-/** The server-side role filter for the same people (`/users/paginated`
- *  reads `admin,technician` as platform admin or owner/admin/agent). */
-const ROLE_FILTER: Record<PickerScope, string | undefined> = {
-  assignee: 'admin,technician',
-  requester: undefined,
-}
-
-/** Whether `u` belongs in a picker of `type`. The server already filters
- *  by role; this also drops a stale cached row or a recents entry from
- *  before the rule tightened. */
+/** Whether a cached or recent row `u` belongs in a picker of `type`. */
 export function isEligibleForType(type: PickerScope, u: RoleFields): boolean {
   return type === 'requester' || isAssignableUser(u)
 }
 
 /** The first page of people a picker of `type` offers, matching
- *  `search`. */
+ *  `search`, filtered and paged by the server. */
 export async function fetchEligibleUsers(
   type: PickerScope,
   search: string = '',
@@ -51,7 +42,7 @@ export async function fetchEligibleUsers(
     search,
     sortField: 'name',
     sortDirection: 'asc',
-    role: ROLE_FILTER[type],
+    ...(type === 'assignee' ? { assignable: true } : {}),
   })
-  return response.data.filter((u) => isEligibleForType(type, u))
+  return response.data
 }

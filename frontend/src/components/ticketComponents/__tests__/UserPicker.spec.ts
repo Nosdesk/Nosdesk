@@ -13,9 +13,11 @@ const USERS = [
 // reads two fields from it.
 const auth = vi.hoisted(() => ({ user: null as Record<string, unknown> | null, isTechnician: false }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
+const asked = vi.hoisted(() => ({ assignable: [] as Array<boolean | undefined> }))
 vi.mock('@/services/userService', () => ({
   default: {
-    getPaginatedUsers: async ({ search }: { search?: string }) => {
+    getPaginatedUsers: async ({ search, assignable }: { search?: string; assignable?: boolean }) => {
+      asked.assignable.push(assignable)
       const q = (search ?? '').toLowerCase()
       const data = USERS.filter((u) => !q || u.name.toLowerCase().includes(q))
       return { data, total: data.length, page: 1, page_size: 50, total_pages: 1 }
@@ -71,6 +73,13 @@ async function open(input: HTMLInputElement) {
 }
 
 describe('UserPicker', () => {
+  it('asks the server for the people who can be assigned', async () => {
+    asked.assignable = []
+    await open(await mountPicker())
+    expect(asked.assignable.length).toBeGreaterThan(0)
+    expect(asked.assignable.every((a) => a === true)).toBe(true)
+  })
+
   it('lists you once when the ticket is already yours', async () => {
     auth.user = { uuid: 'u-2', name: 'Grace Hopper', email: 'grace@example.test', avatar_thumb: null, avatar_url: null }
     auth.isTechnician = true

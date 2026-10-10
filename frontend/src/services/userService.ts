@@ -13,7 +13,11 @@ export type { User };
 
 // Extended pagination params for users
 export interface UserPaginationParams extends PaginationParams {
+  /** One role or a comma list: `admin`, `technician` (or `agent`),
+   * `user`, `audit_reviewer`. */
   role?: string;
+  /** Only the people who can be assigned tickets in this workspace. */
+  assignable?: boolean;
   /** People population: `"team"` (staff) or `"requesters"` (end-users).
    * Absent shows the combined directory. */
   population?: 'team' | 'requesters';

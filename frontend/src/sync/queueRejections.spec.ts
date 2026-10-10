@@ -14,9 +14,9 @@ const catalogue = (locale: string) => sources[`../../../i18n/locales/${locale}/m
 
 const toast = vi.hoisted(() => ({ error: vi.fn() }))
 vi.mock('@nosdesk/core/stores/toast', () => ({ useToastStore: () => toast }))
-const pool = vi.hoisted(() => ({ patch: vi.fn() }))
+const pool = vi.hoisted(() => ({ patch: vi.fn(), epoch: 1 }))
 vi.mock('@nosdesk/core/sync/pool', () => ({
-  currentEpoch: () => 1,
+  currentEpoch: () => pool.epoch,
   patch: pool.patch,
   get: vi.fn(),
   getLastSyncId: () => null,
@@ -25,9 +25,12 @@ const push = vi.hoisted(() => ({ response: {} as unknown }))
 vi.mock('@/services/authFetch', () => ({
   authFetch: async () => new Response(JSON.stringify(push.response), { status: 200 }),
 }))
-const pending = vi.hoisted(() => ({ txs: [] as Array<{ tx_id: string }> }))
+const pending = vi.hoisted(() => ({ txs: [] as Array<{ tx_id: string }>, onDrained: () => {} }))
 vi.mock('./idb', () => ({
-  loadTransactions: async () => [...pending.txs],
+  loadTransactions: async () => {
+    if (pending.txs.length === 0) pending.onDrained()
+    return [...pending.txs]
+  },
   deleteTransaction: async (_h: unknown, txId: string) => {
     pending.txs = pending.txs.filter((t) => t.tx_id !== txId)
   },
@@ -50,6 +53,8 @@ beforeEach(async () => {
   vi.resetModules()
   toast.error.mockReset()
   pool.patch.mockReset()
+  pool.epoch = 1
+  pending.onDrained = () => {}
   const bundle = new FluentBundle('en-US', { useIsolating: false })
   bundle.addResource(new FluentResource(catalogue('en-US')))
   // After the reset, so the queue reads the same instance.
@@ -82,6 +87,23 @@ describe('a push the server refuses', () => {
     expect(toast.error.mock.calls).toEqual([
       ["Couldn't assign 2 tickets", 'Only agents and admins can be assigned tickets.'],
     ])
+  })
+
+  it('says nothing once the workspace has switched', async () => {
+    pending.txs = [assign(10)]
+    push.response = {
+      applied: [],
+      rejected: [{ tx_id: 'tx-10', reason: 'invalid_assignee', detail: '' }],
+      last_sync_id: 0,
+    }
+    // The switch lands after the push, while the queue checks for more.
+    pending.onDrained = () => {
+      pool.epoch = 2
+    }
+
+    await queue.flush()
+
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('says nothing when every change was applied', async () => {

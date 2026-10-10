@@ -196,6 +196,7 @@ pub fn get_paginated_users(
     search_by: SearchBy,
     role: Option<String>,
     population: Option<Population>,
+    assignable: bool,
     deleted: DeletedFilter,
     workspace_id: i32,
 ) -> Result<(Vec<User>, i64), Error> {
@@ -225,16 +226,23 @@ pub fn get_paginated_users(
         _ => None,
     };
 
-    // Parse role filter — accepts a single role ("admin") or a
-    // comma-separated set ("admin,technician") so the assignee
-    // picker can hit the eligible-staff set in one request instead
-    // of one request per role. "all" stays the no-filter sentinel.
+    // Parse role filter: a single role ("admin") or a comma-separated set
+    // ("technician,audit_reviewer"), as the people list's multi-select sends.
+    // "agent" is the plugin API's word for "technician"; unknown pieces are
+    // dropped. "all" stays the no-filter sentinel.
     let parsed_roles: Vec<String> = match role.as_deref() {
         None => Vec::new(),
         Some("all") => Vec::new(),
         Some(s) => s
             .split(',')
             .map(|piece| piece.trim().to_lowercase())
+            .map(|piece| {
+                if piece == "agent" {
+                    "technician".to_string()
+                } else {
+                    piece
+                }
+            })
             .filter(|piece| !piece.is_empty())
             .filter(|piece| crate::utils::parse_roles(piece).is_ok())
             .collect(),
@@ -362,6 +370,9 @@ pub fn get_paginated_users(
     if let Some(ref filter) = population_sql {
         count_query = count_query.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(filter));
     }
+    if assignable {
+        count_query = count_query.filter(crate::repository::assignees::assignable_in(workspace_id));
+    }
     count_query = match deleted {
         DeletedFilter::Active => count_query.filter(users::deleted_at.is_null()),
         DeletedFilter::Only => count_query.filter(users::deleted_at.is_not_null()),
@@ -381,6 +392,9 @@ pub fn get_paginated_users(
     }
     if let Some(ref filter) = role_sql_filter {
         query = query.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(filter));
+    }
+    if assignable {
+        query = query.filter(crate::repository::assignees::assignable_in(workspace_id));
     }
     query = match deleted {
         DeletedFilter::Active => query.filter(users::deleted_at.is_null()),
@@ -1073,6 +1087,7 @@ mod tests {
             SearchBy::NameOrEmail,
             None,
             None,
+            false,
             DeletedFilter::Active,
             crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
         )
@@ -1099,6 +1114,7 @@ mod tests {
             SearchBy::NameOrEmail,
             None,
             None,
+            false,
             DeletedFilter::Only,
             crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
         )
@@ -1129,6 +1145,7 @@ mod tests {
                 SearchBy::NameOrEmail,
                 None,
                 Some(pop),
+                false,
                 DeletedFilter::Active,
                 ws,
             )

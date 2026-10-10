@@ -156,6 +156,7 @@ export async function flush(): Promise<void> {
   // Refusals across the whole drain, told to the person once at the end:
   // a bulk change can span more than one push.
   const refused: RejectedChange[] = []
+  const startEpoch = pool.currentEpoch()
   try {
     while (true) {
       const all = await idb.loadTransactions(handle)
@@ -192,10 +193,7 @@ export async function flush(): Promise<void> {
       }
       // The workspace was torn down while this push was in flight; its
       // rejections must not roll back rows in the next workspace's pool.
-      if (pool.currentEpoch() !== epoch) {
-        refused.length = 0
-        return
-      }
+      if (pool.currentEpoch() !== epoch) return
 
       backoffMs = 0
       // A push does not advance the read cursor. The read cursor is the
@@ -227,7 +225,8 @@ export async function flush(): Promise<void> {
     }
   } finally {
     flushing = false
-    tellRefused(refused)
+    // Not into another workspace: it may have switched after the last push.
+    if (pool.currentEpoch() === startEpoch) tellRefused(refused)
   }
 }
 
