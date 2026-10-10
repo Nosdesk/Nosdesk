@@ -11,7 +11,7 @@
 //! created_at). The crate's `RRule` builder handles parsing and
 //! the next-instance lookup.
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Utc};
 use rrule::{RRule, RRuleSet, Tz, Unvalidated, Validated};
 
 /// Returns the next occurrence after `after`, or `None` if the rule
@@ -66,6 +66,40 @@ pub fn next_occurrence_naive(
     next_occurrence(rule, series_utc, after_utc).map(|opt| opt.map(|dt| dt.naive_utc()))
 }
 
+/// `rule` made to keep the series' day of the month near a month end.
+///
+/// RFC 5545 drops a date a month doesn't have, so a plain monthly series
+/// on the 31st skips every shorter month, and a yearly one on 29 February
+/// skips three years in four. For a plain `FREQ=MONTHLY` or `FREQ=YEARLY`
+/// rule (no `BY` parts of its own) whose `anchor` (the series' first due
+/// date) falls on the 29th or later, this adds `BYMONTHDAY=<day>,-1;
+/// BYSETPOS=1`: the anchor's day, or the month's last day when the month
+/// is shorter (and `BYMONTH` for a yearly rule). Jan 31 then gives Feb 28
+/// (29 in a leap year) and Mar 31, rather than drifting to the 28th. Any
+/// other rule is returned as is.
+pub fn keep_month_end_day(rule: &str, anchor: NaiveDate) -> String {
+    let parts: Vec<&str> = rule.split(';').filter(|p| !p.is_empty()).collect();
+    let freq = parts
+        .iter()
+        .find_map(|p| p.strip_prefix("FREQ="))
+        .map(str::to_ascii_uppercase);
+    let has_by = parts
+        .iter()
+        .any(|p| p.get(..2).is_some_and(|by| by.eq_ignore_ascii_case("BY")));
+    let day = anchor.day();
+    if has_by || day < 29 {
+        return rule.to_string();
+    }
+    match freq.as_deref() {
+        Some("MONTHLY") => format!("{rule};BYMONTHDAY={day},-1;BYSETPOS=1"),
+        Some("YEARLY") => format!(
+            "{rule};BYMONTH={};BYMONTHDAY={day},-1;BYSETPOS=1",
+            anchor.month()
+        ),
+        _ => rule.to_string(),
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RecurrenceError {
     #[error("RRULE parse error: {0}")]
@@ -85,6 +119,85 @@ mod tests {
         assert_eq!(
             next,
             Some(Utc.with_ymd_and_hms(2026, 1, 12, 9, 0, 0).unwrap())
+        );
+    }
+
+    /// The due dates a series anchored at `first` (midnight) gets, closing
+    /// each occurrence in turn, as `create_next_occurrence` does.
+    fn series(rule: &str, first: NaiveDate, n: usize) -> Vec<NaiveDate> {
+        let rule = keep_month_end_day(rule, first);
+        let mut due = first.and_hms_opt(0, 0, 0).unwrap();
+        (0..n)
+            .map(|_| {
+                due = next_occurrence_naive(&rule, due, due).unwrap().unwrap();
+                due.date()
+            })
+            .collect()
+    }
+
+    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    #[test]
+    fn monthly_on_the_31st_keeps_its_day_through_short_months() {
+        assert_eq!(
+            series("FREQ=MONTHLY", day(2027, 1, 31), 4),
+            vec![
+                day(2027, 2, 28),
+                day(2027, 3, 31),
+                day(2027, 4, 30),
+                day(2027, 5, 31)
+            ]
+        );
+    }
+
+    #[test]
+    fn monthly_on_the_31st_lands_on_29_february_in_a_leap_year() {
+        assert_eq!(
+            series("FREQ=MONTHLY", day(2028, 1, 31), 2),
+            vec![day(2028, 2, 29), day(2028, 3, 31)]
+        );
+    }
+
+    #[test]
+    fn monthly_on_the_30th_keeps_the_30th_in_long_months() {
+        assert_eq!(
+            series("FREQ=MONTHLY", day(2027, 1, 30), 3),
+            vec![day(2027, 2, 28), day(2027, 3, 30), day(2027, 4, 30)]
+        );
+    }
+
+    #[test]
+    fn yearly_on_29_february_lands_on_the_28th_until_a_leap_year() {
+        assert_eq!(
+            series("FREQ=YEARLY", day(2028, 2, 29), 4),
+            vec![
+                day(2029, 2, 28),
+                day(2030, 2, 28),
+                day(2031, 2, 28),
+                day(2032, 2, 29)
+            ]
+        );
+    }
+
+    #[test]
+    fn early_days_and_rules_with_their_own_by_parts_are_left_alone() {
+        assert_eq!(
+            keep_month_end_day("FREQ=MONTHLY", day(2027, 1, 15)),
+            "FREQ=MONTHLY"
+        );
+        assert_eq!(
+            keep_month_end_day("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", day(2027, 1, 29)),
+            "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
+        );
+        assert_eq!(
+            keep_month_end_day("FREQ=MONTHLY;BYMONTHDAY=-1", day(2027, 1, 31)),
+            "FREQ=MONTHLY;BYMONTHDAY=-1"
+        );
+        assert_eq!(
+            keep_month_end_day("FREQ=DAILY", day(2027, 1, 31)),
+            "FREQ=DAILY"
         );
     }
 

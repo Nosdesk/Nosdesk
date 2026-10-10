@@ -795,13 +795,42 @@ fn create_next_occurrence(
     {
         return Ok(None);
     }
-    let after = closed
-        .due_date
-        .or(closed.closed_at)
-        .unwrap_or(closed.created_at);
+    // A due date anchors the series: the next one is a period after it, at
+    // the same time of day (midnight, as the app stores a due date as a
+    // day). Counting from created_at instead put it on the due day itself
+    // at creation's time of day. A ticket closed late still comes back a
+    // period after its old due date, which can be in the past.
+    let template_id = closed.recurrence_template_id.unwrap_or(closed.id);
+    let (series_start, after, effective_rule) = match closed.due_date {
+        // A series due near a month end keeps the first ticket's day: Jan 31
+        // gives Feb 28, then Mar 31 (see `keep_month_end_day`).
+        Some(due) => {
+            let anchor = if template_id == closed.id {
+                Some(due)
+            } else {
+                tickets::table
+                    .find(template_id)
+                    .select(tickets::due_date)
+                    .first::<Option<chrono::NaiveDateTime>>(conn)
+                    .optional()?
+                    .flatten()
+            }
+            .unwrap_or(due);
+            (
+                due,
+                due,
+                crate::services::recurrence::keep_month_end_day(rule, anchor.date()),
+            )
+        }
+        None => (
+            closed.created_at,
+            closed.closed_at.unwrap_or(closed.created_at),
+            rule.to_string(),
+        ),
+    };
     let next_due = match crate::services::recurrence::next_occurrence_naive(
-        rule,
-        closed.created_at,
+        &effective_rule,
+        series_start,
         after,
     ) {
         Ok(Some(next_due)) => next_due,
@@ -812,7 +841,6 @@ fn create_next_occurrence(
             return Ok(None);
         }
     };
-    let template_id = closed.recurrence_template_id.unwrap_or(closed.id);
     let pending: i64 = tickets::table
         .inner_join(workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)))
         .filter(tickets::workspace_id.eq(closed.workspace_id))
