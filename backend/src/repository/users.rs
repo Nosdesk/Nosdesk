@@ -591,6 +591,19 @@ pub fn list_users_pending_purge(
         .load::<User>(conn)
 }
 
+// sync-audit-only: read-only lookup for the purge jobs
+/// The workspace a background purge of this account is recorded in: its
+/// lowest-id membership, removed or not (a soft-deleted user's memberships
+/// may be removed). `None` when it belongs to no workspace. `users` has no
+/// workspace of its own, and the audit trigger needs one.
+// members-any-status: a soft-deleted user's memberships may all be removed; the purge still needs their workspace
+pub fn home_workspace_id(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<Option<i32>, Error> {
+    workspace_members::table
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .select(diesel::dsl::min(workspace_members::workspace_id))
+        .first::<Option<i32>>(conn)
+}
+
 // sync-audit-only: vestigial low-level helper; handlers use sync-wired user_helpers
 /// Hard-delete a user and every row that FK-references them. Only
 /// the retention worker (after the grace window) and the

@@ -109,6 +109,7 @@ mod push_preference_defaults;
 mod rebuild_search_index;
 mod recurring_tickets;
 mod reply_sent_twice;
+mod retention_jobs_audit_context;
 mod route_auth_funnel_lint;
 mod rules_in_workspace;
 mod scheduler_status;
