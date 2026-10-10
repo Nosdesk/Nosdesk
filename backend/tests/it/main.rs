@@ -23,6 +23,7 @@ mod analytics_kpi_summary;
 mod api_token_role_ceiling;
 mod asset_audits;
 mod asset_kinds_picker;
+mod assignable_people;
 mod assignee_eligibility;
 mod assignment_on_create;
 mod attachment_claims;

@@ -536,7 +536,12 @@ pub struct PaginationParams {
     #[serde(rename = "sortDirection")]
     sort_direction: Option<String>,
     search: Option<String>,
+    /// One role or a comma list (`admin`, `technician` or `agent`, `user`,
+    /// `audit_reviewer`); the repository parses it.
     role: Option<String>,
+    /// Only the people who can be assigned tickets here
+    /// (`assignees::assignable_in`). The assignee pickers ask for this.
+    assignable: Option<bool>,
     /// People population: `"team"` (staff) or `"requesters"` (end-users).
     /// Absent shows the combined directory.
     population: Option<String>,
@@ -673,16 +678,13 @@ pub async fn get_paginated_users(
         .as_ref()
         .map(|s| crate::utils::utf8_trunc::char_prefix(s, 100));
 
-    // Validate role filter
-    let allowed_roles = ["admin", "agent", "user"];
-    let role = query.role.as_ref().and_then(|r| {
-        let r_lower = r.to_lowercase();
-        if allowed_roles.contains(&r_lower.as_str()) {
-            Some(r_lower)
-        } else {
-            None
-        }
-    });
+    // Role filter: the repository parses the comma list and drops unknown
+    // roles. Capped like the search.
+    let role = query
+        .role
+        .as_ref()
+        .map(|r| crate::utils::utf8_trunc::char_prefix(r, 100));
+    let assignable = query.assignable.unwrap_or(false);
 
     // Soft-deleted users (and the "all" view) are a platform-admin-only
     // recovery surface, matching who can restore/purge them. A non-admin
@@ -705,12 +707,13 @@ pub async fn get_paginated_users(
 
     // A caller who isn't shown others' addresses or roles can't search, sort
     // or filter by them either: by name only.
-    let (search_by, sort_field, role, population) = if auth.can_handle_tickets() {
+    let (search_by, sort_field, role, population, assignable) = if auth.can_handle_tickets() {
         (
             repository::users::SearchBy::NameOrEmail,
             sort_field,
             role,
             population,
+            assignable,
         )
     } else {
         (
@@ -718,6 +721,7 @@ pub async fn get_paginated_users(
             sort_field.filter(|f| matches!(f.as_str(), "name" | "first_name" | "last_name")),
             None,
             None,
+            false,
         )
     };
 
@@ -731,6 +735,7 @@ pub async fn get_paginated_users(
         search_by,
         role,
         population,
+        assignable,
         deleted,
         ws.workspace_id,
     ) {

@@ -414,6 +414,7 @@ async function submitReturn() {
     <!-- Borrower picker, layered over the issue modal -->
     <UserSelectionModal
       :show="showBorrowerPicker"
+      scope="requester"
       :current-user-id="borrower?.uuid ?? null"
       @close="showBorrowerPicker = false"
       @select-user="onSelectBorrower"

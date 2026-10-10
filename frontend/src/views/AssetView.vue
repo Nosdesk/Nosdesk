@@ -1120,6 +1120,7 @@ useSyncActions(
     <!-- User Selection Modal -->
     <UserSelectionModal
       :show="showUserSelectionModal"
+      scope="requester"
       :currentUserId="device?.primary_user_uuid ?? null"
       @close="showUserSelectionModal = false"
       @select-user="handleUserSelection"
@@ -1128,6 +1129,7 @@ useSyncActions(
     <!-- Managed-by Selection Modal -->
     <UserSelectionModal
       :show="showManagedByModal"
+      scope="requester"
       :currentUserId="device?.managed_by_user_uuid ?? null"
       @close="showManagedByModal = false"
       @select-user="handleManagedBySelection"

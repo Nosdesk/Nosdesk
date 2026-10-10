@@ -7,7 +7,7 @@ import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
-import userService from '@/services/userService';
+import { fetchEligibleUsers, type PickerScope } from '@/services/eligibleUsers';
 import { effectiveRole, type UserInfo } from '@nosdesk/core/types/user';
 
 const fluent = useFluent();
@@ -22,6 +22,11 @@ const roleLabel = (role: string): string => {
 
 const props = defineProps<{
   show: boolean;
+  /** Who the list offers: `assignee` is the people who can be assigned a
+   *  ticket (the ticket sidebar's assignee picker lists the same), and
+   *  `requester` is anyone (a loan's borrower, an asset's owner).
+   *  Required, so a new caller has to choose. */
+  scope: PickerScope;
   currentUserId?: string | null;
 }>();
 
@@ -47,15 +52,7 @@ const loadUsers = async (query: string = '') => {
   error.value = null;
 
   try {
-    const response = await userService.getPaginatedUsers({
-      page: 1,
-      pageSize: 50,
-      search: query,
-      sortField: 'name',
-      sortDirection: 'asc'
-    });
-
-    users.value = response.data;
+    users.value = await fetchEligibleUsers(props.scope, query);
   } catch (err) {
     console.error('Error loading users:', err);
     error.value = t('ui-user-selection-modal-error');

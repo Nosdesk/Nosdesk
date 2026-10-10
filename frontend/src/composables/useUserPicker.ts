@@ -1,8 +1,8 @@
 import { computed, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
-import userService from '@/services/userService'
 import * as syncPool from '@nosdesk/core/sync/pool'
 import { useAuthStore } from '@/stores/auth'
 import { effectiveRole, type User } from '@nosdesk/core/types/user'
+import { fetchEligibleUsers, isEligibleForType } from '@/services/eligibleUsers'
 import { useRecentUsersStore, type RecentScope } from '@/stores/recentUsers'
 import { useDebouncedRef } from '@/composables/useDebouncedRef'
 
@@ -85,26 +85,6 @@ interface Result {
   remember: (user: PickerUser) => void
 }
 
-/** Eligible-set strategy. The assignee scope hits a comma-separated
- *  multi-role filter (admin,technician) — backend supports this in one
- *  request. The requester scope leaves role unset to load everyone. */
-const ROLE_FILTER: Record<UserPickerType, string | undefined> = {
-  assignee: 'admin,technician',
-  requester: undefined,
-}
-
-/** Roles the assignee picker considers eligible. Backend already
- *  filters via the `roles` param, but we also enforce client-side so a
- *  stale role on a cached user, an API regression, or a recents entry
- *  predating tighter validation can't surface a non-staff option. */
-const ASSIGNEE_ELIGIBLE_ROLES = new Set(['admin', 'technician'])
-
-function isEligibleForType(type: UserPickerType, role: string | undefined): boolean {
-  if (type === 'requester') return true
-  return !!role && ASSIGNEE_ELIGIBLE_ROLES.has(role)
-}
-
-const PAGE_SIZE = 50
 const DEBOUNCE_MS = 200
 
 export function useUserPicker(opts: Options): Result {
@@ -225,7 +205,7 @@ export function useUserPicker(opts: Options): Result {
           // Drop ineligible cached users — a recents entry from before
           // tighter role enforcement could otherwise surface a regular
           // user as an assignee option.
-          if (!isEligibleForType(opts.type, effectiveRole(cached))) return null
+          if (!isEligibleForType(opts.type, cached)) return null
           return {
             uuid: cached.uuid,
             name: cached.name,
@@ -272,24 +252,15 @@ export function useUserPicker(opts: Options): Result {
   // ---- Loading ----
 
   async function fetchEligible(searchTerm: string | undefined): Promise<PickerUser[]> {
-    const response = await userService.getPaginatedUsers({
-      page: 1,
-      pageSize: PAGE_SIZE,
-      search: searchTerm ?? '',
-      sortField: 'name',
-      sortDirection: 'asc',
-      role: ROLE_FILTER[opts.type],
-    })
-    return response.data
-      .filter((u) => isEligibleForType(opts.type, effectiveRole(u)))
-      .map<PickerUser>((u) => ({
-        uuid: u.uuid,
-        name: u.name,
-        email: u.email ?? '',
-        role: effectiveRole(u),
-        avatar_thumb: u.avatar_thumb,
-        avatar_url: u.avatar_url,
-      }))
+    const users = await fetchEligibleUsers(opts.type, searchTerm ?? '')
+    return users.map<PickerUser>((u) => ({
+      uuid: u.uuid,
+      name: u.name,
+      email: u.email ?? '',
+      role: effectiveRole(u),
+      avatar_thumb: u.avatar_thumb,
+      avatar_url: u.avatar_url,
+    }))
   }
 
   async function loadEligible(): Promise<void> {

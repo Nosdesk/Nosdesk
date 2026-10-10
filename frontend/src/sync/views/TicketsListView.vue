@@ -515,7 +515,9 @@ const ticketContextMenuItems = computed<MenuItem[]>(() => {
     divider: true,
   })
 
-  const me = authStore.user?.uuid
+  // Offered only to someone who can be assigned tickets, as the assignee
+  // picker's "You" row is.
+  const me = authStore.isTechnician ? authStore.user?.uuid : undefined
   if (me && contextMenuAssigneeUuid.value !== me) {
     items.push({
       id: 'assign-to-me',
@@ -1165,6 +1167,7 @@ function startPaneResize(event: PointerEvent): void {
 
     <UserSelectionModal
       :show="showContextAssignModal"
+      scope="assignee"
       @close="showContextAssignModal = false"
       @select-user="onContextAssignSelect"
     />

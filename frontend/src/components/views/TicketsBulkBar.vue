@@ -10,7 +10,8 @@
  * Status / Priority are Reka Listboxes in a popover (small option
  * sets, no search needed). Assignee opens the existing
  * UserSelectionModal, search-driven because the user list can grow
- * large.
+ * large, scoped to the people the single-ticket assignee picker
+ * offers.
  *
  * The bar is presentational: dispatching the actual mutations is the
  * parent's job. We emit the chosen value + the selected ids and let
@@ -426,6 +427,7 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
 
   <UserSelectionModal
     :show="showAssignModal"
+    scope="assignee"
     @close="showAssignModal = false"
     @select-user="onAssignSelect"
   />
