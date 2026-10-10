@@ -283,6 +283,12 @@ fn action_delivery(v: &ActionView, viewer: &SyncViewer, r: &Resolved) -> Deliver
     let is_doc = v
         .aggregate
         .is_some_and(|agg| audience(agg) == Audience::Docs);
+    // A documentation row addressed to people (a re-send after a change to
+    // one person's roles or groups) is for them alone: no one else's access
+    // changed.
+    if is_doc && !v.addressees.is_empty() && !v.addressees.contains(&viewer.ctx.user_uuid) {
+        return Delivery::Drop;
+    }
     if is_doc && r.doc_fail {
         return Delivery::Unclassified;
     }
@@ -1032,6 +1038,26 @@ mod tests {
         assert_eq!(
             action_delivery(&visible, &staff(), &r),
             Delivery::Unclassified
+        );
+    }
+
+    #[test]
+    fn a_documentation_row_addressed_to_someone_is_for_them_alone() {
+        let mut page = view(SyncAggregate::DocumentationPage, false);
+        page.aggregate_id = Some(5);
+        page.addressees = vec![Uuid::new_v4()];
+        let mut r = resolved(&staff());
+        r.hidden_pages = HashSet::from([5]);
+        assert_eq!(
+            action_delivery(&page, &staff(), &r),
+            Delivery::Drop,
+            "someone else's"
+        );
+        page.addressees = vec![Uuid::nil()];
+        assert_eq!(
+            action_delivery(&page, &staff(), &r),
+            Delivery::Retract,
+            "the viewer's own"
         );
     }
 

@@ -174,12 +174,17 @@ impl Importer for UserImporter {
                         // LastOwner: proceed with the profile + platform_role.
                         _ => {}
                     }
+                    let access = crate::repository::documentation::doc_access(conn, ws_id, uuid)?;
                     diesel::update(users::table.find(uuid))
                         .set((
                             users::platform_role.eq(platform_role_enum.as_str()),
                             users::updated_at.eq(chrono::Utc::now().naive_utc()),
                         ))
                         .execute(conn)?;
+                    // A platform admin opens every restricted page.
+                    crate::repository::documentation::emit_if_access_changed(
+                        conn, ws_id, uuid, &access,
+                    )?;
                     // The profile-field change goes through update_user, which
                     // emits user.updated and returns the refreshed model for
                     // indexing.

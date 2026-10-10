@@ -615,21 +615,97 @@ pub fn emit_records_granted_to_groups(
     emit_records(conn, &collections, &pages, crate::sync::groups::workspace())
 }
 
-/// After `user_uuid` became or stopped being an admin of `workspace_id`:
-/// re-emit to them every restricted record (an admin opens all of them). The
-/// write may run outside that workspace's pin (a control-plane role change),
-/// so the emits pin it and put the previous pin back.
-pub fn emit_restricted_records_to_user(
+/// What decides which documentation a person may open in a workspace: whether
+/// they are a member, whether they are an admin (workspace owner or admin, or
+/// platform admin), and every group they are in, the including groups too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocAccess {
+    member: bool,
+    admin: bool,
+    groups: std::collections::BTreeSet<i32>,
+}
+
+/// Run `f` pinned to `workspace_id`, inside a transaction (a savepoint when
+/// nested) so the pin holds even when the caller has none open, and put the
+/// previous pin back after. For a write that may run outside that
+/// workspace's pin (a control-plane role change).
+fn in_workspace<T>(
     conn: &mut DbConnection,
     workspace_id: i32,
-    user_uuid: uuid::Uuid,
-) -> Result<(), Error> {
-    // In a transaction (a savepoint when nested), so the pin holds for the
-    // emits even when the caller has none open.
+    f: impl FnOnce(&mut DbConnection) -> Result<T, Error>,
+) -> Result<T, Error> {
     conn.transaction(|conn| {
         let previous = crate::sync::session::current_workspace_id(conn)?;
         crate::sync::session::pin_workspace(conn, workspace_id)?;
-        let emitted = (|| {
+        let out = f(conn);
+        crate::sync::session::restore_workspace_pin(conn, previous)?;
+        out
+    })
+}
+
+/// [`DocAccess`] for `user_uuid` in `workspace_id`. Read it before a write that
+/// can change it (a role, a membership, a group) and hand it to
+/// [`emit_if_access_changed`] after.
+pub fn doc_access(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: uuid::Uuid,
+) -> Result<DocAccess, Error> {
+    in_workspace(conn, workspace_id, |conn| {
+        use crate::schema::{users, workspace_members};
+        let role: Option<String> = workspace_members::table
+            .filter(workspace_members::workspace_id.eq(workspace_id))
+            .filter(workspace_members::user_uuid.eq(user_uuid))
+            .filter(workspace_members::removed_at.is_null())
+            .select(workspace_members::role)
+            .first(conn)
+            .optional()?;
+        let platform_admin = users::table
+            .find(user_uuid)
+            .select(users::platform_role)
+            .first::<String>(conn)
+            .optional()?
+            .is_some_and(|r| crate::models::PlatformRole::from_db(&r).is_platform_admin());
+        let groups = if role.is_some() {
+            crate::repository::groups::get_group_ids_for_user(conn, &user_uuid)?
+                .into_iter()
+                .collect()
+        } else {
+            Default::default()
+        };
+        Ok(DocAccess {
+            member: role.is_some(),
+            admin: platform_admin
+                || role
+                    .as_deref()
+                    .is_some_and(|r| matches!(r, "owner" | "admin")),
+            groups,
+        })
+    })
+}
+
+/// After a write that may have changed what `user_uuid` may open in
+/// `workspace_id`: compare with `before` and, only on a real change, re-emit
+/// to that person the records it touches. Becoming or no longer being a
+/// member or an admin touches every restricted record; joining or leaving
+/// groups touches the records those groups are granted. Other readers'
+/// access didn't change, so the rows are addressed to this person alone.
+pub fn emit_if_access_changed(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: uuid::Uuid,
+    before: &DocAccess,
+) -> Result<(), Error> {
+    // Someone who just joined holds nothing yet: their first sync brings it.
+    if !before.member {
+        return Ok(());
+    }
+    let after = doc_access(conn, workspace_id, user_uuid)?;
+    if after == *before {
+        return Ok(());
+    }
+    in_workspace(conn, workspace_id, |conn| {
+        let (collections, pages) = if after.member != before.member || after.admin != before.admin {
             let collections: Vec<i32> = documentation_collections::table
                 .filter(documentation_collections::workspace_id.eq(workspace_id))
                 .filter(documentation_collections::restricted.eq(true))
@@ -640,15 +716,21 @@ pub fn emit_restricted_records_to_user(
                 .filter(documentation_pages::restricted.eq(true))
                 .select(documentation_pages::id)
                 .load(conn)?;
-            emit_records(
-                conn,
-                &collections,
-                &pages,
-                crate::sync::groups::private_to_user(user_uuid),
-            )
-        })();
-        crate::sync::session::restore_workspace_pin(conn, previous)?;
-        emitted
+            (collections, pages)
+        } else {
+            let changed: Vec<i32> = before
+                .groups
+                .symmetric_difference(&after.groups)
+                .copied()
+                .collect();
+            records_granted_to_groups(conn, &changed)?
+        };
+        emit_records(
+            conn,
+            &collections,
+            &pages,
+            crate::sync::groups::for_user(user_uuid),
+        )
     })
 }
 
@@ -1085,6 +1167,28 @@ pub fn set_page_rules(
         (Vec::new(), Vec::new())
     };
     conn.transaction(|conn| {
+        // The same rules saved again change no one's access: nothing to write
+        // or re-send.
+        let current: Vec<DocumentationPageVisibility> = documentation_page_visibility::table
+            .filter(documentation_page_visibility::page_id.eq(page_id))
+            .load(conn)?;
+        let was_restricted: bool = documentation_pages::table
+            .find(page_id)
+            .select(documentation_pages::restricted)
+            .first(conn)?;
+        let same_groups = current
+            .iter()
+            .filter_map(|v| v.group_id)
+            .collect::<std::collections::BTreeSet<_>>()
+            == group_ids.iter().copied().collect();
+        let same_users = current
+            .iter()
+            .filter_map(|v| v.user_uuid)
+            .collect::<std::collections::BTreeSet<_>>()
+            == user_uuids.iter().copied().collect();
+        if was_restricted == restricted && same_groups && same_users {
+            return Ok(current);
+        }
         diesel::update(documentation_pages::table.find(page_id))
             .set(documentation_pages::restricted.eq(restricted))
             .execute(conn)?;

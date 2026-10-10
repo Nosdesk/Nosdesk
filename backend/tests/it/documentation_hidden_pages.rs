@@ -1493,6 +1493,30 @@ async fn a_page_taken_out_of_a_restricted_collection_stays_closed() {
         only_deletes(&rows, "documentation_page", f.in_secret),
         "the outsider's delta deletes the page: {rows:?}"
     );
+
+    // Its access editor shows the rules it now has of its own.
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::GET,
+            &format!("{page_uri}/visibility"),
+            f.admin,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let rules: Value = http_test::read_body_json(resp).await;
+    assert_eq!(rules["restricted"], json!(true), "{rules}");
+    assert!(
+        rules["users"]
+            .as_array()
+            .expect("users")
+            .iter()
+            .any(|u| u["uuid"] == json!(f.insider)),
+        "{rules}"
+    );
 }
 
 /// The trash shows a page to whoever could open it under its rules, and they
@@ -1655,6 +1679,36 @@ fn an_unchanged_directory_sync_emits_no_documentation_rows() {
     .expect("sync the same membership");
     assert_eq!(doc_rows(&pool), before, "nothing changed, nothing emitted");
 
+    // A group including the shared one, set to the same inclusion twice.
+    let parent = group_with(&pool, &f, &[]);
+    run_in_workspace(&pool, REF, ws, |c| {
+        let collection = collection(
+            c,
+            "Pager",
+            &format!("pager-{}", &Uuid::new_v4().simple().to_string()[..8]),
+        );
+        documentation_collections::set_collection_visibility(
+            c,
+            collection,
+            vec![parent],
+            vec![],
+            None,
+        )?;
+        backend::repository::groups::set_group_includes(c, parent, vec![group], None)?;
+        Ok(())
+    })
+    .expect("include the group");
+    let included = doc_rows(&pool);
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::set_group_includes(c, parent, vec![group], None).map(|_| ())
+    })
+    .expect("set the same inclusion");
+    assert_eq!(
+        doc_rows(&pool),
+        included,
+        "the same inclusion, nothing emitted"
+    );
+
     run_in_workspace(&pool, REF, ws, |c| {
         backend::repository::groups::set_group_members(c, group, vec![], None).map(|_| ())
     })
@@ -1758,4 +1812,216 @@ async fn a_search_total_counts_only_what_the_caller_gets() {
         (1, 1),
         "the outsider can open one page: {body}"
     );
+}
+
+/// The docs, sync and people routes, the caller riding in [`AS`], with
+/// `$operator` signed in as a platform admin.
+macro_rules! people_and_sync_app {
+    ($pool:expr, $workspace:expr, $operator:expr) => {{
+        let search_dir = tempfile::tempdir().expect("tempdir");
+        let search = Arc::new(SearchService::new(search_dir.path(), &$pool).expect("init search"));
+        std::mem::forget(search_dir);
+        let workspace: WorkspaceContext = $workspace;
+        let operator: Uuid = $operator;
+        let corr = Uuid::now_v7();
+        http_test::init_service(
+            App::new()
+                .app_data(web::Data::new($pool.clone()))
+                .app_data(web::Data::new(search))
+                .wrap_fn(move |req, srv| {
+                    let user = req
+                        .headers()
+                        .get(AS)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| Uuid::parse_str(v).ok())
+                        .expect("caller header");
+                    let actor =
+                        ActorContext::user(user, Some(corr)).with_workspace(workspace.workspace_id);
+                    let mut claims = claims(user);
+                    if user == operator {
+                        claims.platform_role = "platform_admin".to_string();
+                    }
+                    req.extensions_mut().insert(workspace.clone());
+                    req.extensions_mut().insert(claims);
+                    req.extensions_mut()
+                        .insert(RequestContext::new(corr, actor));
+                    srv.call(req)
+                })
+                .service(
+                    web::scope("/api")
+                        .configure(backend::handlers::users::config)
+                        .configure(backend::handlers::sync::config),
+                ),
+        )
+        .await
+    }};
+}
+
+/// Someone who stops being an admin, by any route that sets a role, gets
+/// deletes for the restricted records an admin could open and they can't.
+#[actix_web::test]
+async fn losing_admin_by_any_route_reads_as_a_delete() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let (operator, by_edit, by_bulk, platform_admin) = {
+        let mut conn = pool.get().expect("conn");
+        (
+            common::insert_user(&mut conn, "Operator").uuid,
+            common::insert_plain_user(&mut conn, "Edited Admin"),
+            common::insert_plain_user(&mut conn, "Bulk Admin"),
+            common::insert_user(&mut conn, "Platform Agent").uuid,
+        )
+    };
+    run_in_workspace(&pool, REF, ws, |c| {
+        for (user, role) in [
+            (operator, "admin"),
+            (by_edit, "admin"),
+            (by_bulk, "admin"),
+            (platform_admin, "agent"),
+        ] {
+            add_membership(c, ws, user, role, SeatWriteAuthority::ControlPlane)?;
+        }
+        Ok(())
+    })
+    .expect("memberships");
+    let app = people_and_sync_app!(pool, f.workspace.clone(), operator);
+    let (_, before) = delta_after!(app, f, pool, by_edit, (0, 0));
+
+    let edit = http_test::call_service(
+        &app,
+        request(
+            Method::PUT,
+            &format!("/api/users/{by_edit}"),
+            operator,
+            Some(json!({ "role": "technician" })),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(edit.status(), StatusCode::OK);
+    // The platform admin's "technician" role drops platform_role to user.
+    let bulk = http_test::call_service(
+        &app,
+        request(
+            Method::POST,
+            "/api/users/bulk",
+            operator,
+            Some(json!({
+                "action": "set-role",
+                "ids": [by_bulk.to_string(), platform_admin.to_string()],
+                "value": "technician",
+            })),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(bulk.status(), StatusCode::OK);
+
+    for (user, how) in [
+        (by_edit, "an edit"),
+        (by_bulk, "a bulk set-role"),
+        (platform_admin, "a platform role change"),
+    ] {
+        let (rows, _) = delta_after!(app, f, pool, user, before);
+        assert!(
+            only_deletes(&rows, "documentation_page", f.hidden),
+            "{how}: the restricted page: {rows:?}"
+        );
+        assert!(
+            only_deletes(&rows, "documentation_collection", f.secret),
+            "{how}: the restricted collection: {rows:?}"
+        );
+    }
+}
+
+/// Joining a group re-sends what it opens to the person who joined, and to
+/// no one else.
+#[actix_web::test]
+async fn joining_a_group_reaches_only_the_person_who_joined() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let group = group_with(&pool, &f, &[]);
+    let collection = run_in_workspace(&pool, REF, ws, |c| {
+        let collection = collection(
+            c,
+            "On call",
+            &format!("oncall-{}", &Uuid::new_v4().simple().to_string()[..8]),
+        );
+        documentation_collections::set_collection_visibility(
+            c,
+            collection,
+            vec![group],
+            vec![],
+            None,
+        )?;
+        Ok(collection)
+    })
+    .expect("seed");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let (_, before) = delta_after!(app, f, pool, f.outsider, (0, 0));
+
+    run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::add_user_to_group(c, f.member, group, None).map(|_| ())
+    })
+    .expect("join");
+
+    let (joined, _) = delta_after!(app, f, pool, f.member, before);
+    assert!(
+        carries_row(&joined, "documentation_collection", collection),
+        "the person who joined gets the collection: {joined:?}"
+    );
+    let (others, _) = delta_after!(app, f, pool, f.outsider, before);
+    assert!(
+        about(&others, "documentation_collection", collection).is_empty(),
+        "no one else gets a row about it: {others:?}"
+    );
+}
+
+/// Saving a page's or a collection's rules unchanged re-sends nothing.
+#[actix_web::test]
+async fn saving_unchanged_rules_emits_nothing() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let doc_rows = || {
+        use backend::schema::sync_actions;
+        run_in_workspace(&pool, REF, ws, |c| {
+            sync_actions::table
+                .filter(sync_actions::aggregate.eq_any([
+                    backend::models::SyncAggregate::DocumentationPage,
+                    backend::models::SyncAggregate::DocumentationCollection,
+                ]))
+                .count()
+                .get_result::<i64>(c)
+        })
+        .expect("count doc rows")
+    };
+    let before = doc_rows();
+    for uri in [
+        format!("/api/documentation/collections/{}/visibility", f.secret),
+        format!("/api/documentation/pages/{}/visibility", f.hidden),
+    ] {
+        let resp = http_test::call_service(
+            &app,
+            request(
+                Method::PUT,
+                &uri,
+                f.admin,
+                Some(json!({ "group_ids": [], "user_uuids": [f.insider.to_string()] })),
+            )
+            .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK, "{uri}");
+    }
+    assert_eq!(doc_rows(), before, "the same rules, nothing re-sent");
 }

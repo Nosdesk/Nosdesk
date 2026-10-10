@@ -758,6 +758,29 @@ pub fn set_collection_rules(
         (Vec::new(), Vec::new())
     };
     conn.transaction(|conn| {
+        // The same rules saved again change no one's access: nothing to write
+        // or re-send.
+        let current: Vec<DocumentationCollectionVisibility> =
+            documentation_collection_visibility::table
+                .filter(documentation_collection_visibility::collection_id.eq(collection_id))
+                .load(conn)?;
+        let was_restricted: bool = documentation_collections::table
+            .find(collection_id)
+            .select(documentation_collections::restricted)
+            .first(conn)?;
+        let same_groups = current
+            .iter()
+            .filter_map(|v| v.group_id)
+            .collect::<std::collections::BTreeSet<_>>()
+            == group_ids.iter().copied().collect();
+        let same_users = current
+            .iter()
+            .filter_map(|v| v.user_uuid)
+            .collect::<std::collections::BTreeSet<_>>()
+            == user_uuids.iter().copied().collect();
+        if was_restricted == restricted && same_groups && same_users {
+            return Ok(current);
+        }
         diesel::update(documentation_collections::table.find(collection_id))
             .set(documentation_collections::restricted.eq(restricted))
             .execute(conn)?;

@@ -55,6 +55,14 @@ const color = ref(randomAccentColor())
 const requireVerification = ref(false)
 // Open only to the people and groups chosen (admins only when none are).
 const restricted = ref(false)
+// Who could open it when the edit form opened, to save access only when it
+// changed (a save re-sends the collection and its pages to everyone).
+const seededAccess = ref('')
+
+function accessKey(isRestricted: boolean, items: SelectedPrincipal[]) {
+  const keys = isRestricted ? items.map((i) => `${i.type}:${i.id}`).sort() : []
+  return `${isRestricted}|${keys.join(',')}`
+}
 const selectedItems = ref<SelectedPrincipal[]>([])
 const saving = ref(false)
 const saveError = ref('')
@@ -152,7 +160,6 @@ function visibilityFromSelection(items: SelectedPrincipal[]) {
     userUuids,
     visible_to_groups,
     visible_to_users,
-    is_public: items.length === 0,
   }
 }
 
@@ -179,6 +186,7 @@ function seedEditForm(collection: CollectionWithDetails) {
   requireVerification.value = collection.require_verification ?? false
   restricted.value = collection.restricted ?? !collection.is_public
   selectedItems.value = principalsFromCollection(collection)
+  seededAccess.value = accessKey(restricted.value, selectedItems.value)
   saveError.value = ''
 }
 
@@ -323,9 +331,12 @@ async function handleEdit() {
       return
     }
 
-    const visibilityOk = restricted.value
-      ? await setCollectionVisibility(props.collection.id, visibility.groupIds, visibility.userUuids, true)
-      : await setCollectionVisibility(props.collection.id, [], [], false)
+    const accessChanged = accessKey(restricted.value, selectedItems.value) !== seededAccess.value
+    const visibilityOk = !accessChanged
+      ? true
+      : restricted.value
+        ? await setCollectionVisibility(props.collection.id, visibility.groupIds, visibility.userUuids, true)
+        : await setCollectionVisibility(props.collection.id, [], [], false)
     if (!visibilityOk) {
       saveError.value = t('docs-edit-collection-save-error')
       return
@@ -334,9 +345,10 @@ async function handleEdit() {
     emit('saved', {
       ...props.collection,
       ...updated,
-      visible_to_groups: visibility.visible_to_groups,
-      visible_to_users: visibility.visible_to_users,
-      is_public: visibility.is_public,
+      visible_to_groups: restricted.value ? visibility.visible_to_groups : [],
+      visible_to_users: restricted.value ? visibility.visible_to_users : [],
+      is_public: !restricted.value,
+      restricted: restricted.value,
     } as CollectionWithDetails)
     emit('close')
   } catch (error) {
