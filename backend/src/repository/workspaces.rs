@@ -999,6 +999,16 @@ pub fn update_membership_role(
     )
     .set(workspace_members::role.eq(new_role))
     .get_result::<WorkspaceMember>(conn)?;
+    // An admin opens every restricted page and collection: becoming or no
+    // longer being one changes what this person may open.
+    let is_admin = |role: &str| matches!(role, "owner" | "admin");
+    if is_admin(&row.role) != is_admin(new_role) {
+        crate::repository::documentation::emit_restricted_records_to_user(
+            conn,
+            workspace_id,
+            user_uuid,
+        )?;
+    }
     Ok(UpdateMembershipRoleResult::Updated(updated))
 }
 

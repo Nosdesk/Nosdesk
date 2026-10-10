@@ -504,6 +504,8 @@ const router = createRouter({
       component: () => import('../views/DocumentationTrashView.vue'),
       meta: {
         requiresAuth: true,
+        // A page in the trash is open to admins only.
+        workspaceAdminRequired: true,
         titleKey: 'route-title-documentation-trash'
       }
     },

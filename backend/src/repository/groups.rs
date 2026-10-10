@@ -275,6 +275,11 @@ pub fn update_group(
 /// Delete a group (cascades to user_groups and category_group_visibility)
 pub fn delete_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<usize> {
     conn.transaction(|conn| {
+        // The group's grants and inclusions go with it: read what they
+        // opened first, and re-emit it after.
+        let affected = with_including_groups(conn, &[group_id])?;
+        let (collections, pages) =
+            crate::repository::documentation::records_granted_to_groups(conn, &affected)?;
         let result = diesel::delete(groups::table.find(group_id)).execute(conn)?;
         if result > 0 {
             emit::record(
@@ -288,6 +293,12 @@ pub fn delete_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<usize
                     groups: sync_groups::workspace(),
                     causation_id: None,
                 },
+            )?;
+            crate::repository::documentation::emit_records(
+                conn,
+                &collections,
+                &pages,
+                sync_groups::workspace(),
             )?;
         }
         Ok(result)
@@ -441,6 +452,7 @@ pub fn add_user_to_group(
                 causation_id: None,
             },
         )?;
+        crate::repository::documentation::emit_records_granted_to_groups(conn, &[group_id])?;
         Ok(membership)
     })
 }
@@ -474,6 +486,7 @@ pub fn remove_user_from_group(
                     causation_id: None,
                 },
             )?;
+            crate::repository::documentation::emit_records_granted_to_groups(conn, &[group_id])?;
         }
         Ok(result)
     })
@@ -524,6 +537,7 @@ pub fn set_group_members(
                 causation_id: None,
             },
         )?;
+        crate::repository::documentation::emit_records_granted_to_groups(conn, &[group_id])?;
         Ok(inserted)
     })
 }
@@ -536,6 +550,10 @@ pub fn set_user_groups(
     created_by: Option<Uuid>,
 ) -> QueryResult<Vec<UserGroup>> {
     conn.transaction(|conn| {
+        let previous: Vec<i32> = user_groups::table
+            .filter(user_groups::user_uuid.eq(user_uuid))
+            .select(user_groups::group_id)
+            .load(conn)?;
         // Delete all existing memberships for this user
         diesel::delete(user_groups::table.filter(user_groups::user_uuid.eq(user_uuid)))
             .execute(conn)?;
@@ -573,6 +591,9 @@ pub fn set_user_groups(
                 causation_id: None,
             },
         )?;
+        let mut changed = previous;
+        changed.extend(group_ids.iter().copied());
+        crate::repository::documentation::emit_records_granted_to_groups(conn, &changed)?;
         Ok(inserted)
     })
 }
@@ -823,6 +844,25 @@ pub fn get_included_groups(
         .load(conn)
 }
 
+/// `group_ids` and every group that includes one of them: whose members a
+/// change to these groups' members also changes (inclusion is one level).
+pub fn with_including_groups(conn: &mut DbConnection, group_ids: &[i32]) -> QueryResult<Vec<i32>> {
+    let mut all: Vec<i32> = group_ids.to_vec();
+    if group_ids.is_empty() {
+        return Ok(all);
+    }
+    let parents: Vec<i32> = group_includes::table
+        .filter(group_includes::child_group_id.eq_any(group_ids))
+        .select(group_includes::parent_group_id)
+        .load(conn)?;
+    for parent in parents {
+        if !all.contains(&parent) {
+            all.push(parent);
+        }
+    }
+    Ok(all)
+}
+
 /// Get the parent groups that include a given child group
 pub fn get_parent_groups(conn: &mut DbConnection, child_group_id: i32) -> QueryResult<Vec<Group>> {
     group_includes::table
@@ -907,6 +947,7 @@ pub fn add_group_include(
                 causation_id: None,
             },
         )?;
+        crate::repository::documentation::emit_records_granted_to_groups(conn, &[parent_id])?;
         Ok(include)
     })
 }
@@ -940,6 +981,7 @@ pub fn remove_group_include(
                     causation_id: None,
                 },
             )?;
+            crate::repository::documentation::emit_records_granted_to_groups(conn, &[parent_id])?;
         }
         Ok(result)
     })
@@ -1024,6 +1066,7 @@ pub fn set_group_includes(
                 causation_id: None,
             },
         )?;
+        crate::repository::documentation::emit_records_granted_to_groups(conn, &[parent_id])?;
         Ok(inserted)
     })
 }

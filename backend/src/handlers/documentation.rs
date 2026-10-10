@@ -1973,7 +1973,11 @@ pub async fn get_archived_pages(mut tc: TenantConn, auth: AuthContext) -> impl R
 }
 
 // Get trashed (soft-deleted) documentation pages
+/// The trash is for admins: a page in it is open to no one else.
 pub async fn get_trashed_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Admin required");
+    }
     let outcome = run_page_list(
         &mut tc,
         repository::PageAudience::from_auth(&auth),
@@ -2007,11 +2011,13 @@ pub async fn get_page_visibility(
         }
         let groups = repository::get_visible_groups_for_page(conn, page_id)?;
         let users = repository::get_visible_users_for_page(conn, page_id)?;
-        Ok::<_, diesel::result::Error>(Some((groups, users)))
+        let restricted = repository::get_documentation_page(page_id, conn)?.restricted;
+        Ok::<_, diesel::result::Error>(Some((restricted, groups, users)))
     });
 
     match result {
-        Ok(Some((groups, users))) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(Some((restricted, groups, users))) => HttpResponse::Ok().json(serde_json::json!({
+            "restricted": restricted,
             "groups": groups,
             "users": users,
         })),
@@ -2027,6 +2033,10 @@ pub async fn get_page_visibility(
 pub struct SetPageVisibilityRequest {
     pub group_ids: Vec<i32>,
     pub user_uuids: Option<Vec<String>>,
+    /// The page has its own rules: open only to these grants, or to admins
+    /// only when there are none. Omitted, it follows from whether any grant
+    /// is given.
+    pub restricted: Option<bool>,
 }
 
 /// Set visibility groups for a documentation page (admin only)
@@ -2056,10 +2066,14 @@ pub async fn set_page_visibility(
         })
         .unwrap_or_default();
 
+    let restricted = body
+        .restricted
+        .unwrap_or(!(body.group_ids.is_empty() && user_uuids.is_empty()));
     match tc.run(|conn| {
-        repository::set_page_visibility(
+        repository::set_page_rules(
             conn,
             page_id,
+            restricted,
             body.group_ids.clone(),
             user_uuids.clone(),
             created_by,

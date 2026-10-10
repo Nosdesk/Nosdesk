@@ -204,7 +204,7 @@ fn collection_response(
         collection.id,
     )
     .unwrap_or_default();
-    let is_public = visible_groups.is_empty() && visible_users.is_empty();
+    let is_public = !collection.restricted;
 
     json!({
         "id": collection.id,
@@ -227,6 +227,7 @@ fn collection_response(
         "visible_to_groups": visible_groups,
         "visible_to_users": visible_users,
         "is_public": is_public,
+        "restricted": !is_public,
     })
 }
 
@@ -260,6 +261,9 @@ pub struct CreateCollectionRequest {
     /// People the collection is open to, alongside the groups. Set in the
     /// same transaction as the create.
     pub visible_to_user_uuids: Option<Vec<Uuid>>,
+    /// Open only to the groups and people given, or to admins only when
+    /// none are. Omitted, it follows from whether any are given.
+    pub restricted: Option<bool>,
 }
 
 /// Create a new collection (technician+)
@@ -304,11 +308,17 @@ pub async fn create_collection(
             created_by,
         };
 
+        let groups = body.visible_to_group_ids.clone().unwrap_or_default();
+        let users = body.visible_to_user_uuids.clone().unwrap_or_default();
+        let restricted = body
+            .restricted
+            .unwrap_or(!(groups.is_empty() && users.is_empty()));
         let collection = repository::documentation_collections::create_collection_open_to(
             conn,
             new_collection,
-            body.visible_to_group_ids.clone().unwrap_or_default(),
-            body.visible_to_user_uuids.clone().unwrap_or_default(),
+            restricted,
+            groups,
+            users,
             created_by,
         )?;
         let payload = collection_response(conn, collection, workspace_uuid, &audience);
@@ -652,6 +662,9 @@ pub async fn get_collection_visibility(
 pub struct SetVisibilityRequest {
     pub group_ids: Vec<i32>,
     pub user_uuids: Option<Vec<String>>,
+    /// Open only to these grants, or to admins only when there are none.
+    /// Omitted, it follows from whether any grant is given.
+    pub restricted: Option<bool>,
 }
 
 /// Set visibility groups for a collection (admin only)
@@ -681,10 +694,14 @@ pub async fn set_collection_visibility(
         })
         .unwrap_or_default();
 
+    let restricted = body
+        .restricted
+        .unwrap_or(!(body.group_ids.is_empty() && user_uuids.is_empty()));
     match tc.run(|conn| {
-        repository::documentation_collections::set_collection_visibility(
+        repository::documentation_collections::set_collection_rules(
             conn,
             collection_id,
+            restricted,
             body.group_ids.clone(),
             user_uuids.clone(),
             created_by,

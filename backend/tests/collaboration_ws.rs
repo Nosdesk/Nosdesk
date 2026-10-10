@@ -1225,3 +1225,147 @@ async fn access_withdrawn_while_connecting_still_closes_the_page() {
         "the session is closed with no access once it has joined"
     );
 }
+
+/// Someone with a page open who leaves the only group it is shared with is
+/// closed out with "no access", like a change to the page's own rules.
+#[actix_web::test]
+async fn leaving_a_group_closes_an_open_page_with_no_access() {
+    use diesel::prelude::*;
+
+    install_fast_heartbeat();
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+    let ws1_uuid = backend::repository::workspaces::find_by_id(&mut pool.get().expect("conn"), 1)
+        .expect("ws lookup")
+        .expect("bootstrap workspace exists")
+        .uuid;
+    let admin = common::insert_user(&mut pool.get().expect("conn"), "Group Admin");
+    let agent = common::insert_plain_user(&mut pool.get().expect("conn"), "Group Agent");
+    let in_workspace =
+        |f: &mut dyn FnMut(&mut backend::db::DbConnection) -> Result<(), diesel::result::Error>| {
+            let mut conn = pool.get().expect("conn");
+            let actor =
+                backend::sync::actor::ActorContext::user(admin.uuid, None).with_workspace(1);
+            backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+                &mut conn,
+                &actor,
+                |c| f(c),
+            )
+            .expect("write in workspace 1");
+        };
+    let page_uuid = uuid::Uuid::new_v4();
+    let (mut page_id, mut spare_id, mut group_id) = (0, 0, 0);
+    in_workspace(&mut |c| {
+        use backend::schema::documentation_pages as dp;
+        for (user, role) in [(admin.uuid, "admin"), (agent, "agent")] {
+            backend::repository::workspaces::add_membership(
+                c,
+                1,
+                user,
+                role,
+                backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+            )?;
+        }
+        group_id = backend::repository::groups::create_group(
+            c,
+            backend::models::NewGroup {
+                name: "On call".to_string(),
+                description: None,
+                color: None,
+                created_by: None,
+            },
+        )?
+        .id;
+        backend::repository::groups::add_user_to_group(c, agent, group_id, None)?;
+        let mut insert = |uuid: uuid::Uuid, title: &str| {
+            diesel::insert_into(dp::table)
+                .values((
+                    dp::uuid.eq(uuid),
+                    dp::title.eq(title),
+                    dp::slug.eq(format!("{}-{}", title.to_lowercase(), uuid.simple())),
+                    dp::created_by.eq(admin.uuid),
+                    dp::last_edited_by.eq(admin.uuid),
+                ))
+                .returning(dp::id)
+                .get_result::<i32>(c)
+        };
+        page_id = insert(page_uuid, "Escalations")?;
+        spare_id = insert(uuid::Uuid::new_v4(), "Spare")?;
+        backend::repository::set_page_visibility(c, page_id, vec![group_id], vec![], None)?;
+        Ok(())
+    });
+
+    let sse = Arc::new(SseState::new());
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let _outbox = backend::services::sync_outbox::spawn(
+        test_db.url().to_string(),
+        pool.clone(),
+        sse.clone(),
+        shutdown.clone(),
+    );
+    let state_pool_inner = pool.clone();
+    let srv = actix_test::start(move || {
+        let (state, _tmp) =
+            build_app_state_with_sse(&state_pool_inner, web::Data::from(sse.clone()));
+        std::mem::forget(_tmp);
+        App::new()
+            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(state_pool_inner.clone()))
+            .route("/ws/{doc}", web::get().to(ws_handler))
+    });
+    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid))
+        .expect("mint collab token");
+    let (_resp, mut conn) = awc::Client::new()
+        .ws(srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}")))
+        .connect()
+        .await
+        .expect("the agent opens the page");
+    // The session has joined its room once it sends its first frame.
+    let first = tokio::time::timeout(Duration::from_secs(3), conn.next())
+        .await
+        .expect("initial frame timeout")
+        .expect("stream ended before initial frame")
+        .expect("initial frame error");
+    assert!(
+        matches!(first, ws::Frame::Binary(_)),
+        "expected Binary SyncStep1, got {first:?}"
+    );
+
+    in_workspace(&mut |c| {
+        backend::repository::groups::remove_user_from_group(c, &agent, group_id).map(|_| ())
+    });
+    // The feed delivers only settled rows; later writes wake it again.
+    let mut closed_with = None;
+    for _ in 0..60 {
+        let wait = tokio::time::sleep(Duration::from_millis(500));
+        tokio::pin!(wait);
+        loop {
+            tokio::select! {
+                _ = &mut wait => break,
+                frame = conn.next() => match frame {
+                    Some(Ok(ws::Frame::Close(reason))) => {
+                        closed_with = Some(reason.map_or(0, |r| u16::from(r.code)));
+                        break;
+                    }
+                    Some(Ok(_)) => continue,
+                    Some(Err(_)) | None => {
+                        closed_with = Some(0);
+                        break;
+                    }
+                },
+            }
+        }
+        if closed_with.is_some() {
+            break;
+        }
+        in_workspace(&mut |c| {
+            backend::repository::set_page_visibility(c, spare_id, vec![], vec![], None).map(|_| ())
+        });
+    }
+    shutdown.cancel();
+    assert_eq!(
+        closed_with,
+        Some(4403),
+        "the editor is closed with no access once the agent leaves the group"
+    );
+}

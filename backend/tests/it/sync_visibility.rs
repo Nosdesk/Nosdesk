@@ -312,6 +312,9 @@ fn pinned_filter_hides_restricted_pages_in_the_viewers_workspace() {
             .values(groups::name.eq("Payroll"))
             .returning(groups::id)
             .get_result(c)?;
+        diesel::update(documentation_pages::table.find(restricted))
+            .set(documentation_pages::restricted.eq(true))
+            .execute(c)?;
         diesel::insert_into(documentation_page_visibility::table)
             .values((
                 documentation_page_visibility::page_id.eq(restricted),

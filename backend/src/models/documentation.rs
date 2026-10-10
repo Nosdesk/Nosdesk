@@ -97,6 +97,9 @@ pub struct DocumentationPage {
     /// Fencing token from the per-document ownership claim (Phase 2
     /// affinity); see the note on `ArticleContent::fence_token`.
     pub fence_token: Option<i64>,
+    /// The page has its own rules: open only to its grants (admins only
+    /// when it has none), instead of following its collection.
+    pub restricted: bool,
 }
 
 // Documentation Page with Children

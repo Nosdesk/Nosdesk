@@ -477,6 +477,7 @@ const deleteModalTitle = computed(() =>
       :collectionId="collection.id"
       :currentGroupIds="collection.visible_to_groups.map(g => g.id)"
       :currentUsers="collection.visible_to_users || []"
+      :restricted="collection.restricted ?? !collection.is_public"
       @close="showVisibilityModal = false"
       @updated="onVisibilityUpdated"
     />
