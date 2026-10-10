@@ -43,6 +43,8 @@ import {
 import type { WidgetSpan } from './widgets'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import { ICON_REGISTRY } from '@/components/common/icons'
+import Icon from '@/components/common/Icon.vue'
+import { useOfferedLink } from '@/composables/useOfferedLink'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
@@ -51,7 +53,8 @@ const props = withDefaults(
   defineProps<{
     /** Header title, always shown. */
     title: string
-    /** Router destination for a right-aligned "View all →" link.
+    /** Router destination for a right-aligned "View all" link. Hidden from
+     *  anyone the router would turn away from it.
      *  Omit when the widget has no drill-down. */
     actionTo?: string
     /** Label for the action link; defaults to "View all". */
@@ -174,6 +177,13 @@ const densityPadding = computed(() => {
       return 'p-4'
   }
 })
+
+// Links are offered only to people who can open them, with the workspace in
+// the href. An admin page's link is hidden from an agent rather than shown and
+// bounced.
+const offeredLink = useOfferedLink()
+const actionLink = computed(() => offeredLink(props.actionTo))
+const emptyCtaLink = computed(() => offeredLink(props.emptyCtaTo))
 
 const actionLabelText = computed(() => props.actionLabel || t('dashboard-widget-shell-action-view-all'))
 const emptyTitleText = computed(() => {
@@ -463,11 +473,11 @@ function sizeCodeToSpan(code: string): WidgetSpan | null {
       <!-- "View all" link. Hidden in edit mode so the card chrome
            reads as "this is in flux" rather than "this is live." -->
       <router-link
-        v-if="actionTo && !editMode"
-        :to="actionTo"
-        class="text-2xs font-medium text-accent hover:underline whitespace-nowrap"
+        v-if="actionLink && !editMode"
+        :to="actionLink"
+        class="inline-flex items-center gap-0.5 text-2xs font-medium text-accent hover:underline whitespace-nowrap"
       >
-        {{ actionLabelText }} →
+        {{ actionLabelText }}<Icon name="chevronRight" size="xs" />
       </router-link>
     </header>
 
@@ -561,11 +571,11 @@ function sizeCodeToSpan(code: string): WidgetSpan | null {
             <p class="text-sm text-secondary">{{ emptyTitleText }}</p>
             <p v-if="emptyDescriptionText" class="text-xs text-tertiary">{{ emptyDescriptionText }}</p>
             <router-link
-              v-if="emptyCtaTo"
-              :to="emptyCtaTo"
-              class="mt-1 text-xs font-medium text-accent hover:underline"
+              v-if="emptyCtaLink"
+              :to="emptyCtaLink"
+              class="mt-1 inline-flex items-center gap-0.5 text-xs font-medium text-accent hover:underline"
             >
-              {{ emptyCtaLabelText }} →
+              {{ emptyCtaLabelText }}<Icon name="chevronRight" size="xs" />
             </router-link>
           </slot>
         </div>
