@@ -23,6 +23,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, type ComputedRef, type Ref } from 'vue'
 import type { CardData } from '@nosdesk/core/sync/views/types'
+import type { SlaTimer } from '@nosdesk/core/types/sla'
 import { getDateConfig } from '@nosdesk/core/utils/dateUtils'
 
 // Single shared tick: re-emits the wall clock so every consumer's
@@ -120,6 +121,20 @@ function progressFraction(startIso: string, targetIso: string, now: number): num
   return Math.min(1, Math.max(0, elapsed / windowMs))
 }
 
+function breachedState(sla: SlaTimer, target: string): SlaState {
+  return {
+    compactLabel: 'Breached',
+    statusLabel: 'Breached',
+    toneClass: 'text-rose-600 dark:text-rose-400',
+    barClass: 'bg-rose-500',
+    fraction: 1,
+    detail: sla.met_at ? `Met late ${fullDateTime(sla.met_at)} · target ${target}` : `Past target · ${target}`,
+    target,
+    breached: true,
+    paused: false,
+  }
+}
+
 /**
  * Standalone SLA shape, decoupled from CardData. Used by the
  * ticket detail view (whose payload carries the same SLA pill
@@ -152,9 +167,15 @@ export function deriveSlaState(
   if (!sla) return null
   const target = fullDateTime(sla.target_at)
 
-  // Met-on-time short-circuits: the timer is done, render as done.
-  // `met_at` is server-authoritative (set when first_response_at
-  // lands); we don't predict response client-side.
+  // A breach the server has judged stands whatever else is true: a
+  // response met after its target, or a timer that breached before the
+  // state paused the clock. It is the same breach the notification
+  // reported, so the pill must say so too.
+  if (sla.breached) return breachedState(sla, target)
+
+  // Met on time: the timer is done, render as done. `met_at` is
+  // server-authoritative (set when first_response_at lands); we don't
+  // predict response client-side.
   if (sla.met_at) {
     return {
       compactLabel: 'Met',
@@ -188,25 +209,12 @@ export function deriveSlaState(
 
   const remaining = liveSecondsRemaining(sla.target_at, now)
 
-  // Effective-breached: trust the server's stamp when present, but
-  // also pre-flip when the live clock has crossed `target_at`. The
-  // breach-detection job catches up within 60s and emits an
+  // Pre-flip when the live clock has crossed `target_at`. The server
+  // leads with the timer due first, so this is the first timer to
+  // breach. The breach-detection job catches up within 60s and emits an
   // authoritative sla_updated that is consistent with what we already
   // showed; pre-flipping avoids a 60s window of stale on-track tone.
-  const effectiveBreached = sla.breached || remaining < 0
-  if (effectiveBreached) {
-    return {
-      compactLabel: 'Breached',
-      statusLabel: 'Breached',
-      toneClass: 'text-rose-600 dark:text-rose-400',
-      barClass: 'bg-rose-500',
-      fraction: 1,
-      detail: `Past target · ${target}`,
-      target,
-      breached: true,
-      paused: false,
-    }
-  }
+  if (remaining < 0) return breachedState(sla, target)
 
   const compact = compactRemaining(remaining)
   const detail = `${detailRemaining(remaining)} · target ${target}`

@@ -88,6 +88,20 @@ mod tests {
         );
     }
 
+    /// A monthly series anchored on the 31st skips the months without one
+    /// (RFC 5545 drops invalid dates rather than clamping them). Known
+    /// limitation: a monthly ticket due on the 29th to 31st misses short
+    /// months.
+    #[test]
+    fn monthly_on_the_31st_skips_short_months() {
+        let due = Utc.with_ymd_and_hms(2026, 1, 31, 0, 0, 0).unwrap();
+        let next = next_occurrence("FREQ=MONTHLY", due, due).unwrap();
+        assert_eq!(
+            next,
+            Some(Utc.with_ymd_and_hms(2026, 3, 31, 0, 0, 0).unwrap())
+        );
+    }
+
     #[test]
     fn until_clause_terminates_series() {
         let start = Utc.with_ymd_and_hms(2026, 1, 5, 9, 0, 0).unwrap();

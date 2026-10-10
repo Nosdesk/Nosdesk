@@ -795,13 +795,21 @@ fn create_next_occurrence(
     {
         return Ok(None);
     }
-    let after = closed
-        .due_date
-        .or(closed.closed_at)
-        .unwrap_or(closed.created_at);
+    // A due date anchors the series: the next one is a period after it, at
+    // the same time of day (midnight, as the app stores a due date as a
+    // day). Counting from created_at instead put it on the due day itself
+    // at creation's time of day. A ticket closed late still comes back a
+    // period after its old due date, which can be in the past.
+    let (series_start, after) = match closed.due_date {
+        Some(due) => (due, due),
+        None => (
+            closed.created_at,
+            closed.closed_at.unwrap_or(closed.created_at),
+        ),
+    };
     let next_due = match crate::services::recurrence::next_occurrence_naive(
         rule,
-        closed.created_at,
+        series_start,
         after,
     ) {
         Ok(Some(next_due)) => next_due,

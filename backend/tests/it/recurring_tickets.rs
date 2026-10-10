@@ -1,6 +1,7 @@
 //! A recurring ticket's next occurrence comes from the write that closes it,
 //! whichever way that write arrives, and only once.
 
+use chrono::Datelike;
 use diesel::prelude::*;
 
 use backend::models::{NewTicket, TicketUpdate, WorkflowStateCategory};
@@ -249,5 +250,93 @@ fn closing_doesnt_wait_on_a_reply_being_added() {
     assert!(
         closed.is_ok(),
         "the close waited on the key-share lock: {closed:?}"
+    );
+}
+
+/// A ticket in workspace A that recurs by `rule`, due at midnight on `due`
+/// (the app stores a due date as a bare day), closed. Returns the due date of
+/// the occurrence the close made.
+fn close_and_next_due(rule: &str, due: chrono::NaiveDate) -> Option<chrono::NaiveDateTime> {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let mut conn = pool.get().expect("conn");
+    let ws = common::seed_two_workspaces(&mut conn).a;
+    let admin = ActorContext::user(ws.admin_uuid, None).with_workspace(ws.workspace_id);
+    with_actor_context(&mut conn, &admin, |c| {
+        let open = workflow_states::default_state(c)?.id;
+        let ticket: i32 = diesel::insert_into(tickets::table)
+            .values(&NewTicket {
+                title: "Check the backups".to_string(),
+                workflow_state_id: open,
+                requester_uuid: Some(ws.member_uuid),
+                due_date: Some(due.and_hms_opt(0, 0, 0).expect("midnight")),
+                recurrence_rule: Some(rule.to_string()),
+                ..Default::default()
+            })
+            .returning(tickets::id)
+            .get_result(c)?;
+        let done = workflow_states::first_in_category(c, WorkflowStateCategory::Done)?.id;
+        ticket_repo::update_ticket_partial(
+            c,
+            ticket,
+            TicketUpdate {
+                workflow_state_id: Some(done),
+                ..Default::default()
+            },
+            None,
+        )?;
+        Ok::<_, ticket_repo::TicketWriteError>(
+            tickets::table
+                .filter(tickets::recurrence_template_id.eq(ticket))
+                .select(tickets::due_date)
+                .first::<Option<chrono::NaiveDateTime>>(c)?,
+        )
+    })
+    .expect("close and read the next occurrence")
+}
+
+/// The next occurrence is one period after the closed ticket's due date, at
+/// midnight like every due date, whatever time of day the series was created.
+#[test]
+fn a_weekly_ticket_comes_back_a_week_after_its_due_date() {
+    let due = chrono::Utc::now().date_naive() + chrono::Duration::days(7);
+    assert_eq!(
+        close_and_next_due("FREQ=WEEKLY", due),
+        (due + chrono::Duration::days(7)).and_hms_opt(0, 0, 0)
+    );
+}
+
+#[test]
+fn a_daily_ticket_comes_back_the_day_after_its_due_date() {
+    let due = chrono::Utc::now().date_naive() + chrono::Duration::days(1);
+    assert_eq!(
+        close_and_next_due("FREQ=DAILY", due),
+        (due + chrono::Duration::days(1)).and_hms_opt(0, 0, 0)
+    );
+}
+
+/// A weekday ticket due on a Friday comes back on the Monday.
+#[test]
+fn a_weekday_ticket_due_friday_comes_back_monday() {
+    let today = chrono::Utc::now().date_naive();
+    let friday = (1..=7)
+        .map(|d| today + chrono::Duration::days(d))
+        .find(|d| d.weekday() == chrono::Weekday::Fri)
+        .expect("a Friday this week");
+    assert_eq!(
+        close_and_next_due("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", friday),
+        (friday + chrono::Duration::days(3)).and_hms_opt(0, 0, 0)
+    );
+}
+
+/// A ticket closed after it fell due comes back one period after the old due
+/// date, which can be in the past: the series keeps its dates rather than
+/// moving to the close.
+#[test]
+fn a_late_close_comes_back_one_period_after_the_old_due_date() {
+    let due = chrono::Utc::now().date_naive() - chrono::Duration::days(10);
+    assert_eq!(
+        close_and_next_due("FREQ=WEEKLY", due),
+        (due + chrono::Duration::days(7)).and_hms_opt(0, 0, 0)
     );
 }

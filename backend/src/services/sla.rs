@@ -270,19 +270,18 @@ impl SlaTimer {
     }
 }
 
-/// Full SLA payload for one ticket. The most-urgent active timer's
-/// fields are flattened to the top level so every v1 consumer
-/// (`TicketRow` pill column, the filter facet, `KanbanBoard`) keeps
-/// reading `sla.breached` / `sla.paused` / `sla.target_at` / etc.
-/// unchanged — they now reflect whichever timer is currently most
-/// at risk. The nested `response` + `resolution` sub-objects are new,
-/// additive, and consumed by the preview pane to stack both timers.
+/// Full SLA payload for one ticket. The leading timer's fields are
+/// flattened to the top level so every v1 consumer (`TicketRow` pill
+/// column, the filter facet, `KanbanBoard`, the policy counts) reads
+/// `sla.breached` / `sla.paused` / `sla.target_at` / etc. for the
+/// ticket as a whole. The nested `response` + `resolution` sub-objects
+/// are consumed by the preview pane to stack both timers.
 ///
-/// "Most urgent" = the response timer when it's still active
-/// (`first_response_at IS NULL`); the resolution timer otherwise.
-/// Mirrors the architecture spec: pre-first-response, missing the
-/// response target is the louder signal; after it's met, the
-/// resolution timer is the only thing still counting.
+/// The leading timer is a breached one if any timer breached (the
+/// earliest to breach), else the unmet timer due first. So the pill
+/// reads breached exactly when some timer on the ticket breached, the
+/// same breach the breach job notifies about, and while nothing has
+/// breached the pill counts down to the next target to fall.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SlaPill {
     #[serde(flatten)]
@@ -511,23 +510,32 @@ pub fn compute_pill(
             )
         });
 
-    // Pick the most-urgent active timer to flatten as `primary`. The
-    // response timer wins while it's still ticking (first_response_at
-    // not yet stamped); once met, the resolution timer takes over.
-    // Fallback to whichever exists so a policy with only one target
-    // configured still renders a pill.
-    let primary = match (&response, &resolution) {
-        (Some(r), _) if r.met_at.is_none() => r.clone(),
-        (_, Some(res)) => res.clone(),
-        (Some(r), None) => r.clone(),
-        (None, None) => return None,
-    };
+    let primary = leading_timer(response.as_ref(), resolution.as_ref())?.clone();
 
     Some(SlaPill {
         primary,
         response,
         resolution,
     })
+}
+
+/// The timer a pill leads with (see [`SlaPill`]): the earliest-breached
+/// timer, else the unmet timer due first, else whichever exists (a response
+/// met on time with no resolution target).
+fn leading_timer<'a>(
+    response: Option<&'a SlaTimer>,
+    resolution: Option<&'a SlaTimer>,
+) -> Option<&'a SlaTimer> {
+    let timers = || response.into_iter().chain(resolution);
+    timers()
+        .filter(|t| t.breached)
+        .min_by_key(|t| t.target_at)
+        .or_else(|| {
+            timers()
+                .filter(|t| t.met_at.is_none())
+                .min_by_key(|t| t.target_at)
+        })
+        .or_else(|| timers().next())
 }
 
 /// One ticket's SLA pill as it stands, for a sync row. Reads only: the
@@ -1101,9 +1109,10 @@ pub struct PolicyMatchCounts {
 
 impl PolicyMatchCounts {
     /// Increment `total` and bucket the ticket by its pill state.
-    /// Breached wins over paused so a paused ticket whose response
-    /// timer was met late still counts as breached — the more
-    /// actionable signal — and the count matches the live pill.
+    /// The pill leads with a breached timer whenever any timer
+    /// breached, so a ticket counts as breached exactly when the pill
+    /// shows it. Breached wins over paused: a paused ticket whose
+    /// response was met late still counts as breached.
     fn add_pill(&mut self, pill: Option<&SlaPill>) {
         self.total += 1;
         match pill {
@@ -1596,6 +1605,98 @@ mod tests {
             assert!(!pill.primary.breached, "{clock_start}");
             assert!(pill.primary.paused, "{clock_start}");
         }
+    }
+
+    /// A created-clock policy, response and resolution targets in minutes,
+    /// and a ticket created at 10:00.
+    fn two_timer_pill(
+        response: i32,
+        resolution: i32,
+        first_response_at: Option<DateTime<Utc>>,
+        now: DateTime<Utc>,
+    ) -> SlaPill {
+        let mut p = policy(1, None, true);
+        p.target_response_minutes = Some(response);
+        p.target_resolution_minutes = Some(resolution);
+        let mut t = ticket(None);
+        t.created_at = Utc
+            .with_ymd_and_hms(2026, 5, 4, 10, 0, 0)
+            .unwrap()
+            .naive_utc();
+        t.first_response_at = first_response_at.map(|at| at.naive_utc());
+        compute_pill(
+            &t,
+            StateClock::Running,
+            &p,
+            &all_hours_cal(),
+            &HashSet::new(),
+            now,
+        )
+        .expect("a pill")
+    }
+
+    fn bucket(pill: &SlaPill) -> PolicyMatchCounts {
+        let mut counts = PolicyMatchCounts::default();
+        counts.add_pill(Some(pill));
+        counts
+    }
+
+    /// The resolution target passed while the response is still due: the
+    /// ticket has breached, so the pill and the count say so.
+    #[test]
+    fn a_breached_resolution_shows_while_the_response_is_due() {
+        let pill = two_timer_pill(
+            60,
+            5,
+            None,
+            Utc.with_ymd_and_hms(2026, 5, 4, 10, 6, 0).unwrap(),
+        );
+        assert!(pill.primary.breached, "pill breached");
+        assert_eq!(pill.primary.pill_color, "red");
+        assert_eq!(bucket(&pill).breached, 1, "counted as breached");
+    }
+
+    /// A response that came after its target breached, and stays breached
+    /// while the resolution is still on track.
+    #[test]
+    fn a_late_response_shows_breached_while_resolution_is_on_track() {
+        let pill = two_timer_pill(
+            60,
+            240,
+            Some(Utc.with_ymd_and_hms(2026, 5, 4, 11, 30, 0).unwrap()),
+            Utc.with_ymd_and_hms(2026, 5, 4, 11, 40, 0).unwrap(),
+        );
+        assert!(pill.primary.breached, "pill breached");
+        assert_eq!(bucket(&pill).breached, 1, "counted as breached");
+    }
+
+    /// With nothing breached, the timer due first leads, even when it's the
+    /// resolution: the pill turns red as soon as anything breaches.
+    #[test]
+    fn the_unmet_timer_due_first_leads() {
+        let pill = two_timer_pill(
+            60,
+            30,
+            None,
+            Utc.with_ymd_and_hms(2026, 5, 4, 10, 10, 0).unwrap(),
+        );
+        assert!(!pill.primary.breached);
+        assert_eq!(
+            pill.primary.target_at,
+            Utc.with_ymd_and_hms(2026, 5, 4, 10, 30, 0).unwrap()
+        );
+        // A response met on time leaves the resolution leading.
+        let pill = two_timer_pill(
+            60,
+            240,
+            Some(Utc.with_ymd_and_hms(2026, 5, 4, 10, 20, 0).unwrap()),
+            Utc.with_ymd_and_hms(2026, 5, 4, 10, 30, 0).unwrap(),
+        );
+        assert!(pill.primary.met_at.is_none());
+        assert_eq!(
+            pill.primary.target_at,
+            Utc.with_ymd_and_hms(2026, 5, 4, 14, 0, 0).unwrap()
+        );
     }
 
     #[test]

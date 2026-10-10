@@ -2,13 +2,13 @@
  * SLA payload shapes — mirrors `services::sla::{SlaTimer, SlaPill}` on
  * the backend.
  *
- * The backend flattens the primary (most-urgent) timer's fields onto
- * the top level of the JSON payload so v1 consumers that read
- * `sla.breached` / `sla.paused` / `sla.target_at` keep working
- * unchanged — they now reflect whichever timer is currently most at
- * risk. The nested `response` + `resolution` sub-objects are additive:
- * the preview pane uses them to stack both timers; the list pill and
- * filter facets continue to read the flat fields.
+ * The backend flattens the leading timer's fields onto the top level
+ * of the JSON payload: the earliest-breached timer if any breached,
+ * else the unmet timer due first. So `sla.breached` is true exactly
+ * when some timer on the ticket breached, and `sla.target_at` is the
+ * next target to fall. The nested `response` + `resolution`
+ * sub-objects let the preview pane stack both timers; the list pill
+ * and filter facets read the flat fields.
  */
 
 export interface SlaTimer {
