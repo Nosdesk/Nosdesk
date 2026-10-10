@@ -396,12 +396,13 @@ function reconnectNow(): void {
       offlineSince !== null && provider.wsLastMessageReceived <= offlineSince
     if (provider.wsconnected && !silentSinceOffline) continue
     link.tokenFailures = 0
-    provider.wsUnsuccessfulReconnects = 0
     stopConnecting(provider)
     // A socket still connecting, or one that went quiet, is closed first so
     // the new dial isn't a no-op. Closed with `shouldConnect` off, so its
     // `connection-close` doesn't start a connect of its own.
     if (provider.ws) provider.disconnect()
+    // After the close, which counts one failed attempt of its own.
+    provider.wsUnsuccessfulReconnects = 0
     void connectWithValidToken(provider)
   }
 }
