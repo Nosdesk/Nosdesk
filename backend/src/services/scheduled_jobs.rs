@@ -1899,6 +1899,128 @@ mod tests {
     use super::*;
     use diesel::r2d2;
 
+    /// A ticket that breached, paused and resumed is still breached: the
+    /// target moved later by the paused time but the clock is already past
+    /// it. The stamp stays and the breach isn't notified a second time.
+    #[test]
+    fn a_breach_paused_and_resumed_is_notified_once() {
+        use crate::models::{TicketUpdate, WorkflowStateCategory};
+        use crate::repository::sla_admin::{
+            create_calendar, create_policy, SlaPolicyBody, WorkingCalendarBody,
+        };
+        use crate::schema::{sync_actions, tickets};
+        use crate::test_helpers::TestFixtures;
+        use chrono::{Duration, Utc};
+        use diesel::prelude::*;
+
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let day = serde_json::json!([["00:00", "23:59"]]);
+        let calendar = create_calendar(
+            &mut conn,
+            WorkingCalendarBody {
+                name: "Always open".into(),
+                timezone: None,
+                schedule: serde_json::json!({
+                    "mon": day, "tue": day, "wed": day, "thu": day,
+                    "fri": day, "sat": day, "sun": day,
+                }),
+                is_default: Some(false),
+            },
+            None,
+        )
+        .unwrap();
+        create_policy(
+            &mut conn,
+            SlaPolicyBody {
+                name: "Activated clock".into(),
+                target_response_minutes: Some(60),
+                target_resolution_minutes: None,
+                working_calendar_id: Some(calendar.id),
+                priority_filter: None,
+                category_id_filter: None,
+                assignee_group_id_filter: None,
+                is_default: Some(false),
+                no_sla: Some(false),
+                clock_start: Some("activated".into()),
+            },
+            None,
+        )
+        .unwrap();
+        let state = |conn: &mut crate::db::DbConnection, category| {
+            crate::repository::workflow_states::first_in_category(conn, category)
+                .unwrap()
+                .id
+        };
+        let active = state(&mut conn, WorkflowStateCategory::Active);
+        let backlog = state(&mut conn, WorkflowStateCategory::Backlog);
+        let user = TestFixtures::create_user(&mut conn, "sla_pause_resume", "user");
+        let ticket =
+            TestFixtures::create_ticket(&mut conn, "Pause after breach", Some(user.uuid), None);
+
+        // Running for three hours: the response target passed two hours ago.
+        let now = Utc::now().naive_utc();
+        let ticket: crate::models::Ticket = diesel::update(tickets::table.find(ticket.id))
+            .set((
+                tickets::workflow_state_id.eq(active),
+                tickets::created_at.eq(now - Duration::hours(3)),
+                tickets::sla_clock_started_at.eq(Some(now - Duration::hours(3))),
+            ))
+            .get_result(&mut conn)
+            .unwrap();
+        crate::services::sla::recompute_and_stamp_sla_for_ticket(&mut conn, &ticket);
+        assert!(
+            process_one_breach(&mut conn, ticket.id, SlaBreachKind::Response, 1)
+                .unwrap()
+                .is_some()
+        );
+        // The sweep caught it a minute after the target.
+        let stamp = now - Duration::hours(2) + Duration::minutes(1);
+        diesel::update(tickets::table.find(ticket.id))
+            .set(tickets::sla_response_breached_at.eq(Some(stamp)))
+            .execute(&mut conn)
+            .unwrap();
+
+        // Paused for the last half hour, then resumed now.
+        let move_to = |conn: &mut crate::db::DbConnection, state_id| {
+            crate::repository::tickets::update_ticket_partial(
+                conn,
+                ticket.id,
+                TicketUpdate {
+                    workflow_state_id: Some(state_id),
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap()
+        };
+        move_to(&mut conn, backlog);
+        diesel::update(tickets::table.find(ticket.id))
+            .set(tickets::sla_paused_at.eq(Some(now - Duration::minutes(30))))
+            .execute(&mut conn)
+            .unwrap();
+        move_to(&mut conn, active);
+
+        let breached_at: Option<chrono::NaiveDateTime> = tickets::table
+            .find(ticket.id)
+            .select(tickets::sla_response_breached_at)
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(breached_at, Some(stamp), "the breach stamp stays");
+        assert!(
+            process_one_breach(&mut conn, ticket.id, SlaBreachKind::Response, 1)
+                .unwrap()
+                .is_none(),
+            "no second breach"
+        );
+        let emitted: i64 = sync_actions::table
+            .filter(sync_actions::event_type.eq("ticket.sla_breached"))
+            .filter(sync_actions::aggregate_id.eq(ticket.id.to_string()))
+            .count()
+            .get_result(&mut conn)
+            .unwrap();
+        assert_eq!(emitted, 1, "one breach, one notification");
+    }
+
     #[test]
     fn a_finished_ticket_never_breaches() {
         use crate::models::WorkflowStateCategory;

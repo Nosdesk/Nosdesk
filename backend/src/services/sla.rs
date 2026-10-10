@@ -314,10 +314,11 @@ fn compute_timer(
     // clock — so a response that lands 1m before the target is "met
     // on time" even if we're observing 3h later. An unmet timer the
     // breach job stamped stays breached while the clock is paused or
-    // stopped: that breach was notified. A stamp from before the target
-    // doesn't stand (the target moved later since; the recompute clears
-    // it, see `SlaStamp`).
-    let stamped = events.breached_at.is_some_and(|at| at >= target_at);
+    // stopped: that breach was notified. The stamp stands while the
+    // target is behind us; a target moved later and still ahead means
+    // the timer is running again (the recompute clears the stamp, see
+    // `SlaStamp`).
+    let stamped = events.breached_at.is_some() && target_at <= now;
     let breached = match met_at {
         Some(met) => met > target_at,
         None => stamped || (!paused && now > target_at),
@@ -654,7 +655,11 @@ fn recompute_and_stamp(
 
     let pill = load_pill_for_ticket(conn, &ticket);
     let clock = StateClock::of_state_id(conn, ticket.workflow_state_id);
-    if let Err(e) = write_sla_stamp(conn, ticket.id, &SlaStamp::from_pill(pill.as_ref(), clock)) {
+    if let Err(e) = write_sla_stamp(
+        conn,
+        ticket.id,
+        &SlaStamp::from_pill(pill.as_ref(), clock, Utc::now()),
+    ) {
         tracing::warn!(ticket_id = ticket.id, error = %e, "stamping SLA targets failed");
     }
     pill.and_then(|p| serde_json::to_value(p).ok())
@@ -911,7 +916,11 @@ pub fn restamp_open_tickets(
                 .unwrap_or(&no_holidays);
             compute_pill(&ticket, clock, policy, calendar, holidays, now)
         });
-        changed |= write_sla_stamp(conn, ticket.id, &SlaStamp::from_pill(pill.as_ref(), clock))?;
+        changed |= write_sla_stamp(
+            conn,
+            ticket.id,
+            &SlaStamp::from_pill(pill.as_ref(), clock, Utc::now()),
+        )?;
         if changed {
             moved += 1;
             let sla = pill
@@ -989,20 +998,26 @@ struct SlaStamp {
     response_target: Option<NaiveDateTime>,
     resolution_target: Option<NaiveDateTime>,
     /// A stored breach earlier than this target no longer stands: a longer
-    /// target replaced the one it broke. Clearing it lets a later real
-    /// breach notify. Only set for an open ticket; a finished ticket keeps
-    /// the breaches it earned.
+    /// target, or time paused since, moved it later, and it is still ahead.
+    /// Clearing it lets a later real breach notify. Only set for an open
+    /// ticket whose target is still ahead: when the clock is already past
+    /// the moved target the ticket never stopped being breached, so the
+    /// stamp stays and the breach isn't notified twice. A finished ticket
+    /// keeps the breaches it earned.
     response_breach_before: Option<NaiveDateTime>,
     resolution_breach_before: Option<NaiveDateTime>,
 }
 
 impl SlaStamp {
-    fn from_pill(pill: Option<&SlaPill>, clock: StateClock) -> Self {
+    fn from_pill(pill: Option<&SlaPill>, clock: StateClock, now: DateTime<Utc>) -> Self {
         let (response_target, resolution_target) =
             pill.map(targets_from_pill).unwrap_or((None, None));
         let open = clock != StateClock::Stopped;
-        let breach_before =
-            |timer: Option<&SlaTimer>| timer.filter(|_| open).map(|t| t.target_at.naive_utc());
+        let breach_before = |timer: Option<&SlaTimer>| {
+            timer
+                .filter(|t| open && t.target_at > now)
+                .map(|t| t.target_at.naive_utc())
+        };
         Self {
             response_target,
             resolution_target,
@@ -1730,8 +1745,9 @@ mod tests {
         assert_eq!(bucket(&pill).breached, 1, "counted as breached");
     }
 
-    /// A stamp from before the target moved later (a longer target, or time
-    /// paused since) no longer stands, as the recompute that clears it says.
+    /// A stamp doesn't stand while its timer's target is still ahead: the
+    /// target moved later since (a longer target, or time paused), and the
+    /// recompute clears the stamp.
     #[test]
     fn a_stamp_before_the_target_does_not_stand() {
         let mut t = ticket(None);
