@@ -42,7 +42,9 @@ pub fn run_seeds(conn: &mut DbConnection) {
 /// Seed the functional defaults a freshly-provisioned workspace needs to be
 /// usable: workflow states (the ticket-creation blocker), a working
 /// calendar + SLA policy, and ticket categories. Idempotent per workspace;
-/// each sub-seed no-ops when its rows already exist.
+/// each sub-seed no-ops when its rows already exist. On hosted, the portal and
+/// emails are also named after the workspace (self-hosted keeps "Nosdesk" until
+/// an admin names them).
 ///
 /// Starter docs are deliberately NOT seeded here: the welcome page's author
 /// columns are NOT NULL with an FK to `users`, and at hosted create time no
@@ -61,7 +63,81 @@ pub fn seed_workspace_defaults(
     repository::sla_admin::seed_defaults_if_empty(conn, created_by)?;
     repository::categories::seed_defaults_if_empty(conn, created_by)?;
     repository::asset_kinds::seed_defaults_if_empty(conn, created_by)?;
+    if crate::middleware::workspace_context::is_hosted() {
+        repository::site_settings::name_after_workspace(conn)?;
+    }
     Ok(())
+}
+
+/// `system_meta` key recording that [`name_hosted_workspaces`] has run.
+const KEY_HOSTED_APP_NAMES: &str = "hosted_app_names_backfilled";
+
+/// Hosted, once: name every workspace whose portal and emails still say
+/// "Nosdesk" after the workspace. Workspaces provisioned before naming moved
+/// into [`seed_workspace_defaults`] were left on the default; later ones are
+/// named at create. Records completion in `system_meta` and does nothing on
+/// later boots, so an admin who sets "Nosdesk" afterwards keeps it. A workspace
+/// admins had already named is never touched, nor is the bootstrap workspace.
+/// If any workspace fails, completion isn't recorded and the next boot retries.
+/// Returns how many it named.
+pub fn name_hosted_workspaces(pool: &crate::db::Pool) -> usize {
+    if !crate::middleware::workspace_context::is_hosted() {
+        return 0;
+    }
+    // cross-tenant: reads the global system_meta marker, then lists every
+    // workspace whose settings are still unnamed.
+    let pending =
+        match crate::sync::session::background_run(pool, "startup:hosted_app_name", |conn| {
+            if crate::sync::system_meta::get(conn, KEY_HOSTED_APP_NAMES)?.is_some() {
+                return Ok(None);
+            }
+            repository::site_settings::workspaces_with_default_app_name(conn).map(Some)
+        }) {
+            Ok(Some(ids)) => ids,
+            Ok(None) => return 0,
+            Err(e) => {
+                warn!(error = %e, "Could not list workspaces still named Nosdesk");
+                return 0;
+            }
+        };
+    let mut named = 0;
+    let mut failed = false;
+    for workspace_id in pending {
+        match crate::sync::session::run_in_workspace(
+            pool,
+            "startup:hosted_app_name",
+            workspace_id,
+            repository::site_settings::name_after_workspace,
+        ) {
+            Ok(true) => named += 1,
+            Ok(false) => {}
+            Err(e) => {
+                failed = true;
+                warn!(workspace_id, error = %e, "Could not name a workspace's portal");
+            }
+        }
+    }
+    if named > 0 {
+        info!(
+            count = named,
+            "Named hosted workspaces' portals after the workspace"
+        );
+    }
+    if !failed {
+        // cross-tenant: system_meta is a global table.
+        let recorded =
+            crate::sync::session::background_run(pool, "startup:hosted_app_name", |conn| {
+                crate::sync::system_meta::put(
+                    conn,
+                    KEY_HOSTED_APP_NAMES,
+                    &serde_json::json!({ "named": named }),
+                )
+            });
+        if let Err(e) = recorded {
+            warn!(error = %e, "Could not record that hosted workspaces were named");
+        }
+    }
+    named
 }
 
 /// Resolve the system user to credit seed content to: the first platform

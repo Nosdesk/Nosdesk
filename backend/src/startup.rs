@@ -1779,6 +1779,7 @@ pub async fn build_server(
             },
         );
     }
+    crate::services::seed::name_hosted_workspaces(&pool);
 
     let (state, background_tasks) = build_state(
         &config,
