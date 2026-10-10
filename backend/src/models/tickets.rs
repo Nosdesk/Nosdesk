@@ -436,8 +436,9 @@ impl NewTicket {
     /// ticket came from (`submitted_via`, `origin_channel_id`), guest access
     /// and verification (`guest_lookup_token`, `verification_state`), the
     /// inbound pipeline's `triage_state` and `spam_suspected`, and the
-    /// recurrence scheduler's `recurrence_template_id`. The one place that list
-    /// is kept. Destructured field by field so that adding a column to
+    /// recurrence scheduler's `recurrence_template_id`. The same fields carry
+    /// `#[serde(skip_deserializing)]` on `NewTicket`, so a body can't set them
+    /// either; change both together. Destructured field by field so that adding a column to
     /// `NewTicket` fails to compile here until someone decides who may set it.
     fn into_client_columns(self) -> ClientTicketColumns {
         let Self {
