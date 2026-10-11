@@ -2,16 +2,22 @@
 /**
  * The documentation index's library: one ledger row per collection with its
  * top pages inline, so a known page is one click from the index instead of
- * a click into each collection. Collection metadata (visibility, counts)
- * comes from the REST endpoint as before; each row's top pages and
- * last-updated derive live from the sync pool.
+ * a click into each collection. Which collections show, and in what order,
+ * follows the sync pool, so losing access drops a row as soon as the pool
+ * does. The REST list only decorates those rows (audience, page count).
  */
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { getCollections, reorderCollections } from '@nosdesk/core/services/collectionService'
 import type { CollectionWithDetails } from '@nosdesk/core/services/collectionService'
-import { useSyncDocsStore, isActivePage, type DocPageRow } from '@nosdesk/core/sync/stores/documentation'
+import * as pool from '@nosdesk/core/sync/pool'
+import {
+  useSyncDocsStore,
+  isActivePage,
+  type DocCollectionRow,
+  type DocPageRow,
+} from '@nosdesk/core/sync/stores/documentation'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { useAuthStore } from '@/stores/auth'
@@ -29,9 +35,14 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 
 const authStore = useAuthStore()
 const docs = useSyncDocsStore()
-const collections = ref<CollectionWithDetails[]>([])
-const loading = ref(true)
 
+/** A sync row plus the REST details a ledger row shows. */
+type LibraryCollection = DocCollectionRow &
+  Pick<CollectionWithDetails, 'visible_to_groups' | 'visible_to_users' | 'is_public' | 'page_count'>
+
+/** REST details by collection id. */
+const details = ref(new Map<number, CollectionWithDetails>())
+const loading = ref(true)
 const dragIndex = ref<number | null>(null)
 const dropIndex = ref<number | null>(null)
 
@@ -72,17 +83,41 @@ const derivedByCollection = computed<Map<number, LedgerDerived>>(() => {
   return out
 })
 
-function derived(collection: CollectionWithDetails): LedgerDerived {
-  return (
-    derivedByCollection.value.get(collection.id) ?? {
-      topPages: [],
-      moreCount: 0,
-      updatedAt: null,
-    }
-  )
+const NO_PAGES: LedgerDerived = { topPages: [], moreCount: 0, updatedAt: null }
+
+function derived(collection: LibraryCollection): LedgerDerived {
+  return derivedByCollection.value.get(collection.id) ?? NO_PAGES
 }
 
-function audienceLabel(collection: CollectionWithDetails): string {
+/**
+ * The pool's collections in display order, each joined to its REST details
+ * by id. A row REST has not returned yet shows what the sync row carries:
+ * no named audience and a page count from the pool.
+ */
+const collections = computed<LibraryCollection[]>(() =>
+  docs.collectionsSorted.map((row) => {
+    const rest = details.value.get(row.id)
+    if (rest) {
+      return {
+        ...row,
+        visible_to_groups: rest.visible_to_groups,
+        visible_to_users: rest.visible_to_users,
+        is_public: !row.restricted,
+        page_count: rest.page_count,
+      }
+    }
+    const ledger = derived(row as LibraryCollection)
+    return {
+      ...row,
+      visible_to_groups: [],
+      visible_to_users: [],
+      is_public: !row.restricted,
+      page_count: ledger.topPages.length + ledger.moreCount,
+    }
+  }),
+)
+
+function audienceLabel(collection: LibraryCollection): string {
   const groups = collection.visible_to_groups.length
   const users = collection.visible_to_users.length
 
@@ -104,14 +139,34 @@ function audienceLabel(collection: CollectionWithDetails): string {
   return t('docs-collection-browser-audience-mixed', { groups, users })
 }
 
+// Pool ids a fetch has already covered. A row REST still leaves out (its
+// grant has not reached this reader yet) then does not refetch on every tick.
+const requested = new Set<number>()
+let loadSeq = 0
+
 const loadCollections = async () => {
+  const seq = ++loadSeq
+  for (const row of docs.allCollections) requested.add(row.id)
   loading.value = true
   try {
-    collections.value = await getCollections()
+    const rows = await getCollections()
+    if (seq === loadSeq) details.value = new Map(rows.map((c) => [c.id, c]))
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
+
+// A collection that reaches the pool without REST details (created
+// elsewhere, or newly shared with this reader) fetches them once.
+const missingDetails = computed(() =>
+  docs.allCollections
+    .filter((row) => !details.value.has(row.id) && !requested.has(row.id))
+    .map((row) => row.id)
+    .join(','),
+)
+watch(missingDetails, (ids) => {
+  if (ids) void loadCollections()
+})
 
 defineExpose({ reload: loadCollections })
 
@@ -147,13 +202,20 @@ const onDrop = async (targetIndex: number) => {
   const items = [...collections.value]
   const [moved] = items.splice(dragIndex.value, 1)
   items.splice(targetIndex, 0, moved)
-  collections.value = items
 
   dragIndex.value = null
   dropIndex.value = null
 
+  // Reorder in the pool now; the server's sync echo confirms it.
+  const previous = items.map((c) => [c.id, c.display_order] as const)
+  items.forEach((c, i) => pool.patch<DocCollectionRow>('documentation_collection', c.id, { display_order: i }))
+
   const orders = items.map((c, i) => ({ collection_id: c.id, display_order: i }))
-  await reorderCollections(orders)
+  if (!(await reorderCollections(orders))) {
+    for (const [id, order] of previous) {
+      pool.patch<DocCollectionRow>('documentation_collection', id, { display_order: order })
+    }
+  }
 }
 
 const onDragEnd = () => {

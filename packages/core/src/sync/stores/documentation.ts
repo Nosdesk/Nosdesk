@@ -57,6 +57,8 @@ export interface DocCollectionRow {
   description_text: string | null
   hide_titles_from_non_members: boolean
   require_verification: boolean
+  /** Open only to the groups and people granted it; admins only when none are. */
+  restricted: boolean
   created_at: string
   updated_at: string
 }
