@@ -26,6 +26,7 @@ import { useSnowfall } from '@/composables/useSnowfall'
 import { useFavicon } from '@/composables/useFavicon'
 import { useNotificationSSE } from '@/composables/useNotificationSSE'
 import { useTicketDeletionCleanup } from '@/composables/useTicketDeletionCleanup'
+import { useDocDeletionCleanup } from '@/composables/useDocDeletionCleanup'
 // Swipe-back TARGET list views to KeepAlive so native back / popstate restores
 // them (scroll + state) instead of re-mounting. Scoped on purpose — details are
 // never cached.
@@ -292,6 +293,9 @@ useNotificationSSE();
 // cache, comment draft, pending attachments) for any ticket the
 // server announces as deleted, see useTicketDeletionCleanup.
 useTicketDeletionCleanup();
+// Likewise for documentation pages and collections the reader loses,
+// see useDocDeletionCleanup.
+useDocDeletionCleanup();
 
 // Computed property to determine if on a documentation page
 const isDocumentationPage = computed(() => {
