@@ -17,9 +17,6 @@ async function setupWebPlatform(): Promise<void> {
   await import('@/utils/storageSetup')
   await import('@/services/transport')
   await import('@/services/apiConfig')
-  const { setSessionLostHandler } = await import('@nosdesk/core/services/session')
-  const { redirectToLogin } = await import('@/services/sessionLost')
-  setSessionLostHandler(redirectToLogin)
 }
 
 async function setupTauriPlatform(): Promise<void> {
@@ -38,6 +35,11 @@ async function setupTauriPlatform(): Promise<void> {
 export async function configurePlatform(): Promise<void> {
   if (isTauriRuntime()) await setupTauriPlatform()
   else await setupWebPlatform()
+  // A rejected refresh ends the session on either platform: clear its state
+  // and go to sign-in, or the next sign-in reuses the old sync runtime.
+  const { setSessionLostHandler } = await import('@nosdesk/core/services/session')
+  const { redirectToLogin } = await import('@/services/sessionLost')
+  setSessionLostHandler(redirectToLogin)
 }
 
 /**
