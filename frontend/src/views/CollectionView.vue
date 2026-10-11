@@ -496,7 +496,7 @@ const deleteModalTitle = computed(() =>
       :show="showDeleteConfirm"
       variant="danger"
       :title="deleteModalTitle"
-      :message="$t('collection-delete-message')"
+      :message="$t('docs-nav-confirm-delete-collection-message')"
       :confirm-label="$t('collection-delete-confirm')"
       @confirm="doDelete"
       @close="showDeleteConfirm = false"
