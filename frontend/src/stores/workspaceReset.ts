@@ -9,17 +9,19 @@
  * Scope boundary: this resets state that belongs to the *current workspace*
  * (config stores, the sync pool, SSE, collab, cached queries). It deliberately
  * does NOT touch account/session state (the signed-in user, cookies, the
- * device-level theme, recent tickets), which is account-scoped and survives a
- * workspace switch — `logout()` owns clearing those. Branding is also out of
- * scope on purpose: logout keeps the current workspace's brand so the login
- * page stays branded, and the switch re-fetches the new workspace's brand
- * directly (no flash to default), so it is re-applied at each hydration
- * boundary rather than reset here.
+ * device-level theme, the account's cached queries listed in
+ * `accountQueryKeys`), which survives a workspace switch; `logout()` owns
+ * clearing those, and a sign-out reset drops the account queries too.
+ * Branding is also out of scope on purpose: logout keeps the current
+ * workspace's brand so the login page stays branded, and the switch re-fetches
+ * the new workspace's brand directly (no flash to default), so it is
+ * re-applied at each hydration boundary rather than reset here.
  *
- * Modules are imported dynamically (like `logout()`), keeping load order loose
+ * Stores are imported dynamically (like `logout()`), keeping load order loose
  * and avoiding static import cycles with the stores this touches.
  */
 import { logger } from '@nosdesk/core/utils/logger';
+import { ACCOUNT_SCOPED_QUERY_KEYS } from '@/stores/accountQueryKeys';
 
 /**
  * Why the workspace's state is going. On sign-out every local copy of a
@@ -87,15 +89,29 @@ export async function resetWorkspaceScopedState(reason: WorkspaceResetReason): P
     }
   }
 
-  // Pinia Colada query cache. Drop every entry rather than invalidate: an
-  // invalidated-but-not-removed entry keeps the previous workspace's data, which
-  // a cache-first read on the next workspace would serve before refetching. v1.2
-  // has no clear(), so remove entries explicitly.
+  // Pinia Colada query cache. Drop every workspace-scoped entry rather than
+  // invalidate: an invalidated-but-not-removed entry keeps the previous
+  // workspace's data, which a cache-first read on the next workspace would
+  // serve before refetching. Colada has no clear(), so remove entries
+  // explicitly.
+  //
+  // A switch keeps the account's queries: they hold the same data in either
+  // workspace, and the workspace list is what the active workspace (and so
+  // every collab doc id) resolves from, so dropping it left an open note with
+  // no editor until it refetched. They are invalidated instead, so a
+  // membership change (joined, removed) still lands on the next round trip.
   try {
     const { useQueryCache } = await import('@pinia/colada');
     const cache = useQueryCache();
+    const keep = reason === 'switch' ? ACCOUNT_SCOPED_QUERY_KEYS : [];
+    const kept = new Set(keep.flatMap((key) => cache.getEntries({ key: [...key] })));
     for (const entry of cache.getEntries()) {
-      cache.remove(entry);
+      if (!kept.has(entry)) cache.remove(entry);
+    }
+    for (const key of keep) {
+      cache.invalidateQueries({ key: [...key] }).catch((e: unknown) => {
+        logger.error('Failed to refresh an account query', e);
+      });
     }
   } catch (e) {
     logger.error('Failed to clear the query cache', e);
