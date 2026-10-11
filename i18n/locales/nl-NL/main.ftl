@@ -3413,7 +3413,6 @@ collection-page-count = { $count ->
    }
 collection-delete-title = { $name } verwijderen?
 collection-delete-title-fallback = Collectie verwijderen?
-collection-delete-message = De pagina's in deze collectie worden niet verwijderd.
 collection-delete-confirm = Verwijderen
 
 # CSV import (CsvImportView): admin page for importing users,

@@ -3423,7 +3423,6 @@ collection-page-count = { $count ->
    }
 collection-delete-title = Supprimer { $name } ?
 collection-delete-title-fallback = Supprimer la collection ?
-collection-delete-message = Les pages de cette collection ne seront pas supprimées.
 collection-delete-confirm = Supprimer
 
 # CSV import (CsvImportView): admin page for importing users,
