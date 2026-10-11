@@ -523,18 +523,26 @@ where
             }
 
             let custom_domain_host = served_on_custom_domain(&res);
+            let status = res.status();
             let headers = res.headers_mut();
 
             // Cache-Control: only set defaults when the handler
             // didn't. Hashed assets (Vite content hashes) are
             // immutable; everything else gets handler-specified
-            // semantics or the actix default.
+            // semantics or the actix default. A miss is never
+            // cached: a chunk absent mid-deploy arrives moments later.
             if !headers.contains_key(header::CACHE_CONTROL)
                 && (path.starts_with("/static/") || path.starts_with("/pdfjs/"))
             {
+                let found =
+                    status.is_success() || status == actix_web::http::StatusCode::NOT_MODIFIED;
                 headers.insert(
                     header::CACHE_CONTROL,
-                    "public, max-age=31536000, immutable".parse().unwrap(),
+                    header::HeaderValue::from_static(if found {
+                        "public, max-age=31536000, immutable"
+                    } else {
+                        "no-store"
+                    }),
                 );
             }
 
@@ -946,6 +954,44 @@ mod tests {
             let ct = res.headers().get(header::CONTENT_TYPE).unwrap();
             assert_eq!(ct.to_str().unwrap(), expected, "{file}");
         }
+    }
+
+    /// Only a file that exists is immutable. A chunk can be missing for a
+    /// moment during a deploy; a 404 cached for a year would keep the app
+    /// blank in that browser after the file arrives.
+    #[actix_web::test]
+    async fn a_missing_static_asset_is_never_cached() {
+        use actix_web::{test, App};
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main-abc.js"), "export {}\n").unwrap();
+        let app = test::init_service(
+            App::new()
+                .wrap(SecurityHeaders)
+                .service(actix_files::Files::new("/static", dir.path())),
+        )
+        .await;
+
+        let cache_control = |res: &actix_web::dev::ServiceResponse| {
+            res.headers()
+                .get(header::CACHE_CONTROL)
+                .map(|v| v.to_str().unwrap().to_string())
+        };
+
+        let req = test::TestRequest::get()
+            .uri("/static/main-abc.js")
+            .to_request();
+        let res = test::call_service(&app, req).await;
+        assert_eq!(
+            cache_control(&res).as_deref(),
+            Some("public, max-age=31536000, immutable")
+        );
+
+        let req = test::TestRequest::get()
+            .uri("/static/main-gone.js")
+            .to_request();
+        let res = test::call_service(&app, req).await;
+        assert_eq!(res.status(), actix_web::http::StatusCode::NOT_FOUND);
+        assert_eq!(cache_control(&res).as_deref(), Some("no-store"));
     }
 
     #[test]
