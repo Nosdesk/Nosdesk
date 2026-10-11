@@ -45,6 +45,7 @@ import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData
 import { collabWsBaseUrl } from '@nosdesk/core/transport'
 import { sessionGone } from '@nosdesk/core/services/session'
 import { discardCollabToken, getCollabToken, peekCollabToken } from '@/services/collabToken'
+import { retryDelay } from '@nosdesk/core/retryDelay'
 
 /**
  * How long after refcount hits 0 we keep the websocket open
@@ -207,9 +208,11 @@ function deriveConnectionStatus(provider: WebsocketProvider): ConnectionStatus {
 }
 
 /** Backoff between token fetches after a failed one: the first retry soon
- *  (an API blip), then further apart, so an outage can't become a tight loop. */
+ *  (an API blip), then further apart, so an outage can't become a tight loop.
+ *  It tops out at 30 s while the browser says it is offline (its `online`
+ *  event cuts the wait short), else at 5 to 8 s (`retryDelay`): a link can
+ *  come back with no event at all, and then only a retry finds out. */
 const TOKEN_RETRY_FIRST_MS = 2000
-const TOKEN_RETRY_MAX_MS = 30_000
 
 /** Providers torn down by `evict`; a token fetch that finishes afterwards
  *  must not reconnect them. */
@@ -301,7 +304,7 @@ function retryTokenLater(provider: WebsocketProvider): void {
   if (link.retryTimer) clearTimeout(link.retryTimer)
   provider.shouldConnect = false
   link.tokenPending = true
-  const delay = Math.min(TOKEN_RETRY_MAX_MS, TOKEN_RETRY_FIRST_MS * 2 ** link.tokenFailures)
+  const delay = retryDelay(link.tokenFailures, TOKEN_RETRY_FIRST_MS, isOffline())
   link.tokenFailures++
   link.retryTimer = setTimeout(() => {
     link.retryTimer = null

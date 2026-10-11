@@ -119,4 +119,29 @@ describe('the live-update stream', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(api.configs[0]?.timeout).toBeGreaterThan(0)
   })
+
+  it('retries within 8 s after a long outage while the browser says it is online', async () => {
+    sse.start()
+    await vi.advanceTimersByTimeAsync(0)
+    for (let i = 0; i < 6; i++) await failAndWait(30_000)
+    const before = FakeEventSource.opened.length
+    await failAndWait(8_000)
+    expect(FakeEventSource.opened.length).toBe(before + 1)
+  })
+
+  it('still waits up to 30 s between retries while the browser says it is offline', async () => {
+    sse.start()
+    await vi.advanceTimersByTimeAsync(0)
+    window.dispatchEvent(new Event('offline'))
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true })
+    try {
+      for (let i = 0; i < 6; i++) await failAndWait(30_000)
+      const before = FakeEventSource.opened.length
+      await failAndWait(8_000)
+      expect(FakeEventSource.opened.length).toBe(before)
+    } finally {
+      Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+      window.dispatchEvent(new Event('online'))
+    }
+  })
 })
