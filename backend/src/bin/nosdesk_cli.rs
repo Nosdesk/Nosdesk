@@ -97,7 +97,7 @@ enum Commands {
 enum LicenseCommand {
     /// Mint a signed license token. Generate the keypair once with:
     ///   openssl genpkey -algorithm ed25519 -out license_private.pem
-    ///   openssl pkey -in license_private.pem -pubout -out license_pubkey.pem
+    ///   openssl pkey -in license_private.pem -pubout -out license_keys/<name>.pem
     /// Commit/embed the public key; keep the private key offline.
     Sign {
         /// Path to the Ed25519 private key (PKCS8 PEM).

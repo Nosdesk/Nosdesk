@@ -15,8 +15,9 @@ A license is an EdDSA-signed JWT carrying a stable customer id (`sub`, a
 UUID that survives reissues), a display name (`licensee`), a per-issuance
 id (`jti`, required), an active-workspace cap, an expiry, and an optional
 `features` list (empty in v1.1 — nothing new is gated on it). The public
-verification key is compiled into the binary; the private signing key is
-held only by Nosdesk and selected by the token's `kid` header. A verified
+verification keys are compiled into the binary and the token's `kid` header
+selects one; a `kid` the binary does not trust is refused. The private
+signing keys are held only by Nosdesk. A verified
 license lifts the workspace cap to its `max_workspaces`; one that expires
 while the server runs stops granting at `exp`. An absent, malformed,
 expired, or wrong-issuer license falls back to Community without failing
@@ -27,12 +28,14 @@ license is a genuine signed artifact, not an honor-system flag.
 
 ## Minting a license (Nosdesk operators)
 
-Generate the signing keypair once. Keep the private key offline; commit and
-embed the public key (`backend/license_pubkey.pem`).
+Public keys live in `backend/license_keys/`, one PEM per signing key:
+`production.pem` is trusted by every build, `staging.pem` only by builds
+compiled with `NOSDESK_TRUST_STAGING_LICENSES=1` (the dev stack and the
+nosdesk-dev image). Release images trust production alone.
 
 ```bash
 openssl genpkey -algorithm ed25519 -out license_private.pem
-openssl pkey -in license_private.pem -pubout -out backend/license_pubkey.pem
+openssl pkey -in license_private.pem -pubout -out backend/license_keys/<name>.pem
 ```
 
 Sign a license:
@@ -74,7 +77,8 @@ Push mode works the same way: choose it on the same page, or set
 
 ## Rotating the key
 
-Add the new public key beside the old one in `LICENSE_PUBLIC_KEYS`
-(`backend/src/license.rs`) and release; tokens pick their key by `kid`.
-Reissue current licenses from the control plane, then drop the old key in a
-later release.
+Add the new PEM to `backend/license_keys/` and to the trusted key lists in
+`backend/src/license.rs` beside the old one, and release; tokens pick their
+key by `kid`. Reissue current licenses from the control plane, then drop the
+old key in a later release. A unit test fails if a PEM in the directory is
+not embedded.
