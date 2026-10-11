@@ -898,7 +898,7 @@ watch(documentObj, (newDocument) => {
     <CollectionManager
       v-if="showCollectionManager"
       :page-id="Number(document?.id || 0)"
-      :current-collection-ids="[]"
+      :current-collection-ids="poolPage?.collection_id != null ? [poolPage.collection_id] : []"
       @close="showCollectionManager = false"
       @updated="showCollectionManager = false"
     />
