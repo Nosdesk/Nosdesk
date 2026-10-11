@@ -92,8 +92,10 @@ export function initializeEventDispatcher(): () => void {
   // Subscribe to the sync change-stream. Each action maps to zero or
   // more plugin events; the action itself is the payload so handlers
   // get event_type + aggregate_id + the entity projection in `data`.
+  // `prior` is set on this client (the row held before a delete), not sent by
+  // the server, so it stays here: a plugin gets only what the server sent.
   const unsubscribe = onSyncActions((actions: SyncAction[]) => {
-    for (const action of actions) {
+    for (const { prior: _prior, ...action } of actions) {
       for (const pluginEvent of pluginEventsFor(action.event_type)) {
         dispatchToPlugins(pluginEvent, action);
       }
