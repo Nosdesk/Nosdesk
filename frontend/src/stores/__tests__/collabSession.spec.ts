@@ -496,10 +496,11 @@ describe('a note the server refuses', () => {
     expect(store.connectionRefusal['doc-a'] ?? null).toBeNull()
     expect(providers[0].connectedWith.slice(1)).toEqual([])
 
-    // Retries space out: a long outage doesn't fetch every few seconds.
+    // Retries space out: a long outage fetches at most every 5 s while the
+    // browser says it is online (and every 30 s while it says offline).
     const before = token.fetches
     await vi.advanceTimersByTimeAsync(5 * 60_000)
-    expect(token.fetches - before).toBeLessThan(15)
+    expect(token.fetches - before).toBeLessThanOrEqual(60)
 
     token.next = Promise.resolve('fresh')
     window.dispatchEvent(new Event('online'))
@@ -1006,5 +1007,51 @@ describe('a note in a tab shown again', () => {
 
     expect(token.fetches).toBe(fetches + 1)
     expect(providers[0].connectedWith.at(-1)).toBe('fresh')
+  })
+})
+
+// The network can drop and come back without the browser saying so (no
+// `offline` or `online` event, `navigator.onLine` true throughout). Then only
+// the note's own retries can tell the server is back.
+describe('a note whose network came back without the browser saying so', () => {
+  /** A connected note loses its link silently; its token runs out and the
+   *  token retries back off for three minutes. */
+  async function silentOutage() {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    token.cached = null
+    token.next = Promise.reject(new Error('offline'))
+    token.next.catch(() => {})
+    providers[0].drop()
+    await vi.advanceTimersByTimeAsync(3 * 60_000)
+  }
+
+  /** Run until the note's next token retry has been tried (and failed), so
+   *  the one after it is a whole backoff away. */
+  async function untilNextRetry() {
+    const fetches = token.fetches
+    for (let i = 0; i < 400 && token.fetches === fetches; i++) {
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    expect(token.fetches).toBe(fetches + 1)
+  }
+
+  it('connects within 8 s of the server answering', async () => {
+    await silentOutage()
+    await untilNextRetry()
+
+    token.next = Promise.resolve('fresh')
+    await vi.advanceTimersByTimeAsync(8_000)
+
+    expect(providers[0].connectedWith.at(-1)).toBe('fresh')
+  })
+
+  it('still spaces retries out to 30 s while the browser says it is offline', async () => {
+    await outage()
+    const fetches = token.fetches
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    expect(token.fetches - fetches).toBeLessThanOrEqual(10)
   })
 })

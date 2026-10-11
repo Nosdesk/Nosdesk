@@ -4,6 +4,7 @@ import { translate } from '@nosdesk/core/i18n';
 import { useAuthStore } from "@/stores/auth";
 import { sseStreamUrl } from "@nosdesk/core/transport";
 import apiClient from "@nosdesk/core/apiClient";
+import { retryDelay } from "@nosdesk/core/retryDelay";
 
 // Event handler type - uses unknown since SSE events have varying shapes
 type EventHandler = (data: unknown) => void;
@@ -54,11 +55,11 @@ class SSEService {
   private eventListeners = new Map<SSEEventType, Set<EventHandler>>();
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
+  /** The first wait between attempts, doubling after each failure up to
+   *  30 s while the browser says it is offline, else 5 to 8 s (`retryDelay`).
+   *  Reconnecting never gives up: a stream that stopped trying left the tab
+   *  without live updates until a reload. */
   private readonly baseReconnectDelay = 1000;
-  /** The longest wait between attempts. Reconnecting never gives up: a
-   *  stream that stopped trying left the tab without live updates until a
-   *  reload. */
-  private readonly maxReconnectDelay = 30000;
   private sseToken: string | null = null;
   private tokenExpiryTime: number | null = null;
   // Unique client ID assigned by the server on connection (for echo suppression)
@@ -287,10 +288,8 @@ class SSEService {
     }
     if (!this.wanted()) return;
 
-    const delay = Math.min(
-      this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
-      this.maxReconnectDelay,
-    );
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    const delay = retryDelay(this.reconnectAttempts, this.baseReconnectDelay, offline);
 
     this.reconnectTimeout = setTimeout(() => {
       this.reconnect();
