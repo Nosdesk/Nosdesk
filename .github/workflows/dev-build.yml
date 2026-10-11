@@ -100,6 +100,10 @@ jobs:
           target: runtime
           # amd64: Fly runs x86_64, and building it here natively avoids the
           # QEMU emulation an arm64 laptop would need.
+          # NOSDESK_TRUST_STAGING_LICENSES=1: nosdesk-dev is linked to the
+          # staging control plane, which signs licences with the staging key.
+          # release.yml leaves it unset, so release images trust only the
+          # production key.
           platforms: linux/amd64
           push: true
           tags: registry.fly.io/nosdesk-dev:dev-${{ steps.vars.outputs.sha }}
@@ -107,6 +111,7 @@ jobs:
             NOSDESK_VERSION=dev-${{ steps.vars.outputs.sha }}
             VITE_BUILD_SHA=${{ steps.vars.outputs.sha }}
             CARGO_PROFILE=fast
+            NOSDESK_TRUST_STAGING_LICENSES=1
           provenance: false
           cache-from: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-dev
           cache-to: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-dev,mode=max

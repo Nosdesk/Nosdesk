@@ -44,6 +44,9 @@ fn main() {
     // get_current_version() reads option_env!("NOSDESK_VERSION"); without this
     // a changed version wouldn't trigger a recompile of the crate that bakes it.
     println!("cargo:rerun-if-env-changed=NOSDESK_VERSION");
+    // license.rs reads option_env!("NOSDESK_TRUST_STAGING_LICENSES") for the
+    // same reason.
+    println!("cargo:rerun-if-env-changed=NOSDESK_TRUST_STAGING_LICENSES");
 }
 
 fn hash_migrations_dir(root: &Path) -> u64 {
