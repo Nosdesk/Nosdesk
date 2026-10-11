@@ -812,6 +812,9 @@ function applyActions(actions: SyncAction[]): void {
       // own-pk aggregates whose delete payload is otherwise empty.
       const id = rowKey(action.aggregate, action.data) ?? action.aggregate_id
       if (id == null) continue
+      // Observers run after the row is gone; keep it on the action for them.
+      const prior = pool.get<Record<string, unknown>>(action.aggregate, id)
+      if (prior) action.prior = { ...prior }
       pool.remove(action.aggregate, id)
       if (state.handle) {
         void idb.deleteModel(state.handle, action.aggregate, String(id))

@@ -65,6 +65,12 @@ export interface SyncAction {
   correlation_id?: string | null
   causation_id?: string | null
   occurred_at?: string
+  /**
+   * Set on this client, never sent. For a delete, the row the pool held just
+   * before applying it, so an observer can still read what the delete leaves
+   * out (a retraction names only the record's id).
+   */
+  prior?: Readonly<Record<string, unknown>>
 }
 
 export interface DeltaResponse {
