@@ -384,6 +384,7 @@ fn stream_bootstrap_inner(
                     "display_order": c.display_order,
                     "description_text": c.description_text,
                     "hide_titles_from_non_members": c.hide_titles_from_non_members,
+                    "restricted": c.restricted,
                     "created_at": c.created_at,
                     "updated_at": c.updated_at,
                 }),
@@ -392,7 +393,8 @@ fn stream_bootstrap_inner(
 
         let all_pages: Vec<crate::models::DocumentationPage> =
             crate::schema::documentation_pages::table.load(conn)?;
-        let visible_pages = audience.filter_pages(conn, all_pages)?;
+        // Every status: the trash view is built from the pool too.
+        let visible_pages = audience.filter_pages_with_trash(conn, all_pages)?;
         // Denormalised collection membership (one collection per page,
         // UNIQUE(page_id)) so the page row is self-contained for the
         // pool — mirrors `page_sync_payload`'s collection_id field.
@@ -427,6 +429,7 @@ fn stream_bootstrap_inner(
                     "display_order": p.display_order,
                     "is_public": p.is_public,
                     "is_template": p.is_template,
+                    "restricted": p.restricted,
                     "archived_at": p.archived_at,
                     "deleted_at": p.deleted_at,
                     "created_by": p.created_by,

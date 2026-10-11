@@ -3148,7 +3148,7 @@ docs-collection-tree-list-empty = No pages in this collection yet.
 
 # Docs: collection visibility modal (CollectionVisibilityModal)
 docs-collection-visibility-title = Collection access
-docs-collection-visibility-description = Pick which groups and users can get to this collection. Leave it empty and the collection is public (everyone can see it).
+docs-collection-visibility-description = Choose who can open this collection.
 docs-collection-visibility-public = Public, visible to all users
 docs-collection-visibility-picker-placeholder = Search users and groups...
 docs-collection-visibility-cancel = Cancel
@@ -3311,9 +3311,6 @@ docs-collection-appearance-open-aria = Change collection icon and colour
 docs-edit-collection-description = Short description
 docs-edit-collection-description-placeholder = Optional tagline shown above the collection's overview
 docs-edit-collection-description-help = The full overview is edited in place on the collection landing page.
-docs-edit-collection-hide-titles-aria = Hide page titles from non-members
-docs-edit-collection-hide-titles-label = Hide page titles from non-members
-docs-edit-collection-hide-titles-help = Cross-collection wikilinks show "Restricted page" for viewers who can't access it, instead of leaking the title. Recommended for sensitive collections.
 docs-edit-collection-name-required = Name's required.
 docs-edit-collection-save-error = Couldn't save. Give it another go.
 docs-edit-collection-cancel = Cancel

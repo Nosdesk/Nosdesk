@@ -48,6 +48,8 @@ export interface CollectionWithDetails extends Collection {
   visible_to_groups: Array<{ id: number; name: string }>;
   visible_to_users: VisibleUser[];
   is_public: boolean;
+  /** Open only to the groups and people listed; admins only when none are. */
+  restricted?: boolean;
   page_count: number;
 }
 
@@ -73,6 +75,8 @@ export interface CollectionWithPages extends Collection {
   visible_to_groups: Array<{ id: number; name: string }>;
   visible_to_users: VisibleUser[];
   is_public: boolean;
+  /** Open only to the groups and people listed; admins only when none are. */
+  restricted?: boolean;
   page_count: number;
 }
 
@@ -123,6 +127,9 @@ export const createCollection = async (data: {
   visible_to_group_ids?: number[];
   /** People the collection is open to, set with it in one step. */
   visible_to_user_uuids?: string[];
+  /** Open only to those given (admins only when none are). Omitted, it
+   * follows from whether any are given. */
+  restricted?: boolean;
 }): Promise<Collection | null> => {
   const response = await apiClient.post('/documentation/collections', data);
   return response.data;
@@ -227,11 +234,22 @@ export const getCollectionVisibility = async (collectionId: number): Promise<Arr
 };
 
 // Set visibility for a collection (groups and/or users)
-export const setCollectionVisibility = async (collectionId: number, groupIds: number[], userUuids: string[] = []): Promise<boolean> => {
+/**
+ * Set who can open a collection. `restricted` opens it only to the groups and
+ * people given (admins only when there are none); omitted, it follows from
+ * whether any are given.
+ */
+export const setCollectionVisibility = async (
+  collectionId: number,
+  groupIds: number[],
+  userUuids: string[] = [],
+  restricted?: boolean,
+): Promise<boolean> => {
   try {
     await apiClient.put(`/documentation/collections/${collectionId}/visibility`, {
       group_ids: groupIds,
       user_uuids: userUuids,
+      ...(restricted !== undefined ? { restricted } : {}),
     });
     return true;
   } catch (error) {

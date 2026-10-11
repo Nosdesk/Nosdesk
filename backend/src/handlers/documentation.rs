@@ -1973,12 +1973,21 @@ pub async fn get_archived_pages(mut tc: TenantConn, auth: AuthContext) -> impl R
 }
 
 // Get trashed (soft-deleted) documentation pages
+/// The trash shows a page to whoever could open it under its rules; every
+/// other route treats a trashed page as absent to anyone but an admin.
 pub async fn get_trashed_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    let outcome = run_page_list(
-        &mut tc,
-        repository::PageAudience::from_auth(&auth),
-        |conn| repository::get_pages_by_status(conn, DocumentationStatus::Deleted),
-    );
+    let audience = repository::PageAudience::from_auth(&auth);
+    let outcome = tc.run(|conn| {
+        let pages = repository::get_pages_by_status(conn, DocumentationStatus::Deleted)?;
+        let pages = match audience.filter_pages_with_trash(conn, pages) {
+            Ok(p) => p,
+            Err(_) => return Ok(PageListOutcome::VisibilityCheckFailed),
+        };
+        match to_page_responses(pages, conn) {
+            Ok(r) => Ok::<_, diesel::result::Error>(PageListOutcome::Ok(r)),
+            Err(err) => Ok(PageListOutcome::ResponseBuildFailed(err)),
+        }
+    });
     respond_page_list(outcome, "Failed to fetch trashed pages")
 }
 
@@ -2007,11 +2016,13 @@ pub async fn get_page_visibility(
         }
         let groups = repository::get_visible_groups_for_page(conn, page_id)?;
         let users = repository::get_visible_users_for_page(conn, page_id)?;
-        Ok::<_, diesel::result::Error>(Some((groups, users)))
+        let restricted = repository::get_documentation_page(page_id, conn)?.restricted;
+        Ok::<_, diesel::result::Error>(Some((restricted, groups, users)))
     });
 
     match result {
-        Ok(Some((groups, users))) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(Some((restricted, groups, users))) => HttpResponse::Ok().json(serde_json::json!({
+            "restricted": restricted,
             "groups": groups,
             "users": users,
         })),
@@ -2027,6 +2038,10 @@ pub async fn get_page_visibility(
 pub struct SetPageVisibilityRequest {
     pub group_ids: Vec<i32>,
     pub user_uuids: Option<Vec<String>>,
+    /// The page has its own rules: open only to these grants, or to admins
+    /// only when there are none. Omitted, it follows from whether any grant
+    /// is given.
+    pub restricted: Option<bool>,
 }
 
 /// Set visibility groups for a documentation page (admin only)
@@ -2056,10 +2071,14 @@ pub async fn set_page_visibility(
         })
         .unwrap_or_default();
 
+    let restricted = body
+        .restricted
+        .unwrap_or(!(body.group_ids.is_empty() && user_uuids.is_empty()));
     match tc.run(|conn| {
-        repository::set_page_visibility(
+        repository::set_page_rules(
             conn,
             page_id,
+            restricted,
             body.group_ids.clone(),
             user_uuids.clone(),
             created_by,
@@ -2100,7 +2119,7 @@ pub async fn restore_page(
     let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
-        if !audience.can_open_page(conn, page_id)? {
+        if !audience.can_restore_page(conn, page_id)? {
             return Ok(RestorePageOutcome::NotFound);
         }
         let now = chrono::Utc::now().naive_utc();

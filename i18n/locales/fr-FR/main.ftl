@@ -4215,12 +4215,16 @@ docs-collection-tree-list-empty = Aucune page dans cette collection pour le mome
 
 # Docs : visibilité de la collection (CollectionVisibilityModal)
 docs-collection-visibility-title = Accès à la collection
-docs-collection-visibility-description = Sélectionnez les groupes et utilisateurs autorisés à accéder à cette collection. Sans sélection, la collection est publique (visible par tous).
+docs-collection-visibility-description = Choisissez qui peut ouvrir cette collection.
 docs-collection-visibility-public = Publique, visible par tous les utilisateurs
 docs-collection-visibility-picker-placeholder = Rechercher des utilisateurs et groupes...
 docs-collection-visibility-cancel = Annuler
 docs-collection-visibility-save = Enregistrer
 docs-collection-visibility-saving = Enregistrement...
+docs-access-label = Qui peut l'ouvrir
+docs-access-everyone = Tout l'espace de travail
+docs-access-chosen = Seulement les personnes et groupes choisis
+docs-access-admins-only = Seuls les administrateurs peuvent l'ouvrir tant que vous n'ajoutez ni personne ni groupe.
 
 # Sélecteur d'affectation partagé (AssignmentPicker)
 assignment-picker-loading = Recherche…
@@ -4379,9 +4383,6 @@ docs-collection-appearance-open-aria = Modifier l'icône et la couleur de la col
 docs-edit-collection-description = Description courte
 docs-edit-collection-description-placeholder = Slogan facultatif affiché au-dessus de l'aperçu de la collection
 docs-edit-collection-description-help = L'aperçu complet se modifie directement sur la page d'accueil de la collection.
-docs-edit-collection-hide-titles-aria = Masquer les titres de page aux non-membres
-docs-edit-collection-hide-titles-label = Masquer les titres de page aux non-membres
-docs-edit-collection-hide-titles-help = Les wikilinks inter-collections affichent « Page restreinte » pour les lecteurs sans accès, au lieu de divulguer le titre. Recommandé pour les collections sensibles.
 docs-edit-collection-require-verification-aria = Exiger la vérification des pages de cette collection
 docs-edit-collection-require-verification-label = Exiger la vérification
 docs-edit-collection-require-verification-help = Les pages non vérifiées affichent une invite « vérification requise ». À utiliser pour le contenu de conformité comme les politiques et les procédures. Désactivé par défaut, une page non vérifiée reste neutre.
