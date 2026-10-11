@@ -46,7 +46,6 @@ const docNavStore = useDocumentationNavStore()
 const { starredPages } = storeToRefs(docNavStore)
 
 const showCreateCollectionModal = ref(false)
-const collectionBrowserRef = ref<InstanceType<typeof CollectionBrowser> | null>(null)
 
 const uncollectedCount = computed(() => docs.uncollectedPages.length)
 const gapCount = computed(() => gaps.value.length)
@@ -115,9 +114,9 @@ const attentionCount = computed(() => gapCount.value + verificationCount.value)
 
 const totalPages = computed(() => flattenTree(pages.value).length)
 
+// The new collection reaches the Library through the sync pool.
 function onCollectionCreated() {
   showCreateCollectionModal.value = false
-  void collectionBrowserRef.value?.reload()
 }
 
 function pageAuthor(page: Page) {
@@ -173,10 +172,7 @@ usePageCreateAction(handleCreatePage)
       <div class="docs-index-layout px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
         <!-- Main column: the library leads; drafts collapse to one strip. -->
         <div class="flex flex-col gap-4 sm:gap-5 min-w-0">
-          <CollectionBrowser
-            ref="collectionBrowserRef"
-            @create="showCreateCollectionModal = true"
-          />
+          <CollectionBrowser @create="showCreateCollectionModal = true" />
 
           <EmptyState
             v-if="totalPages === 0"

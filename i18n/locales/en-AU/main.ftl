@@ -3119,7 +3119,6 @@ docs-collection-browser-new = New
 docs-collection-browser-name-placeholder = Collection name...
 docs-collection-browser-cancel = Cancel
 docs-collection-browser-create = Create
-docs-collection-browser-loading-label = Loading collections
 docs-collection-browser-pages = { $count ->
     [one] { $count } page
    *[other] { $count } pages

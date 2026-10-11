@@ -4176,7 +4176,6 @@ docs-collection-browser-new = Nieuw
 docs-collection-browser-name-placeholder = Naam van de collectie...
 docs-collection-browser-cancel = Annuleren
 docs-collection-browser-create = Aanmaken
-docs-collection-browser-loading-label = Collecties laden
 docs-collection-browser-pages = { $count ->
     [one] { $count } pagina
    *[other] { $count } pagina's

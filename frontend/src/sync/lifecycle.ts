@@ -272,7 +272,7 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   asset_lifecycle_event: 1,
   cycle: 1,
   documentation_page: 1,
-  documentation_collection: 1,
+  documentation_collection: 2,
 }
 
 /**

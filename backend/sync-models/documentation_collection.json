@@ -1,6 +1,6 @@
 {
   "name": "documentation_collection",
-  "schema_version": 1,
+  "schema_version": 2,
   "audience": "docs",
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
@@ -15,6 +15,9 @@
     "display_order": { "rust": "i32", "ts": "number" },
     "description_text": { "rust": "Option<String>", "ts": "string | null" },
     "hide_titles_from_non_members": { "rust": "bool", "ts": "boolean" },
+    "require_verification": { "rust": "bool", "ts": "boolean" },
+    "restricted": { "rust": "bool", "ts": "boolean", "note": "open only to grants; admins only when there are none" },
+    "grants": { "rust": "serde_json::Value", "ts": "{ groups: { id: number; name: string }[]; users: string[] }", "note": "who a restricted collection is open to: groups by id and name (a rename re-sends the row), people by uuid (named from the user aggregate). Added in schema_version 2" },
     "created_at": { "rust": "NaiveDateTime", "ts": "string" },
     "updated_at": { "rust": "NaiveDateTime", "ts": "string" }
   },
