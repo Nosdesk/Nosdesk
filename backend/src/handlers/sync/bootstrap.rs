@@ -367,28 +367,15 @@ fn stream_bootstrap_inner(
 
         let collections: Vec<crate::models::DocumentationCollection> =
             crate::schema::documentation_collections::table.load(conn)?;
-        for c in audience.filter_collections(conn, collections, |c| c.id)? {
-            send(
-                tx,
-                json!({
-                    "__model__": "documentation_collection",
-                    "id": c.id,
-                    "uuid": c.uuid,
-                    "name": c.name,
-                    "slug": c.slug,
-                    "description": c.description,
-                    "icon": c.icon,
-                    "color": c.color,
-                    "is_system": c.is_system,
-                    "created_by": c.created_by,
-                    "display_order": c.display_order,
-                    "description_text": c.description_text,
-                    "hide_titles_from_non_members": c.hide_titles_from_non_members,
-                    "restricted": c.restricted,
-                    "created_at": c.created_at,
-                    "updated_at": c.updated_at,
-                }),
-            )?;
+        let visible = audience.filter_collections(conn, collections, |c| c.id)?;
+        // The same row the feed sends, grants included.
+        for mut row in
+            crate::repository::documentation_collections::collection_sync_rows(conn, &visible)?
+        {
+            if let Some(fields) = row.as_object_mut() {
+                fields.insert("__model__".into(), json!("documentation_collection"));
+            }
+            send(tx, row)?;
         }
 
         let all_pages: Vec<crate::models::DocumentationPage> =

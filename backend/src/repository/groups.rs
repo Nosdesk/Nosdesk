@@ -247,9 +247,16 @@ pub fn update_group(
     }
 
     conn.transaction(|conn| {
+        let before: Group = groups::table.find(group_id).first(conn)?;
         let group: Group = diesel::update(groups::table.find(group_id))
             .set(&group_update)
             .get_result(conn)?;
+        // Collection rows name the groups they are shared with.
+        if group.name != before.name {
+            crate::repository::documentation_collections::emit_collections_shared_with_group(
+                conn, group.id,
+            )?;
+        }
         emit::record(
             conn,
             SyncEmit {
@@ -774,7 +781,7 @@ pub fn upsert_external_group(
             .filter(groups::external_id.eq(external_id))
             .first::<Group>(conn);
 
-        let (group, was_created) = match existing {
+        let (group, was_created, renamed) = match existing {
             Ok(group) => {
                 // Update existing group
                 let update = ExternalGroupUpdate {
@@ -791,7 +798,8 @@ pub fn upsert_external_group(
                     .set(&update)
                     .get_result(conn)?;
 
-                (updated, false)
+                let renamed = updated.name != group.name;
+                (updated, false, renamed)
             }
             Err(diesel::result::Error::NotFound) => {
                 // Create new group
@@ -809,10 +817,16 @@ pub fn upsert_external_group(
                     .values(&new_group)
                     .get_result(conn)?;
 
-                (created, true)
+                (created, true, false)
             }
             Err(e) => return Err(e),
         };
+        // Collection rows name the groups they are shared with.
+        if renamed {
+            crate::repository::documentation_collections::emit_collections_shared_with_group(
+                conn, group.id,
+            )?;
+        }
 
         emit::record(
             conn,

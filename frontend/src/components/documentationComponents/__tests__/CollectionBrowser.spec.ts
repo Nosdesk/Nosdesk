@@ -3,20 +3,20 @@ import { nextTick } from 'vue'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import * as pool from '@nosdesk/core/sync/pool'
-import type { CollectionWithDetails } from '@nosdesk/core/services/collectionService'
 import type { DocCollectionRow } from '@nosdesk/core/sync/stores/documentation'
 import { mountWithProviders } from '@/test/mountWithProviders'
 
 const service = vi.hoisted(() => ({
-  getCollections: vi.fn(),
+  getCollections: vi.fn(async () => []),
   reorderCollections: vi.fn(async () => true),
 }))
 vi.mock('@nosdesk/core/services/collectionService', () => service)
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isTechnician: false }) }))
+const auth = vi.hoisted(() => ({ isTechnician: false }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
 
 import CollectionBrowser from '@/components/documentationComponents/CollectionBrowser.vue'
 
-const syncRow = (id: number, name: string, extra: Partial<DocCollectionRow> = {}): DocCollectionRow => ({
+const row = (id: number, name: string, extra: Partial<DocCollectionRow> = {}): DocCollectionRow => ({
   id,
   uuid: `c-${id}`,
   name,
@@ -31,21 +31,13 @@ const syncRow = (id: number, name: string, extra: Partial<DocCollectionRow> = {}
   hide_titles_from_non_members: false,
   require_verification: false,
   restricted: false,
+  grants: { groups: [], users: [] },
   created_at: '2026-10-01T00:00:00Z',
   updated_at: '2026-10-01T00:00:00Z',
   ...extra,
 })
 
-const restRow = (row: DocCollectionRow, extra: Partial<CollectionWithDetails> = {}): CollectionWithDetails =>
-  ({
-    ...row,
-    description_doc_id: `collection-${row.uuid}`,
-    visible_to_groups: [],
-    visible_to_users: [],
-    is_public: !row.restricted,
-    page_count: 0,
-    ...extra,
-  }) as CollectionWithDetails
+const put = (r: DocCollectionRow) => pool.upsert('documentation_collection', r.id, r)
 
 let wrapper: VueWrapper | null = null
 let router: Router
@@ -63,9 +55,15 @@ afterEach(() => {
   wrapper = null
   pool.reset()
   vi.clearAllMocks()
+  auth.isTechnician = false
 })
 
-const names = () => wrapper!.findAll('li a').filter((a) => a.attributes('href')?.startsWith('/documentation/collections/')).map((a) => a.text())
+const items = () => wrapper!.findAll('li')
+const names = () =>
+  wrapper!
+    .findAll('li a')
+    .filter((a) => a.attributes('href')?.startsWith('/documentation/collections/'))
+    .map((a) => a.text())
 
 async function mountBrowser() {
   wrapper = mountWithProviders(CollectionBrowser, {}, {}, [router])
@@ -73,61 +71,98 @@ async function mountBrowser() {
 }
 
 describe('CollectionBrowser', () => {
-  it('drops a collection the sync pool no longer holds, without a reload', async () => {
-    const a = syncRow(1, 'Alpha')
-    const b = syncRow(2, 'Bravo', { restricted: true })
-    pool.upsert('documentation_collection', a.id, a)
-    pool.upsert('documentation_collection', b.id, b)
-    service.getCollections.mockResolvedValue([restRow(a), restRow(b)])
-
+  it('drops a collection the pool no longer holds, without a reload', async () => {
+    put(row(1, 'Alpha'))
+    put(row(2, 'Bravo', { restricted: true, grants: { groups: [{ id: 9, name: 'Payroll team' }], users: [] } }))
     await mountBrowser()
     expect(names()).toEqual(['Alpha', 'Bravo'])
 
     // Losing access deletes the row from the pool (user.access_changed).
-    pool.remove('documentation_collection', b.id)
+    pool.remove('documentation_collection', 2)
     await nextTick()
 
     expect(names()).toEqual(['Alpha'])
-    expect(service.getCollections).toHaveBeenCalledTimes(1)
   })
 
-  it('shows a collection that reaches the pool before REST, then fetches its details', async () => {
-    const a = syncRow(1, 'Alpha')
-    pool.upsert('documentation_collection', a.id, a)
-    service.getCollections.mockResolvedValue([restRow(a)])
-
+  it('shows a collection new to the pool with who it is open to', async () => {
+    put(row(1, 'Alpha'))
     await mountBrowser()
-    expect(names()).toEqual(['Alpha'])
 
-    const c = syncRow(3, 'Charlie', { restricted: true })
-    service.getCollections.mockResolvedValue([
-      restRow(a),
-      restRow(c, { visible_to_groups: [{ id: 9, name: 'Payroll team' }], page_count: 4 }),
-    ])
-    pool.upsert('documentation_collection', c.id, c)
+    put(row(3, 'Charlie', { restricted: true, grants: { groups: [{ id: 9, name: 'Payroll team' }], users: [] } }))
     await nextTick()
 
-    // Renders straight from the sync row, locked, before its details land.
     expect(names()).toEqual(['Alpha', 'Charlie'])
-    expect(wrapper!.text()).toContain('docs-collection-browser-restricted-badge')
-
-    await flushPromises()
-    expect(service.getCollections).toHaveBeenCalledTimes(2)
-    expect(wrapper!.text()).toContain('Payroll team')
-
-    // Settled: no further refetches once every pool row has its details.
-    await flushPromises()
-    expect(service.getCollections).toHaveBeenCalledTimes(2)
+    expect(items()[1]!.text()).toContain('Payroll team')
+    expect(items()[0]!.text()).not.toContain('docs-collection-browser-restricted-badge')
   })
 
-  it('follows the pool order, not the REST order', async () => {
-    const a = syncRow(1, 'Alpha', { display_order: 2 })
-    const b = syncRow(2, 'Bravo', { display_order: 1 })
-    pool.upsert('documentation_collection', a.id, a)
-    pool.upsert('documentation_collection', b.id, b)
-    service.getCollections.mockResolvedValue([restRow(a), restRow(b)])
-
+  it('names a person a collection is shared with from the pool', async () => {
+    pool.upsert('user', 'u-1', { uuid: 'u-1', name: 'Priya Shah' })
+    put(row(1, 'Alpha', { restricted: true, grants: { groups: [], users: ['u-1'] } }))
+    put(row(2, 'Bravo', { restricted: true }))
     await mountBrowser()
+
+    expect(items()[0]!.text()).toContain('Priya Shah')
+    // Restricted to nobody: admins only.
+    expect(items()[1]!.text()).toContain('docs-collection-browser-restricted-badge')
+  })
+
+  it('counts the active pages the pool holds for each collection', async () => {
+    put(row(1, 'Alpha'))
+    for (const [id, status] of [[10, 'published'], [11, 'draft'], [12, 'deleted']] as const) {
+      pool.upsert('documentation_page', id, {
+        id,
+        uuid: `p-${id}`,
+        collection_id: 1,
+        title: `Page ${id}`,
+        slug: `page-${id}`,
+        status,
+        parent_id: null,
+        updated_at: '2026-10-01T00:00:00Z',
+      })
+    }
+    await mountBrowser()
+
+    // Fluent echoes the message id here, so read the count the row passes it.
+    const vm = wrapper!.findComponent(CollectionBrowser).vm as unknown as {
+      collections: DocCollectionRow[]
+      pageCount: (c: DocCollectionRow) => number
+    }
+    expect(vm.collections.map((c) => vm.pageCount(c))).toEqual([2])
+    expect(wrapper!.text()).not.toContain('Page 12')
+  })
+
+  it('follows the pool order and never asks REST for the list', async () => {
+    put(row(1, 'Alpha', { display_order: 2 }))
+    put(row(2, 'Bravo', { display_order: 1 }))
+    await mountBrowser()
+
     expect(names()).toEqual(['Bravo', 'Alpha'])
+    expect(service.getCollections).not.toHaveBeenCalled()
+  })
+
+  it('reorders at once and puts the order back when the save fails', async () => {
+    auth.isTechnician = true
+    put(row(1, 'Alpha'))
+    put(row(2, 'Bravo'))
+    put(row(3, 'Charlie'))
+    let settle: (ok: boolean) => void = () => {}
+    service.reorderCollections.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (settle = resolve)),
+    )
+    await mountBrowser()
+
+    await items()[2]!.trigger('dragstart')
+    await items()[0]!.trigger('drop')
+    expect(names()).toEqual(['Charlie', 'Alpha', 'Bravo'])
+    expect(service.reorderCollections).toHaveBeenCalledWith([
+      { collection_id: 3, display_order: 0 },
+      { collection_id: 1, display_order: 1 },
+      { collection_id: 2, display_order: 2 },
+    ])
+
+    settle(false)
+    await flushPromises()
+    expect(names()).toEqual(['Alpha', 'Bravo', 'Charlie'])
   })
 })

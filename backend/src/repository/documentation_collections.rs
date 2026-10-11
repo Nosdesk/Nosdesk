@@ -47,7 +47,17 @@ pub fn collection_workspace_id_by_uuid(
 /// WebSocket channel, not the sync_actions stream. The plain-text
 /// projection (`description_text`) is included so consumers have the
 /// searchable overview without the CRDT blob.
-fn collection_sync_payload(c: &DocumentationCollection) -> serde_json::Value {
+///
+/// `grants` names who a restricted collection is open to, as the REST
+/// collection response does for anyone who can open it: groups by id and
+/// name (groups are not in the sync pool, so a rename sends the row again,
+/// see [`emit_collections_shared_with_group`]) and people by uuid (the
+/// client names them from its `user` rows). Empty on an open collection,
+/// and on a restricted one only admins may open.
+fn collection_sync_payload(
+    c: &DocumentationCollection,
+    grants: serde_json::Value,
+) -> serde_json::Value {
     json!({
         "id": c.id,
         "uuid": c.uuid,
@@ -63,9 +73,77 @@ fn collection_sync_payload(c: &DocumentationCollection) -> serde_json::Value {
         "hide_titles_from_non_members": c.hide_titles_from_non_members,
         "require_verification": c.require_verification,
         "restricted": c.restricted,
+        "grants": grants,
         "created_at": c.created_at,
         "updated_at": c.updated_at,
     })
+}
+
+/// Each collection's sync row, with its grants read in two queries for the
+/// lot. The bootstrap streams these; every emit sends the same shape.
+pub fn collection_sync_rows(
+    conn: &mut DbConnection,
+    collections: &[DocumentationCollection],
+) -> QueryResult<Vec<serde_json::Value>> {
+    let ids: Vec<i32> = collections.iter().map(|c| c.id).collect();
+    let shared_groups: Vec<(i32, i32, String)> = documentation_collection_visibility::table
+        .filter(documentation_collection_visibility::collection_id.eq_any(&ids))
+        .inner_join(
+            groups::table.on(groups::id
+                .nullable()
+                .eq(documentation_collection_visibility::group_id)),
+        )
+        .select((
+            documentation_collection_visibility::collection_id,
+            groups::id,
+            groups::name,
+        ))
+        .order((groups::name.asc(), groups::id.asc()))
+        .load(conn)?;
+    let shared_users: Vec<(i32, Option<Uuid>)> = documentation_collection_visibility::table
+        .filter(documentation_collection_visibility::collection_id.eq_any(&ids))
+        .filter(documentation_collection_visibility::user_uuid.is_not_null())
+        .select((
+            documentation_collection_visibility::collection_id,
+            documentation_collection_visibility::user_uuid,
+        ))
+        .order(documentation_collection_visibility::user_uuid.asc())
+        .load(conn)?;
+
+    let mut by_group: std::collections::HashMap<i32, Vec<serde_json::Value>> =
+        std::collections::HashMap::new();
+    for (collection_id, id, name) in shared_groups {
+        by_group
+            .entry(collection_id)
+            .or_default()
+            .push(json!({ "id": id, "name": name }));
+    }
+    let mut by_user: std::collections::HashMap<i32, Vec<Uuid>> = std::collections::HashMap::new();
+    for (collection_id, user_uuid) in shared_users {
+        by_user.entry(collection_id).or_default().extend(user_uuid);
+    }
+    Ok(collections
+        .iter()
+        .map(|c| {
+            let grants = json!({
+                "groups": by_group.remove(&c.id).unwrap_or_default(),
+                "users": by_user.remove(&c.id).unwrap_or_default(),
+            });
+            collection_sync_payload(c, grants)
+        })
+        .collect())
+}
+
+/// One collection's sync row (see [`collection_sync_rows`]).
+fn collection_sync_row(
+    conn: &mut DbConnection,
+    collection: &DocumentationCollection,
+) -> QueryResult<serde_json::Value> {
+    Ok(
+        collection_sync_rows(conn, std::slice::from_ref(collection))?
+            .pop()
+            .unwrap_or_default(),
+    )
 }
 
 /// Emit the collection's whole row under `event_type` to the sync `groups`.
@@ -83,6 +161,7 @@ pub fn emit_collection_row_to(
     else {
         return Ok(());
     };
+    let data = collection_sync_row(conn, &collection)?;
     emit::record(
         conn,
         SyncEmit {
@@ -90,11 +169,34 @@ pub fn emit_collection_row_to(
             aggregate_id: collection_id.to_string(),
             op: SyncOp::Update,
             event_type,
-            data: collection_sync_payload(&collection),
+            data,
             groups,
             causation_id: None,
         },
     )?;
+    Ok(())
+}
+
+/// Send again every collection shared with `group_id` by name, after the
+/// group was renamed: each row names the groups it is shared with. Who may
+/// open them is unchanged.
+pub fn emit_collections_shared_with_group(
+    conn: &mut DbConnection,
+    group_id: i32,
+) -> QueryResult<()> {
+    let ids: Vec<i32> = documentation_collection_visibility::table
+        .filter(documentation_collection_visibility::group_id.eq(group_id))
+        .select(documentation_collection_visibility::collection_id)
+        .distinct()
+        .load(conn)?;
+    for id in ids {
+        emit_collection_row_to(
+            conn,
+            id,
+            "documentation_collection.updated",
+            crate::sync::groups::workspace(),
+        )?;
+    }
     Ok(())
 }
 
@@ -111,6 +213,7 @@ pub fn create_collection(
             diesel::insert_into(documentation_collections::table)
                 .values(&new_collection)
                 .get_result(conn)?;
+        let data = collection_sync_row(conn, &collection)?;
         emit::record(
             conn,
             SyncEmit {
@@ -118,7 +221,7 @@ pub fn create_collection(
                 aggregate_id: collection.id.to_string(),
                 op: SyncOp::Insert,
                 event_type: "documentation_collection.created",
-                data: collection_sync_payload(&collection),
+                data,
                 groups: crate::sync::groups::workspace(),
                 causation_id: None,
             },
@@ -185,6 +288,7 @@ pub fn reorder_collections(
                 diesel::update(documentation_collections::table.find(order.collection_id))
                     .set(documentation_collections::display_order.eq(order.display_order))
                     .get_result(conn)?;
+            let data = collection_sync_row(conn, &collection)?;
             emit::record(
                 conn,
                 SyncEmit {
@@ -192,7 +296,7 @@ pub fn reorder_collections(
                     aggregate_id: collection.id.to_string(),
                     op: SyncOp::Update,
                     event_type: "documentation_collection.updated",
-                    data: collection_sync_payload(&collection),
+                    data,
                     groups: crate::sync::groups::workspace(),
                     causation_id: None,
                 },
@@ -212,6 +316,7 @@ pub fn update_collection(
             diesel::update(documentation_collections::table.find(collection_id))
                 .set(&update)
                 .get_result(conn)?;
+        let data = collection_sync_row(conn, &collection)?;
         emit::record(
             conn,
             SyncEmit {
@@ -219,7 +324,7 @@ pub fn update_collection(
                 aggregate_id: collection.id.to_string(),
                 op: SyncOp::Update,
                 event_type: "documentation_collection.updated",
-                data: collection_sync_payload(&collection),
+                data,
                 groups: crate::sync::groups::workspace(),
                 causation_id: None,
             },
@@ -829,6 +934,7 @@ pub fn set_collection_rules(
         let collection: DocumentationCollection = documentation_collections::table
             .find(collection_id)
             .first(conn)?;
+        let data = collection_sync_row(conn, &collection)?;
         emit::record(
             conn,
             SyncEmit {
@@ -836,7 +942,7 @@ pub fn set_collection_rules(
                 aggregate_id: collection_id.to_string(),
                 op: SyncOp::Update,
                 event_type: "documentation_collection.visibility_changed",
-                data: collection_sync_payload(&collection),
+                data,
                 groups: crate::sync::groups::workspace(),
                 causation_id: None,
             },

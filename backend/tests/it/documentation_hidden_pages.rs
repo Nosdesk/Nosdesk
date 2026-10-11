@@ -2325,3 +2325,132 @@ fn a_platform_role_change_resends_in_every_workspace() {
         "the restricted page in B is re-sent to them"
     );
 }
+
+/// The event type and data of the newest row recorded about collection `id`.
+fn newest_collection_row(pool: &TestPool, ws: i32, id: i32) -> (String, Value) {
+    use backend::schema::sync_actions;
+    run_in_workspace(pool, REF, ws, |c| {
+        sync_actions::table
+            .filter(
+                sync_actions::aggregate.eq(backend::models::SyncAggregate::DocumentationCollection),
+            )
+            .filter(sync_actions::aggregate_id.eq(id.to_string()))
+            .order(sync_actions::sync_id.desc())
+            .select((sync_actions::event_type, sync_actions::data))
+            .first::<(String, Value)>(c)
+    })
+    .expect("newest collection row")
+}
+
+/// A collection's sync row names who it is open to, in the feed and the
+/// bootstrap alike, so a reader's Library labels it from the row alone.
+#[actix_web::test]
+async fn a_collections_sync_row_names_who_it_is_open_to() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let group = group_with(&pool, &f, &[f.member]);
+    let group_name = run_in_workspace(&pool, REF, ws, |c| {
+        backend::repository::groups::get_group_by_id(c, group).map(|g| g.name)
+    })
+    .expect("group name");
+
+    run_in_workspace(&pool, REF, ws, |c| {
+        documentation_collections::set_collection_visibility(
+            c,
+            f.secret,
+            vec![group],
+            vec![f.insider],
+            None,
+        )
+    })
+    .expect("share with the group and the insider");
+    let (event, row) = newest_collection_row(&pool, ws, f.secret);
+    assert_eq!(event, "documentation_collection.visibility_changed");
+    let grants = json!({
+        "groups": [{ "id": group, "name": group_name }],
+        "users": [f.insider],
+    });
+    assert_eq!(row["grants"], grants, "the feed row: {row}");
+
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let uri = format!("/api/sync/bootstrap?groups=workspace:{ws}&schema=test");
+    let resp = http_test::call_service(
+        &app,
+        request(Method::GET, &uri, f.insider, None).to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = String::from_utf8(http_test::read_body(resp).await.to_vec()).expect("utf8");
+    let snapshot: Vec<Value> = body
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("bootstrap line"))
+        .collect();
+    let booted = snapshot
+        .iter()
+        .find(|r| r["__model__"] == json!("documentation_collection") && r["id"] == json!(f.secret))
+        .unwrap_or_else(|| panic!("the insider's bootstrap carries the collection: {body}"));
+    assert_eq!(booted["grants"], grants, "the bootstrap row: {booted}");
+    assert_eq!(booted["require_verification"], json!(false));
+
+    run_in_workspace(&pool, REF, ws, |c| {
+        documentation_collections::set_collection_visibility(
+            c,
+            f.secret,
+            vec![],
+            vec![f.insider],
+            None,
+        )
+    })
+    .expect("narrow to the insider");
+    let (_, row) = newest_collection_row(&pool, ws, f.secret);
+    assert_eq!(row["grants"], json!({ "groups": [], "users": [f.insider] }));
+
+    let (_, open) = newest_collection_row(&pool, ws, f.open_collection);
+    assert_eq!(open["grants"], json!({ "groups": [], "users": [] }));
+}
+
+/// A collection's row names the groups it is shared with, so renaming one
+/// sends the row again with the new name.
+#[test]
+fn renaming_a_group_resends_the_collections_shared_with_it() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let group = group_with(&pool, &f, &[f.member]);
+    let renamed = format!("Finance {}", &Uuid::new_v4().simple().to_string()[..6]);
+
+    run_in_workspace(&pool, REF, ws, |c| {
+        documentation_collections::set_collection_visibility(
+            c,
+            f.secret,
+            vec![group],
+            vec![],
+            None,
+        )?;
+        backend::repository::groups::update_group(
+            c,
+            group,
+            backend::models::GroupUpdate {
+                name: Some(renamed.clone()),
+                description: None,
+                color: None,
+                updated_at: None,
+            },
+        )
+    })
+    .expect("share, then rename the group");
+
+    let (event, row) = newest_collection_row(&pool, ws, f.secret);
+    assert_eq!(event, "documentation_collection.updated");
+    assert_eq!(
+        row["grants"]["groups"],
+        json!([{ "id": group, "name": renamed }]),
+        "{row}"
+    );
+}

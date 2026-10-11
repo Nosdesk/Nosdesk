@@ -2,15 +2,14 @@
 /**
  * The documentation index's library: one ledger row per collection with its
  * top pages inline, so a known page is one click from the index instead of
- * a click into each collection. Which collections show, and in what order,
- * follows the sync pool, so losing access drops a row as soon as the pool
- * does. The REST list only decorates those rows (audience, page count).
+ * a click into each collection. Everything derives from the sync pool, which
+ * holds only what this reader may open: a collection they lose access to
+ * leaves the Library as it leaves the sidebar.
  */
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import { getCollections, reorderCollections } from '@nosdesk/core/services/collectionService'
-import type { CollectionWithDetails } from '@nosdesk/core/services/collectionService'
+import { reorderCollections } from '@nosdesk/core/services/collectionService'
 import * as pool from '@nosdesk/core/sync/pool'
 import {
   useSyncDocsStore,
@@ -21,8 +20,6 @@ import {
 import { docUrl } from '@nosdesk/core/utils/docUrl'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { useAuthStore } from '@/stores/auth'
-import Skeleton from '@/components/common/Skeleton.vue'
-import SkeletonBar from '@/components/common/SkeletonBar.vue'
 import Icon from '@/components/common/Icon.vue'
 import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 
@@ -36,22 +33,10 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const authStore = useAuthStore()
 const docs = useSyncDocsStore()
 
-/** A sync row plus the REST details a ledger row shows. */
-type LibraryCollection = DocCollectionRow &
-  Pick<CollectionWithDetails, 'visible_to_groups' | 'visible_to_users' | 'is_public' | 'page_count'>
-
-/** REST details by collection id. */
-const details = ref(new Map<number, CollectionWithDetails>())
-const loading = ref(true)
 const dragIndex = ref<number | null>(null)
 const dropIndex = ref<number | null>(null)
 
 const canReorder = authStore.isTechnician
-
-const showSkeleton = computed(() => loading.value && collections.value.length === 0)
-const skeletonCount = computed(() =>
-  collections.value.length > 0 ? Math.min(collections.value.length, 6) : 3,
-)
 
 /** How many page links a ledger row carries before "N more". */
 const TOP_PAGES = 3
@@ -85,90 +70,46 @@ const derivedByCollection = computed<Map<number, LedgerDerived>>(() => {
 
 const NO_PAGES: LedgerDerived = { topPages: [], moreCount: 0, updatedAt: null }
 
-function derived(collection: LibraryCollection): LedgerDerived {
+function derived(collection: DocCollectionRow): LedgerDerived {
   return derivedByCollection.value.get(collection.id) ?? NO_PAGES
 }
 
+const collections = computed(() => docs.collectionsSorted)
+
+function pageCount(collection: DocCollectionRow): number {
+  const ledger = derived(collection)
+  return ledger.topPages.length + ledger.moreCount
+}
+
 /**
- * The pool's collections in display order, each joined to its REST details
- * by id. A row REST has not returned yet shows what the sync row carries:
- * no named audience and a page count from the pool.
+ * Who a restricted collection is open to. People are named from the pool;
+ * one it no longer holds (their account was erased) is left out.
  */
-const collections = computed<LibraryCollection[]>(() =>
-  docs.collectionsSorted.map((row) => {
-    const rest = details.value.get(row.id)
-    if (rest) {
-      return {
-        ...row,
-        visible_to_groups: rest.visible_to_groups,
-        visible_to_users: rest.visible_to_users,
-        is_public: !row.restricted,
-        page_count: rest.page_count,
-      }
-    }
-    const ledger = derived(row as LibraryCollection)
-    return {
-      ...row,
-      visible_to_groups: [],
-      visible_to_users: [],
-      is_public: !row.restricted,
-      page_count: ledger.topPages.length + ledger.moreCount,
-    }
-  }),
-)
+function audienceLabel(collection: DocCollectionRow): string {
+  // A server older than this client (mid rolling deploy) sends no grants;
+  // the row still shows, as plainly restricted.
+  const groups = collection.grants?.groups ?? []
+  const users = (collection.grants?.users ?? [])
+    .map((uuid) => pool.get<{ name: string }>('user', uuid))
+    .filter((u) => u != null)
 
-function audienceLabel(collection: LibraryCollection): string {
-  const groups = collection.visible_to_groups.length
-  const users = collection.visible_to_users.length
-
-  if (groups === 0 && users === 0) {
+  if (groups.length === 0 && users.length === 0) {
     return t('docs-collection-browser-restricted-badge')
   }
-  if (groups === 1 && users === 0) {
-    return collection.visible_to_groups[0].name
+  if (groups.length === 1 && users.length === 0) {
+    return groups[0]!.name
   }
-  if (groups === 0 && users === 1) {
-    return collection.visible_to_users[0].name
+  if (groups.length === 0 && users.length === 1) {
+    return users[0]!.name
   }
-  if (groups > 0 && users === 0) {
-    return t('docs-collection-browser-groups-count', { count: groups })
+  if (groups.length > 0 && users.length === 0) {
+    return t('docs-collection-browser-groups-count', { count: groups.length })
   }
-  if (groups === 0 && users > 0) {
-    return t('docs-collection-browser-members-count', { count: users })
+  if (groups.length === 0 && users.length > 0) {
+    return t('docs-collection-browser-members-count', { count: users.length })
   }
-  return t('docs-collection-browser-audience-mixed', { groups, users })
+  return t('docs-collection-browser-audience-mixed', { groups: groups.length, users: users.length })
 }
-
-// Pool ids a fetch has already covered. A row REST still leaves out (its
-// grant has not reached this reader yet) then does not refetch on every tick.
-const requested = new Set<number>()
-let loadSeq = 0
-
-const loadCollections = async () => {
-  const seq = ++loadSeq
-  for (const row of docs.allCollections) requested.add(row.id)
-  loading.value = true
-  try {
-    const rows = await getCollections()
-    if (seq === loadSeq) details.value = new Map(rows.map((c) => [c.id, c]))
-  } finally {
-    if (seq === loadSeq) loading.value = false
-  }
-}
-
-// A collection that reaches the pool without REST details (created
-// elsewhere, or newly shared with this reader) fetches them once.
-const missingDetails = computed(() =>
-  docs.allCollections
-    .filter((row) => !details.value.has(row.id) && !requested.has(row.id))
-    .map((row) => row.id)
-    .join(','),
-)
-watch(missingDetails, (ids) => {
-  if (ids) void loadCollections()
-})
-
-defineExpose({ reload: loadCollections })
 
 const onDragStart = (index: number, event: DragEvent) => {
   dragIndex.value = index
@@ -201,14 +142,16 @@ const onDrop = async (targetIndex: number) => {
 
   const items = [...collections.value]
   const [moved] = items.splice(dragIndex.value, 1)
-  items.splice(targetIndex, 0, moved)
+  items.splice(targetIndex, 0, moved!)
 
   dragIndex.value = null
   dropIndex.value = null
 
   // Reorder in the pool now; the server's sync echo confirms it.
   const previous = items.map((c) => [c.id, c.display_order] as const)
-  items.forEach((c, i) => pool.patch<DocCollectionRow>('documentation_collection', c.id, { display_order: i }))
+  items.forEach((c, i) =>
+    pool.patch<DocCollectionRow>('documentation_collection', c.id, { display_order: i }),
+  )
 
   const orders = items.map((c, i) => ({ collection_id: c.id, display_order: i }))
   if (!(await reorderCollections(orders))) {
@@ -223,7 +166,6 @@ const onDragEnd = () => {
   dropIndex.value = null
 }
 
-onMounted(loadCollections)
 </script>
 
 <template>
@@ -246,26 +188,7 @@ onMounted(loadCollections)
       </button>
     </header>
 
-    <Skeleton
-      v-if="showSkeleton"
-      :label="$t('docs-collection-browser-loading-label')"
-      class="flex flex-col"
-    >
-      <div
-        v-for="i in skeletonCount"
-        :key="i"
-        class="flex items-start gap-3.5 px-4 py-3.5 border-b border-subtle last:border-b-0"
-      >
-        <SkeletonBar class="w-8 h-8 rounded-lg shrink-0" />
-        <div class="flex-1 flex flex-col gap-2 min-w-0">
-          <SkeletonBar class="h-3.5 w-2/5" />
-          <SkeletonBar class="h-3 w-4/5" />
-        </div>
-        <SkeletonBar class="h-3 w-16 shrink-0" />
-      </div>
-    </Skeleton>
-
-    <ul v-else-if="collections.length > 0" class="flex flex-col">
+    <ul v-if="collections.length > 0" class="flex flex-col">
       <li
         v-for="(collection, index) in collections"
         :key="collection.id"
@@ -293,7 +216,7 @@ onMounted(loadCollections)
               {{ collection.name }}
             </RouterLink>
             <span
-              v-if="!collection.is_public"
+              v-if="collection.restricted"
               class="shrink-0 inline-flex items-center gap-1 self-center text-2xs text-tertiary border border-subtle rounded-md px-1.5 py-px bg-surface-alt"
             >
               <Icon name="lock" size="xs" class="text-status-warning/80" aria-hidden="true" />
@@ -340,7 +263,7 @@ onMounted(loadCollections)
 
         <div class="flex flex-col items-end gap-1 shrink-0 text-2xs text-tertiary whitespace-nowrap">
           <span class="font-medium text-secondary tabular-nums">
-            {{ $t('docs-collection-browser-pages', { count: collection.page_count }) }}
+            {{ $t('docs-collection-browser-pages', { count: pageCount(collection) }) }}
           </span>
           <span v-if="derived(collection).updatedAt" class="hidden @xl:inline">
             {{ $t('docs-index-library-updated', { time: formatRelativeTime(derived(collection).updatedAt!, { addSuffix: true }) }) }}
