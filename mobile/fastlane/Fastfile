@@ -25,9 +25,10 @@ def tauri(*args)
   sh("pnpm", "tauri", *args)
 end
 
-# The marketing version, from the one place Tauri reads it.
+# The marketing version, from the one place Tauri reads it. Lane code runs
+# inside fastlane/, so the path is taken from fastlane's own folder.
 def app_version
-  JSON.parse(File.read("src-tauri/tauri.conf.json")).fetch("version")
+  JSON.parse(File.read(File.join(FastlaneCore::FastlaneFolder.path, "..", "src-tauri", "tauri.conf.json"))).fetch("version")
 end
 
 # Listing text and screenshots are generated in nosdesk-com

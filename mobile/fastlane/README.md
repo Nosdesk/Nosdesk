@@ -1,106 +1,77 @@
-# Mobile release pipeline
+fastlane documentation
+----
 
-Tauri builds the app; Fastlane signs and uploads it. Lanes run from `mobile/`.
-CI is `.github/workflows/mobile-release.yml` (manual dispatch: pick `both`,
-`ios`, or `android`). The app picks its server at runtime, so one build serves
-staging and production.
+# Installation
 
-- **iOS** -> TestFlight (`fastlane ios beta`), signed with a distribution cert
-  + App Store profile imported from CI secrets (no `match`).
-- **Android** -> Play internal track (`fastlane android beta`), signed with an
-  upload keystore. `fastlane android promote` moves internal -> production.
-
-Build numbers come from `github.run_number` (env `BUILD_NUMBER` /
-`NOSDESK_VERSION_CODE`) so re-uploads never collide.
-
-## Store listing and submission
-
-Run these locally from `mobile/`. Listing text and screenshots are generated in
-nosdesk-com (`apps/marketing/video/store`) and read from its `out/fastlane`
-folder, so the images stay out of this repo:
+Make sure you have the latest version of the Xcode command line tools installed:
 
 ```sh
-export STORE_ASSETS_DIR=~/dev/nosdesk-com/apps/marketing/video/store/out/fastlane
-bundle exec fastlane ios metadata       # App Store listing, no submission
-bundle exec fastlane android metadata   # Play listing, no release
-BUILD_NUMBER=<testflight build> bundle exec fastlane ios release
-bundle exec fastlane android promote    # internal -> production
+xcode-select --install
 ```
 
-`ios release` submits that TestFlight build for review and releases it on
-approval. It needs `REVIEW_FIRST_NAME`, `REVIEW_LAST_NAME`, `REVIEW_PHONE`,
-`REVIEW_EMAIL`, `REVIEW_DEMO_USER` and `REVIEW_DEMO_PASSWORD` (optional
-`REVIEW_NOTES`). App Privacy, age rating, Play data safety and content rating
-are set once by hand in each console.
+For _fastlane_ installation instructions, see [Installing _fastlane_](https://docs.fastlane.tools/#installing-fastlane)
 
-## One-time account setup (no pipeline removes this)
+# Available Actions
 
-1. **Apple Developer Program** membership; in **App Store Connect** create the
-   app record for bundle id `com.nosdesk.app`. `ITSAppUsesNonExemptEncryption`
-   is already set to `false` in `app_iOS/Info.plist`, so TestFlight won't ask
-   the export-compliance question.
-2. **Google Play Console** ($25 once); create the app for `com.nosdesk.app`,
-   enroll in **Play App Signing** with a dedicated *upload* key, and upload the
-   first AAB by hand (the API can't create the app). After that `supply` works.
-3. **iOS signing, generated once via the API key** (no git repo). With a working
-   Ruby + `bundle install` under `mobile/`:
-   ```sh
-   bundle exec fastlane cert --api_key_path <asc_key.json> --output_path ~/dev/nosdesk-signing --development false
-   bundle exec fastlane sigh --api_key_path <asc_key.json> --app_identifier com.nosdesk.app \
-     --provisioning_name "Nosdesk App Store" --cert_id <ID> --output_path ~/dev/nosdesk-signing
-   ```
-   Re-export the `.p12` with a password (`security export`), then base64 the
-   `.p12` + `.mobileprovision` into the secrets below. The cert/profile/`.p8`
-   live in `~/dev/nosdesk-signing` (back up).
-4. **Play service account:** in Google Cloud, a service account with the Play
-   Developer API enabled, granted release permissions in the Play Console.
-   Download its JSON key.
+## iOS
 
-## GitHub secrets
-
-iOS:
-- `APPLE_TEAM_ID`
-- `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_CONTENT` (base64 of the App Store
-  Connect API `.p8`)
-- `IOS_DIST_CERT_P12_BASE64` (base64 of the distribution `.p12`),
-  `IOS_DIST_CERT_PASSWORD`, `IOS_PROFILE_BASE64` (base64 of the App Store
-  `.mobileprovision`)
-
-Android:
-- `ANDROID_KEYSTORE_BASE64` (base64 of the upload `.jks`),
-  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
-- `GOOGLE_SERVICES_JSON_BASE64` (base64 of `app/google-services.json`, which is
-  gitignored)
-- `PLAY_JSON_KEY_BASE64` (base64 of the Play service-account JSON)
-
-## Local release-signing test (no store credentials needed)
-
-The Android build+sign leg is fully testable offline. Generate a throwaway
-keystore, point `keystore.properties` at it, and build:
+### ios beta
 
 ```sh
-cd mobile/src-tauri/gen/android/app
-keytool -genkeypair -v -keystore upload-keystore.jks -alias upload \
-  -keyalg RSA -keysize 2048 -validity 3650 \
-  -storepass test1234 -keypass test1234 -dname "CN=Nosdesk Test"
-printf 'storeFile=upload-keystore.jks\nstorePassword=test1234\nkeyAlias=upload\nkeyPassword=test1234\n' > keystore.properties
-cd ../../../../..            # back to mobile/
-pnpm tauri android build --apk --target aarch64
-apksigner verify --print-certs \
-  src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.aab 2>/dev/null || \
-  "$ANDROID_HOME/build-tools/"*/apksigner verify src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+[bundle exec] fastlane ios beta
 ```
 
-Delete `upload-keystore.jks` and `keystore.properties` afterwards (both are
-gitignored).
+Build and upload an iOS build to TestFlight
 
-## What can't be verified without credentials
+### ios metadata
 
-Two legs need real accounts and will likely need one round of iteration:
+```sh
+[bundle exec] fastlane ios metadata
+```
 
-- the **iOS signing -> Tauri xcodebuild handshake** (the CI runner's Xcode
-  version and the export step picking up the imported cert/profile), and
-- the **TestFlight / Play uploads** themselves.
+Upload the App Store listing (text, categories, screenshots) without submitting
 
-Everything else (frontend + Rust + native build, the Android signingConfig, the
-Fastfile) is exercised by the local test above and the workflow's build steps.
+### ios release
+
+```sh
+[bundle exec] fastlane ios release
+```
+
+Submit TestFlight build BUILD_NUMBER for App Store review, with the listing
+
+----
+
+
+## Android
+
+### android beta
+
+```sh
+[bundle exec] fastlane android beta
+```
+
+Build and upload an Android build to the Play internal track
+
+### android metadata
+
+```sh
+[bundle exec] fastlane android metadata
+```
+
+Upload the Play listing (text, icon, feature graphic, screenshots) without a release
+
+### android promote
+
+```sh
+[bundle exec] fastlane android promote
+```
+
+Promote the Play internal track to production
+
+----
+
+This README.md is auto-generated and will be re-generated every time [_fastlane_](https://fastlane.tools) is run.
+
+More information about _fastlane_ can be found on [fastlane.tools](https://fastlane.tools).
+
+The documentation of _fastlane_ can be found on [docs.fastlane.tools](https://docs.fastlane.tools).
