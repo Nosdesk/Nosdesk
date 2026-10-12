@@ -65,6 +65,7 @@ def deliver_listing(**options)
     skip_binary_upload: true,
     primary_category: "BUSINESS",
     secondary_category: "PRODUCTIVITY",
+    copyright: "#{Time.now.year} Nosdesk Pty Ltd",
     precheck_include_in_app_purchases: false,
     force: true, # no HTML preview prompt
     # The reviewer's contact and demo account. Sent on every upload: deliver
