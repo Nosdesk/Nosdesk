@@ -27,11 +27,11 @@ BUILD_NUMBER=<testflight build> bundle exec fastlane ios release
 bundle exec fastlane android promote    # internal -> production
 ```
 
-`ios release` submits that TestFlight build for review and releases it on
-approval. It needs `REVIEW_FIRST_NAME`, `REVIEW_LAST_NAME`, `REVIEW_PHONE`,
+Both iOS lanes need `REVIEW_FIRST_NAME`, `REVIEW_LAST_NAME`, `REVIEW_PHONE`,
 `REVIEW_EMAIL`, `REVIEW_DEMO_USER` and `REVIEW_DEMO_PASSWORD` (optional
-`REVIEW_NOTES`). App Privacy, age rating, Play data safety and content rating
-are set once by hand in each console.
+`REVIEW_NOTES`). `ios release` submits that TestFlight build for review and
+releases it on approval. App Privacy, age rating, Play data safety and content
+rating are set once by hand in each console.
 
 ## One-time account setup (no pipeline removes this)
 

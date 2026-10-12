@@ -8,6 +8,9 @@
 # The app selects its server at runtime, so one build serves any environment.
 # All paths are relative to `mobile/` (where fastlane runs).
 
+# fastlane/README.md is hand-written; don't let fastlane regenerate it.
+skip_docs
+
 APP_ID          = ENV.fetch("APP_IDENTIFIER", "com.nosdesk.app")
 APPLE_PROJECT   = "src-tauri/gen/apple/#{ENV.fetch('APPLE_PROJECT_NAME', 'Nosdesk')}.xcodeproj"
 APPLE_INFO_PLIST = "src-tauri/gen/apple/app_iOS/Info.plist"
@@ -25,9 +28,10 @@ def tauri(*args)
   sh("pnpm", "tauri", *args)
 end
 
-# The marketing version, from the one place Tauri reads it.
+# The marketing version, from the one place Tauri reads it. Lane code runs
+# inside fastlane/, so the path is taken from fastlane's own folder.
 def app_version
-  JSON.parse(File.read("src-tauri/tauri.conf.json")).fetch("version")
+  JSON.parse(File.read(File.join(FastlaneCore::FastlaneFolder.path, "..", "src-tauri", "tauri.conf.json"))).fetch("version")
 end
 
 # Listing text and screenshots are generated in nosdesk-com
@@ -61,8 +65,21 @@ def deliver_listing(**options)
     skip_binary_upload: true,
     primary_category: "BUSINESS",
     secondary_category: "PRODUCTIVITY",
+    copyright: "#{Time.now.year} Nosdesk Pty Ltd",
     precheck_include_in_app_purchases: false,
     force: true, # no HTML preview prompt
+    # The reviewer's contact and demo account. Sent on every upload: deliver
+    # reads the version's review detail unconditionally, and only this
+    # creates it on a first submission.
+    app_review_information: {
+      first_name: ENV.fetch("REVIEW_FIRST_NAME"),
+      last_name: ENV.fetch("REVIEW_LAST_NAME"),
+      phone_number: ENV.fetch("REVIEW_PHONE"),
+      email_address: ENV.fetch("REVIEW_EMAIL"),
+      demo_user: ENV.fetch("REVIEW_DEMO_USER"),
+      demo_password: ENV.fetch("REVIEW_DEMO_PASSWORD"),
+      notes: ENV.fetch("REVIEW_NOTES", "On the first screen tap Nosdesk Cloud, then sign in with the demo account. It opens a workspace with sample tickets, requesters and devices."),
+    },
     **options,
   )
 end
@@ -108,16 +125,6 @@ platform :ios do
       submit_for_review: true,
       automatic_release: true,
       submission_information: { export_compliance_uses_encryption: false, content_rights_contains_third_party_content: false },
-      # The reviewer's contact and demo account come from the environment.
-      app_review_information: {
-        first_name: ENV.fetch("REVIEW_FIRST_NAME"),
-        last_name: ENV.fetch("REVIEW_LAST_NAME"),
-        phone_number: ENV.fetch("REVIEW_PHONE"),
-        email_address: ENV.fetch("REVIEW_EMAIL"),
-        demo_user: ENV.fetch("REVIEW_DEMO_USER"),
-        demo_password: ENV.fetch("REVIEW_DEMO_PASSWORD"),
-        notes: ENV.fetch("REVIEW_NOTES", "On the first screen tap Nosdesk Cloud, then sign in with the demo account. It opens a workspace with sample tickets, documents and devices."),
-      },
     )
   end
 end
