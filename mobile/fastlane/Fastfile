@@ -8,6 +8,9 @@
 # The app selects its server at runtime, so one build serves any environment.
 # All paths are relative to `mobile/` (where fastlane runs).
 
+# fastlane/README.md is hand-written; don't let fastlane regenerate it.
+skip_docs
+
 APP_ID          = ENV.fetch("APP_IDENTIFIER", "com.nosdesk.app")
 APPLE_PROJECT   = "src-tauri/gen/apple/#{ENV.fetch('APPLE_PROJECT_NAME', 'Nosdesk')}.xcodeproj"
 APPLE_INFO_PLIST = "src-tauri/gen/apple/app_iOS/Info.plist"
