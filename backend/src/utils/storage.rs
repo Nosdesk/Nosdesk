@@ -25,7 +25,9 @@ pub enum StorageConfig {
     S3 {
         bucket: String,
         region: String,
-        endpoint: String,
+        /// A custom S3-compatible endpoint (Tigris, MinIO, R2). `None` is
+        /// AWS S3, resolved from the region.
+        endpoint: Option<String>,
         access_key_id: String,
         secret_access_key: String,
         /// Tigris serves both virtual-hosted and path-style; default
@@ -312,7 +314,7 @@ impl S3Storage {
     pub fn new(
         bucket: String,
         region: String,
-        endpoint: String,
+        endpoint: Option<String>,
         access_key_id: String,
         secret_access_key: String,
         force_path_style: bool,
@@ -326,13 +328,15 @@ impl S3Storage {
             None,
             "nosdesk-storage",
         );
-        let conf = aws_sdk_s3::Config::builder()
+        let mut conf = aws_sdk_s3::Config::builder()
             .behavior_version(BehaviorVersion::latest())
             .region(Region::new(region))
-            .endpoint_url(endpoint)
             .credentials_provider(creds)
-            .force_path_style(force_path_style)
-            .build();
+            .force_path_style(force_path_style);
+        if let Some(endpoint) = endpoint {
+            conf = conf.endpoint_url(endpoint);
+        }
+        let conf = conf.build();
         Self {
             client: aws_sdk_s3::Client::from_conf(conf),
             bucket,
@@ -722,7 +726,9 @@ pub fn process_storage() -> Arc<dyn Storage> {
 /// fly.io `fly storage create` (Tigris) sets, `BUCKET_NAME`,
 /// `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`,
 /// `AWS_REGION`, with `STORAGE_S3_*` overrides for other S3-compatible
-/// stores. A misconfigured `STORAGE_TYPE` (or `s3` missing required env)
+/// stores. With no endpoint it is AWS S3 in `AWS_REGION`, which is then
+/// required; it used to default to Tigris, which sent AWS credentials to the
+/// wrong service and failed every upload. A misconfigured `STORAGE_TYPE` (or `s3` missing required env)
 /// fails loudly at startup rather than silently swallowing uploads later.
 pub fn get_storage_config() -> StorageConfig {
     match std::env::var("STORAGE_TYPE").as_deref() {
@@ -740,16 +746,25 @@ pub fn get_storage_config() -> StorageConfig {
                         panic!("STORAGE_TYPE=s3 requires {primary} (or {fallback}) to be set")
                     })
             }
+            let endpoint = std::env::var("AWS_ENDPOINT_URL_S3")
+                .or_else(|_| std::env::var("STORAGE_S3_ENDPOINT"))
+                .ok()
+                .filter(|e| !e.trim().is_empty());
             StorageConfig::S3 {
                 bucket: require("BUCKET_NAME", "STORAGE_S3_BUCKET"),
                 access_key_id: require("AWS_ACCESS_KEY_ID", "STORAGE_S3_ACCESS_KEY_ID"),
                 secret_access_key: require("AWS_SECRET_ACCESS_KEY", "STORAGE_S3_SECRET_ACCESS_KEY"),
-                endpoint: std::env::var("AWS_ENDPOINT_URL_S3")
-                    .or_else(|_| std::env::var("STORAGE_S3_ENDPOINT"))
-                    .unwrap_or_else(|_| "https://fly.storage.tigris.dev".to_string()),
+                endpoint: endpoint.clone(),
                 region: std::env::var("AWS_REGION")
                     .or_else(|_| std::env::var("STORAGE_S3_REGION"))
-                    .unwrap_or_else(|_| "auto".to_string()),
+                    .unwrap_or_else(|_| {
+                        if endpoint.is_some() {
+                            // S3-compatible stores (Tigris) accept any region.
+                            "auto".to_string()
+                        } else {
+                            panic!("STORAGE_TYPE=s3 without AWS_ENDPOINT_URL_S3 is AWS S3 and requires AWS_REGION (or STORAGE_S3_REGION)")
+                        }
+                    }),
                 force_path_style: matches!(
                     std::env::var("STORAGE_S3_FORCE_PATH_STYLE").as_deref(),
                     Ok("1" | "true" | "yes")
@@ -1432,7 +1447,7 @@ mod tests {
         let s3 = S3Storage::new(
             "bucket".into(),
             "auto".into(),
-            "https://fly.storage.tigris.dev".into(),
+            Some("https://fly.storage.tigris.dev".into()),
             "ak".into(),
             "sk".into(),
             false,
