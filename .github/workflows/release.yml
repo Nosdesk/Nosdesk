@@ -38,8 +38,33 @@ permissions:
   contents: read
 
 jobs:
+  version:
+    name: Tag matches the backend version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Backups, workspace exports, /api/config and the plugin version check
+      # carry backend/Cargo.toml's version, so a tag cut without the release
+      # PR's bump would ship the previous number. A prerelease (v1.1.0-rc.6)
+      # matches its release (1.1.0).
+      - name: Compare the tag with backend/Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          crate=$(sed -n 's/^version = "\(.*\)"$/\1/p' backend/Cargo.toml | head -1)
+          tag=${TAG#v}
+          if [ "${tag%%-*}" != "$crate" ]; then
+            echo "::error::Tag $TAG is not backend/Cargo.toml's version ($crate). Bump it in the release PR first."
+            exit 1
+          fi
+          echo "Tag $TAG matches backend version $crate."
+
   codeql-gate:
     name: CodeQL gate
+    needs: version
     runs-on: ubuntu-latest
     # The tag's Rust analysis alone takes well over an hour.
     timeout-minutes: 180
