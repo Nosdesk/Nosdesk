@@ -12,11 +12,27 @@ import { isTauriRuntime } from './index'
 /** True when the connect screen must show first (Tauri + no server stored). */
 export const needsServerSelection = ref(false)
 
+/** Why the connect screen came back: the stored server no longer works with this app. */
+export const serverGateError = ref('')
+
 /** Decide on boot whether the connect screen is needed. */
 export async function initServerGate(): Promise<void> {
   if (!isTauriRuntime()) return
   const { getStoredServer } = await import('@nosdesk/mobile')
-  needsServerSelection.value = getStoredServer() === null
+  const stored = getStoredServer()
+  needsServerSelection.value = stored === null
+  // An app or server update can end their compatibility after the server was
+  // chosen. Checked in the background so launch never waits on the network;
+  // a server that can't be reached leaves the app as it is.
+  if (stored) void recheckServer(stored)
+}
+
+async function recheckServer(origin: string): Promise<void> {
+  const { checkCompatibility } = await import('@nosdesk/mobile')
+  const result = await checkCompatibility(origin)
+  if (result.status !== 'incompatible') return
+  serverGateError.value = result.message
+  needsServerSelection.value = true
 }
 
 /** Connect to the official cloud and dismiss the gate. */
