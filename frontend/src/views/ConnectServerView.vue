@@ -4,15 +4,16 @@ First-run "choose your Nosdesk server" screen for the native (Tauri) app.
 Nosdesk is self-hostable, so the app isn't pinned to the cloud: the user either
 taps "Nosdesk Cloud" or enters their own instance's URL. The choice is validated
 (HTTPS + confirmed to be a Nosdesk server) and persisted; the app then proceeds
-to the normal login. Shown only in Tauri when no server is stored yet (see
-platform/serverGate). On the web this never renders.
+to the normal login. Shown only in Tauri when no server is stored yet, or when
+the stored one no longer works with this app (see platform/serverGate). On the
+web this never renders.
 -->
 <script setup lang="ts">
 import { ref } from 'vue';
 import AuthLayout from '@/components/auth/AuthLayout.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
-import { selectCloud, connectTo } from '@/platform/serverGate';
+import { selectCloud, connectTo, serverGateError } from '@/platform/serverGate';
 
 /**
  * Where someone without an account goes. Points at the marketing site rather
@@ -28,7 +29,7 @@ async function openSignUp() {
 
 const mode = ref<'choose' | 'self-hosted'>('choose');
 const serverUrl = ref('');
-const error = ref('');
+const error = ref(serverGateError.value);
 const busy = ref(false);
 
 async function chooseCloud() {

@@ -17,8 +17,10 @@ export {
   getStoredServer,
   clearStoredServer,
   validateServer,
+  checkCompatibility,
   DEFAULT_SERVER,
   type ServerValidation,
+  type Compatibility,
 } from './serverConfig'
 export { memorySecureStore, tauriSecureStore, type SecureStore } from './secureStore'
 export type { MobileLoggerOptions } from './loggerSetup'
