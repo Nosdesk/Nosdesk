@@ -17,8 +17,7 @@
 //!
 //! A genuinely append-only table (INSERT but never UPDATE/DELETE by the
 //! app role) goes in `APPEND_ONLY_ALLOWLIST` WITH a one-line reason. The
-//! list is empty today: no such table exists, every insertable table has
-//! full DML.
+//! list names each such table.
 
 #![allow(clippy::expect_used)]
 
@@ -35,6 +34,9 @@ const APPEND_ONLY_ALLOWLIST: &[&str] = &[
     // the inbound webhook and read / retention-deleted by the operator, never
     // updated. No UPDATE grant by design.
     "inbound_dead_letters",
+    // Disposal compliance record: written once with the disposed transition,
+    // never edited. Asset, workspace and actor FK actions run as the owner.
+    "asset_disposals",
 ];
 
 #[derive(QueryableByName, Debug)]
