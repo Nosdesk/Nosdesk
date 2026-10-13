@@ -3301,6 +3301,9 @@ pub struct BulkUserActionRequest {
     action: String,
     ids: Vec<String>, // UUIDs as strings
     value: Option<String>,
+    /// Step-up credential (`password` or `mfa_code`), checked for `delete`.
+    #[serde(flatten)]
+    credential: crate::models::StepUpCredential,
 }
 
 /// Perform bulk operations on users (admin only)
@@ -3351,6 +3354,21 @@ pub async fn bulk_users(
 
     match action {
         "delete" => {
+            // Same step-up as `DELETE /users/{uuid}`: the caller's own
+            // password or 2FA code, checked once for the batch.
+            let caller_uuid = utils::parse_uuid(&claims.sub)
+                .map_err(|_| ApiError::BadRequest("Invalid user UUID in token".into()))?;
+            let caller = repository::get_user_by_uuid(&caller_uuid, &mut conn)
+                .map_err(|_| ApiError::Unauthorized("Authentication required".into()))?;
+            crate::handlers::auth::verify_step_up(
+                &mut conn,
+                &claims,
+                &caller,
+                &body.credential,
+                "Confirm with your password or 2FA code to delete these users",
+            )
+            .await?;
+
             // Bulk soft-delete shares the same primitive as the
             // single-delete handler so the two flows can't drift.
             let actor = helpers::actor_for(&req, "users_admin");
