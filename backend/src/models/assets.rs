@@ -128,6 +128,11 @@ impl AssetStatus {
     }
 }
 
+/// Sanitization categories a disposal record may carry: the NIST SP 800-88
+/// clear / purge / destroy levels, plus `none` for assets with no data to
+/// sanitize. Stored in `asset_disposals.sanitization_method`.
+pub const SANITIZATION_METHODS: &[&str] = &["clear", "purge", "destroy", "none"];
+
 /// Default kind for callers that omit `kind` from the JSON
 /// payload. Mirrors the DB-level default on `assets.kind`
 /// (`'generic'` as of 2026-05-20-130000) so a workspace-neutral

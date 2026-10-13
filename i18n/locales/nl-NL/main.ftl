@@ -4799,7 +4799,8 @@ asset-lifecycle-heading = Levenscyclus
 asset-lifecycle-description = Volg operationele statuswijzigingen zoals reparaties, uitleningen en buiten gebruikstelling.
 asset-lifecycle-current-label = Huidige status
 asset-lifecycle-change-status = Status wijzigen
-asset-lifecycle-correct-status = Status corrigeren
+# MT: pending native review
+asset-lifecycle-disposed-final = Afvoer is definitief
 # MT: pending native review
 asset-lifecycle-managed-by-loan = Beheerd door de actieve uitlening
 # MT: pending native review
