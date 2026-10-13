@@ -13,6 +13,7 @@
     "location": { "rust": "Option<String>", "ts": "string | null" },
     "status": { "rust": "String", "ts": "string" },
     "primary_user_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "managed_by_user_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
     "attributes": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },
     "quantity": { "rust": "Option<BigDecimal>", "ts": "string | null" },
     "unit": { "rust": "Option<String>", "ts": "string | null" },
@@ -23,8 +24,7 @@
     { "type": "asset.created", "op": "I" },
     { "type": "asset.updated", "op": "U" },
     { "type": "asset.deleted", "op": "D" },
-    { "type": "asset.linked", "op": "U" },
-    { "type": "asset.unlinked", "op": "U" }
+    { "type": "asset.groups_changed", "op": "U" }
   ],
   "groups": [
     "workspace:1"

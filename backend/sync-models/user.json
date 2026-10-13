@@ -18,7 +18,9 @@
   "events": [
     { "type": "user.created", "op": "I" },
     { "type": "user.updated", "op": "U" },
-    { "type": "user.deleted", "op": "D" }
+    { "type": "user.deleted", "op": "D" },
+    { "type": "user.soft_deleted", "op": "U" },
+    { "type": "user.restored", "op": "U" }
   ],
   "groups": [
     "workspace:1"
