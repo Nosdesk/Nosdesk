@@ -408,6 +408,11 @@ fn normalize_serial(serial: Option<String>) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// A whitespace-only value is no value: `None`, so the column is cleared.
+fn blank_is_null(value: Option<String>) -> Option<String> {
+    value.filter(|v| !v.trim().is_empty())
+}
+
 pub fn create_device(conn: &mut DbConnection, mut new_device: NewAsset) -> QueryResult<Asset> {
     new_device.serial_number = normalize_serial(new_device.serial_number);
     // Wrap the INSERT + sync emit in a single transaction so a
@@ -429,11 +434,13 @@ pub fn update_device(
     device_update: AssetUpdate,
 ) -> QueryResult<Asset> {
     let mut update = device_update;
-    // Same canonicalisation as create: a blank serial means "no serial". With
-    // AsChangeset's `Option<String>`, `None` leaves the column unchanged, so a
-    // cleared serial collapses to "leave as-is" rather than writing `""` (which
-    // would risk a unique-index collision). See issue #24.
-    update.serial_number = normalize_serial(update.serial_number);
+    // Same canonicalisation as create: a blank serial means "no serial", so it
+    // clears the column (NULL, never `""`, which would collide on the unique
+    // index; see issue #24). Blank location, notes and asset tag clear too.
+    update.serial_number = update.serial_number.map(normalize_serial);
+    update.location = update.location.map(blank_is_null);
+    update.notes = update.notes.map(blank_is_null);
+    update.asset_tag = update.asset_tag.map(blank_is_null);
     update.updated_at = Some(Utc::now().naive_utc());
 
     // emit::record fires inside emit_asset_event.
@@ -610,7 +617,7 @@ pub fn get_devices_by_microsoft_ids_full(
 mod tests {
     use super::*;
     use crate::models::NewAsset;
-    use crate::test_helpers::setup_test_connection;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     fn minimal_device(name: &str) -> NewAsset {
         NewAsset {
@@ -741,6 +748,92 @@ mod tests {
 
         let updated = update_device(&mut conn, dev.id, upd).unwrap();
         assert_eq!(updated.name, "NewName");
+    }
+
+    /// Parse a PUT body the way the handler does.
+    fn body(json: serde_json::Value) -> AssetUpdate {
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn update_leaves_absent_fields_and_clears_null_ones() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Holder", "user");
+        let dev = create_device(&mut conn, minimal_device("Clearable")).unwrap();
+        let set = body(serde_json::json!({
+            "serial_number": "SN-CLEAR-1",
+            "location": "Level 3",
+            "notes": "Spare charger in drawer",
+            "primary_user_uuid": user.uuid,
+            "managed_by_user_uuid": user.uuid,
+            "purchase_date": "2026-01-15",
+            "asset_tag": "TAG-1",
+        }));
+        update_device(&mut conn, dev.id, set).unwrap();
+
+        // Absent keys leave every column alone.
+        let kept = update_device(
+            &mut conn,
+            dev.id,
+            body(serde_json::json!({ "name": "Renamed" })),
+        )
+        .unwrap();
+        assert_eq!(kept.name, "Renamed");
+        assert_eq!(kept.serial_number.as_deref(), Some("SN-CLEAR-1"));
+        assert_eq!(kept.location.as_deref(), Some("Level 3"));
+        assert_eq!(kept.notes.as_deref(), Some("Spare charger in drawer"));
+        assert_eq!(kept.primary_user_uuid, Some(user.uuid));
+        assert_eq!(kept.managed_by_user_uuid, Some(user.uuid));
+        assert!(kept.purchase_date.is_some());
+        assert_eq!(kept.asset_tag.as_deref(), Some("TAG-1"));
+
+        // Explicit nulls clear them.
+        let cleared = update_device(
+            &mut conn,
+            dev.id,
+            body(serde_json::json!({
+                "serial_number": null,
+                "location": null,
+                "notes": null,
+                "primary_user_uuid": null,
+                "managed_by_user_uuid": null,
+                "purchase_date": null,
+                "asset_tag": null,
+            })),
+        )
+        .unwrap();
+        assert_eq!(cleared.name, "Renamed");
+        assert!(cleared.serial_number.is_none());
+        assert!(cleared.location.is_none());
+        assert!(cleared.notes.is_none());
+        assert!(cleared.primary_user_uuid.is_none());
+        assert!(cleared.managed_by_user_uuid.is_none());
+        assert!(cleared.purchase_date.is_none());
+        assert!(cleared.asset_tag.is_none());
+    }
+
+    #[test]
+    fn blank_text_clears_to_null() {
+        let mut conn = setup_test_connection();
+        let dev = create_device(&mut conn, minimal_device("Blanked")).unwrap();
+        update_device(
+            &mut conn,
+            dev.id,
+            body(serde_json::json!({ "serial_number": "SN-BLANK-1", "location": "Desk", "asset_tag": "T-2" })),
+        )
+        .unwrap();
+        let blanked = update_device(
+            &mut conn,
+            dev.id,
+            body(serde_json::json!({ "serial_number": "  ", "location": "", "asset_tag": " " })),
+        )
+        .unwrap();
+        assert!(
+            blanked.serial_number.is_none(),
+            "blank serial is NULL, never ''"
+        );
+        assert!(blanked.location.is_none());
+        assert!(blanked.asset_tag.is_none());
     }
 
     #[test]

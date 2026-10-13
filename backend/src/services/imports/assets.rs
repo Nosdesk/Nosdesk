@@ -325,17 +325,18 @@ fn build_new_asset(row: &HashMap<String, String>) -> NewAsset {
 }
 
 fn build_asset_update(row: &HashMap<String, String>) -> AssetUpdate {
+    // A blank cell leaves the column as it is (outer `None`); it never clears.
     AssetUpdate {
         name: Some(trimmed(row, "name")),
-        serial_number: opt_string(row, "serial_number"),
+        serial_number: opt_string(row, "serial_number").map(Some),
         manufacturer: opt_string(row, "manufacturer"),
         model: opt_string(row, "model"),
-        location: opt_string(row, "location"),
-        notes: opt_string(row, "notes"),
+        location: opt_string(row, "location").map(Some),
+        notes: opt_string(row, "notes").map(Some),
         primary_user_uuid: None,
         managed_by_user_uuid: None,
         purchase_date: None,
-        asset_tag: opt_string(row, "asset_tag"),
+        asset_tag: opt_string(row, "asset_tag").map(Some),
         updated_at: Some(chrono::Utc::now().naive_utc()),
         kind: Some(trimmed(row, "kind")),
         attributes: None,
