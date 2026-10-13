@@ -11,6 +11,10 @@
 # fastlane/README.md is hand-written; don't let fastlane regenerate it.
 skip_docs
 
+# An outdated fastlane prints its whole changelog after every run. Keep the
+# one-line notice (Dependabot keeps the lockfile current); drop the changelog.
+ENV["FASTLANE_HIDE_CHANGELOG"] ||= "1"
+
 APP_ID          = ENV.fetch("APP_IDENTIFIER", "com.nosdesk.app")
 APPLE_PROJECT   = "src-tauri/gen/apple/#{ENV.fetch('APPLE_PROJECT_NAME', 'Nosdesk')}.xcodeproj"
 APPLE_INFO_PLIST = "src-tauri/gen/apple/app_iOS/Info.plist"
