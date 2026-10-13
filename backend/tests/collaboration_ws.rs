@@ -1740,3 +1740,186 @@ async fn a_failed_membership_lookup_closes_the_session_to_retry() {
         "closed with a code the client retries"
     );
 }
+
+/// The text a stored Yjs document holds in its `content` root, or `None`
+/// when nothing is stored.
+fn stored_text(document: Option<Vec<u8>>) -> Option<String> {
+    document
+        .filter(|d| !d.is_empty())
+        .map(|d| revision_text(&d))
+}
+
+/// Converting a note to documentation copies what the note holds now, not
+/// its last save. The room saves on a cadence, so a copy of the saved row
+/// missed the last few seconds of typing and the new page came out empty,
+/// after which the client replaced the note with an embed of that page.
+#[actix_web::test]
+async fn converting_a_note_copies_its_live_content() {
+    use backend::models::Claims;
+    use backend::schema::{article_contents, documentation_pages, tickets};
+    use diesel::prelude::*;
+    use yrs::sync::{Message, SyncMessage};
+    use yrs::updates::decoder::Decode;
+    use yrs::updates::encoder::Encode;
+    use yrs::{Doc, ReadTxn, StateVector, Text, Transact};
+
+    install_fast_heartbeat();
+
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+    let user = common::insert_user(&mut pool.get().expect("conn"), "WSConvert");
+    {
+        let mut conn = pool.get().expect("conn");
+        let actor = backend::sync::actor::ActorContext::user(user.uuid, None).with_workspace(1);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |c| {
+                backend::repository::workspaces::add_membership(
+                    c,
+                    1,
+                    user.uuid,
+                    "admin",
+                    backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                )?;
+                Ok(())
+            },
+        )
+        .expect("seed workspace membership");
+    }
+    let token = JwtUtils::create_collab_token(
+        &user.uuid.to_string(),
+        &user.platform_role,
+        Some(test_workspace().workspace_uuid),
+    )
+    .expect("mint collab token");
+    let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
+    let ticket_id: i32 = tickets::table
+        .filter(tickets::uuid.eq(ticket_uuid))
+        .select(tickets::id)
+        .first(&mut pool.get().expect("conn"))
+        .expect("ticket id");
+
+    // One collaboration server shared by the socket and the convert route,
+    // as in production.
+    let (state, _tmp) = build_app_state(&pool);
+    let state = web::Data::new(state);
+    let app_pool = pool.clone();
+    let caller = user.clone();
+    let srv = actix_test::start(move || {
+        let ws = test_workspace();
+        let caller = caller.clone();
+        App::new()
+            .app_data(state.clone())
+            .app_data(web::Data::new(app_pool.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(ws.clone());
+                if req.path().starts_with("/api/") {
+                    let now = chrono::Utc::now().timestamp();
+                    req.extensions_mut().insert(Claims {
+                        sub: caller.uuid.to_string(),
+                        name: caller.name.clone(),
+                        email: "convert@example.com".to_string(),
+                        platform_role: caller.platform_role.clone(),
+                        scope: "full".to_string(),
+                        sid: None,
+                        workspace_uuid: None,
+                        exp: (now + 3600) as usize,
+                        iat: now as usize,
+                    });
+                    let actor = backend::sync::actor::ActorContext::user(caller.uuid, None)
+                        .with_workspace(ws.workspace_id);
+                    req.extensions_mut()
+                        .insert(backend::middleware::RequestContext::new(
+                            uuid::Uuid::now_v7(),
+                            actor,
+                        ));
+                }
+                srv.call(req)
+            })
+            .route("/ws/{doc}", web::get().to(ws_handler))
+            .service(web::scope("/api").configure(backend::handlers::documentation::config))
+    });
+    let doc_id = format!(
+        "ws-{}_ticket-{ticket_uuid}",
+        test_workspace().workspace_uuid
+    );
+    let url = srv.url(&format!("/ws/{doc_id}?token={token}"));
+    let client = awc::Client::new();
+
+    // A watches the note; B types into it.
+    let (_resp_a, mut watcher) = client.ws(&url).connect().await.expect("A handshake");
+    let (_resp_b, mut writer) = client.ws(&url).connect().await.expect("B handshake");
+    let typed = Doc::new();
+    let edit: Bytes = {
+        let text = typed.get_or_insert_text("content");
+        text.insert(&mut typed.transact_mut(), 0, "steps that fixed it");
+        let update = typed
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        Bytes::from(Message::Sync(SyncMessage::Update(update)).encode_v1())
+    };
+    writer
+        .send(ws::Message::Binary(edit.clone()))
+        .await
+        .expect("B send");
+    // The edit reaching A means the server applied it to the room.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match watcher.next().await {
+                Some(Ok(ws::Frame::Binary(b))) if b.as_ref() == edit.as_ref() => break,
+                Some(Ok(_)) => continue,
+                other => panic!("A's stream ended before B's edit arrived: {other:?}"),
+            }
+        }
+    })
+    .await
+    .expect("A never saw B's edit");
+
+    // The room hasn't saved yet (its first save waits five seconds).
+    let saved: Option<Vec<u8>> = article_contents::table
+        .filter(article_contents::ticket_id.eq(ticket_id))
+        .select(article_contents::yjs_document)
+        .first::<Option<Vec<u8>>>(&mut pool.get().expect("conn"))
+        .optional()
+        .expect("saved note lookup")
+        .flatten();
+    assert_eq!(
+        stored_text(saved).as_deref().unwrap_or(""),
+        "",
+        "the note is not saved yet, so only the live room has the text"
+    );
+
+    let mut resp = client
+        .post(srv.url(&format!("/api/tickets/{ticket_id}/documentation/create")))
+        .send_json(&serde_json::json!({ "title": "Converted note", "parent_id": null }))
+        .await
+        .expect("convert request");
+    assert_eq!(resp.status().as_u16(), 201, "a new page is created");
+    let page: serde_json::Value = resp.json().await.expect("page json");
+    let page_id = page["id"].as_i64().expect("page id") as i32;
+
+    let document: Option<Vec<u8>> = documentation_pages::table
+        .find(page_id)
+        .select(documentation_pages::yjs_document)
+        .first(&mut pool.get().expect("conn"))
+        .expect("page row");
+    assert_eq!(
+        stored_text(document).as_deref(),
+        Some("steps that fixed it"),
+        "the page holds the text typed into the note"
+    );
+
+    // The client checks the page's state vector covers its own before it
+    // replaces the note, so the response carries the copy's.
+    let state_vector: Vec<u8> =
+        serde_json::from_value(page["yjs_state_vector"].clone()).expect("state vector bytes");
+    let state_vector = StateVector::decode_v1(&state_vector).expect("decode state vector");
+    let typed_clock = typed.transact().state_vector();
+    assert!(
+        typed_clock
+            .iter()
+            .all(|(client, clock)| state_vector.get(client) >= *clock),
+        "the page's state vector covers everything typed"
+    );
+}

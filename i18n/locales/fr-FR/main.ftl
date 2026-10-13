@@ -6030,6 +6030,8 @@ tickets-collaborative-article-open-doc = Ouvrir le document lié
 tickets-collaborative-article-promote-confirm-title = Promouvoir la note en document ?
 tickets-collaborative-article-promote-confirm-message = Le contenu de la note est déplacé dans un nouveau document, et la note est remplacée par une intégration de celui-ci. Le document s'ouvre en plein écran, et le ticket continue de l'afficher en ligne.
 tickets-collaborative-article-promote-confirm-label = Promouvoir
+# Note conservée (machine, à relire par un locuteur natif).
+tickets-collaborative-article-promote-note-kept = Votre note est restée sur le ticket, car il manquait au document ses dernières modifications.
 tickets-project-info-remove = Retirer du projet
 tickets-project-info-description = Description
 tickets-project-info-project-id = ID projet

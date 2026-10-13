@@ -318,15 +318,15 @@ const handleFlagForDocs = async () => {
 const handleSaveAsDoc = async () => {
     if (!ticket.value || ticketId.value === undefined) return;
     const titleSeed = ticket.value.title?.trim() || `Ticket #${ticket.value.number}`;
-    const created = await documentationService.createPageFromTicket(ticketId.value, {
+    const result = await documentationService.createPageFromTicket(ticketId.value, {
         title: titleSeed,
         icon: '📄',
     });
-    if (!created) return;
+    if (!result) return;
     queryCache.invalidateQueries({
         key: pageTicketLinkKeys.forTicket(ticketId.value),
     });
-    router.push(docUrl({ slug: created.slug, id: created.id as number }));
+    router.push(docUrl({ slug: result.page.slug, id: result.page.id as number }));
 };
 
 // Known-issue notice linked to this ticket: post one, or update/end the live one.

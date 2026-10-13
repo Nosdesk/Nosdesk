@@ -13,7 +13,10 @@ use yrs::{
 
 use crate::db::{DbConnection, Pool};
 use crate::errors;
-use crate::extractors::{AuthContext, TenantConn, TicketAccess};
+use crate::extractors::{AuthContext, TenantConn, TicketAccess, WorkspaceContext};
+use crate::handlers::collaboration::{
+    update_state_vector, DocKind, DocumentType, LiveDocument, YjsAppState,
+};
 use crate::models::{
     DocumentationPage, DocumentationPageResponse, DocumentationPageTicketEmbed,
     DocumentationPageWithChildren, DocumentationStatus, NewDocumentationPage, UserInfoWithAvatar,
@@ -1843,6 +1846,8 @@ pub async fn create_documentation_page_from_ticket(
     path: web::Path<i32>,
     page_data: web::Json<CreateDocPageFromTicket>,
     auth: AuthContext,
+    workspace: WorkspaceContext,
+    collab: web::Data<YjsAppState>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
 
@@ -1854,6 +1859,45 @@ pub async fn create_documentation_page_from_ticket(
     let audience = repository::PageAudience::from_auth(&auth);
     let page_data = page_data.into_inner();
 
+    // Copy the note as its editors see it. While its room is open the stored
+    // row trails the room by up to a save interval, so a copy of the row
+    // misses what was just typed.
+    let live_note = match tc.run(|conn| repository::tickets::uuid_by_id(conn, ticket_id)) {
+        Ok(Some(ticket_uuid)) => {
+            let doc_id = DocKind::Ticket.doc_id(workspace.workspace_uuid, ticket_uuid);
+            collab
+                .live_document(
+                    workspace.workspace_id,
+                    DocumentType::Ticket(ticket_id),
+                    &doc_id,
+                )
+                .await
+        }
+        Ok(None) => LiveDocument::NotOpen,
+        Err(e) => {
+            error!(ticket_id, error = ?e, "Error looking up ticket to copy its note");
+            return errors::internal("Failed to create documentation page");
+        }
+    };
+    let live_note = match live_note {
+        LiveDocument::Here {
+            document,
+            state_vector,
+        } => Some((document, state_vector)),
+        // Another machine holds the room: fly-proxy replays this request
+        // there, where the room is local.
+        LiveDocument::OnMachine(owner) => {
+            debug!(
+                ticket_id,
+                "Replaying note copy to the machine holding its room"
+            );
+            return HttpResponse::Ok()
+                .insert_header(("fly-replay", format!("instance={owner}")))
+                .finish();
+        }
+        LiveDocument::NotOpen => None,
+    };
+
     let outcome = tc.run(|conn| {
         if let Some(pid) = page_data.parent_id {
             if !audience.can_open_page(conn, pid)? {
@@ -1861,11 +1905,24 @@ pub async fn create_documentation_page_from_ticket(
             }
         }
 
-        // Check if a documentation page already exists for this ticket. One
-        // the caller can't open doesn't count, so they get a page of their own.
+        // Check if a page already resolves this ticket. A page that only
+        // references it is a different document, and one the caller can't
+        // open doesn't count, so they get a page of their own.
         if let Ok(existing_pages) =
             repository::get_documentation_pages_by_ticket_id(conn, ticket_id)
         {
+            let resolving: std::collections::HashSet<i32> =
+                repository::documentation_page_tickets::links_for_ticket(conn, ticket_id)?
+                    .into_iter()
+                    .filter(|l| {
+                        l.link_type == repository::documentation_page_tickets::LINK_RESOLVES
+                    })
+                    .map(|l| l.page_id)
+                    .collect();
+            let existing_pages = existing_pages
+                .into_iter()
+                .filter(|p| resolving.contains(&p.id))
+                .collect();
             let existing_pages = audience.filter_pages(conn, existing_pages)?;
             if let Some(existing_page) = existing_pages.into_iter().next() {
                 return Ok(CreateFromTicketOutcome::Existing(existing_page));
@@ -1879,14 +1936,18 @@ pub async fn create_documentation_page_from_ticket(
         // Generate a unique slug from the title
         let slug = utils::slug::generate_unique_slug(&page_data.title, conn);
 
-        // Clone Yjs document data from ticket's article content if available
-        let (yjs_state_vector, yjs_document, yjs_client_id) = match &article_content {
-            Some(content) => (
-                content.yjs_state_vector.clone(),
-                content.yjs_document.clone(),
-                content.yjs_client_id,
-            ),
-            None => (None, None, None),
+        // Clone the note's live state when its room is open, else its stored
+        // state. The state vector is derived from the copied document (the
+        // stored column isn't kept current): the client checks it covers its
+        // own before replacing the note with an embed of the page.
+        let yjs_client_id = article_content.as_ref().and_then(|c| c.yjs_client_id);
+        let (yjs_document, yjs_state_vector) = match live_note {
+            Some((document, state_vector)) => (Some(document), Some(state_vector)),
+            None => {
+                let document = article_content.and_then(|c| c.yjs_document);
+                let state_vector = document.as_deref().and_then(update_state_vector);
+                (document, state_vector)
+            }
         };
 
         let new_page = NewDocumentationPage {
