@@ -23,7 +23,7 @@ import type {
   UpdateWebhookRequest,
   WebhookDelivery,
 } from '@nosdesk/core/types/webhook';
-import { WEBHOOK_EVENT_CATEGORIES } from '@nosdesk/core/types/webhook';
+import { WEBHOOK_EVENTS, WEBHOOK_EVENT_CATEGORIES } from '@nosdesk/core/types/webhook';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -125,25 +125,15 @@ const objectToHeaders = (obj: Record<string, string> | null): HeaderRow[] => {
   return obj ? Object.entries(obj).map(([key, value]) => newHeaderRow(key, value)) : [];
 };
 
-// Category label translation (categories are object keys in WEBHOOK_EVENT_CATEGORIES)
-const CATEGORY_KEYS: Record<string, string> = {
-  Tickets: 'admin-webhooks-category-tickets',
-  Comments: 'admin-webhooks-category-comments',
-  Attachments: 'admin-webhooks-category-attachments',
-  Devices: 'admin-webhooks-category-devices',
-  Projects: 'admin-webhooks-category-projects',
-  Documentation: 'admin-webhooks-category-documentation',
-  Users: 'admin-webhooks-category-users',
-};
+// Labels come from each event's Fluent keys in WEBHOOK_EVENTS.
 const categoryLabel = (category: string) => {
-  const key = CATEGORY_KEYS[category];
+  const key = WEBHOOK_EVENT_CATEGORIES[category]?.[0]?.categoryKey;
   return key ? t(key) : category;
 };
 
-// Event-value label translation (values come from WEBHOOK_EVENTS)
 const eventLabel = (value: string) => {
-  const key = `admin-webhooks-event-${value.replace('.', '-')}`;
-  return t(key);
+  const key = WEBHOOK_EVENTS.find((e) => e.value === value)?.labelKey;
+  return key ? t(key) : value;
 };
 
 // Get webhook status
