@@ -618,8 +618,9 @@ pub fn emit_records_granted_to_groups(
 /// What decides what a person may see in a workspace: whether they are a
 /// member and in what role, their platform role, and every group they are in
 /// (the including groups too). Documentation follows membership, admin
-/// (workspace owner or admin, or platform admin), staff (drafts) and groups;
-/// the rest of the sync feed and the editor's edit rights follow the roles.
+/// (workspace owner or admin, or platform admin), staff (drafts, archived
+/// pages and the trash) and groups; the rest of the sync feed and the
+/// editor's edit rights follow the roles.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocAccess {
     role: Option<String>,
@@ -740,8 +741,9 @@ pub fn emit_if_access_changed_everywhere(
 ///   recorded whether or not any documentation is restricted.
 /// - Re-send to them the documentation it touches: every restricted record
 ///   when they became or stopped being an admin, or became a member again;
-///   the records granted to the groups they joined or left; every draft when
-///   they became or stopped being staff. Other readers' access didn't
+///   the records granted to the groups they joined or left; every draft,
+///   archived page and page in the trash when they became or stopped being
+///   staff. Other readers' access didn't
 ///   change, so the rows are addressed to this person alone.
 pub fn emit_if_access_changed(
     conn: &mut DbConnection,
@@ -797,7 +799,11 @@ pub fn emit_if_access_changed(
             pages.extend(
                 documentation_pages::table
                     .filter(documentation_pages::workspace_id.eq(workspace_id))
-                    .filter(documentation_pages::status.eq(DocumentationStatus::Draft))
+                    .filter(documentation_pages::status.eq_any([
+                        DocumentationStatus::Draft,
+                        DocumentationStatus::Archived,
+                        DocumentationStatus::Deleted,
+                    ]))
                     .select(documentation_pages::id)
                     .load::<i32>(conn)?,
             );
@@ -1350,7 +1356,8 @@ pub fn set_page_rules(
 pub enum PageAudience {
     /// A specific caller, filtered by the rules on each page and collection.
     /// `is_admin`: workspace admin or owner, or platform admin; opens every
-    /// page. `is_staff`: agent and up, or platform admin; opens drafts.
+    /// page. `is_staff`: agent and up, or platform admin; opens drafts,
+    /// archived pages and the trash.
     User {
         user_uuid: uuid::Uuid,
         is_admin: bool,
@@ -1479,9 +1486,10 @@ impl PageAudience {
         }
     }
 
-    /// [`PageAudience::hidden`], but a page in the trash reads as its rules
-    /// say rather than as absent: for the trash list, restoring from it, and
-    /// the sync rows the trash view is built from. Admins hide nothing.
+    /// [`PageAudience::hidden`], but for staff a page in the trash reads as
+    /// its rules say rather than as absent: for the trash list, restoring from
+    /// it, and the sync rows the trash view is built from. Admins hide
+    /// nothing; anyone else sees no trash.
     pub fn hidden_with_trash(
         &self,
         conn: &mut DbConnection,
@@ -1615,8 +1623,8 @@ impl PageAudience {
 }
 
 /// Whether a page in the trash reads as absent (every route but the trash
-/// itself) or as its rules say (the trash list, restoring from it, and the
-/// sync rows the trash view is built from).
+/// itself) or, to staff, as its rules say (the trash list, restoring from it,
+/// and the sync rows the trash view is built from).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Trash {
     Absent,
@@ -1627,14 +1635,16 @@ enum Trash {
 #[derive(Clone, Copy)]
 enum Reader<'a> {
     /// A workspace user who isn't an admin (admins read everything), and
-    /// whether they are staff (agent and up), who read drafts.
+    /// whether they are staff (agent and up), who read drafts, archived pages
+    /// and the trash.
     Member { user: &'a uuid::Uuid, staff: bool },
     /// The guest portal: anyone, signed in or not.
     Guest,
 }
 
 impl Reader<'_> {
-    fn reads_drafts(&self) -> bool {
+    /// Staff read drafts, archived pages and the trash.
+    fn is_staff(&self) -> bool {
         matches!(self, Reader::Member { staff: true, .. })
     }
 }
@@ -1700,11 +1710,11 @@ fn hidden_documentation_ids(
 /// - An id with no row (deleted for good) is hidden: nothing shows it was
 ///   open to them, and the sync feed still holds its old rows, which must
 ///   reach them only as a delete.
-/// - A page in the trash is hidden, except where `trash` says it reads as
-///   its rules say (the trash list, restoring, and the sync rows the trash
-///   view is built from).
-/// - A draft is open to staff only (agents and up). Admins read everything
-///   before this rule is asked.
+/// - A page in the trash is hidden, except to staff where `trash` says it
+///   reads as its rules say (the trash list, restoring, and the sync rows the
+///   trash view is built from).
+/// - A draft or an archived page is open to staff only (agents and up).
+///   Admins read everything before this rule is asked.
 /// - A restricted collection is open only to the people and groups it
 ///   names; one that names nobody is open to admins only. An unrestricted
 ///   collection is open to everyone in the workspace.
@@ -1855,10 +1865,16 @@ fn hidden_ids(
     let open_pages: HashSet<i32> = pages
         .iter()
         .filter(|(id, restricted, status, is_public)| {
-            if *status == DocumentationStatus::Deleted && trash == Trash::Absent {
+            if *status == DocumentationStatus::Deleted
+                && (trash == Trash::Absent || !reader.is_staff())
+            {
                 return false;
             }
-            if *status == DocumentationStatus::Draft && !reader.reads_drafts() {
+            if matches!(
+                status,
+                DocumentationStatus::Draft | DocumentationStatus::Archived
+            ) && !reader.is_staff()
+            {
                 return false;
             }
             if matches!(reader, Reader::Guest) && !*is_public {
