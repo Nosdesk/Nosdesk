@@ -96,6 +96,7 @@ export interface DeltaResponse {
     sla_enabled?: boolean
     approvals_enabled?: boolean
     approvals_held?: boolean
+    assets_visible?: boolean
   }
 }
 
@@ -118,6 +119,9 @@ export interface BootstrapMeta {
   approvals_enabled?: boolean
   /** Requests waiting for approval are held out of the working queues. */
   approvals_held?: boolean
+  /** The viewer sees the workspace's assets: staff always, a requester
+   * unless the workspace shows requesters none. */
+  assets_visible?: boolean
 }
 
 /**

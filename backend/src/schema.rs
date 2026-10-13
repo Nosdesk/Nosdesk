@@ -1588,6 +1588,7 @@ diesel::table! {
         email_logo -> Nullable<Jsonb>,
         email_logo_light -> Nullable<Jsonb>,
         portal_share_staff_requests -> Bool,
+        requester_asset_visibility -> Text,
     }
 }
 

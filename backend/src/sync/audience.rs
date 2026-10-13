@@ -49,7 +49,9 @@ impl Audience {
 pub fn audience(aggregate: SyncAggregate) -> Audience {
     match aggregate {
         // Read by every ticket view and the asset, project and cycle routes,
-        // which members reach too.
+        // which members reach too. A workspace can show requesters no assets
+        // (`site_settings.requester_asset_visibility`); `sync::visibility`
+        // then keeps every asset record from them.
         SyncAggregate::Asset => Audience::All,
         SyncAggregate::Cycle => Audience::All,
         SyncAggregate::Project => Audience::All,

@@ -1067,6 +1067,14 @@ admin-asset-kinds-field-icon-hint = Optional icon name (e.g. "monitor", "phone")
 admin-asset-kinds-field-attribute-schema-hint = JSON Schema subset. The Builder view is the default; switch to View JSON for hand-edits.
 admin-asset-kinds-view-builder = View Builder
 admin-asset-kinds-view-json = View JSON
+asset-access-title = Requester access
+asset-access-description = What people with the requester role see of this workspace's assets. Staff always see every asset.
+asset-access-all = All assets
+asset-access-none = None
+asset-access-all-hint = Requesters see every asset, including ones they don't hold, in their app and on the asset pages.
+asset-access-none-hint = Requesters see no assets at all: not the asset list, not assets linked to their tickets, and not the devices or loans on their own profile.
+asset-access-saved = Requester access saved
+asset-access-save-failed = Couldn't save requester access
 
 # Asset Kinds — typed attribute builder (AttributeEditor +
 # AttributeRow). Replaces the raw JSON textarea for the common

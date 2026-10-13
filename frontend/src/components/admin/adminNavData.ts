@@ -79,7 +79,7 @@ export const adminNavGroups: AdminNavGroup[] = [
         descriptionKey: 'admin-nav-asset-kinds-description',
         icon: 'device',
         route: '/admin/asset-kinds',
-        keywords: ['assets', 'kinds', 'devices', 'inventory', 'attributes', 'schema', 'discriminator', 'custom']
+        keywords: ['assets', 'kinds', 'devices', 'inventory', 'attributes', 'schema', 'discriminator', 'custom', 'requesters', 'access', 'visibility']
       },
       {
         titleKey: 'admin-nav-sla-title',

@@ -1260,10 +1260,20 @@ mod tests {
     fn needs_filtering_reference_only_skips() {
         let env = sync_actions_env(json!([
             { "aggregate": "workflow_state", "aggregate_id": "2" },
-            { "aggregate": "asset", "aggregate_id": "1" },
         ]));
         assert!(!batch_needs_filtering(&env, &viewer(true)));
         assert!(!batch_needs_filtering(&env, &viewer(false)));
+    }
+
+    /// A workspace can show requesters no assets, so a member's asset rows
+    /// need the lookup; staff see every asset.
+    #[test]
+    fn needs_filtering_assets_only_for_restricted() {
+        let env = sync_actions_env(json!([
+            { "aggregate": "asset", "aggregate_id": "1" },
+        ]));
+        assert!(!batch_needs_filtering(&env, &viewer(true)));
+        assert!(batch_needs_filtering(&env, &viewer(false)));
     }
 
     /// A user row is only for the workspace its subject belongs to, so it

@@ -1009,6 +1009,22 @@ admin-asset-kinds-field-icon-hint = Nom d'icône optionnel (par ex. « monitor �
 admin-asset-kinds-field-attribute-schema-hint = Sous-ensemble JSON Schema. Le constructeur est la vue par défaut ; passez en mode JSON pour éditer à la main.
 admin-asset-kinds-view-builder = Voir le constructeur
 admin-asset-kinds-view-json = Voir le JSON
+# MT: pending native review (fr-FR)
+asset-access-title = Accès des demandeurs
+# MT: pending native review (fr-FR)
+asset-access-description = Ce que les personnes ayant le rôle de demandeur voient des actifs de cet espace de travail. Le personnel voit toujours tous les actifs.
+# MT: pending native review (fr-FR)
+asset-access-all = Tous les actifs
+# MT: pending native review (fr-FR)
+asset-access-none = Aucun
+# MT: pending native review (fr-FR)
+asset-access-all-hint = Les demandeurs voient tous les actifs, y compris ceux qu'ils n'ont pas, dans leur application et sur les pages des actifs.
+# MT: pending native review (fr-FR)
+asset-access-none-hint = Les demandeurs ne voient aucun actif : ni la liste des actifs, ni les actifs liés à leurs tickets, ni les appareils ou prêts de leur propre profil.
+# MT: pending native review (fr-FR)
+asset-access-saved = Accès des demandeurs enregistré
+# MT: pending native review (fr-FR)
+asset-access-save-failed = Impossible d'enregistrer l'accès des demandeurs
 
 # Constructeur d'attributs typé.
 asset-kind-attribute-editor-add = Ajouter un attribut

@@ -3246,7 +3246,15 @@ pub async fn get_user_profile_bundle(
     }
 
     match crate::repository::user_profile::compute(&mut conn, &user_uuid_parsed, &groups) {
-        Ok(Some(bundle)) => Ok(HttpResponse::Ok().json(bundle)),
+        Ok(Some(mut bundle)) => {
+            // A requester shown no assets gets no devices or loans, as if
+            // they had none.
+            if crate::handlers::assets::assets_hidden_from(&mut conn, &auth) {
+                bundle.devices = bundle.devices.map(|_| Vec::new());
+                bundle.loans = bundle.loans.map(|_| Vec::new());
+            }
+            Ok(HttpResponse::Ok().json(bundle))
+        }
         Ok(None) => Err(ApiError::NotFoundMsg("User not found".into())),
         Err(e) => {
             error!(user_uuid = %user_uuid_parsed, error = ?e, "Failed to compute profile bundle");

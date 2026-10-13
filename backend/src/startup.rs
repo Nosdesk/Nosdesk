@@ -1214,6 +1214,7 @@ pub fn configure_app(
                     // Requester sign-in provider (workspace admins).
                     .configure(crate::handlers::requester_sso::config)
                     .configure(crate::handlers::approval_settings::config)
+                    .configure(crate::handlers::asset_settings::config)
                     .configure(crate::handlers::approvals::config)
                     .configure(crate::handlers::widget::config)
                     .configure(crate::handlers::teams::config)

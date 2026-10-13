@@ -24,12 +24,17 @@ interface CapabilityState {
   slaEnabled: boolean
   approvalsEnabled: boolean
   approvalsHeld: boolean
+  /** The viewer sees the workspace's assets: staff always, a requester
+   * unless the workspace shows requesters none. On by default, so staff
+   * never lose asset chrome while the first sync is in flight. */
+  assetsVisible: boolean
 }
 
 const DEFAULT_STATE: CapabilityState = {
   slaEnabled: false,
   approvalsEnabled: false,
   approvalsHeld: false,
+  assetsVisible: true,
 }
 
 const state: Ref<CapabilityState> = ref({ ...DEFAULT_STATE })
@@ -41,18 +46,22 @@ export function applyWorkspaceCapabilities(meta: {
   sla_enabled?: boolean
   approvals_enabled?: boolean
   approvals_held?: boolean
+  assets_visible?: boolean
 }): void {
   const next: CapabilityState = {
     slaEnabled: meta.sla_enabled ?? false,
     approvalsEnabled: meta.approvals_enabled ?? false,
     approvalsHeld: meta.approvals_held ?? false,
+    // Absent only from an older backend, which shows everyone assets.
+    assetsVisible: meta.assets_visible ?? true,
   }
   // Flags now arrive on every delta poll; only swap the ref when a flag
   // actually changed so watchers don't fire every 10 seconds.
   if (
     next.slaEnabled === state.value.slaEnabled &&
     next.approvalsEnabled === state.value.approvalsEnabled &&
-    next.approvalsHeld === state.value.approvalsHeld
+    next.approvalsHeld === state.value.approvalsHeld &&
+    next.assetsVisible === state.value.assetsVisible
   )
     return
   state.value = next
@@ -72,6 +81,8 @@ export interface UseWorkspaceCapabilities {
   approvalsEnabled: ComputedRef<boolean>
   /** Requests waiting for approval stay out of the working queues. */
   approvalsHeld: ComputedRef<boolean>
+  /** The viewer sees the workspace's assets. */
+  assetsVisible: ComputedRef<boolean>
   /** Read-only access to the underlying state for cases that
    * need to watch / react to multi-flag changes at once. */
   capabilities: Readonly<Ref<Readonly<CapabilityState>>>
@@ -82,6 +93,7 @@ export function useWorkspaceCapabilities(): UseWorkspaceCapabilities {
     slaEnabled: computed(() => state.value.slaEnabled),
     approvalsEnabled: computed(() => state.value.approvalsEnabled),
     approvalsHeld: computed(() => state.value.approvalsHeld),
+    assetsVisible: computed(() => state.value.assetsVisible),
     capabilities: readonly(state),
   }
 }

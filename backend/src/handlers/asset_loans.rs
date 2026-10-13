@@ -64,11 +64,12 @@ fn map_loan_err(asset_id: i32, e: LoanError) -> HttpResponse {
 
 pub async fn list_for_asset(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
     match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::list_for_asset(conn, asset_id)
     }) {
@@ -84,10 +85,17 @@ pub async fn list_for_asset(
 }
 
 /// Loans issued against a ticket. Visibility-gated by `TicketAccess`, so a
-/// caller who can't read the ticket can't read its loans.
+/// caller who can't read the ticket can't read its loans; a requester shown
+/// no assets gets none.
 pub async fn list_for_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
     let ticket_id = access.ticket_id;
-    match tc.run(|conn| repo::list_for_ticket(conn, ticket_id)) {
+    let auth = access.auth;
+    match tc.run(|conn| {
+        if crate::handlers::assets::assets_hidden_from(conn, &auth) {
+            return Ok(Vec::new());
+        }
+        repo::list_for_ticket(conn, ticket_id)
+    }) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(ticket_id, error = ?e, "failed to list ticket loans");

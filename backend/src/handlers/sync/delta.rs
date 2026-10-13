@@ -197,14 +197,15 @@ pub async fn delta(
     };
 
     // Cheap (count over a tiny table); every response carries current flags.
-    let capabilities =
-        match tc.run(|conn| Ok::<_, diesel::result::Error>(super::capability_flags(conn))) {
-            Ok(c) => Some(c),
-            Err(e) => {
-                error!(error = %e, "delta: capability probe failed; omitting flags");
-                None
-            }
-        };
+    let capabilities = match tc
+        .run(|conn| Ok::<_, diesel::result::Error>(super::capability_flags(conn, &viewer)))
+    {
+        Ok(c) => Some(c),
+        Err(e) => {
+            error!(error = %e, "delta: capability probe failed; omitting flags");
+            None
+        }
+    };
 
     if granted.is_empty() {
         // No groups in common between request and permission set;

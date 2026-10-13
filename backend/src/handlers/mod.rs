@@ -13,6 +13,7 @@ pub mod asset_lifecycle;
 pub mod asset_loans;
 pub mod asset_media;
 pub mod asset_models;
+pub mod asset_settings;
 pub mod asset_usage;
 pub mod assets;
 pub mod assignment_rules;
