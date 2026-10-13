@@ -22,16 +22,17 @@ folder, so the images stay out of this repo:
 ```sh
 export STORE_ASSETS_DIR=~/dev/nosdesk-com/apps/marketing/video/store/out/fastlane
 bundle exec fastlane ios metadata       # App Store listing, no submission
-bundle exec fastlane android metadata   # Play listing, no release
+BUILD_NUMBER=<build> bundle exec fastlane android metadata   # Play listing, no release
 BUILD_NUMBER=<testflight build> bundle exec fastlane ios release
-bundle exec fastlane android promote    # internal -> production
+BUILD_NUMBER=<build> bundle exec fastlane android promote    # internal -> production
 ```
 
 Both iOS lanes need `REVIEW_FIRST_NAME`, `REVIEW_LAST_NAME`, `REVIEW_PHONE`,
 `REVIEW_EMAIL`, `REVIEW_DEMO_USER` and `REVIEW_DEMO_PASSWORD` (optional
 `REVIEW_NOTES`). `ios release` submits that TestFlight build for review and
 releases it on approval. App Privacy, age rating, Play data safety and content
-rating are set once by hand in each console.
+rating are set once by hand in each console. The first Play release must be
+promoted with `PLAY_RELEASE_STATUS=draft` and sent for review in the Console.
 
 ## One-time account setup (no pipeline removes this)
 
