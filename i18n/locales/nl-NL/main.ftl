@@ -1636,8 +1636,9 @@ admin-data-import-csv-title = CSV-import
 admin-data-import-csv-description = Importeer gegevens uit CSV-bestanden, waaronder activa, gebruikers en andere bronnen
 admin-data-import-api-title = API-integraties
 admin-data-import-api-description = Maak verbinding met API's van derden om gegevens te importeren en synchroniseren
-admin-data-import-ad-title = Active Directory
-admin-data-import-ad-description = Importeer gegevens uit lokale Active Directory-servers
+admin-data-import-ad-title = LDAP / Active Directory
+# MT: pending native review (nl-NL)
+admin-data-import-ad-description = Synchroniseer gebruikers en groepen vanuit Active Directory of een andere LDAP-directory
 
 # Beheer: Authenticatieproviders.
 admin-auth-providers-title = Authenticatieproviders
@@ -6270,6 +6271,9 @@ admin-ldap-saving = Opslaan…
 admin-ldap-saved = LDAP-instellingen opgeslagen
 admin-ldap-error-load = Laden van LDAP-instellingen mislukt
 admin-ldap-error-save = Opslaan van LDAP-instellingen mislukt
+admin-ldap-save-needs-numbers = Vul de poort, time-out en paginagrootte in om op te slaan.
+admin-ldap-save-needs-host = Voeg een host toe om op te slaan terwijl de integratie aan staat.
+admin-ldap-save-needs-base-dn = Voeg een basis-DN voor gebruikers toe om op te slaan terwijl de integratie aan staat.
 admin-ldap-error-sync = Synchronisatie mislukt; raadpleeg de serverlogboeken
 admin-ldap-section-status = Synchronisatie en status
 admin-ldap-mode-incremental = Incrementele synchronisatie actief
