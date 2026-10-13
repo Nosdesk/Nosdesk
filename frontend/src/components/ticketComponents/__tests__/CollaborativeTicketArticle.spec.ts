@@ -138,5 +138,6 @@ describe('CollaborativeTicketArticle', () => {
     await promote(await mountArticle())
 
     expect(editor.replaceAllWithEmbeddedDocument).not.toHaveBeenCalled()
+    expect(toast.warning).not.toHaveBeenCalled()
   })
 })

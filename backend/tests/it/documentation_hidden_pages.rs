@@ -601,7 +601,13 @@ async fn hidden_pages_and_collections_are_absent_on_every_docs_route() {
     );
 
     // Creating a doc from the ticket gives the outsider a page of their own
-    // rather than the hidden one already linked to it.
+    // rather than the hidden one that resolves it, or an open one that only
+    // references it.
+    run_in_workspace(&pool, REF, f.workspace.workspace_id, |c| {
+        documentation_page_tickets::upsert_link(c, open, f.ticket, "references", None)?;
+        Ok(())
+    })
+    .expect("reference link");
     let created = http_test::call_service(
         &app,
         request(
@@ -616,6 +622,7 @@ async fn hidden_pages_and_collections_are_absent_on_every_docs_route() {
     assert_eq!(created.status(), StatusCode::CREATED);
     let created: Value = http_test::read_body_json(created).await;
     assert_ne!(created["id"].as_i64(), Some(hidden as i64));
+    assert_ne!(created["id"].as_i64(), Some(open as i64));
 
     // The insider and an admin can do what the outsider couldn't.
     for (user, title) in [(f.insider, "Insider edit"), (f.admin, "Admin edit")] {

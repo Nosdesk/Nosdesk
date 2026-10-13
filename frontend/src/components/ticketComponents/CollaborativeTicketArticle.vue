@@ -176,7 +176,7 @@ const confirmPromote = async () => {
         // Let the editor commit it to the collab doc before we navigate
         // away and unmount it.
         editorRef.value?.replaceAllWithEmbeddedDocument({ uuid: doc.uuid, title: doc.title });
-      } else {
+      } else if (result.created) {
         toast.warning(t('tickets-collaborative-article-promote-note-kept'));
       }
       await refreshPromotedDoc();

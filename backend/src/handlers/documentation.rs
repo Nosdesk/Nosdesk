@@ -1905,11 +1905,24 @@ pub async fn create_documentation_page_from_ticket(
             }
         }
 
-        // Check if a documentation page already exists for this ticket. One
-        // the caller can't open doesn't count, so they get a page of their own.
+        // Check if a page already resolves this ticket. A page that only
+        // references it is a different document, and one the caller can't
+        // open doesn't count, so they get a page of their own.
         if let Ok(existing_pages) =
             repository::get_documentation_pages_by_ticket_id(conn, ticket_id)
         {
+            let resolving: std::collections::HashSet<i32> =
+                repository::documentation_page_tickets::links_for_ticket(conn, ticket_id)?
+                    .into_iter()
+                    .filter(|l| {
+                        l.link_type == repository::documentation_page_tickets::LINK_RESOLVES
+                    })
+                    .map(|l| l.page_id)
+                    .collect();
+            let existing_pages = existing_pages
+                .into_iter()
+                .filter(|p| resolving.contains(&p.id))
+                .collect();
             let existing_pages = audience.filter_pages(conn, existing_pages)?;
             if let Some(existing_page) = existing_pages.into_iter().next() {
                 return Ok(CreateFromTicketOutcome::Existing(existing_page));
