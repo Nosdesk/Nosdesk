@@ -30,62 +30,54 @@ pub struct WebAuthnConfig {
 }
 
 impl WebAuthnConfig {
-    /// Load WebAuthn configuration from environment variables
-    /// In production, all WEBAUTHN_* variables are required.
-    /// In development, defaults to localhost values.
+    /// Load the self-hosted relying party from the process environment.
     pub fn from_env() -> Result<Self> {
-        // Fail-closed: an unset / non-canonical ENVIRONMENT requires explicit
-        // WEBAUTHN_RP_ID / WEBAUTHN_RP_ORIGIN rather than defaulting to the
-        // insecure localhost values (matches config_utils::assume_production,
-        // the single source of truth for hardened posture).
-        let is_production = crate::config_utils::assume_production();
+        Self::resolve(
+            &|key| env::var(key).ok(),
+            crate::config_utils::assume_production(),
+        )
+    }
 
-        // In production, require explicit configuration
-        let rp_id = match env::var("WEBAUTHN_RP_ID") {
-            Ok(id) => id,
-            Err(_) if is_production => {
-                return Err(anyhow!(
-                    "WEBAUTHN_RP_ID environment variable is required in production. \
-                    Set it to your domain (e.g., 'example.com')"
-                ));
-            }
-            Err(_) => {
-                tracing::warn!(
-                    "WEBAUTHN_RP_ID not set, defaulting to 'localhost'. \
-                    This is insecure for production use."
-                );
-                "localhost".to_string()
-            }
+    /// The relying party is the origin people open Nosdesk on, so it defaults
+    /// to `FRONTEND_URL`. `WEBAUTHN_RP_ORIGIN` / `WEBAUTHN_RP_ID` override it
+    /// for setups where they genuinely differ (an RP ID that is a parent
+    /// domain). Development without either falls back to the vite dev server.
+    pub fn resolve(get: &dyn Fn(&str) -> Option<String>, is_production: bool) -> Result<Self> {
+        let rp_name = get("WEBAUTHN_RP_NAME").unwrap_or_else(|| "Nosdesk".to_string());
+
+        let (origin_var, rp_origin_str) = match get("WEBAUTHN_RP_ORIGIN") {
+            Some(origin) => ("WEBAUTHN_RP_ORIGIN", origin),
+            None => match get("FRONTEND_URL") {
+                Some(url) => ("FRONTEND_URL", url),
+                None if is_production => {
+                    return Err(anyhow!(
+                        "FRONTEND_URL is required in production. Set it to the URL people \
+                        open Nosdesk on (e.g. 'https://helpdesk.example.com')"
+                    ));
+                }
+                None => ("default", "http://localhost:5173".to_string()),
+            },
+        };
+        let parsed = Url::parse(rp_origin_str.trim())
+            .map_err(|e| anyhow!("Invalid {origin_var} for passkeys: {e}"))?;
+        // Only the origin counts: FRONTEND_URL may carry a path or a trailing
+        // slash, and the browser reports a bare origin.
+        let rp_origin = Url::parse(&parsed.origin().ascii_serialization())
+            .map_err(|e| anyhow!("{origin_var} has no usable origin for passkeys: {e}"))?;
+
+        let rp_id = match get("WEBAUTHN_RP_ID") {
+            Some(id) => id,
+            None => rp_origin
+                .host_str()
+                .ok_or_else(|| anyhow!("{origin_var} has no host for passkeys"))?
+                .to_string(),
         };
 
-        let rp_name = env::var("WEBAUTHN_RP_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
-
-        let rp_origin_str = match env::var("WEBAUTHN_RP_ORIGIN") {
-            Ok(origin) => origin,
-            Err(_) if is_production => {
-                return Err(anyhow!(
-                    "WEBAUTHN_RP_ORIGIN environment variable is required in production. \
-                    Set it to your full origin URL (e.g., 'https://example.com')"
-                ));
-            }
-            Err(_) => {
-                tracing::warn!(
-                    "WEBAUTHN_RP_ORIGIN not set, defaulting to 'http://localhost:5173'. \
-                    This is insecure for production use."
-                );
-                "http://localhost:5173".to_string()
-            }
-        };
-
-        let rp_origin =
-            Url::parse(&rp_origin_str).map_err(|e| anyhow!("Invalid WEBAUTHN_RP_ORIGIN: {}", e))?;
-
-        // Validate RP ID matches origin host in production
         if is_production {
             let origin_host = rp_origin.host_str().unwrap_or("");
             if !origin_host.ends_with(&rp_id) && origin_host != rp_id {
                 return Err(anyhow!(
-                    "WEBAUTHN_RP_ID '{}' does not match WEBAUTHN_RP_ORIGIN host '{}'. \
+                    "WEBAUTHN_RP_ID '{}' does not match the passkey origin host '{}'. \
                     RP ID must be the origin's domain or a registrable suffix.",
                     rp_id,
                     origin_host
@@ -93,18 +85,63 @@ impl WebAuthnConfig {
             }
         }
 
-        tracing::info!(
-            "WebAuthn configured: rp_id={}, rp_origin={}, production={}",
-            rp_id,
-            rp_origin,
-            is_production
-        );
-
         Ok(Self {
             rp_id,
             rp_name,
             rp_origin,
         })
+    }
+
+    /// Reasons passkeys will fail on this self-hosted setup, for the startup
+    /// log. Registration otherwise fails in the browser with nothing in the
+    /// server log, which reads as the feature being broken.
+    pub fn misconfiguration_warnings(
+        get: &dyn Fn(&str) -> Option<String>,
+        is_production: bool,
+    ) -> Vec<String> {
+        let config = match Self::resolve(get, is_production) {
+            Ok(config) => config,
+            Err(e) => return vec![format!("Passkeys are unavailable: {e}")],
+        };
+        let mut warnings = Vec::new();
+        let host = config.rp_origin.host_str().unwrap_or("");
+
+        if config.rp_id.parse::<std::net::IpAddr>().is_ok()
+            || host
+                .trim_matches(['[', ']'])
+                .parse::<std::net::IpAddr>()
+                .is_ok()
+        {
+            warnings.push(format!(
+                "Passkeys won't work: browsers don't accept an IP address ({}) as the \
+                passkey domain. Serve Nosdesk on a domain name and set FRONTEND_URL to it.",
+                config.rp_id
+            ));
+        }
+        if config.rp_origin.scheme() != "https" && host != "localhost" {
+            warnings.push(format!(
+                "Passkeys won't work at {}: browsers allow them only over HTTPS \
+                (or on localhost).",
+                config.rp_origin.origin().ascii_serialization()
+            ));
+        }
+        if let (Some(explicit), Some(frontend)) = (get("WEBAUTHN_RP_ORIGIN"), get("FRONTEND_URL")) {
+            let same = match (Url::parse(explicit.trim()), Url::parse(frontend.trim())) {
+                (Ok(a), Ok(b)) => a.origin() == b.origin(),
+                _ => false,
+            };
+            if !same {
+                warnings.push(format!(
+                    "WEBAUTHN_RP_ORIGIN ({}) differs from FRONTEND_URL ({}), so passkeys \
+                    only work when Nosdesk is opened at {}. Remove WEBAUTHN_RP_ORIGIN and \
+                    WEBAUTHN_RP_ID to use FRONTEND_URL.",
+                    explicit.trim(),
+                    frontend.trim(),
+                    explicit.trim()
+                ));
+            }
+        }
+        warnings
     }
 
     /// Build a WebAuthn instance from this configuration
@@ -765,6 +802,74 @@ mod tests {
         let blob = serde_json::json!({ "cred": { "counter": 5 } });
         let bumped = sync_counter_into_credential_blob(blob, 0);
         assert_eq!(bumped["cred"]["counter"], serde_json::json!(0));
+    }
+
+    mod relying_party {
+        use super::super::WebAuthnConfig;
+        use std::collections::HashMap;
+
+        fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+            let map: HashMap<String, String> = pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            move |key| map.get(key).cloned()
+        }
+
+        #[test]
+        fn defaults_to_frontend_url_origin() {
+            let get = env(&[("FRONTEND_URL", "https://helpdesk.school.edu/")]);
+            let config = WebAuthnConfig::resolve(&get, true).expect("resolves");
+            assert_eq!(config.rp_id, "helpdesk.school.edu");
+            assert_eq!(config.rp_origin.as_str(), "https://helpdesk.school.edu/");
+            assert!(WebAuthnConfig::misconfiguration_warnings(&get, true).is_empty());
+        }
+
+        #[test]
+        fn explicit_settings_win() {
+            let get = env(&[
+                ("FRONTEND_URL", "https://helpdesk.school.edu"),
+                ("WEBAUTHN_RP_ORIGIN", "https://helpdesk.school.edu"),
+                ("WEBAUTHN_RP_ID", "school.edu"),
+            ]);
+            let config = WebAuthnConfig::resolve(&get, true).expect("resolves");
+            assert_eq!(config.rp_id, "school.edu");
+            assert!(WebAuthnConfig::misconfiguration_warnings(&get, true).is_empty());
+        }
+
+        #[test]
+        fn example_localhost_values_behind_a_real_domain_warn() {
+            let get = env(&[
+                ("FRONTEND_URL", "https://helpdesk.school.edu"),
+                ("WEBAUTHN_RP_ORIGIN", "http://localhost:8080"),
+                ("WEBAUTHN_RP_ID", "localhost"),
+            ]);
+            let warnings = WebAuthnConfig::misconfiguration_warnings(&get, true);
+            assert!(
+                warnings
+                    .iter()
+                    .any(|w| w.contains("differs from FRONTEND_URL")),
+                "{warnings:?}"
+            );
+        }
+
+        #[test]
+        fn ip_address_and_plain_http_warn() {
+            let get = env(&[("FRONTEND_URL", "http://203.0.113.10:8080")]);
+            let warnings = WebAuthnConfig::misconfiguration_warnings(&get, true);
+            assert!(
+                warnings.iter().any(|w| w.contains("IP address")),
+                "{warnings:?}"
+            );
+            assert!(warnings.iter().any(|w| w.contains("HTTPS")), "{warnings:?}");
+        }
+
+        #[test]
+        fn production_without_any_origin_is_an_error() {
+            assert!(WebAuthnConfig::resolve(&env(&[]), true).is_err());
+            let dev = WebAuthnConfig::resolve(&env(&[]), false).expect("dev default");
+            assert_eq!(dev.rp_id, "localhost");
+        }
     }
 
     mod request_workspace_host {

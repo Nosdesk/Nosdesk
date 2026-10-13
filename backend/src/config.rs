@@ -316,10 +316,20 @@ fn validate_default_credentials(get: EnvGet, is_production: bool) -> Result<(), 
     Ok(())
 }
 
-/// Non-fatal production hygiene warnings for HTTPS / DB SSL.
+/// Non-fatal production hygiene warnings for HTTPS / DB SSL / passkeys.
 fn warn_insecure_production_urls(get: EnvGet, is_production: bool) {
     if !is_production {
         return;
+    }
+    // Hosted derives the passkey relying party from each request's host.
+    if crate::middleware::DeploymentMode::from_value(get("NOSDESK_DEPLOYMENT_MODE").as_deref())
+        == crate::middleware::DeploymentMode::SelfHosted
+    {
+        for warning in
+            crate::utils::webauthn::WebAuthnConfig::misconfiguration_warnings(get, is_production)
+        {
+            warn!("{warning}");
+        }
     }
     if let Some(frontend_url) = get("FRONTEND_URL") {
         if !frontend_url.starts_with("https://") && !frontend_url.starts_with("http://localhost") {
