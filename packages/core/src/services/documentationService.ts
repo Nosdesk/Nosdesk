@@ -1167,13 +1167,26 @@ export const verifyPage = async (
  * places the page in the system "Tickets" collection. Used by the
  * ticket "Save as doc" action.
  */
+export interface TicketPageResult {
+  page: Page;
+  /** False when the ticket already had a page, so nothing was copied. */
+  created: boolean;
+  /** Yjs state vector of the page's copy of the note, when it has one. */
+  stateVector: Uint8Array | null;
+}
+
 export const createPageFromTicket = async (
   ticketId: number,
   payload: { title: string; icon?: string | null; parent_id?: number | null; description?: string | null },
-): Promise<Page | null> => {
+): Promise<TicketPageResult | null> => {
   try {
     const response = await apiClient.post(`/tickets/${ticketId}/documentation/create`, payload);
-    return convertToPage(response.data);
+    const stateVector = (response.data as { yjs_state_vector?: unknown } | null)?.yjs_state_vector;
+    return {
+      page: convertToPage(response.data),
+      created: response.status === 201,
+      stateVector: Array.isArray(stateVector) ? new Uint8Array(stateVector as number[]) : null,
+    };
   } catch (error) {
     logger.error(`Error creating doc from ticket ${ticketId}:`, error);
     return null;

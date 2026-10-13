@@ -13,7 +13,10 @@ use yrs::{
 
 use crate::db::{DbConnection, Pool};
 use crate::errors;
-use crate::extractors::{AuthContext, TenantConn, TicketAccess};
+use crate::extractors::{AuthContext, TenantConn, TicketAccess, WorkspaceContext};
+use crate::handlers::collaboration::{
+    update_state_vector, DocKind, DocumentType, LiveDocument, YjsAppState,
+};
 use crate::models::{
     DocumentationPage, DocumentationPageResponse, DocumentationPageTicketEmbed,
     DocumentationPageWithChildren, DocumentationStatus, NewDocumentationPage, UserInfoWithAvatar,
@@ -1843,6 +1846,8 @@ pub async fn create_documentation_page_from_ticket(
     path: web::Path<i32>,
     page_data: web::Json<CreateDocPageFromTicket>,
     auth: AuthContext,
+    workspace: WorkspaceContext,
+    collab: web::Data<YjsAppState>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
 
@@ -1853,6 +1858,45 @@ pub async fn create_documentation_page_from_ticket(
     let user_uuid = auth.user_uuid;
     let audience = repository::PageAudience::from_auth(&auth);
     let page_data = page_data.into_inner();
+
+    // Copy the note as its editors see it. While its room is open the stored
+    // row trails the room by up to a save interval, so a copy of the row
+    // misses what was just typed.
+    let live_note = match tc.run(|conn| repository::tickets::uuid_by_id(conn, ticket_id)) {
+        Ok(Some(ticket_uuid)) => {
+            let doc_id = DocKind::Ticket.doc_id(workspace.workspace_uuid, ticket_uuid);
+            collab
+                .live_document(
+                    workspace.workspace_id,
+                    DocumentType::Ticket(ticket_id),
+                    &doc_id,
+                )
+                .await
+        }
+        Ok(None) => LiveDocument::NotOpen,
+        Err(e) => {
+            error!(ticket_id, error = ?e, "Error looking up ticket to copy its note");
+            return errors::internal("Failed to create documentation page");
+        }
+    };
+    let live_note = match live_note {
+        LiveDocument::Here {
+            document,
+            state_vector,
+        } => Some((document, state_vector)),
+        // Another machine holds the room: fly-proxy replays this request
+        // there, where the room is local.
+        LiveDocument::OnMachine(owner) => {
+            debug!(
+                ticket_id,
+                "Replaying note copy to the machine holding its room"
+            );
+            return HttpResponse::Ok()
+                .insert_header(("fly-replay", format!("instance={owner}")))
+                .finish();
+        }
+        LiveDocument::NotOpen => None,
+    };
 
     let outcome = tc.run(|conn| {
         if let Some(pid) = page_data.parent_id {
@@ -1879,14 +1923,18 @@ pub async fn create_documentation_page_from_ticket(
         // Generate a unique slug from the title
         let slug = utils::slug::generate_unique_slug(&page_data.title, conn);
 
-        // Clone Yjs document data from ticket's article content if available
-        let (yjs_state_vector, yjs_document, yjs_client_id) = match &article_content {
-            Some(content) => (
-                content.yjs_state_vector.clone(),
-                content.yjs_document.clone(),
-                content.yjs_client_id,
-            ),
-            None => (None, None, None),
+        // Clone the note's live state when its room is open, else its stored
+        // state. The state vector is derived from the copied document (the
+        // stored column isn't kept current): the client checks it covers its
+        // own before replacing the note with an embed of the page.
+        let yjs_client_id = article_content.as_ref().and_then(|c| c.yjs_client_id);
+        let (yjs_document, yjs_state_vector) = match live_note {
+            Some((document, state_vector)) => (Some(document), Some(state_vector)),
+            None => {
+                let document = article_content.and_then(|c| c.yjs_document);
+                let state_vector = document.as_deref().and_then(update_state_vector);
+                (document, state_vector)
+            }
         };
 
         let new_page = NewDocumentationPage {

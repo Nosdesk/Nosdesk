@@ -472,6 +472,12 @@ impl DocKind {
         }
     }
 
+    /// The collab doc_id (room key) of a resource of this kind, the inverse
+    /// of [`DocumentType::from_namespaced_doc_id`].
+    pub(crate) fn doc_id(self, workspace_uuid: Uuid, resource_uuid: Uuid) -> String {
+        format!("ws-{workspace_uuid}_{}-{resource_uuid}", self.url_token())
+    }
+
     /// Inverse of [`DocKind::url_token`]. `None` for an unrecognised token.
     pub(crate) fn from_url_token(token: &str) -> Option<Self> {
         match token {
@@ -601,6 +607,18 @@ mod doc_id_tests {
         assert_eq!(parsed.kind, DocKind::Ticket);
         assert_eq!(parsed.resource_uuid, Uuid::parse_str(TICKET_UUID).unwrap());
         assert_eq!(parsed.workspace_uuid, Uuid::parse_str(WS_UUID).unwrap());
+    }
+
+    #[test]
+    fn builds_the_doc_id_it_parses() {
+        let ws = Uuid::parse_str(WS_UUID).unwrap();
+        let ticket = Uuid::parse_str(TICKET_UUID).unwrap();
+        let docid = DocKind::Ticket.doc_id(ws, ticket);
+        assert_eq!(docid, format!("ws-{WS_UUID}_ticket-{TICKET_UUID}"));
+        let parsed = DocumentType::from_namespaced_doc_id(&docid).expect("should parse");
+        assert_eq!(parsed.kind, DocKind::Ticket);
+        assert_eq!(parsed.resource_uuid, ticket);
+        assert_eq!(parsed.workspace_uuid, ws);
     }
 
     #[test]
@@ -1270,6 +1288,31 @@ pub struct YjsAppState {
     /// Which routing mode this machine runs in. `Single` when
     /// `ownership` is `None`; `FlyReplay` / `DirectAddress` when set.
     routing_mode: CollabRoutingMode,
+}
+
+/// Where a document's current state is; see [`YjsAppState::live_document`].
+pub(crate) enum LiveDocument {
+    /// Its room is open on this machine: the full state as a v1 update, and
+    /// its encoded state vector.
+    Here {
+        document: Vec<u8>,
+        state_vector: Vec<u8>,
+    },
+    /// Its room is open on this machine id (fly-replay routing), so the
+    /// request belongs there.
+    OnMachine(String),
+    /// No room holds it, so its stored state is current. Also returned under
+    /// direct-address routing when the room is on a machine this request
+    /// can't reach, where the stored state is the best there is.
+    NotOpen,
+}
+
+/// The encoded state vector of a full-state Yjs v1 update, such as a stored
+/// document. `None` when the bytes don't decode.
+pub(crate) fn update_state_vector(update: &[u8]) -> Option<Vec<u8>> {
+    Update::decode_v1(update)
+        .ok()
+        .map(|u| u.state_vector().encode_v1())
 }
 
 /// Routing mode lives with the ownership manager it configures; re-export
@@ -2037,6 +2080,48 @@ impl YjsAppState {
     async fn get_awareness(&self, doc_id: &str) -> Option<Arc<Awareness>> {
         let documents = self.documents.read().await;
         documents.get(doc_id).map(|s| Arc::clone(&s.awareness))
+    }
+
+    /// Where the current state of a document is, for a reader that must not
+    /// copy a stale save. A room saves on a cadence, so while one is open its
+    /// stored row can be seconds behind what the editors see.
+    ///
+    /// `doc_id` is the room's key, used to find the owner under
+    /// multi-instance routing; the local room is matched on `doc_type`.
+    pub(crate) async fn live_document(
+        &self,
+        workspace_id: i32,
+        doc_type: DocumentType,
+        doc_id: &str,
+    ) -> LiveDocument {
+        {
+            let documents = self.documents.read().await;
+            if let Some(state) = documents
+                .values()
+                .find(|s| s.doc_type == doc_type && s.workspace_id == workspace_id)
+            {
+                let (document, state_vector) = encode_doc_full(&state.awareness);
+                return LiveDocument::Here {
+                    document,
+                    state_vector,
+                };
+            }
+        }
+        let Some(ownership) = &self.ownership else {
+            return LiveDocument::NotOpen;
+        };
+        match ownership.current_owner(doc_id).await {
+            Some(owner) if owner != ownership.machine_id() => match self.routing_mode {
+                CollabRoutingMode::FlyReplay => LiveDocument::OnMachine(owner),
+                // No way to reach the owner's room from here, so the
+                // stored row is the best there is.
+                _ => {
+                    warn!(doc_id = %doc_id, owner = %owner, "Document is open on another machine; reading its last save");
+                    LiveDocument::NotOpen
+                }
+            },
+            _ => LiveDocument::NotOpen,
+        }
     }
 
     // Mark document as having pending changes

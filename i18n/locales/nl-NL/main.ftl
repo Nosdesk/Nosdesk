@@ -6020,6 +6020,8 @@ tickets-collaborative-article-open-doc = Gekoppeld document openen
 tickets-collaborative-article-promote-confirm-title = Notitie promoveren naar document?
 tickets-collaborative-article-promote-confirm-message = Hiermee wordt de inhoud van de notitie naar een nieuw document verplaatst en wordt de notitie vervangen door een insluiting ervan. Het document opent in volledig scherm en het ticket blijft het inline tonen.
 tickets-collaborative-article-promote-confirm-label = Promoveren
+# Notitie behouden (machine, nog na te kijken door moedertaalspreker).
+tickets-collaborative-article-promote-note-kept = De notitie blijft op het ticket staan, omdat het document niet alle inhoud ervan bevat.
 tickets-project-info-remove = Uit project verwijderen
 tickets-project-info-description = Beschrijving
 tickets-project-info-project-id = Project-ID

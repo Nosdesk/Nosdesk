@@ -1956,6 +1956,20 @@ function getTextContent(): string {
     )
 }
 
+/**
+ * Whether a copy of this document with the given Yjs state vector holds
+ * every change this editor has, including edits still on their way to the
+ * server. Promoting a note checks it before replacing the note body.
+ */
+function isHeldBy(stateVector: Uint8Array): boolean {
+    if (!ydoc) return false
+    const held = Y.decodeStateVector(stateVector)
+    for (const [client, clock] of Y.decodeStateVector(Y.encodeStateVector(ydoc))) {
+        if ((held.get(client) ?? 0) < clock) return false
+    }
+    return true
+}
+
 // Expose methods and state for parent components
 defineExpose({
     viewSnapshot,
@@ -1967,6 +1981,7 @@ defineExpose({
     currentRevisionNumber,
     getTextContent,
     replaceAllWithEmbeddedDocument,
+    isHeldBy,
 });
 </script>
 
