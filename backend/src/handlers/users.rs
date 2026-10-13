@@ -3331,14 +3331,21 @@ pub async fn bulk_users(
             let mut deleted = 0;
             let mut skipped_admin = 0;
             let mut skipped_staff = 0;
+            let mut failed = 0;
             for id in ids {
                 let uuid = match Uuid::parse_str(id) {
                     Ok(u) => u,
-                    Err(_) => continue,
+                    Err(_) => {
+                        failed += 1;
+                        continue;
+                    }
                 };
                 let target = match repository::get_user_by_uuid(&uuid, &mut conn) {
                     Ok(u) => u,
-                    Err(_) => continue,
+                    Err(_) => {
+                        failed += 1;
+                        continue;
+                    }
                 };
                 if crate::repository::user_helpers::user_is_admin(&mut conn, &target) {
                     skipped_admin += 1;
@@ -3366,6 +3373,7 @@ pub async fn bulk_users(
                     }
                     Err(e) => {
                         error!(user_id = %id, error = ?e, "Error soft-deleting user");
+                        failed += 1;
                     }
                 }
             }
@@ -3374,6 +3382,7 @@ pub async fn bulk_users(
                 "affected": deleted,
                 "skipped_admin": skipped_admin,
                 "skipped_staff": skipped_staff,
+                "failed": failed,
             })))
         }
 

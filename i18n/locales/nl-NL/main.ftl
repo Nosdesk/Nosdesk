@@ -2605,6 +2605,23 @@ user-mgmt-bulk-delete-message = { $count ->
    *[other] { $count } gebruikers verwijderen? Deze kunnen 30 dagen worden hersteld voordat ze permanent worden verwijderd.
 }
 user-mgmt-bulk-action-error = Bulkactie mislukt. Probeer het opnieuw.
+# TODO native-review nl-NL for the bulk delete outcome keys below.
+user-mgmt-bulk-deleted = { $count ->
+    [one] Eén gebruiker verwijderd. U kunt deze 30 dagen lang herstellen via Verwijderd.
+   *[other] { $count } gebruikers verwijderd. U kunt ze 30 dagen lang herstellen via Verwijderd.
+}
+user-mgmt-bulk-skipped-admin = { $count ->
+    [one] Eén beheerder is niet verwijderd. Wijzig eerst de rol en verwijder daarna.
+   *[other] { $count } beheerders zijn niet verwijderd. Wijzig eerst hun rol en verwijder daarna.
+}
+user-mgmt-bulk-skipped-staff = { $count ->
+    [one] Eén medewerker wordt beheerd in uw Nosdesk-account en is hier dus niet verwijderd.
+   *[other] { $count } medewerkers worden beheerd in uw Nosdesk-account en zijn hier dus niet verwijderd.
+}
+user-mgmt-bulk-delete-failed = { $count ->
+    [one] Eén gebruiker kon niet worden verwijderd. Probeer het opnieuw.
+   *[other] { $count } gebruikers konden niet worden verwijderd. Probeer het opnieuw.
+}
 # TODO native-review nl-NL for the soft-delete keys below.
 user-mgmt-deleted-off = Verwijderde tonen
 user-mgmt-deleted-on = Verwijderde verbergen

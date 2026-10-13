@@ -31,6 +31,15 @@ export interface UserPaginationParams extends PaginationParams {
 // Re-export for backwards compatibility
 export type { PaginatedResponse } from '@nosdesk/core/types/pagination';
 
+/** `POST /users/bulk` outcome. The skip and failure counts come back on a
+ *  delete; a role change reports `affected` and `skipped_staff` only. */
+export interface BulkUserActionResult {
+  affected: number;
+  skipped_admin?: number;
+  skipped_staff?: number;
+  failed?: number;
+}
+
 // User Email interface matching the backend model
 export interface UserEmail {
   id: number;
@@ -520,7 +529,7 @@ const userService = {
   },
 
   // Bulk operations on users (admin only)
-  async bulkAction(request: { action: 'delete' | 'set-role'; ids: string[]; value?: string }): Promise<{ affected: number }> {
+  async bulkAction(request: { action: 'delete' | 'set-role'; ids: string[]; value?: string }): Promise<BulkUserActionResult> {
     const response = await apiClient.post('/users/bulk', request);
     return response.data;
   },
