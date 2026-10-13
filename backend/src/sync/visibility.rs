@@ -31,7 +31,7 @@
 //!   ticket family and staff records. An agent sees every ticket.
 //! - `is_admin` (workspace Admin+ / platform admin) governs documentation
 //!   and admin records. An agent is NOT an admin, so docs still filter for
-//!   them.
+//!   them (drafts, archived pages and the trash excepted: staff read those).
 
 use std::collections::{HashMap, HashSet};
 
@@ -89,6 +89,7 @@ impl SyncViewer {
         documentation::PageAudience::User {
             user_uuid: self.ctx.user_uuid,
             is_admin: self.is_admin,
+            is_staff: self.sees_all(),
         }
     }
 }
@@ -572,7 +573,7 @@ pub fn deliveries<T>(
         (HashSet::new(), HashSet::new(), false)
     } else {
         // The trash view is built from these rows, so a page in the trash
-        // reaches whoever could open it under its rules.
+        // reaches staff who could open it under its rules, and no one else.
         match viewer
             .pages()
             .hidden_with_trash(conn, &page_ids, &collection_ids)

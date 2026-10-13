@@ -1770,10 +1770,7 @@ pub async fn export_page_as_markdown(
     // The same audience gates the page itself and every page it embeds. Reading
     // a page through the export used to skip the ACL that `get_documentation_page`
     // applies, on the page and on its embeds alike.
-    let audience = repository::PageAudience::User {
-        user_uuid: auth.user_uuid,
-        is_admin: auth.is_workspace_admin(),
-    };
+    let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
         let page = match repository::get_documentation_page(id, conn) {
@@ -2506,10 +2503,7 @@ pub async fn list_page_tickets(
     // The links belong to the page, so the page's own ACL decides who may read
     // them; `auth` was taken and then ignored here, which let any member list
     // the tickets attached to a page they cannot open.
-    let audience = repository::PageAudience::User {
-        user_uuid: auth.user_uuid,
-        is_admin: auth.is_workspace_admin(),
-    };
+    let audience = repository::PageAudience::from_auth(&auth);
     let ticket_ctx = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
 
     let result = tc.run(|conn| {

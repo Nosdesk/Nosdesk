@@ -232,6 +232,7 @@ fn a_record_shared_before_the_migration_is_restricted_after_it() {
     let outsider = PageAudience::User {
         user_uuid: s.outsider,
         is_admin: false,
+        is_staff: true,
     };
     let (hidden_pages, hidden_collections) = outsider
         .hidden(

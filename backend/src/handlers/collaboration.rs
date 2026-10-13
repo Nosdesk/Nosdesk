@@ -723,6 +723,7 @@ impl DocAccessor {
         repository::PageAudience::User {
             user_uuid: self.vis.user_uuid,
             is_admin: self.is_workspace_admin,
+            is_staff: self.vis.sees_all(),
         }
     }
 
@@ -1629,12 +1630,14 @@ impl YjsAppState {
                         if !platform_admin && membership.is_none() {
                             return Ok(false);
                         }
+                        let role = membership
+                            .as_ref()
+                            .map(|m| crate::models::WorkspaceRole::from_db(&m.role));
                         let pages = repository::PageAudience::User {
                             user_uuid: user.uuid,
                             is_admin: platform_admin
-                                || membership
-                                    .as_ref()
-                                    .is_some_and(|m| matches!(m.role.as_str(), "owner" | "admin")),
+                                || role.is_some_and(|r| r.meets(crate::models::WorkspaceRole::Admin)),
+                            is_staff: platform_admin || role.is_some_and(|r| r.is_staff()),
                         };
                         match doc {
                             DocumentType::Documentation(id) => pages.try_can_read(conn, *id),

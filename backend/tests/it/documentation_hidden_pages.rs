@@ -2474,3 +2474,439 @@ fn renaming_a_group_resends_the_collections_shared_with_it() {
         "{row}"
     );
 }
+
+/// A page with `status`, open to everyone in the workspace (no rules, in no
+/// collection) and published to guests.
+fn page_with_status(
+    pool: &TestPool,
+    f: &Fixture,
+    title: &str,
+    status: DocumentationStatus,
+) -> (i32, String) {
+    run_in_workspace(pool, REF, f.workspace.workspace_id, |c| {
+        use backend::schema::{documentation_pages as dp, site_settings};
+        backend::repository::site_settings::get_site_settings(c)?;
+        diesel::update(site_settings::table)
+            .set((
+                site_settings::guest_public_docs_enabled.eq(true),
+                site_settings::guest_kb_search_enabled.eq(true),
+            ))
+            .execute(c)?;
+        let id = page(c, title, f.admin);
+        let slug = format!(
+            "{}-{}",
+            title.to_lowercase().replace(' ', "-"),
+            &Uuid::new_v4().simple().to_string()[..6]
+        );
+        diesel::update(dp::table.find(id))
+            .set((
+                dp::status.eq(status),
+                dp::is_public.eq(true),
+                dp::slug.eq(&slug),
+            ))
+            .execute(c)?;
+        Ok((id, slug))
+    })
+    .expect("seed page")
+}
+
+/// The bootstrap snapshot `user` receives.
+macro_rules! bootstrap_of {
+    ($app:expr, $f:expr, $user:expr) => {{
+        let uri = format!(
+            "/api/sync/bootstrap?groups=workspace:{}&schema=test",
+            $f.workspace.workspace_id
+        );
+        let resp =
+            http_test::call_service(&$app, request(Method::GET, &uri, $user, None).to_request())
+                .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        String::from_utf8(http_test::read_body(resp).await.to_vec()).expect("utf8")
+    }};
+}
+
+/// The body of a GET that answers 200.
+macro_rules! body_of {
+    ($app:expr, $user:expr, $uri:expr) => {{
+        let uri: String = $uri;
+        let resp =
+            http_test::call_service(&$app, request(Method::GET, &uri, $user, None).to_request())
+                .await;
+        assert_eq!(resp.status(), StatusCode::OK, "GET {uri}");
+        String::from_utf8(http_test::read_body(resp).await.to_vec()).expect("utf8")
+    }};
+}
+
+/// A draft or an archived page is open to staff only: a requester gets it on
+/// no docs route and in no sync snapshot, and the portal never serves it. An
+/// agent and an admin read it as before.
+#[actix_web::test]
+async fn drafts_and_archived_pages_are_open_to_staff_only() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+
+    for (status, title, lists) in [
+        (
+            DocumentationStatus::Draft,
+            "Quokka draft",
+            vec![
+                "/api/documentation/pages/top-level",
+                "/api/documentation/pages/ordered/top-level",
+                "/api/documentation/pages/uncollected",
+            ],
+        ),
+        (
+            DocumentationStatus::Archived,
+            "Quokka archive",
+            vec!["/api/documentation/pages/archived"],
+        ),
+    ] {
+        let (id, slug) = page_with_status(&pool, &f, title, status);
+        let routes = [
+            format!("/api/documentation/pages/{id}"),
+            format!("/api/documentation/pages/slug/{slug}"),
+            format!("/api/documentation/pages/{id}/export/markdown"),
+        ];
+
+        for uri in &routes {
+            assert_eq!(
+                status_of!(app, f.member, uri.clone()),
+                StatusCode::NOT_FOUND,
+                "a requester can't open {title}: {uri}"
+            );
+        }
+        for uri in &lists {
+            let body = body_of!(app, f.member, uri.to_string());
+            assert!(
+                !body.contains(title),
+                "a requester's {uri} leaves out {title}"
+            );
+        }
+        assert!(
+            !bootstrap_of!(app, f, f.member).contains(title),
+            "a requester's snapshot leaves out {title}"
+        );
+
+        for (who, user) in [("an agent", f.outsider), ("an admin", f.admin)] {
+            for uri in &routes {
+                assert_eq!(
+                    status_of!(app, user, uri.clone()),
+                    StatusCode::OK,
+                    "{who} opens {title}: {uri}"
+                );
+            }
+            for uri in &lists {
+                let body = body_of!(app, user, uri.to_string());
+                assert!(body.contains(title), "{who}'s {uri} lists {title}");
+            }
+            assert!(
+                bootstrap_of!(app, f, user).contains(title),
+                "{who}'s snapshot carries {title}"
+            );
+        }
+
+        for user in [f.member, f.outsider, f.admin] {
+            assert_eq!(
+                status_of!(app, user, format!("/api/public/docs/{slug}")),
+                StatusCode::NOT_FOUND,
+                "the portal never serves {title}"
+            );
+        }
+    }
+}
+
+/// A requester's search leaves a draft and an archived page out, as do the
+/// portal's list and search; an agent finds them.
+#[actix_web::test]
+async fn search_and_the_portal_leave_a_draft_out() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let (draft, _) = page_with_status(&pool, &f, "Wombat draft", DocumentationStatus::Draft);
+    let (archived, _) =
+        page_with_status(&pool, &f, "Wombat archive", DocumentationStatus::Archived);
+    let (published, _) =
+        page_with_status(&pool, &f, "Wombat handbook", DocumentationStatus::Published);
+    let pages: Vec<backend::models::DocumentationPage> =
+        run_in_workspace(&pool, REF, f.workspace.workspace_id, |c| {
+            backend::schema::documentation_pages::table
+                .filter(
+                    backend::schema::documentation_pages::id.eq_any([draft, archived, published]),
+                )
+                .load(c)
+        })
+        .expect("load pages");
+    let search_dir = tempfile::tempdir().expect("tempdir");
+    let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
+    for p in &pages {
+        search.index_documentation(p).expect("index page");
+    }
+    search.commit().expect("commit index");
+
+    let workspace = f.workspace.clone();
+    let corr = Uuid::now_v7();
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(search.clone()))
+            .wrap_fn(move |req, srv| {
+                let user = req
+                    .headers()
+                    .get(AS)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| Uuid::parse_str(v).ok())
+                    .expect("caller header");
+                let actor =
+                    ActorContext::user(user, Some(corr)).with_workspace(workspace.workspace_id);
+                req.extensions_mut().insert(workspace.clone());
+                req.extensions_mut().insert(claims(user));
+                req.extensions_mut()
+                    .insert(RequestContext::new(corr, actor));
+                srv.call(req)
+            })
+            .service(
+                web::scope("/api")
+                    .configure(backend::handlers::search::config)
+                    .route(
+                        "/public/docs",
+                        web::get().to(backend::handlers::guest::list_public_docs),
+                    )
+                    .route(
+                        "/public/docs/search",
+                        web::get().to(backend::handlers::guest::search_public_docs),
+                    ),
+            ),
+    )
+    .await;
+    let ids_in = |body: &Value| -> Vec<i64> {
+        body["results"]
+            .as_array()
+            .or(body.as_array())
+            .expect("a list")
+            .iter()
+            .filter_map(|r| r["entity_id"].as_i64().or(r["id"].as_i64()))
+            .collect()
+    };
+    let get = |user: Uuid, uri: &'static str| {
+        let app = &app;
+        async move {
+            let resp =
+                http_test::call_service(app, request(Method::GET, uri, user, None).to_request())
+                    .await;
+            assert_eq!(resp.status(), StatusCode::OK, "GET {uri}");
+            http_test::read_body_json::<Value, _>(resp).await
+        }
+    };
+    const SEARCH: &str = "/api/search?q=wombat&types=documentation&limit=10";
+
+    // The index answers once its reader reloads after the commit.
+    let mut agent_hits = Vec::new();
+    for _ in 0..100 {
+        agent_hits = ids_in(&get(f.outsider, SEARCH).await);
+        if agent_hits.len() == 3 {
+            break;
+        }
+        actix_web::rt::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(
+        agent_hits.contains(&(draft as i64)) && agent_hits.contains(&(archived as i64)),
+        "an agent finds the draft and the archived page"
+    );
+
+    let body = get(f.member, SEARCH).await;
+    assert_eq!(
+        ids_in(&body),
+        vec![published as i64],
+        "a requester finds the published page only: {body}"
+    );
+    assert_eq!(body["total"], json!(1), "{body}");
+
+    for uri in ["/api/public/docs", "/api/public/docs/search?q=wombat"] {
+        let body = get(f.member, uri).await;
+        assert_eq!(
+            ids_in(&body),
+            vec![published as i64],
+            "the portal lists the published page only: {uri} {body}"
+        );
+    }
+}
+
+/// Unpublishing or archiving reaches a requester as a delete of the page, and
+/// publishing sends it; an agent keeps the row throughout.
+#[actix_web::test]
+async fn unpublishing_reads_as_a_delete_and_publishing_sends_the_row() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let (id, _) = page_with_status(&pool, &f, "Platypus guide", DocumentationStatus::Published);
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let set_status = |status: &'static str| {
+        let app = &app;
+        let uri = format!("/api/documentation/pages/{id}");
+        async move {
+            let resp = http_test::call_service(
+                app,
+                request(
+                    Method::PUT,
+                    &uri,
+                    f.admin,
+                    Some(json!({ "status": status })),
+                )
+                .to_request(),
+            )
+            .await;
+            assert_eq!(resp.status(), StatusCode::OK, "PUT {status}");
+        }
+    };
+
+    let (_, member_at) = delta_after!(app, f, pool, f.member, (0, 0));
+    let (_, agent_at) = delta_after!(app, f, pool, f.outsider, (0, 0));
+
+    set_status("draft").await;
+    let (rows, member_at) = delta_after!(app, f, pool, f.member, member_at);
+    assert!(
+        only_deletes(&rows, "documentation_page", id),
+        "a requester's delta deletes the unpublished page: {rows:?}"
+    );
+    let (rows, agent_at) = delta_after!(app, f, pool, f.outsider, agent_at);
+    assert!(
+        carries_row(&rows, "documentation_page", id),
+        "an agent's delta keeps it: {rows:?}"
+    );
+
+    set_status("published").await;
+    let (rows, member_at) = delta_after!(app, f, pool, f.member, member_at);
+    assert!(
+        carries_row(&rows, "documentation_page", id),
+        "a requester's delta sends the published page: {rows:?}"
+    );
+    let (rows, agent_at) = delta_after!(app, f, pool, f.outsider, agent_at);
+    assert!(carries_row(&rows, "documentation_page", id), "{rows:?}");
+
+    set_status("archived").await;
+    let (rows, _) = delta_after!(app, f, pool, f.member, member_at);
+    assert!(
+        only_deletes(&rows, "documentation_page", id),
+        "a requester's delta deletes the archived page: {rows:?}"
+    );
+    let (rows, _) = delta_after!(app, f, pool, f.outsider, agent_at);
+    assert!(
+        carries_row(&rows, "documentation_page", id),
+        "an agent's delta keeps it: {rows:?}"
+    );
+}
+
+/// A requester made an agent receives the drafts and archived pages; an agent
+/// made a requester gets a delete for each.
+#[actix_web::test]
+async fn a_role_change_sends_or_withdraws_the_drafts() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let (draft, _) = page_with_status(&pool, &f, "Echidna draft", DocumentationStatus::Draft);
+    let (archived, _) =
+        page_with_status(&pool, &f, "Echidna archive", DocumentationStatus::Archived);
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let set_role = |role: &'static str| {
+        run_in_workspace(&pool, REF, ws, |c| {
+            backend::repository::users::set_user_roles(
+                c,
+                ws,
+                f.member,
+                "user",
+                role,
+                SeatWriteAuthority::ControlPlane,
+            )
+            .map(|_| ())
+        })
+        .expect("set role")
+    };
+
+    let (_, at) = delta_after!(app, f, pool, f.member, (0, 0));
+    set_role("agent");
+    let (rows, at) = delta_after!(app, f, pool, f.member, at);
+    assert!(
+        carries_row(&rows, "documentation_page", draft),
+        "the new agent receives the draft: {rows:?}"
+    );
+    assert!(
+        carries_row(&rows, "documentation_page", archived),
+        "and the archived page: {rows:?}"
+    );
+
+    set_role("member");
+    let (rows, _) = delta_after!(app, f, pool, f.member, at);
+    assert!(
+        only_deletes(&rows, "documentation_page", draft),
+        "the new requester gets a delete for it: {rows:?}"
+    );
+    assert!(
+        only_deletes(&rows, "documentation_page", archived),
+        "and for the archived page: {rows:?}"
+    );
+}
+
+/// The trash is open to staff only: a page moved there reaches a requester as
+/// a delete, and neither their trash list nor their snapshot carries it. An
+/// agent who can open the page keeps it in the trash.
+#[actix_web::test]
+async fn the_trash_is_open_to_staff_only() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let title = "Bilby notes";
+    let (id, _) = page_with_status(&pool, &f, title, DocumentationStatus::Published);
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+
+    let (_, member_at) = delta_after!(app, f, pool, f.member, (0, 0));
+    let (_, agent_at) = delta_after!(app, f, pool, f.outsider, (0, 0));
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::DELETE,
+            &format!("/api/documentation/pages/{id}"),
+            f.admin,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert!(resp.status().is_success(), "trash the page");
+
+    let (rows, _) = delta_after!(app, f, pool, f.member, member_at);
+    assert!(
+        only_deletes(&rows, "documentation_page", id),
+        "a requester's delta deletes the trashed page: {rows:?}"
+    );
+    let (rows, _) = delta_after!(app, f, pool, f.outsider, agent_at);
+    assert!(
+        carries_row(&rows, "documentation_page", id),
+        "an agent's delta keeps it: {rows:?}"
+    );
+
+    let trash = "/api/documentation/pages/trash".to_string();
+    assert!(
+        !body_of!(app, f.member, trash.clone()).contains(title),
+        "a requester's trash list leaves it out"
+    );
+    assert!(
+        !bootstrap_of!(app, f, f.member).contains(title),
+        "a requester's snapshot leaves it out"
+    );
+    assert!(
+        body_of!(app, f.outsider, trash.clone()).contains(title),
+        "an agent's trash list carries it"
+    );
+    assert!(
+        bootstrap_of!(app, f, f.outsider).contains(title),
+        "an agent's snapshot carries it"
+    );
+}

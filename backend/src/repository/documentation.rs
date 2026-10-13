@@ -618,8 +618,9 @@ pub fn emit_records_granted_to_groups(
 /// What decides what a person may see in a workspace: whether they are a
 /// member and in what role, their platform role, and every group they are in
 /// (the including groups too). Documentation follows membership, admin
-/// (workspace owner or admin, or platform admin) and groups; the rest of the
-/// sync feed and the editor's edit rights follow the roles.
+/// (workspace owner or admin, or platform admin), staff (drafts, archived
+/// pages and the trash) and groups; the rest of the sync feed and the
+/// editor's edit rights follow the roles.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocAccess {
     role: Option<String>,
@@ -638,6 +639,14 @@ impl DocAccess {
                 .role
                 .as_deref()
                 .is_some_and(|r| matches!(r, "owner" | "admin"))
+    }
+
+    fn staff(&self) -> bool {
+        crate::models::PlatformRole::from_db(&self.platform_role).is_platform_admin()
+            || self
+                .role
+                .as_deref()
+                .is_some_and(|r| crate::models::WorkspaceRole::from_db(r).is_staff())
     }
 }
 
@@ -732,8 +741,10 @@ pub fn emit_if_access_changed_everywhere(
 ///   recorded whether or not any documentation is restricted.
 /// - Re-send to them the documentation it touches: every restricted record
 ///   when they became or stopped being an admin, or became a member again;
-///   the records granted to the groups they joined or left. Other readers'
-///   access didn't change, so the rows are addressed to this person alone.
+///   the records granted to the groups they joined or left; every draft,
+///   archived page and page in the trash when they became or stopped being
+///   staff. Other readers' access didn't
+///   change, so the rows are addressed to this person alone.
 pub fn emit_if_access_changed(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -761,7 +772,7 @@ pub fn emit_if_access_changed(
         if !after.member() {
             return Ok(());
         }
-        let (collections, pages) =
+        let (collections, mut pages) =
             if after.member() != before.member() || after.admin() != before.admin() {
                 let collections: Vec<i32> = documentation_collections::table
                     .filter(documentation_collections::workspace_id.eq(workspace_id))
@@ -782,8 +793,24 @@ pub fn emit_if_access_changed(
                     .collect();
                 records_granted_to_groups(conn, &changed)?
             } else {
-                return Ok(());
+                (Vec::new(), Vec::new())
             };
+        if after.staff() != before.staff() {
+            pages.extend(
+                documentation_pages::table
+                    .filter(documentation_pages::workspace_id.eq(workspace_id))
+                    .filter(documentation_pages::status.eq_any([
+                        DocumentationStatus::Draft,
+                        DocumentationStatus::Archived,
+                        DocumentationStatus::Deleted,
+                    ]))
+                    .select(documentation_pages::id)
+                    .load::<i32>(conn)?,
+            );
+        }
+        if collections.is_empty() && pages.is_empty() {
+            return Ok(());
+        }
         emit_records(
             conn,
             &collections,
@@ -1317,8 +1344,8 @@ pub fn set_page_rules(
 
 /// Who is reading documentation, and the one place that decides which pages
 /// and collections they may open. Every reader asks it: the REST routes, the
-/// sync bootstrap and feed, the collab editor and the exporter. A page or
-/// collection it says no to reads as absent everywhere.
+/// sync bootstrap and feed, the collab editor, the exporter and the guest
+/// portal. A page or collection it says no to reads as absent everywhere.
 ///
 /// The markdown exporter follows `embedded_document` nodes, and a page the
 /// caller may read can embed one they may not, so it carries the audience
@@ -1328,15 +1355,19 @@ pub fn set_page_rules(
 #[derive(Clone, Copy)]
 pub enum PageAudience {
     /// A specific caller, filtered by the rules on each page and collection.
+    /// `is_admin`: workspace admin or owner, or platform admin; opens every
+    /// page. `is_staff`: agent and up, or platform admin; opens drafts,
+    /// archived pages and the trash.
     User {
         user_uuid: uuid::Uuid,
         is_admin: bool,
+        is_staff: bool,
     },
     /// No filtering, for callers that have already established authority over
     /// the whole export (nothing uses this yet; it exists so a future system
     /// exporter has to say so rather than pass a borrowed user).
     Unrestricted,
-    /// The guest portal: pages published to guests that no restriction
+    /// The guest portal: published pages marked public that no restriction
     /// covers, and no collections.
     Guest,
 }
@@ -1347,6 +1378,7 @@ impl PageAudience {
         PageAudience::User {
             user_uuid: auth.user_uuid,
             is_admin: auth.is_workspace_admin(),
+            is_staff: auth.can_handle_tickets(),
         }
     }
 
@@ -1355,6 +1387,7 @@ impl PageAudience {
         PageAudience::User {
             user_uuid: user.uuid,
             is_admin: crate::repository::user_helpers::user_is_admin(conn, user),
+            is_staff: crate::repository::user_helpers::user_can_handle_tickets(conn, user),
         }
     }
 
@@ -1406,7 +1439,8 @@ impl PageAudience {
             PageAudience::User {
                 user_uuid,
                 is_admin,
-            } => filter_pages_for_user(conn, pages, user_uuid, *is_admin),
+                is_staff,
+            } => filter_pages_for_user(conn, pages, user_uuid, *is_admin, *is_staff),
             PageAudience::Guest => {
                 let ids: Vec<i32> = pages.iter().map(|p| p.id).collect();
                 let hidden = self.hidden_pages(conn, &ids)?;
@@ -1437,16 +1471,25 @@ impl PageAudience {
             PageAudience::User {
                 user_uuid,
                 is_admin,
-            } => hidden_documentation_ids(conn, page_ids, collection_ids, user_uuid, *is_admin),
+                is_staff,
+            } => hidden_documentation_ids(
+                conn,
+                page_ids,
+                collection_ids,
+                user_uuid,
+                *is_admin,
+                *is_staff,
+            ),
             PageAudience::Guest => {
                 hidden_ids(conn, page_ids, collection_ids, Reader::Guest, Trash::Absent)
             }
         }
     }
 
-    /// [`PageAudience::hidden`], but a page in the trash reads as its rules
-    /// say rather than as absent: for the trash list, restoring from it, and
-    /// the sync rows the trash view is built from. Admins hide nothing.
+    /// [`PageAudience::hidden`], but for staff a page in the trash reads as
+    /// its rules say rather than as absent: for the trash list, restoring from
+    /// it, and the sync rows the trash view is built from. Admins hide
+    /// nothing; anyone else sees no trash.
     pub fn hidden_with_trash(
         &self,
         conn: &mut DbConnection,
@@ -1463,11 +1506,18 @@ impl PageAudience {
             PageAudience::Unrestricted | PageAudience::User { is_admin: true, .. } => {
                 Ok(Default::default())
             }
-            PageAudience::User { user_uuid, .. } => hidden_ids(
+            PageAudience::User {
+                user_uuid,
+                is_staff,
+                ..
+            } => hidden_ids(
                 conn,
                 page_ids,
                 collection_ids,
-                Reader::Member(user_uuid),
+                Reader::Member {
+                    user: user_uuid,
+                    staff: *is_staff,
+                },
                 Trash::ByRules,
             ),
             // The portal never shows the trash.
@@ -1573,8 +1623,8 @@ impl PageAudience {
 }
 
 /// Whether a page in the trash reads as absent (every route but the trash
-/// itself) or as its rules say (the trash list, restoring from it, and the
-/// sync rows the trash view is built from).
+/// itself) or, to staff, as its rules say (the trash list, restoring from it,
+/// and the sync rows the trash view is built from).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Trash {
     Absent,
@@ -1584,10 +1634,19 @@ enum Trash {
 /// Who the documentation rule is deciding for.
 #[derive(Clone, Copy)]
 enum Reader<'a> {
-    /// A workspace user who isn't an admin (admins read everything).
-    Member(&'a uuid::Uuid),
+    /// A workspace user who isn't an admin (admins read everything), and
+    /// whether they are staff (agent and up), who read drafts, archived pages
+    /// and the trash.
+    Member { user: &'a uuid::Uuid, staff: bool },
     /// The guest portal: anyone, signed in or not.
     Guest,
+}
+
+impl Reader<'_> {
+    /// Staff read drafts, archived pages and the trash.
+    fn is_staff(&self) -> bool {
+        matches!(self, Reader::Member { staff: true, .. })
+    }
 }
 
 /// Batch-filter a list of pages for a user. Returns only the pages the user
@@ -1597,12 +1656,17 @@ fn filter_pages_for_user(
     pages: Vec<DocumentationPage>,
     user_uuid: &uuid::Uuid,
     is_admin: bool,
+    is_staff: bool,
 ) -> Result<Vec<DocumentationPage>, Error> {
     if is_admin || pages.is_empty() {
         return Ok(pages);
     }
     let ids: Vec<i32> = pages.iter().map(|p| p.id).collect();
-    let (hidden, _) = hidden_ids(conn, &ids, &[], Reader::Member(user_uuid), Trash::Absent)?;
+    let reader = Reader::Member {
+        user: user_uuid,
+        staff: is_staff,
+    };
+    let (hidden, _) = hidden_ids(conn, &ids, &[], reader, Trash::Absent)?;
     Ok(pages
         .into_iter()
         .filter(|p| !hidden.contains(&p.id))
@@ -1617,6 +1681,7 @@ fn hidden_documentation_ids(
     collection_ids: &[i32],
     user_uuid: &uuid::Uuid,
     is_admin: bool,
+    is_staff: bool,
 ) -> Result<
     (
         std::collections::HashSet<i32>,
@@ -1631,7 +1696,10 @@ fn hidden_documentation_ids(
         conn,
         page_ids,
         collection_ids,
-        Reader::Member(user_uuid),
+        Reader::Member {
+            user: user_uuid,
+            staff: is_staff,
+        },
         Trash::Absent,
     )
 }
@@ -1642,16 +1710,18 @@ fn hidden_documentation_ids(
 /// - An id with no row (deleted for good) is hidden: nothing shows it was
 ///   open to them, and the sync feed still holds its old rows, which must
 ///   reach them only as a delete.
-/// - A page in the trash is hidden, except where `trash` says it reads as
-///   its rules say (the trash list, restoring, and the sync rows the trash
-///   view is built from).
+/// - A page in the trash is hidden, except to staff where `trash` says it
+///   reads as its rules say (the trash list, restoring, and the sync rows the
+///   trash view is built from).
+/// - A draft or an archived page is open to staff only (agents and up).
+///   Admins read everything before this rule is asked.
 /// - A restricted collection is open only to the people and groups it
 ///   names; one that names nobody is open to admins only. An unrestricted
 ///   collection is open to everyone in the workspace.
 /// - A page with its own rules (restricted) is open only to the people and
 ///   groups it names, or to admins only when it names nobody. Any other page
 ///   follows its collection, and a page in no collection is open.
-/// - The guest portal reads only pages published to guests that no
+/// - The guest portal reads only published pages marked public that no
 ///   restriction covers.
 ///
 /// An empty set of grants never means open.
@@ -1714,7 +1784,7 @@ fn hidden_ids(
     // Grants, only for what is restricted, and only a member can hold one.
     let (page_grants, collection_grants, user_groups) = match reader {
         Reader::Guest => (Vec::new(), Vec::new(), HashSet::new()),
-        Reader::Member(_) => {
+        Reader::Member { .. } => {
             let restricted_pages: Vec<i32> = pages.iter().filter(|p| p.1).map(|p| p.0).collect();
             let restricted_collections: Vec<i32> = collections
                 .iter()
@@ -1753,7 +1823,10 @@ fn hidden_ids(
             let user_groups: HashSet<i32> =
                 if page_grants.is_empty() && collection_grants.is_empty() {
                     HashSet::new()
-                } else if let Reader::Member(user_uuid) = reader {
+                } else if let Reader::Member {
+                    user: user_uuid, ..
+                } = reader
+                {
                     crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?
                         .into_iter()
                         .collect()
@@ -1765,7 +1838,9 @@ fn hidden_ids(
     };
     let granted = |grants: &[(i32, Option<i32>, Option<uuid::Uuid>)], id: i32| match reader {
         Reader::Guest => false,
-        Reader::Member(user_uuid) => grants.iter().any(|(on, group, user)| {
+        Reader::Member {
+            user: user_uuid, ..
+        } => grants.iter().any(|(on, group, user)| {
             *on == id
                 && (user.as_ref() == Some(user_uuid)
                     || group.is_some_and(|g| user_groups.contains(&g)))
@@ -1790,7 +1865,16 @@ fn hidden_ids(
     let open_pages: HashSet<i32> = pages
         .iter()
         .filter(|(id, restricted, status, is_public)| {
-            if *status == DocumentationStatus::Deleted && trash == Trash::Absent {
+            if *status == DocumentationStatus::Deleted
+                && (trash == Trash::Absent || !reader.is_staff())
+            {
+                return false;
+            }
+            if matches!(
+                status,
+                DocumentationStatus::Draft | DocumentationStatus::Archived
+            ) && !reader.is_staff()
+            {
                 return false;
             }
             if matches!(reader, Reader::Guest) && !*is_public {
@@ -1931,12 +2015,19 @@ mod tests {
         let mut conn = setup_test_connection();
         let grantee = TestFixtures::create_user(&mut conn, "doc_grantee", "user");
         let outsider = TestFixtures::create_user(&mut conn, "doc_outsider", "user");
+        // The pages are drafts; both readers are staff so only the rules decide.
 
         // A page with no override is public: hidden for nobody.
         let public_page = create_documentation_page(make_page(grantee.uuid), &mut conn).unwrap();
-        let (hidden, _) =
-            hidden_documentation_ids(&mut conn, &[public_page.id], &[], &outsider.uuid, false)
-                .unwrap();
+        let (hidden, _) = hidden_documentation_ids(
+            &mut conn,
+            &[public_page.id],
+            &[],
+            &outsider.uuid,
+            false,
+            true,
+        )
+        .unwrap();
         assert!(
             hidden.is_empty(),
             "page with no visibility override should be public"
@@ -1955,7 +2046,8 @@ mod tests {
 
         // Outsider can no longer see it -> reported hidden.
         let (hidden, _) =
-            hidden_documentation_ids(&mut conn, &[page_id], &[], &outsider.uuid, false).unwrap();
+            hidden_documentation_ids(&mut conn, &[page_id], &[], &outsider.uuid, false, true)
+                .unwrap();
         assert!(
             hidden.contains(&page_id),
             "restricted page must be hidden from an outsider"
@@ -1963,7 +2055,8 @@ mod tests {
 
         // The grantee still sees it -> not hidden.
         let (hidden, _) =
-            hidden_documentation_ids(&mut conn, &[page_id], &[], &grantee.uuid, false).unwrap();
+            hidden_documentation_ids(&mut conn, &[page_id], &[], &grantee.uuid, false, true)
+                .unwrap();
         assert!(
             !hidden.contains(&page_id),
             "granted user must still see the page"
@@ -1971,7 +2064,8 @@ mod tests {
 
         // Admins hide nothing.
         let (hidden, _) =
-            hidden_documentation_ids(&mut conn, &[page_id], &[], &outsider.uuid, true).unwrap();
+            hidden_documentation_ids(&mut conn, &[page_id], &[], &outsider.uuid, true, true)
+                .unwrap();
         assert!(hidden.is_empty(), "admin must see all documentation");
 
         // An id with no row (a hard-deleted page or collection) can't be
@@ -1983,6 +2077,7 @@ mod tests {
             &[i32::MAX],
             &outsider.uuid,
             false,
+            true,
         )
         .unwrap();
         assert!(

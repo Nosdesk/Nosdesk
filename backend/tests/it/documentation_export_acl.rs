@@ -158,6 +158,7 @@ fn an_export_omits_an_embedded_page_the_reader_cannot_open() {
         PageAudience::User {
             user_uuid: f.reader,
             is_admin: false,
+            is_staff: false,
         },
     );
 
@@ -188,6 +189,7 @@ fn an_export_includes_an_embedded_page_the_reader_can_open() {
         PageAudience::User {
             user_uuid: f.reader,
             is_admin: true,
+            is_staff: true,
         },
     );
 
