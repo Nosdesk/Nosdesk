@@ -28,7 +28,7 @@ pub trait AssetDeletedObserver: Send + Sync {
 /// while the full REST device DTO carries Microsoft Graph and
 /// warranty columns that aren't needed for picker / chip
 /// rendering.
-fn asset_sync_payload(device: &Asset) -> serde_json::Value {
+pub fn asset_sync_payload(device: &Asset) -> serde_json::Value {
     json!({
         "id": device.id,
         "name": device.name,

@@ -311,31 +311,13 @@ fn stream_bootstrap_inner(
     // users and workflow_states: every ticket linked-asset chip,
     // device picker, and asset list view needs an id -> name
     // lookup, and the count is bounded (~hundreds in the wild),
-    // not unbounded like tickets. Shape mirrors
-    // `repository::assets::asset_sync_payload` so frontend pool
-    // deserialisation handles bootstrap and incremental updates
-    // through one path.
+    // not unbounded like tickets. The row is the live event payload,
+    // so bootstrap and incremental updates carry the same fields.
     let asset_rows: Vec<Asset> = assets::table.order(assets::name.asc()).load(conn)?;
     for asset in asset_rows {
-        send(
-            tx,
-            json!({
-                "__model__": "asset",
-                "id": asset.id,
-                "name": asset.name,
-                "kind": asset.kind,
-                "serial_number": asset.serial_number,
-                "manufacturer": asset.manufacturer,
-                "model": asset.model,
-                "asset_tag": asset.asset_tag,
-                "location": asset.location,
-                "primary_user_uuid": asset.primary_user_uuid,
-                "attributes": asset.attributes,
-                "quantity": asset.quantity,
-                "unit": asset.unit,
-                "external_sync_source": asset.external_sync_source,
-            }),
-        )?;
+        let mut row = crate::repository::assets::asset_sync_payload(&asset);
+        row["__model__"] = json!("asset");
+        send(tx, row)?;
     }
 
     // Two project-loading paths:

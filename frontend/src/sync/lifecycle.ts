@@ -974,7 +974,7 @@ async function fetchMissingUsers(uuids: string[]): Promise<void> {
  *
  * Cache row shape must stay in lockstep with
  * `backend/sync-models/asset.json` and the SSE / bootstrap
- * payload produced by `repository::devices::asset_sync_payload`.
+ * payload produced by `repository::assets::asset_sync_payload`.
  * The full REST `Asset` DTO carries more fields (warranty,
  * Microsoft Graph IDs, etc.) that the sync pool deliberately
  * drops; `toAssetCacheRow` is the single projection point so
@@ -990,11 +990,14 @@ function toAssetCacheRow(asset: import('@nosdesk/core/types/asset').Asset): Reco
     model: asset.model ?? null,
     asset_tag: asset.asset_tag ?? null,
     location: asset.location ?? null,
+    status: asset.status,
     primary_user_uuid: asset.primary_user_uuid ?? null,
+    managed_by_user_uuid: asset.managed_by_user_uuid ?? null,
     attributes: asset.attributes ?? {},
     quantity: asset.quantity ?? null,
     unit: asset.unit ?? null,
     external_sync_source: asset.external_sync_source ?? null,
+    low_stock_threshold: asset.low_stock_threshold ?? null,
   }
 }
 
