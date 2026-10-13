@@ -2841,6 +2841,10 @@ assets-list-column-location = Emplacement
 assets-list-column-user = Utilisateur
 assets-list-column-status = Statut
 assets-list-column-warranty = Garantie
+# MACHINE TRANSLATION, pending native review
+assets-list-columns-attributes = Attributs
+assets-list-attribute-yes = Oui
+assets-list-attribute-no = Non
 
 assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock

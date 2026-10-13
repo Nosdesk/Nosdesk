@@ -2897,6 +2897,9 @@ assets-list-column-location = Location
 assets-list-column-user = User
 assets-list-column-status = Status
 assets-list-column-warranty = Warranty
+assets-list-columns-attributes = Attributes
+assets-list-attribute-yes = Yes
+assets-list-attribute-no = No
 
 assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock

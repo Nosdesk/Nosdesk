@@ -21,6 +21,7 @@ mod admin_workspace_members;
 mod analytics_breakdown_labels;
 mod analytics_kpi_summary;
 mod api_token_role_ceiling;
+mod asset_attribute_sort;
 mod asset_audits;
 mod asset_disposal_audit;
 mod asset_kinds_picker;
