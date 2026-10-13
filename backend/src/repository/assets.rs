@@ -250,6 +250,22 @@ fn apply_device_filters<'a>(
     query
 }
 
+/// Restrict to assets of any kind in a comma-separated slug list.
+fn filter_kinds<'a>(query: AssetBoxedQuery<'a>, kinds: Option<&str>) -> AssetBoxedQuery<'a> {
+    let slugs: Vec<String> = kinds
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != "all")
+        .map(str::to_string)
+        .collect();
+    if slugs.is_empty() {
+        query
+    } else {
+        query.filter(assets::kind.eq_any(slugs))
+    }
+}
+
 /// Filter inputs shared by the paginated list and CSV export.
 pub struct AssetListFilters<'a> {
     pub search: Option<&'a str>,
@@ -293,12 +309,13 @@ pub fn get_paginated_devices(
     warranty: Option<String>,
     location: Option<String>,
     groups: Option<String>,
+    kind: Option<String>,
     low_stock_only: bool,
 ) -> Result<(Vec<Asset>, i64), Error> {
     // manufacturer slot is `None`: there is no manufacturer-filter
     // consumer yet. The former `?type=` param fed this slot, which
     // silently filtered on `manufacturer`; that dead pathway is gone.
-    let total: i64 = apply_device_filters(
+    let total = apply_device_filters(
         assets::table.into_boxed(),
         search.as_deref(),
         warranty.as_deref(),
@@ -307,9 +324,10 @@ pub fn get_paginated_devices(
         status.as_deref(),
         groups.as_deref(),
         low_stock_only,
-    )
-    .count()
-    .get_result(conn)?;
+    );
+    let total: i64 = filter_kinds(total, kind.as_deref())
+        .count()
+        .get_result(conn)?;
 
     let mut query = apply_device_filters(
         assets::table.into_boxed(),
@@ -321,6 +339,7 @@ pub fn get_paginated_devices(
         groups.as_deref(),
         low_stock_only,
     );
+    query = filter_kinds(query, kind.as_deref());
 
     // Apply sorting
     match (sort_field.as_deref(), sort_direction.as_deref()) {

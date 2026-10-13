@@ -291,6 +291,8 @@ pub struct PaginationParams {
     location: Option<String>,
     /// Comma-separated native asset-group ids; matches assets in ANY of them.
     groups: Option<String>,
+    /// Comma-separated asset kind slugs; matches assets of ANY of them.
+    kind: Option<String>,
     /// Restrict the page to assets whose on-hand quantity is at
     /// or below their `low_stock_threshold`. Accepts the strings
     /// `"true"` / `"1"`; anything else is treated as off so the
@@ -1067,6 +1069,7 @@ pub async fn get_paginated_devices(
     let warranty = query.warranty.clone();
     let location = query.location.clone();
     let groups = query.groups.clone();
+    let kind = query.kind.clone();
     let low_stock = matches!(query.low_stock.as_deref(), Some("true") | Some("1"));
 
     let result = tc.run(|conn| {
@@ -1084,6 +1087,7 @@ pub async fn get_paginated_devices(
             warranty,
             location,
             groups,
+            kind,
             low_stock,
         )?;
         let device_responses = devices_to_responses(conn, devices);

@@ -14,6 +14,7 @@ export type PluginApiErrorCode =
   | 'rate_limited' // the bridge governor's call-rate / in-flight cap
   | 'timeout' // the call didn't settle within the governor's budget
   | 'invalid' // bad input (e.g. an unparseable fetch URL)
+  | 'conflict' // a conditional write lost to a newer one (storage.compareAndSet)
   | 'upstream'; // the host-side call failed for another reason
 
 const NAME_PREFIX = 'PluginApiError';
@@ -34,6 +35,7 @@ const CODES = new Set<PluginApiErrorCode>([
   'rate_limited',
   'timeout',
   'invalid',
+  'conflict',
   'upstream',
 ]);
 
