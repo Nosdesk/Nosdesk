@@ -1712,8 +1712,8 @@ admin-data-import-csv-title = CSV Import
 admin-data-import-csv-description = Import data from CSV files, including assets, users, and other resources
 admin-data-import-api-title = API Integrations
 admin-data-import-api-description = Connect to third-party APIs to import and synchronize data
-admin-data-import-ad-title = Active Directory
-admin-data-import-ad-description = Import data from on-premises Active Directory servers
+admin-data-import-ad-title = LDAP / Active Directory
+admin-data-import-ad-description = Sync users and groups from Active Directory or another LDAP directory
 
 # Admin: Authentication Providers (AuthProvidersView).
 admin-auth-providers-title = Authentication Providers
@@ -6276,6 +6276,9 @@ admin-ldap-saving = Saving…
 admin-ldap-saved = LDAP settings saved
 admin-ldap-error-load = Failed to load LDAP settings
 admin-ldap-error-save = Failed to save LDAP settings
+admin-ldap-save-needs-numbers = Fill in the port, timeout and page size to save.
+admin-ldap-save-needs-host = Add a host to save while the integration is on.
+admin-ldap-save-needs-base-dn = Add a user base DN to save while the integration is on.
 admin-ldap-error-sync = Sync failed; see server logs
 admin-ldap-section-status = Sync & status
 admin-ldap-mode-incremental = Incremental sync active

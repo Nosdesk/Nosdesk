@@ -41,8 +41,9 @@ const importOptions: ImportOption[] = [
     titleKey: 'admin-data-import-ad-title',
     descriptionKey: 'admin-data-import-ad-description',
     icon: 'directory',
-    route: '/admin/data-import/active-directory',
-    status: 'coming-soon'
+    // Directory sync has its own page; the card is a shortcut to it.
+    route: '/admin/ldap',
+    status: 'available'
   }
 ];
 

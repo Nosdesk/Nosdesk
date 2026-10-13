@@ -1640,8 +1640,9 @@ admin-data-import-csv-title = Import CSV
 admin-data-import-csv-description = Importer des données depuis des fichiers CSV, y compris des actifs, des utilisateurs et d'autres ressources
 admin-data-import-api-title = Intégrations API
 admin-data-import-api-description = Connectez-vous à des API tierces pour importer et synchroniser des données
-admin-data-import-ad-title = Active Directory
-admin-data-import-ad-description = Importez des données depuis des serveurs Active Directory locaux
+admin-data-import-ad-title = LDAP / Active Directory
+# MT: pending native review (fr-FR)
+admin-data-import-ad-description = Synchronisez les utilisateurs et les groupes depuis Active Directory ou un autre annuaire LDAP
 
 # Admin : Fournisseurs d'authentification.
 admin-auth-providers-title = Fournisseurs d'authentification
@@ -6280,6 +6281,9 @@ admin-ldap-saving = Enregistrement…
 admin-ldap-saved = Paramètres LDAP enregistrés
 admin-ldap-error-load = Échec du chargement des paramètres LDAP
 admin-ldap-error-save = Échec de l'enregistrement des paramètres LDAP
+admin-ldap-save-needs-numbers = Renseignez le port, le délai d'expiration et la taille de page pour enregistrer.
+admin-ldap-save-needs-host = Ajoutez un hôte pour enregistrer tant que l'intégration est activée.
+admin-ldap-save-needs-base-dn = Ajoutez un DN de base des utilisateurs pour enregistrer tant que l'intégration est activée.
 admin-ldap-error-sync = Échec de la synchronisation ; consultez les journaux du serveur
 admin-ldap-section-status = Synchronisation et état
 admin-ldap-mode-incremental = Synchronisation incrémentielle active

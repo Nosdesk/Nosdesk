@@ -19,10 +19,10 @@ use crate::repository::workspace_ldap_settings as repo;
 use crate::services::ldap::auth::{self as ldap_auth, LdapAuthError};
 use crate::services::ldap::connector::LdapConnectError;
 
-/// PUT body: the editable settings plus the out-of-band bind-password controls.
+/// PUT body: the editable settings nested under `settings` (mirroring the GET
+/// response envelope), plus the out-of-band bind-password controls.
 #[derive(Debug, Deserialize)]
 pub struct LdapSettingsRequest {
-    #[serde(flatten)]
     pub settings: UpsertWorkspaceLdapSettings,
     /// New plaintext bind password to encrypt + store. `None` leaves any stored
     /// password unchanged.
@@ -603,6 +603,63 @@ mod tests {
         s.host = "".into();
         s.user_base_dn = "".into();
         assert!(validate_settings(&s).is_ok());
+    }
+
+    /// The body the admin page sends (`ldapService.updateSettings`) for a
+    /// first-time Active Directory setup from the preset.
+    fn admin_page_body() -> serde_json::Value {
+        json!({
+            "settings": {
+                "enabled": true,
+                "host": "dc01.acme.test",
+                "port": 636,
+                "tls_mode": "ldaps",
+                "verify_certs": true,
+                "ca_cert_pem": null,
+                "follow_referrals": false,
+                "connect_timeout_secs": 10,
+                "auth_mode": "simple_bind",
+                "bind_dn": "CN=svc-nosdesk,OU=Service Accounts,DC=acme,DC=test",
+                "user_base_dn": "OU=Staff,DC=acme,DC=test",
+                "username_attribute": "sAMAccountName",
+                "user_filter": "(&(objectCategory=person)(objectClass=user)(sAMAccountName={username}))",
+                "page_size": 500,
+                "attribute_map": { "email": "mail", "display_name": "displayName", "first_name": "givenName", "last_name": "sn", "external_id": "objectGUID" },
+                "group_config": { "membership_mode": "memberOf", "member_attribute": "member", "object_class": "group" },
+                "provisioning": {}
+            },
+            "bind_password": "s3cret",
+            "clear_bind_password": false
+        })
+    }
+
+    #[test]
+    fn parses_the_body_the_admin_page_sends() {
+        let req: LdapSettingsRequest = serde_json::from_value(admin_page_body()).unwrap();
+        assert_eq!(req.settings.host, "dc01.acme.test");
+        assert_eq!(req.bind_password.as_deref(), Some("s3cret"));
+        assert!(!req.clear_bind_password);
+        assert!(validate_settings(&req.settings).is_ok());
+    }
+
+    #[test]
+    fn bind_password_controls_are_optional() {
+        // An edit that leaves the stored password alone omits both controls.
+        let mut body = admin_page_body();
+        let obj = body.as_object_mut().unwrap();
+        obj.remove("bind_password");
+        obj.remove("clear_bind_password");
+        let req: LdapSettingsRequest = serde_json::from_value(body).unwrap();
+        assert!(req.bind_password.is_none());
+        assert!(!req.clear_bind_password);
+    }
+
+    #[test]
+    fn rejects_an_empty_number_field() {
+        // A cleared number input arrives as null and must not parse as a port.
+        let mut body = admin_page_body();
+        body["settings"]["port"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<LdapSettingsRequest>(body).is_err());
     }
 
     #[test]
