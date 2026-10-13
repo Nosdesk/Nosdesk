@@ -701,10 +701,10 @@ watch(documentObj, (newDocument) => {
       <div v-if="isLoading" />
 
       <!-- Document Content View -->
-      <div v-else-if="document" class="w-full flex">
+      <div v-else-if="document" class="w-full min-w-0 flex">
         <!-- Main Content Area -->
-        <div class="flex-1 flex justify-center">
-          <div class="w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
+        <div class="flex-1 min-w-0 flex justify-center">
+          <div class="w-full min-w-0 max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
             <!-- Breadcrumb -->
             <DocumentationBreadcrumb
               :page-id="document.id || ''"

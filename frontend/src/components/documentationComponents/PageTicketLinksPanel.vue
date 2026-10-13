@@ -140,10 +140,10 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
               class="flex-1 min-w-0 flex items-center gap-2 py-1 px-2 -mx-2 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
             >
               <span v-if="numberForTicketId(link.ticket_id) !== undefined" class="text-tertiary flex-shrink-0">#{{ numberForTicketId(link.ticket_id) }}</span>
-              <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: numberForTicketId(link.ticket_id) ?? '' }) }}</span>
+              <span class="flex-1 min-w-0 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: numberForTicketId(link.ticket_id) ?? '' }) }}</span>
               <span
                 v-if="link.ticket_category"
-                class="text-3xs px-1.5 py-0.5 rounded-full"
+                class="flex-shrink-0 text-3xs px-1.5 py-0.5 rounded-full"
                 :class="categoryClass(link.ticket_category)"
               >
                 {{ categoryLabel(link.ticket_category) }}
@@ -154,7 +154,7 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
               icon="close"
               size="xs"
               variant="ghost-danger"
-              class="opacity-0 group-hover:opacity-100"
+              class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
               v-if="canEdit"
               @click="onRemove(link.ticket_id)"
             />
@@ -174,10 +174,10 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
               class="flex-1 min-w-0 flex items-center gap-2 py-1 px-2 -mx-2 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
             >
               <span v-if="numberForTicketId(link.ticket_id) !== undefined" class="text-tertiary flex-shrink-0">#{{ numberForTicketId(link.ticket_id) }}</span>
-              <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: numberForTicketId(link.ticket_id) ?? '' }) }}</span>
+              <span class="flex-1 min-w-0 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: numberForTicketId(link.ticket_id) ?? '' }) }}</span>
               <span
                 v-if="link.ticket_category"
-                class="text-3xs px-1.5 py-0.5 rounded-full"
+                class="flex-shrink-0 text-3xs px-1.5 py-0.5 rounded-full"
                 :class="categoryClass(link.ticket_category)"
               >
                 {{ categoryLabel(link.ticket_category) }}
@@ -188,7 +188,7 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
               icon="close"
               size="xs"
               variant="ghost-danger"
-              class="opacity-0 group-hover:opacity-100"
+              class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
               v-if="canEdit"
               @click="onRemove(link.ticket_id)"
             />
