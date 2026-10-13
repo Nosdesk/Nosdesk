@@ -178,8 +178,10 @@ platform :android do
       json_key: ENV.fetch("PLAY_JSON_KEY_PATH"),
       skip_upload_apk: true,
       skip_upload_aab: true,
+      # The release notes: changelogs/<version code>.txt, else default.txt.
+      metadata_path: File.join(store_assets, "metadata", "android"),
       skip_upload_metadata: true,
-      skip_upload_changelogs: true,
+      skip_upload_changelogs: false,
       skip_upload_images: true,
       skip_upload_screenshots: true,
     )
