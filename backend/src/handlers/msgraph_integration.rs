@@ -1408,7 +1408,7 @@ fn check_microsoft_config() -> Result<(), String> {
 ///
 /// Returns early with `Ok(())` when Microsoft credentials are not
 /// configured so the job doesn't spam errors on installs that aren't
-/// using Intune integration.
+/// using the Microsoft integration.
 pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<()> {
     if check_microsoft_config().is_err() {
         // Not configured — treat as a clean no-op so the scheduler
@@ -1579,15 +1579,14 @@ async fn test_graph_connection(_provider_id: i32) -> Result<serde_json::Value, S
                 2. Navigate to 'Azure Active Directory' → 'App registrations'\n\
                 3. Select your application\n\
                 4. Click 'API permissions' → 'Add a permission' → 'Microsoft Graph' → 'Application permissions'\n\
-                5. Add: Organization.Read.All, User.Read.All, Asset.Read.All, Group.Read.All\n\
+                5. Add: Organization.Read.All, User.Read.All, Device.Read.All, Group.Read.All\n\
                 6. Click 'Grant admin consent for [Your Tenant]' (requires Global Admin)\n\
                 7. Wait 5-10 minutes for permissions to propagate\n\n\
                 Common required permissions for full functionality:\n\
                 • Organization.Read.All - Read tenant information\n\
                 • User.Read.All - Read user profiles\n\
-                • Asset.Read.All - Read device information\n\
-                • Group.Read.All - Read group information\n\
-                • DeviceManagementManagedDevices.Read.All - Read Intune devices\n\n\
+                • Device.Read.All - Read Entra ID devices\n\
+                • Group.Read.All - Read group information\n\n\
                 Error Code: {error_code}"
             ));
         }
@@ -3079,7 +3078,7 @@ async fn create_new_user_from_microsoft_optimized(
     Ok(())
 }
 
-/// Sync devices from Microsoft Graph (Intune managed devices)
+/// Sync devices from Microsoft Graph (Entra ID `/devices`; no Intune pass yet)
 #[instrument(level = "info", skip(conn), fields(provider_id = provider_id, session_id = session_id, use_delta = use_delta))]
 async fn sync_devices(
     conn: &mut DbConnection,

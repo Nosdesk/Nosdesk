@@ -1098,7 +1098,8 @@ admin-nav-plugins-description = Beheer geïnstalleerde plug-ins en integraties
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Synchroniseer gebruikers en groepen vanuit een LDAP- of Active Directory-server
 admin-nav-data-import-title = Gegevensimport
-admin-nav-data-import-description = Importeer gegevens uit Intune, CSV-bestanden en andere bronnen
+# TODO native-review nl-NL for the key below.
+admin-nav-data-import-description = Importeer gegevens uit Microsoft Entra ID, CSV-bestanden en andere bronnen
 admin-nav-audit-log-title = Auditlogboek
 admin-nav-audit-log-description = Forensisch overzicht van wijzigingen, gevoed door triggers per tabel
 admin-nav-branding-title = Branding
@@ -1613,7 +1614,8 @@ admin-data-import-status-available = Beschikbaar
 admin-data-import-status-coming-soon = Binnenkort beschikbaar
 admin-data-import-status-beta = Bèta
 admin-data-import-microsoft-title = Microsoft Graph
-admin-data-import-microsoft-description = Importeer gegevens uit Microsoft 365, waaronder Azure AD, Intune en andere Microsoft-services
+# TODO native-review nl-NL for the key below.
+admin-data-import-microsoft-description = Importeer gebruikers, groepen en apparaten uit Microsoft Entra ID
 admin-data-import-csv-title = CSV-import
 admin-data-import-csv-description = Importeer gegevens uit CSV-bestanden, waaronder activa, gebruikers en andere bronnen
 admin-data-import-api-title = API-integraties
@@ -2317,7 +2319,8 @@ admin-msgraph-modal-description = Selecteer de gegevens die u uit Microsoft Grap
 admin-msgraph-entity-users-name = Gebruikers
 admin-msgraph-entity-users-description = Importeer gebruikersaccounts en profielen uit Microsoft Entra ID
 admin-msgraph-entity-devices-name = Apparaten
-admin-msgraph-entity-devices-description = Importeer beheerde apparaten uit Microsoft Intune met gebruikerstoewijzingen
+# TODO native-review nl-NL for the key below.
+admin-msgraph-entity-devices-description = Importeer apparaten die in Microsoft Entra ID zijn geregistreerd
 admin-msgraph-entity-groups-name = Groepen
 admin-msgraph-entity-groups-description = Importeer beveiligings- en distributiegroepen uit Microsoft Entra ID
 admin-msgraph-modal-info = Synchronisatie haalt de nieuwste gegevens op uit Microsoft-services. Dit kan enkele minuten duren afhankelijk van het volume.
@@ -5109,7 +5112,8 @@ admin-groups-config-no-users-found = Geen gebruikers gevonden
 admin-groups-config-no-devices-found = Geen activa gevonden
 admin-groups-config-no-groups-found = Geen groepen gevonden
 admin-groups-config-synced-badge = Gesynchroniseerd
-admin-groups-config-synced-intune-tooltip = Gesynchroniseerd vanaf Microsoft Intune
+# TODO native-review nl-NL for the key below.
+admin-groups-config-synced-intune-tooltip = Gesynchroniseerd vanaf Microsoft Entra ID
 admin-groups-config-selected-count = { $count } geselecteerd
 admin-groups-config-member-count = { $count ->
     [one] { $count } lid

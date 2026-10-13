@@ -76,7 +76,7 @@
   </tr>
   <tr>
     <td><strong>Devices</strong></td>
-    <td>Assets synced from Microsoft Intune, a model catalogue, lifecycle history and device loans with due-back reminders.</td>
+    <td>Assets synced from Microsoft Entra ID, a model catalogue, lifecycle history and device loans with due-back reminders.</td>
   </tr>
   <tr>
     <td><strong>Identity</strong></td>

@@ -1102,7 +1102,8 @@ admin-nav-plugins-description = Gérez les plugins installés et les intégratio
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Synchroniser les utilisateurs et les groupes depuis un serveur LDAP ou Active Directory
 admin-nav-data-import-title = Import de données
-admin-nav-data-import-description = Importez des données depuis Intune, des fichiers CSV et d'autres sources
+# TODO native-review fr-FR for the key below.
+admin-nav-data-import-description = Importez des données depuis Microsoft Entra ID, des fichiers CSV et d'autres sources
 admin-nav-audit-log-title = Journal d'audit
 admin-nav-audit-log-description = Trace forensique des modifications, issue des triggers par table
 admin-nav-branding-title = Marque
@@ -1617,7 +1618,8 @@ admin-data-import-status-available = Disponible
 admin-data-import-status-coming-soon = Bientôt disponible
 admin-data-import-status-beta = Bêta
 admin-data-import-microsoft-title = Microsoft Graph
-admin-data-import-microsoft-description = Importez des données depuis Microsoft 365, y compris Azure AD, Intune et d'autres services Microsoft
+# TODO native-review fr-FR for the key below.
+admin-data-import-microsoft-description = Importez des utilisateurs, des groupes et des appareils depuis Microsoft Entra ID
 admin-data-import-csv-title = Import CSV
 admin-data-import-csv-description = Importer des données depuis des fichiers CSV, y compris des actifs, des utilisateurs et d'autres ressources
 admin-data-import-api-title = Intégrations API
@@ -2321,7 +2323,8 @@ admin-msgraph-modal-description = Sélectionnez les données à importer depuis 
 admin-msgraph-entity-users-name = Utilisateurs
 admin-msgraph-entity-users-description = Importer les comptes utilisateurs et profils depuis Microsoft Entra ID
 admin-msgraph-entity-devices-name = Appareils
-admin-msgraph-entity-devices-description = Importer les appareils gérés depuis Microsoft Intune avec les affectations utilisateurs
+# TODO native-review fr-FR for the key below.
+admin-msgraph-entity-devices-description = Importer les appareils enregistrés dans Microsoft Entra ID
 admin-msgraph-entity-groups-name = Groupes
 admin-msgraph-entity-groups-description = Importer les groupes de sécurité et de distribution depuis Microsoft Entra ID
 admin-msgraph-modal-info = La synchronisation importe les données les plus récentes depuis les services Microsoft. Cela peut prendre plusieurs minutes selon le volume.
@@ -5119,7 +5122,8 @@ admin-groups-config-no-users-found = Aucun utilisateur trouvé
 admin-groups-config-no-devices-found = Aucun actif trouvé
 admin-groups-config-no-groups-found = Aucun groupe trouvé
 admin-groups-config-synced-badge = Synchronisé
-admin-groups-config-synced-intune-tooltip = Synchronisé depuis Microsoft Intune
+# TODO native-review fr-FR for the key below.
+admin-groups-config-synced-intune-tooltip = Synchronisé depuis Microsoft Entra ID
 admin-groups-config-selected-count = { $count } sélectionné(s)
 admin-groups-config-member-count = { $count ->
     [one] { $count } membre
