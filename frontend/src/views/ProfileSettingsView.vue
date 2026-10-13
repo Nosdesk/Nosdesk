@@ -40,7 +40,7 @@ import {
 import { groupService } from '@nosdesk/core/services/groupService';
 import type { Group } from '@nosdesk/core/types/group';
 import apiClient from '@nosdesk/core/apiClient';
-import { useMfa } from '@/composables/useMfa';
+import { useStepUpMethod } from '@/composables/useStepUpMethod';
 import { useColorFilter } from '@/composables/useColorFilter';
 import { extractErrorMessage } from '@/utils/errors';
 
@@ -384,76 +384,53 @@ const resendInvitation = async () => {
   }
 };
 
-// Delete account functionality
+// Delete user (admin mode only; self-service deletion goes through an
+// administrator). The admin confirms with their own step-up credential.
 const showDeleteModal = ref(false);
-const deleteMfaCode = ref('');
-const deletePassword = ref('');
+const deleteCredential = ref('');
+const deleteError = ref<string | null>(null);
 const isDeleting = ref(false);
+const {
+  method: deleteStepUpMethod,
+  loaded: deleteStepUpLoaded,
+  load: loadDeleteStepUp,
+  credential: deleteStepUpBody,
+} = useStepUpMethod();
+const deleteConfirmDisabled = computed(
+  () => isDeleting.value
+    || !deleteStepUpLoaded.value
+    || (deleteStepUpMethod.value !== 'none' && deleteCredential.value.trim().length === 0),
+);
 
-// MFA status for delete confirmation
-const { mfaEnabled: adminMfaEnabled, checkMFAStatus: checkAdminMfaStatus } = useMfa();
-
-// Check admin's MFA status when delete modal opens
 const openDeleteModal = async () => {
+  deleteCredential.value = '';
+  deleteError.value = null;
   showDeleteModal.value = true;
-  await checkAdminMfaStatus();
+  await loadDeleteStepUp();
 };
 
 const deleteAccount = async () => {
-  // Validate input based on MFA status
-  if (adminMfaEnabled.value) {
-    if (!deleteMfaCode.value) {
-      handleError('Please enter your 2FA code to confirm deletion');
-      return;
-    }
-  } else {
-    if (!deletePassword.value) {
-      handleError('Please enter your password to confirm deletion');
-      return;
-    }
-  }
-
+  const userToDelete = currentUser.value;
+  if (deleteConfirmDisabled.value || !isAdminMode.value || !userToDelete?.uuid) return;
+  isDeleting.value = true;
+  deleteError.value = null;
   try {
-    isDeleting.value = true;
-
-    const userToDelete = currentUser.value;
-    if (!userToDelete?.uuid) {
-      handleError('Unable to identify user account');
-      return;
-    }
-
-    // Delete the user account (requires admin's MFA code or password)
-    const requestData = adminMfaEnabled.value
-      ? { mfa_code: deleteMfaCode.value }
-      : { password: deletePassword.value };
-
-    await apiClient.delete(`/users/${userToDelete.uuid}`, {
-      data: requestData
-    });
-
-    // If deleting own account, logout and redirect
-    if (!isAdminMode.value) {
-      await authStore.logout();
-      router.push('/login?deleted=true');
-    } else {
-      // Admin deleted another user, redirect to users list
-      router.push('/users?deleted=true');
-    }
-  } catch (error) {
-    console.error('Failed to delete account:', error);
-    handleError(extractErrorMessage(error, 'Failed to delete account. Please try again.'));
-    isDeleting.value = false;
-  } finally {
+    await userService.deleteUser(userToDelete.uuid, deleteStepUpBody(deleteCredential.value));
     showDeleteModal.value = false;
-    deleteMfaCode.value = '';
-    deletePassword.value = '';
+    deleteCredential.value = '';
+    router.push('/users?deleted=true');
+  } catch (error) {
+    // Keep the modal open so the admin can correct the credential.
+    deleteError.value = extractErrorMessage(error, t('user-settings-delete-error'));
+  } finally {
+    isDeleting.value = false;
   }
 };
 
 const cancelDelete = () => {
   showDeleteModal.value = false;
-  deleteMfaCode.value = '';
-  deletePassword.value = '';
+  deleteCredential.value = '';
+  deleteError.value = null;
 };
 </script>
 
@@ -831,8 +808,9 @@ const cancelDelete = () => {
               @error="handleError"
             />
 
-            <!-- Delete Account Section -->
-            <Callout v-if="!identityManaged" severity="error">
+            <!-- Delete user: admins only. Self-service deletion goes through
+                 an administrator; hosted staff use their Nosdesk account. -->
+            <Callout v-if="isAdminMode && !identityManaged" severity="error">
               <template #header>
                 <p class="font-medium text-primary">{{ t('user-settings-danger-zone-title') }}</p>
                 <p class="text-secondary mt-0.5">{{ t('user-settings-danger-zone-subtitle') }}</p>
@@ -840,24 +818,23 @@ const cancelDelete = () => {
 
               <div class="p-6">
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div class="flex-1">
-                    <h3 class="text-base font-medium text-primary mb-1">
-                      {{ isAdminMode ? 'Delete User Account' : 'Delete Account' }}
+                  <div class="flex-1 flex flex-col gap-1">
+                    <h3 class="text-base font-medium text-primary">
+                      {{ t('user-settings-delete-user-title') }}
                     </h3>
                     <p class="text-sm text-secondary">
-                      {{ isAdminMode
-                        ? `Permanently delete ${currentUser?.name}'s account and all associated data.`
-                        : 'Permanently delete your account and all associated data.'
-                      }}
-                      This action cannot be undone.
+                      {{ t('user-settings-delete-user-description', { name: currentUser?.name ?? '' }) }}
                     </p>
                   </div>
                   <Button variant="danger" icon="trash" @click="openDeleteModal">
-                    Delete Account
+                    {{ t('user-settings-delete-button') }}
                   </Button>
                 </div>
               </div>
             </Callout>
+            <p v-else-if="!isAdminMode && !identityManaged" class="text-sm text-secondary">
+              {{ t('user-settings-delete-self-hint') }}
+            </p>
           </div>
           </template>
         </div>
@@ -874,15 +851,12 @@ const cancelDelete = () => {
         <div class="bg-status-error/20 border border-status-error/50 rounded-lg p-4">
           <div class="flex gap-3">
             <Icon name="warning" size="lg" class="text-status-error flex-shrink-0" />
-            <div>
-              <p class="font-medium text-status-error mb-2">This action is permanent and cannot be undone!</p>
-              <p class="text-sm text-status-error/80">
-                {{ isAdminMode
-                  ? `Deleting ${currentUser?.name}'s account will permanently remove:`
-                  : 'Deleting your account will permanently remove:'
-                }}
+            <div class="flex flex-col gap-2">
+              <p class="font-medium text-status-error">
+                {{ t('user-settings-delete-modal-warning', { name: currentUser?.name ?? '' }) }}
               </p>
-              <ul class="list-disc list-inside text-sm text-status-error/80 mt-2 space-y-1">
+              <p class="text-sm text-status-error/80">{{ t('user-settings-delete-modal-removes') }}</p>
+              <ul class="list-disc list-inside text-sm text-status-error/80 flex flex-col gap-1">
                 <li>{{ t('user-settings-delete-item-profile') }}</li>
                 <li>{{ t('user-settings-delete-item-tickets') }}</li>
                 <li>{{ t('user-settings-delete-item-comments') }}</li>
@@ -892,56 +866,36 @@ const cancelDelete = () => {
           </div>
         </div>
 
-        <!-- MFA Code Input (shown when admin has MFA enabled) -->
-        <div v-if="adminMfaEnabled" class="flex flex-col gap-2">
-          <label class="text-sm font-medium text-secondary">
-            Enter your 2FA code from your authenticator app to confirm:
-          </label>
-          <input
-            v-model="deleteMfaCode"
-            type="text"
-            inputmode="numeric"
-            pattern="[0-9]*"
-            autocomplete="one-time-code"
-            maxlength="6"
-            class="w-full px-4 py-2 bg-surface-alt text-primary rounded-lg border border-default focus:ring-2 focus:ring-status-error focus:outline-none text-center text-2xl tracking-widest font-mono"
-            placeholder="000000"
-            @keyup.enter="deleteAccount"
-          />
-          <p class="text-xs text-secondary">
-            Enter the 6-digit code from your authenticator app.
-          </p>
-        </div>
-
-        <!-- Password Input (shown when admin doesn't have MFA enabled) -->
-        <div v-else class="flex flex-col gap-2">
-          <label for="delete-confirm-password" class="text-sm font-medium text-secondary">
-            Enter your password to confirm:
+        <!-- The admin's own step-up: password, else a 2FA code, else nothing
+             to enter (SSO-only without MFA). -->
+        <div v-if="deleteStepUpMethod !== 'none'" class="flex flex-col gap-2">
+          <label for="delete-confirm-credential" class="text-sm font-medium text-secondary">
+            {{ deleteStepUpMethod === 'password'
+              ? t('user-settings-delete-stepup-password')
+              : t('user-settings-delete-stepup-mfa') }}
           </label>
           <FormInput
-            id="delete-confirm-password"
-            v-model="deletePassword"
-            type="password"
-            autocomplete="current-password"
-            :placeholder="t('user-settings-password-placeholder')"
+            id="delete-confirm-credential"
+            v-model="deleteCredential"
+            :type="deleteStepUpMethod === 'password' ? 'password' : 'text'"
+            :inputmode="deleteStepUpMethod === 'mfa' ? 'numeric' : undefined"
+            :autocomplete="deleteStepUpMethod === 'password' ? 'current-password' : 'one-time-code'"
             @keyup.enter="deleteAccount"
           />
-          <p class="text-xs text-secondary">
-            Enter your account password to confirm this action.
-          </p>
         </div>
+        <p v-if="deleteError" class="text-sm text-status-error">{{ deleteError }}</p>
 
         <div class="flex justify-end gap-3 pt-2">
           <Button variant="secondary" :disabled="isDeleting" @click="cancelDelete">
-            Cancel
+            {{ t('user-settings-delete-cancel') }}
           </Button>
           <Button
             variant="danger"
             :loading="isDeleting"
-            :disabled="adminMfaEnabled ? (!deleteMfaCode || deleteMfaCode.length < 6) : !deletePassword"
+            :disabled="deleteConfirmDisabled"
             @click="deleteAccount"
           >
-            {{ isDeleting ? 'Deleting...' : 'Delete Account Permanently' }}
+            {{ t('user-settings-delete-confirm') }}
           </Button>
         </div>
       </div>
