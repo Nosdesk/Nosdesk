@@ -431,11 +431,22 @@ async function selectLocationSuggestion(location: string) {
   await saveField('location');
 }
 
+// Optional columns: emptying the input sends `null`, which clears the column
+// (the server reads `null` as clear and an absent key as leave unchanged).
+const CLEARABLE_FIELDS = new Set<keyof typeof editValues.value>([
+  'serial_number',
+  'location',
+  'purchase_date',
+  'asset_tag',
+]);
+
 const saveField = async (field: keyof typeof editValues.value) => {
   if (!device.value) return;
+  const raw = editValues.value[field];
+  const value = CLEARABLE_FIELDS.has(field) && raw.trim() === '' ? null : raw;
   try {
     isSaving.value = true;
-    await patchAsset({ [field]: editValues.value[field] });
+    await patchAsset({ [field]: value });
   } catch (err) {
     console.error('Error saving device field:', err);
     // patchAsset rolled the cache back; re-sync the buffer to the stored value.
