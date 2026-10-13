@@ -528,8 +528,15 @@ const userService = {
     }
   },
 
-  // Bulk operations on users (admin only)
-  async bulkAction(request: { action: 'delete' | 'set-role'; ids: string[]; value?: string }): Promise<BulkUserActionResult> {
+  // Bulk operations on users (admin only). `delete` needs the caller's
+  // step-up credential (`password` or `mfa_code`).
+  async bulkAction(request: {
+    action: 'delete' | 'set-role';
+    ids: string[];
+    value?: string;
+    password?: string;
+    mfa_code?: string;
+  }): Promise<BulkUserActionResult> {
     const response = await apiClient.post('/users/bulk', request);
     return response.data;
   },
