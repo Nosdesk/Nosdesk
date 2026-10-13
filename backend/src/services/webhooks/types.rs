@@ -78,61 +78,42 @@ impl WebhookEventType {
         }
     }
 
+    /// Every event type, in the order the API lists them. `all()` and
+    /// `from_str` both derive from this, so an event name can't be offered
+    /// without also being accepted and delivered.
+    pub const ALL: [Self; 22] = [
+        Self::TicketCreated,
+        Self::TicketUpdated,
+        Self::TicketDeleted,
+        Self::CommentAdded,
+        Self::CommentDeleted,
+        Self::AttachmentAdded,
+        Self::AttachmentDeleted,
+        Self::AssetCreated,
+        Self::AssetUpdated,
+        Self::AssetDeleted,
+        Self::AssetLinked,
+        Self::AssetUnlinked,
+        Self::ProjectAssigned,
+        Self::ProjectUnassigned,
+        Self::TicketLinked,
+        Self::TicketUnlinked,
+        Self::DocumentationCreated,
+        Self::DocumentationUpdated,
+        Self::UserCreated,
+        Self::UserUpdated,
+        Self::UserDeleted,
+        Self::TicketSlaBreached,
+    ];
+
     /// Parse from string
     pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "ticket.created" => Some(Self::TicketCreated),
-            "ticket.updated" => Some(Self::TicketUpdated),
-            "ticket.deleted" => Some(Self::TicketDeleted),
-            "comment.added" => Some(Self::CommentAdded),
-            "comment.deleted" => Some(Self::CommentDeleted),
-            "attachment.added" => Some(Self::AttachmentAdded),
-            "attachment.deleted" => Some(Self::AttachmentDeleted),
-            "asset.created" => Some(Self::AssetCreated),
-            "asset.updated" => Some(Self::AssetUpdated),
-            "asset.deleted" => Some(Self::AssetDeleted),
-            "asset.linked" => Some(Self::AssetLinked),
-            "asset.unlinked" => Some(Self::AssetUnlinked),
-            "project.assigned" => Some(Self::ProjectAssigned),
-            "project.unassigned" => Some(Self::ProjectUnassigned),
-            "ticket.linked" => Some(Self::TicketLinked),
-            "ticket.unlinked" => Some(Self::TicketUnlinked),
-            "documentation.created" => Some(Self::DocumentationCreated),
-            "documentation.updated" => Some(Self::DocumentationUpdated),
-            "user.created" => Some(Self::UserCreated),
-            "user.updated" => Some(Self::UserUpdated),
-            "user.deleted" => Some(Self::UserDeleted),
-            "ticket.sla_breached" => Some(Self::TicketSlaBreached),
-            _ => None,
-        }
+        Self::ALL.into_iter().find(|e| e.as_str() == s)
     }
 
     /// Get all available event types (for API endpoint)
     pub fn all() -> Vec<&'static str> {
-        vec![
-            "ticket.created",
-            "ticket.updated",
-            "ticket.deleted",
-            "comment.added",
-            "comment.deleted",
-            "attachment.added",
-            "attachment.deleted",
-            "device.created",
-            "device.updated",
-            "device.deleted",
-            "device.linked",
-            "device.unlinked",
-            "project.assigned",
-            "project.unassigned",
-            "ticket.linked",
-            "ticket.unlinked",
-            "documentation.created",
-            "documentation.updated",
-            "user.created",
-            "user.updated",
-            "user.deleted",
-            "ticket.sla_breached",
-        ]
+        Self::ALL.iter().map(Self::as_str).collect()
     }
 
     /// Map a `sync_actions.event_type` string to the webhook event it
@@ -204,40 +185,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn as_str_roundtrip() {
-        let variants = [
-            WebhookEventType::TicketCreated,
-            WebhookEventType::TicketUpdated,
-            WebhookEventType::TicketDeleted,
-            WebhookEventType::CommentAdded,
-            WebhookEventType::CommentDeleted,
-            WebhookEventType::AttachmentAdded,
-            WebhookEventType::AttachmentDeleted,
-            WebhookEventType::AssetCreated,
-            WebhookEventType::AssetLinked,
-            WebhookEventType::AssetUnlinked,
-            WebhookEventType::AssetUpdated,
-            WebhookEventType::ProjectAssigned,
-            WebhookEventType::ProjectUnassigned,
-            WebhookEventType::TicketLinked,
-            WebhookEventType::TicketUnlinked,
-            WebhookEventType::DocumentationCreated,
-            WebhookEventType::DocumentationUpdated,
-            WebhookEventType::UserCreated,
-            WebhookEventType::UserUpdated,
-            WebhookEventType::UserDeleted,
-            WebhookEventType::TicketSlaBreached,
-        ];
-        for variant in &variants {
-            let s = variant.as_str();
-            let parsed = WebhookEventType::from_str(s).unwrap_or_else(|| {
-                panic!(
-                    "Failed to roundtrip variant {:?} through as_str/from_str",
-                    variant
-                );
-            });
-            assert_eq!(*variant, parsed);
+    fn every_listed_event_round_trips() {
+        for variant in WebhookEventType::ALL {
+            assert_eq!(
+                WebhookEventType::from_str(variant.as_str()),
+                Some(variant),
+                "{variant:?} through as_str/from_str"
+            );
         }
+        for name in WebhookEventType::all() {
+            let parsed = WebhookEventType::from_str(name)
+                .unwrap_or_else(|| panic!("all() offers {name}, which doesn't parse"));
+            assert_eq!(parsed.as_str(), name);
+        }
+    }
+
+    /// `ALL` lists every variant once. The match has no wildcard, so a new
+    /// variant doesn't compile here until it's considered.
+    #[test]
+    fn all_lists_every_variant_once() {
+        use WebhookEventType::*;
+        fn listed(e: WebhookEventType) -> bool {
+            match e {
+                TicketCreated | TicketUpdated | TicketDeleted | CommentAdded | CommentDeleted
+                | AttachmentAdded | AttachmentDeleted | AssetCreated | AssetUpdated
+                | AssetDeleted | AssetLinked | AssetUnlinked | ProjectAssigned
+                | ProjectUnassigned | TicketLinked | TicketUnlinked | DocumentationCreated
+                | DocumentationUpdated | UserCreated | UserUpdated | UserDeleted
+                | TicketSlaBreached => WebhookEventType::ALL.contains(&e),
+            }
+        }
+        assert!(WebhookEventType::ALL.into_iter().all(listed));
+        let unique: std::collections::HashSet<_> = WebhookEventType::ALL.into_iter().collect();
+        assert_eq!(
+            unique.len(),
+            WebhookEventType::ALL.len(),
+            "a variant listed twice"
+        );
     }
 
     #[test]
@@ -248,8 +232,18 @@ mod tests {
     }
 
     #[test]
-    fn all_returns_correct_count() {
-        assert_eq!(WebhookEventType::all().len(), 22);
+    fn asset_events_use_the_asset_prefix() {
+        let all = WebhookEventType::all();
+        assert!(all.iter().all(|e| !e.starts_with("device.")));
+        for e in [
+            "asset.created",
+            "asset.updated",
+            "asset.deleted",
+            "asset.linked",
+            "asset.unlinked",
+        ] {
+            assert!(all.contains(&e), "{e}");
+        }
     }
 
     #[test]

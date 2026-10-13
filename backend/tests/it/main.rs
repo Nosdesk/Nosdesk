@@ -88,6 +88,7 @@ mod migration_portal_share_staff_requests;
 mod migration_reserved_slugs;
 mod migration_ticket_numbers;
 mod migration_version_lint;
+mod migration_webhook_asset_events;
 mod migration_workspace_scoped_keys;
 mod notification_deliveries;
 mod notification_digest;

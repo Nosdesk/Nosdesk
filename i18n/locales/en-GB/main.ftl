@@ -1730,6 +1730,10 @@ admin-webhooks-event-documentation-updated = Documentation updated
 admin-webhooks-event-user-created = User created
 admin-webhooks-event-user-updated = User updated
 admin-webhooks-event-user-deleted = User deleted
+admin-webhooks-event-ticket-sla-breached = Ticket SLA breached
+admin-webhooks-event-asset-created = Asset created
+admin-webhooks-event-asset-deleted = Asset deleted
+admin-webhooks-event-documentation-created = Documentation created
 
 # Users list (UsersListView): people directory with role filter,
 # bulk role change, and bulk delete.

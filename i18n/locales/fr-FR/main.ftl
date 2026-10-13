@@ -2533,6 +2533,11 @@ admin-webhooks-event-documentation-updated = Documentation mise à jour
 admin-webhooks-event-user-created = Utilisateur créé
 admin-webhooks-event-user-updated = Utilisateur mis à jour
 admin-webhooks-event-user-deleted = Utilisateur supprimé
+# TODO native-review fr-FR for the webhook event keys below.
+admin-webhooks-event-ticket-sla-breached = SLA du ticket dépassé
+admin-webhooks-event-asset-created = Appareil créé
+admin-webhooks-event-asset-deleted = Appareil supprimé
+admin-webhooks-event-documentation-created = Documentation créée
 
 # Users list (UsersListView): people directory with role filter,
 # bulk role change, and bulk delete.
