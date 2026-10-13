@@ -3457,7 +3457,7 @@ doc-detail-status-archived = Archived
 doc-detail-status-published = Published
 # Phone only: the strip above the tab bar while a page is a draft.
 doc-detail-draft-strip-title = Draft
-doc-detail-draft-strip-body = Visible to staff only until you publish.
+doc-detail-draft-strip-body = Staff only until published.
 doc-detail-needs-verification = Needs verification
 doc-detail-needs-verification-title = Verify this page
 doc-detail-verification-stale = Verification stale

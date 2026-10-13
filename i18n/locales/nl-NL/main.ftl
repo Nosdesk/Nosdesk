@@ -3408,7 +3408,7 @@ doc-detail-status-archived = Gearchiveerd
 # Machine translation, pending native review
 doc-detail-status-published = Gepubliceerd
 doc-detail-draft-strip-title = Concept
-doc-detail-draft-strip-body = Alleen zichtbaar voor medewerkers tot je publiceert.
+doc-detail-draft-strip-body = Alleen medewerkers tot publicatie.
 doc-detail-needs-verification = Verificatie nodig
 doc-detail-needs-verification-title = Deze pagina verifiëren
 doc-detail-verification-stale = Verificatie verouderd

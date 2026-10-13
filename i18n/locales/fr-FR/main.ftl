@@ -3418,7 +3418,7 @@ doc-detail-status-archived = Archivé
 # Machine translation, pending native review
 doc-detail-status-published = Publié
 doc-detail-draft-strip-title = Brouillon
-doc-detail-draft-strip-body = Visible par l'équipe uniquement jusqu'à la publication.
+doc-detail-draft-strip-body = Réservé à l'équipe jusqu'à publication.
 doc-detail-needs-verification = Vérification requise
 doc-detail-needs-verification-title = Vérifier cette page
 doc-detail-verification-stale = Vérification expirée
