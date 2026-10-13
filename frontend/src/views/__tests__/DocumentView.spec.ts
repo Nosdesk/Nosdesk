@@ -47,7 +47,22 @@ vi.mock('@/components/documentationComponents/DocumentActionsMenu.vue', () => ({
 }))
 vi.mock('extendable-media-recorder', () => ({ MediaRecorder: class {}, register: async () => {} }))
 vi.mock('extendable-media-recorder-wav-encoder', () => ({ connect: async () => ({}) }))
-vi.mock('@/components/CollaborativeEditor.vue', () => ({ default: { template: '<div />' } }))
+// The editor stub exposes `toolbarDocked` the way the real one does, so the
+// view's reaction to the keyboard-docked toolbar can be driven from here.
+const editorStub = vi.hoisted(() => ({ docked: { value: false } as { value: boolean } }))
+vi.mock('@/components/CollaborativeEditor.vue', async () => {
+  const { h, ref } = await import('vue')
+  const docked = ref(false)
+  editorStub.docked = docked
+  return {
+    default: {
+      setup(_: unknown, { expose }: { expose: (o: Record<string, unknown>) => void }) {
+        expose({ toolbarDocked: docked })
+        return () => h('div')
+      },
+    },
+  }
+})
 vi.mock('@/components/common/BackButton.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/components/common/PullToRefresh.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/components/editor/RevisionHistory.vue', () => ({ default: { template: '<div />' } }))
@@ -91,17 +106,20 @@ const ROW = {
 }
 
 let wrapper: VueWrapper | null = null
+const DESKTOP_WIDTH = window.innerWidth
 afterEach(() => {
   wrapper?.unmount()
   wrapper = null
   document.body.innerHTML = ''
   pool.reset()
   vi.clearAllMocks()
+  window.innerWidth = DESKTOP_WIDTH
+  editorStub.docked.value = false
 })
 
-async function openPage(): Promise<void> {
-  docs.getPageByPath.mockResolvedValue({ id: PAGE.id, title: PAGE.title, slug: PAGE.slug })
-  docs.getArticleById.mockResolvedValue({ ...PAGE })
+async function openPage(page: typeof PAGE = PAGE): Promise<void> {
+  docs.getPageByPath.mockResolvedValue({ id: page.id, title: page.title, slug: page.slug })
+  docs.getArticleById.mockResolvedValue({ ...page })
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -138,5 +156,72 @@ describe('DocumentView, page collections', () => {
     await flushPromises()
 
     expect(collections.setPageCollections).toHaveBeenCalledWith(5, [])
+  })
+})
+
+// `useMobileDetection` reads window.innerWidth when its first consumer
+// mounts, so the width is set before each mount and the view is the only
+// consumer here.
+function phoneSlot(): HTMLElement {
+  window.innerWidth = 390
+  const slot = document.createElement('span')
+  slot.id = 'site-header-actions'
+  document.body.appendChild(slot)
+  return slot
+}
+
+describe('DocumentView on a phone', () => {
+  it('moves the actions menu into the app bar slot and keeps no toolbar of its own', async () => {
+    const slot = phoneSlot()
+    await openPage()
+
+    expect(slot.querySelector('[data-test="collections"]'), 'menu in the app bar').toBeTruthy()
+    expect(wrapper!.find('[data-test="collections"]').exists(), 'menu in the view').toBe(false)
+  })
+
+  it('shows the draft strip for a draft and not for a published page', async () => {
+    phoneSlot()
+    await openPage({ ...PAGE, status: 'draft' })
+    expect(wrapper!.find('[data-test="draft-strip"]').exists()).toBe(true)
+    expect(wrapper!.text()).not.toContain('doc-detail-status-draft')
+
+    wrapper!.unmount()
+    wrapper = null
+    document.body.innerHTML = ''
+    phoneSlot()
+    await openPage({ ...PAGE, status: 'published' })
+    expect(wrapper!.find('[data-test="draft-strip"]').exists()).toBe(false)
+    expect(wrapper!.text()).toContain('doc-detail-status-published')
+  })
+
+  it('gives the strip up to the keyboard-docked toolbar', async () => {
+    phoneSlot()
+    await openPage({ ...PAGE, status: 'draft' })
+    expect(wrapper!.find('[data-test="draft-strip"]').exists()).toBe(true)
+
+    editorStub.docked.value = true
+    await flushPromises()
+    expect(wrapper!.find('[data-test="draft-strip"]').exists()).toBe(false)
+    // The chip does not pop back in while the keyboard borrows the edge.
+    expect(wrapper!.text()).not.toContain('doc-detail-status-draft')
+
+    editorStub.docked.value = false
+    await flushPromises()
+    expect(wrapper!.find('[data-test="draft-strip"]').exists()).toBe(true)
+  })
+})
+
+describe('DocumentView on desktop', () => {
+  it('keeps the menu in its own toolbar and shows no strip', async () => {
+    window.innerWidth = 1280
+    const slot = document.createElement('span')
+    slot.id = 'site-header-actions'
+    document.body.appendChild(slot)
+    await openPage({ ...PAGE, status: 'draft' })
+
+    expect(wrapper!.find('[data-test="collections"]').exists()).toBe(true)
+    expect(slot.querySelector('[data-test="collections"]')).toBeNull()
+    expect(wrapper!.find('[data-test="draft-strip"]').exists()).toBe(false)
+    expect(wrapper!.text()).toContain('doc-detail-status-draft')
   })
 })

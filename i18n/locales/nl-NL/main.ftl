@@ -3405,6 +3405,10 @@ doc-detail-copied = Gekopieerd
 doc-detail-untitled = Naamloos
 doc-detail-status-draft = Concept
 doc-detail-status-archived = Gearchiveerd
+# Machine translation, pending native review
+doc-detail-status-published = Gepubliceerd
+doc-detail-draft-strip-title = Concept
+doc-detail-draft-strip-body = Alleen zichtbaar voor medewerkers tot je publiceert.
 doc-detail-needs-verification = Verificatie nodig
 doc-detail-needs-verification-title = Deze pagina verifiëren
 doc-detail-verification-stale = Verificatie verouderd
@@ -3677,6 +3681,9 @@ editor-toolbar-numbered-list = Genummerde lijst
 editor-toolbar-insert = Invoegen
 editor-toolbar-undo = Ongedaan maken
 editor-toolbar-redo = Opnieuw uitvoeren
+# Machine translation, pending native review
+editor-toolbar-done = Gereed
+editor-toolbar-label = Opmaak
 editor-toolbar-revision-history = Revisiegeschiedenis
 editor-toolbar-editing-with = Bewerken met:
 editor-toolbar-connection-connecting = Verbinden...
