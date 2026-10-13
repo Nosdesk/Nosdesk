@@ -4870,7 +4870,7 @@ asset-lifecycle-heading = Lifecycle
 asset-lifecycle-description = Track operational status changes such as repairs, loans, and retirement.
 asset-lifecycle-current-label = Current status
 asset-lifecycle-change-status = Change status
-asset-lifecycle-correct-status = Correct status
+asset-lifecycle-disposed-final = Disposal is final
 asset-lifecycle-managed-by-loan = Managed by the active loan
 
 # Asset loans
