@@ -8,8 +8,9 @@
 //! the one person it is addressed to. Within those, a `user` row reaches a
 //! workspace's sessions only when it is about one of its people
 //! (`repository::directory`) and carries only the fields the viewer may see
-//! ([`crate::sync::user_projection`]), and a knowledge gap is left out for a
-//! viewer who can't open a page it names. It is the single place that
+//! ([`crate::sync::user_projection`]), a knowledge gap is left out for a
+//! viewer who can't open a page it names, and a requester gets no asset
+//! record when the workspace shows requesters no assets. It is the single place that
 //! decides "can THIS viewer see THIS row", shared by all three read paths:
 //!
 //! - **bootstrap** (snapshot): filters at the query level via
@@ -205,6 +206,19 @@ pub fn names_only_the_row(data: &serde_json::Value) -> bool {
         .is_some_and(|o| !o.is_empty() && o.keys().all(|k| k == "id" || k == "uuid"))
 }
 
+/// Records about an asset that reach requesters: the asset, its link to a
+/// ticket, usage on a ticket, and a loan to them. None of them reaches a
+/// requester when the workspace shows requesters no assets.
+fn is_asset_record(agg: SyncAggregate) -> bool {
+    matches!(
+        agg,
+        SyncAggregate::Asset
+            | SyncAggregate::TicketAsset
+            | SyncAggregate::AssetUsage
+            | SyncAggregate::AssetLoan
+    )
+}
+
 /// True when this aggregate carries a ticket id and so needs the
 /// visible-ticket set resolved for a restricted viewer.
 fn needs_ticket_resolution(agg: SyncAggregate) -> bool {
@@ -227,6 +241,10 @@ struct Resolved {
     hidden_gaps: HashSet<i64>,
     /// Which of the batch's `user` rows are about this workspace's people.
     people: HashSet<Uuid>,
+    /// The workspace shows requesters no assets and the viewer is one: no
+    /// asset record reaches them (`site_settings.requester_asset_visibility`).
+    /// Read per batch, so a change reaches open streams with their next one.
+    assets_hidden: bool,
     /// Fail-closed flags: a lookup error drops the affected family.
     doc_fail: bool,
     ticket_fail: bool,
@@ -244,6 +262,7 @@ impl Resolved {
             hidden_collections: HashSet::new(),
             hidden_gaps: HashSet::new(),
             people: HashSet::new(),
+            assets_hidden: !viewer.sees_all(),
             doc_fail: true,
             ticket_fail: true,
             gap_fail: true,
@@ -397,6 +416,8 @@ fn action_is_visible(v: &ActionView, viewer: &SyncViewer, r: &Resolved) -> bool 
                     || v.subject_uuid
                         .is_some_and(|u| u == me || r.people.contains(&u))
             }
+            // Everyone, unless the workspace shows requesters no assets.
+            SyncAggregate::Asset => !r.assets_hidden,
             _ => true,
         },
         Audience::Staff => {
@@ -412,7 +433,9 @@ fn action_is_visible(v: &ActionView, viewer: &SyncViewer, r: &Resolved) -> bool 
         }
         Audience::Admin => viewer.is_admin,
         Audience::Addressee => addressed_to_me,
-        Audience::StaffAndAddressee => viewer.sees_all() || addressed_to_me,
+        Audience::StaffAndAddressee => {
+            viewer.sees_all() || (addressed_to_me && !(is_asset_record(agg) && r.assets_hidden))
+        }
         // Documentation: exclusion model, visible to everyone EXCEPT the
         // rows in the hidden set. Fail-closed drops all doc rows.
         Audience::Docs => {
@@ -439,6 +462,9 @@ fn ticket_row_is_visible(
     let Some(visible) = r.visible_tickets.as_ref() else {
         return true; // sees_all
     };
+    if is_asset_record(agg) && r.assets_hidden {
+        return false;
+    }
     // Bare-id prune signals (`{id}` only) carry no information about a
     // ticket the viewer can't see, and MUST reach a member even when the
     // underlying row is already gone: a hard-deleted ticket/attachment can't
@@ -583,6 +609,21 @@ pub fn deliveries<T>(
         }
     };
 
+    // --- Assets (only for restricted viewers) ---
+    // Whether the workspace shows requesters its assets, read on this
+    // connection's pin. A failed read hides them (fail-closed).
+    let assets_hidden = !sees_all
+        && views
+            .iter()
+            .any(|v| v.aggregate.is_some_and(is_asset_record))
+        && match crate::repository::assets::requester_asset_visibility(conn) {
+            Ok(setting) => setting == crate::models::RequesterAssetVisibility::None,
+            Err(e) => {
+                tracing::error!(error = %e, "sync visibility: asset visibility lookup failed; dropping asset rows (fail-closed)");
+                true
+            }
+        };
+
     // --- Ticket-gated families (only for restricted viewers) ---
     let needs_resolution = views
         .iter()
@@ -648,6 +689,7 @@ pub fn deliveries<T>(
         hidden_collections,
         hidden_gaps,
         people,
+        assets_hidden,
         doc_fail,
         ticket_fail,
         gap_fail,
@@ -689,8 +731,11 @@ pub fn wire_aggregate_is_gated(wire: &str, viewer: &SyncViewer) -> bool {
         return true;
     };
     match audience(agg) {
-        // People rows are filtered to the workspace's people and projected.
-        Audience::All => agg == SyncAggregate::User,
+        // People rows are filtered to the workspace's people and projected;
+        // assets reach a requester only when the workspace shows them.
+        Audience::All => {
+            agg == SyncAggregate::User || (agg == SyncAggregate::Asset && !viewer.sees_all())
+        }
         // Staff see every staff record but a gap naming a page they can't
         // open.
         Audience::Staff => !viewer.sees_all() || agg == SyncAggregate::KnowledgeGap,
@@ -806,6 +851,7 @@ mod tests {
             hidden_collections: HashSet::new(),
             hidden_gaps: HashSet::new(),
             people: HashSet::new(),
+            assets_hidden: false,
             doc_fail: false,
             ticket_fail: false,
             gap_fail: false,
@@ -814,6 +860,49 @@ mod tests {
 
     fn check(v: &ActionView, viewer: &SyncViewer) -> bool {
         action_is_visible(v, viewer, &resolved(viewer))
+    }
+
+    /// The workspace shows requesters no assets: no asset record reaches a
+    /// member, even one on their own ticket or addressed to them; staff keep
+    /// every one.
+    #[test]
+    fn hidden_assets_reach_no_member() {
+        let me = Uuid::nil();
+        let records = || {
+            let asset = view(SyncAggregate::Asset, false);
+            let mut link = view(SyncAggregate::TicketAsset, false);
+            link.ticket_id = Some(1);
+            let mut usage = view(SyncAggregate::AssetUsage, false);
+            usage.ticket_id = Some(1);
+            let mut loan = view(SyncAggregate::AssetLoan, false);
+            loan.addressees = vec![me];
+            [asset, link, usage, loan]
+        };
+        for v in records() {
+            assert!(check(&v, &member()), "{:?} shown", v.aggregate);
+        }
+        for viewer in [member(), staff()] {
+            let mut r = resolved(&viewer);
+            r.assets_hidden = !viewer.sees_all();
+            for v in records() {
+                assert_eq!(
+                    action_is_visible(&v, &viewer, &r),
+                    viewer.sees_all(),
+                    "{:?}",
+                    v.aggregate
+                );
+            }
+        }
+        // The stream can't skip the lookup for a member's asset row.
+        assert!(wire_aggregate_is_gated("asset", &member()));
+        assert!(!wire_aggregate_is_gated("asset", &staff()));
+        // Unable to ask, a member gets no asset.
+        let failed = Resolved::failed(&member());
+        assert!(!action_is_visible(
+            &view(SyncAggregate::Asset, false),
+            &member(),
+            &failed
+        ));
     }
 
     fn check_with_comments(v: &ActionView, viewer: &SyncViewer, comments: &[i32]) -> bool {

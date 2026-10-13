@@ -245,7 +245,7 @@ pub async fn record(
 
 pub async fn list_for_asset(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
     query: web::Query<ListUsageQuery>,
 ) -> impl Responder {
@@ -253,8 +253,14 @@ pub async fn list_for_asset(
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = query.offset.unwrap_or(0).max(0);
 
-    match tc.run(|conn| repo::list_for_asset(conn, asset_id, limit, offset)) {
+    match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
+        repo::list_for_asset(conn, asset_id, limit, offset)
+    }) {
         Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(diesel::result::Error::NotFound) => {
+            errors::not_found_msg(format!("Asset {asset_id} not found"))
+        }
         Err(e) => {
             error!(asset_id, error = ?e, "failed to list asset usage");
             errors::internal("Failed to load usage history")
@@ -264,11 +270,16 @@ pub async fn list_for_asset(
 
 pub async fn list_for_ticket(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
-    match tc.run(|conn| repo::list_for_ticket(conn, ticket_id)) {
+    match tc.run(|conn| {
+        if crate::handlers::assets::assets_hidden_from(conn, &auth) {
+            return Ok(Vec::new());
+        }
+        repo::list_for_ticket(conn, ticket_id)
+    }) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(ticket_id, error = ?e, "failed to list ticket usage");

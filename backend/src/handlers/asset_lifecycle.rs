@@ -50,11 +50,12 @@ pub struct DisposalBody {
 
 pub async fn list_for_asset(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
     match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::list_for_asset(conn, asset_id)
     }) {
@@ -160,11 +161,12 @@ fn map_transition_err(asset_id: i32, e: TransitionError) -> HttpResponse {
 /// asset detail + the record-card export; disposal detail is not synced.
 pub async fn get_disposal(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
     match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::disposal_for_asset(conn, asset_id)
     }) {
@@ -182,8 +184,13 @@ pub async fn get_disposal(
 
 /// GET distinct ITAD vendors previously entered, for the disposal-form
 /// suggestions. Any authenticated workspace member.
-pub async fn list_itad_vendors(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
-    match tc.run(repo::list_itad_vendors) {
+pub async fn list_itad_vendors(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    match tc.run(|conn| {
+        if crate::handlers::assets::assets_hidden_from(conn, &auth) {
+            return Ok(Vec::new());
+        }
+        repo::list_itad_vendors(conn)
+    }) {
         Ok(vendors) => HttpResponse::Ok().json(vendors),
         Err(e) => {
             error!(error = ?e, "failed to list ITAD vendors");

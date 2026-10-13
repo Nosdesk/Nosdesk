@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, watch, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useFluent } from "fluent-vue";
 import { useAuthStore } from "@/stores/auth";
+import { useWorkspaceCapabilities } from "@/composables/useWorkspaceCapabilities";
 import { PRIORITY_OPTIONS } from "@nosdesk/core/constants/ticketOptions";
 import { categoryService } from "@nosdesk/core/services/categoryService";
 import type { TicketCategory } from "@nosdesk/core/types/category";
@@ -67,6 +68,7 @@ import { useCreateTicketAction } from "@/composables/useCreateTicketAction";
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { assetsVisible } = useWorkspaceCapabilities();
 const titleManager = useTitleManager();
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
@@ -816,7 +818,7 @@ const rootEl = ref<HTMLElement | null>(null);
                         <template v-if="ticket">
                             <TicketGapFlag :ticket-id="ticket.id" />
 
-                            <TicketLoansCard :ticket-id="ticket.id" :requester-uuid="ticket.requester" :has-devices="devices.length > 0" />
+                            <TicketLoansCard v-if="assetsVisible" :ticket-id="ticket.id" :requester-uuid="ticket.requester" :has-devices="devices.length > 0" />
 
                             <PluginSlot target="ticket.sidebar.panel" :context="{ ticket: pluginTicket }" :action-activated-map="pluginActionActivatedMap" />
                         </template>

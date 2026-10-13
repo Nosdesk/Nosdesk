@@ -35,11 +35,12 @@ pub struct UpdateAssetMediaBody {
 
 pub async fn list_for_asset(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
     match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::list_for_asset(conn, asset_id)
     }) {
@@ -295,6 +296,10 @@ pub async fn serve_asset_media_file(
         &auth,
         |c| assets_repo::asset_workspace_id(c, asset_id),
         |c, _, _| {
+            // A requester shown no assets reads it as missing.
+            if crate::handlers::assets::assets_hidden_from(c, &auth) {
+                return Ok(None);
+            }
             // Read again under the pin: the asset must be in this workspace.
             Ok(assets_repo::get_device_by_id(c, asset_id)
                 .optional()?

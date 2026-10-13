@@ -1005,6 +1005,22 @@ admin-asset-kinds-field-icon-hint = Optionele pictogramnaam (bijv. "monitor", "p
 admin-asset-kinds-field-attribute-schema-hint = JSON Schema-subset. De Bouwer-weergave is standaard; schakel naar JSON-weergave voor handmatige bewerkingen.
 admin-asset-kinds-view-builder = Bouwer tonen
 admin-asset-kinds-view-json = JSON tonen
+# MT: pending native review (nl-NL)
+asset-access-title = Toegang voor aanvragers
+# MT: pending native review (nl-NL)
+asset-access-description = Wat mensen met de rol aanvrager zien van de activa van deze werkruimte. Medewerkers zien altijd alle activa.
+# MT: pending native review (nl-NL)
+asset-access-all = Alle activa
+# MT: pending native review (nl-NL)
+asset-access-none = Geen
+# MT: pending native review (nl-NL)
+asset-access-all-hint = Aanvragers zien alle activa, ook die ze niet in bezit hebben, in hun app en op de activapagina's.
+# MT: pending native review (nl-NL)
+asset-access-none-hint = Aanvragers zien helemaal geen activa: niet de lijst met activa, niet de activa die aan hun tickets gekoppeld zijn, en niet de apparaten of uitleningen op hun eigen profiel.
+# MT: pending native review (nl-NL)
+asset-access-saved = Toegang voor aanvragers opgeslagen
+# MT: pending native review (nl-NL)
+asset-access-save-failed = Toegang voor aanvragers kon niet worden opgeslagen
 
 # Getypte attribuutbouwer.
 asset-kind-attribute-editor-add = Attribuut toevoegen

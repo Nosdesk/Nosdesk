@@ -198,7 +198,7 @@ fn stream_bootstrap_inner(
     // for this workspace" vs "available everywhere" — eg. SLA
     // chrome should hide entirely until an admin sets up at least
     // one policy.
-    let capabilities = super::capability_flags(conn);
+    let capabilities = super::capability_flags(conn, &viewer);
 
     // Header: schema hash, cursor, granted groups, and capability
     // flags. Clients read this once at the start of every
@@ -214,6 +214,7 @@ fn stream_bootstrap_inner(
                 "sla_enabled": capabilities.sla_enabled,
                 "approvals_enabled": capabilities.approvals_enabled,
                 "approvals_held": capabilities.approvals_held,
+                "assets_visible": capabilities.assets_visible,
             }
         }),
     )?;
@@ -312,8 +313,13 @@ fn stream_bootstrap_inner(
     // device picker, and asset list view needs an id -> name
     // lookup, and the count is bounded (~hundreds in the wild),
     // not unbounded like tickets. The row is the live event payload,
-    // so bootstrap and incremental updates carry the same fields.
-    let asset_rows: Vec<Asset> = assets::table.order(assets::name.asc()).load(conn)?;
+    // so bootstrap and incremental updates carry the same fields. A
+    // requester gets none when the workspace shows requesters no assets.
+    let asset_rows: Vec<Asset> = if capabilities.assets_visible {
+        assets::table.order(assets::name.asc()).load(conn)?
+    } else {
+        Vec::new()
+    };
     for asset in asset_rows {
         let mut row = crate::repository::assets::asset_sync_payload(&asset);
         row["__model__"] = json!("asset");
@@ -674,7 +680,13 @@ fn stream_bootstrap_inner(
     // memberships). The global / project bootstraps deliberately omit
     // these, so they only ship for an explicit `ticket:<id>` group.
     if !detail_ticket_ids.is_empty() {
-        stream_ticket_detail_extras(conn, &detail_ticket_ids, viewer.ctx.sees_all(), tx)?;
+        stream_ticket_detail_extras(
+            conn,
+            &detail_ticket_ids,
+            viewer.ctx.sees_all(),
+            capabilities.assets_visible,
+            tx,
+        )?;
     }
 
     finish(tx, last_xid8, last_sync_id)
@@ -692,6 +704,7 @@ fn stream_ticket_detail_extras(
     conn: &mut crate::db::DbConnection,
     ticket_ids: &[i32],
     sees_all: bool,
+    assets_visible: bool,
     tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Restricted viewers see only public comments on their visible
@@ -752,9 +765,13 @@ fn stream_ticket_detail_extras(
         }
     }
 
-    let asset_links: Vec<TicketAsset> = ticket_assets::table
-        .filter(ticket_assets::ticket_id.eq_any(ticket_ids))
-        .load(conn)?;
+    let asset_links: Vec<TicketAsset> = if assets_visible {
+        ticket_assets::table
+            .filter(ticket_assets::ticket_id.eq_any(ticket_ids))
+            .load(conn)?
+    } else {
+        Vec::new()
+    };
     for ta in asset_links {
         send(
             tx,

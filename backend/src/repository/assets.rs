@@ -70,6 +70,35 @@ pub(crate) fn emit_asset_event(
     Ok(())
 }
 
+/// What requester-role members may see of the pinned workspace's assets. A
+/// workspace with no settings row yet has the default, every asset. With no
+/// workspace pinned there is no setting to read, so the answer is none: a
+/// caller that forgot the pin never shows requesters an asset.
+pub fn requester_asset_visibility(
+    conn: &mut DbConnection,
+) -> QueryResult<RequesterAssetVisibility> {
+    let stored: Option<String> = site_settings::table
+        .filter(
+            site_settings::workspace_id
+                .nullable()
+                .eq(pinned_workspace().nullable()),
+        )
+        .select(site_settings::requester_asset_visibility)
+        .first(conn)
+        .optional()?;
+    if let Some(stored) = stored {
+        return Ok(
+            RequesterAssetVisibility::parse(&stored).unwrap_or(RequesterAssetVisibility::None)
+        );
+    }
+    let pinned: Option<i32> = diesel::select(pinned_workspace().nullable()).get_result(conn)?;
+    Ok(if pinned.is_some() {
+        RequesterAssetVisibility::All
+    } else {
+        RequesterAssetVisibility::None
+    })
+}
+
 // Asset operations
 pub fn get_all_devices(conn: &mut DbConnection) -> QueryResult<Vec<Asset>> {
     assets::table.order_by(assets::id.asc()).load::<Asset>(conn)

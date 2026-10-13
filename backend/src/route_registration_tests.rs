@@ -130,6 +130,18 @@ async fn approval_settings_config_routes_registered() {
 }
 
 #[actix_web::test]
+async fn asset_settings_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::asset_settings::config,
+        &[
+            ("GET", "/admin/asset-settings"),
+            ("PUT", "/admin/asset-settings"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn requester_sso_config_routes_registered() {
     assert_config_registers(
         crate::handlers::requester_sso::config,

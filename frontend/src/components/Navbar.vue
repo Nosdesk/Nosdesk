@@ -24,6 +24,7 @@ import Tooltip from "@/components/common/Tooltip.vue";
 import Popover from "@/components/common/Popover.vue";
 import { getSlotRegistrations } from "@/plugins/loader";
 import { pluginPagePath } from "@/plugins/pluginPage";
+import { useWorkspaceCapabilities } from "@/composables/useWorkspaceCapabilities";
 
 // Global search
 const { openSearch } = useGlobalSearch();
@@ -187,8 +188,20 @@ const pluginNavGroup = computed<NavGroup | null>(() => {
     };
 });
 
+// A requester in a workspace that shows requesters no assets has no Assets
+// page to go to.
+const { assetsVisible } = useWorkspaceCapabilities();
+const coreNavGroups = computed<NavGroup[]>(() =>
+    assetsVisible.value
+        ? staticNavGroups
+        : staticNavGroups.map((g) => ({
+              ...g,
+              links: g.links.filter((l) => l.to !== "/assets"),
+          })),
+);
+
 const navGroups = computed<NavGroup[]>(() =>
-    pluginNavGroup.value ? [...staticNavGroups, pluginNavGroup.value] : staticNavGroups,
+    pluginNavGroup.value ? [...coreNavGroups.value, pluginNavGroup.value] : coreNavGroups.value,
 );
 
 /** Flat list used by the collapsed / compact-nav layouts where
@@ -213,7 +226,7 @@ const INBOX_MOBILE_LINK: NavLink = {
  *  are intentionally excluded — the mobile pin set is a curated core-route set. */
 const pinnableLinks = computed<NavLink[]>(() => [
     INBOX_MOBILE_LINK,
-    ...staticNavGroups.flatMap((g) => g.links),
+    ...coreNavGroups.value.flatMap((g) => g.links),
 ]);
 
 const { pinnedPaths, isPinned, togglePin, resetToDefaults, remainingSlots } =

@@ -18,6 +18,29 @@ use crate::services::imports::assets::{build_history_rows, write_assets_csv, wri
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
 
+/// Whether `auth` gets no assets: a requester in a workspace that shows
+/// requesters none (`site_settings.requester_asset_visibility`). Staff see
+/// every asset. A failed read hides them. Hidden reads as absent: a list
+/// leaves every asset out, and a route for one asset answers 404.
+pub(crate) fn assets_hidden_from(conn: &mut crate::db::DbConnection, auth: &AuthContext) -> bool {
+    !auth.can_handle_tickets()
+        && !repository::assets::requester_asset_visibility(conn)
+            .is_ok_and(|v| v == crate::models::RequesterAssetVisibility::All)
+}
+
+/// [`Error::NotFound`] when `auth` gets no assets, for a route about one
+/// asset, so its existing not-found arm answers.
+pub(crate) fn require_assets_visible(
+    conn: &mut crate::db::DbConnection,
+    auth: &AuthContext,
+) -> Result<(), Error> {
+    if assets_hidden_from(conn, auth) {
+        Err(Error::NotFound)
+    } else {
+        Ok(())
+    }
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/assets", web::get().to(crate::handlers::get_all_devices))
         .route(
@@ -587,7 +610,7 @@ pub struct CalendarOverlayEntry {
 /// visible alongside ticket due dates.
 pub async fn calendar_overlay(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     query: web::Query<CalendarOverlayParams>,
 ) -> impl Responder {
     use chrono::NaiveDate;
@@ -630,6 +653,9 @@ pub async fn calendar_overlay(
     }
     let rows: Result<Vec<WarrantyOverlayRow>, Error> = tc.run(|conn| {
         use diesel::RunQueryDsl;
+        if assets_hidden_from(conn, &auth) {
+            return Ok(Vec::new());
+        }
         diesel::sql_query(
             "SELECT id, name, NULLIF(attributes->>'warranty_end_date','')::date AS warranty_end_date \
              FROM assets \
@@ -830,6 +856,9 @@ pub async fn create_rollout(
 /// Get all devices
 pub async fn get_all_devices(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     let result = tc.run(|conn| {
+        if assets_hidden_from(conn, &auth) {
+            return Ok(Vec::new());
+        }
         let devices = repository::get_all_devices(conn)?;
         Ok(devices_to_responses(conn, devices))
     });
@@ -865,7 +894,7 @@ pub async fn get_all_devices(mut tc: TenantConn, auth: AuthContext) -> impl Resp
 /// if assets later become role-restricted at the list layer.
 pub async fn export_assets(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     query: web::Query<AssetExportQuery>,
 ) -> impl Responder {
     let Some(workspace_id) = tc.workspace_id() else {
@@ -888,7 +917,11 @@ pub async fn export_assets(
     };
 
     let export_result = tc.run(|conn| {
-        let rows = repository::assets::list_for_export(conn, filters)?;
+        let rows = if assets_hidden_from(conn, &auth) {
+            Vec::new()
+        } else {
+            repository::assets::list_for_export(conn, filters)?
+        };
         // History exports the lifecycle log for the same filtered assets.
         let events = if want_history {
             let ids: Vec<i32> = rows.iter().map(|a| a.id).collect();
@@ -956,11 +989,12 @@ pub async fn export_assets(
 /// history export, scoped to one asset. Any authenticated workspace member.
 pub async fn record_card(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
     let result = tc.run(|conn| {
+        require_assets_visible(conn, &auth)?;
         let asset = repository::get_device_by_id(conn, asset_id)?;
         let events = repository::asset_lifecycle::history_for_export(conn, &[asset_id])?;
         Ok((asset, events))
@@ -995,8 +1029,13 @@ pub async fn record_card(
 }
 
 /// Get distinct non-empty asset locations for filters and form suggestions.
-pub async fn get_asset_locations(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
-    match tc.run(crate::repository::assets::list_asset_locations) {
+pub async fn get_asset_locations(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    match tc.run(|conn| {
+        if assets_hidden_from(conn, &auth) {
+            return Ok(Vec::new());
+        }
+        crate::repository::assets::list_asset_locations(conn)
+    }) {
         Ok(locations) => HttpResponse::Ok().json(
             locations
                 .into_iter()
@@ -1031,6 +1070,9 @@ pub async fn get_paginated_devices(
     let low_stock = matches!(query.low_stock.as_deref(), Some("true") | Some("1"));
 
     let result = tc.run(|conn| {
+        if assets_hidden_from(conn, &auth) {
+            return Ok((Vec::new(), 0));
+        }
         let (devices, total) = repository::get_paginated_devices(
             conn,
             page,
@@ -1076,6 +1118,7 @@ pub async fn get_device_by_id(
     let device_id = path.into_inner();
 
     let result = tc.run(|conn| {
+        require_assets_visible(conn, &auth)?;
         let device = repository::get_device_by_id(conn, device_id)?;
         let user = device
             .primary_user_uuid
@@ -1123,6 +1166,9 @@ pub async fn get_user_devices(
     };
 
     let result = tc.run(|conn| {
+        if assets_hidden_from(conn, &auth) {
+            return Ok(Vec::new());
+        }
         let devices = crate::repository::assets::get_devices_for_user(conn, &user_uuid)?;
         Ok(devices_to_responses(conn, devices))
     });
@@ -1565,6 +1611,9 @@ pub async fn get_paginated_devices_excluding(
     let search = query.search.clone();
 
     let result = tc.run(|conn| {
+        if assets_hidden_from(conn, &auth) {
+            return Ok((Vec::new(), 0));
+        }
         let (devices, total_count) =
             crate::repository::assets::get_paginated_devices_excluding_ids(
                 conn,
