@@ -263,15 +263,26 @@ pub async fn patch(
 
 /// Returns the ticket-id list for a cycle. Phase 8 ScrumBoard uses
 /// this to scope its kanban to "tickets in this cycle" without
-/// pulling the cycle_tickets aggregate into the sync engine.
+/// pulling the cycle_tickets aggregate into the sync engine. Lists only
+/// the tickets the caller may see.
 pub async fn tickets(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-    _auth: AuthContext,
+    auth: AuthContext,
 ) -> impl Responder {
     let uuid = path.into_inner();
+    let vis = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
     let result = tc.run(|conn| match repo::find_by_uuid(conn, uuid)? {
-        Some(cycle) => repo::ticket_ids_for_cycle(conn, cycle.id).map(Some),
+        Some(cycle) => {
+            let ids = repo::ticket_ids_for_cycle(conn, cycle.id)?;
+            let visible =
+                crate::repository::ticket_visibility::visible_ticket_ids(conn, &vis, &ids)?;
+            Ok(Some(
+                ids.into_iter()
+                    .filter(|id| visible.contains(id))
+                    .collect::<Vec<i32>>(),
+            ))
+        }
         None => Ok(None),
     });
     match result {

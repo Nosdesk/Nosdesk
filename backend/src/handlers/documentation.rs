@@ -13,7 +13,7 @@ use yrs::{
 
 use crate::db::{DbConnection, Pool};
 use crate::errors;
-use crate::extractors::{AuthContext, TenantConn};
+use crate::extractors::{AuthContext, TenantConn, TicketAccess};
 use crate::models::{
     DocumentationPage, DocumentationPageResponse, DocumentationPageTicketEmbed,
     DocumentationPageWithChildren, DocumentationStatus, NewDocumentationPage, UserInfoWithAvatar,
@@ -1663,13 +1663,13 @@ pub async fn get_documentation_page_by_slug_with_children(
     }
 }
 
-// Get documentation pages for a ticket
+/// Documentation pages linked to a ticket: visibility-gated by
+/// `TicketAccess`, then filtered by the page ACL.
 pub async fn get_documentation_pages_by_ticket_id(
     mut tc: TenantConn,
-    path: web::Path<i32>,
-    auth: AuthContext,
+    access: TicketAccess,
 ) -> impl Responder {
-    let ticket_id = path.into_inner();
+    let TicketAccess { ticket_id, auth } = access;
     let outcome = run_page_list(
         &mut tc,
         repository::PageAudience::from_auth(&auth),
@@ -2462,19 +2462,21 @@ pub async fn list_page_tickets(
         let ticket_ids: Vec<i32> = links.iter().map(|l| l.ticket_id).collect();
         let tickets_meta = linked_ticket_meta(conn, &ticket_ids, &ticket_ctx)?;
 
+        // `tickets_meta` holds only the tickets this caller may see, so a link
+        // to any other ticket is left out entirely.
         let responses: Vec<PageTicketLinkResponse> = links
             .into_iter()
-            .map(|l| {
-                let meta = tickets_meta.get(&l.ticket_id);
-                PageTicketLinkResponse {
+            .filter_map(|l| {
+                let meta = tickets_meta.get(&l.ticket_id)?;
+                Some(PageTicketLinkResponse {
                     page_id: l.page_id,
                     ticket_id: l.ticket_id,
                     link_type: l.link_type,
                     created_by: l.created_by,
                     created_at: l.created_at,
-                    ticket_title: meta.map(|m| m.0.clone()),
-                    ticket_category: meta.map(|m| m.1),
-                }
+                    ticket_title: Some(meta.0.clone()),
+                    ticket_category: Some(meta.1),
+                })
             })
             .collect();
         Ok::<_, diesel::result::Error>(responses)
@@ -2579,13 +2581,9 @@ enum TicketDocLinksOutcome {
 /// GET /api/tickets/{ticket_id}/documentation-pages
 /// Mirror of list_page_tickets from the ticket side. Returns
 /// hydrated doc rows so the ticket "See also" panel needs no
-/// secondary request.
-pub async fn list_ticket_doc_links(
-    mut tc: TenantConn,
-    path: web::Path<i32>,
-    auth: AuthContext,
-) -> impl Responder {
-    let ticket_id = path.into_inner();
+/// secondary request. Visibility-gated by `TicketAccess`.
+pub async fn list_ticket_doc_links(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
+    let TicketAccess { ticket_id, auth } = access;
     let audience = repository::PageAudience::from_auth(&auth);
 
     let outcome = tc.run(|conn| {

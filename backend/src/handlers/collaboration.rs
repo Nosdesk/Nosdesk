@@ -3824,6 +3824,12 @@ pub async fn restore_ticket_revision(
     auth: AuthContext,
 ) -> Result<HttpResponse, ApiError> {
     let (ticket_id, revision_number) = path.into_inner();
+    // Ticket notes are staff-edit only, so restoring one is too.
+    if !auth.can_handle_tickets() {
+        return Err(ApiError::Forbidden(
+            "Only the helpdesk team can restore ticket notes".into(),
+        ));
+    }
     gate_ticket(&mut tc, &auth, ticket_id)?;
 
     // No saved content means this revision can't exist.

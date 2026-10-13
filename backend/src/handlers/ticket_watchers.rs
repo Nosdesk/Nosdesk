@@ -49,6 +49,7 @@ pub async fn watch_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Resp
     }
 }
 
+// ticket-access: removes only the caller's own watch
 pub async fn unwatch_ticket(
     mut tc: TenantConn,
     params: web::Path<i32>,

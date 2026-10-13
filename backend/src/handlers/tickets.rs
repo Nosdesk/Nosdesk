@@ -539,6 +539,11 @@ pub async fn preview_ticket_field(
     body: web::Json<TicketFieldPreviewBody>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    // A preview stands for an edit, so it follows the PATCH rule: a requester
+    // may rename their ticket and nothing else.
+    if !access.auth.can_handle_tickets() && body.field != PreviewableField::Title {
+        return errors::forbidden("Only the helpdesk team can change this");
+    }
     if body.value.len() > body.field.max_len() {
         return errors::bad_request("Preview value exceeds maximum length");
     }
@@ -1336,6 +1341,7 @@ pub async fn record_ticket_view(mut tc: TenantConn, access: TicketAccess) -> imp
 }
 
 // Remove a ticket from the user's recent views
+// ticket-access: deletes only the caller's own recent-view row
 pub async fn remove_recent_ticket(
     mut tc: TenantConn,
     path: web::Path<i32>,
