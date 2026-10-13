@@ -1299,10 +1299,15 @@ fn require_admin_target(
 /// schedules the destructive cascade via the
 /// `user_purge_worker` after the configured retention window.
 /// Restorable via `POST /admin/users/{uuid}/restore` until purge.
+///
+/// The caller steps up with their own password or 2FA code (body
+/// `{ password }` or `{ mfa_code }`), the same check as signing out all other
+/// sessions.
 pub async fn delete_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
+    body: Option<web::Json<crate::models::StepUpCredential>>,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
     // Pin the request's workspace so the admin-protection guard below
@@ -1319,6 +1324,19 @@ pub async fn delete_user(
             "You cannot delete your own account while logged in".into(),
         ));
     }
+    let caller_uuid = utils::parse_uuid(&claims.sub)
+        .map_err(|_| ApiError::BadRequest("Invalid user UUID in token".into()))?;
+    let caller = repository::get_user_by_uuid(&caller_uuid, &mut conn)
+        .map_err(|_| ApiError::Unauthorized("Authentication required".into()))?;
+    let credential = body.map(web::Json::into_inner).unwrap_or_default();
+    crate::handlers::auth::verify_step_up(
+        &mut conn,
+        &claims,
+        &caller,
+        &credential,
+        "Confirm with your password or 2FA code to delete this user",
+    )
+    .await?;
     if crate::repository::user_helpers::user_is_admin(&mut conn, &target_user) {
         return Err(ApiError::BadRequest(
             "Administrator accounts cannot be deleted for security reasons".into(),

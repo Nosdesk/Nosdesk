@@ -325,21 +325,21 @@ const userService = {
    * `user-soft-deleted`; the retention worker hard-deletes after
    * the configured grace window. Returns the new deleted_at +
    * purge_at so the caller can show "delete in N days".
+   *
+   * `credential` is the caller's own step-up (password or 2FA code), which
+   * the backend verifies. Throws on failure so the caller can show the
+   * server's reason, such as a wrong password.
    */
-  async deleteUser(uuid: string): Promise<
-    { deleted_at: string; purge_at: string } | null
-  > {
-    try {
-      const { data } = await apiClient.delete<{
-        uuid: string;
-        deleted_at: string;
-        purge_at: string;
-      }>(`/users/${uuid}`);
-      return { deleted_at: data.deleted_at, purge_at: data.purge_at };
-    } catch (error) {
-      logger.error('Failed to delete user', { error, uuid });
-      return null;
-    }
+  async deleteUser(
+    uuid: string,
+    credential: { password?: string; mfa_code?: string } = {},
+  ): Promise<{ deleted_at: string; purge_at: string }> {
+    const { data } = await apiClient.delete<{
+      uuid: string;
+      deleted_at: string;
+      purge_at: string;
+    }>(`/users/${uuid}`, { data: credential });
+    return { deleted_at: data.deleted_at, purge_at: data.purge_at };
   },
 
   /** Restore a soft-deleted user. Idempotent on the FE side; the

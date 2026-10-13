@@ -368,12 +368,13 @@ pub struct MfaDisableRequest {
     pub password: String,
 }
 
-/// Step-up credential for "sign out all other sessions". The caller
-/// supplies whichever they have: a local password, or a TOTP / backup
-/// code. Both optional so an OAuth-only account with no MFA (nothing to
-/// step up with) can still call the endpoint on a full session.
+/// Step-up credential for high-blast-radius actions ("sign out all other
+/// sessions", deleting a user). The caller supplies whichever they have: a
+/// local password, or a TOTP / backup code. Both optional so an OAuth-only
+/// account with no MFA (nothing to step up with) can still act on a full
+/// session.
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct RevokeOtherSessionsRequest {
+pub struct StepUpCredential {
     #[serde(default)]
     pub password: Option<String>,
     #[serde(default)]
