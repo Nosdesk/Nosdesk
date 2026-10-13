@@ -306,12 +306,17 @@ export interface PluginSetting {
 export interface PluginStorage {
   key: string;
   value: unknown | null;
+  /** 0 when the key isn't set; bumped on every write. */
+  version: number;
 }
 
 // Consolidated request type for both settings and storage
 export interface SetPluginDataRequest {
   key: string;
   value: unknown;
+  /** Storage only: write only while the entry is at this version (0 = the key
+   * must not exist yet). The server answers 409 otherwise. */
+  expected_version?: number;
 }
 
 export interface PluginActivity {

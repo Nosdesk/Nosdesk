@@ -233,6 +233,20 @@ export const SLOT_REGISTRY = [
     aliases: ['navbar-items'],
     description: 'A nav-sidebar link to a full-page plugin surface',
   },
+  {
+    // Same full-page surface as `nav.item`, linked under the Assets entry in
+    // the expanded sidebar (asset sublists, per-category views). Collapsed
+    // and compact layouts list it right after Assets.
+    name: 'nav.assets.item',
+    mechanism: 'action',
+    context: 'none',
+    cardinality: 'many',
+    chrome: 'none',
+    order: 100,
+    status: 'stable',
+    aliases: [],
+    description: 'A nav-sidebar link under Assets to a full-page plugin surface',
+  },
 ] as const satisfies readonly SlotDef[];
 
 /** A canonical dotted slot name. */

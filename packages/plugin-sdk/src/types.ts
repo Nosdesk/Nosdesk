@@ -52,6 +52,61 @@ export interface PluginAssetPatch {
   location?: string | null;
 }
 
+/** Filters and paging for `assets.query` (`asset:read`). List-valued filters
+ * match ANY of the given values. */
+export interface PluginAssetQuery {
+  /** 1-based page (default 1). */
+  page?: number;
+  /** Rows per page, 1 to 100 (default 25). */
+  pageSize?: number;
+  /** Matches name, serial number, model, manufacturer, or an exact asset id. */
+  search?: string;
+  /** Asset kind slug(s), as `assets.kinds()` lists them. */
+  kind?: string | string[];
+  /** Native asset group id(s). */
+  group?: number | number[];
+  /** Lifecycle status(es): `in_service`, `in_repair`, and so on. */
+  status?: string | string[];
+  /** A column (`name`, `serial_number`, `model`, `location`, `status`,
+   * `created_at`, `updated_at`, `quantity`) or `attr:<key>` for a kind
+   * attribute. Default `name`. */
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+/** One page of `assets.query`. */
+export interface PluginAssetPage {
+  assets: Asset[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+/** An asset kind and the attributes its assets carry (`asset:read`).
+ * `attributeSchema` is a JSON Schema subset: `{ type: 'object', properties,
+ * required? }`, each property a primitive or an array of primitives, with
+ * `format` among `date`, `date-time`, `email`, `uri`, `user-uuid`, `asset-ref`. */
+export interface PluginAssetKind {
+  id: number;
+  slug: string;
+  label: string;
+  description: string | null;
+  icon: string | null;
+  /** `it` | `logical` | `physical` | `bulk` | `generic`. */
+  category: string;
+  attributeSchema: Record<string, unknown>;
+  sortOrder: number;
+  isBuiltin: boolean;
+}
+
+/** A plugin storage entry with its version, for `storage.compareAndSet`.
+ * `version` is 0 when the key isn't set, and goes up by one on every write. */
+export interface PluginStorageEntry<T = unknown> {
+  value: T | null;
+  version: number;
+}
+
 /** A safe user projection for `user:read` — identity only, workspace members. */
 export interface PluginUser {
   uuid: string;
@@ -155,7 +210,7 @@ export interface PluginCollection {
  *
  * Failure contract: a call THROWS a `PluginApiError` (recover with
  * `asPluginApiError`, branch on `.code`: `denied` | `invalid` | `rate_limited` |
- * `timeout` | `upstream`). `null` is returned only for a genuine not-found — a
+ * `timeout` | `conflict` | `upstream`). `null` is returned only for a genuine not-found, a
  * `get` of a resource that doesn't exist. So `null` means "not there"; a throw
  * means "couldn't".
  */
@@ -180,7 +235,16 @@ export interface HostApi {
   };
   assets: {
     get(id: number): Promise<Asset | null>;
+    /** Every asset in one unpaginated call. Prefer `query` for large
+     * inventories; `list` stays for compatibility. */
     list(): Promise<Asset[]>;
+    /** One page of assets, filtered by search, kind, group and status
+     * (`asset:read`). */
+    query(params?: PluginAssetQuery): Promise<PluginAssetPage>;
+    /** The workspace's asset kinds with their attribute schemas
+     * (`asset:read`). Reading kinds also needs the acting user to be an agent
+     * or admin; for anyone else the call throws `upstream`. */
+    kinds(): Promise<PluginAssetKind[]>;
     /** Patch an asset (`asset:write`). Acts as the current user. */
     update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;
   };
@@ -205,7 +269,15 @@ export interface HostApi {
   fetch(url: string, options?: PluginFetchOptions): Promise<PluginFetchResponse>;
   storage: {
     get<T>(key: string): Promise<T | null>;
+    /** The value with its version, for a later `compareAndSet`. */
+    getEntry<T>(key: string): Promise<PluginStorageEntry<T>>;
+    /** Unconditional write (last writer wins). */
     set<T>(key: string, value: T): Promise<boolean>;
+    /** Write only if the entry is still at `expectedVersion` (0 = the key must
+     * not exist yet). Resolves to the new version; throws a `conflict`
+     * PluginApiError when someone else wrote first, so read again, merge, and
+     * retry. */
+    compareAndSet<T>(key: string, value: T, expectedVersion: number): Promise<number>;
     delete(key: string): Promise<boolean>;
   };
   /** Access a named collection's CRUD (returns a Comlink-proxied sub-API). */

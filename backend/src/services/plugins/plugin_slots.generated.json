@@ -159,5 +159,16 @@
       "navbar-items"
     ],
     "description": "A nav-sidebar link to a full-page plugin surface"
+  },
+  {
+    "name": "nav.assets.item",
+    "mechanism": "action",
+    "context": "none",
+    "cardinality": "many",
+    "chrome": "none",
+    "order": 100,
+    "status": "stable",
+    "aliases": [],
+    "description": "A nav-sidebar link under Assets to a full-page plugin surface"
   }
 ]

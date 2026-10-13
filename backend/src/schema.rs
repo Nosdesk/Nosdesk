@@ -1245,6 +1245,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         workspace_id -> Int4,
+        version -> Int8,
     }
 }
 
