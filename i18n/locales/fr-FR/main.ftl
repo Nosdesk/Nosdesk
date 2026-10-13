@@ -2609,6 +2609,23 @@ user-mgmt-bulk-delete-message = { $count ->
    *[other] Supprimer { $count } utilisateurs ? Ils seront restaurables pendant 30 jours, puis définitivement supprimés.
 }
 user-mgmt-bulk-action-error = Échec de l'action groupée. Veuillez réessayer.
+# TODO native-review fr-FR for the bulk delete outcome keys below.
+user-mgmt-bulk-deleted = { $count ->
+    [one] Un utilisateur supprimé. Vous pouvez le restaurer depuis Supprimés pendant 30 jours.
+   *[other] { $count } utilisateurs supprimés. Vous pouvez les restaurer depuis Supprimés pendant 30 jours.
+}
+user-mgmt-bulk-skipped-admin = { $count ->
+    [one] Un administrateur n'a pas été supprimé. Modifiez d'abord son rôle, puis supprimez-le.
+   *[other] { $count } administrateurs n'ont pas été supprimés. Modifiez d'abord leur rôle, puis supprimez-les.
+}
+user-mgmt-bulk-skipped-staff = { $count ->
+    [one] Un membre du personnel est géré dans votre compte Nosdesk et n'a donc pas été supprimé ici.
+   *[other] { $count } membres du personnel sont gérés dans votre compte Nosdesk et n'ont donc pas été supprimés ici.
+}
+user-mgmt-bulk-delete-failed = { $count ->
+    [one] Un utilisateur n'a pas pu être supprimé. Veuillez réessayer.
+   *[other] { $count } utilisateurs n'ont pas pu être supprimés. Veuillez réessayer.
+}
 # TODO native-review fr-FR for the soft-delete keys below.
 user-mgmt-deleted-off = Afficher les supprimés
 user-mgmt-deleted-on = Masquer les supprimés

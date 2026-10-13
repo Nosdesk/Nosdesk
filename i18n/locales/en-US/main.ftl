@@ -2677,6 +2677,22 @@ user-mgmt-bulk-delete-message = { $count ->
    *[other] Delete { $count } users? They will be restorable for 30 days, then permanently removed.
 }
 user-mgmt-bulk-action-error = Failed to perform bulk action. Please try again.
+user-mgmt-bulk-deleted = { $count ->
+    [one] Deleted one user. They can be restored from Deleted for 30 days.
+   *[other] Deleted { $count } users. They can be restored from Deleted for 30 days.
+}
+user-mgmt-bulk-skipped-admin = { $count ->
+    [one] One administrator wasn't deleted. Change their role first, then delete them.
+   *[other] { $count } administrators weren't deleted. Change their role first, then delete them.
+}
+user-mgmt-bulk-skipped-staff = { $count ->
+    [one] One staff member is managed in your Nosdesk account, so they weren't deleted here.
+   *[other] { $count } staff members are managed in your Nosdesk account, so they weren't deleted here.
+}
+user-mgmt-bulk-delete-failed = { $count ->
+    [one] One user couldn't be deleted. Try again.
+   *[other] { $count } users couldn't be deleted. Try again.
+}
 user-mgmt-deleted-off = Show deleted
 user-mgmt-deleted-on = Hide deleted
 user-mgmt-deleted-badge = Deleted

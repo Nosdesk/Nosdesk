@@ -34,7 +34,7 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import NosdeskAccountChip from '@/components/identity/NosdeskAccountChip.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import userService from '@/services/userService'
+import userService, { type BulkUserActionResult } from '@/services/userService'
 import { usersKeys } from '@nosdesk/core/queries/users'
 import { effectiveRole, type User, type UserRole } from '@nosdesk/core/types/user'
 import { peopleColumns, peopleFacets, peopleGroupAxes } from '@/utils/peopleListLayout'
@@ -352,8 +352,27 @@ async function confirmDelete() {
   showDeleteConfirm.value = false
   const ids = listView.selection.selectedIds.value
   if (ids.length === 0) return
-  await bulkActionMutation.mutateAsync({ action: 'delete', ids })
+  const result = await bulkActionMutation.mutateAsync({ action: 'delete', ids })
   listView.selection.clear()
+  reportBulkDelete(result)
+}
+
+// The server skips admins and control-plane-managed staff rather than
+// failing the batch, so say what didn't happen; a silent 200 reads as
+// "delete does nothing".
+function reportBulkDelete(result: BulkUserActionResult) {
+  if (result.affected > 0) {
+    toast.success(t('user-mgmt-bulk-deleted', { count: result.affected }))
+  }
+  if (result.skipped_admin) {
+    toast.warning(t('user-mgmt-bulk-skipped-admin', { count: result.skipped_admin }))
+  }
+  if (result.skipped_staff) {
+    toast.info(t('user-mgmt-bulk-skipped-staff', { count: result.skipped_staff }))
+  }
+  if (result.failed) {
+    toast.error(t('user-mgmt-bulk-delete-failed', { count: result.failed }))
+  }
 }
 
 async function applyRoleChange(role: string) {
