@@ -40,13 +40,12 @@ pub fn get_page_subscribers_who_can_read(
 
     let mut readers = Vec::with_capacity(subscribers.len());
     for uuid in subscribers {
-        let is_admin = platform_admins.contains(&uuid)
-            || roles
-                .get(&uuid)
-                .is_some_and(|r| r.meets(WorkspaceRole::Admin));
+        let platform_admin = platform_admins.contains(&uuid);
+        let role = roles.get(&uuid);
         let audience = crate::repository::documentation::PageAudience::User {
             user_uuid: uuid,
-            is_admin,
+            is_admin: platform_admin || role.is_some_and(|r| r.meets(WorkspaceRole::Admin)),
+            is_staff: platform_admin || role.is_some_and(|r| r.is_staff()),
         };
         if audience.try_can_read(conn, page_id)? {
             readers.push(uuid);

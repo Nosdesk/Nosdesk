@@ -300,6 +300,7 @@ fn pinned_filter_hides_restricted_pages_in_the_viewers_workspace() {
                 .values((
                     documentation_pages::title.eq(title),
                     documentation_pages::slug.eq(title.to_lowercase()),
+                    documentation_pages::status.eq(backend::models::DocumentationStatus::Published),
                     documentation_pages::created_by.eq(seeded.b.admin_uuid),
                     documentation_pages::last_edited_by.eq(seeded.b.admin_uuid),
                 ))
