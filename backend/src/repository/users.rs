@@ -759,6 +759,18 @@ pub fn purge_user(
             .set(user_emails::created_by.eq::<Option<Uuid>>(None))
             .execute(conn)?;
 
+        // 2l. Device loans: return any active loan, restoring the asset's
+        // status. The user delete below then sets the borrower NULL (ON DELETE
+        // SET NULL), so the ledger outlives the account.
+        crate::repository::asset_loans::return_loans_of_purged_borrower(conn, user_uuid).map_err(
+            |e| match e {
+                crate::repository::asset_loans::LoanError::Db(e) => e,
+                other => Error::QueryBuilderError(
+                    format!("releasing the purged borrower's loans: {other:?}").into(),
+                ),
+            },
+        )?;
+
         // === Phase 3: Delete CASCADE tables explicitly (for clarity) ===
         // These would be deleted automatically by CASCADE, but explicit is clearer
 

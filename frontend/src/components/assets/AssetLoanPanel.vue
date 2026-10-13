@@ -89,6 +89,7 @@ useSyncActions(
 // ---- Display helpers ------------------------------------------------
 
 function borrowerName(loan: AssetLoan): string {
+  if (!loan.borrower_user_uuid) return t('asset-loan-deleted-borrower');
   return getUserHandle(loan.borrower_user_uuid).user.value?.name ?? t('asset-loan-unknown-borrower');
 }
 

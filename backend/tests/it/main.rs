@@ -76,6 +76,7 @@ mod knowledge_gap_hidden_pages;
 mod knowledge_gap_lifecycle;
 mod ldap_groups_in_workspace;
 mod listen_tls;
+mod loans_survive_user_purge;
 mod logging_pii_guardrail;
 mod merged_ticket_writes;
 mod migration_api_token_role_ceiling;
