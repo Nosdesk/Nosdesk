@@ -11,6 +11,10 @@
 # fastlane/README.md is hand-written; don't let fastlane regenerate it.
 skip_docs
 
+# An outdated fastlane prints its whole changelog after every run. Keep the
+# one-line notice (Dependabot keeps the lockfile current); drop the changelog.
+ENV["FASTLANE_HIDE_CHANGELOG"] ||= "1"
+
 APP_ID          = ENV.fetch("APP_IDENTIFIER", "com.nosdesk.app")
 APPLE_PROJECT   = "src-tauri/gen/apple/#{ENV.fetch('APPLE_PROJECT_NAME', 'Nosdesk')}.xcodeproj"
 APPLE_INFO_PLIST = "src-tauri/gen/apple/app_iOS/Info.plist"
@@ -147,8 +151,12 @@ platform :android do
 
   desc "Upload the Play listing (text, icon, feature graphic, screenshots) without a release"
   lane :metadata do
+    # supply attaches listing uploads to a release, so it needs a build that
+    # exists on a track: BUILD_NUMBER is the version code, on internal.
     upload_to_play_store(
       json_key: ENV.fetch("PLAY_JSON_KEY_PATH"),
+      track: "internal",
+      version_code: ENV.fetch("BUILD_NUMBER"),
       metadata_path: File.join(store_assets, "metadata", "android"),
       skip_upload_apk: true,
       skip_upload_aab: true,
@@ -162,6 +170,11 @@ platform :android do
     upload_to_play_store(
       track: "internal",
       track_promote_to: "production",
+      version_code: ENV.fetch("BUILD_NUMBER"),
+      # An app that has never been published only accepts draft releases:
+      # promote with PLAY_RELEASE_STATUS=draft, then send it for review in the
+      # Play Console. After that, completed rolls straight out.
+      track_promote_release_status: ENV.fetch("PLAY_RELEASE_STATUS", "completed"),
       json_key: ENV.fetch("PLAY_JSON_KEY_PATH"),
       skip_upload_apk: true,
       skip_upload_aab: true,
