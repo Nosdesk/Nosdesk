@@ -4807,16 +4807,18 @@ asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (t
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
 # MACHINE TRANSLATION, pending native review
-asset-media-heading = Photos
+asset-media-heading = Photos et fichiers
 asset-media-description = Les photos sont rattachées à cet actif et visibles par les membres de l'espace de travail.
-asset-media-add = Ajouter des photos
+asset-media-add = Ajouter des photos ou des fichiers
 asset-media-loading = Chargement des photos…
-asset-media-empty-title = Aucune photo jointe
-asset-media-empty-description = Ajoutez des photos de référence pour les matériaux, équipements, véhicules, étiquettes ou lieux de stockage.
+asset-media-empty-title = Aucune photo ni aucun fichier joint
+asset-media-empty-description = Ajoutez des photos de référence, ou des documents comme des rapports d'intervention, des factures et des manuels (PDF, Office, texte).
 asset-media-load-failed = Échec du chargement des photos de l'actif
-asset-media-upload-failed = Échec de l'envoi des photos de l'actif
-asset-media-delete-failed = Échec de la suppression de la photo de l'actif
+asset-media-upload-failed = Échec de l'envoi des fichiers de l'actif
+asset-media-delete-failed = Échec de la suppression du fichier de l'actif
 asset-media-delete-aria = Supprimer { $name }
+asset-media-download-aria = Télécharger { $name }
+asset-media-files-heading = Fichiers
 
 # Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
 asset-status-in-service = En service

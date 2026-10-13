@@ -4797,16 +4797,18 @@ asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (t
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
 # MACHINE TRANSLATION, pending native review
-asset-media-heading = Foto's
+asset-media-heading = Foto's en bestanden
 asset-media-description = Foto's worden bij deze asset bewaard en zijn zichtbaar voor leden van de werkruimte.
-asset-media-add = Foto's toevoegen
+asset-media-add = Foto's of bestanden toevoegen
 asset-media-loading = Foto's laden…
-asset-media-empty-title = Geen foto's bijgevoegd
-asset-media-empty-description = Voeg referentiefoto's toe van materialen, apparatuur, voertuigen, labels of opslaglocaties.
+asset-media-empty-title = Geen foto's of bestanden bijgevoegd
+asset-media-empty-description = Voeg referentiefoto's toe, of documenten zoals servicerapporten, facturen en handleidingen (PDF, Office, tekst).
 asset-media-load-failed = Laden van assetfoto's mislukt
-asset-media-upload-failed = Uploaden van assetfoto's mislukt
-asset-media-delete-failed = Verwijderen van assetfoto mislukt
+asset-media-upload-failed = Uploaden van assetbestanden mislukt
+asset-media-delete-failed = Verwijderen van assetbestand mislukt
 asset-media-delete-aria = { $name } verwijderen
+asset-media-download-aria = { $name } downloaden
+asset-media-files-heading = Bestanden
 
 # Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
 asset-status-in-service = In gebruik

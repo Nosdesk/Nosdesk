@@ -4838,16 +4838,18 @@ asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
 
 # Asset media panel.
-asset-media-heading = Photos
+asset-media-heading = Photos and files
 asset-media-description = Photos are stored against this asset and visible to workspace members.
-asset-media-add = Add photos
+asset-media-add = Add photos or files
 asset-media-loading = Loading photos…
-asset-media-empty-title = No photos attached
-asset-media-empty-description = Add reference photos for materials, equipment, vehicles, labels, or storage locations.
+asset-media-empty-title = No photos or files attached
+asset-media-empty-description = Add reference photos, or documents such as service reports, invoices, and manuals (PDF, Office, text).
 asset-media-load-failed = Failed to load asset photos
-asset-media-upload-failed = Failed to upload asset photos
-asset-media-delete-failed = Failed to delete asset photo
+asset-media-upload-failed = Failed to upload asset files
+asset-media-delete-failed = Failed to delete asset file
 asset-media-delete-aria = Delete { $name }
+asset-media-download-aria = Download { $name }
+asset-media-files-heading = Files
 asset-media-lightbox-previous = Previous photo
 asset-media-lightbox-next = Next photo
 asset-media-caption-edit-aria = Edit caption for { $name }
