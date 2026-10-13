@@ -43,6 +43,11 @@ export interface PluginTicketPatch {
 /** The writable-field subset a plugin may patch on an asset (`asset:write`). */
 export interface PluginAssetPatch {
   name?: string;
+  /**
+   * @deprecated Not writable by plugins. Status changes go through the asset
+   * lifecycle, which plugins can't use yet; a patch carrying `status` is
+   * refused with an `invalid` PluginApiError.
+   */
   status?: string;
   location?: string | null;
 }

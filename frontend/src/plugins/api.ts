@@ -256,6 +256,15 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
       },
       async update(id: number, patch: PluginAssetPatch): Promise<Asset | null> {
         if (!hasPermission('asset:write')) denied('asset:write');
+        // PUT /assets/{id} ignores `status`, so it would be dropped silently.
+        // Status changes go through the asset lifecycle, which plugins can't
+        // use yet: refuse rather than report a success that didn't happen.
+        if (patch?.status !== undefined) {
+          throw new PluginApiError(
+            'invalid',
+            'asset status changes go through the asset lifecycle, which is not available to plugins yet',
+          );
+        }
         try {
           return await updateAsset(id, patch as Partial<Asset>, pluginAttribution);
         } catch (error) {
