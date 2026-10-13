@@ -49,8 +49,14 @@ export interface DataTableColumnLike {
    *  Overridden by the resize state when the user drags a
    *  header edge; the override is always a `${px}px` string. */
   width?: string
-  /** When set, default-hide the column until the user opts in. */
+  /** When set, default-hide the column until the user opts in. A
+   *  default-hidden column that first appears after the user has a
+   *  stored layout (a registry that grows late) starts hidden too. */
   defaultHidden?: boolean
+  /** Picker section heading. Columns that carry one are optional
+   *  extras: the picker lists them under the heading and leaves them
+   *  out of its hidden-count badge. */
+  pickerSection?: string
   /** Resize lower bound in pixels. Falls back to a sensible
    *  default if absent. */
   minWidthPx?: number
@@ -73,6 +79,11 @@ export interface UseDataTableColumnsOptions<C extends DataTableColumnLike> {
    *  the primary name / title column so users can't accidentally
    *  push it off-screen. */
   pinnedIds?: readonly string[]
+  /** Ids to keep in a stored order while the registry doesn't list
+   *  them, for columns derived from data that loads after setup
+   *  (asset kind attributes). Without it the first reconcile drops
+   *  them and a saved position or visibility is lost. */
+  retainUnknownIds?: (id: string) => boolean
 }
 
 export interface UseDataTableColumns<C extends DataTableColumnLike> {
@@ -204,21 +215,31 @@ function persistStringArray(key: string, value: string[]): void {
 export function useDataTableColumns<C extends DataTableColumnLike>(
   options: UseDataTableColumnsOptions<C>,
 ): UseDataTableColumns<C> {
-  const { columns, storageNamespace, getViewId, pinnedIds = [] } = options
+  const {
+    columns,
+    storageNamespace,
+    getViewId,
+    pinnedIds = [],
+    retainUnknownIds = () => false,
+  } = options
   const pinned = new Set(pinnedIds)
 
   // Initialise from storage or registry defaults. All refs are
   // keyed by `column.field`, decoupled from the C type so
   // reactive identity is straightforward.
-  const order = ref<string[]>(initialOrder())
-  const hidden = ref<Set<string>>(initialHidden())
+  const initial = initialState()
+  const order = ref<string[]>(initial.order)
+  const hidden = ref<Set<string>>(initial.hidden)
   const widthOverrides = ref<Map<string, number>>(initialWidths())
   const resizingId = ref<string | null>(null)
 
-  function initialOrder(): string[] {
+  function initialState(): { order: string[]; hidden: Set<string> } {
     const stored = loadStringArray(orderStorageKey(storageNamespace, getViewId()))
-    if (stored && stored.length > 0) return reconcileOrder(stored)
-    return columns.value.map((c) => c.field)
+    if (stored && stored.length > 0) {
+      const { order, added } = reconcile(stored)
+      return { order, hidden: hideNewDefaults(initialHidden(), added) }
+    }
+    return { order: columns.value.map((c) => c.field), hidden: initialHidden() }
   }
 
   function initialHidden(): Set<string> {
@@ -226,6 +247,19 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
     if (stored) return new Set(stored)
     // First-time defaults from the registry.
     return new Set(columns.value.filter((c) => c.defaultHidden).map((c) => c.field))
+  }
+
+  /** Add the default-hidden columns among `added` (ids a reconcile
+   *  just spliced in) to `base`. A stored hidden list predates them,
+   *  so without this they would show up visible. */
+  function hideNewDefaults(base: Set<string>, added: string[]): Set<string> {
+    const toHide = added.filter(
+      (id) => columns.value.find((c) => c.field === id)?.defaultHidden,
+    )
+    if (toHide.length === 0) return base
+    const next = new Set(base)
+    for (const id of toHide) next.add(id)
+    return next
   }
 
   function initialWidths(): Map<string, number> {
@@ -241,12 +275,17 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
    *  column is inserted mid-registry: everyone with a stored order
    *  (which `persist()` writes the first time they reorder, hide, or
    *  resize anything) would see it stranded at the far right, nowhere
-   *  near where it was declared. */
-  function reconcileOrder(stored: string[]): string[] {
+   *  near where it was declared.
+   *
+   *  Ids the registry doesn't list are dropped unless
+   *  `retainUnknownIds` claims them. `added` lists the ids spliced in. */
+  function reconcile(stored: string[]): { order: string[]; added: string[] } {
     const registryIds = new Set(columns.value.map((c) => c.field))
-    const result = stored.filter((id) => registryIds.has(id))
+    const result = stored.filter((id) => registryIds.has(id) || retainUnknownIds(id))
+    const added: string[] = []
     columns.value.forEach((col, registryIndex) => {
       if (result.includes(col.field)) return
+      added.push(col.field)
       // Anchor on the nearest preceding registry column the user
       // already has; fall back to the front when there isn't one.
       let insertAt = 0
@@ -259,7 +298,7 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
       }
       result.splice(insertAt, 0, col.field)
     })
-    return result
+    return { order: result, added }
   }
 
   // Reload state when the active view changes (saved-view
@@ -268,8 +307,9 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
   watch(
     () => getViewId(),
     () => {
-      order.value = initialOrder()
-      hidden.value = initialHidden()
+      const next = initialState()
+      order.value = next.order
+      hidden.value = next.hidden
       widthOverrides.value = initialWidths()
     },
   )
@@ -281,7 +321,9 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
   watch(
     columns,
     () => {
-      order.value = reconcileOrder(order.value)
+      const { order: next, added } = reconcile(order.value)
+      order.value = next
+      hidden.value = hideNewDefaults(hidden.value, added)
     },
   )
 
@@ -357,8 +399,9 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
     nextHidden: string[],
     nextWidths?: Record<string, number>,
   ): void {
-    order.value = reconcileOrder(nextOrder)
-    hidden.value = new Set(nextHidden)
+    const reconciled = reconcile(nextOrder)
+    order.value = reconciled.order
+    hidden.value = hideNewDefaults(new Set(nextHidden), reconciled.added)
     if (nextWidths) {
       const map = new Map<string, number>()
       for (const [k, v] of Object.entries(nextWidths)) {

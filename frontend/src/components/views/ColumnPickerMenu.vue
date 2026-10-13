@@ -37,9 +37,27 @@ const anchor = computed<PopoverAnchor>(() => ({
   element: () => triggerRef.value,
 }))
 
+// Sectioned columns are optional extras (asset kind attributes), so they
+// don't count towards "columns tucked away".
 const hiddenCount = computed<number>(
-  () => props.columns.filter((c) => props.isHidden(c.field)).length,
+  () => props.columns.filter((c) => !c.pickerSection && props.isHidden(c.field)).length,
 )
+
+/** Core columns first, then each picker section under its heading. */
+const groups = computed(() => {
+  const out: { section: string | null; columns: DataTableColumnLike[] }[] = []
+  for (const col of props.columns) {
+    const section = col.pickerSection ?? null
+    let group = out.find((g) => g.section === section)
+    if (!group) {
+      group = { section, columns: [] }
+      if (section === null) out.unshift(group)
+      else out.push(group)
+    }
+    group.columns.push(col)
+  }
+  return out
+})
 </script>
 
 <template>
@@ -75,8 +93,13 @@ const hiddenCount = computed<number>(
       @close="open = false"
     >
       <div class="py-1 max-h-[20rem] overflow-y-auto">
+        <template v-for="group in groups" :key="group.section ?? ''">
+        <p
+          v-if="group.section"
+          class="px-3 pt-2 pb-1 text-3xs font-medium uppercase tracking-wide text-tertiary border-t border-subtle mt-1"
+        >{{ group.section }}</p>
         <MenuItem
-          v-for="col in columns"
+          v-for="col in group.columns"
           :key="col.field"
           role="menuitemcheckbox"
           :checked="!isHidden(col.field)"
@@ -95,6 +118,7 @@ const hiddenCount = computed<number>(
           </span>
           <span class="flex-1 text-primary truncate">{{ col.label }}</span>
         </MenuItem>
+        </template>
       </div>
       <footer class="border-t border-subtle px-3 py-1.5 flex items-center justify-end">
         <button

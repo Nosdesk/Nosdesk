@@ -322,8 +322,62 @@ pub fn get_paginated_devices(
         low_stock_only,
     );
 
-    // Apply sorting
-    match (sort_field.as_deref(), sort_direction.as_deref()) {
+    // Apply sorting. `attr:<key>` sorts on a kind attribute.
+    let attribute_sort = sort_field
+        .as_deref()
+        .and_then(|f| f.strip_prefix("attr:"))
+        .filter(|key| is_attribute_key(key));
+    if let Some(key) = attribute_sort {
+        query = order_by_attribute(query, key, sort_direction.as_deref() == Some("asc"));
+    } else {
+        query = order_by_column(query, sort_field.as_deref(), sort_direction.as_deref());
+    }
+
+    let offset = (page - 1) * page_size;
+    let results = query.offset(offset).limit(page_size).load::<Asset>(conn)?;
+
+    Ok((results, total))
+}
+
+/// A kind attribute key as the schema validator allows it
+/// (`^[a-z][a-z0-9_]*$`), so an `attr:` sort names nothing else.
+fn is_attribute_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && key.len() <= 64
+}
+
+/// Order by one attribute's JSON value. jsonb ordering compares numbers
+/// numerically, strings (ISO dates included) as text, and booleans false
+/// before true. Assets without the key sort last either way; name breaks ties.
+fn order_by_attribute<'a>(
+    query: AssetBoxedQuery<'a>,
+    key: &str,
+    ascending: bool,
+) -> AssetBoxedQuery<'a> {
+    let direction = if ascending {
+        " ASC NULLS LAST"
+    } else {
+        " DESC NULLS LAST"
+    };
+    query
+        .order(
+            diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::Jsonb>>(
+                "attributes -> ",
+            )
+            .bind::<diesel::sql_types::Text, _>(key.to_string())
+            .sql(direction),
+        )
+        .then_order_by(assets::name.asc())
+}
+
+fn order_by_column<'a>(
+    mut query: AssetBoxedQuery<'a>,
+    sort_field: Option<&str>,
+    sort_direction: Option<&str>,
+) -> AssetBoxedQuery<'a> {
+    match (sort_field, sort_direction) {
         (Some("id"), Some("asc")) => query = query.order(assets::id.asc()),
         (Some("id"), _) => query = query.order(assets::id.desc()),
         (Some("name"), Some("asc")) => query = query.order(assets::name.asc()),
@@ -349,11 +403,7 @@ pub fn get_paginated_devices(
         (Some("quantity"), _) => query = query.order(assets::quantity.desc().nulls_last()),
         _ => query = query.order(assets::name.asc()),
     }
-
-    let offset = (page - 1) * page_size;
-    let results = query.offset(offset).limit(page_size).load::<Asset>(conn)?;
-
-    Ok((results, total))
+    query
 }
 
 #[derive(Debug, QueryableByName)]

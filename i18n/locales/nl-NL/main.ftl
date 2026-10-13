@@ -2837,6 +2837,10 @@ assets-list-column-location = Locatie
 assets-list-column-user = Gebruiker
 assets-list-column-status = Status
 assets-list-column-warranty = Garantie
+# MACHINE TRANSLATION, pending native review
+assets-list-columns-attributes = Kenmerken
+assets-list-attribute-yes = Ja
+assets-list-attribute-no = Nee
 
 assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock
