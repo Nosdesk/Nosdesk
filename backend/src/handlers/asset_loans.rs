@@ -62,6 +62,9 @@ fn map_loan_err(asset_id: i32, e: LoanError) -> HttpResponse {
     }
 }
 
+/// An asset's loan ledger. Staff get every row whole. Anyone else gets who has
+/// it and when, without the ticket, the notes or the staff who issued and
+/// took it back: those belong to tickets the caller may not be able to see.
 pub async fn list_for_asset(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -73,7 +76,17 @@ pub async fn list_for_asset(
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::list_for_asset(conn, asset_id)
     }) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(mut rows) => {
+            if !auth.can_handle_tickets() {
+                for row in &mut rows {
+                    row.ticket_id = None;
+                    row.notes = None;
+                    row.actor_uuid = None;
+                    row.returned_by_uuid = None;
+                }
+            }
+            HttpResponse::Ok().json(rows)
+        }
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))
         }

@@ -16,7 +16,7 @@ use std::str::FromStr;
 use tracing::error;
 
 use crate::errors;
-use crate::extractors::{AuthContext, TenantConn};
+use crate::extractors::{AuthContext, TenantConn, TicketAccess};
 use crate::models::NewAssetUsage;
 use crate::repository::asset_usage as repo;
 use crate::services::notifications::types::{
@@ -243,6 +243,10 @@ pub async fn record(
     }
 }
 
+/// An asset's usage history. Staff get every row whole. Anyone else gets the
+/// quantities and times without the ticket, the notes or who recorded it
+/// (unless they did): those belong to tickets the caller may not be able to
+/// see.
 pub async fn list_for_asset(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -257,7 +261,18 @@ pub async fn list_for_asset(
         crate::handlers::assets::require_assets_visible(conn, &auth)?;
         repo::list_for_asset(conn, asset_id, limit, offset)
     }) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(mut rows) => {
+            if !auth.can_handle_tickets() {
+                for row in &mut rows {
+                    row.ticket_id = None;
+                    row.notes = None;
+                    if row.recorded_by != Some(auth.user_uuid) {
+                        row.recorded_by = None;
+                    }
+                }
+            }
+            HttpResponse::Ok().json(rows)
+        }
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))
         }
@@ -268,12 +283,11 @@ pub async fn list_for_asset(
     }
 }
 
-pub async fn list_for_ticket(
-    mut tc: TenantConn,
-    auth: AuthContext,
-    path: web::Path<i32>,
-) -> impl Responder {
-    let ticket_id = path.into_inner();
+/// Usage recorded against a ticket. Visibility-gated by `TicketAccess`; a
+/// requester shown no assets gets none.
+pub async fn list_for_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
+    let ticket_id = access.ticket_id;
+    let auth = access.auth;
     match tc.run(|conn| {
         if crate::handlers::assets::assets_hidden_from(conn, &auth) {
             return Ok(Vec::new());

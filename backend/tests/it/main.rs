@@ -146,6 +146,8 @@ mod ticket_file_access;
 mod ticket_join_write_lint;
 mod ticket_merge;
 mod ticket_numbers;
+mod ticket_route_access;
+mod ticket_route_access_lint;
 mod ticket_update_routes;
 mod ticket_url_lint;
 mod ticket_write_lint;
