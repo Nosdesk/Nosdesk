@@ -230,7 +230,7 @@ diesel::table! {
     asset_loans (id) {
         id -> Int4,
         asset_id -> Int4,
-        borrower_user_uuid -> Uuid,
+        borrower_user_uuid -> Nullable<Uuid>,
         loaned_at -> Timestamptz,
         due_back -> Nullable<Date>,
         returned_at -> Nullable<Timestamptz>,

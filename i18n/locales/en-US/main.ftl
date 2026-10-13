@@ -4893,6 +4893,7 @@ asset-loan-history = Loan history
 asset-loan-loaned-relative = Loaned { $when }
 asset-loan-ticket = Ticket #{ $id }
 asset-loan-unknown-borrower = Unknown borrower
+asset-loan-deleted-borrower = Deleted user
 asset-loan-due-overdue = Overdue
 asset-loan-due-today = Due today
 asset-loan-due-soon = Due in { $days } { $days ->

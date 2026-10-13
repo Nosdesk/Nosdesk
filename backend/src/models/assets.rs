@@ -517,7 +517,9 @@ pub struct NewAssetDisposal {
 pub struct AssetLoan {
     pub id: i32,
     pub asset_id: i32,
-    pub borrower_user_uuid: Uuid,
+    /// NULL once the borrower's account is purged: the loan stays in the
+    /// ledger without them.
+    pub borrower_user_uuid: Option<Uuid>,
     pub loaned_at: chrono::DateTime<chrono::Utc>,
     pub due_back: Option<NaiveDate>,
     pub returned_at: Option<chrono::DateTime<chrono::Utc>>,

@@ -139,7 +139,8 @@ export interface AssetDisposal {
 export interface AssetLoan {
   id: number;
   asset_id: number;
-  borrower_user_uuid: string;
+  /** Null once the borrower's account is purged; the loan stays. */
+  borrower_user_uuid: string | null;
   loaned_at: string;
   due_back?: string | null;
   returned_at?: string | null;

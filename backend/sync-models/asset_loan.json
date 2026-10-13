@@ -5,7 +5,7 @@
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
     "asset_id": { "rust": "i32", "ts": "number" },
-    "borrower_user_uuid": { "rust": "Uuid", "ts": "string" },
+    "borrower_user_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
     "loaned_at": { "rust": "DateTime<Utc>", "ts": "string" },
     "due_back": { "rust": "Option<NaiveDate>", "ts": "string | null" },
     "returned_at": { "rust": "Option<DateTime<Utc>>", "ts": "string | null" },

@@ -4862,6 +4862,8 @@ asset-loan-ticket = Ticket #{ $id }
 # MT: pending native review
 asset-loan-unknown-borrower = Onbekende lener
 # MT: pending native review
+asset-loan-deleted-borrower = Verwijderde gebruiker
+# MT: pending native review
 asset-loan-due-overdue = Te laat
 # MT: pending native review
 asset-loan-due-today = Vandaag terug

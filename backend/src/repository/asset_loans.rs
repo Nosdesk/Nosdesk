@@ -81,11 +81,13 @@ fn loan_sync_payload(row: &AssetLoan) -> serde_json::Value {
 /// them later), and the linked ticket when set. The `user:<borrower>` group
 /// is also how the sync read paths know the borrower is the record's
 /// addressee (`sync::audience::Audience::StaffAndAddressee`): no other
-/// `user:` group may go on a loan.
+/// `user:` group may go on a loan. A loan whose borrower was purged has none.
 fn loan_groups(loan: &AssetLoan) -> Vec<String> {
     let mut g = groups::workspace();
     g.push(format!("asset:{}", loan.asset_id));
-    g.push(format!("user:{}", loan.borrower_user_uuid));
+    if let Some(borrower) = loan.borrower_user_uuid {
+        g.push(format!("user:{borrower}"));
+    }
     if let Some(ticket_id) = loan.ticket_id {
         g.push(format!("ticket:{ticket_id}"));
     }
@@ -109,6 +111,7 @@ fn loan_emit(loan: &AssetLoan, op: SyncOp, event_type: &'static str) -> SyncEmit
 
 /// Write the lifecycle log row for a loan status move and emit it,
 /// referencing the loan so the timeline can deep-link to it.
+#[allow(clippy::too_many_arguments)]
 fn log_lifecycle(
     conn: &mut DbConnection,
     asset_id: i32,
@@ -117,13 +120,14 @@ fn log_lifecycle(
     ticket_id: Option<i32>,
     loan_id: i32,
     actor_uuid: Option<Uuid>,
+    reason: Option<&str>,
 ) -> QueryResult<()> {
     let event: AssetLifecycleEvent = diesel::insert_into(asset_lifecycle_events::table)
         .values(&NewAssetLifecycleEvent {
             asset_id,
             from_status: Some(from_status.to_string()),
             to_status: to_status.to_string(),
-            reason: None,
+            reason: reason.map(str::to_string),
             ticket_id,
             metadata: json!({ "loan_id": loan_id }),
             actor_uuid,
@@ -241,11 +245,12 @@ pub fn overdue_reminder_candidates(
         .filter(asset_loans::returned_at.is_null())
         .filter(asset_loans::due_back.lt(today))
         .filter(asset_loans::overdue_notified_at.is_null())
+        .filter(asset_loans::borrower_user_uuid.is_not_null())
         .select((
             asset_loans::id,
             asset_loans::asset_id,
             assets::name,
-            asset_loans::borrower_user_uuid,
+            asset_loans::borrower_user_uuid.assume_not_null(),
             asset_loans::due_back,
             asset_loans::ticket_id,
             asset_loans::workspace_id,
@@ -270,11 +275,12 @@ pub fn due_soon_reminder_candidates(
         .filter(asset_loans::due_back.ge(today))
         .filter(asset_loans::due_back.le(horizon))
         .filter(asset_loans::due_soon_notified_at.is_null())
+        .filter(asset_loans::borrower_user_uuid.is_not_null())
         .select((
             asset_loans::id,
             asset_loans::asset_id,
             assets::name,
-            asset_loans::borrower_user_uuid,
+            asset_loans::borrower_user_uuid.assume_not_null(),
             asset_loans::due_back,
             asset_loans::ticket_id,
             asset_loans::workspace_id,
@@ -396,6 +402,7 @@ pub fn issue(conn: &mut DbConnection, input: IssueLoan) -> Result<AssetLoan, Loa
             loan.ticket_id,
             loan.id,
             loan.actor_uuid,
+            None,
         )?;
         emit::record(conn, loan_emit(&loan, SyncOp::Insert, "asset_loan.issued"))?;
         Ok(loan)
@@ -411,6 +418,27 @@ pub fn return_loan(
     returned_at: DateTime<Utc>,
     returned_by: Option<Uuid>,
     notes: Option<String>,
+) -> Result<AssetLoan, LoanError> {
+    return_loan_logged(
+        conn,
+        asset_id,
+        loan_id,
+        returned_at,
+        returned_by,
+        notes,
+        None,
+    )
+}
+
+/// [`return_loan`], with a reason recorded on the lifecycle event.
+fn return_loan_logged(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    loan_id: i32,
+    returned_at: DateTime<Utc>,
+    returned_by: Option<Uuid>,
+    notes: Option<String>,
+    reason: Option<&str>,
 ) -> Result<AssetLoan, LoanError> {
     conn.transaction::<AssetLoan, LoanError, _>(|conn| {
         let loan: AssetLoan = asset_loans::table
@@ -445,6 +473,7 @@ pub fn return_loan(
             loan.ticket_id,
             loan.id,
             returned_by,
+            reason,
         )?;
         emit::record(
             conn,
@@ -489,6 +518,66 @@ pub fn edit(
         )?;
         Ok(updated)
     })
+}
+
+/// Reason recorded on the lifecycle event when a purge returns a loan.
+const BORROWER_PURGED_REASON: &str = "Borrower account deleted";
+
+/// Run `f` pinned to `workspace_id` inside a savepoint, then put the previous
+/// pin back. A purge runs under the bypass role pinned to the account's home
+/// workspace, but a loan's lifecycle event, its workspace-scoped foreign keys
+/// and its sync actions belong to the loan's own workspace.
+fn in_workspace<T>(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    f: impl FnOnce(&mut DbConnection) -> Result<T, LoanError>,
+) -> Result<T, LoanError> {
+    conn.transaction(|conn| {
+        let previous = crate::sync::session::current_workspace_id(conn)?;
+        crate::sync::session::pin_workspace(conn, workspace_id)?;
+        let out = f(conn);
+        crate::sync::session::restore_workspace_pin(conn, previous)?;
+        out
+    })
+}
+
+/// Return every active loan of a user about to be purged, in every workspace,
+/// through the normal return path: the asset goes back to its pre-loan status
+/// with a lifecycle event and sync actions. The borrower then goes NULL through
+/// the `ON DELETE SET NULL` key when the user row is deleted, so the ledger
+/// outlives the account. Called by
+/// [`purge_user`](crate::repository::users::purge_user) on a bypass
+/// connection, which sees every workspace's loans. Returns the loans returned.
+pub fn return_loans_of_purged_borrower(
+    conn: &mut DbConnection,
+    borrower_user_uuid: &Uuid,
+) -> Result<usize, LoanError> {
+    let active: Vec<(i32, i32, i32)> = asset_loans::table
+        .filter(asset_loans::borrower_user_uuid.eq(borrower_user_uuid))
+        .filter(asset_loans::returned_at.is_null())
+        .select((
+            asset_loans::id,
+            asset_loans::asset_id,
+            asset_loans::workspace_id,
+        ))
+        .order(asset_loans::id.asc())
+        .load(conn)?;
+
+    let now = Utc::now();
+    for &(loan_id, asset_id, workspace_id) in &active {
+        in_workspace(conn, workspace_id, |conn| {
+            return_loan_logged(
+                conn,
+                asset_id,
+                loan_id,
+                now,
+                None,
+                None,
+                Some(BORROWER_PURGED_REASON),
+            )
+        })?;
+    }
+    Ok(active.len())
 }
 
 #[cfg(test)]
