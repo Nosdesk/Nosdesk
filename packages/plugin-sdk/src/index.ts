@@ -18,7 +18,7 @@ export type { PluginRuntime } from './connect';
 // Host-side bridge (used by the app + the bridge harness, not by plugins).
 export { createRemoteHostApi, postInit, postContext, postTheme, watchPluginHeight } from './host';
 export type { HostBridge } from './host';
-export { BridgeGovernor, governHostApi, DEFAULT_GOVERNOR_OPTIONS } from './governor';
+export { BridgeGovernor, governHostApi, DEFAULT_GOVERNOR_OPTIONS, INTERACTIVE_HOST_METHODS } from './governor';
 export type { GovernorOptions } from './governor';
 export { PluginApiError, asPluginApiError } from './errors';
 export type { PluginApiErrorCode } from './errors';
@@ -47,6 +47,14 @@ export type {
   PluginPriority,
   PluginCollection,
   PluginFetchOptions,
+  PluginUiApi,
+  PluginConfirmOptions,
+  PluginPickOptions,
+  PluginPickDateOptions,
+  PluginPickedUser,
+  PluginPickedAsset,
+  PluginPickedTicket,
+  PluginRecordRef,
   PluginFetchResponse,
   PluginEventHandler,
   PluginEventPayload,

@@ -17,9 +17,9 @@ Usage:
   />
 -->
 <template>
-  <Modal :show="show" :title="title" size="sm" alert @close="emit('close')">
+  <Modal :show="show" :title="title" :description="description" size="sm" alert @close="emit('close')">
     <div class="flex flex-col gap-4">
-      <p class="text-sm text-secondary whitespace-pre-line leading-relaxed">{{ message }}</p>
+      <p v-if="message" class="text-sm text-secondary whitespace-pre-line leading-relaxed">{{ message }}</p>
       <slot name="body" />
     </div>
 
@@ -53,6 +53,8 @@ const props = withDefaults(
     show: boolean
     title: string
     message: string
+    /** Subtitle under the title (e.g. who is asking). */
+    description?: string
     confirmLabel?: string
     cancelLabel?: string
     variant?: 'danger' | 'warning' | 'info'
@@ -60,6 +62,7 @@ const props = withDefaults(
     loading?: boolean
   }>(),
   {
+    description: undefined,
     confirmLabel: undefined,
     cancelLabel: undefined,
     variant: 'info',

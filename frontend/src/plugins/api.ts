@@ -22,6 +22,7 @@ import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import { PluginApiError } from '@nosdesk/plugin-sdk';
 import { effectivePermissions } from './permissions';
+import { createDialogOwner, openPluginDialog, releaseDialogOwner } from './usePluginDialogs';
 import type {
   PluginUserQuery,
   PluginUserList,
@@ -35,6 +36,8 @@ import type {
   PluginAssetKind,
   PluginStorageEntry,
   PluginUser,
+  PluginUiApi,
+  PluginRecordRef,
 } from '@nosdesk/plugin-sdk';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@nosdesk/core/types/plugin';
 import type { Ticket } from '@nosdesk/core/types/ticket';
@@ -65,9 +68,34 @@ export interface PluginAttachment {
   commentId: number;
 }
 
-export interface PluginUIHelpers {
+/**
+ * Host-drawn UI (see `PluginUiApi` in the SDK for the author-facing contract).
+ * Same as the SDK shape except `isPrinting`, which is synchronous in-process
+ * and made async at the bridge.
+ */
+export interface PluginUIHelpers extends Omit<PluginUiApi, 'isPrinting'> {
   /** Check if the page is currently being printed (via matchMedia) */
   isPrinting(): boolean;
+}
+
+// The slots whose components render full-page (`PluginPageView`), so the only
+// components `ui.openPage` may open.
+const PAGE_SLOTS: ReadonlySet<string> = new Set(['nav.item', 'nav.assets.item']);
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A real calendar date in `YYYY-MM-DD` form (rejects `2026-02-30`). */
+function isIsoDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+function optionalTitle(opts: { title?: unknown } | undefined): string | undefined {
+  const title = opts?.title;
+  if (title === undefined || title === null) return undefined;
+  if (typeof title !== 'string') throw new PluginApiError('invalid', 'title must be a string');
+  return title.trim() || undefined;
 }
 
 export type EventHandler = (data: unknown) => void | Promise<void>;
@@ -154,8 +182,19 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
 
   let assetQuerySeq = 0;
 
+  // This instance's handle on the host dialog stack. The frame releases it on
+  // unmount / reload (`_dispose`), which settles any open dialog as cancelled.
+  const dialogOwner = createDialogOwner();
+  const pluginName = plugin.display_name || plugin.name;
+
+  // Navigation is loaded on first use: the router pulls in every view.
+  const navigate = async (target: import('./pluginNavigation').PluginNavigationTarget) => {
+    const { navigateForPlugin } = await import('./pluginNavigation');
+    navigateForPlugin(target);
+  };
+
   const api: PluginAPI = {
-    version: '1.0.0',
+    version: '1.1.0',
 
     // === Plugin Info ===
     plugin: {
@@ -632,10 +671,92 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     },
 
     // === UI: UI state helpers ===
+    // Host-drawn dialogs need no permission: the user picks what to share and
+    // the result is a minimal projection. The pickers list with the viewer's
+    // own session, so they show only what the viewer may see.
     ui: {
       isPrinting(): boolean {
         return window.matchMedia?.('print').matches ?? false;
       },
+      async confirm(opts) {
+        const title = optionalTitle(opts);
+        if (!title) throw new PluginApiError('invalid', 'confirm needs a title');
+        const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
+        return openPluginDialog(dialogOwner, 'confirm', pluginName, {
+          title,
+          message: str(opts.message),
+          confirmLabel: str(opts.confirmLabel),
+          cancelLabel: str(opts.cancelLabel),
+          danger: opts.danger === true,
+        });
+      },
+      async pickUser(opts) {
+        const picked = await openPluginDialog(dialogOwner, 'user', pluginName, {
+          title: optionalTitle(opts),
+        });
+        return picked && picked.uuid ? { uuid: picked.uuid, name: picked.name } : null;
+      },
+      async pickAsset(opts) {
+        const picked = await openPluginDialog(dialogOwner, 'asset', pluginName, {
+          title: optionalTitle(opts),
+        });
+        return picked
+          ? { id: picked.id, name: picked.name, assetTag: picked.assetTag ?? null }
+          : null;
+      },
+      async pickTicket(opts) {
+        const picked = await openPluginDialog(dialogOwner, 'ticket', pluginName, {
+          title: optionalTitle(opts),
+        });
+        return picked ? { id: picked.id, title: picked.title } : null;
+      },
+      async pickDate(opts) {
+        const initial = opts?.initial;
+        if (initial !== undefined && initial !== null && (typeof initial !== 'string' || !isIsoDate(initial))) {
+          throw new PluginApiError('invalid', 'initial must be a date in YYYY-MM-DD form');
+        }
+        const picked = await openPluginDialog(dialogOwner, 'date', pluginName, {
+          title: optionalTitle(opts),
+          initial: initial ?? undefined,
+        });
+        return picked && isIsoDate(picked) ? picked : null;
+      },
+      async openRecord(ref: PluginRecordRef) {
+        const id = ref?.id;
+        const positiveInt = typeof id === 'number' && Number.isSafeInteger(id) && id > 0;
+        switch (ref?.type) {
+          case 'ticket':
+          case 'asset':
+            if (!positiveInt) throw new PluginApiError('invalid', `${ref.type} id must be a positive whole number`);
+            return navigate({ type: ref.type, id: id as number });
+          case 'user':
+            if (typeof id !== 'string' || !UUID.test(id)) {
+              throw new PluginApiError('invalid', 'user id must be the user\'s uuid');
+            }
+            return navigate({ type: 'user', uuid: id });
+          default:
+            throw new PluginApiError('invalid', 'record type must be ticket, asset or user');
+        }
+      },
+      async openPage(componentName: string) {
+        const component =
+          typeof componentName === 'string'
+            ? Object.prototype.hasOwnProperty.call(plugin.manifest?.components ?? {}, componentName)
+              ? plugin.manifest.components[componentName]
+              : undefined
+            : undefined;
+        if (!component || !PAGE_SLOTS.has(component.slot)) {
+          throw new PluginApiError(
+            'invalid',
+            'openPage opens only this plugin\'s own nav.item or nav.assets.item components',
+          );
+        }
+        return navigate({ type: 'page', pluginUuid: plugin.uuid, componentName });
+      },
+    },
+
+    _dispose(): void {
+      releaseDialogOwner(dialogOwner);
     },
 
     // Internal: Get event handlers for dispatching
@@ -741,6 +862,10 @@ export interface PluginAPI {
 
   // UI helpers
   ui: PluginUIHelpers;
+
+  /** Internal: the plugin instance is gone (its frame unmounted or reloaded).
+   * Closes its open host dialogs, settled as cancelled, and refuses new ones. */
+  _dispose(): void;
 
   // Internal: event handlers the dispatcher reads. Context is delivered to
   // sandboxed plugins by the frame (postInit/postContext), not through this

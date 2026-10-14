@@ -27,6 +27,7 @@ import type { PluginSlotContext } from '../context';
 import { snapshotPluginTheme } from '../theme';
 import { usePluginLayout } from '../layout';
 import { createHostApiImpl } from '../sandboxHostApi';
+import type { PluginAPI } from '../api';
 import { registerPluginInstance } from '../pluginInstances';
 
 const props = defineProps<{
@@ -76,6 +77,9 @@ function themeSnapshot(): PluginTheme {
 
 let bridge: HostBridge | null = null;
 let unregisterInstance: (() => void) | null = null;
+// The live in-process API behind the bridge. Disposed when this frame unmounts
+// or reloads, which closes any host dialog it opened (settled as cancelled).
+let inprocApi: PluginAPI | null = null;
 let stopHeight: (() => void) | null = null;
 let connected = false;
 
@@ -131,7 +135,9 @@ function onFrameLoad(): void {
   // A fresh bridge per load (the runtime reloads on token refresh / remount).
   bridge?.dispose();
   unregisterInstance?.();
+  inprocApi?._dispose();
   const { hostApi, inproc } = createHostApiImpl(props.plugin);
+  inprocApi = inproc;
   // Register the backing instance so the event dispatcher can reach this
   // sandboxed plugin's `on` handlers (they land on `inproc`, over the bridge).
   unregisterInstance = registerPluginInstance(props.plugin.uuid, inproc);
@@ -227,6 +233,8 @@ onBeforeUnmount(() => {
   bridge = null;
   unregisterInstance?.();
   unregisterInstance = null;
+  inprocApi?._dispose();
+  inprocApi = null;
   stopHeight?.();
   stopHeight = null;
   connected = false;

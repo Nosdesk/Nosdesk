@@ -5425,6 +5425,14 @@ plugin-detail-lifecycle-heading = Lifecycle
 plugin-detail-settings-heading = Settings
 plugin-detail-integration-page-heading = Configuration
 plugin-modal-title = Plugin
+# Host-drawn plugin dialogs (PluginDialogHost). { $plugin } is the plugin's name.
+plugin-dialog-attribution = From the { $plugin } plugin
+plugin-dialog-pick-user-title = { $plugin } asks you to choose a user
+plugin-dialog-pick-asset-title = { $plugin } asks you to choose an asset
+plugin-dialog-pick-ticket-title = { $plugin } asks you to choose a ticket
+plugin-dialog-pick-date-title = { $plugin } asks you to choose a date
+plugin-dialog-date-label = Date
+plugin-dialog-choose = Choose
 plugin-detail-metadata-heading = Metadata
 plugin-detail-metadata-source = Source
 plugin-detail-metadata-permissions = Permissions

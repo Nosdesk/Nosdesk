@@ -18,6 +18,7 @@ import LoadingSpinner from './components/common/LoadingSpinner.vue'
 import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch'
 import { GlobalSearchModal } from './components/GlobalSearch'
 import PluginModalHost from '@/plugins/components/PluginModalHost.vue'
+import PluginDialogHost from '@/plugins/components/PluginDialogHost.vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useMobileSearch } from '@/composables/useMobileSearch'
 import { useCursorScanlines } from '@/composables/useCursorScanlines'
@@ -553,6 +554,9 @@ onMounted(async () => {
 
   <!-- On-demand plugin modal surface (opened by plugin action contributions) -->
   <PluginModalHost />
+
+  <!-- Dialogs plugins ask the host to draw (confirm, pickers); stack over the plugin modal -->
+  <PluginDialogHost />
   </TooltipProvider>
   </ConfigProvider>
 </template>

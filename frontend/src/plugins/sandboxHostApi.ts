@@ -10,7 +10,7 @@
 //
 // The bridge itself (`createRemoteHostApi`) is pure transport; every permission
 // check still runs here, in-process, exactly as for a first-party plugin.
-import { proxy, BridgeGovernor, governHostApi } from '@nosdesk/plugin-sdk';
+import { proxy, BridgeGovernor, governHostApi, INTERACTIVE_HOST_METHODS } from '@nosdesk/plugin-sdk';
 import type { HostApi, PluginFetchOptions, PluginEventPayload } from '@nosdesk/plugin-sdk';
 import type { Plugin } from '@nosdesk/core/types/plugin';
 import { createPluginAPI, type PluginAPI } from './api';
@@ -115,11 +115,23 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
       async isPrinting() {
         return inproc.ui.isPrinting();
       },
+      confirm: (opts) => inproc.ui.confirm(opts),
+      pickUser: (opts) => inproc.ui.pickUser(opts),
+      pickAsset: (opts) => inproc.ui.pickAsset(opts),
+      pickTicket: (opts) => inproc.ui.pickTicket(opts),
+      pickDate: (opts) => inproc.ui.pickDate(opts),
+      openRecord: (ref) => inproc.ui.openRecord(ref),
+      openPage: (componentName) => inproc.ui.openPage(componentName),
     },
   };
 
   // Meter every bridge call: rate limit + in-flight cap + per-call timeout, per
   // plugin instance. The plugin sees over-limit calls as thrown errors; the host
   // stays protected from a buggy or hostile plugin flooding shared capacity.
-  return { hostApi: governHostApi(hostApi, new BridgeGovernor()), inproc };
+  // Host dialogs (`INTERACTIVE_HOST_METHODS`) wait on the user, so they take the
+  // governor's interactive lane: no timeout, one open at a time.
+  return {
+    hostApi: governHostApi(hostApi, new BridgeGovernor(), INTERACTIVE_HOST_METHODS),
+    inproc,
+  };
 }

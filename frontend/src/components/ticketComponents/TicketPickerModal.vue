@@ -29,6 +29,10 @@ const props = defineProps<{
   excludeIds?: number[]
   /** Show a "Create new ticket" action that mints a blank ticket. */
   allowCreate?: boolean
+  /** Replaces the default title. */
+  title?: string
+  /** Subtitle under the title. */
+  description?: string
 }>()
 
 const emit = defineEmits<{
@@ -110,6 +114,7 @@ async function createAndSelect() {
   }
 }
 
+// Immediate, so a caller that mounts the modal already open still loads.
 watch(
   () => props.show,
   (open) => {
@@ -121,6 +126,7 @@ watch(
     error.value = null
     void loadTickets(1, false)
   },
+  { immediate: true },
 )
 
 function priorityClass(priority: TicketPriority) {
@@ -135,7 +141,13 @@ function priorityClass(priority: TicketPriority) {
 </script>
 
 <template>
-  <Modal :show="show" :title="$t('ticket-picker-title')" size="lg" @close="emit('close')">
+  <Modal
+    :show="show"
+    :title="title ?? $t('ticket-picker-title')"
+    :description="description"
+    size="lg"
+    @close="emit('close')"
+  >
     <div class="flex flex-col gap-3 -mb-4 sm:mb-0">
       <DebouncedSearchInput
         :model-value="searchQuery"

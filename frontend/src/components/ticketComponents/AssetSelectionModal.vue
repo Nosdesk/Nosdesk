@@ -31,6 +31,12 @@ const props = defineProps<{
   currentTicketId?: number;
   existingDeviceIds?: number[];
   requesterUuid?: string; // Add requester UUID for prioritization
+  /** Replaces the default title. */
+  title?: string;
+  /** Subtitle under the title. */
+  description?: string;
+  /** Hide the "New Asset" action, which creates an asset and navigates away. */
+  hideCreate?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -227,7 +233,8 @@ const hasDevicesToShow = computed(() => {
   return requesterDevices.value.length > 0 || devices.value.length > 0;
 });
 
-// Watch for modal visibility
+// Watch for modal visibility. Immediate, so a caller that mounts the modal
+// already open still loads.
 watch(() => props.show, (newValue) => {
   if (newValue) {
     if (import.meta.env.DEV) {
@@ -256,7 +263,7 @@ watch(() => props.show, (newValue) => {
       searchTimeout = null;
     }
   }
-});
+}, { immediate: true });
 
 const selectDevice = (device: Asset) => {
   emit('select-device', device);
@@ -343,7 +350,13 @@ const formatLastUpdated = (dateString: string): string => {
 </script>
 
 <template>
-  <Modal :show="show" :title="t('asset-modal-title')" @close="emit('close')" size="lg">
+  <Modal
+    :show="show"
+    :title="title ?? t('asset-modal-title')"
+    :description="description"
+    size="lg"
+    @close="emit('close')"
+  >
     <div class="flex flex-col gap-4">
       <!-- Search -->
       <div class="relative">
@@ -572,6 +585,7 @@ const formatLastUpdated = (dateString: string): string => {
     <!-- Footer -->
     <div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 mt-4">
       <button
+        v-if="!hideCreate"
         type="button"
         class="flex items-center justify-center gap-2 px-4 py-2 text-sm text-accent hover:bg-accent/10 rounded-lg transition-colors"
         @click="createAndOpenAsset"
@@ -582,7 +596,7 @@ const formatLastUpdated = (dateString: string): string => {
         New Asset
       </button>
 
-      <div class="flex items-center justify-between sm:justify-end gap-3">
+      <div class="flex items-center justify-between sm:justify-end sm:ml-auto gap-3">
         <span class="text-xs text-tertiary">
           {{ totalDevicesCount }} device{{ totalDevicesCount !== 1 ? 's' : '' }}
         </span>
