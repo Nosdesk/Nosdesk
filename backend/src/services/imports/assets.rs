@@ -5,9 +5,9 @@
 //! tag that doesn't match, INSERT. The empty-tag case is the
 //! "first day, importing from a spreadsheet" path.
 //!
-//! Columns are universal-only for Phase 1: kind-specific
-//! attributes stay out of the CSV. The admin can edit them
-//! through the per-kind attribute form after the bulk import.
+//! Columns are universal-only: kind-specific attributes stay out
+//! of the CSV, so a kind's required attributes aren't enforced on
+//! import. The admin fills them in on the asset afterwards.
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -19,10 +19,9 @@ use crate::db::DbConnection;
 use crate::models::{Asset, AssetLifecycleEvent, AssetUpdate, NewAsset};
 use crate::repository::asset_kinds as kind_repo;
 use crate::repository::assets as asset_repo;
-use crate::services::assets::kinds as schema_validator;
 
 use super::csv_parser::ParsedCsv;
-use super::types::{ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS};
+use super::types::{CommitError, ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS};
 
 /// Universal CSV columns the importer accepts. Export writes
 /// these first (same order/names) so a round-trip upserts on
@@ -71,23 +70,16 @@ impl Importer for AssetImporter {
             return Ok(summary);
         }
 
-        // Load existing tags + the kind registry up front. Both
-        // are small (asset_tag is human-typed and bounded;
-        // asset_kinds is a workspace registry of ~10 rows).
-        let existing_tags = load_existing_tags(conn)?;
-        let known_kinds = load_known_kinds(conn)?;
-
-        // Detect duplicate tags within the same upload. The
-        // first occurrence "wins" for the would-create/update
-        // count; subsequent occurrences raise an error so the
-        // admin spots the dup before committing.
-        let mut tags_in_file: HashSet<String> = HashSet::new();
+        let lookups = Lookups::load(conn)?;
+        let mut claims = FileClaims::default();
 
         for (i, row) in parsed.rows.iter().enumerate() {
             let row_num = i + 2; // header is row 1
-            match validate_row(row, &known_kinds, &existing_tags, &mut tags_in_file) {
-                Ok(RowAction::Create) => summary.would_create += 1,
-                Ok(RowAction::Update) => summary.would_update += 1,
+            match plan_row(row, &lookups, &mut claims) {
+                Ok(planned) => match planned.action {
+                    RowAction::Create => summary.would_create += 1,
+                    RowAction::Update(_) => summary.would_update += 1,
+                },
                 Err(field_errors) => {
                     for (column, message) in field_errors {
                         push_error(&mut summary, row_num, column, message);
@@ -99,55 +91,39 @@ impl Importer for AssetImporter {
         Ok(summary)
     }
 
+    /// Writes exactly the rows the dry-run counted: the same plan runs
+    /// against the same lookups, and invalid rows are skipped.
     fn commit(
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-    ) -> Result<ImportedRecords, diesel::result::Error> {
+    ) -> Result<ImportedRecords, CommitError> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
-            ));
+            )
+            .into());
         }
-        let known_kinds = load_known_kinds(conn)?;
-        let existing_tags = load_existing_tags(conn)?;
-        let mut tags_in_file: HashSet<String> = HashSet::new();
+        let lookups = Lookups::load(conn)?;
+        let mut claims = FileClaims::default();
 
         let mut assets = Vec::new();
-        for row in &parsed.rows {
-            // Re-validate; the dry-run was advisory but the
-            // commit guards against changes between phases.
-            let mut local_tags = tags_in_file.clone();
-            let action = match validate_row(row, &known_kinds, &existing_tags, &mut local_tags) {
-                Ok(a) => a,
-                Err(_) => continue, // skip invalid rows
+        for (i, row) in parsed.rows.iter().enumerate() {
+            let row_num = i + 2;
+            let Ok(planned) = plan_row(row, &lookups, &mut claims) else {
+                continue;
             };
-            // Sync the dedup set on success only so an invalid
-            // duplicate tag doesn't block the legitimate first
-            // occurrence (already handled inside validate_row).
-            tags_in_file = local_tags;
-
-            match action {
+            let written = match planned.action {
                 RowAction::Create => {
-                    let new = build_new_asset(row);
-                    let asset = asset_repo::create_device(conn, new)?;
-                    assets.push(asset);
+                    asset_repo::create_device(conn, build_new_asset(row, planned.kind))
                 }
-                RowAction::Update => {
-                    let tag = row.get("asset_tag").map(String::as_str).unwrap_or("");
-                    let asset_id = match existing_tags.get(tag) {
-                        Some(id) => *id,
-                        None => continue,
-                    };
-                    let update = build_asset_update(row);
-                    // Route updates through update_device so the
-                    // asset.updated sync event fires, matching the
-                    // create path (create_device) and the rest of the
-                    // app instead of a silent raw UPDATE.
-                    let asset = asset_repo::update_device(conn, asset_id, update)?;
-                    assets.push(asset);
+                // Routed through update_device so the asset.updated sync
+                // event fires, matching the create path.
+                RowAction::Update(asset_id) => {
+                    asset_repo::update_device(conn, asset_id, build_asset_update(row, planned.kind))
                 }
-            }
+            };
+            assets.push(written.map_err(|e| row_write_error(row_num, e))?);
         }
         Ok(ImportedRecords::Assets(assets))
     }
@@ -156,7 +132,76 @@ impl Importer for AssetImporter {
 #[derive(Debug, Clone, Copy)]
 enum RowAction {
     Create,
-    Update,
+    /// Update the existing asset with this id (matched on `asset_tag`).
+    Update(i32),
+}
+
+struct PlannedRow {
+    action: RowAction,
+    /// The kind's slug, resolved from the slug or label in the file.
+    kind: String,
+}
+
+/// Workspace state every row is checked against, loaded once per run.
+struct Lookups {
+    tags: HashMap<String, i32>,
+    serials: HashMap<String, i32>,
+    /// Lowercased slug and lowercased label, each to the kind's slug.
+    kinds: HashMap<String, String>,
+    kind_labels: Vec<String>,
+}
+
+impl Lookups {
+    fn load(conn: &mut DbConnection) -> Result<Self, diesel::result::Error> {
+        use crate::schema::assets;
+        let rows: Vec<(i32, Option<String>, Option<String>)> = assets::table
+            .filter(
+                assets::asset_tag
+                    .is_not_null()
+                    .or(assets::serial_number.is_not_null()),
+            )
+            .select((assets::id, assets::asset_tag, assets::serial_number))
+            .load(conn)?;
+        let mut tags = HashMap::new();
+        let mut serials = HashMap::new();
+        for (id, tag, serial) in rows {
+            if let Some(tag) = tag {
+                tags.insert(tag, id);
+            }
+            if let Some(serial) = serial {
+                serials.insert(serial, id);
+            }
+        }
+
+        let registry = kind_repo::list_kinds(conn)?;
+        let mut kinds = HashMap::new();
+        // Slugs first so a label never shadows another kind's slug.
+        for k in &registry {
+            kinds.insert(k.slug.to_lowercase(), k.slug.clone());
+        }
+        for k in &registry {
+            kinds
+                .entry(k.label.to_lowercase())
+                .or_insert_with(|| k.slug.clone());
+        }
+        let kind_labels = registry.into_iter().map(|k| k.label).collect();
+
+        Ok(Self {
+            tags,
+            serials,
+            kinds,
+            kind_labels,
+        })
+    }
+}
+
+/// Tags and serials claimed by earlier valid rows of the same file. Only
+/// a row that passes every check claims its values, so an invalid row
+/// never blocks a later valid one.
+#[derive(Default)]
+struct FileClaims {
+    tags: HashSet<String>,
+    serials: HashSet<String>,
 }
 
 fn check_headers(headers: &[String]) -> Option<String> {
@@ -168,30 +213,6 @@ fn check_headers(headers: &[String]) -> Option<String> {
         return Some(format!("missing required columns: {}", names.join(", ")));
     }
     None
-}
-
-fn load_existing_tags(
-    conn: &mut DbConnection,
-) -> Result<HashMap<String, i32>, diesel::result::Error> {
-    use crate::schema::assets;
-    let rows: Vec<(i32, Option<String>)> = assets::table
-        .filter(assets::asset_tag.is_not_null())
-        .select((assets::id, assets::asset_tag))
-        .load(conn)?;
-    Ok(rows
-        .into_iter()
-        .filter_map(|(id, tag)| tag.map(|t| (t, id)))
-        .collect())
-}
-
-fn load_known_kinds(
-    conn: &mut DbConnection,
-) -> Result<HashMap<String, serde_json::Value>, diesel::result::Error> {
-    let kinds = kind_repo::list_kinds(conn)?;
-    Ok(kinds
-        .into_iter()
-        .map(|k| (k.slug, k.attribute_schema))
-        .collect())
 }
 
 fn push_error(summary: &mut ImportSummary, row: usize, column: Option<String>, message: String) {
@@ -206,84 +227,162 @@ fn push_error(summary: &mut ImportSummary, row: usize, column: Option<String>, m
     });
 }
 
-/// Validate one row. On success returns whether the row would
-/// create or update; on failure returns the per-field errors.
-fn validate_row(
+/// Column widths of the `assets` table (varchar limits).
+const MAX_LENGTHS: &[(&str, usize)] = &[
+    ("name", 255),
+    ("asset_tag", 255),
+    ("serial_number", 255),
+    ("manufacturer", 255),
+    ("model", 255),
+    ("location", 255),
+    ("unit", 32),
+];
+
+/// Largest magnitude `numeric(12,3)` holds once rounded to 3 places.
+const MAX_DECIMAL: &str = "999999999.9995";
+
+/// Check one row. On success returns what the commit will do with it; on
+/// failure returns the per-field errors. The dry-run and the commit both
+/// call this, in file order, so they agree on every row.
+fn plan_row(
     row: &HashMap<String, String>,
-    known_kinds: &HashMap<String, serde_json::Value>,
-    existing_tags: &HashMap<String, i32>,
-    tags_in_file: &mut HashSet<String>,
-) -> Result<RowAction, Vec<(Option<String>, String)>> {
+    lookups: &Lookups,
+    claims: &mut FileClaims,
+) -> Result<PlannedRow, Vec<(Option<String>, String)>> {
     let mut errors: Vec<(Option<String>, String)> = Vec::new();
+    let mut error =
+        |column: &str, message: String| errors.push((Some(column.to_string()), message));
 
-    let name = trimmed(row, "name");
-    if name.is_empty() {
-        errors.push((Some("name".to_string()), "name is required".to_string()));
+    if trimmed(row, "name").is_empty() {
+        error("name", "name is required".to_string());
     }
 
-    let kind = trimmed(row, "kind");
-    if kind.is_empty() {
-        errors.push((Some("kind".to_string()), "kind is required".to_string()));
-    } else if !known_kinds.contains_key(&kind) {
-        errors.push((
-            Some("kind".to_string()),
-            format!("unknown kind '{kind}'; create it under Admin → Asset Kinds first"),
-        ));
-    }
-
-    if let Some(message) = parse_decimal(row, "quantity") {
-        errors.push((Some("quantity".to_string()), message));
-    }
-    if let Some(message) = parse_decimal(row, "low_stock_threshold") {
-        errors.push((Some("low_stock_threshold".to_string()), message));
-    }
-
-    // Empty attributes are fine for Phase 1; we don't allow the
-    // CSV to carry kind-specific attribute columns yet, so the
-    // attribute_schema check uses an empty object.
-    if let Some(schema) = known_kinds.get(&kind) {
-        if let Err(e) = schema_validator::validate_attributes(schema, &serde_json::json!({})) {
-            errors.push((Some("kind".to_string()), e.to_string()));
+    for (column, max) in MAX_LENGTHS {
+        let len = trimmed(row, column).chars().count();
+        if len > *max {
+            error(column, format!("longer than {max} characters ({len})"));
         }
+    }
+
+    // Matched on slug or label, ignoring case. Kind attributes aren't
+    // CSV columns, so the kind's required attributes aren't checked
+    // here: the asset is created without them and filled in on its page.
+    let kind_cell = trimmed(row, "kind");
+    let kind = if kind_cell.is_empty() {
+        error("kind", "kind is required".to_string());
+        None
+    } else {
+        let found = lookups.kinds.get(&kind_cell.to_lowercase()).cloned();
+        if found.is_none() {
+            error(
+                "kind",
+                format!(
+                    "unknown kind '{kind_cell}'. Use one of: {}, or add it under Admin → Asset Kinds",
+                    lookups.kind_labels.join(", ")
+                ),
+            );
+        }
+        found
+    };
+
+    if let Err(message) = check_decimal(row, "quantity") {
+        error("quantity", message);
+    }
+    match check_decimal(row, "low_stock_threshold") {
+        Err(message) => error("low_stock_threshold", message),
+        Ok(Some(v)) if v < 0 => error("low_stock_threshold", "must be 0 or more".to_string()),
+        Ok(_) => {}
     }
 
     let tag = trimmed(row, "asset_tag");
-    let action = if tag.is_empty() {
-        RowAction::Create
+    let target = if tag.is_empty() {
+        None
     } else {
-        if !tags_in_file.insert(tag.clone()) {
-            errors.push((
-                Some("asset_tag".to_string()),
-                format!("tag '{tag}' appears more than once in this file"),
-            ));
-        }
-        if existing_tags.contains_key(&tag) {
-            RowAction::Update
-        } else {
-            RowAction::Create
-        }
+        lookups.tags.get(&tag).copied()
     };
-
-    if errors.is_empty() {
-        Ok(action)
-    } else {
-        Err(errors)
+    if !tag.is_empty() && claims.tags.contains(&tag) {
+        error(
+            "asset_tag",
+            format!("tag '{tag}' appears more than once in this file"),
+        );
     }
+
+    // Same canonical form the repository stores (trimmed, blank is none).
+    let serial = trimmed(row, "serial_number");
+    if !serial.is_empty() {
+        if claims.serials.contains(&serial) {
+            error(
+                "serial_number",
+                format!("serial number '{serial}' appears more than once in this file"),
+            );
+        } else if let Some(holder) = lookups.serials.get(&serial) {
+            if Some(*holder) != target {
+                error(
+                    "serial_number",
+                    format!("serial number '{serial}' is already used by another asset"),
+                );
+            }
+        }
+    }
+
+    match kind {
+        Some(kind) if errors.is_empty() => {
+            if !tag.is_empty() {
+                claims.tags.insert(tag);
+            }
+            if !serial.is_empty() {
+                claims.serials.insert(serial);
+            }
+            let action = match target {
+                Some(id) => RowAction::Update(id),
+                None => RowAction::Create,
+            };
+            Ok(PlannedRow { action, kind })
+        }
+        _ => Err(errors),
+    }
+}
+
+/// A row the database refused at commit, named for the admin. Anything
+/// that isn't about the row's values stays a database error.
+fn row_write_error(row: usize, e: diesel::result::Error) -> CommitError {
+    use diesel::result::{DatabaseErrorKind, Error};
+    let message = match &e {
+        Error::DatabaseError(DatabaseErrorKind::UniqueViolation, info)
+            if info.constraint_name() == Some("idx_asset_serial_unique") =>
+        {
+            "its serial number is already used by another asset".to_string()
+        }
+        Error::DatabaseError(
+            DatabaseErrorKind::UniqueViolation
+            | DatabaseErrorKind::CheckViolation
+            | DatabaseErrorKind::NotNullViolation
+            | DatabaseErrorKind::Unknown,
+            info,
+        ) => info.message().to_string(),
+        _ => return CommitError::Db(e),
+    };
+    CommitError::Row { row, message }
 }
 
 fn trimmed(row: &HashMap<String, String>, key: &str) -> String {
     row.get(key).cloned().unwrap_or_default().trim().to_string()
 }
 
-fn parse_decimal(row: &HashMap<String, String>, key: &str) -> Option<String> {
+/// A decimal cell: `Ok(None)` when blank, the value when it parses and
+/// fits `numeric(12,3)`, otherwise the message for the admin.
+fn check_decimal(row: &HashMap<String, String>, key: &str) -> Result<Option<BigDecimal>, String> {
     let raw = trimmed(row, key);
     if raw.is_empty() {
-        return None;
+        return Ok(None);
     }
-    match BigDecimal::from_str(&raw) {
-        Ok(_) => None,
-        Err(_) => Some(format!("'{raw}' is not a valid decimal")),
+    let value =
+        BigDecimal::from_str(&raw).map_err(|_| format!("'{raw}' is not a valid decimal"))?;
+    let max = BigDecimal::from_str(MAX_DECIMAL).expect("constant parses");
+    if value.abs() >= max {
+        return Err(format!("'{raw}' is too large (at most 999999999.999)"));
     }
+    Ok(Some(value))
 }
 
 fn opt_string(row: &HashMap<String, String>, key: &str) -> Option<String> {
@@ -304,7 +403,7 @@ fn opt_decimal(row: &HashMap<String, String>, key: &str) -> Option<BigDecimal> {
     }
 }
 
-fn build_new_asset(row: &HashMap<String, String>) -> NewAsset {
+fn build_new_asset(row: &HashMap<String, String>, kind: String) -> NewAsset {
     NewAsset {
         name: trimmed(row, "name"),
         serial_number: opt_string(row, "serial_number"),
@@ -315,7 +414,7 @@ fn build_new_asset(row: &HashMap<String, String>) -> NewAsset {
         primary_user_uuid: None,
         purchase_date: None,
         asset_tag: opt_string(row, "asset_tag"),
-        kind: trimmed(row, "kind"),
+        kind,
         attributes: serde_json::json!({}),
         quantity: opt_decimal(row, "quantity"),
         unit: opt_string(row, "unit"),
@@ -324,7 +423,7 @@ fn build_new_asset(row: &HashMap<String, String>) -> NewAsset {
     }
 }
 
-fn build_asset_update(row: &HashMap<String, String>) -> AssetUpdate {
+fn build_asset_update(row: &HashMap<String, String>, kind: String) -> AssetUpdate {
     // A blank cell leaves the column as it is (outer `None`); it never clears.
     AssetUpdate {
         name: Some(trimmed(row, "name")),
@@ -338,7 +437,7 @@ fn build_asset_update(row: &HashMap<String, String>) -> AssetUpdate {
         purchase_date: None,
         asset_tag: opt_string(row, "asset_tag").map(Some),
         updated_at: Some(chrono::Utc::now().naive_utc()),
-        kind: Some(trimmed(row, "kind")),
+        kind: Some(kind),
         attributes: None,
         quantity: Some(opt_decimal(row, "quantity")),
         unit: Some(opt_string(row, "unit")),

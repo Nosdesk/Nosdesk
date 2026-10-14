@@ -3546,7 +3546,10 @@ csv-import-summary-rows = Rows in file
 csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
 csv-import-summary-create = Will create
 csv-import-summary-update = Will update
-csv-import-errors-heading = { $count } row(s) have errors
+csv-import-errors-heading = { $count ->
+    [one] 1 row has errors and will be skipped
+   *[other] { $count } rows have errors and will be skipped
+}
 csv-import-errors-truncated = showing first 100
 csv-import-errors-row = Row
 csv-import-errors-column = Column
@@ -3558,7 +3561,14 @@ csv-import-action-view-assets = View assets
 csv-import-action-view-users = View users
 csv-import-action-view-tickets = View tickets
 csv-import-done-heading = Import complete
-csv-import-done-body = { $count } row(s) committed.
+csv-import-done-body = { $count ->
+    [one] Imported 1 row.
+   *[other] Imported { $count } rows.
+}
+csv-import-done-skipped = { $count ->
+    [one] 1 row was skipped because it had errors.
+   *[other] { $count } rows were skipped because they had errors.
+}
 csv-import-error-generic = Import failed. Check the file and try again.
 csv-import-error-commit-failed = Apply failed; rows were not committed.
 csv-import-action-import = Import Data
