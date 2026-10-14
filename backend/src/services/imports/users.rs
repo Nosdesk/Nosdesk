@@ -28,7 +28,9 @@ use crate::repository::workspaces::{
 };
 
 use super::csv_parser::ParsedCsv;
-use super::types::{ImportSummary, ImportedRecords, ImportedUser, Importer, RowError, MAX_ERRORS};
+use super::types::{
+    CommitError, ImportSummary, ImportedRecords, ImportedUser, Importer, RowError, MAX_ERRORS,
+};
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
 
@@ -79,12 +81,13 @@ impl Importer for UserImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-    ) -> Result<ImportedRecords, diesel::result::Error> {
+    ) -> Result<ImportedRecords, CommitError> {
         use crate::schema::users;
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
-            ));
+            )
+            .into());
         }
         let existing_emails = load_existing_primary_emails(conn)?;
         let mut emails_in_file: HashSet<String> = HashSet::new();
