@@ -24,6 +24,7 @@ use backend::handlers::sync::delta::ActionRow;
 use backend::middleware::RequestContext;
 use backend::models::{AssetUpdate, Claims, NewAsset, NewTicket};
 use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
+use backend::services::search::SearchService;
 use backend::sync::actor::ActorContext;
 use backend::sync::session::run_in_workspace;
 use backend::sync::visibility::SyncViewer;
@@ -41,6 +42,8 @@ struct Fixture {
     /// The member's laptop, linked to their ticket.
     asset: i32,
     ticket: i32,
+    search: Arc<SearchService>,
+    _search_dir: tempfile::TempDir,
 }
 
 fn seed(db: &common::TestDb) -> Fixture {
@@ -92,6 +95,8 @@ fn seed(db: &common::TestDb) -> Fixture {
         Ok::<_, diesel::result::Error>((asset, ticket))
     })
     .expect("seed asset and ticket");
+    let search_dir = tempfile::tempdir().expect("search dir");
+    let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
     Fixture {
         pool,
         ws,
@@ -100,6 +105,8 @@ fn seed(db: &common::TestDb) -> Fixture {
         member,
         asset,
         ticket,
+        search,
+        _search_dir: search_dir,
     }
 }
 
@@ -135,6 +142,7 @@ async fn call(
     let app = http_test::init_service(
         App::new()
             .app_data(web::Data::new(f.pool.clone()))
+            .app_data(web::Data::new(f.search.clone()))
             .wrap_fn(move |req, srv| {
                 req.extensions_mut().insert(workspace.clone());
                 req.extensions_mut().insert(claims.clone());
@@ -147,9 +155,14 @@ async fn call(
                     .configure(backend::handlers::sync::config)
                     .configure(backend::handlers::asset_settings::config)
                     .configure(backend::handlers::assets::config)
+                    .service(
+                        web::resource("/tickets/{id}")
+                            .route(web::get().to(backend::handlers::get_ticket))
+                            .route(web::patch().to(backend::handlers::update_ticket_partial)),
+                    )
                     .route(
-                        "/tickets/{id}",
-                        web::get().to(backend::handlers::get_ticket),
+                        "/groups/{uuid}",
+                        web::get().to(backend::handlers::groups::get_group_details),
                     )
                     .route(
                         "/tickets/{id}/asset-usage",
@@ -551,4 +564,145 @@ async fn asset_notes_are_staff_only_and_the_list_searches_tags() {
 
     let found = get_json(&f, f.agent, "/api/assets/paginated?search=TAG-REQ").await;
     assert_eq!(ids(&found["data"]), vec![f.asset as i64], "{found}");
+}
+
+/// The note text the embed test plants; a distinctive string so a body
+/// search for it can't match anything else.
+const NOTE: &str = "Staff only: spare charger in drawer 3";
+
+/// `asset`'s notes as a response carries them: `None` when the key is
+/// absent or null.
+fn notes_of(asset: &Value) -> Option<&str> {
+    asset.get("notes").and_then(Value::as_str)
+}
+
+/// The asset with `id` among `assets`.
+fn asset_in(assets: &Value, id: i32) -> &Value {
+    assets
+        .as_array()
+        .and_then(|a| a.iter().find(|x| x["id"].as_i64() == Some(id as i64)))
+        .unwrap_or_else(|| panic!("asset {id} missing from {assets}"))
+}
+
+/// Every response that embeds a whole asset row (a ticket, a group, a
+/// profile's devices and loans, the export) carries its notes to staff
+/// only.
+#[actix_web::test]
+async fn asset_notes_stay_with_staff_where_an_asset_is_embedded() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let group_uuid = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::assets::update_device(
+            c,
+            f.asset,
+            AssetUpdate {
+                notes: Some(Some(NOTE.to_string())),
+                ..Default::default()
+            },
+        )?;
+        let group = backend::repository::groups::create_group(
+            c,
+            backend::models::NewGroup {
+                name: "Loaner pool".to_string(),
+                description: None,
+                color: None,
+                created_by: Some(f.admin),
+            },
+        )?;
+        backend::repository::groups::set_group_devices(c, group.id, vec![f.asset], None)?;
+        Ok::<_, diesel::result::Error>(group.uuid)
+    })
+    .expect("set notes and group the asset");
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::asset_loans::issue(
+            c,
+            backend::repository::asset_loans::IssueLoan {
+                asset_id: f.asset,
+                borrower_user_uuid: f.member,
+                loaned_at: None,
+                due_back: None,
+                ticket_id: Some(f.ticket),
+                notes: Some("Loan note for staff".to_string()),
+                actor_uuid: Some(f.agent),
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .expect("loan the asset to the member");
+
+    // (viewer, who, sees notes). The profile is self or workspace admin, so
+    // the admin stands in for staff there.
+    for (viewer, who, sees) in [(f.member, "member", false), (f.agent, "agent", true)] {
+        let want = sees.then_some(NOTE);
+
+        let ticket = get_json(&f, viewer, &format!("/api/tickets/{}", f.ticket)).await;
+        assert_eq!(
+            notes_of(asset_in(&ticket["devices"], f.asset)),
+            want,
+            "{who}: GET ticket"
+        );
+
+        let (status, body) = call(
+            &f,
+            viewer,
+            Method::PATCH,
+            &format!("/api/tickets/{}", f.ticket),
+            Some(json!({ "title": format!("Laptop won't boot ({who})") })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{who}: PATCH ticket: {body}");
+        let patched: Value = serde_json::from_str(&body).expect("patched ticket json");
+        assert_eq!(
+            notes_of(asset_in(&patched["devices"], f.asset)),
+            want,
+            "{who}: PATCH ticket"
+        );
+
+        let group = get_json(&f, viewer, &format!("/api/groups/{group_uuid}")).await;
+        assert_eq!(
+            notes_of(asset_in(&group["devices"], f.asset)),
+            want,
+            "{who}: group details"
+        );
+
+        let (status, csv) = call(&f, viewer, Method::GET, "/api/assets/export", None).await;
+        assert_eq!(status, StatusCode::OK, "{who}: CSV export");
+        let header = csv.lines().next().expect("CSV header");
+        assert!(header.split(',').any(|c| c == "notes"), "{who}: {header}");
+        assert!(csv.contains("SN-REQ-VIS-1"), "{who}: CSV rows: {csv}");
+        assert_eq!(csv.contains(NOTE), sees, "{who}: CSV notes: {csv}");
+
+        let json_export = get_json(&f, viewer, "/api/assets/export?format=json").await;
+        assert_eq!(
+            notes_of(asset_in(&json_export, f.asset)),
+            want,
+            "{who}: JSON export"
+        );
+    }
+
+    for (viewer, who, sees) in [(f.member, "member", false), (f.admin, "admin", true)] {
+        let profile = get_json(
+            &f,
+            viewer,
+            &format!("/api/users/{}/profile?include=devices,loans", f.member),
+        )
+        .await;
+        assert_eq!(
+            notes_of(asset_in(&profile["devices"], f.asset)),
+            sees.then_some(NOTE),
+            "{who}: profile devices"
+        );
+        let loan = &profile["loans"][0];
+        assert_eq!(
+            notes_of(&loan["asset"]),
+            sees.then_some(NOTE),
+            "{who}: profile loan's asset"
+        );
+        assert_eq!(
+            notes_of(loan),
+            sees.then_some("Loan note for staff"),
+            "{who}: profile loan's own notes"
+        );
+    }
 }

@@ -3253,6 +3253,19 @@ pub async fn get_user_profile_bundle(
                 bundle.devices = bundle.devices.map(|_| Vec::new());
                 bundle.loans = bundle.loans.map(|_| Vec::new());
             }
+            // Asset and loan notes are staff only, here as on the asset routes.
+            crate::handlers::assets::strip_staff_asset_fields(
+                bundle.devices.iter_mut().flatten(),
+                &auth,
+            );
+            crate::handlers::assets::strip_staff_asset_fields(
+                bundle.loans.iter_mut().flatten().map(|l| &mut l.asset),
+                &auth,
+            );
+            crate::handlers::asset_loans::strip_staff_loan_fields(
+                bundle.loans.iter_mut().flatten().map(|l| &mut l.loan),
+                &auth,
+            );
             Ok(HttpResponse::Ok().json(bundle))
         }
         Ok(None) => Err(ApiError::NotFoundMsg("User not found".into())),

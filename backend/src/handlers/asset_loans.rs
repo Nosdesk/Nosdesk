@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
+use crate::models::AssetLoan;
 use crate::repository::{
     asset_loans::{self as repo, IssueLoan, LoanError},
     assets as assets_repo,
@@ -62,6 +63,23 @@ fn map_loan_err(asset_id: i32, e: LoanError) -> HttpResponse {
     }
 }
 
+/// Loans as anyone but staff may see them: who has the asset and when,
+/// without the ticket, the notes or the staff who issued and took it back.
+pub(crate) fn strip_staff_loan_fields<'a>(
+    loans: impl IntoIterator<Item = &'a mut AssetLoan>,
+    auth: &AuthContext,
+) {
+    if auth.can_handle_tickets() {
+        return;
+    }
+    for loan in loans {
+        loan.ticket_id = None;
+        loan.notes = None;
+        loan.actor_uuid = None;
+        loan.returned_by_uuid = None;
+    }
+}
+
 /// An asset's loan ledger. Staff get every row whole. Anyone else gets who has
 /// it and when, without the ticket, the notes or the staff who issued and
 /// took it back: those belong to tickets the caller may not be able to see.
@@ -77,14 +95,7 @@ pub async fn list_for_asset(
         repo::list_for_asset(conn, asset_id)
     }) {
         Ok(mut rows) => {
-            if !auth.can_handle_tickets() {
-                for row in &mut rows {
-                    row.ticket_id = None;
-                    row.notes = None;
-                    row.actor_uuid = None;
-                    row.returned_by_uuid = None;
-                }
-            }
+            strip_staff_loan_fields(&mut rows, &auth);
             HttpResponse::Ok().json(rows)
         }
         Err(diesel::result::Error::NotFound) => {

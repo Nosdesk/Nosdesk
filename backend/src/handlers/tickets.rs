@@ -586,6 +586,7 @@ pub async fn get_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Respon
         if crate::handlers::assets::assets_hidden_from(conn, &auth) {
             ticket.devices.clear();
         }
+        crate::handlers::assets::strip_staff_asset_fields(&mut ticket.devices, &auth);
         Ok(ticket)
     }) {
         Ok(ticket) => ticket,
@@ -1159,6 +1160,7 @@ pub async fn update_ticket_partial(
             if crate::handlers::assets::assets_hidden_from(conn, &auth) {
                 ticket.devices.clear();
             }
+            crate::handlers::assets::strip_staff_asset_fields(&mut ticket.devices, &auth);
             Ok(ticket)
         })
         .map_err(|_| ApiError::Internal("Failed to fetch updated ticket".into()))?;
