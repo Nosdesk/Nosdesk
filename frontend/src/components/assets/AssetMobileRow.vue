@@ -79,12 +79,7 @@ const needsWarrantyAttention = computed(
           class="inline-flex items-center gap-1 min-w-0 max-w-[140px]"
           :title="usedBy.title"
         >
-          <Icon
-            name="team"
-            size="xs"
-            class="shrink-0"
-            :class="usedBy.overdue ? 'text-status-error' : 'text-accent'"
-          />
+          <Icon v-if="usedBy.overdue" name="warning" size="xs" class="shrink-0 text-status-error" />
           <span class="text-secondary truncate">{{ usedBy.name ?? t('assets-list-borrower-unknown') }}</span>
         </span>
         <span v-else-if="usedBy.kind === 'user'" class="text-secondary truncate max-w-[120px]">{{ usedBy.name }}</span>

@@ -356,9 +356,7 @@ const locationSuggestions = computed(() => {
 });
 
 const managementLabel = computed(() =>
-  isSynced.value
-    ? t('asset-detail-external-sync-source', { source: device.value?.external_sync_source || '' })
-    : t('asset-detail-manually-managed'),
+  isSynced.value ? syncSourceLabel.value : t('asset-detail-manually-managed'),
 );
 
 const isKindEditable = computed(() => isEditable.value);
@@ -1035,7 +1033,7 @@ useSyncActions(
             <AssetLoanPanel :asset-id="device.id" />
 
             <SectionCard content-padding="p-4">
-              <template #title>{{ $t('asset-status-history-heading') }}</template>
+              <template #title>{{ $t('asset-lifecycle-heading') }}</template>
               <template #headerActions>
                 <button
                   type="button"

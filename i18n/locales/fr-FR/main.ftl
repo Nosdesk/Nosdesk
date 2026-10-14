@@ -2988,6 +2988,8 @@ asset-detail-field-created = Créé
 asset-detail-field-last-updated = Dernière mise à jour
 asset-detail-manually-managed = Géré manuellement
 asset-detail-manually-managed-description = Cet appareil a été créé et est géré manuellement dans Nosdesk
+# MT: pending native review
+asset-detail-external-sync-note = Les champs synchronisés sont en lecture seule ici et se mettent à jour à chaque synchronisation.
 asset-detail-section-microsoft-integration = Intégration Microsoft
 asset-detail-field-last-intune-check-in = Dernière connexion Intune
 asset-detail-action-view-in-intune = Voir dans Intune
@@ -4941,8 +4943,6 @@ asset-loan-return-notes = Notes de retour (facultatif)
 # MT: pending native review
 asset-loan-cancel = Annuler
 # MT: pending native review
-asset-loan-history = Historique des prêts
-# MT: pending native review
 asset-loan-loaned-relative = Prêté { $when }
 # MT: pending native review
 asset-loan-ticket = Ticket n°{ $id }
@@ -4951,7 +4951,10 @@ asset-loan-unknown-borrower = Emprunteur inconnu
 # MT: pending native review
 asset-loan-deleted-borrower = Utilisateur supprimé
 # MT: pending native review
-asset-loan-due-overdue = En retard
+asset-loan-due-overdue = En retard de { $days } { $days ->
+    [one] jour
+   *[other] jours
+}
 # MT: pending native review
 asset-loan-due-today = À rendre aujourd'hui
 # MT: pending native review

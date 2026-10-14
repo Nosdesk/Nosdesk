@@ -3042,6 +3042,7 @@ asset-detail-field-created = Created
 asset-detail-field-last-updated = Last Updated
 asset-detail-manually-managed = Manually Managed
 asset-detail-manually-managed-description = This device was created and is managed manually in Nosdesk
+asset-detail-external-sync-note = Synced fields are read-only here and update on each sync.
 asset-detail-section-microsoft-integration = Microsoft Integration
 asset-detail-field-last-intune-check-in = Last Intune Check-in
 asset-detail-action-view-in-intune = View in Intune
@@ -4949,12 +4950,14 @@ asset-loan-return-title = Return device
 asset-loan-return-body = Return this device from { $name }?
 asset-loan-return-notes = Return notes (optional)
 asset-loan-cancel = Cancel
-asset-loan-history = Loan history
 asset-loan-loaned-relative = Loaned { $when }
 asset-loan-ticket = Ticket #{ $id }
 asset-loan-unknown-borrower = Unknown borrower
 asset-loan-deleted-borrower = Deleted user
-asset-loan-due-overdue = Overdue
+asset-loan-due-overdue = { $days ->
+    [one] 1 day overdue
+   *[other] { $days } days overdue
+}
 asset-loan-due-today = Due today
 asset-loan-due-soon = Due in { $days } { $days ->
     [one] day

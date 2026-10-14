@@ -31,7 +31,7 @@ export function loanDue(
 ): LoanDue | null {
   const days = loanDaysLeft(loan);
   if (days === null || !loan.due_back) return null;
-  if (days < 0) return { label: t('asset-loan-due-overdue'), tone: 'critical' };
+  if (days < 0) return { label: t('asset-loan-due-overdue', { days: -days }), tone: 'critical' };
   if (days === 0) return { label: t('asset-loan-due-today'), tone: 'caution' };
   if (days <= 2) return { label: t('asset-loan-due-soon', { days }), tone: 'caution' };
   return { label: t('asset-loan-due-on', { date: formatCompactDate(loan.due_back) }), tone: 'neutral' };

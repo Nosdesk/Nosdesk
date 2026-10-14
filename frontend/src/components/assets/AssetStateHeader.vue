@@ -80,6 +80,11 @@ const borrowerName = computed(() => {
   return getUserHandle(borrowerUuid.value).user.value?.name ?? t('asset-loan-unknown-borrower');
 });
 const due = computed(() => (activeLoan.value ? loanDue(activeLoan.value, t) : null));
+const dueTitle = computed(() =>
+  activeLoan.value?.due_back
+    ? t('asset-loan-due-on', { date: formatCompactDate(activeLoan.value.due_back) })
+    : undefined,
+);
 
 const showIssue = ref(false);
 const showReturn = ref(false);
@@ -104,7 +109,11 @@ function onTransitioned(toStatus: string) {
     :aria-label="$t('asset-state-label')"
   >
     <div class="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0 flex-1">
-      <AssetStatusBadge :status="status" size="md" />
+      <!-- The state and its alert read together: "On loan · 16 days overdue". -->
+      <div class="flex items-center gap-2">
+        <AssetStatusBadge :status="status" size="md" />
+        <StatusPill v-if="due" :label="due.label" :tone="due.tone" size="sm" :title="dueTitle" />
+      </div>
 
       <!-- Who has it. Shown whenever a loan is open, so an asset marked
            lost while out still names the borrower. -->
@@ -128,7 +137,6 @@ function onTransitioned(toStatus: string) {
             {{ $t('asset-loan-fact-loaned') }} {{ formatCompactDate(activeLoan.loaned_at) }}
           </span>
         </div>
-        <StatusPill v-if="due" :label="due.label" :tone="due.tone" size="sm" class="shrink-0" />
       </div>
       <span v-else-if="isTerminal" class="text-xs text-tertiary">{{ $t('asset-lifecycle-disposed-final') }}</span>
       <span v-else-if="since" class="text-xs text-tertiary">{{ $t('asset-state-since', { date: since }) }}</span>
@@ -136,7 +144,12 @@ function onTransitioned(toStatus: string) {
       <slot name="meta" />
     </div>
 
-    <div v-if="canEdit && (activeLoan || canLoan || canChangeStatus)" class="flex flex-wrap items-center gap-2">
+    <!-- Below sm the actions take their own row rather than centring
+         against the wrapped state block. -->
+    <div
+      v-if="canEdit && (activeLoan || canLoan || canChangeStatus)"
+      class="flex flex-wrap items-center gap-2 basis-full sm:basis-auto"
+    >
       <Button v-if="activeLoan" size="sm" variant="secondary" icon="check" @click="showReturn = true">
         {{ $t('asset-loan-return') }}
       </Button>

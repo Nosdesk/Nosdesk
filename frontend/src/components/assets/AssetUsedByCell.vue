@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
  * The inventory list's Used by cell. While an asset is on loan it shows the
- * borrower, marked with the on-loan glyph (red once overdue), since they're
- * the one who has it; otherwise the assigned user. The title gives the loan
- * dates and who the asset is assigned to.
+ * borrower, since they're the one who has it (the Status column says On
+ * loan), with a warning glyph once the loan is overdue; otherwise the
+ * assigned user. The title gives the loan dates and who the asset is
+ * assigned to.
  */
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -26,12 +27,7 @@ const cell = computed(() =>
 <template>
   <!-- `xs` avatars: a compact row's content box is 24px. -->
   <div v-if="cell.kind === 'loan'" class="flex items-center gap-1.5 min-w-0" :title="cell.title">
-    <Icon
-      name="team"
-      size="xs"
-      class="shrink-0"
-      :class="cell.overdue ? 'text-status-error' : 'text-accent'"
-    />
+    <Icon v-if="cell.overdue" name="warning" size="xs" class="shrink-0 text-status-error" />
     <span class="sr-only">{{ cell.title }}</span>
     <UserAvatarCell
       v-if="cell.uuid"

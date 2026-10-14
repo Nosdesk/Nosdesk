@@ -2984,6 +2984,8 @@ asset-detail-field-created = Aangemaakt
 asset-detail-field-last-updated = Laatst bijgewerkt
 asset-detail-manually-managed = Handmatig beheerd
 asset-detail-manually-managed-description = Dit apparaat is aangemaakt en wordt handmatig beheerd in Nosdesk
+# MT: pending native review
+asset-detail-external-sync-note = Gesynchroniseerde velden zijn hier alleen-lezen en worden bij elke synchronisatie bijgewerkt.
 asset-detail-section-microsoft-integration = Microsoft-integratie
 asset-detail-field-last-intune-check-in = Laatste Intune-check-in
 asset-detail-action-view-in-intune = Bekijken in Intune
@@ -4931,8 +4933,6 @@ asset-loan-return-notes = Notities bij teruggave (optioneel)
 # MT: pending native review
 asset-loan-cancel = Annuleren
 # MT: pending native review
-asset-loan-history = Uitleengeschiedenis
-# MT: pending native review
 asset-loan-loaned-relative = Uitgeleend { $when }
 # MT: pending native review
 asset-loan-ticket = Ticket #{ $id }
@@ -4941,7 +4941,10 @@ asset-loan-unknown-borrower = Onbekende lener
 # MT: pending native review
 asset-loan-deleted-borrower = Verwijderde gebruiker
 # MT: pending native review
-asset-loan-due-overdue = Te laat
+asset-loan-due-overdue = { $days } { $days ->
+    [one] dag
+   *[other] dagen
+} te laat
 # MT: pending native review
 asset-loan-due-today = Vandaag terug
 # MT: pending native review

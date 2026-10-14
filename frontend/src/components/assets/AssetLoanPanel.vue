@@ -104,32 +104,27 @@ const activeDue = computed(() => (activeLoan.value ? loanDue(activeLoan.value, t
         </p>
       </div>
 
-      <!-- History -->
-      <div v-if="pastLoans.length > 0" class="flex flex-col gap-1.5">
-        <p class="text-xs font-medium text-tertiary uppercase tracking-wide">
-          {{ $t('asset-loan-history') }}
-        </p>
-        <div class="flex flex-col">
-          <div
-            v-for="loan in pastLoans"
-            :key="loan.id"
-            class="flex items-center gap-2.5 py-2 border-t border-subtle first:border-t-0"
-          >
-            <UserAvatar
-              :uuid="loan.borrower_user_uuid"
-              size="xs"
-              :show-name="false"
-              :clickable="false"
-              class="shrink-0"
-            />
-            <div class="min-w-0 flex-1">
-              <p class="text-sm text-primary truncate">{{ borrowerName(loan) }}</p>
-              <p class="text-xs text-tertiary truncate">{{ loanRange(loan) }}</p>
-            </div>
-            <span class="text-xs text-tertiary whitespace-nowrap shrink-0">
-              {{ relative(loan.returned_at) }}
-            </span>
+      <!-- Returned loans -->
+      <div v-if="pastLoans.length > 0" class="flex flex-col">
+        <div
+          v-for="loan in pastLoans"
+          :key="loan.id"
+          class="flex items-center gap-2.5 py-2 border-t border-subtle first:border-t-0"
+        >
+          <UserAvatar
+            :uuid="loan.borrower_user_uuid"
+            size="xs"
+            :show-name="false"
+            :clickable="false"
+            class="shrink-0"
+          />
+          <div class="min-w-0 flex-1">
+            <p class="text-sm text-primary truncate">{{ borrowerName(loan) }}</p>
+            <p class="text-xs text-tertiary truncate">{{ loanRange(loan) }}</p>
           </div>
+          <span class="text-xs text-tertiary whitespace-nowrap shrink-0">
+            {{ relative(loan.returned_at) }}
+          </span>
         </div>
       </div>
     </div>
