@@ -9,6 +9,8 @@ const appRouter = vi.hoisted(() => ({
   push: vi.fn(),
 }))
 vi.mock('../router', () => ({ default: appRouter }))
+const errorTracker = vi.hoisted(() => ({ captureHttp: vi.fn() }))
+vi.mock('@/utils/errorTracking', () => ({ ErrorTracker: errorTracker }))
 vi.mock('../embed', () => ({
   isEmbed: false,
   embedBearer: () => null,
@@ -61,6 +63,17 @@ describe('portal API client', () => {
 
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(sent()).toBe(2)
+  })
+
+  it('reports a 5xx to the error reporter, and nothing else', async () => {
+    errorTracker.captureHttp.mockClear()
+    serve({ status: 503 }, { status: 404 })
+
+    await expect(portalApi.get('/tickets/42')).rejects.toBeTruthy()
+    await expect(portalApi.get('/tickets/43')).rejects.toBeTruthy()
+
+    expect(errorTracker.captureHttp).toHaveBeenCalledTimes(1)
+    expect(errorTracker.captureHttp).toHaveBeenCalledWith(503, 'get', '/api/portal/tickets/42')
   })
 
   it('treats a CSRF refusal as a refusal, not a lapsed session', async () => {
