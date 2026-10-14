@@ -515,3 +515,40 @@ async fn requesters_see_assets_only_while_the_workspace_shows_them() {
     assert_eq!(set_visibility(&f, f.admin, "all").await, StatusCode::OK);
     assert_sees_assets(&f, f.member, "member back under all", true).await;
 }
+
+/// Staff get an asset's notes; anyone else doesn't. The asset list's
+/// search finds an asset by its tag.
+#[actix_web::test]
+async fn asset_notes_are_staff_only_and_the_list_searches_tags() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::assets::update_device(
+            c,
+            f.asset,
+            AssetUpdate {
+                notes: Some(Some("Spare charger in drawer 3".to_string())),
+                ..Default::default()
+            },
+        )
+    })
+    .expect("set notes");
+
+    let uri = format!("/api/assets/{}", f.asset);
+    let staff = get_json(&f, f.agent, &uri).await;
+    assert_eq!(staff["notes"], json!("Spare charger in drawer 3"));
+    let requester = get_json(&f, f.member, &uri).await;
+    assert!(requester.get("notes").is_none(), "{requester}");
+    let list = get_json(&f, f.member, "/api/assets").await;
+    assert!(
+        list.as_array()
+            .expect("list")
+            .iter()
+            .all(|a| a.get("notes").is_none()),
+        "{list}"
+    );
+
+    let found = get_json(&f, f.agent, "/api/assets/paginated?search=TAG-REQ").await;
+    assert_eq!(ids(&found["data"]), vec![f.asset as i64], "{found}");
+}

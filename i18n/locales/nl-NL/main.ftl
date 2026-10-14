@@ -2889,6 +2889,8 @@ asset-detail-error-create = Aanmaken van activum mislukt. Probeer het opnieuw.
 asset-detail-error-delete = Verwijderen van activum mislukt. Probeer het opnieuw.
 asset-detail-error-unmanage = Beheer opheffen mislukt. Probeer het opnieuw.
 asset-detail-section-details = Activumgegevens
+asset-detail-section-notes = Notities
+asset-detail-notes-placeholder = Notities over dit activum toevoegen
 asset-detail-section-kind = Activatype
 asset-detail-field-kind = Type
 # Machinevertaling, te controleren door moedertaalspreker.

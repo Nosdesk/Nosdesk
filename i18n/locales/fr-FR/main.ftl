@@ -2893,6 +2893,8 @@ asset-detail-error-create = Échec de la création de l'actif. Veuillez réessay
 asset-detail-error-delete = Échec de la suppression de l'actif. Veuillez réessayer.
 asset-detail-error-unmanage = Échec de la désinscription de l'appareil. Veuillez réessayer.
 asset-detail-section-details = Détails de l'actif
+asset-detail-section-notes = Notes
+asset-detail-notes-placeholder = Ajouter des notes sur cet actif
 asset-detail-section-kind = Type d'actif
 asset-detail-field-kind = Type
 # Machine, à relire par un locuteur natif.

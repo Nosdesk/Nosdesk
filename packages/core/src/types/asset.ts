@@ -37,6 +37,8 @@ export interface Asset {
   model: string;
   manufacturer?: string | null;
   location?: string | null;
+  /** Free-text notes. Staff only: absent for anyone else. */
+  notes?: string | null;
   /** Lifecycle state. One of `AssetStatus`; defaults to
    *  `in_service`. Changed via the lifecycle transition endpoint,
    *  not a plain asset edit. */

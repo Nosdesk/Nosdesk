@@ -131,6 +131,7 @@ fn apply_device_filters<'a>(
                 assets::name
                     .ilike(pattern.clone())
                     .or(assets::serial_number.ilike(pattern.clone()))
+                    .or(assets::asset_tag.ilike(pattern.clone()))
                     .or(assets::model.ilike(pattern.clone()))
                     .or(assets::manufacturer.ilike(pattern.clone()))
                     .or(assets::id.eq_any(

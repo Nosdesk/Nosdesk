@@ -43,6 +43,7 @@ import { useAssetDetail } from '@/composables/useAssetDetail';
 import { useAuthStore } from '@/stores/auth';
 import type { Asset } from '@nosdesk/core/types/asset';
 import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
+import FormTextarea from '@/components/common/FormTextarea.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -90,7 +91,10 @@ const editValues = ref({
   quantity: '' as string,
   unit: '' as string,
   low_stock_threshold: '' as string,
+  notes: '' as string,
 });
+// The notes box is a plain textarea, so a reseed must not overwrite a draft.
+const notesFocused = ref(false);
 
 // Asset-kind registry (technician-gated list, shared cache).
 const { kinds: kindsRef } = useAssetKindsQuery();
@@ -422,6 +426,7 @@ function seedFromAsset(a: Asset) {
     quantity: a.quantity ?? '',
     unit: a.unit ?? '',
     low_stock_threshold: a.low_stock_threshold ?? '',
+    notes: notesFocused.value ? editValues.value.notes : (a.notes ?? ''),
   };
   selectedKindSlug.value = a.kind ?? 'generic';
 }
@@ -438,6 +443,7 @@ const CLEARABLE_FIELDS = new Set<keyof typeof editValues.value>([
   'location',
   'purchase_date',
   'asset_tag',
+  'notes',
 ]);
 
 const saveField = async (field: keyof typeof editValues.value) => {
@@ -457,6 +463,11 @@ const saveField = async (field: keyof typeof editValues.value) => {
     isSaving.value = false;
   }
 };
+
+function onNotesBlur() {
+  notesFocused.value = false;
+  if (editValues.value.notes !== (device.value?.notes ?? '')) void saveField('notes');
+}
 
 /** Inline-edit a stock-tracking field. Empty input is omitted from
  *  the PATCH body so the backend leaves the column untouched. */
@@ -976,6 +987,20 @@ useSyncActions(
                   />
                 </div>
               </div>
+            </SectionCard>
+
+            <SectionCard v-if="isEditable || device.notes" content-padding="p-4">
+              <template #title>{{ $t('asset-detail-section-notes') }}</template>
+              <FormTextarea
+                v-model="editValues.notes"
+                :aria-label="$t('asset-detail-section-notes')"
+                :placeholder="$t('asset-detail-notes-placeholder')"
+                :disabled="!isEditable"
+                :rows="3"
+                :max-rows="12"
+                @focus="notesFocused = true"
+                @blur="onNotesBlur"
+              />
             </SectionCard>
 
             <!-- Sync-owned device telemetry (Intune / Entra). Read-only
