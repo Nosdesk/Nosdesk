@@ -36,6 +36,13 @@ export function meetsAudience(audience: PluginAudience | undefined, viewer: View
   }
 }
 
+/** True when the signed-in viewer may see a component of `audience`. Reads the
+ *  auth store only for a restricted audience. */
+export function viewerMeetsAudience(audience: PluginAudience | undefined): boolean {
+  if (audience === undefined || audience === 'all') return true;
+  return meetsAudience(audience, currentViewerTier());
+}
+
 /** The signed-in viewer's tier, from the auth store's role computeds. */
 export function currentViewerTier(): ViewerTier {
   const auth = useAuthStore();
