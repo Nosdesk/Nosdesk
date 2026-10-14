@@ -836,3 +836,103 @@ async fn loan_usage_and_stock_count_notes_stay_with_staff() {
         }
     }
 }
+
+/// An asset's lifecycle reaches anyone but staff as what the status was, what
+/// it became and when: no reason, actor, ticket or metadata (repair vendor,
+/// RMA). That holds on the timeline, the record card, the history export and
+/// the inventory list's newest event. Lifecycle records in the sync delta and
+/// live stream go to staff only.
+#[actix_web::test]
+async fn lifecycle_reasons_actors_and_metadata_stay_with_staff() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    const REASON: &str = "Reason: hinge cracked, depot repair";
+    const VENDOR: &str = "Depot Vendor Pty";
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::asset_lifecycle::transition(
+            c,
+            backend::repository::asset_lifecycle::TransitionInput {
+                asset_id: f.asset,
+                to_status: "in_repair".to_string(),
+                reason: Some(REASON.to_string()),
+                ticket_id: Some(f.ticket),
+                metadata: json!({ "vendor": VENDOR, "rma": "RMA-42" }),
+                actor_uuid: Some(f.agent),
+                disposal: None,
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .expect("send the asset for repair");
+
+    for (viewer, who, sees) in [(f.member, "member", false), (f.agent, "agent", true)] {
+        let timeline = get_json(&f, viewer, &format!("/api/assets/{}/lifecycle", f.asset)).await;
+        let event = timeline
+            .as_array()
+            .and_then(|events| events.iter().find(|e| e["to_status"] == "in_repair"))
+            .unwrap_or_else(|| panic!("{who}: no repair event: {timeline}"));
+        assert_eq!(event["from_status"], "in_service", "{who}: timeline from");
+        assert!(event["occurred_at"].is_string(), "{who}: timeline time");
+        if sees {
+            assert_eq!(event["reason"], REASON, "{who}: timeline reason");
+            assert_eq!(event["actor_uuid"], f.agent.to_string(), "{who}");
+            assert_eq!(event["ticket_id"], json!(f.ticket), "{who}");
+            assert_eq!(event["metadata"]["vendor"], VENDOR, "{who}");
+        } else {
+            assert!(event["reason"].is_null(), "{who}: timeline reason: {event}");
+            assert!(event["actor_uuid"].is_null(), "{who}: timeline actor");
+            assert!(event["ticket_id"].is_null(), "{who}: timeline ticket");
+            assert_eq!(event["metadata"], json!({}), "{who}: timeline metadata");
+        }
+
+        let (status, card) = call(
+            &f,
+            viewer,
+            Method::GET,
+            &format!("/api/assets/{}/record-card", f.asset),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{who}: record card");
+        let (status, history) = call(
+            &f,
+            viewer,
+            Method::GET,
+            "/api/assets/export?scope=history&format=json",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{who}: history export");
+        for (path, body) in [("record card", &card), ("history export", &history)] {
+            assert!(body.contains("in_repair"), "{who}: {path} lists the event");
+            for secret in [REASON, VENDOR, &f.agent.to_string()] {
+                assert_eq!(body.contains(secret), sees, "{who}: {path} and {secret:?}");
+            }
+        }
+
+        let page = get_json(&f, viewer, "/api/assets/paginated").await;
+        let latest = &asset_in(&page["data"], f.asset)["latest_lifecycle"];
+        assert_eq!(latest["to_status"], "in_repair", "{who}: list row");
+        assert_eq!(latest["reason"].as_str(), sees.then_some(REASON), "{who}");
+        assert_eq!(
+            latest["actor_uuid"].as_str().map(str::to_string),
+            sees.then(|| f.agent.to_string()),
+            "{who}: list row actor"
+        );
+
+        let (actions, _) = delta(&f, viewer).await;
+        let streamed = stream_rows(&f, viewer).await;
+        for (path, rows) in [("delta", &actions), ("live stream", &streamed)] {
+            let lifecycle = rows
+                .iter()
+                .filter(|r| r["aggregate"] == "asset_lifecycle_event")
+                .count();
+            assert_eq!(
+                lifecycle > 0,
+                sees,
+                "{who}: lifecycle records in the {path}"
+            );
+        }
+    }
+}

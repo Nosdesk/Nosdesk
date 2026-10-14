@@ -79,6 +79,34 @@ export interface Asset {
   groups?: AssetGroup[];
   /** Native asset groups (workspace-local classification). */
   asset_groups?: AssetGroup[];
+  /** The open loan, or null when the asset isn't out. Set on paginated list
+   *  rows (`/assets/paginated`, `assets.query`); absent elsewhere. */
+  current_loan?: AssetCurrentLoan | null;
+  /** The newest lifecycle event, or null when there is none. Set on
+   *  paginated list rows; absent elsewhere. */
+  latest_lifecycle?: AssetLatestLifecycle | null;
+}
+
+/** An asset's open loan as a list row carries it. */
+export interface AssetCurrentLoan {
+  /** Null once the borrower's account is gone; the loan stays. */
+  borrower_user_uuid: string | null;
+  /** The borrower's display name in this workspace; null with the uuid. */
+  borrower_name: string | null;
+  loaned_at: string;
+  /** Due-back calendar date (`YYYY-MM-DD`), or null for an open-ended loan. */
+  due_back: string | null;
+}
+
+/** An asset's newest lifecycle event as a list row carries it. `reason` and
+ *  `actor_*` are staff only: null for anyone else. */
+export interface AssetLatestLifecycle {
+  from_status: string | null;
+  to_status: string;
+  reason: string | null;
+  occurred_at: string;
+  actor_uuid: string | null;
+  actor_name: string | null;
 }
 
 /** Canonical asset lifecycle states. Mirrors the backend
@@ -109,7 +137,9 @@ export const ASSET_STATUSES: AssetStatus[] = [
 
 /** One row of an asset's append-only lifecycle log. `metadata`
  *  carries state-specific fields (repair vendor/RMA/offsite, loan
- *  recipient/due-back) so new workflows need no schema change. */
+ *  recipient/due-back) so new workflows need no schema change.
+ *  `reason`, `ticket_id`, `actor_uuid` and `metadata` are staff only:
+ *  null (metadata `{}`) for anyone else. */
 export interface AssetLifecycleEvent {
   id: number;
   asset_id: number;

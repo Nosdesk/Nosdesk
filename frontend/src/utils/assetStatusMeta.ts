@@ -108,6 +108,19 @@ export function assetStatusLabel(
   return t(metaForAssetStatus(status).labelKey);
 }
 
+/** A status change as one line: "In repair to In service", or "Set to In
+ *  stock" for an asset's first status. */
+export function lifecycleTransitionLabel(
+  t: (key: string, args?: Record<string, string>) => string,
+  fromStatus: string | null | undefined,
+  toStatus: string,
+): string {
+  const to = assetStatusLabel(t, toStatus);
+  return fromStatus
+    ? t('asset-lifecycle-timeline-transition', { from: assetStatusLabel(t, fromStatus), to })
+    : t('asset-lifecycle-timeline-initial', { to });
+}
+
 /** Chip-filter options for the assets list status facet. */
 export function assetStatusChipOptions(
   t: (key: string) => string,

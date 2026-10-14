@@ -2900,6 +2900,16 @@ assets-list-column-warranty = Warranty
 assets-list-columns-attributes = Attributes
 assets-list-attribute-yes = Yes
 assets-list-attribute-no = No
+assets-list-column-borrower = Borrower
+assets-list-column-status-changed = Status changed
+assets-list-status-changed-from = from { $status }
+assets-list-status-changed-initial = first status
+assets-list-borrower-unknown = Loaned
+assets-list-borrower-unknown-title = On loan to an account that no longer exists
+assets-list-borrower-title = Loaned { $loaned }
+assets-list-borrower-title-due = Loaned { $loaned }, due back { $due }
+assets-list-status-changed-by = { $when } by { $name }
+assets-list-status-changed-reason = Reason: { $reason }
 
 assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock

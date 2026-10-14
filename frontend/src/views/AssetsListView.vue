@@ -32,6 +32,8 @@ import CreateRolloutModal from '@/components/assets/CreateRolloutModal.vue'
 import AssetMobileRow from '@/components/assets/AssetMobileRow.vue'
 import AssetPlanningMobile from '@/components/assets/AssetPlanningMobile.vue'
 import AssetAttributeCell from '@/components/assets/AssetAttributeCell.vue'
+import AssetBorrowerCell from '@/components/assets/AssetBorrowerCell.vue'
+import AssetLastStatusChangeCell from '@/components/assets/AssetLastStatusChangeCell.vue'
 import { attributeColumnDefs, isAttributeColumn } from '@/utils/assetAttributeColumns'
 import type { GroupBucket } from '@/composables/useListGrouping'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
@@ -304,13 +306,14 @@ const groupAxes: GroupAxisDef<Asset>[] = [
 ]
 
 /**
- * Server-sortable fields, from the match in
+ * Server-sortable fields, from `get_paginated_devices` in
  * `backend/src/repository/assets.rs`: id, name, model, manufacturer,
- * location, status, serial_number, quantity, created_at, updated_at.
- * Anything else falls through that match's `_` arm and silently
+ * location, status, serial_number, quantity, created_at, updated_at,
+ * `attr:<key>`, plus `borrower` and `last_status_change`, which sort on
+ * the open loan and the newest lifecycle event. Anything else silently
  * re-sorts by name, so `hostname` and `warranty_status` are marked
- * unsortable here — both live in the `attributes` JSONB bag and have
- * no column to order by.
+ * unsortable here: both live in the `attributes` JSONB bag and have no
+ * column to order by.
  */
 
 /**
@@ -339,7 +342,8 @@ const groupAxes: GroupAxisDef<Asset>[] = [
  *
  * `kind` and `quantity` are hidden by default: kind reads the same for
  * every row on a device-only workspace, and quantity is populated only
- * for `bulk` kinds.
+ * for `bulk` kinds. `borrower` and `last_status_change` are opt-in too;
+ * their mins only need to fit when picked.
  *
  * Kind attributes follow as `attr:<key>` columns, derived from the kinds
  * registry, which can resolve after setup. They are hidden until picked,
@@ -374,6 +378,8 @@ const columns = computed(() => [
   { field: 'quantity', label: t('assets-list-column-stock'), width: 'minmax(78px,110px)', sortable: true, responsive: 'md' as const, defaultHidden: true },
   { field: 'status', label: t('assets-list-column-status'), width: 'minmax(84px,118px)', sortable: true, responsive: 'always' as const },
   { field: 'warranty_status', label: t('assets-list-column-warranty'), width: 'minmax(70px,98px)', sortable: false, responsive: 'always' as const },
+  { field: 'borrower', label: t('assets-list-column-borrower'), width: 'minmax(110px,180px)', sortable: true, responsive: 'md' as const, defaultHidden: true },
+  { field: 'last_status_change', label: t('assets-list-column-status-changed'), width: 'minmax(160px,230px)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
   ...attributeColumns.value,
 ])
 
@@ -805,6 +811,14 @@ async function exportAssetsCsv(scope?: 'history') {
             :value="warrantyStatus(item)"
           />
           <span v-else class="text-xs text-tertiary truncate">{{ warrantyStatus(item) || '-' }}</span>
+        </template>
+
+        <template #cell-borrower="{ item }">
+          <AssetBorrowerCell :loan="item.current_loan" />
+        </template>
+
+        <template #cell-last_status_change="{ item }">
+          <AssetLastStatusChangeCell :event="item.latest_lifecycle" />
         </template>
 
         <template v-for="col in attributeColumns" :key="col.field" #[`cell-${col.field}`]="{ item }">

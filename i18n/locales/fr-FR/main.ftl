@@ -2846,6 +2846,17 @@ assets-list-column-warranty = Garantie
 assets-list-columns-attributes = Attributs
 assets-list-attribute-yes = Oui
 assets-list-attribute-no = Non
+# MACHINE TRANSLATION, pending native review
+assets-list-column-borrower = Emprunteur
+assets-list-column-status-changed = Statut modifié
+assets-list-status-changed-from = depuis { $status }
+assets-list-status-changed-initial = premier statut
+assets-list-borrower-unknown = Prêté
+assets-list-borrower-unknown-title = Prêté à un compte qui n'existe plus
+assets-list-borrower-title = Prêté le { $loaned }
+assets-list-borrower-title-due = Prêté le { $loaned }, retour prévu le { $due }
+assets-list-status-changed-by = { $when } par { $name }
+assets-list-status-changed-reason = Motif : { $reason }
 
 assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock

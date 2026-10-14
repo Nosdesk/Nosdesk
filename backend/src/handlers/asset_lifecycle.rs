@@ -13,7 +13,7 @@ use tracing::error;
 
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::models::{AssetStatus, SANITIZATION_METHODS};
+use crate::models::{AssetLifecycleEvent, AssetStatus, SANITIZATION_METHODS};
 use crate::repository::{
     asset_lifecycle::{self as repo, DisposalInput, TransitionError, TransitionInput},
     assets as assets_repo,
@@ -48,6 +48,27 @@ pub struct DisposalBody {
     pub notes: Option<String>,
 }
 
+/// Lifecycle events as anyone but staff may see them: what the status was,
+/// what it became and when. The reason, who made the change, the ticket and
+/// the free-form metadata (repair vendor, RMA, loan details) stay with staff,
+/// as a loan's notes and actors do (`strip_staff_loan_fields`).
+pub(crate) fn strip_staff_lifecycle_fields<'a>(
+    events: impl IntoIterator<Item = &'a mut AssetLifecycleEvent>,
+    auth: &AuthContext,
+) {
+    if auth.can_handle_tickets() {
+        return;
+    }
+    for event in events {
+        event.reason = None;
+        event.actor_uuid = None;
+        event.ticket_id = None;
+        event.metadata = json!({});
+    }
+}
+
+/// An asset's lifecycle timeline. Staff get every event whole; anyone else
+/// gets them through [`strip_staff_lifecycle_fields`].
 pub async fn list_for_asset(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -59,7 +80,10 @@ pub async fn list_for_asset(
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::list_for_asset(conn, asset_id)
     }) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(mut rows) => {
+            strip_staff_lifecycle_fields(&mut rows, &auth);
+            HttpResponse::Ok().json(rows)
+        }
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))
         }

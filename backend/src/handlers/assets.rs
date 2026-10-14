@@ -392,6 +392,16 @@ pub struct AssetResponse {
     pub model_id: Option<i32>,
 }
 
+/// A row of the paginated list: the asset, its open loan and its newest
+/// lifecycle event. Both keys are always present, null when there is none.
+#[derive(Debug, Serialize)]
+pub struct AssetListItem {
+    #[serde(flatten)]
+    pub asset: AssetResponse,
+    pub current_loan: Option<crate::models::AssetCurrentLoan>,
+    pub latest_lifecycle: Option<crate::models::AssetLatestLifecycle>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct UserInfo {
     pub uuid: String,
@@ -961,7 +971,7 @@ pub async fn export_assets(
         Ok((rows, events, slug))
     });
 
-    let (mut rows, events, slug) = match export_result {
+    let (mut rows, mut events, slug) = match export_result {
         Ok(v) => v,
         Err(e) => {
             error!(error = ?e, "Database error exporting assets");
@@ -970,6 +980,10 @@ pub async fn export_assets(
     };
     // The CSV keeps its `notes` column, blank, so a re-import still parses.
     strip_staff_asset_fields(&mut rows, &auth);
+    // History keeps its columns too, blank where the timeline is staff only.
+    if let Some(events) = events.as_mut() {
+        crate::handlers::asset_lifecycle::strip_staff_lifecycle_fields(events, &auth);
+    }
 
     let kind = if events.is_some() {
         "asset-history"
@@ -1025,7 +1039,7 @@ pub async fn record_card(
         let events = repository::asset_lifecycle::history_for_export(conn, &[asset_id])?;
         Ok((asset, events))
     });
-    let (asset, events) = match result {
+    let (asset, mut events) = match result {
         Ok(v) => v,
         Err(diesel::result::Error::NotFound) => {
             return errors::not_found_msg(format!("Asset {asset_id} not found"));
@@ -1035,6 +1049,7 @@ pub async fn record_card(
             return errors::internal("Failed to build asset record card");
         }
     };
+    crate::handlers::asset_lifecycle::strip_staff_lifecycle_fields(&mut events, &auth);
     let body = match write_history_csv(std::slice::from_ref(&asset), &events) {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -1114,15 +1129,43 @@ pub async fn get_paginated_devices(
             kind,
             low_stock,
         )?;
-        let device_responses = devices_to_responses(conn, devices);
-        Ok((device_responses, total))
+        let mut extras = Vec::with_capacity(devices.len());
+        let devices: Vec<Asset> = devices
+            .into_iter()
+            .map(|row| {
+                extras.push((row.current_loan, row.latest_lifecycle));
+                row.asset
+            })
+            .collect();
+        let rows: Vec<AssetListItem> = devices_to_responses(conn, devices)
+            .into_iter()
+            .zip(extras)
+            .map(|(asset, (current_loan, mut latest_lifecycle))| {
+                // The open loan is kept whole: the loan ledger shows anyone
+                // who has the asset and when. The event is reduced as the
+                // lifecycle timeline reduces it.
+                if !auth.can_handle_tickets() {
+                    if let Some(event) = latest_lifecycle.as_mut() {
+                        event.reason = None;
+                        event.actor_uuid = None;
+                        event.actor_name = None;
+                    }
+                }
+                AssetListItem {
+                    asset,
+                    current_loan,
+                    latest_lifecycle,
+                }
+            })
+            .collect();
+        Ok((rows, total))
     });
 
     match result {
-        Ok((device_responses, total)) => {
+        Ok((rows, total)) => {
             let total_pages = (total as f64 / page_size as f64).ceil() as i64;
             let response = PaginatedResponse {
-                data: device_responses,
+                data: rows,
                 total,
                 page,
                 page_size,

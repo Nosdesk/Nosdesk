@@ -20,7 +20,7 @@ import {
 import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
-import { metaForAssetStatus } from '@/utils/assetStatusMeta';
+import { lifecycleTransitionLabel, metaForAssetStatus } from '@/utils/assetStatusMeta';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import { numberForTicketId } from '@/composables/useTicketNumberLookup';
 import { ticketPath } from '@/utils/ticketNumbers';
@@ -230,16 +230,7 @@ function actorLabel(uuid: string | null | undefined): string {
 }
 
 function transitionSummary(event: AssetLifecycleEvent): string {
-  const toMeta = metaForAssetStatus(event.to_status);
-  const toLabel = t(toMeta.labelKey);
-  if (event.from_status) {
-    const fromMeta = metaForAssetStatus(event.from_status);
-    return t('asset-lifecycle-timeline-transition', {
-      from: t(fromMeta.labelKey),
-      to: toLabel,
-    });
-  }
-  return t('asset-lifecycle-timeline-initial', { to: toLabel });
+  return lifecycleTransitionLabel(t, event.from_status, event.to_status);
 }
 
 function metadataLines(event: AssetLifecycleEvent): string[] {
@@ -349,7 +340,9 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
         <div class="flex items-baseline justify-between gap-3 flex-wrap">
           <span class="text-sm font-medium text-primary">{{ transitionSummary(event) }}</span>
           <span class="text-xs text-tertiary whitespace-nowrap">
-            {{ actorLabel(event.actor_uuid) }} · {{ formatRelativeTime(event.occurred_at, { addSuffix: true }) }}
+            <!-- Who made a change is staff only; a requester's events carry
+                 no actor, reason, ticket or metadata. -->
+            <template v-if="canEdit">{{ actorLabel(event.actor_uuid) }} · </template>{{ formatRelativeTime(event.occurred_at, { addSuffix: true }) }}
           </span>
         </div>
         <div

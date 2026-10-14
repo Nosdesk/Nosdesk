@@ -523,6 +523,40 @@ pub struct NewAssetDisposal {
     pub actor_uuid: Option<Uuid>,
 }
 
+/// An asset's open loan as the paginated list carries it. `borrower_*` is
+/// null once the borrower's account is purged; the loan stays.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AssetCurrentLoan {
+    pub borrower_user_uuid: Option<Uuid>,
+    /// The workspace display name when set, else the account name.
+    pub borrower_name: Option<String>,
+    /// As the loan ledger names them.
+    pub loaned_at: chrono::DateTime<chrono::Utc>,
+    pub due_back: Option<NaiveDate>,
+}
+
+/// An asset's newest lifecycle event, by `(occurred_at, id)`, as the
+/// paginated list carries it. `reason` and `actor_*` are staff only: null
+/// for anyone else.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AssetLatestLifecycle {
+    pub from_status: Option<String>,
+    pub to_status: String,
+    pub reason: Option<String>,
+    pub occurred_at: chrono::DateTime<chrono::Utc>,
+    pub actor_uuid: Option<Uuid>,
+    pub actor_name: Option<String>,
+}
+
+/// One row of the paginated asset list: the asset with its open loan and
+/// newest lifecycle event.
+#[derive(Debug, Clone)]
+pub struct AssetListRow {
+    pub asset: Asset,
+    pub current_loan: Option<AssetCurrentLoan>,
+    pub latest_lifecycle: Option<AssetLatestLifecycle>,
+}
+
 /// A device loan: an asset in a borrower's custody for a span. The
 /// `asset_loans` ledger is the source of truth for who holds what until
 /// when; `assets.status = 'on_loan'` mirrors "has an active loan". A loan
