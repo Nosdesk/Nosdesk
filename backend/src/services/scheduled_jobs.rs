@@ -625,13 +625,28 @@ pub async fn prune_security_events(pool: Pool) -> Result<()> {
 /// `WEBHOOK_DELIVERY_RETENTION_DAYS`; default 30 days.
 pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
     let days = retention_days("WEBHOOK_DELIVERY_RETENTION_DAYS", 30);
-    // webhook_deliveries is RLS-enabled; cross-tenant prune.
-    let removed =
-        // cross-tenant: cross-workspace retention prune of webhook_deliveries.
+    let workspaces =
+        // cross-tenant: finds which workspaces hold expired deliveries; each is pruned pinned to its own workspace below.
         crate::sync::session::background_run(&pool, "scheduler:prune_webhook_deliveries", |conn| {
-            crate::repository::webhooks::prune_deliveries_older_than(conn, days)
+            crate::repository::webhooks::workspaces_with_deliveries_older_than(conn, days)
         })
-        .map_err(|e| anyhow::anyhow!("prune webhook deliveries: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("scan webhook deliveries: {e}"))?;
+    // webhook_deliveries is audited: each delete is recorded in its own
+    // workspace, so prune one workspace at a time, pinned.
+    let mut removed = 0usize;
+    for workspace_id in workspaces {
+        match crate::sync::session::run_in_workspace(
+            &pool,
+            "scheduler:prune_webhook_deliveries",
+            workspace_id,
+            |conn| {
+                crate::repository::webhooks::prune_deliveries_older_than(conn, workspace_id, days)
+            },
+        ) {
+            Ok(n) => removed += n,
+            Err(e) => warn!(workspace_id, error = ?e, "scheduler: webhook delivery prune failed"),
+        }
+    }
     if removed > 0 {
         info!(
             count = removed,
@@ -802,9 +817,9 @@ pub async fn reverify_dkim_domains(pool: Pool) -> Result<()> {
 /// those rows after the configurable retention window
 /// (`NOSDESK_USER_PURGE_GRACE_DAYS`, default 30).
 ///
-/// Each purge gets its own savepoint via `with_actor_context` so an
-/// FK violation on one user doesn't abort the whole sweep. The
-/// "scheduler:user_purge" system actor lands in the audit_log for
+/// Each purge gets its own transaction so an FK violation on one user
+/// doesn't abort the whole sweep. The "scheduler:user_purge" system
+/// actor lands in the audit_log, in the user's home workspace, for
 /// every purged row so the eventual hard-delete is traceable.
 ///
 /// Search-index removal flows through the same
@@ -833,15 +848,12 @@ pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) ->
     let actor = crate::sync::actor::ActorContext::system("scheduler:user_purge");
     let mut purged = 0usize;
     let mut failed = 0usize;
+    let mut homeless = 0usize;
     for user in pending {
-        // cross-tenant: purging a user reaches every workspace they belong to.
-        let result = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
-            &mut conn,
-            &actor,
-            |conn| crate::repository::users::purge_user(&user.uuid, conn, Some(&search)),
-        );
+        let result = purge_account_in_home_workspace(&mut conn, &actor, &user.uuid, Some(&search));
         match result {
-            Ok(_) => {
+            Ok(None) => homeless += 1,
+            Ok(Some(_)) => {
                 purged += 1;
                 info!(
                     user_uuid = %user.uuid,
@@ -860,6 +872,7 @@ pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) ->
             }
         }
     }
+    warn_homeless_accounts("scheduler:user_purge", homeless);
     info!(
         purged,
         failed,
@@ -867,6 +880,44 @@ pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) ->
         "scheduler: soft-deleted users sweep complete"
     );
     Ok(())
+}
+
+/// Purge one account as `actor`, recorded in the account's home workspace
+/// ([`crate::repository::users::home_workspace_id`]). The purge runs under
+/// the bypass role because an account's rows can reach every workspace it
+/// belongs to, but the audit trigger still needs a workspace for the rows it
+/// writes, and a background connection starts with none. `Ok(None)` when the
+/// account is in no workspace; it is left in place (see
+/// [`warn_homeless_accounts`]).
+///
+/// For an account in several workspaces, rows the purge touches in the
+/// others are recorded in the home workspace too.
+fn purge_account_in_home_workspace(
+    conn: &mut DbConnection,
+    actor: &crate::sync::actor::ActorContext,
+    user_uuid: &uuid::Uuid,
+    observer: Option<&dyn crate::repository::users::UserDeletedObserver>,
+) -> std::result::Result<Option<usize>, diesel::result::Error> {
+    // cross-tenant: purging an account reaches every workspace it belongs to.
+    crate::sync::session::with_actor_bypass_context(conn, actor, |conn| {
+        let Some(workspace_id) = crate::repository::users::home_workspace_id(conn, user_uuid)?
+        else {
+            return Ok(None);
+        };
+        crate::sync::session::pin_workspace(conn, workspace_id)?;
+        crate::repository::users::purge_user(user_uuid, conn, observer).map(Some)
+    })
+}
+
+/// One warning per run for the accounts a purge job left because they are in
+/// no workspace: the audit trigger needs one to record the purge in. They
+/// stay in the job's scan, so the warning repeats until someone acts.
+fn warn_homeless_accounts(job: &str, count: usize) {
+    if count > 0 {
+        warn!(
+            "{job}: {count} account(s) left in place, they are in no workspace to record the purge in"
+        );
+    }
 }
 
 /// Hard-delete archived workspaces whose grace window has elapsed
@@ -1677,8 +1728,9 @@ pub async fn approval_timeouts(pool: Pool) -> Result<()> {
 /// requests never confirmed within [`guest_residue::UNCONFIRMED_DAYS`], uploads
 /// never attached (after a day), and accounts made for an address that never
 /// confirmed anything and were never used. Each is found cross-workspace and
-/// removed pinned to its own workspace (accounts, which span workspaces, under
-/// the bypass context like the soft-delete purge).
+/// removed pinned to its own workspace (accounts, which can span workspaces,
+/// under the bypass context pinned to their home workspace, like the
+/// soft-delete purge).
 pub async fn guest_residue_cleanup(pool: Pool, search: Arc<SearchService>) -> Result<()> {
     let _lock = match try_job_lock(&pool, GUEST_RESIDUE_LOCK, "guest_residue.cleanup")? {
         Some(guard) => guard,
@@ -1766,23 +1818,20 @@ pub async fn guest_residue_sweep(pool: &Pool, search: Option<&Arc<SearchService>
     let mut purged = 0usize;
     let mut conn = pool.get().context("db pool")?;
     let actor = crate::sync::actor::ActorContext::system("scheduler:guest_residue_purge");
+    let mut homeless = 0usize;
     for uuid in accounts {
-        // cross-tenant: purges never-confirmed guest accounts, which span workspaces.
-        match crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
+        match purge_account_in_home_workspace(
             &mut conn,
             &actor,
-            |conn| {
-                crate::repository::users::purge_user(
-                    &uuid,
-                    conn,
-                    search.map(|s| s as &dyn crate::repository::users::UserDeletedObserver),
-                )
-            },
+            &uuid,
+            search.map(|s| s as &dyn crate::repository::users::UserDeletedObserver),
         ) {
-            Ok(_) => purged += 1,
+            Ok(Some(_)) => purged += 1,
+            Ok(None) => homeless += 1,
             Err(e) => warn!(error = ?e, "scheduler:guest_residue: account purge failed"),
         }
     }
+    warn_homeless_accounts("scheduler:guest_residue", homeless);
     info!("scheduler:guest_residue: removed {requests} unconfirmed requests, {files} abandoned uploads, {purged} unused guest accounts");
     Ok(())
 }
@@ -1849,6 +1898,130 @@ pub async fn knowledge_gap_detection(pool: Pool) -> Result<()> {
 mod tests {
     use super::*;
     use diesel::r2d2;
+
+    /// A ticket that breached, paused and resumed is still breached: the
+    /// target moved later by the paused time but the clock is already past
+    /// it. The stamp stays and the breach isn't notified a second time.
+    #[test]
+    fn a_breach_paused_and_resumed_is_notified_once() {
+        use crate::models::{TicketUpdate, WorkflowStateCategory};
+        use crate::repository::sla_admin::{
+            create_calendar, create_policy, SlaPolicyBody, WorkingCalendarBody,
+        };
+        use crate::schema::{sync_actions, tickets};
+        use crate::test_helpers::TestFixtures;
+        use chrono::{Duration, Utc};
+        use diesel::prelude::*;
+
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let day = serde_json::json!([["00:00", "23:59"]]);
+        let calendar = create_calendar(
+            &mut conn,
+            WorkingCalendarBody {
+                name: "Always open".into(),
+                timezone: None,
+                schedule: serde_json::json!({
+                    "mon": day, "tue": day, "wed": day, "thu": day,
+                    "fri": day, "sat": day, "sun": day,
+                }),
+                is_default: Some(false),
+            },
+            None,
+        )
+        .unwrap();
+        create_policy(
+            &mut conn,
+            SlaPolicyBody {
+                name: "Activated clock".into(),
+                target_response_minutes: Some(60),
+                target_resolution_minutes: None,
+                working_calendar_id: Some(calendar.id),
+                priority_filter: None,
+                category_id_filter: None,
+                assignee_group_id_filter: None,
+                is_default: Some(false),
+                no_sla: Some(false),
+                clock_start: Some("activated".into()),
+            },
+            None,
+        )
+        .unwrap();
+        let state = |conn: &mut crate::db::DbConnection, category| {
+            crate::repository::workflow_states::first_in_category(conn, category)
+                .unwrap()
+                .id
+        };
+        let active = state(&mut conn, WorkflowStateCategory::Active);
+        let backlog = state(&mut conn, WorkflowStateCategory::Backlog);
+        let user = TestFixtures::create_user(&mut conn, "sla_pause_resume", "user");
+        let ticket =
+            TestFixtures::create_ticket(&mut conn, "Pause after breach", Some(user.uuid), None);
+
+        // Running for three hours: the response target passed two hours ago.
+        let now = Utc::now().naive_utc();
+        let ticket: crate::models::Ticket = diesel::update(tickets::table.find(ticket.id))
+            .set((
+                tickets::workflow_state_id.eq(active),
+                tickets::created_at.eq(now - Duration::hours(3)),
+                tickets::sla_clock_started_at.eq(Some(now - Duration::hours(3))),
+            ))
+            .get_result(&mut conn)
+            .unwrap();
+        crate::services::sla::recompute_and_stamp_sla_for_ticket(&mut conn, &ticket);
+        assert!(
+            process_one_breach(&mut conn, ticket.id, SlaBreachKind::Response, 1)
+                .unwrap()
+                .is_some()
+        );
+        // The sweep caught it a minute after the target. Postgres keeps
+        // microseconds, so compare at that precision.
+        let stamp =
+            chrono::SubsecRound::trunc_subsecs(now - Duration::hours(2) + Duration::minutes(1), 6);
+        diesel::update(tickets::table.find(ticket.id))
+            .set(tickets::sla_response_breached_at.eq(Some(stamp)))
+            .execute(&mut conn)
+            .unwrap();
+
+        // Paused for the last half hour, then resumed now.
+        let move_to = |conn: &mut crate::db::DbConnection, state_id| {
+            crate::repository::tickets::update_ticket_partial(
+                conn,
+                ticket.id,
+                TicketUpdate {
+                    workflow_state_id: Some(state_id),
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap()
+        };
+        move_to(&mut conn, backlog);
+        diesel::update(tickets::table.find(ticket.id))
+            .set(tickets::sla_paused_at.eq(Some(now - Duration::minutes(30))))
+            .execute(&mut conn)
+            .unwrap();
+        move_to(&mut conn, active);
+
+        let breached_at: Option<chrono::NaiveDateTime> = tickets::table
+            .find(ticket.id)
+            .select(tickets::sla_response_breached_at)
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(breached_at, Some(stamp), "the breach stamp stays");
+        assert!(
+            process_one_breach(&mut conn, ticket.id, SlaBreachKind::Response, 1)
+                .unwrap()
+                .is_none(),
+            "no second breach"
+        );
+        let emitted: i64 = sync_actions::table
+            .filter(sync_actions::event_type.eq("ticket.sla_breached"))
+            .filter(sync_actions::aggregate_id.eq(ticket.id.to_string()))
+            .count()
+            .get_result(&mut conn)
+            .unwrap();
+        assert_eq!(emitted, 1, "one breach, one notification");
+    }
 
     #[test]
     fn a_finished_ticket_never_breaches() {

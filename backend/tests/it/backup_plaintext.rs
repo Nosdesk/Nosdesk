@@ -88,7 +88,7 @@ fn a_backup_without_a_password_restores_without_its_credentials() {
         None,
         backup_service::RestoreOptions {
             force_non_empty: true,
-            ignore_schema_mismatch: false,
+            ..Default::default()
         },
     )
     .expect("restore_database");

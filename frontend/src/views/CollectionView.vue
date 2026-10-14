@@ -6,7 +6,7 @@ import { useQuery, useQueryCache } from '@pinia/colada'
 import { useDelayedFlag } from '@/composables/useDelayedFlag'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
-import { getCollectionBySlug, addPageToCollection, updateCollection, deleteCollection, getPageOverridesInCollection } from '@nosdesk/core/services/collectionService'
+import { getCollectionBySlug, updateCollection, deleteCollection, getPageOverridesInCollection } from '@nosdesk/core/services/collectionService'
 import type { CollectionWithPages, CollectionPage, PageOverrideInfo } from '@nosdesk/core/services/collectionService'
 import documentationService from '@nosdesk/core/services/documentationService'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
@@ -186,16 +186,18 @@ const createPageInCollection = async () => {
 
   creating.value = true
   try {
+    // Created inside the collection in one request, so the page is never
+    // open to people the collection is closed to.
     const newPage = await documentationService.createArticle({
       title: t('collection-new-page-default-title'),
       content: '',
       description: '',
       status: 'draft',
       icon: '📄',
+      collection_id: collection.value.id,
     })
 
     if (newPage?.id) {
-      await addPageToCollection(collection.value.id, Number(newPage.id))
       docsEmitter.emit('doc:created', { id: newPage.id })
       router.push(docUrl(newPage))
     }
@@ -475,6 +477,7 @@ const deleteModalTitle = computed(() =>
       :collectionId="collection.id"
       :currentGroupIds="collection.visible_to_groups.map(g => g.id)"
       :currentUsers="collection.visible_to_users || []"
+      :restricted="collection.restricted ?? !collection.is_public"
       @close="showVisibilityModal = false"
       @updated="onVisibilityUpdated"
     />
@@ -493,7 +496,7 @@ const deleteModalTitle = computed(() =>
       :show="showDeleteConfirm"
       variant="danger"
       :title="deleteModalTitle"
-      :message="$t('collection-delete-message')"
+      :message="$t('docs-nav-confirm-delete-collection-message')"
       :confirm-label="$t('collection-delete-confirm')"
       @confirm="doDelete"
       @close="showDeleteConfirm = false"

@@ -939,7 +939,8 @@ pub async fn get_plugin_storage(
         }
         Ok(StorageOutcome::Empty) => HttpResponse::Ok().json(serde_json::json!({
             "key": key,
-            "value": null
+            "value": null,
+            "version": 0
         })),
         Ok(StorageOutcome::Gate(gate)) => gate.into_response(),
         Err(e) => {
@@ -949,7 +950,11 @@ pub async fn get_plugin_storage(
     }
 }
 
-/// Set storage value for a plugin (authenticated users - for plugin use)
+/// Set storage value for a plugin (authenticated users - for plugin use).
+///
+/// With `expected_version` the write is a compare-and-set: it applies only
+/// while the entry is at that version (0 = the key must not exist), and
+/// otherwise answers 409 with the entry's current `version`.
 pub async fn set_plugin_storage(
     req: HttpRequest,
     mut tc: TenantConn,
@@ -981,10 +986,15 @@ pub async fn set_plugin_storage(
         Ok(crate::models::PluginData),
         Gate(PluginGate),
         QuotaExceeded,
+        Conflict(i64),
     }
 
     let key = body.key.clone();
     let value = body.value.clone();
+    let expected_version = body.expected_version;
+    if expected_version.is_some_and(|v| v < 0) {
+        return errors::bad_request("expected_version must be 0 or more");
+    }
     let outcome = tc.run(|conn| {
         let plugin = match authorize_plugin_data_request(
             conn,
@@ -997,17 +1007,39 @@ pub async fn set_plugin_storage(
         };
         // Per-plugin key quota — new keys only (an overwrite of an existing key
         // is always allowed, even at the cap).
-        let is_new = matches!(
-            plugin_repo::get_plugin_storage_entry(conn, plugin.id, &key),
-            Err(DieselError::NotFound)
-        );
-        if is_new
+        let current = match plugin_repo::get_plugin_storage_entry(conn, plugin.id, &key) {
+            Ok(entry) => Some(entry.version),
+            Err(DieselError::NotFound) => None,
+            Err(e) => return Err(e),
+        };
+        if current.is_none()
             && plugin_repo::count_plugin_storage(conn, plugin.id)? >= MAX_STORAGE_ENTRIES_PER_PLUGIN
         {
             return Ok(StorageOutcome::QuotaExceeded);
         }
-        let entry = plugin_repo::set_plugin_storage(conn, plugin.id, key, Some(value))?;
-        Ok::<_, DieselError>(StorageOutcome::Ok(entry))
+        let Some(expected) = expected_version else {
+            let entry = plugin_repo::set_plugin_storage(conn, plugin.id, key, Some(value))?;
+            return Ok(StorageOutcome::Ok(entry));
+        };
+        // The conditional write itself re-checks the version, so a write
+        // racing in after the read above still loses.
+        match plugin_repo::compare_and_set_plugin_storage(
+            conn,
+            plugin.id,
+            key.clone(),
+            value,
+            expected,
+        )? {
+            Some(entry) => Ok::<_, DieselError>(StorageOutcome::Ok(entry)),
+            None => {
+                let now = match plugin_repo::get_plugin_storage_entry(conn, plugin.id, &key) {
+                    Ok(entry) => entry.version,
+                    Err(DieselError::NotFound) => 0,
+                    Err(e) => return Err(e),
+                };
+                Ok(StorageOutcome::Conflict(now))
+            }
+        }
     });
 
     match outcome {
@@ -1018,6 +1050,12 @@ pub async fn set_plugin_storage(
         Ok(StorageOutcome::QuotaExceeded) => errors::bad_request(format!(
             "storage entry quota exceeded (max {MAX_STORAGE_ENTRIES_PER_PLUGIN} keys)"
         )),
+        Ok(StorageOutcome::Conflict(version)) => errors::with_fields(
+            actix_web::http::StatusCode::CONFLICT,
+            "STORAGE_VERSION_CONFLICT",
+            "storage entry changed since it was read",
+            serde_json::json!({ "key": body.key, "version": version }),
+        ),
         Err(e) => {
             error!("Failed to set plugin storage: {}", e);
             errors::internal("Failed to set storage")

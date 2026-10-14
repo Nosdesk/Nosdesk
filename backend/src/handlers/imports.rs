@@ -24,7 +24,7 @@ use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
 use crate::models::{ImportJob, ImportJobUpdate, NewImportJob};
 use crate::repository::imports as repo;
-use crate::services::imports::{self, csv_parser, ImportType, ImportedRecords};
+use crate::services::imports::{self, csv_parser, CommitError, ImportType, ImportedRecords};
 use crate::services::search::{indexing_tasks, SearchService};
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -190,11 +190,11 @@ pub async fn commit(
     }
     let id = path.into_inner();
 
-    let result = tc.run(|conn| {
+    let result = tc.run_result(|conn| -> Result<CommitOutcome, CommitError> {
         let job = match repo::get(conn, id) {
             Ok(j) => j,
             Err(diesel::result::Error::NotFound) => return Ok(CommitOutcome::NotFound),
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         };
         if job.status == "done" {
             return Ok(CommitOutcome::AlreadyDone(job));
@@ -239,14 +239,7 @@ pub async fn commit(
         // The repo + commit imports run inside this transaction.
         // Postgres `SET LOCAL` propagates into the nested savepoint
         // so the workspace GUC is still active for the commit path.
-        let records = match imports::commit(conn, job_type, &parsed) {
-            Ok(records) => records,
-            Err(e) => {
-                let msg = format!("commit failed: {e}");
-                mark_failed(conn, job.id, &msg);
-                return Err(e);
-            }
-        };
+        let records = imports::commit(conn, job_type, &parsed)?;
 
         let updated = repo::update(
             conn,
@@ -274,8 +267,25 @@ pub async fn commit(
         Ok(CommitOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
         Ok(CommitOutcome::BadRequest(msg)) => errors::bad_request(msg),
         Err(e) => {
-            error!(job_id = %id, error = ?e, "commit failed");
-            errors::internal("commit failed")
+            // The commit rolled back every row, and the job's status with
+            // it; record the failure on the job in a transaction of its own.
+            error!(job_id = %id, error = %e, "commit failed");
+            let message = match &e {
+                CommitError::Row { row, message } => {
+                    format!("Nothing was imported. Row {row} could not be saved: {message}")
+                }
+                CommitError::Db(_) => "The import failed and nothing was imported.".to_string(),
+            };
+            if let Err(mark_err) = tc.run(|conn| {
+                mark_failed(conn, id, &message);
+                Ok(())
+            }) {
+                error!(job_id = %id, error = ?mark_err, "failed to record import failure");
+            }
+            match e {
+                CommitError::Row { .. } => errors::unprocessable_entity(message),
+                CommitError::Db(_) => errors::internal(message),
+            }
         }
     }
 }

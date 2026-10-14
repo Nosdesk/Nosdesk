@@ -2,7 +2,8 @@
 //! server owns stay as they are whatever a PUT body says about them, someone
 //! who doesn't handle tickets may change only the title, a PUT records the
 //! event PATCH's does and still answers with the ticket row, "not spam" clears
-//! the spam flag, and every change raises the `ticket.updated` webhook.
+//! the spam flag, every change raises the `ticket.updated` webhook, and a
+//! ticket read with GET can be sent straight back as a PUT.
 
 use std::sync::Arc;
 
@@ -105,6 +106,11 @@ impl Fixture {
         self.send(Method::PUT, user, ticket_id, body).await
     }
 
+    /// GET the ticket as `user`, a member of the workspace.
+    async fn get(&self, user: Uuid, ticket_id: i32) -> (StatusCode, Value) {
+        self.send(Method::GET, user, ticket_id, Value::Null).await
+    }
+
     /// PATCH `body` to the ticket as `user`, a member of the workspace.
     async fn patch(&self, user: Uuid, ticket_id: i32, body: Value) -> (StatusCode, Value) {
         self.send(Method::PATCH, user, ticket_id, body).await
@@ -158,6 +164,10 @@ impl Fixture {
                     web::scope("/api")
                         .route(
                             "/tickets/{id}",
+                            web::get().to(backend::handlers::get_ticket),
+                        )
+                        .route(
+                            "/tickets/{id}",
                             web::put().to(backend::handlers::update_ticket),
                         )
                         .route(
@@ -167,11 +177,13 @@ impl Fixture {
                 ),
         )
         .await;
-        let req = http_test::TestRequest::default()
+        let mut req = http_test::TestRequest::default()
             .method(method)
-            .uri(&format!("/api/tickets/{ticket_id}"))
-            .set_json(body)
-            .to_request();
+            .uri(&format!("/api/tickets/{ticket_id}"));
+        if !body.is_null() {
+            req = req.set_json(body);
+        }
+        let req = req.to_request();
         let resp = http_test::call_service(&app, req).await;
         let status = resp.status();
         let bytes = http_test::read_body(resp).await;
@@ -495,4 +507,35 @@ async fn a_resolution_notes_change_raises_the_ticket_updated_webhook() {
             .map(|(t, _)| t)
             .collect::<Vec<_>>()
     );
+}
+
+#[actix_web::test]
+async fn a_ticket_read_with_get_can_be_put_back() {
+    let fx = Fixture::new();
+    let before = fx.insert(NewTicket {
+        title: "Printer jammed".to_string(),
+        workflow_state_id: fx.open_state(),
+        ..Default::default()
+    });
+    assert_eq!(before.guest_lookup_token, None);
+
+    let (status, mut body) = fx.get(fx.ws.admin_uuid, before.id).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["title"] = json!("Printer still jammed");
+
+    let (status, saved) = fx.put(fx.ws.admin_uuid, before.id, body).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["title"], "Printer still jammed");
+    assert_eq!(fx.ticket(before.id).title, "Printer still jammed");
+}
+
+#[actix_web::test]
+async fn a_ticket_read_with_get_leaves_out_the_guest_lookup_token() {
+    let fx = Fixture::new();
+    let ticket = fx.email_ticket();
+    assert!(ticket.guest_lookup_token.is_some());
+
+    let (status, body) = fx.get(fx.ws.admin_uuid, ticket.id).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.get("guest_lookup_token").is_none(), "{body}");
 }

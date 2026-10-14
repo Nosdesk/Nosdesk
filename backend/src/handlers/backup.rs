@@ -422,6 +422,7 @@ pub async fn upload_restore(
 /// `password_required`, no manifest), and the preview comes from the POST
 /// with the password.
 pub async fn preview_restore(
+    pool: web::Data<Pool>,
     mut tc: TenantConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
@@ -437,7 +438,7 @@ pub async fn preview_restore(
             "manifest": null,
             "warnings": [],
         })),
-        Ok(false) => preview_response(&file_path, None),
+        Ok(false) => preview_response(&pool, file_path, None).await,
         Err(e) => preview_error(e, false),
     }
 }
@@ -445,6 +446,7 @@ pub async fn preview_restore(
 /// Preview an encrypted backup with its password
 /// POST /api/admin/backup/restore/{id}/preview
 pub async fn unlock_restore_preview(
+    pool: web::Data<Pool>,
     mut tc: TenantConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
@@ -454,7 +456,7 @@ pub async fn unlock_restore_preview(
         Ok(file_path) => file_path,
         Err(refused) => return actix_web::ResponseError::error_response(&refused),
     };
-    preview_response(&file_path, body.password.as_deref())
+    preview_response(&pool, file_path, body.password.clone()).await
 }
 
 /// The uploaded backup behind restore job `job_id`, for a platform admin on
@@ -487,15 +489,39 @@ fn restore_file(
         .ok_or_else(|| ApiError::BadRequest("No backup file available".into()))
 }
 
-/// The preview of a readable backup: `password_required` is false.
-fn preview_response(file_path: &std::path::Path, password: Option<&str>) -> HttpResponse {
-    match backup_service::preview_restore(file_path, password) {
-        Ok(preview) => {
+/// A backup this server can't restore, refused with the reason.
+fn not_restorable(reason: &backup_service::NotRestorable) -> HttpResponse {
+    let code = match reason {
+        backup_service::NotRestorable::Newer { .. } => "BACKUP_FROM_NEWER_VERSION",
+        backup_service::NotRestorable::Unknown { .. } => "BACKUP_SCHEMA_UNKNOWN",
+    };
+    errors::bad_request_with_code(format!("Can't restore: {reason}"), code)
+}
+
+/// The preview of a readable backup: `password_required` is false. Off the
+/// async workers: it derives the key and unzips the archive, and listing the
+/// tables an upgrade replaces opens a connection and reads every table.
+async fn preview_response(
+    pool: &Pool,
+    file_path: std::path::PathBuf,
+    password: Option<String>,
+) -> HttpResponse {
+    let password_given = password.is_some();
+    let pool = pool.clone();
+    let previewed = web::block(move || {
+        let mut preview = backup_service::preview_restore(&file_path, password.as_deref())?;
+        backup_service::list_replaced_tables(&pool, &mut preview);
+        Ok::<_, backup_service::BackupError>(preview)
+    })
+    .await;
+    match previewed {
+        Ok(Ok(preview)) => {
             let mut body = json!(preview);
             body["password_required"] = json!(false);
             HttpResponse::Ok().json(body)
         }
-        Err(e) => preview_error(e, password.is_some()),
+        Ok(Err(e)) => preview_error(e, password_given),
+        Err(e) => errors::internal(format!("Failed to preview: {e}")),
     }
 }
 
@@ -512,6 +538,7 @@ fn preview_error(e: backup_service::BackupError, password_given: bool) -> HttpRe
             "This backup is encrypted; enter its password",
             "BACKUP_PASSWORD_REQUIRED",
         ),
+        BackupError::NotRestorable(reason) => not_restorable(&reason),
         BackupError::ZipError(_)
         | BackupError::JsonError(_)
         | BackupError::CorruptedBackup(_)
@@ -578,11 +605,25 @@ pub async fn execute_restore(
     // backups without a password fail here with a clear
     // "password required" error; wrong-password backups fail
     // with a decryption error.
-    if let Err(e) = backup_service::preview_restore(&file_path, body.password.as_deref()) {
-        return Err(ApiError::BadRequest(format!("Preview failed: {}", e)));
+    let preview_path = file_path.clone();
+    let preview_password = body.password.clone();
+    let previewed = web::block(move || {
+        backup_service::preview_restore(&preview_path, preview_password.as_deref())
+    })
+    .await
+    .map_err(|e| ApiError::Internal(format!("Preview failed: {e}")))?;
+    match previewed {
+        Ok(_) => {}
+        Err(backup_service::BackupError::NotRestorable(reason)) => {
+            return Ok(not_restorable(&reason))
+        }
+        Err(e) => return Err(ApiError::BadRequest(format!("Preview failed: {}", e))),
     }
 
-    // Update job status
+    // Update job status. A restore refused because another is running puts
+    // back the status it found: that job may be the one the other restore
+    // is running.
+    let status_before = job.status.clone();
     let _ = tc.run(|conn| {
         backup_repo::update_backup_job(
             conn,
@@ -597,20 +638,61 @@ pub async fn execute_restore(
         )
     });
 
-    // Restore database first, then files. `restore_instance` runs it as
-    // the migration role when one is configured.
-    let (stats, mut conn) = match backup_service::restore_instance(
-        &pool,
-        &file_path,
-        body.password.as_deref(),
-        // Admin auth is the upstream gate for this endpoint; the
-        // operator explicitly chose to restore over the live DB.
-        backup_service::RestoreOptions {
-            force_non_empty: true,
-            ignore_schema_mismatch: false,
-        },
-    ) {
-        Ok(s) => s,
+    // Restore database first, then files, off the async workers: upgrading
+    // an older backup runs every later migration and can take minutes.
+    // `restore_instance` runs it as the migration role when one is
+    // configured, and holds the restore lock, so a retry while this one runs
+    // is refused rather than racing it.
+    let password = body.password.clone();
+    let restore_path = file_path.clone();
+    let runtime = pool.get_ref().clone();
+    let restored = web::block(move || {
+        let (stats, conn) = backup_service::restore_instance(
+            &runtime,
+            &restore_path,
+            password.as_deref(),
+            // Admin auth is the upstream gate for this endpoint; the
+            // operator explicitly chose to restore over the live DB.
+            backup_service::RestoreOptions {
+                force_non_empty: true,
+                ..Default::default()
+            },
+        )?;
+        // Files restore is best-effort: a missing or partial files payload
+        // shouldn't undo the database restore that just completed.
+        let files_restored =
+            match backup_service::restore_backup_files(&restore_path, password.as_deref()) {
+                Ok(count) => count,
+                Err(e) => {
+                    tracing::warn!(error = %e, "File restore had issues during admin restore");
+                    0
+                }
+            };
+        Ok::<_, backup_service::BackupError>((stats, conn, files_restored))
+    })
+    .await
+    .map_err(|e| ApiError::Internal(format!("Database restore failed: {e}")))?;
+    let (stats, mut conn, files_restored) = match restored {
+        Ok(restored) => restored,
+        Err(backup_service::BackupError::RestoreInProgress) => {
+            let _ = tc.run(|conn| {
+                backup_repo::update_backup_job(
+                    conn,
+                    job_id,
+                    BackupJobUpdate {
+                        status: Some(status_before),
+                        file_path: None,
+                        file_size: None,
+                        error_message: None,
+                        completed_at: None,
+                    },
+                )
+            });
+            return Ok(errors::conflict_with_code(
+                backup_service::BackupError::RestoreInProgress.to_string(),
+                "BACKUP_RESTORE_IN_PROGRESS",
+            ));
+        }
         Err(e) => {
             let _ = tc.run(|conn| {
                 backup_repo::update_backup_job(
@@ -628,6 +710,12 @@ pub async fn execute_restore(
             // Fixed text for a connection failure: its cause, which names
             // the database host and user, is in the log.
             let message = format!("Database restore failed: {e}");
+            if let backup_service::BackupError::NeedsSuperuser = e {
+                return Ok(errors::internal_with_code(
+                    message,
+                    "BACKUP_NEEDS_SUPERUSER",
+                ));
+            }
             return Err(if e.is_connection() {
                 ApiError::ServiceUnavailable(message)
             } else {
@@ -635,17 +723,6 @@ pub async fn execute_restore(
             });
         }
     };
-
-    // Files restore is best-effort: a missing or partial files payload
-    // shouldn't undo the database restore that just completed.
-    let files_restored =
-        match backup_service::restore_backup_files(&file_path, body.password.as_deref()) {
-            Ok(count) => count,
-            Err(e) => {
-                tracing::warn!(error = %e, "File restore had issues during admin restore");
-                0
-            }
-        };
 
     // Thumbnails aren't carried in the backup (skipped as cheap to
     // regenerate), so rebuild them from the restored avatar originals.

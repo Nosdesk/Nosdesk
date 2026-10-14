@@ -27,12 +27,23 @@ vi.mock('@/sync/stores/tickets', () => ({
 vi.mock('@/plugins/loader', () => ({ getSlotRegistrations: () => [] }))
 vi.mock('@/plugins/usePluginModal', () => ({ openPluginModal: () => {} }))
 vi.mock('@/components/UserSelectionModal.vue', () => ({ default: { template: '<div />' } }))
-vi.mock('@/components/ticketComponents/MergeTicketsDialog.vue', () => ({
-  default: {
-    props: ['open', 'selectedTickets'],
-    template: '<div data-merge-dialog :data-tickets="JSON.stringify(selectedTickets)" />',
-  },
-}))
+vi.mock('@/components/ticketComponents/MergeTicketsDialog.vue', async () => {
+  const { mergeDestination } = await import('@/utils/mergeDestination')
+  return {
+    default: {
+      props: ['open', 'selectedTickets', 'preferredDestinationId'],
+      // The destination the real dialog seeds: the preferred ticket when
+      // it is selected, else the oldest.
+      computed: {
+        destination(this: { selectedTickets: { id: number }[]; preferredDestinationId?: number | null }) {
+          return mergeDestination(this.selectedTickets, this.preferredDestinationId)?.id ?? null
+        },
+      },
+      template:
+        '<div data-merge-dialog :data-tickets="JSON.stringify(selectedTickets)" :data-destination="destination" />',
+    },
+  }
+})
 
 import TicketsBulkBar from '@/components/views/TicketsBulkBar.vue'
 
@@ -92,6 +103,27 @@ describe('TicketsBulkBar', () => {
       [10, 7],
       [11, 8],
     ])
+  })
+
+  it('merges into the oldest after a select-all, whatever the list order', async () => {
+    // Select-all adds in list order, so the selection is [11, 10] or
+    // [10, 11] depending on the sort. #7 (id 10) is the older.
+    for (const selectedIds of [
+      ['11', '10'],
+      ['10', '11'],
+    ]) {
+      wrapper = mountWithProviders(TicketsBulkBar, { selectedIds, preferredDestinationId: null })
+      await nextTick()
+      expect(wrapper.find('[data-merge-dialog]').attributes('data-destination'), selectedIds.join()).toBe('10')
+      wrapper.unmount()
+      wrapper = null
+    }
+  })
+
+  it('merges into the ticket ticked on last', async () => {
+    wrapper = mountWithProviders(TicketsBulkBar, { selectedIds: ['10', '11'], preferredDestinationId: 11 })
+    await nextTick()
+    expect(wrapper.find('[data-merge-dialog]').attributes('data-destination')).toBe('11')
   })
 
   it('opens status as a grouped listbox focused on the shared state, and picks with Enter', async () => {

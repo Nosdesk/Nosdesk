@@ -43,6 +43,7 @@ import { useBrandingStore } from "@/stores/branding";
 import { useTagsStore } from "@nosdesk/core/stores/tags";
 import type { Tag } from "@nosdesk/core/types/tag";
 import { useAuthStore } from "@/stores/auth";
+import { useWorkspaceCapabilities } from "@/composables/useWorkspaceCapabilities";
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
 import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@nosdesk/core/utils/dateUtils";
 import { useUsersDirectory } from "@/composables/useUsersDirectory";
@@ -59,6 +60,8 @@ const assigneeRef = ref<InstanceType<typeof UserPicker> | null>(null);
 // The button only renders when the signed-in account is eligible to
 // receive ticket assignments (admin / technician).
 const authStore = useAuthStore();
+// A requester in a workspace that shows requesters no assets has none here.
+const { assetsVisible } = useWorkspaceCapabilities();
 const canSelfAssign = computed(() => authStore.isTechnician);
 const isAssignedToMe = computed(
   () => !!authStore.user && selectedAssignee.value === authStore.user.uuid,
@@ -1326,6 +1329,7 @@ watchEffect(async () => {
                cohesive property list. Modals for picking new
                attachments live in the parent. -->
           <TicketDevicesField
+            v-if="assetsVisible"
             :devices="devices ?? []"
             :readonly="readonly"
             @add="emit('add-device')"
@@ -1333,7 +1337,7 @@ watchEffect(async () => {
           />
 
           <TicketAssetUsage
-            v-if="ticket.id && !readonly"
+            v-if="ticket.id && !readonly && assetsVisible"
             :ticket-id="ticket.id"
             :assets="devices ?? []"
             @asset-updated="(id) => emit('asset-usage-recorded', id)"

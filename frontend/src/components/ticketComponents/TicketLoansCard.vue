@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
+import { queryLoadError } from '@/composables/queryLoadError';
 import Button from '@/components/common/Button.vue';
 import TicketLoanRow from './TicketLoanRow.vue';
 import IssueLoanerModal from './IssueLoanerModal.vue';
@@ -35,7 +36,7 @@ const loansQuery = useQuery({
 const loans = computed<AssetLoan[]>(() =>
   Array.isArray(loansQuery.data.value) ? loansQuery.data.value : [],
 );
-const loadError = computed(() => (loansQuery.error.value ? t('asset-loan-load-error') : ''));
+const loadError = queryLoadError(loansQuery, () => t('asset-loan-load-error'));
 const activeLoans = computed(() => loans.value.filter((l) => !l.returned_at));
 const pastLoans = computed(() => loans.value.filter((l) => l.returned_at));
 

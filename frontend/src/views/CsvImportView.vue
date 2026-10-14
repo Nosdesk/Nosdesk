@@ -57,6 +57,17 @@ const errorMessage = ref('')
 const job = ref<ImportJob | null>(null)
 const summary = computed(() => job.value?.summary ?? null)
 
+// Every row is created, updated, or skipped for errors. Counted from the
+// totals because the error list stops at 100 and a row can carry several.
+const rowsWithErrors = computed(() => {
+  const s = summary.value
+  return s ? s.row_count - s.would_create - s.would_update : 0
+})
+const rowsSkipped = computed(() => {
+  const s = summary.value
+  return s ? Math.max(s.row_count - (job.value?.records_committed ?? 0), 0) : 0
+})
+
 function pickFile(event: Event) {
   const input = event.target as HTMLInputElement
   if (!input.files || input.files.length === 0) return
@@ -365,7 +376,7 @@ const viewImportedLabelKey = computed(() => {
         <Callout v-if="summary.errors.length > 0" severity="error">
           <template #header>
             <span class="font-medium text-primary">
-              {{ $t('csv-import-errors-heading', { count: summary.errors.length }) }}
+              {{ $t('csv-import-errors-heading', { count: rowsWithErrors }) }}
             </span>
             <span v-if="summary.errors_truncated" class="text-tertiary ml-1">
               ({{ $t('csv-import-errors-truncated') }})
@@ -417,6 +428,9 @@ const viewImportedLabelKey = computed(() => {
             <h2 class="text-lg font-semibold text-status-success">{{ $t('csv-import-done-heading') }}</h2>
             <p class="text-sm text-secondary mt-1">
               {{ $t('csv-import-done-body', { count: job.records_committed ?? 0 }) }}
+              <template v-if="rowsSkipped > 0">
+                {{ $t('csv-import-done-skipped', { count: rowsSkipped }) }}
+              </template>
             </p>
           </div>
         </div>

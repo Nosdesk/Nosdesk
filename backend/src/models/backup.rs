@@ -103,11 +103,17 @@ pub struct BackupManifest {
     /// `CARGO_PKG_VERSION` of the binary that wrote the backup.
     /// Operator-readable, not gate-load-bearing.
     pub nosdesk_version: String,
-    /// The migrations-derived hash computed at build time via
-    /// `env!("NOSDESK_SCHEMA_HASH")`. Restore refuses by default
-    /// when this doesn't match the running server; the CLI's
-    /// `--ignore-schema-mismatch` is the explicit override.
+    /// `build.rs`'s fingerprint of the migrations (`NOSDESK_SCHEMA_HASH`).
+    /// The only schema marker 1.0.x wrote; restore reads it for those
+    /// backups alone, since its hasher can change with the toolchain.
     pub schema_hash: String,
+    /// The last migration applied when the backup was taken. With
+    /// `schema_sha256`, how restore tells which schema the rows are in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migration_version: Option<String>,
+    /// SHA-256 of every migration up to `migration_version` (`build.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_sha256: Option<String>,
     pub created_at: String,
     pub tables: std::collections::HashMap<String, TableManifest>,
     pub files: FilesManifest,
@@ -139,5 +145,21 @@ pub struct RestorePreview {
     /// require the password to be passed in to decrypt the
     /// manifest first.
     pub encrypted: bool,
+    /// Set when an earlier Nosdesk made the backup: restoring upgrades it.
+    pub upgrade: Option<RestoreUpgrade>,
     pub warnings: Vec<String>,
+}
+
+/// The versions a restore upgrades a backup between.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RestoreUpgrade {
+    /// The Nosdesk version that made the backup.
+    pub from_version: String,
+    /// This server's version.
+    pub to_version: String,
+    /// Live tables the backup predates that hold rows now. The restore
+    /// replaces them with what the upgrade produces, which for settings
+    /// means their defaults. Filled where the preview can reach the
+    /// database.
+    pub replaced_tables: Vec<String>,
 }

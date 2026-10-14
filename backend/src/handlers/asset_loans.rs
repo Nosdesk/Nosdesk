@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
+use crate::models::AssetLoan;
 use crate::repository::{
     asset_loans::{self as repo, IssueLoan, LoanError},
     assets as assets_repo,
@@ -62,17 +63,41 @@ fn map_loan_err(asset_id: i32, e: LoanError) -> HttpResponse {
     }
 }
 
+/// Loans as anyone but staff may see them: who has the asset and when,
+/// without the ticket, the notes or the staff who issued and took it back.
+pub(crate) fn strip_staff_loan_fields<'a>(
+    loans: impl IntoIterator<Item = &'a mut AssetLoan>,
+    auth: &AuthContext,
+) {
+    if auth.can_handle_tickets() {
+        return;
+    }
+    for loan in loans {
+        loan.ticket_id = None;
+        loan.notes = None;
+        loan.actor_uuid = None;
+        loan.returned_by_uuid = None;
+    }
+}
+
+/// An asset's loan ledger. Staff get every row whole. Anyone else gets who has
+/// it and when, without the ticket, the notes or the staff who issued and
+/// took it back: those belong to tickets the caller may not be able to see.
 pub async fn list_for_asset(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
     match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::list_for_asset(conn, asset_id)
     }) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(mut rows) => {
+            strip_staff_loan_fields(&mut rows, &auth);
+            HttpResponse::Ok().json(rows)
+        }
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))
         }
@@ -84,11 +109,22 @@ pub async fn list_for_asset(
 }
 
 /// Loans issued against a ticket. Visibility-gated by `TicketAccess`, so a
-/// caller who can't read the ticket can't read its loans.
+/// caller who can't read the ticket can't read its loans; a requester shown
+/// no assets gets none, and anyone but staff gets them as the asset's ledger
+/// shows them.
 pub async fn list_for_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
     let ticket_id = access.ticket_id;
-    match tc.run(|conn| repo::list_for_ticket(conn, ticket_id)) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+    let auth = access.auth;
+    match tc.run(|conn| {
+        if crate::handlers::assets::assets_hidden_from(conn, &auth) {
+            return Ok(Vec::new());
+        }
+        repo::list_for_ticket(conn, ticket_id)
+    }) {
+        Ok(mut rows) => {
+            strip_staff_loan_fields(&mut rows, &auth);
+            HttpResponse::Ok().json(rows)
+        }
         Err(e) => {
             error!(ticket_id, error = ?e, "failed to list ticket loans");
             errors::internal("Failed to load ticket loans")

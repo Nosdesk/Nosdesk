@@ -14,15 +14,18 @@ engine (`sync_actions` table). Single source of truth for:
 - Field shapes — for a future codegen pass that emits Rust types and
   TypeScript types from these manifests.
 
-Today the manifests are validated by `tests/sync_model_registry.rs`,
+Today the manifests are validated by `tests/it/sync_model_registry.rs`,
 which asserts:
 
 1. Every `SyncAggregate` enum variant has a matching `.json` manifest.
 2. The `name` field in each manifest matches the enum's `as_str()`.
 3. The `schema_version` matches `sync::registry::schema_version_for`.
 4. The `audience` matches `sync::audience::audience`.
-5. Every `event_type` referenced by `repository::*` exists in some
-   manifest.
+5. Every listed `event_type` appears in non-test code, and every literal
+   `event_type` written through `SyncEmit` or an emit helper is listed in
+   its aggregate's manifest.
+6. The asset payload (live, bootstrap and the app's lazy fetch) has
+   exactly the fields in `asset.json`.
 
 A future commit will add a `build.rs` that generates Rust struct
 definitions from these manifests (replacing the hand-written

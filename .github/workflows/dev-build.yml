@@ -19,7 +19,6 @@ name: Dev deploy
 # input chooses what to BUILD and can be any branch.
 #
 # Secrets:
-#   NOSDESK_ROOT_PUBKEY — as Release.
 #   FLY_API_TOKEN       — an APP-SCOPED deploy token, minted with
 #                         `fly tokens create deploy -a nosdesk-dev`. Deliberately
 #                         not an account token: this repo should not hold
@@ -101,14 +100,18 @@ jobs:
           target: runtime
           # amd64: Fly runs x86_64, and building it here natively avoids the
           # QEMU emulation an arm64 laptop would need.
+          # NOSDESK_TRUST_STAGING_LICENSES=1: nosdesk-dev is linked to the
+          # staging control plane, which signs licences with the staging key.
+          # release.yml leaves it unset, so release images trust only the
+          # production key.
           platforms: linux/amd64
           push: true
           tags: registry.fly.io/nosdesk-dev:dev-${{ steps.vars.outputs.sha }}
           build-args: |
-            NOSDESK_ROOT_PUBKEY=${{ secrets.NOSDESK_ROOT_PUBKEY }}
             NOSDESK_VERSION=dev-${{ steps.vars.outputs.sha }}
             VITE_BUILD_SHA=${{ steps.vars.outputs.sha }}
             CARGO_PROFILE=fast
+            NOSDESK_TRUST_STAGING_LICENSES=1
           provenance: false
           cache-from: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-dev
           cache-to: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-dev,mode=max

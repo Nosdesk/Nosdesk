@@ -5,8 +5,8 @@ on backend startup. Each zip must contain a valid
 `nosdesk-signature.json` envelope and the signer pubkey must resolve
 against one of the trust roots the instance recognises:
 
-- the baked-in Nosdesk root pubkey (set at build time via
-  `NOSDESK_ROOT_PUBKEY`)
+- the Nosdesk root public key, compiled in from
+  `backend/src/services/plugins/signing.rs`
 - a non-revoked entry in `plugin_trusted_publishers`
 - the instance's `plugin_local_signing_key` (auto-generated on first
   boot, fingerprint shown in startup logs)

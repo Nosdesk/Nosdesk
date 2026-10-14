@@ -1320,6 +1320,7 @@ pub async fn sync_data(
                                         if let Err(e) = background_photo_sync_task(
                                             db_pool_bg,
                                             provider_id,
+                                            sync_workspace_id,
                                             session_id_bg,
                                             access_token,
                                         )
@@ -1407,7 +1408,7 @@ fn check_microsoft_config() -> Result<(), String> {
 ///
 /// Returns early with `Ok(())` when Microsoft credentials are not
 /// configured so the job doesn't spam errors on installs that aren't
-/// using Intune integration.
+/// using the Microsoft integration.
 pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<()> {
     if check_microsoft_config().is_err() {
         // Not configured — treat as a clean no-op so the scheduler
@@ -1578,15 +1579,14 @@ async fn test_graph_connection(_provider_id: i32) -> Result<serde_json::Value, S
                 2. Navigate to 'Azure Active Directory' → 'App registrations'\n\
                 3. Select your application\n\
                 4. Click 'API permissions' → 'Add a permission' → 'Microsoft Graph' → 'Application permissions'\n\
-                5. Add: Organization.Read.All, User.Read.All, Asset.Read.All, Group.Read.All\n\
+                5. Add: Organization.Read.All, User.Read.All, Device.Read.All, Group.Read.All\n\
                 6. Click 'Grant admin consent for [Your Tenant]' (requires Global Admin)\n\
                 7. Wait 5-10 minutes for permissions to propagate\n\n\
                 Common required permissions for full functionality:\n\
                 • Organization.Read.All - Read tenant information\n\
                 • User.Read.All - Read user profiles\n\
-                • Asset.Read.All - Read device information\n\
-                • Group.Read.All - Read group information\n\
-                • DeviceManagementManagedDevices.Read.All - Read Intune devices\n\n\
+                • Device.Read.All - Read Entra ID devices\n\
+                • Group.Read.All - Read group information\n\n\
                 Error Code: {error_code}"
             ));
         }
@@ -2812,9 +2812,7 @@ async fn update_existing_microsoft_user_optimized(
             &user.uuid,
             photo_urls.avatar_url,
             photo_urls.avatar_thumb,
-        )
-        .await
-        {
+        ) {
             warn!(user_name = %user.name, error = %e, "Failed to update avatar for user");
         }
     }
@@ -2937,9 +2935,7 @@ async fn link_existing_user_to_microsoft_optimized(
             &existing_user.uuid,
             photo_urls.avatar_url,
             photo_urls.avatar_thumb,
-        )
-        .await
-        {
+        ) {
             warn!(
                 "Failed to update avatar for user {}: {}",
                 existing_user.name, e
@@ -3068,9 +3064,7 @@ async fn create_new_user_from_microsoft_optimized(
             &created_user.uuid,
             photo_urls.avatar_url,
             photo_urls.avatar_thumb,
-        )
-        .await
-        {
+        ) {
             warn!(user_name = %name, error = %e, "Failed to update avatar for user");
         }
     }
@@ -3084,7 +3078,7 @@ async fn create_new_user_from_microsoft_optimized(
     Ok(())
 }
 
-/// Sync devices from Microsoft Graph (Intune managed devices)
+/// Sync devices from Microsoft Graph (Entra ID `/devices`; no Intune pass yet)
 #[instrument(level = "info", skip(conn), fields(provider_id = provider_id, session_id = session_id, use_delta = use_delta))]
 async fn sync_devices(
     conn: &mut DbConnection,
@@ -4596,7 +4590,7 @@ async fn save_profile_photo_to_disk(
 }
 
 /// Update user avatar URLs in the database
-async fn update_user_avatar_by_id(
+fn update_user_avatar_by_id(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
     avatar_url: Option<String>,
@@ -4633,6 +4627,23 @@ async fn update_user_avatar_by_id(
     }
 
     Ok(())
+}
+
+/// Write a photo the background photo sync fetched. That task runs on its own
+/// pooled connection, which starts with no workspace, and `users` is audited,
+/// so the write is pinned to the workspace the sync runs for.
+fn store_background_photo(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: &Uuid,
+    avatar_url: Option<String>,
+    avatar_thumb: Option<String>,
+) -> Result<(), String> {
+    let actor = crate::sync::actor::ActorContext::system("background:msgraph_photo_sync")
+        .with_workspace(workspace_id);
+    crate::sync::session::with_actor_context_str(conn, &actor, |conn| {
+        update_user_avatar_by_id(conn, user_uuid, avatar_url, avatar_thumb)
+    })
 }
 
 /// Fallback function to get profile photo in default size if 120x120 is not available
@@ -5349,6 +5360,7 @@ async fn process_microsoft_user_no_photos(
 async fn background_photo_sync_task(
     db_pool: web::Data<Pool>,
     provider_id: i32,
+    workspace_id: i32,
     session_id: String,
     access_token: String,
 ) -> Result<(), String> {
@@ -5417,14 +5429,13 @@ async fn background_photo_sync_task(
 
         match sync_user_photo_by_id(&client, &access_token, &ms_user_id, &user_uuid_str).await {
             Ok(photo_urls) => {
-                if let Err(e) = update_user_avatar_by_id(
+                if let Err(e) = store_background_photo(
                     &mut conn,
+                    workspace_id,
                     &user_uuid,
                     photo_urls.avatar_url,
                     photo_urls.avatar_thumb,
-                )
-                .await
-                {
+                ) {
                     debug!("Failed to update user avatar: {}", e);
                 } else {
                     success_count += 1;
@@ -5739,4 +5750,57 @@ async fn sync_user_photo_by_id(
         avatar_url,
         avatar_thumb: None, // Thumbnail support can be added later
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use diesel::sql_types::{Integer, Text};
+
+    #[derive(QueryableByName)]
+    struct AuditWs {
+        #[diesel(sql_type = Integer)]
+        workspace_id: i32,
+    }
+
+    #[test]
+    fn a_background_photo_is_stored_and_audited_in_the_syncs_workspace() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "photo_sync_user", "user");
+        // The photo sync's own pooled connection: no workspace pinned.
+        diesel::sql_query("SELECT set_config('app.workspace_id', '', false)")
+            .execute(&mut conn)
+            .unwrap();
+
+        store_background_photo(
+            &mut conn,
+            1,
+            &user.uuid,
+            Some("/uploads/users/avatars/photo.png".to_string()),
+            None,
+        )
+        .expect("photo stored");
+
+        let stored: Option<String> = crate::schema::users::table
+            .find(user.uuid)
+            .select(crate::schema::users::avatar_url)
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some("/uploads/users/avatars/photo.png"));
+        diesel::sql_query("SET LOCAL ROLE nosdesk_admin")
+            .execute(&mut conn)
+            .unwrap();
+        let audited: Vec<AuditWs> = diesel::sql_query(
+            "SELECT workspace_id FROM audit_log \
+             WHERE table_name = 'users' AND op = 'U' AND pk_text = $1 AND actor_uuid IS NULL",
+        )
+        .bind::<Text, _>(user.uuid.to_string())
+        .load(&mut conn)
+        .unwrap();
+        assert_eq!(
+            audited.iter().map(|r| r.workspace_id).collect::<Vec<_>>(),
+            vec![1]
+        );
+    }
 }

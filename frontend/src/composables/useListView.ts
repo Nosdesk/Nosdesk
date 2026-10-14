@@ -126,6 +126,9 @@ export interface UseListViewOptions<T extends object, C extends DataTableColumnL
   // -- Columns ------------------------------------------------------
   columns: ComputedRef<readonly C[]>
   pinnedColumnIds?: readonly string[]
+  /** Column ids a stored layout keeps while the registry doesn't list
+   *  them yet (see `useDataTableColumns`' `retainUnknownIds`). */
+  retainUnknownColumnIds?: (id: string) => boolean
 
   // -- Saved-view shape extension (optional) ------------------------
   /** Snapshot fields beyond the base shape (BaseListViewShape).
@@ -194,6 +197,7 @@ export function useListView<
     completeDataset,
     columns,
     pinnedColumnIds,
+    retainUnknownColumnIds,
     captureExtras,
     applyExtras,
     saveAsSuccessKey,
@@ -285,6 +289,7 @@ export function useListView<
     storageNamespace: dataset,
     getViewId: () => 'default',
     pinnedIds: pinnedColumnIds,
+    retainUnknownIds: retainUnknownColumnIds,
   })
 
   // ---- Derived: buckets ----------------------------------------

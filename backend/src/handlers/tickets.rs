@@ -539,6 +539,11 @@ pub async fn preview_ticket_field(
     body: web::Json<TicketFieldPreviewBody>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    // A preview stands for an edit, so it follows the PATCH rule: a requester
+    // may rename their ticket and nothing else.
+    if !access.auth.can_handle_tickets() && body.field != PreviewableField::Title {
+        return errors::forbidden("Only the helpdesk team can change this");
+    }
     if body.value.len() > body.field.max_len() {
         return errors::bad_request("Preview value exceeds maximum length");
     }
@@ -576,11 +581,17 @@ pub async fn get_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Respon
     // TicketAccess proves the ticket is reachable; internal notes on it are a
     // separate question, so resolve the audience from the same caller.
     let audience = crate::repository::ticket_visibility::CommentAudience::from_auth(&auth);
-    let complete_ticket =
-        match tc.run(|conn| repository::get_complete_ticket(conn, ticket_id, audience)) {
-            Ok(ticket) => ticket,
-            Err(_) => return errors::not_found_msg("Ticket not found"),
-        };
+    let complete_ticket = match tc.run(|conn| {
+        let mut ticket = repository::get_complete_ticket(conn, ticket_id, audience)?;
+        if crate::handlers::assets::assets_hidden_from(conn, &auth) {
+            ticket.devices.clear();
+        }
+        crate::handlers::assets::strip_staff_asset_fields(&mut ticket.devices, &auth);
+        Ok(ticket)
+    }) {
+        Ok(ticket) => ticket,
+        Err(_) => return errors::not_found_msg("Ticket not found"),
+    };
 
     // Record the view, best-effort (don't fail the request if it
     // errors). Runs under TenantConn so user_ticket_views' workspace
@@ -1141,11 +1152,16 @@ pub async fn update_ticket_partial(
     // Answer with the complete ticket as it now stands.
     let updated_ticket = tc
         .run(|conn| {
-            repository::get_complete_ticket(
+            let mut ticket = repository::get_complete_ticket(
                 conn,
                 ticket_id,
                 crate::repository::ticket_visibility::CommentAudience::from_auth(&auth),
-            )
+            )?;
+            if crate::handlers::assets::assets_hidden_from(conn, &auth) {
+                ticket.devices.clear();
+            }
+            crate::handlers::assets::strip_staff_asset_fields(&mut ticket.devices, &auth);
+            Ok(ticket)
         })
         .map_err(|_| ApiError::Internal("Failed to fetch updated ticket".into()))?;
     Ok(HttpResponse::Ok().json(updated_ticket))
@@ -1327,6 +1343,7 @@ pub async fn record_ticket_view(mut tc: TenantConn, access: TicketAccess) -> imp
 }
 
 // Remove a ticket from the user's recent views
+// ticket-access: deletes only the caller's own recent-view row
 pub async fn remove_recent_ticket(
     mut tc: TenantConn,
     path: web::Path<i32>,

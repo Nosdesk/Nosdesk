@@ -342,7 +342,28 @@ workspace state.
 
 ---
 
-## 8. Where to look for things
+## 8. Releases
+
+A release is an annotated `v*` tag; `.github/workflows/release.yml` builds
+and publishes the image. Two rules keep every release's backups restorable
+on later versions (`backend/src/services/backup_upgrade.rs`):
+
+- **Pin the schema point when you tag.** If the release ships a migration
+  that no earlier release had, add it to `RELEASED_SCHEMA_POINTS`: the
+  release, its last migration's version and that migration prefix's
+  SHA-256 (`MIGRATION_PREFIXES` in the build's `OUT_DIR/migration_schema.rs`).
+  1.1.0 is the first entry.
+- **A migration in a patch release sorts after everything already shipped
+  and before every migration on main that hasn't shipped yet.** Otherwise
+  the patch release's prefix differs from main's at the same version, and
+  main can't place its backups. Never edit a shipped migration, and never
+  add one that sorts before a shipped point;
+  `shipped_schema_points_pin_their_migration_prefixes` fails CI when either
+  happens.
+
+---
+
+## 9. Where to look for things
 
 | Concern | File |
 |---|---|

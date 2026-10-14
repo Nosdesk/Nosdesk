@@ -30,9 +30,16 @@ const props = defineProps<{
   pageStatus?: string
   showPermissions?: boolean
   isSubscribed?: boolean
+  /** Star and Copy link as the first rows. On a phone the page has no
+   *  toolbar for them, so the menu carries them. */
+  showQuickActions?: boolean
+  isStarred?: boolean
 }>()
 
 const emit = defineEmits<{
+  (e: 'star'): void
+  (e: 'unstar'): void
+  (e: 'copy-link'): void
   (e: 'delete'): void
   (e: 'duplicate'): void
   (e: 'archive'): void
@@ -87,11 +94,23 @@ function closeMenu() {
  */
 const menuItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = [
+    ...(props.showQuickActions
+      ? [
+          {
+            id: 'star',
+            label: props.isStarred ? t('doc-detail-unstar') : t('doc-detail-star'),
+            icon: ICON_REGISTRY.star.d,
+            active: props.isStarred,
+          },
+          { id: 'copy-link', label: t('doc-detail-copy-link'), icon: ICON_REGISTRY.link.d },
+        ]
+      : []),
     {
       id: 'subscription',
       label: props.isSubscribed ? t('docs-actions-menu-unsubscribe') : t('docs-actions-menu-subscribe'),
       icon: ICON_REGISTRY.bell.d,
       active: props.isSubscribed,
+      divider: props.showQuickActions,
     },
     { id: 'insights', label: t('docs-actions-menu-insights'), icon: ICON_REGISTRY.insights.d, divider: true },
     { id: 'history', label: t('docs-actions-menu-history'), icon: ICON_REGISTRY.history.d },
@@ -135,6 +154,13 @@ const menuItems = computed<MenuItem[]>(() => {
  */
 function handleSelect(id: string) {
   switch (id) {
+    case 'star':
+      if (props.isStarred) emit('unstar')
+      else emit('star')
+      break
+    case 'copy-link':
+      emit('copy-link')
+      break
     case 'subscription':
       if (props.isSubscribed) emit('unsubscribe')
       else emit('subscribe')
@@ -197,7 +223,7 @@ function handleSelect(id: string) {
       type="button"
       ref="triggerRef"
       @click="toggle"
-      class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
+      class="touch-target flex items-center justify-center p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
       :class="{ 'bg-surface-hover text-primary': isOpen }"
       :title="$t('docs-actions-menu-trigger')"
       :aria-label="$t('docs-actions-menu-trigger')"

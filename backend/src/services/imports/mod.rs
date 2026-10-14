@@ -15,7 +15,9 @@ pub mod tickets;
 pub mod types;
 pub mod users;
 
-pub use types::{ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer, RowError};
+pub use types::{
+    CommitError, ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer, RowError,
+};
 
 use diesel::result::Error as DieselError;
 
@@ -49,6 +51,6 @@ pub fn commit(
     conn: &mut DbConnection,
     t: ImportType,
     parsed: &csv_parser::ParsedCsv,
-) -> Result<ImportedRecords, DieselError> {
+) -> Result<ImportedRecords, CommitError> {
     importer_for(t).commit(conn, parsed)
 }

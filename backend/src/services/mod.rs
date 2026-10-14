@@ -3,6 +3,7 @@ pub mod assets;
 pub mod assignment;
 pub mod avatar_thumbnails;
 pub mod backup;
+pub mod backup_upgrade;
 pub mod channels;
 pub mod collab_ownership;
 pub mod connection_registry;

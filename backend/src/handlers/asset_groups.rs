@@ -27,10 +27,15 @@ pub struct ListGroupsQuery {
 pub async fn list_groups(
     mut tc: TenantConn,
     query: web::Query<ListGroupsQuery>,
-    _auth: AuthContext,
+    auth: AuthContext,
 ) -> impl Responder {
     let include_archived = query.include_archived;
-    match tc.run(|conn| repo::list_groups(conn, include_archived)) {
+    match tc.run(|conn| {
+        if crate::handlers::assets::assets_hidden_from(conn, &auth) {
+            return Ok(Vec::new());
+        }
+        repo::list_groups(conn, include_archived)
+    }) {
         Ok(groups) => HttpResponse::Ok().json(groups),
         Err(e) => {
             error!(error = %e, "list asset groups failed");

@@ -33,9 +33,16 @@ pub struct CapabilityFlags {
     pub approvals_enabled: bool,
     /// Requests waiting for approval are held out of the working queues.
     pub approvals_held: bool,
+    /// The viewer sees the workspace's assets: staff always, a requester
+    /// unless the workspace shows requesters none. A client that sees this
+    /// change re-reads its snapshot, which drops or brings back the assets.
+    pub assets_visible: bool,
 }
 
-pub fn capability_flags(conn: &mut crate::db::DbConnection) -> CapabilityFlags {
+pub fn capability_flags(
+    conn: &mut crate::db::DbConnection,
+    viewer: &crate::sync::visibility::SyncViewer,
+) -> CapabilityFlags {
     use diesel::dsl::count_star;
     use diesel::prelude::*;
     // A count (rather than "any non-archived") is fine for v1: a workspace
@@ -56,10 +63,15 @@ pub fn capability_flags(conn: &mut crate::db::DbConnection) -> CapabilityFlags {
             .first::<String>(conn)
             .map(|d| d == "held")
             .unwrap_or(false);
+    // A failed read shows a requester no assets.
+    let assets_visible = viewer.sees_all()
+        || crate::repository::assets::requester_asset_visibility(conn)
+            .is_ok_and(|v| v == crate::models::RequesterAssetVisibility::All);
     CapabilityFlags {
         sla_enabled: n > 0,
         approvals_enabled,
         approvals_held,
+        assets_visible,
     }
 }
 

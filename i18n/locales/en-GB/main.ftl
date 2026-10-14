@@ -770,7 +770,7 @@ admin-nav-webhooks-description = Configure webhooks to send events to external s
 admin-nav-plugins-title = Plugins
 admin-nav-plugins-description = Manage installed plugins and integrations
 admin-nav-data-import-title = Data Import
-admin-nav-data-import-description = Import data from Intune, CSV files, and other sources
+admin-nav-data-import-description = Import data from Microsoft Entra ID, CSV files, and other sources
 admin-nav-audit-log-title = Audit Log
 admin-nav-audit-log-description = Forensic record of who changed what, drawn from per-table triggers
 admin-nav-branding-title = Branding
@@ -982,7 +982,7 @@ admin-data-import-status-available = Available
 admin-data-import-status-coming-soon = Coming Soon
 admin-data-import-status-beta = Beta
 admin-data-import-microsoft-title = Microsoft Graph
-admin-data-import-microsoft-description = Import data from Microsoft 365, including Azure AD, Intune, and other Microsoft services
+admin-data-import-microsoft-description = Import users, groups and devices from Microsoft Entra ID
 admin-data-import-csv-title = CSV Import
 admin-data-import-csv-description = Import data from CSV files, including assets, users, and other resources
 admin-data-import-api-title = API Integrations
@@ -1518,7 +1518,7 @@ admin-msgraph-modal-description = Select the data entities you want to import fr
 admin-msgraph-entity-users-name = Users
 admin-msgraph-entity-users-description = Import user accounts and profiles from Microsoft Entra ID
 admin-msgraph-entity-devices-name = Devices
-admin-msgraph-entity-devices-description = Import managed devices from Microsoft Intune with user assignments
+admin-msgraph-entity-devices-description = Import devices registered in Microsoft Entra ID
 admin-msgraph-entity-groups-name = Groups
 admin-msgraph-entity-groups-description = Import security and distribution groups from Microsoft Entra ID
 admin-msgraph-modal-info = Synchronisation will import the latest data from Microsoft services. This may take several minutes depending on the amount of data.
@@ -1730,6 +1730,10 @@ admin-webhooks-event-documentation-updated = Documentation updated
 admin-webhooks-event-user-created = User created
 admin-webhooks-event-user-updated = User updated
 admin-webhooks-event-user-deleted = User deleted
+admin-webhooks-event-ticket-sla-breached = Ticket SLA breached
+admin-webhooks-event-asset-created = Asset created
+admin-webhooks-event-asset-deleted = Asset deleted
+admin-webhooks-event-documentation-created = Documentation created
 
 # Users list (UsersListView): people directory with role filter,
 # bulk role change, and bulk delete.
@@ -2408,7 +2412,6 @@ collection-page-count = { $count ->
    }
 collection-delete-title = Delete { $name }?
 collection-delete-title-fallback = Delete collection?
-collection-delete-message = Pages in this collection will not be deleted.
 collection-delete-confirm = Delete
 
 # CSV import (CsvImportView): admin page for importing users,
@@ -3108,7 +3111,6 @@ docs-collection-browser-new = New
 docs-collection-browser-name-placeholder = Collection name...
 docs-collection-browser-cancel = Cancel
 docs-collection-browser-create = Create
-docs-collection-browser-loading-label = Loading collections
 docs-collection-browser-pages = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -3136,7 +3138,7 @@ docs-collection-tree-list-empty = No pages in this collection yet.
 
 # Docs: collection visibility modal (CollectionVisibilityModal)
 docs-collection-visibility-title = Collection Access
-docs-collection-visibility-description = Select which groups and users can access this collection. Empty selection means the collection is public (visible to everyone).
+docs-collection-visibility-description = Choose who can open this collection.
 docs-collection-visibility-public = Public, visible to all users
 docs-collection-visibility-picker-placeholder = Search users and groups...
 docs-collection-visibility-cancel = Cancel
@@ -3299,9 +3301,6 @@ docs-collection-appearance-open-aria = Change collection icon and colour
 docs-edit-collection-description = Short description
 docs-edit-collection-description-placeholder = Optional tagline shown above the collection's overview
 docs-edit-collection-description-help = The full overview is edited in-place on the collection landing page.
-docs-edit-collection-hide-titles-aria = Hide page titles from non-members
-docs-edit-collection-hide-titles-label = Hide page titles from non-members
-docs-edit-collection-hide-titles-help = Cross-collection wikilinks render as "Restricted page" for viewers without access, instead of leaking the title. Recommended for sensitive collections.
 docs-edit-collection-name-required = Name is required.
 docs-edit-collection-save-error = Failed to save. Try again.
 docs-edit-collection-cancel = Cancel
@@ -3761,7 +3760,7 @@ admin-groups-config-no-users-found = No users found
 admin-groups-config-no-devices-found = No assets found
 admin-groups-config-no-groups-found = No groups found
 admin-groups-config-synced-badge = Synced
-admin-groups-config-synced-intune-tooltip = Synced from Microsoft Intune
+admin-groups-config-synced-intune-tooltip = Synced from Microsoft Entra ID
 admin-groups-config-selected-count = { $count } selected
 admin-groups-config-member-count = { $count ->
     [one] { $count } member
@@ -4864,13 +4863,12 @@ user-settings-account-setup-pending = Pending
 user-settings-invitation-pending = Invitation pending
 user-settings-resend-invitation-title = Resend invitation email
 user-settings-danger-zone-title = Danger zone
-user-settings-danger-zone-subtitle = Irreversible and destructive actions
+user-settings-danger-zone-subtitle = Actions that remove access or data
 user-settings-delete-modal-title = Confirm account deletion
 user-settings-delete-item-profile = Profile information and settings
 user-settings-delete-item-tickets = All tickets created or assigned to this user
 user-settings-delete-item-comments = Comments and activity history
 user-settings-delete-item-access = Access to all systems and resources
-user-settings-password-placeholder = Enter your password
 admin-plugins-list-title = Plugins
 admin-plugins-list-aria-filter = Filter plugins
 admin-plugins-list-search-placeholder = Search plugins

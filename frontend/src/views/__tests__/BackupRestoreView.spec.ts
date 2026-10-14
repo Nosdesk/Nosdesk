@@ -102,3 +102,59 @@ describe('BackupRestoreView restoring a backup without sensitive data', () => {
     expect(service.executeRestore).toHaveBeenCalledWith('job-1', { password: undefined })
   })
 })
+
+describe('BackupRestoreView restoring a backup from an earlier version', () => {
+  it('says the backup is upgraded as it restores, and which tables it replaces', async () => {
+    service.getRestorePreview.mockResolvedValue({
+      encrypted: true,
+      password_required: false,
+      manifest: { ...manifest, nosdesk_version: '1.0.12' },
+      upgrade: {
+        from_version: '1.0.12',
+        to_version: '1.1.0',
+        replaced_tables: ['workspace_widget_settings', 'ticket_ratings'],
+      },
+      warnings: [],
+    })
+    const w = await upload()
+
+    const notice = w.find('[data-test="restore-upgrade"]')
+    expect(notice.exists()).toBe(true)
+    expect(notice.text()).toContain('admin-backup-restore-upgrade')
+    const replaced = w.find('[data-test="restore-replaced-tables"]')
+    expect(replaced.text()).toContain('workspace_widget_settings, ticket_ratings')
+    expect(restoreButton(w).exists()).toBe(true)
+  })
+
+  it('refuses a backup this server cannot restore, at the preview', async () => {
+    service.getRestorePreview.mockRejectedValue({
+      response: { status: 400, data: { error: 'Can\'t restore', code: 'BACKUP_SCHEMA_UNKNOWN' } },
+    })
+    const w = await upload()
+
+    const refusal = w.find('[data-test="restore-refused"]')
+    expect(refusal.exists()).toBe(true)
+    expect(refusal.text()).toContain('admin-backup-restore-schema-unknown')
+    expect(restoreButton(w).exists()).toBe(false)
+  })
+
+  it.each([
+    ['BACKUP_NEEDS_SUPERUSER', 500, 'admin-backup-restore-needs-superuser'],
+    ['BACKUP_RESTORE_IN_PROGRESS', 409, 'admin-backup-restore-in-progress'],
+  ])('says why the restore was refused (%s)', async (code, status, key) => {
+    service.getRestorePreview.mockResolvedValue({
+      encrypted: true,
+      password_required: false,
+      manifest,
+      upgrade: { from_version: '1.0.12', to_version: '1.1.0', replaced_tables: [] },
+      warnings: [],
+    })
+    service.executeRestore.mockRejectedValue({ response: { status, data: { error: 'x', code } } })
+    const w = await upload()
+    expect(w.find('[data-test="restore-replaced-tables"]').exists()).toBe(false)
+    await restoreButton(w).trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-test="restore-refused"]').text()).toContain(key)
+  })
+})

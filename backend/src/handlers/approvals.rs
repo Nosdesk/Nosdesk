@@ -286,6 +286,7 @@ pub async fn get_ticket_approval(
 }
 
 /// `POST /api/tickets/{id}/approval/decide`: a staff approver decides in the app.
+// ticket-access: decide needs an undecided approver row for the caller
 pub async fn decide_ticket_approval(
     mut tc: TenantConn,
     auth: AuthContext,

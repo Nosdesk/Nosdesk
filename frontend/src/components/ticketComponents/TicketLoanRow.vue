@@ -21,9 +21,11 @@ const asset = useReference<Asset>('asset', () => props.loan.asset_id);
 const deviceName = computed(
   () => asset.value?.name ?? t('asset-loan-device-fallback', { id: props.loan.asset_id }),
 );
-const borrowerName = computed(
-  () => getUserHandle(props.loan.borrower_user_uuid).user.value?.name ?? t('asset-loan-unknown-borrower'),
-);
+const borrowerName = computed(() => {
+  const uuid = props.loan.borrower_user_uuid;
+  if (!uuid) return t('asset-loan-deleted-borrower');
+  return getUserHandle(uuid).user.value?.name ?? t('asset-loan-unknown-borrower');
+});
 const isActive = computed(() => !props.loan.returned_at);
 
 const due = computed(() => loanDue(props.loan, t));

@@ -56,7 +56,7 @@ fn restore_realigns_sequences_so_new_inserts_dont_collide() {
         None,
         backup_service::RestoreOptions {
             force_non_empty: true,
-            ignore_schema_mismatch: false,
+            ..Default::default()
         },
     )
     .expect("restore succeeded");

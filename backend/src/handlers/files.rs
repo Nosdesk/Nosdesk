@@ -457,7 +457,13 @@ pub async fn upload_ticket_note_image(
     // cross-workspace ticket id 404s. The previous raw pooled connection left
     // the GUC cleared (RLS-zero under the NOBYPASSRLS app role) and skipped the
     // access check entirely, relying solely on RLS — which would leak under a
-    // misconfigured BYPASSRLS role.
+    // misconfigured BYPASSRLS role. Notes are staff-edit only, so their
+    // images are too.
+    if !auth.can_handle_tickets() {
+        return Err(crate::errors::forbidden_error(
+            "Only the helpdesk team can add images to ticket notes",
+        ));
+    }
     authorize_ticket_access(&mut tc, &auth, ticket_id)?;
 
     let mut uploaded_files = Vec::new();
@@ -555,6 +561,7 @@ pub async fn upload_ticket_note_image(
 
 /// Serve ticket note images
 /// Path format: tickets/{ticket_id}/notes/{filename}
+// ticket-access: authorize_ticket_file checks the note's ticket at its owning workspace
 pub async fn serve_ticket_note_image(
     path: web::Path<(i32, String)>,
     req: actix_web::HttpRequest,

@@ -69,9 +69,10 @@ COPY backend/Cargo.toml backend/Cargo.lock ./
 # build.rs hashes migrations → NOSDESK_SCHEMA_HASH (compile-time env for db/bootstrap/backup).
 COPY backend/build.rs ./build.rs
 COPY backend/src ./src
-# license.rs embeds the Enterprise license verification key via
-# include_str!("../license_pubkey.pem") — must exist at compile time.
-COPY backend/license_pubkey.pem ./license_pubkey.pem
+# license.rs embeds the licence verification keys via
+# include_str!("../license_keys/<name>.pem"), so they must exist at compile
+# time. The whole directory, so a new key can't be missed.
+COPY backend/license_keys ./license_keys
 COPY backend/migrations ./migrations
 # seed.rs uses include_str!("../../seeds/...") — must exist at compile time.
 COPY backend/seeds ./seeds
@@ -83,37 +84,22 @@ COPY backend/data ./data
 # workspace layout at /i18n inside the container.
 COPY i18n /i18n
 
-# Ed25519 root pubkey for the plugin registry trust chain. Baked
-# into the compiled binary via `option_env!("NOSDESK_ROOT_PUBKEY")`
-# in services/plugins/signing.rs. Published at
-# https://nosdesk.com/registry/root.pub for anyone reproducing an
-# official Nosdesk build. Forks that want their own trust root
-# override this at build time:
-#
-#     docker build --build-arg NOSDESK_ROOT_PUBKEY='<base64>' ...
-#
-# Empty default: a binary built without the arg has `root_pubkey()
-# == None`, official + verified installs fail closed, only the
-# CLI-installed `local` tier and filesystem-provisioned plugins
-# work. Correct for an unconfigured fork, useless for an official
-# release — CI must set the arg.
-ARG NOSDESK_ROOT_PUBKEY=""
-
 # Release version baked into the binary (e.g. 0.1.0-rc.5) for the admin
 # System Information card, read via option_env!("NOSDESK_VERSION"). Empty in
 # local/dev builds, where it falls back to the crate version. CI passes the
 # git tag's version. Its value is part of the RUN command below, so changing
 # it busts the build-cache layer (no stale version baked in).
 ARG NOSDESK_VERSION=""
+# "1" makes the binary also trust the staging licence key. Only the
+# nosdesk-dev image sets it; release images leave it empty and trust the
+# production key alone. Read via option_env! in license.rs.
+ARG NOSDESK_TRUST_STAGING_LICENSES=""
 
 # Build the server + the nosdesk-cli admin tool together; both
 # link against the same library crate and the extra binary is a
-# trivial addition to a build we're doing anyway. The pubkey is
-# passed inline rather than via `ENV` so it doesn't persist into
-# the layer's metadata; it IS a public value, but keeping build
-# secrets discipline tidy by convention.
-RUN NOSDESK_ROOT_PUBKEY="$NOSDESK_ROOT_PUBKEY" \
-    NOSDESK_VERSION="$NOSDESK_VERSION" \
+# trivial addition to a build we're doing anyway.
+RUN NOSDESK_VERSION="$NOSDESK_VERSION" \
+    NOSDESK_TRUST_STAGING_LICENSES="$NOSDESK_TRUST_STAGING_LICENSES" \
     sh -c 'if [ "$CARGO_PROFILE" = "release" ]; then \
       cargo build --release --bin backend --bin nosdesk-cli; \
     else \

@@ -272,7 +272,7 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   asset_lifecycle_event: 1,
   cycle: 1,
   documentation_page: 1,
-  documentation_collection: 1,
+  documentation_collection: 2,
 }
 
 /**
@@ -340,9 +340,8 @@ const COMPOSITE_KEY: Partial<
  * The pool key for a sync row. Junction aggregates derive it from
  * their fields (see COMPOSITE_KEY). Every other aggregate keys on its
  * own primary key carried in the payload — and for those, a payload
- * lacking both `id` and `uuid` is a *side event* (e.g. documentation
- * `visibility_changed`, knowledge_gap signals, the synthetic `data`
- * audit events): it references a row by aggregate_id without carrying
+ * lacking both `id` and `uuid` is a *side event* (e.g. knowledge_gap
+ * signals, the synthetic `data` audit events): it references a row by aggregate_id without carrying
  * the row, so it returns null and the caller skips the pool write
  * rather than minting a partial/phantom row. Used by both the
  * bootstrap snapshot loader and the live delta/SSE applier so the two
@@ -624,6 +623,9 @@ export async function pullDelta(): Promise<boolean> {
     // (useSyncActions) stay live even when SSE is wedged and this 10s
     // poll is the delivery path.
     notifySyncActions(body.actions)
+    // After the cursor is stored: bringing assets back re-reads the snapshot,
+    // which moves the cursor on itself.
+    await followAssetVisibility(body.capabilities?.assets_visible, 'delta')
     return body.has_more
   } catch (e) {
     logger.warn('sync delta network error', { error: e })
@@ -675,6 +677,86 @@ export async function reconcileWithSnapshot(
     }
   }
   if (pruned > 0) logger.info('sync bootstrap: pruned rows absent from the snapshot', { pruned })
+}
+
+/** Records about assets the pool holds for the viewer. */
+const ASSET_AGGREGATES: SyncAggregate[] = ['asset', 'ticket_asset']
+
+/** Set while followAssetVisibility re-reads the snapshot, so a poll that
+ * lands meanwhile doesn't start a second one. */
+let assetResync = false
+
+/** Where this browser remembers that it dropped the workspace's assets. */
+function assetsHiddenKey(): string | null {
+  if (!state.openArgs) return null
+  return `nosdesk:sync:assets-hidden:${state.openArgs.userUuid}:${state.openArgs.workspaceSlug ?? ''}`
+}
+
+function readAssetsHidden(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeAssetsHidden(key: string, hidden: boolean): void {
+  try {
+    if (hidden) localStorage.setItem(key, '1')
+    else localStorage.removeItem(key)
+  } catch {
+    // Storage blocked: a later bootstrap still brings the assets back.
+  }
+}
+
+/**
+ * Keep the pool in step with whether the viewer sees the workspace's assets
+ * (`assets_visible`; a workspace can show requesters none). Hidden: drop
+ * every asset and ticket link the pool holds, and remember having done so.
+ * Shown again after that: re-read the workspace snapshot, which brings them
+ * back (a delta never re-sends rows it sent before). The memory outlives a
+ * reload because a warm launch catches up with a delta. `source`: where the
+ * flag came from; a workspace snapshot carries the assets itself, and one for
+ * other groups leaves bringing them back to the next delta.
+ */
+export async function followAssetVisibility(
+  visible: boolean | undefined,
+  source: 'delta' | 'workspace-snapshot' | 'other-snapshot',
+): Promise<void> {
+  if (visible === undefined) return
+  const key = assetsHiddenKey()
+  if (!visible) {
+    let dropped = 0
+    for (const aggregate of ASSET_AGGREGATES) {
+      const ids = Array.from(pool.entries(aggregate), ([id]) => id)
+      for (const id of ids) {
+        pool.remove(aggregate, id)
+        if (state.handle) await idb.deleteModel(state.handle, aggregate, id)
+        dropped += 1
+      }
+    }
+    if (key) writeAssetsHidden(key, true)
+    if (dropped > 0) logger.info('sync: assets hidden from this viewer; dropped them', { dropped })
+    return
+  }
+  if (!key || !readAssetsHidden(key)) return
+  if (source === 'workspace-snapshot') {
+    writeAssetsHidden(key, false)
+    return
+  }
+  if (source === 'other-snapshot') return
+  if (assetResync || state.resyncing) return
+  const workspaceGroups = Array.from(pool.getSubscribedGroups()).filter((g) =>
+    g.startsWith('workspace:'),
+  )
+  if (workspaceGroups.length === 0) return
+  assetResync = true
+  try {
+    logger.info('sync: assets shown to this viewer again; re-reading the snapshot')
+    await runBootstrap(workspaceGroups)
+  } finally {
+    assetResync = false
+  }
 }
 
 /**
@@ -748,6 +830,10 @@ async function runBootstrap(groups: string[]): Promise<void> {
         // Surface workspace-level capability flags into the
         // shared composable so any UI component can read them.
         applyWorkspaceCapabilities(meta)
+        await followAssetVisibility(
+          meta.assets_visible,
+          groups.some((g) => g.startsWith('workspace:')) ? 'workspace-snapshot' : 'other-snapshot',
+        )
       } else if ('__model__' in line) {
         const { __model__: aggregate, ...payload } = line
         const id = rowKey(aggregate, payload as Record<string, unknown>)
@@ -813,6 +899,9 @@ function applyActions(actions: SyncAction[]): void {
       // own-pk aggregates whose delete payload is otherwise empty.
       const id = rowKey(action.aggregate, action.data) ?? action.aggregate_id
       if (id == null) continue
+      // Observers run after the row is gone; keep it on the action for them.
+      const prior = pool.get<Record<string, unknown>>(action.aggregate, id)
+      if (prior) action.prior = { ...prior }
       pool.remove(action.aggregate, id)
       if (state.handle) {
         void idb.deleteModel(state.handle, action.aggregate, String(id))
@@ -820,10 +909,10 @@ function applyActions(actions: SyncAction[]): void {
       continue
     }
     // `rowKey` returns null for side events (an own-pk aggregate whose
-    // payload carries no primary key — e.g. documentation
-    // visibility_changed). Skipping those avoids writing a partial row
-    // over the cached one; observers still receive them via
-    // notifySyncActions for consumers that care.
+    // payload carries no primary key, e.g. a knowledge_gap signal).
+    // Skipping those avoids writing a partial row over the cached one;
+    // observers still receive them via notifySyncActions for consumers
+    // that care.
     const id = rowKey(action.aggregate, action.data)
     if (id == null) continue
     // An update for a row this pool never received: its create was
@@ -972,7 +1061,7 @@ async function fetchMissingUsers(uuids: string[]): Promise<void> {
  *
  * Cache row shape must stay in lockstep with
  * `backend/sync-models/asset.json` and the SSE / bootstrap
- * payload produced by `repository::devices::asset_sync_payload`.
+ * payload produced by `repository::assets::asset_sync_payload`.
  * The full REST `Asset` DTO carries more fields (warranty,
  * Microsoft Graph IDs, etc.) that the sync pool deliberately
  * drops; `toAssetCacheRow` is the single projection point so
@@ -988,11 +1077,14 @@ function toAssetCacheRow(asset: import('@nosdesk/core/types/asset').Asset): Reco
     model: asset.model ?? null,
     asset_tag: asset.asset_tag ?? null,
     location: asset.location ?? null,
+    status: asset.status,
     primary_user_uuid: asset.primary_user_uuid ?? null,
+    managed_by_user_uuid: asset.managed_by_user_uuid ?? null,
     attributes: asset.attributes ?? {},
     quantity: asset.quantity ?? null,
     unit: asset.unit ?? null,
     external_sync_source: asset.external_sync_source ?? null,
+    low_stock_threshold: asset.low_stock_threshold ?? null,
   }
 }
 

@@ -26,6 +26,7 @@ import { useSnowfall } from '@/composables/useSnowfall'
 import { useFavicon } from '@/composables/useFavicon'
 import { useNotificationSSE } from '@/composables/useNotificationSSE'
 import { useTicketDeletionCleanup } from '@/composables/useTicketDeletionCleanup'
+import { useDocDeletionCleanup } from '@/composables/useDocDeletionCleanup'
 // Swipe-back TARGET list views to KeepAlive so native back / popstate restores
 // them (scroll + state) instead of re-mounting. Scoped on purpose — details are
 // never cached.
@@ -44,7 +45,7 @@ import { loadPlugins, initializeEventDispatcher, startPluginLifecycleSync } from
 import { useAuthStore } from '@/stores/auth'
 import { usePageActionsStore } from '@nosdesk/core/stores/pageActions'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
-import { activeWorkspaceSlug } from '@/services/activeWorkspace'
+import { activeWorkspaceSlug, activeWorkspaceSlugRef, workspaceReadyRef } from '@/services/activeWorkspace'
 import { getWorkspaceRouting, fetchInstanceConfig } from '@nosdesk/core/services/instanceConfig'
 
 const fluent = useFluent()
@@ -155,15 +156,20 @@ if (isTauriRuntime()) {
 // APNs/FCM token rotation, since a rotated token otherwise leaves the device
 // permanently silent with no way back.
 //
+// It also waits for the workspace: a device belongs to one workspace, and in
+// path mode the workspace travels as a header that isn't set until just after
+// sign-in, so registering on auth alone was refused and never retried. Watching
+// the slug re-registers on a switch, so push follows the active workspace.
+//
 // Idempotent server-side (the endpoint upserts), so re-calling costs one
 // request. Best-effort by design: a push-registration failure must never block
 // getting into the app.
 if (isTauriRuntime()) {
   onMounted(() => {
     watch(
-      () => authStore.isAuthenticated,
-      async (authed) => {
-        if (!authed) return
+      () => [authStore.isAuthenticated, workspaceReadyRef.value, activeWorkspaceSlugRef.value] as const,
+      async ([authed, ready]) => {
+        if (!authed || !ready) return
         try {
           const { registerForPush } = await import('@nosdesk/mobile')
           await registerForPush()
@@ -292,6 +298,9 @@ useNotificationSSE();
 // cache, comment draft, pending attachments) for any ticket the
 // server announces as deleted, see useTicketDeletionCleanup.
 useTicketDeletionCleanup();
+// Likewise for documentation pages and collections the reader loses,
+// see useDocDeletionCleanup.
+useDocDeletionCleanup();
 
 // Computed property to determine if on a documentation page
 const isDocumentationPage = computed(() => {

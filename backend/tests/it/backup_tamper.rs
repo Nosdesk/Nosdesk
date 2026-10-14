@@ -98,7 +98,7 @@ fn restore_rejects_tampered_row_payload() {
         None,
         backup_service::RestoreOptions {
             force_non_empty: true,
-            ignore_schema_mismatch: false,
+            ..Default::default()
         },
     );
 

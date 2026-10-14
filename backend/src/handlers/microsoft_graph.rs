@@ -106,7 +106,7 @@ fn get_permission_help_message(endpoint: &str) -> serde_json::Value {
             json!({
                 "required_permissions": ["Device.Read.All"],
                 "recommended_permissions": ["Device.ReadWrite.All"],
-                "description": "Read device information from Intune and Azure AD"
+                "description": "Read device records from Microsoft Entra ID"
             }),
         )
     } else if endpoint.contains("/groups") || endpoint.starts_with("/groups") {

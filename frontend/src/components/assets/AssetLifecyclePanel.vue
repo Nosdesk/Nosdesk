@@ -24,6 +24,7 @@ import { metaForAssetStatus } from '@/utils/assetStatusMeta';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import { numberForTicketId } from '@/composables/useTicketNumberLookup';
 import { ticketPath } from '@/utils/ticketNumbers';
+import { extractErrorMessage } from '@/utils/errors';
 import { ASSET_STATUSES, type AssetLifecycleEvent, type AssetStatus } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
@@ -118,12 +119,12 @@ const disposalNotes = ref('');
 // loan record and the status in step. So it's not offered as a target, and
 // while an asset is on loan its status is changed by returning the loan.
 const isOnLoan = computed(() => props.currentStatus === 'on_loan');
-// Disposed is a terminal state: still correctable, but the transition action is
-// demoted from the primary CTA to a subdued "correct" affordance.
+// Disposed is terminal: the server refuses any move out of it, so no
+// transition is offered.
 const isTerminal = computed(() => props.currentStatus === 'disposed');
 const statusOptions = computed(() =>
   ASSET_STATUSES.filter((s) => {
-    if (s === props.currentStatus) return false;
+    if (isTerminal.value || s === props.currentStatus) return false;
     // `on_loan` is loan-ledger owned; only offer it to restore an asset that
     // still has an active loan (issuing a loan is the normal path in).
     if (s === 'on_loan') return hasActiveLoan.value;
@@ -214,7 +215,9 @@ async function submitTransition() {
     emit('transitioned', newStatus);
     closeModal();
   } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : t('asset-lifecycle-transition-failed');
+    // The server explains refusals (disposal is final, the asset is out on
+    // loan, a missing disposal record), so show its message.
+    errorMessage.value = extractErrorMessage(e, t('asset-lifecycle-transition-failed'));
   } finally {
     submitting.value = false;
   }
@@ -269,16 +272,19 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <AssetStatusBadge :status="currentStatus" size="md" />
       <Button
-        v-if="canEdit && !isOnLoan"
+        v-if="canEdit && !isOnLoan && !isTerminal"
         size="sm"
         icon="refresh"
-        :variant="isTerminal ? 'secondary' : 'primary'"
+        variant="primary"
         @click="openModal"
       >
-        {{ isTerminal ? $t('asset-lifecycle-correct-status') : $t('asset-lifecycle-change-status') }}
+        {{ $t('asset-lifecycle-change-status') }}
       </Button>
       <span v-else-if="canEdit && isOnLoan" class="text-xs text-tertiary">
         {{ $t('asset-lifecycle-managed-by-loan') }}
+      </span>
+      <span v-else-if="canEdit && isTerminal" class="text-xs text-tertiary">
+        {{ $t('asset-lifecycle-disposed-final') }}
       </span>
     </div>
 

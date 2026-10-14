@@ -224,7 +224,7 @@ export default class MicrosoftGraphService {
   static async testAllPermissions(providerId?: number) {
     const results: Record<string, { status: string; error: string | null; data: unknown }> = {
       'User.Read.All': { status: 'pending', error: null, data: null },
-      'Asset.Read.All': { status: 'pending', error: null, data: null },
+      'Device.Read.All': { status: 'pending', error: null, data: null },
       'Directory.Read.All': { status: 'pending', error: null, data: null },
       'ProfilePhoto.Read.All': { status: 'pending', error: null, data: null }
     };
@@ -246,17 +246,17 @@ export default class MicrosoftGraphService {
       };
     }
 
-    // Test Asset.Read.All
+    // Test Device.Read.All
     try {
       const devicesResponse = await this.getDevices(undefined, providerId);
-      results['Asset.Read.All'] = { 
+      results['Device.Read.All'] = { 
         status: 'success', 
         error: null, 
         data: { count: devicesResponse.data?.value?.length || 0, sample: devicesResponse.data?.value?.slice(0, 3) }
       };
     } catch (error) {
       const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
-      results['Asset.Read.All'] = {
+      results['Device.Read.All'] = {
         status: 'error',
         error: axiosError.response?.data?.message || axiosError.message || 'Unknown error',
         data: null

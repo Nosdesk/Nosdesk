@@ -31,7 +31,7 @@ fn encrypted_backup_round_trips_with_correct_password() {
         Some("correct-horse-battery-staple"),
         backup_service::RestoreOptions {
             force_non_empty: true,
-            ignore_schema_mismatch: false,
+            ..Default::default()
         },
     )
     .expect("restore with correct password");
@@ -71,7 +71,7 @@ fn restore_rejects_wrong_password() {
         Some("password-b"),
         backup_service::RestoreOptions {
             force_non_empty: true,
-            ignore_schema_mismatch: false,
+            ..Default::default()
         },
     );
 

@@ -24,6 +24,7 @@ import Tooltip from "@/components/common/Tooltip.vue";
 import Popover from "@/components/common/Popover.vue";
 import { getSlotRegistrations } from "@/plugins/loader";
 import { pluginPagePath } from "@/plugins/pluginPage";
+import { useWorkspaceCapabilities } from "@/composables/useWorkspaceCapabilities";
 
 // Global search
 const { openSearch } = useGlobalSearch();
@@ -116,6 +117,9 @@ interface NavLink {
     /** Icon URL (plugin nav items). When set, rendered as an `<img>` instead of
      *  the `icon` SVG path. */
     iconUrl?: string;
+    /** Links nested under this one in the expanded sidebar (plugin
+     *  `nav.assets.item` contributions under Assets). */
+    children?: NavLink[];
 }
 interface NavGroup {
     label: string;
@@ -187,14 +191,48 @@ const pluginNavGroup = computed<NavGroup | null>(() => {
     };
 });
 
-const navGroups = computed<NavGroup[]>(() =>
-    pluginNavGroup.value ? [...staticNavGroups, pluginNavGroup.value] : staticNavGroups,
+// A requester in a workspace that shows requesters no assets has no Assets
+// page to go to.
+const { assetsVisible } = useWorkspaceCapabilities();
+const coreNavGroups = computed<NavGroup[]>(() =>
+    assetsVisible.value
+        ? staticNavGroups
+        : staticNavGroups.map((g) => ({
+              ...g,
+              links: g.links.filter((l) => l.to !== "/assets"),
+          })),
 );
+
+// Plugin `nav.assets.item` contributions nest under the Assets link, linking
+// to the same full-page surface as `nav.item`.
+const pluginAssetLinks = computed<NavLink[]>(() =>
+    getSlotRegistrations('nav.assets.item').map((r) => ({
+        to: pluginPagePath(r.pluginUuid, r.componentName),
+        icon: "",
+        iconUrl: r.icon,
+        text: "",
+        rawLabel: r.label ?? r.pluginName,
+    })),
+);
+
+const navGroups = computed<NavGroup[]>(() => {
+    const children = pluginAssetLinks.value;
+    const groups = children.length === 0
+        ? coreNavGroups.value
+        : coreNavGroups.value.map((g) => ({
+            ...g,
+            links: g.links.map((l) => (l.to === "/assets" ? { ...l, children } : l)),
+        }));
+    return pluginNavGroup.value ? [...groups, pluginNavGroup.value] : groups;
+});
 
 /** Flat list used by the collapsed / compact-nav layouts where
  *  section headers wouldn't fit. Kept derived so adding a new
- *  link only ever requires editing the grouped source. */
-const navLinks = computed<NavLink[]>(() => navGroups.value.flatMap((g) => g.links));
+ *  link only ever requires editing the grouped source. Nested
+ *  links follow their parent. */
+const navLinks = computed<NavLink[]>(() =>
+    navGroups.value.flatMap((g) => g.links.flatMap((l) => [l, ...(l.children ?? [])])),
+);
 
 /** Synthetic NavLink for the inbox. Kept out of `navGroups` (which
  *  drives the desktop sidebar) because Inbox lives in the header
@@ -213,7 +251,7 @@ const INBOX_MOBILE_LINK: NavLink = {
  *  are intentionally excluded — the mobile pin set is a curated core-route set. */
 const pinnableLinks = computed<NavLink[]>(() => [
     INBOX_MOBILE_LINK,
-    ...staticNavGroups.flatMap((g) => g.links),
+    ...coreNavGroups.value.flatMap((g) => g.links),
 ]);
 
 const { pinnedPaths, isPinned, togglePin, resetToDefaults, remainingSlots } =
@@ -502,21 +540,39 @@ const isOverflowRouteActive = computed(() =>
                     >
                         {{ $t(group.label) }}
                     </h3>
-                    <RouterLink
-                        v-for="link in group.links"
-                        :key="link.to"
-                        :to="link.to"
-                        v-prefetch="link.to"
-                        class="rounded-md transition-colors duration-200 flex items-center px-2.5 py-1 gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-                        :class="
-                            isRouteActive(link.to, link.exact)
-                                ? 'bg-surface-alt/80 text-primary font-medium'
-                                : 'text-secondary hover:bg-surface-hover hover:text-primary'
-                        "
-                    >
-                        <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
-                        <span class="text-sm whitespace-nowrap">{{ link.rawLabel ?? $t(link.text) }}</span>
-                    </RouterLink>
+                    <template v-for="link in group.links" :key="link.to">
+                        <RouterLink
+                            :to="link.to"
+                            v-prefetch="link.to"
+                            class="rounded-md transition-colors duration-200 flex items-center px-2.5 py-1 gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                            :class="
+                                isRouteActive(link.to, link.exact)
+                                    ? 'bg-surface-alt/80 text-primary font-medium'
+                                    : 'text-secondary hover:bg-surface-hover hover:text-primary'
+                            "
+                        >
+                            <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
+                            <span class="text-sm whitespace-nowrap">{{ link.rawLabel ?? $t(link.text) }}</span>
+                        </RouterLink>
+                        <!-- Nested links (plugin `nav.assets.item`), indented
+                             under their parent. -->
+                        <div v-if="link.children?.length" class="flex flex-col gap-0.5 pl-5">
+                            <RouterLink
+                                v-for="child in link.children"
+                                :key="child.to"
+                                :to="child.to"
+                                class="rounded-md transition-colors duration-200 flex items-center px-2.5 py-0.5 gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                                :class="
+                                    isRouteActive(child.to, child.exact)
+                                        ? 'bg-surface-alt/80 text-primary font-medium'
+                                        : 'text-secondary hover:bg-surface-hover hover:text-primary'
+                                "
+                            >
+                                <NavLinkIcon :icon="child.icon" :icon-url="child.iconUrl" />
+                                <span class="text-xs whitespace-nowrap truncate">{{ child.rawLabel ?? $t(child.text) }}</span>
+                            </RouterLink>
+                        </div>
+                    </template>
                 </div>
             </div>
         </div>

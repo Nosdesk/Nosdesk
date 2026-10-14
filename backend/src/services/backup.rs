@@ -12,9 +12,11 @@ use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
 
+pub use super::backup_upgrade::NotRestorable;
+use super::backup_upgrade::SchemaPoint;
 use crate::db::DbConnection;
 use crate::models::{
-    BackupJobUpdate, BackupManifest, FilesManifest, RestorePreview, TableManifest,
+    BackupJobUpdate, BackupManifest, FilesManifest, RestorePreview, RestoreUpgrade, TableManifest,
 };
 use crate::repository::backup as backup_repo;
 
@@ -23,8 +25,8 @@ use crate::repository::backup as backup_repo;
 // the crypto surface area small.
 const SALT_LENGTH: usize = 32;
 // OWASP's current floor for PBKDF2-HMAC-SHA256. Bumped from 100_000;
-// the decrypt path hard-rejects any format-version mismatch (there is
-// no cross-version restore), so BACKUP_FORMAT_VERSION is bumped in
+// the decrypt path hard-rejects any format-version mismatch (no archive
+// format restores under another), so BACKUP_FORMAT_VERSION is bumped in
 // lockstep below — an older backup encrypted at the previous iteration
 // count gets a clean "unsupported version" error instead of a cryptic
 // GCM auth failure. See security-audit-2026-06.
@@ -46,10 +48,9 @@ const ENCRYPTED_HEADER_LEN: usize = 4 + 4 + SALT_LENGTH + NONCE_LEN;
 /// fail cryptically.
 const BACKUP_FORMAT_VERSION: u32 = 2;
 
-/// Server schema hash baked in at compile time from the migrations
-/// directory (see `build.rs`). Restore refuses backups whose
-/// `schema_hash` doesn't match this value unless the operator
-/// passes `--ignore-schema-mismatch`.
+/// `build.rs`'s fingerprint of the migrations, still written to the
+/// manifest's `schema_hash`. Restore goes by `migration_version` and
+/// `schema_sha256` instead (see `backup_upgrade`).
 const SERVER_SCHEMA_HASH: &str = env!("NOSDESK_SCHEMA_HASH");
 
 /// Fields that contain authentication material. Stripped from
@@ -223,6 +224,16 @@ pub enum BackupError {
     MigrationRoleUnreachable(String),
     /// No database connection to restore on. Carries the cause, as above.
     ConnectionUnavailable(String),
+    /// The backup's schema isn't one this build can restore.
+    NotRestorable(super::backup_upgrade::NotRestorable),
+    /// An older backup is upgraded in a scratch database built from the
+    /// first migration, which takes a superuser, and the role restore runs
+    /// as isn't one.
+    NeedsSuperuser,
+    /// Another restore of this database is running.
+    RestoreInProgress,
+    /// Upgrading an older backup's rows to this build's schema failed.
+    UpgradeFailed(String),
 }
 
 impl BackupError {
@@ -258,6 +269,21 @@ impl std::fmt::Display for BackupError {
                 write!(f, "MIGRATION_DATABASE_URL is set but couldn't connect")
             }
             BackupError::ConnectionUnavailable(_) => write!(f, "Database connection unavailable"),
+            BackupError::NotRestorable(reason) => write!(f, "Can't restore: {reason}"),
+            BackupError::NeedsSuperuser => write!(
+                f,
+                "Restoring a backup from an earlier Nosdesk version upgrades it in a temporary \
+                 database built the way a fresh install is, which needs a superuser role, as a \
+                 fresh install does. The role restore runs as (MIGRATION_DATABASE_URL, or \
+                 DATABASE_URL when that isn't set) isn't one. Nothing was changed. See \
+                 https://nosdesk.com/docs/operations/backup-restore#restoring-a-backup-from-an-earlier-version"
+            ),
+            BackupError::RestoreInProgress => write!(
+                f,
+                "Another restore of this database is running. Wait for it to finish, then check \
+                 the result before restoring again."
+            ),
+            BackupError::UpgradeFailed(e) => write!(f, "Upgrading the backup failed: {e}"),
         }
     }
 }
@@ -568,7 +594,7 @@ pub fn create_backup(
     let backup_path = backups_dir.join(&filename);
 
     let include_sensitive = password.is_some();
-    let zip_bytes = build_inner_zip(conn, include_sensitive)?;
+    let zip_bytes = build_inner_zip(conn, include_sensitive, true)?;
 
     let final_bytes = match password {
         Some(pw) => seal_inner_zip(&zip_bytes, pw)?,
@@ -595,10 +621,12 @@ pub fn create_backup(
 /// Build the inner zip blob (the thing that gets either written
 /// straight to disk or sealed by `seal_inner_zip`). Encapsulated
 /// here so `create_backup` is small and the in-memory pipeline
-/// is easy to audit.
-fn build_inner_zip(
+/// is easy to audit. `include_files` leaves the uploads out, for the
+/// rows-only archive an older backup is upgraded into.
+pub(crate) fn build_inner_zip(
     conn: &mut DbConnection,
     include_sensitive: bool,
+    include_files: bool,
 ) -> Result<Vec<u8>, BackupError> {
     use std::io::Cursor;
 
@@ -632,7 +660,7 @@ fn build_inner_zip(
     let mut file_count = 0i64;
     let mut total_size = 0i64;
 
-    if uploads_dir.exists() {
+    if include_files && uploads_dir.exists() {
         let thumbs_dir = uploads_dir.join("users").join("thumbs");
         for entry in WalkDir::new(&uploads_dir)
             .into_iter()
@@ -665,6 +693,8 @@ fn build_inner_zip(
         backup_format_version: BACKUP_FORMAT_VERSION,
         nosdesk_version: env!("CARGO_PKG_VERSION").to_string(),
         schema_hash: SERVER_SCHEMA_HASH.to_string(),
+        migration_version: Some(super::backup_upgrade::current_schema().version.to_string()),
+        schema_sha256: Some(super::backup_upgrade::current_schema().sha256.to_string()),
         created_at: Utc::now().to_rfc3339(),
         tables: table_manifests,
         files: FilesManifest {
@@ -689,11 +719,28 @@ pub fn read_backup_manifest(
 ) -> Result<BackupManifest, BackupError> {
     use std::io::Cursor;
     let inner = load_inner_zip(backup_path, password)?;
-    let mut archive = ZipArchive::new(Cursor::new(inner))?;
+    manifest_of(&mut ZipArchive::new(Cursor::new(inner))?)
+}
+
+/// The parsed `manifest.json` of an open archive.
+fn manifest_of<R: Read + std::io::Seek>(
+    archive: &mut ZipArchive<R>,
+) -> Result<BackupManifest, BackupError> {
     let mut manifest_file = archive.by_name("manifest.json")?;
     let mut manifest_content = String::new();
     manifest_file.read_to_string(&mut manifest_content)?;
     Ok(serde_json::from_str(&manifest_content)?)
+}
+
+/// Refuse an archive in another format.
+fn check_format_version(manifest: &BackupManifest) -> Result<(), BackupError> {
+    if manifest.backup_format_version != BACKUP_FORMAT_VERSION {
+        return Err(BackupError::CorruptedBackup(format!(
+            "unsupported backup format version {} (this build expects {})",
+            manifest.backup_format_version, BACKUP_FORMAT_VERSION
+        )));
+    }
+    Ok(())
 }
 
 /// Preview what a restore would do. Always decrypts when needed
@@ -706,28 +753,20 @@ pub fn preview_restore(
     let encrypted = is_encrypted_backup(backup_path)?;
     let manifest = read_backup_manifest(backup_path, password)?;
 
+    // A backup this build can't restore is refused here, before the
+    // operator is asked to confirm anything.
+    check_format_version(&manifest)?;
+    let upgrade =
+        match super::backup_upgrade::schema_point(&manifest).map_err(BackupError::NotRestorable)? {
+            SchemaPoint::Current => None,
+            SchemaPoint::Earlier { .. } => Some(RestoreUpgrade {
+                from_version: manifest.nosdesk_version.clone(),
+                to_version: env!("CARGO_PKG_VERSION").to_string(),
+                replaced_tables: Vec::new(),
+            }),
+        };
+
     let mut warnings = Vec::new();
-
-    if manifest.backup_format_version != BACKUP_FORMAT_VERSION {
-        warnings.push(format!(
-            "Backup format version {} differs from current ({}); restore will refuse",
-            manifest.backup_format_version, BACKUP_FORMAT_VERSION
-        ));
-    }
-    if manifest.schema_hash != SERVER_SCHEMA_HASH {
-        warnings.push(format!(
-            "Schema hash mismatch: backup={} server={}; pass --ignore-schema-mismatch to override",
-            manifest.schema_hash, SERVER_SCHEMA_HASH
-        ));
-    }
-
-    let current_version = env!("CARGO_PKG_VERSION");
-    if manifest.nosdesk_version != current_version {
-        warnings.push(format!(
-            "Backup was created with Nosdesk v{}, current version is v{}",
-            manifest.nosdesk_version, current_version
-        ));
-    }
 
     if manifest.files.total_size_bytes > 1024 * 1024 * 1024 {
         warnings.push(format!(
@@ -739,6 +778,7 @@ pub fn preview_restore(
     Ok(RestorePreview {
         manifest,
         encrypted,
+        upgrade,
         warnings,
     })
 }
@@ -834,19 +874,67 @@ pub struct TableRestoreResult {
 /// Knobs for [`restore_database`]. New options should default
 /// to the safer behaviour so a caller that doesn't pass one
 /// gets the locked-down path.
-#[derive(Debug, Default)]
+#[derive(Default, Clone)]
 pub struct RestoreOptions {
     /// Bypass the empty-target-database precheck. The CLI
     /// exposes this as `--force`; the web handler sets it
     /// implicitly because admin-auth is the upstream gate.
     pub force_non_empty: bool,
-    /// Bypass the schema-hash check. The backup carries the
-    /// hash of the migrations directory it was taken at; the
-    /// server compares against its own compile-time hash and
-    /// refuses on mismatch by default. Operators who know the
-    /// schemas are compatible (e.g. a no-op migration was
-    /// added between versions) can pass `--ignore-schema-mismatch`.
-    pub ignore_schema_mismatch: bool,
+    /// A connection URL for the server the restore runs on, as the role it
+    /// runs as. A backup from an earlier version is upgraded in a scratch
+    /// database created there; without a URL such a backup is refused.
+    /// [`restore_instance`] fills it in.
+    pub server_url: Option<String>,
+    /// Row JSON per load statement; [`RESTORE_CHUNK_BYTES`] when unset.
+    /// Tests set it small to exercise chunking without large fixtures.
+    #[doc(hidden)]
+    pub chunk_bytes: Option<usize>,
+}
+
+/// Leaves the URL out: it carries the role's password.
+impl std::fmt::Debug for RestoreOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RestoreOptions")
+            .field("force_non_empty", &self.force_non_empty)
+            .field("server_url", &self.server_url.as_ref().map(|_| "<set>"))
+            .field("chunk_bytes", &self.chunk_bytes)
+            .finish()
+    }
+}
+
+/// A connection as the role an instance restore runs as: the migration role
+/// when `MIGRATION_DATABASE_URL` is set (an error when it can't be reached),
+/// else `runtime`.
+pub fn restore_connection(runtime: &crate::db::Pool) -> Result<DbConnection, BackupError> {
+    let migration_role = crate::db::migration_role_pool().map_err(|e| {
+        tracing::error!(error = %e, "restore: MIGRATION_DATABASE_URL is set but couldn't connect");
+        BackupError::MigrationRoleUnreachable(e.to_string())
+    })?;
+    match migration_role {
+        Some(pool) => pool.get(),
+        None => runtime.get(),
+    }
+    .map_err(|e| {
+        tracing::error!(error = %e, "restore: no database connection");
+        BackupError::ConnectionUnavailable(e.to_string())
+    })
+}
+
+/// Fill in which live tables an upgrade restore of `preview`'s backup
+/// replaces (see [`tables_backup_predates`]). Best effort: the preview stands
+/// without the list when the restore role can't be reached.
+pub fn list_replaced_tables(runtime: &crate::db::Pool, preview: &mut RestorePreview) {
+    let Some(upgrade) = preview.upgrade.as_mut() else {
+        return;
+    };
+    let listed = restore_connection(runtime)
+        .and_then(|mut conn| tables_backup_predates(&mut conn, &preview.manifest));
+    match listed {
+        Ok(tables) => upgrade.replaced_tables = tables,
+        Err(e) => {
+            tracing::warn!(error = %e, "restore preview: couldn't list the tables it replaces")
+        }
+    }
 }
 
 /// Restore an instance's database from a backup archive. The CLI and the
@@ -858,34 +946,44 @@ pub struct RestoreOptions {
 /// (`MIGRATION_DATABASE_URL`), and fails if that role can't be reached rather
 /// than falling back to `DATABASE_URL`, which would only fail later. Without
 /// one it runs on `runtime`, as a single-role install's `DATABASE_URL` is a
-/// superuser already. Returns the connection it ran on, for the work that
-/// follows (the thumbnail backfill).
+/// superuser already. A backup from an earlier version is upgraded in a
+/// scratch database created as the same role. Returns the connection it ran
+/// on, for the work that follows (the thumbnail backfill).
 pub fn restore_instance(
     runtime: &crate::db::Pool,
     backup_path: &Path,
     password: Option<&str>,
-    options: RestoreOptions,
+    mut options: RestoreOptions,
 ) -> Result<(RestoreStats, DbConnection), BackupError> {
-    let migration_role = crate::db::migration_role_pool().map_err(|e| {
-        tracing::error!(error = %e, "restore: MIGRATION_DATABASE_URL is set but couldn't connect");
-        BackupError::MigrationRoleUnreachable(e.to_string())
-    })?;
-    let mut conn = match migration_role {
-        Some(pool) => pool.get(),
-        None => runtime.get(),
+    let mut conn = restore_connection(runtime)?;
+    if options.server_url.is_none() {
+        options.server_url = crate::db::migration_database_url();
     }
-    .map_err(|e| {
-        tracing::error!(error = %e, "restore: no database connection");
-        BackupError::ConnectionUnavailable(e.to_string())
-    })?;
     let stats = restore_database(&mut conn, backup_path, password, options)?;
     Ok((stats, conn))
 }
 
-/// Restore tables from a backup archive into the database `conn` points at.
+/// Session advisory lock a restore holds on the database it restores, so a
+/// second restore (a double click, or a retry after a proxy timeout) is
+/// refused rather than racing the first.
+pub const RESTORE_LOCK_KEY: i64 = 0x6e6f_7364_7273_746f; // "nosdrsto"
+
+/// Instance-wide tables a backup from an earlier version can predate.
+/// Restoring such a backup leaves their live rows as they are rather than
+/// clearing them: the backup has nothing to say about them.
+const KEEP_LIVE_WHEN_PREDATED: &[&str] = &["instance_settings"];
+
+/// Restore a backup archive into the database `conn` points at.
 /// Outside tests, call [`restore_instance`], which picks the connection.
 ///
-/// Runs inside a single transaction with
+/// A backup from this build's schema loads as it is. One from an earlier
+/// version (back to 1.0.0) is first upgraded: its rows load into a scratch
+/// database at the schema they were taken at, the later migrations run over
+/// them as an in-place upgrade would, and the result loads here
+/// (`backup_upgrade`). A backup this build can't place is refused before
+/// anything changes, and so is a second restore while one runs.
+///
+/// The load runs inside a single transaction with
 /// `session_replication_role = 'replica'`, so:
 ///
 ///   - The whole restore is atomic. A FK violation on row #501
@@ -897,10 +995,8 @@ pub fn restore_instance(
 ///     CHECK constraints, so structurally-bad rows still fail.
 ///   - The restore order comes from `discover_user_tables`
 ///     against the live schema, intersected with what's in the
-///     backup. Tables in the backup that don't exist on the
-///     live DB are skipped with a warning (forward-compat
-///     scenarios). Tables that exist live but aren't in the
-///     backup are left empty.
+///     backup. Tables that exist live but aren't in the backup
+///     are left as they are.
 ///
 /// Pre-flight: refuses on a non-empty users table unless the
 /// caller sets `options.force_non_empty`. The CLI exposes this
@@ -911,39 +1007,80 @@ pub fn restore_database(
     password: Option<&str>,
     options: RestoreOptions,
 ) -> Result<RestoreStats, BackupError> {
-    use diesel::connection::Connection;
+    use diesel::prelude::*;
+    use diesel::sql_query;
+    use diesel::sql_types::BigInt;
+
+    #[derive(QueryableByName)]
+    struct Locked {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        locked: bool,
+    }
+    let locked: Locked = sql_query("SELECT pg_try_advisory_lock($1) AS locked")
+        .bind::<BigInt, _>(RESTORE_LOCK_KEY)
+        .get_result(conn)
+        .map_err(BackupError::DatabaseError)?;
+    if !locked.locked {
+        return Err(BackupError::RestoreInProgress);
+    }
+    // The connection goes back to a pool, so the lock is released however
+    // the restore ends, a panic included; a lock left on it would refuse
+    // every later restore.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        restore_database_locked(conn, backup_path, password, options)
+    }));
+    if let Err(e) = sql_query("SELECT pg_advisory_unlock($1)")
+        .bind::<BigInt, _>(RESTORE_LOCK_KEY)
+        .execute(conn)
+    {
+        tracing::warn!(error = %e, "restore: couldn't release the restore lock; it ends with the session");
+    }
+    match result {
+        Ok(Ok(stats)) => {
+            tracing::info!(count = stats.records_restored, "restore: finished");
+            Ok(stats)
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "restore: failed; the database is as it was");
+            Err(e)
+        }
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+/// [`restore_database`], holding the restore lock.
+fn restore_database_locked(
+    conn: &mut DbConnection,
+    backup_path: &Path,
+    password: Option<&str>,
+    options: RestoreOptions,
+) -> Result<RestoreStats, BackupError> {
     use diesel::deserialize::QueryableByName;
     use diesel::prelude::*;
     use diesel::sql_query;
     use diesel::sql_types::BigInt;
     use std::io::Cursor;
 
-    // ---- Phase 1: load the inner zip (decrypts if encrypted) ----
+    // Scratch databases a killed restore left behind. Nothing else uses them
+    // while this restore holds the lock.
+    super::backup_upgrade::drop_leftover_scratch_databases(conn);
+
+    // ---- Load the inner zip (decrypts if encrypted) and place it ----
     let inner_zip = load_inner_zip(backup_path, password)?;
-    let mut archive = ZipArchive::new(Cursor::new(inner_zip))?;
-
-    // ---- Phase 2: read + validate manifest ----
-    let manifest: BackupManifest = {
-        let mut manifest_file = archive.by_name("manifest.json")?;
-        let mut content = String::new();
-        manifest_file.read_to_string(&mut content)?;
-        serde_json::from_str(&content)?
-    };
-
-    if manifest.backup_format_version != BACKUP_FORMAT_VERSION {
-        return Err(BackupError::CorruptedBackup(format!(
-            "unsupported backup format version {} (this build expects {})",
-            manifest.backup_format_version, BACKUP_FORMAT_VERSION
-        )));
-    }
-    if manifest.schema_hash != SERVER_SCHEMA_HASH && !options.ignore_schema_mismatch {
-        return Err(BackupError::CorruptedBackup(format!(
-            "schema hash mismatch (backup={}, server={}); pass --ignore-schema-mismatch to override",
-            manifest.schema_hash, SERVER_SCHEMA_HASH
-        )));
+    let manifest = manifest_of(&mut ZipArchive::new(Cursor::new(&inner_zip[..]))?)?;
+    check_format_version(&manifest)?;
+    let point =
+        super::backup_upgrade::schema_point(&manifest).map_err(BackupError::NotRestorable)?;
+    if let SchemaPoint::Earlier { .. } = point {
+        if options.server_url.is_none() {
+            return Err(BackupError::UpgradeFailed(
+                "no database URL to create the upgrade database with".to_string(),
+            ));
+        }
+        super::backup_upgrade::require_upgrade_privileges(conn)?;
     }
 
-    // ---- Phase 3: pre-flight empty-target check ----
+    // ---- Pre-flight empty-target check ----
     if !options.force_non_empty {
         #[derive(QueryableByName)]
         struct CountRow {
@@ -961,7 +1098,113 @@ pub fn restore_database(
         }
     }
 
-    // ---- Phase 4: figure out what to restore ----
+    let chunk_bytes = options.chunk_bytes.unwrap_or(RESTORE_CHUNK_BYTES);
+    let (rows, keep_live, into) = match point {
+        SchemaPoint::Current => (inner_zip, Vec::new(), LoadInto::Live),
+        SchemaPoint::Earlier { migration } => {
+            let server_url = options
+                .server_url
+                .as_deref()
+                .expect("checked above for an earlier backup");
+            tracing::info!(
+                backup_from_version = %manifest.nosdesk_version,
+                backup_migration = migration,
+                "restore: upgrading a backup from an earlier version"
+            );
+            let upgraded = super::backup_upgrade::upgrade_archive(
+                conn,
+                server_url,
+                &inner_zip,
+                migration,
+                chunk_bytes,
+            )?;
+            let upgraded_manifest = manifest_of(&mut ZipArchive::new(Cursor::new(&upgraded[..]))?)?;
+            // A table the backup predates comes out of the upgrade empty;
+            // an instance-wide one keeps its live rows instead.
+            let keep_live = KEEP_LIVE_WHEN_PREDATED
+                .iter()
+                .filter(|t| !manifest.tables.contains_key(**t))
+                .filter(|t| {
+                    upgraded_manifest
+                        .tables
+                        .get(**t)
+                        .is_none_or(|m| m.count == 0)
+                })
+                .map(|t| t.to_string())
+                .collect();
+            (upgraded, keep_live, LoadInto::LiveUpgraded)
+        }
+    };
+    load_archive(conn, &rows, into, &keep_live, chunk_bytes)
+}
+
+/// Tables in this database that `manifest`'s backup predates and that hold
+/// rows now: restoring it replaces them with what the upgrade produces,
+/// which for settings means their defaults. Instance-wide tables the restore
+/// keeps are left out. Needs a connection that sees every row.
+pub fn tables_backup_predates(
+    conn: &mut DbConnection,
+    manifest: &BackupManifest,
+) -> Result<Vec<String>, BackupError> {
+    use diesel::prelude::*;
+    use diesel::sql_query;
+    use diesel::sql_types::Bool;
+
+    #[derive(QueryableByName)]
+    struct HasRows {
+        #[diesel(sql_type = Bool)]
+        has_rows: bool,
+    }
+    let mut predated = Vec::new();
+    for table in discover_user_tables(conn)? {
+        if manifest.tables.contains_key(&table) || KEEP_LIVE_WHEN_PREDATED.contains(&table.as_str())
+        {
+            continue;
+        }
+        // `table` came from the catalogue; quote it all the same.
+        let row: HasRows = sql_query(format!(
+            "SELECT EXISTS (SELECT 1 FROM public.\"{}\") AS has_rows",
+            table.replace('"', "\"\"")
+        ))
+        .get_result(conn)
+        .map_err(BackupError::DatabaseError)?;
+        if row.has_rows {
+            predated.push(table);
+        }
+    }
+    Ok(predated)
+}
+
+/// Which database [`load_archive`] fills.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoadInto {
+    /// The live database, at this build's schema.
+    Live,
+    /// The live database, with the rows of an upgraded older backup.
+    LiveUpgraded,
+    /// A scratch database at an older backup's own schema, to be migrated.
+    Scratch,
+}
+
+/// Replace the tables of the database `conn` points at with the rows of
+/// `inner_zip`, an archive at that database's schema, in one transaction.
+/// Tables in `keep` are left as they are.
+pub(crate) fn load_archive(
+    conn: &mut DbConnection,
+    inner_zip: &[u8],
+    into: LoadInto,
+    keep: &[String],
+    chunk_bytes: usize,
+) -> Result<RestoreStats, BackupError> {
+    use diesel::connection::Connection;
+    use diesel::prelude::*;
+    use diesel::sql_query;
+    use std::io::Cursor;
+
+    let mut archive = ZipArchive::new(Cursor::new(inner_zip))?;
+    let manifest = manifest_of(&mut archive)?;
+
+    // ---- Figure out what to restore ----
     let live_tables: std::collections::HashSet<String> =
         discover_user_tables(conn)?.into_iter().collect();
     // Skip partition children if a backup carries them; the
@@ -975,6 +1218,9 @@ pub fn restore_database(
     let restore_order: Vec<String> = backup_tables
         .into_iter()
         .filter(|t| {
+            if keep.contains(t) {
+                return false;
+            }
             if partition_children.contains(t) {
                 skipped_partition.push(t.clone());
                 return false;
@@ -988,9 +1234,7 @@ pub fn restore_database(
         })
         .collect();
     for name in &skipped_unknown {
-        log::warn!(
-            "restore: skipping table '{name}' that is in the backup but not in the live schema (likely a forward-compat scenario)"
-        );
+        log::warn!("restore: skipping table '{name}' that is in the backup but not in the schema");
     }
     for name in &skipped_partition {
         log::info!(
@@ -998,13 +1242,13 @@ pub fn restore_database(
         );
     }
 
-    // ---- Phase 5: load + hash-check every table BEFORE the
-    //              transaction. The payload stays as raw JSON
-    //              text and is bound to the restore INSERT
-    //              server-side; routing it through
-    //              `serde_json::Value` here would coerce numbers
-    //              into f64 and lose NUMERIC precision (a JSONB
-    //              column holding 10.000 would come back 10.0).
+    // ---- Load + hash-check every table BEFORE the
+    //      transaction. The payload stays as raw JSON
+    //      text and is bound to the restore INSERT
+    //      server-side; routing it through
+    //      `serde_json::Value` here would coerce numbers
+    //      into f64 and lose NUMERIC precision (a JSONB
+    //      column holding 10.000 would come back 10.0).
     let mut table_payloads: Vec<(String, String, usize)> = Vec::with_capacity(restore_order.len());
     for table_name in &restore_order {
         let data_path = format!("data/{table_name}.json");
@@ -1037,9 +1281,9 @@ pub fn restore_database(
         table_payloads.push((table_name.clone(), content, row_count));
     }
 
-    // ---- Phase 6: single transaction with FK + trigger
-    //              suppression. First row failure rolls back
-    //              the entire restore.
+    // ---- Single transaction with FK + trigger
+    //      suppression. First row failure rolls back
+    //      the entire restore.
     conn.transaction::<RestoreStats, BackupError, _>(|c| {
         sql_query("SET LOCAL session_replication_role = 'replica'")
             .execute(c)
@@ -1073,7 +1317,7 @@ pub fn restore_database(
                 });
                 continue;
             }
-            let rows_loaded = restore_table_data(c, table_name, payload)?;
+            let rows_loaded = restore_table_data_in_chunks(c, table_name, payload, chunk_bytes)?;
             if rows_loaded > 0 {
                 stats.tables_restored += 1;
                 stats.records_restored += rows_loaded;
@@ -1089,10 +1333,20 @@ pub fn restore_database(
         reset_sequences(c)?;
         // Ticket numbers come from per-workspace sequences that the reset above
         // doesn't see; the rows arrived with their numbers while triggers were
-        // off, so move each workspace's sequence past its highest.
-        sql_query("SELECT public.sync_ticket_number_sequences()")
-            .execute(c)
-            .map_err(BackupError::DatabaseError)?;
+        // off, so move each workspace's sequence past its highest. A scratch
+        // database at an older schema may predate them; its migrations number
+        // the tickets, and the live load that follows runs this.
+        if into != LoadInto::Scratch {
+            sql_query("SELECT public.sync_ticket_number_sequences()")
+                .execute(c)
+                .map_err(BackupError::DatabaseError)?;
+        }
+        if into == LoadInto::LiveUpgraded {
+            // The rows carry the schema fingerprint of the server that made
+            // the backup; this server's is the one that holds now.
+            crate::sync::system_meta::set_schema_hash(c, SERVER_SCHEMA_HASH)
+                .map_err(BackupError::DatabaseError)?;
+        }
         Ok(stats)
     })
 }
@@ -1176,7 +1430,58 @@ fn reset_sequences(conn: &mut DbConnection) -> Result<(), BackupError> {
 /// per-column conversion against the target record type. Extra
 /// JSON keys are ignored; missing keys default to NULL, except a
 /// column in `MISSING_COLUMNS`.
+#[cfg(test)]
 fn restore_table_data(
+    conn: &mut DbConnection,
+    table_name: &str,
+    payload: &str,
+) -> Result<usize, BackupError> {
+    restore_table_data_in_chunks(conn, table_name, payload, RESTORE_CHUNK_BYTES)
+}
+
+/// How much row JSON one restore statement carries. Postgres caps a jsonb
+/// array at 256 MB, so a large table loads in several statements, all in
+/// the restore's one transaction.
+pub(crate) const RESTORE_CHUNK_BYTES: usize = 32 * 1024 * 1024;
+
+/// [`restore_table_data`], loading at most about `chunk_bytes` of row JSON
+/// per statement (always at least one row).
+fn restore_table_data_in_chunks(
+    conn: &mut DbConnection,
+    table_name: &str,
+    payload: &str,
+    chunk_bytes: usize,
+) -> Result<usize, BackupError> {
+    if payload.len() <= chunk_bytes {
+        return restore_rows(conn, table_name, payload);
+    }
+    // Split without parsing values: `RawValue` keeps each row's text as it
+    // is, so numbers keep their precision.
+    let rows: Vec<&serde_json::value::RawValue> = serde_json::from_str(payload)?;
+    let mut loaded = 0;
+    let mut chunk = String::from("[");
+    for row in rows {
+        let text = row.get();
+        if chunk.len() > 1 && chunk.len() + text.len() + 2 > chunk_bytes {
+            chunk.push(']');
+            loaded += restore_rows(conn, table_name, &chunk)?;
+            chunk.clear();
+            chunk.push('[');
+        }
+        if chunk.len() > 1 {
+            chunk.push(',');
+        }
+        chunk.push_str(text);
+    }
+    if chunk.len() > 1 {
+        chunk.push(']');
+        loaded += restore_rows(conn, table_name, &chunk)?;
+    }
+    Ok(loaded)
+}
+
+/// Load one JSON array of `table_name` rows.
+fn restore_rows(
     conn: &mut DbConnection,
     table_name: &str,
     payload: &str,
@@ -1219,7 +1524,9 @@ fn restore_table_data(
     Ok(count)
 }
 
-/// A column a backup can leave out that the table can't load without.
+/// A column a password-less backup leaves out (`SENSITIVE_FIELDS`) that the
+/// table can't load without. Only sensitive fields belong here: a backup
+/// from an earlier schema is migrated, not patched (`backup_upgrade`).
 struct MissingColumn {
     table: &'static str,
     column: &'static str,
@@ -1229,15 +1536,7 @@ struct MissingColumn {
 }
 
 const MISSING_COLUMNS: &[MissingColumn] = &[
-    // A backup from before per-workspace numbering: tickets take their id,
-    // as the migration numbered them.
-    MissingColumn {
-        table: "tickets",
-        column: "number",
-        load: Some("r || jsonb_build_object('number', r -> 'id')"),
-    },
-    // A password-less backup leaves `SENSITIVE_FIELDS` out. Tokens and
-    // recovery codes are nothing without their hashes.
+    // Tokens and recovery codes are nothing without their hashes.
     MissingColumn {
         table: "refresh_tokens",
         column: "token_hash",
@@ -1479,45 +1778,51 @@ mod tests {
         assert!(count >= 1, "users table intact after hostile insert");
     }
 
+    /// A password-less backup restores: every sensitive column it leaves out
+    /// that the schema requires has a rule, and the rules cover nothing else.
     #[test]
-    fn restore_table_data_numbers_tickets_from_an_older_backup() {
-        use crate::schema::tickets;
-        use crate::test_helpers::{setup_test_connection, TestFixtures};
-        use diesel::prelude::*;
+    fn every_required_sensitive_column_has_a_restore_rule() {
+        use crate::test_helpers::setup_test_connection;
         use diesel::sql_query;
-        use diesel::sql_types::{Integer, Text};
+        use diesel::sql_types::Text;
 
         #[derive(QueryableByName)]
-        struct Old {
-            #[diesel(sql_type = Integer)]
-            id: i32,
+        struct Nullable {
             #[diesel(sql_type = Text)]
-            row: String,
+            is_nullable: String,
         }
 
         let mut conn = setup_test_connection();
-        let ticket = TestFixtures::create_ticket(&mut conn, "Before numbering", None, None);
-        // The row as a backup from before numbering holds it, under a
-        // fresh id.
-        let old: Old = sql_query(
-            "WITH fresh AS (SELECT nextval(pg_get_serial_sequence('tickets', 'id'))::int AS id) \
-             SELECT fresh.id, \
-                    ((to_jsonb(t) - 'number') || jsonb_build_object( \
-                        'id', fresh.id, 'uuid', gen_random_uuid(), 'guest_lookup_token', NULL))::text AS row \
-             FROM tickets t, fresh WHERE t.id = $1",
-        )
-        .bind::<Integer, _>(ticket.id)
-        .get_result(&mut conn)
-        .expect("ticket row as json");
-
-        let inserted = restore_table_data(&mut conn, "tickets", &format!("[{}]", old.row))
-            .expect("restore_table_data");
-        assert_eq!(inserted, 1);
-        let number: i32 = tickets::table
-            .find(old.id)
-            .select(tickets::number)
-            .first(&mut conn)
-            .expect("restored ticket");
-        assert_eq!(number, old.id, "takes its id as its number");
+        for (table, columns) in SENSITIVE_FIELDS {
+            for column in *columns {
+                let row: Nullable = sql_query(
+                    "SELECT is_nullable::text AS is_nullable FROM information_schema.columns \
+                     WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2",
+                )
+                .bind::<Text, _>(*table)
+                .bind::<Text, _>(*column)
+                .get_result(&mut conn)
+                .unwrap_or_else(|e| panic!("{table}.{column} is in the schema: {e}"));
+                if row.is_nullable == "NO" {
+                    assert!(
+                        MISSING_COLUMNS
+                            .iter()
+                            .any(|m| m.table == *table && m.column == *column),
+                        "{table}.{column} is NOT NULL and stripped from plaintext backups, \
+                         so it needs a MISSING_COLUMNS rule"
+                    );
+                }
+            }
+        }
+        for rule in MISSING_COLUMNS {
+            assert!(
+                SENSITIVE_FIELDS
+                    .iter()
+                    .any(|(t, cs)| *t == rule.table && cs.contains(&rule.column)),
+                "{}.{} isn't a sensitive field; an older schema is migrated, not patched",
+                rule.table,
+                rule.column
+            );
+        }
     }
 }

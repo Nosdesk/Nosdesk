@@ -57,12 +57,20 @@ export interface SyncAction {
    * keep the surface honest about the substrate.
    */
   groups: Array<string | null>
-  actor_uuid: string | null
-  actor_kind: string
-  actor_ref: string | null
-  correlation_id: string | null
-  causation_id: string | null
-  occurred_at: string
+  // A delete standing in for a documentation record the viewer can't open
+  // carries none of the fields below: nothing about who changed it or when.
+  actor_uuid?: string | null
+  actor_kind?: string
+  actor_ref?: string | null
+  correlation_id?: string | null
+  causation_id?: string | null
+  occurred_at?: string
+  /**
+   * Set on this client, never sent. For a delete, the row the pool held just
+   * before applying it, so an observer can still read what the delete leaves
+   * out (a retraction names only the record's id).
+   */
+  prior?: Readonly<Record<string, unknown>>
 }
 
 export interface DeltaResponse {
@@ -88,6 +96,7 @@ export interface DeltaResponse {
     sla_enabled?: boolean
     approvals_enabled?: boolean
     approvals_held?: boolean
+    assets_visible?: boolean
   }
 }
 
@@ -110,6 +119,9 @@ export interface BootstrapMeta {
   approvals_enabled?: boolean
   /** Requests waiting for approval are held out of the working queues. */
   approvals_held?: boolean
+  /** The viewer sees the workspace's assets: staff always, a requester
+   * unless the workspace shows requesters none. */
+  assets_visible?: boolean
 }
 
 /**

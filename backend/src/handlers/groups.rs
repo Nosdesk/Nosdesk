@@ -73,6 +73,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 pub async fn get_group_details(
     req: HttpRequest,
     mut tc: TenantConn,
+    auth: crate::extractors::AuthContext,
     path: web::Path<String>,
 ) -> impl Responder {
     // Verify user is authenticated (but not admin required)
@@ -86,7 +87,14 @@ pub async fn get_group_details(
         Err(_) => return errors::bad_request("Invalid group UUID"),
     };
 
-    match tc.run(|conn| repository::groups::get_group_details(conn, &group_uuid)) {
+    match tc.run(|conn| {
+        let mut details = repository::groups::get_group_details(conn, &group_uuid)?;
+        if crate::handlers::assets::assets_hidden_from(conn, &auth) {
+            details.devices.clear();
+        }
+        crate::handlers::assets::strip_staff_asset_fields(&mut details.devices, &auth);
+        Ok(details)
+    }) {
         Ok(details) => HttpResponse::Ok().json(details),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Group not found"),

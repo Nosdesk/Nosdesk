@@ -81,6 +81,9 @@ const AUTH_ERROR_KEYS: Record<string, string> = {
   no_seat: "login-error-no-seat",
   no_email: "login-error-no-email",
   email_unverified: "login-error-email-unverified",
+  state_expired: "login-error-state-expired",
+  provider_denied: "login-error-provider-denied",
+  signin_failed: "login-error-signin-failed",
 };
 
 function consumeAuthErrorParam(): boolean {

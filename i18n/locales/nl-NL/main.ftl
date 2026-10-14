@@ -177,8 +177,7 @@ connect-server-label = Serveradres
 connect-server-placeholder = help.jouwbedrijf.com
 connect-submit = Verbinden
 connect-back = Terug
-connect-no-account = Nieuw bij Nosdesk?
-connect-no-account-cta = Start een gratis proefperiode
+connect-no-account = Je hebt een Nosdesk-workspace nodig om in te loggen. Meer informatie op nosdesk.com.
 connect-switch-server = Andere server
 login-email-label = E-mail
 login-email-placeholder = Voer uw e-mailadres in
@@ -203,6 +202,9 @@ login-error-no-seat = Dit account heeft nog geen toegang tot een werkruimte. Vra
 login-error-no-email = Uw identiteitsprovider heeft geen e-mailadres voor dit account doorgegeven. Vraag uw beheerder om de inlogconfiguratie te controleren.
 login-error-email-unverified = Uw identiteitsprovider heeft uw e-mailadres niet geverifieerd, dus het kan hier niet worden gebruikt om in te loggen. Verifieer het bij de provider en probeer het opnieuw.
 login-error-generic = Inloggen mislukt. Probeer het opnieuw.
+login-error-state-expired = Het inloggen duurde te lang. Log opnieuw in.
+login-error-provider-denied = Het inloggen is geannuleerd.
+login-error-signin-failed = Het inloggen kon niet worden voltooid. Probeer het opnieuw.
 login-mfa-title = Tweefactorauthenticatie
 login-mfa-subtitle = Voer uw authenticatiecode in
 login-mfa-code-label = Authenticatiecode
@@ -423,6 +425,56 @@ ticket-list-bulk-priority = Prioriteit
 ticket-list-bulk-assign = Toewijzen
 ticket-list-bulk-clear-title = Selectie wissen (Esc)
 ticket-list-bulk-clear = Wissen
+
+# Wijziging die de server weigerde en die is teruggedraaid (machine, na te kijken door moedertaalspreker).
+sync-rejected-assign = { $count ->
+    [one] Kan 1 ticket niet toewijzen
+   *[other] Kan { $count } tickets niet toewijzen
+}
+sync-rejected-status = { $count ->
+    [one] Kan de status van 1 ticket niet wijzigen
+   *[other] Kan de status van { $count } tickets niet wijzigen
+}
+sync-rejected-priority = { $count ->
+    [one] Kan de prioriteit van 1 ticket niet wijzigen
+   *[other] Kan de prioriteit van { $count } tickets niet wijzigen
+}
+sync-rejected-rename = { $count ->
+    [one] Kan 1 ticket niet hernoemen
+   *[other] Kan { $count } tickets niet hernoemen
+}
+sync-rejected-tags = { $count ->
+    [one] Kan de tags van 1 ticket niet wijzigen
+   *[other] Kan de tags van { $count } tickets niet wijzigen
+}
+sync-rejected-dates = { $count ->
+    [one] Kan de datums van 1 ticket niet wijzigen
+   *[other] Kan de datums van { $count } tickets niet wijzigen
+}
+sync-rejected-ticket = { $count ->
+    [one] Kan 1 ticket niet bijwerken
+   *[other] Kan { $count } tickets niet bijwerken
+}
+sync-rejected-project = { $count ->
+    [one] Kan 1 project niet bijwerken
+   *[other] Kan { $count } projecten niet bijwerken
+}
+sync-rejected-other = { $count ->
+    [one] Kan 1 wijziging niet opslaan
+   *[other] Kan { $count } wijzigingen niet opslaan
+}
+sync-rejected-reason-invalid-assignee = Alleen agents en beheerders kunnen tickets toegewezen krijgen.
+sync-rejected-reason-forbidden = Je hebt geen toestemming om deze wijziging te maken.
+sync-rejected-reason-ticket-merged = Samengevoegde tickets kunnen niet worden gewijzigd.
+sync-rejected-reason-approval-pending = Aanvragen die op goedkeuring wachten blijven open. Keur eerst goed of sla de goedkeuring over.
+sync-rejected-reason-invalid-reference = De wijziging verwijst naar iets dat niet meer bestaat.
+sync-rejected-reason-not-found = { $count ->
+    [one] Het is verwijderd, of je kunt het niet meer zien.
+   *[other] Ze zijn verwijderd, of je kunt ze niet meer zien.
+}
+sync-rejected-reason-internal = Er ging iets mis op de server. Probeer het opnieuw.
+sync-rejected-reason-unsupported = Deze wijziging kan hier niet worden opgeslagen. Laad de pagina opnieuw en probeer het nog eens.
+sync-rejected-reason-generic = De server heeft de wijziging niet geaccepteerd.
 # MACHINE TRANSLATION, pending native review
 ticket-list-context-copy-number = Ticketnummer kopiëren
 ticket-list-context-assign-to-me = Aan mij toewijzen
@@ -430,10 +482,8 @@ ticket-list-context-actions-heading = Acties
 ticket-list-context-selection-heading = Selectie
 ticket-list-context-select = Selecteren
 ticket-list-context-deselect = Deselecteren
-ticket-list-context-merge = { $count ->
-    [one] Ticket samenvoegen…
-   *[other] { $count } tickets samenvoegen…
-}
+# Machine translation, pending native review.
+ticket-list-context-merge-into = Samenvoegen in #{ $number }…
 ticket-list-context-merge-hint = Selecteer minimaal 2 tickets om samen te voegen
 ticket-list-context-flagged-toast = Gemarkeerd voor documentatie
 ticket-flag-already-documented = Al gedocumenteerd in ‘{ $title }’
@@ -955,6 +1005,22 @@ admin-asset-kinds-field-icon-hint = Optionele pictogramnaam (bijv. "monitor", "p
 admin-asset-kinds-field-attribute-schema-hint = JSON Schema-subset. De Bouwer-weergave is standaard; schakel naar JSON-weergave voor handmatige bewerkingen.
 admin-asset-kinds-view-builder = Bouwer tonen
 admin-asset-kinds-view-json = JSON tonen
+# MT: pending native review (nl-NL)
+asset-access-title = Toegang voor aanvragers
+# MT: pending native review (nl-NL)
+asset-access-description = Wat mensen met de rol aanvrager zien van de activa van deze werkruimte. Medewerkers zien altijd alle activa.
+# MT: pending native review (nl-NL)
+asset-access-all = Alle activa
+# MT: pending native review (nl-NL)
+asset-access-none = Geen
+# MT: pending native review (nl-NL)
+asset-access-all-hint = Aanvragers zien alle activa, ook die ze niet in bezit hebben, in hun app en op de activapagina's.
+# MT: pending native review (nl-NL)
+asset-access-none-hint = Aanvragers zien helemaal geen activa: niet de lijst met activa, niet de activa die aan hun tickets gekoppeld zijn, en niet de apparaten of uitleningen op hun eigen profiel.
+# MT: pending native review (nl-NL)
+asset-access-saved = Toegang voor aanvragers opgeslagen
+# MT: pending native review (nl-NL)
+asset-access-save-failed = Toegang voor aanvragers kon niet worden opgeslagen
 
 # Getypte attribuutbouwer.
 asset-kind-attribute-editor-add = Attribuut toevoegen
@@ -1048,7 +1114,8 @@ admin-nav-plugins-description = Beheer geïnstalleerde plug-ins en integraties
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Synchroniseer gebruikers en groepen vanuit een LDAP- of Active Directory-server
 admin-nav-data-import-title = Gegevensimport
-admin-nav-data-import-description = Importeer gegevens uit Intune, CSV-bestanden en andere bronnen
+# TODO native-review nl-NL for the key below.
+admin-nav-data-import-description = Importeer gegevens uit Microsoft Entra ID, CSV-bestanden en andere bronnen
 admin-nav-audit-log-title = Auditlogboek
 admin-nav-audit-log-description = Forensisch overzicht van wijzigingen, gevoed door triggers per tabel
 admin-nav-branding-title = Branding
@@ -1563,13 +1630,15 @@ admin-data-import-status-available = Beschikbaar
 admin-data-import-status-coming-soon = Binnenkort beschikbaar
 admin-data-import-status-beta = Bèta
 admin-data-import-microsoft-title = Microsoft Graph
-admin-data-import-microsoft-description = Importeer gegevens uit Microsoft 365, waaronder Azure AD, Intune en andere Microsoft-services
+# TODO native-review nl-NL for the key below.
+admin-data-import-microsoft-description = Importeer gebruikers, groepen en apparaten uit Microsoft Entra ID
 admin-data-import-csv-title = CSV-import
 admin-data-import-csv-description = Importeer gegevens uit CSV-bestanden, waaronder activa, gebruikers en andere bronnen
 admin-data-import-api-title = API-integraties
 admin-data-import-api-description = Maak verbinding met API's van derden om gegevens te importeren en synchroniseren
-admin-data-import-ad-title = Active Directory
-admin-data-import-ad-description = Importeer gegevens uit lokale Active Directory-servers
+admin-data-import-ad-title = LDAP / Active Directory
+# MT: pending native review (nl-NL)
+admin-data-import-ad-description = Synchroniseer gebruikers en groepen vanuit Active Directory of een andere LDAP-directory
 
 # Beheer: Authenticatieproviders.
 admin-auth-providers-title = Authenticatieproviders
@@ -1964,6 +2033,12 @@ admin-backup-detail-files = Bestanden:
 admin-backup-detail-size = Grootte:
 admin-backup-detail-tables = Tabellen:
 admin-backup-warnings-heading = Waarschuwingen
+admin-backup-restore-upgrade = Deze back-up is gemaakt met Nosdesk { $from }. Bij het herstellen worden de gegevens bijgewerkt naar Nosdesk { $to }.
+admin-backup-restore-from-newer = Deze back-up is gemaakt met een nieuwere versie van Nosdesk. Werk deze server bij en herstel de back-up daarna.
+admin-backup-restore-schema-unknown = Deze server kan deze back-up niet herstellen. Hij herstelt back-ups van Nosdesk 1.0.0 of later, tot en met zijn eigen versie.
+admin-backup-restore-needs-superuser = Bij het herstellen van een back-up van een eerdere versie wordt een tijdelijke database opgebouwd zoals bij een nieuwe installatie, dus de databaserol moet een superuser zijn, net als bij een nieuwe installatie. Er is niets gewijzigd. Raadpleeg de handleiding voor back-up en herstel.
+admin-backup-restore-in-progress = Er loopt al een ander herstel van deze server. Wacht tot het klaar is en controleer het resultaat voordat u opnieuw herstelt.
+admin-backup-restore-replaced-tables = Deze tabellen zijn na Nosdesk { $from } toegevoegd, dus de back-up bevat er niets voor. Herstellen vervangt hun huidige rijen, en instellingen daarin keren terug naar hun standaardwaarden:
 admin-backup-decryption-password-label = Ontsleutelwachtwoord
 admin-backup-decryption-password-placeholder = Voer het versleutelwachtwoord van de back-up in
 admin-backup-restore-warning = Herstellen vervangt bestaande bestanden. Deze actie kan niet ongedaan worden gemaakt.
@@ -2261,7 +2336,8 @@ admin-msgraph-modal-description = Selecteer de gegevens die u uit Microsoft Grap
 admin-msgraph-entity-users-name = Gebruikers
 admin-msgraph-entity-users-description = Importeer gebruikersaccounts en profielen uit Microsoft Entra ID
 admin-msgraph-entity-devices-name = Apparaten
-admin-msgraph-entity-devices-description = Importeer beheerde apparaten uit Microsoft Intune met gebruikerstoewijzingen
+# TODO native-review nl-NL for the key below.
+admin-msgraph-entity-devices-description = Importeer apparaten die in Microsoft Entra ID zijn geregistreerd
 admin-msgraph-entity-groups-name = Groepen
 admin-msgraph-entity-groups-description = Importeer beveiligings- en distributiegroepen uit Microsoft Entra ID
 admin-msgraph-modal-info = Synchronisatie haalt de nieuwste gegevens op uit Microsoft-services. Dit kan enkele minuten duren afhankelijk van het volume.
@@ -2473,6 +2549,11 @@ admin-webhooks-event-documentation-updated = Documentatie bijgewerkt
 admin-webhooks-event-user-created = Gebruiker aangemaakt
 admin-webhooks-event-user-updated = Gebruiker bijgewerkt
 admin-webhooks-event-user-deleted = Gebruiker verwijderd
+# TODO native-review nl-NL for the webhook event keys below.
+admin-webhooks-event-ticket-sla-breached = SLA van ticket overschreden
+admin-webhooks-event-asset-created = Apparaat aangemaakt
+admin-webhooks-event-asset-deleted = Apparaat verwijderd
+admin-webhooks-event-documentation-created = Documentatie aangemaakt
 
 # Users list (UsersListView): people directory with role filter,
 # bulk role change, and bulk delete.
@@ -2549,6 +2630,23 @@ user-mgmt-bulk-delete-message = { $count ->
    *[other] { $count } gebruikers verwijderen? Deze kunnen 30 dagen worden hersteld voordat ze permanent worden verwijderd.
 }
 user-mgmt-bulk-action-error = Bulkactie mislukt. Probeer het opnieuw.
+# TODO native-review nl-NL for the bulk delete outcome keys below.
+user-mgmt-bulk-deleted = { $count ->
+    [one] Eén gebruiker verwijderd. U kunt deze 30 dagen lang herstellen via Verwijderd.
+   *[other] { $count } gebruikers verwijderd. U kunt ze 30 dagen lang herstellen via Verwijderd.
+}
+user-mgmt-bulk-skipped-admin = { $count ->
+    [one] Eén beheerder is niet verwijderd. Wijzig eerst de rol en verwijder daarna.
+   *[other] { $count } beheerders zijn niet verwijderd. Wijzig eerst hun rol en verwijder daarna.
+}
+user-mgmt-bulk-skipped-staff = { $count ->
+    [one] Eén medewerker wordt beheerd in uw Nosdesk-account en is hier dus niet verwijderd.
+   *[other] { $count } medewerkers worden beheerd in uw Nosdesk-account en zijn hier dus niet verwijderd.
+}
+user-mgmt-bulk-delete-failed = { $count ->
+    [one] Eén gebruiker kon niet worden verwijderd. Probeer het opnieuw.
+   *[other] { $count } gebruikers konden niet worden verwijderd. Probeer het opnieuw.
+}
 # TODO native-review nl-NL for the soft-delete keys below.
 user-mgmt-deleted-off = Verwijderde tonen
 user-mgmt-deleted-on = Verwijderde verbergen
@@ -2740,6 +2838,10 @@ assets-list-column-location = Locatie
 assets-list-column-user = Gebruiker
 assets-list-column-status = Status
 assets-list-column-warranty = Garantie
+# MACHINE TRANSLATION, pending native review
+assets-list-columns-attributes = Kenmerken
+assets-list-attribute-yes = Ja
+assets-list-attribute-no = Nee
 
 assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock
@@ -2787,6 +2889,8 @@ asset-detail-error-create = Aanmaken van activum mislukt. Probeer het opnieuw.
 asset-detail-error-delete = Verwijderen van activum mislukt. Probeer het opnieuw.
 asset-detail-error-unmanage = Beheer opheffen mislukt. Probeer het opnieuw.
 asset-detail-section-details = Activumgegevens
+asset-detail-section-notes = Notities
+asset-detail-notes-placeholder = Notities over dit activum toevoegen
 asset-detail-section-kind = Activatype
 asset-detail-field-kind = Type
 # Machinevertaling, te controleren door moedertaalspreker.
@@ -3303,6 +3407,10 @@ doc-detail-copied = Gekopieerd
 doc-detail-untitled = Naamloos
 doc-detail-status-draft = Concept
 doc-detail-status-archived = Gearchiveerd
+# Machine translation, pending native review
+doc-detail-status-published = Gepubliceerd
+doc-detail-draft-strip-title = Concept
+doc-detail-draft-strip-body = Alleen medewerkers tot publicatie.
 doc-detail-needs-verification = Verificatie nodig
 doc-detail-needs-verification-title = Deze pagina verifiëren
 doc-detail-verification-stale = Verificatie verouderd
@@ -3356,7 +3464,6 @@ collection-page-count = { $count ->
    }
 collection-delete-title = { $name } verwijderen?
 collection-delete-title-fallback = Collectie verwijderen?
-collection-delete-message = De pagina's in deze collectie worden niet verwijderd.
 collection-delete-confirm = Verwijderen
 
 # CSV import (CsvImportView): admin page for importing users,
@@ -3392,7 +3499,10 @@ csv-import-summary-rows = Rows in file
 csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
 csv-import-summary-create = Will create
 csv-import-summary-update = Will update
-csv-import-errors-heading = { $count } row(s) have errors
+csv-import-errors-heading = { $count ->
+    [one] 1 rij bevat fouten en wordt overgeslagen
+   *[other] { $count } rijen bevatten fouten en worden overgeslagen
+}
 csv-import-errors-truncated = showing first 100
 csv-import-errors-row = Row
 csv-import-errors-column = Column
@@ -3404,7 +3514,14 @@ csv-import-action-view-assets = View assets
 csv-import-action-view-users = View users
 csv-import-action-view-tickets = View tickets
 csv-import-done-heading = Import complete
-csv-import-done-body = { $count } row(s) committed.
+csv-import-done-body = { $count ->
+    [one] 1 rij geïmporteerd.
+   *[other] { $count } rijen geïmporteerd.
+}
+csv-import-done-skipped = { $count ->
+    [one] 1 rij is overgeslagen omdat deze fouten bevatte.
+   *[other] { $count } rijen zijn overgeslagen omdat ze fouten bevatten.
+}
 csv-import-error-generic = Import failed. Check the file and try again.
 csv-import-error-commit-failed = Apply failed; rows were not committed.
 csv-import-action-import = Gegevens importeren
@@ -3576,6 +3693,9 @@ editor-toolbar-numbered-list = Genummerde lijst
 editor-toolbar-insert = Invoegen
 editor-toolbar-undo = Ongedaan maken
 editor-toolbar-redo = Opnieuw uitvoeren
+# Machine translation, pending native review
+editor-toolbar-done = Gereed
+editor-toolbar-label = Opmaak
 editor-toolbar-revision-history = Revisiegeschiedenis
 editor-toolbar-editing-with = Bewerken met:
 editor-toolbar-connection-connecting = Verbinden...
@@ -4120,7 +4240,6 @@ docs-collection-browser-new = Nieuw
 docs-collection-browser-name-placeholder = Naam van de collectie...
 docs-collection-browser-cancel = Annuleren
 docs-collection-browser-create = Aanmaken
-docs-collection-browser-loading-label = Collecties laden
 docs-collection-browser-pages = { $count ->
     [one] { $count } pagina
    *[other] { $count } pagina's
@@ -4148,12 +4267,16 @@ docs-collection-tree-list-empty = Nog geen pagina's in deze collectie.
 
 # Docs: zichtbaarheid collectie (CollectionVisibilityModal)
 docs-collection-visibility-title = Toegang tot collectie
-docs-collection-visibility-description = Selecteer welke groepen en gebruikers toegang hebben tot deze collectie. Een lege selectie maakt de collectie openbaar (zichtbaar voor iedereen).
+docs-collection-visibility-description = Kies wie deze collectie kan openen.
 docs-collection-visibility-public = Openbaar, zichtbaar voor alle gebruikers
 docs-collection-visibility-picker-placeholder = Zoek gebruikers en groepen...
 docs-collection-visibility-cancel = Annuleren
 docs-collection-visibility-save = Opslaan
 docs-collection-visibility-saving = Opslaan...
+docs-access-label = Wie het kan openen
+docs-access-everyone = Iedereen in de werkruimte
+docs-access-chosen = Alleen gekozen personen en groepen
+docs-access-admins-only = Alleen beheerders kunnen het openen totdat je personen of groepen toevoegt.
 
 # Gedeelde toewijzingskiezer (AssignmentPicker)
 assignment-picker-loading = Zoeken…
@@ -4312,9 +4435,6 @@ docs-collection-appearance-open-aria = Pictogram en kleur van collectie wijzigen
 docs-edit-collection-description = Korte omschrijving
 docs-edit-collection-description-placeholder = Optionele tagline boven het overzicht van de collectie
 docs-edit-collection-description-help = Het volledige overzicht bewerk je rechtstreeks op de landingspagina van de collectie.
-docs-edit-collection-hide-titles-aria = Paginatitels verbergen voor niet-leden
-docs-edit-collection-hide-titles-label = Paginatitels verbergen voor niet-leden
-docs-edit-collection-hide-titles-help = Wikilinks tussen collecties tonen "Beperkte pagina" voor lezers zonder toegang, in plaats van de titel te lekken. Aanbevolen voor gevoelige collecties.
 docs-edit-collection-require-verification-aria = Verificatie vereisen voor pagina's in deze collectie
 docs-edit-collection-require-verification-label = Verificatie vereisen
 docs-edit-collection-require-verification-help = Niet-geverifieerde pagina's tonen een "verificatie vereist"-melding. Gebruik voor compliance-inhoud zoals beleid en procedures. Standaard uit, een niet-geverifieerde pagina blijft neutraal.
@@ -4717,16 +4837,18 @@ asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (t
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
 # MACHINE TRANSLATION, pending native review
-asset-media-heading = Foto's
+asset-media-heading = Foto's en bestanden
 asset-media-description = Foto's worden bij deze asset bewaard en zijn zichtbaar voor leden van de werkruimte.
-asset-media-add = Foto's toevoegen
+asset-media-add = Foto's of bestanden toevoegen
 asset-media-loading = Foto's laden…
-asset-media-empty-title = Geen foto's bijgevoegd
-asset-media-empty-description = Voeg referentiefoto's toe van materialen, apparatuur, voertuigen, labels of opslaglocaties.
+asset-media-empty-title = Geen foto's of bestanden bijgevoegd
+asset-media-empty-description = Voeg referentiefoto's toe, of documenten zoals servicerapporten, facturen en handleidingen (PDF, Office, tekst).
 asset-media-load-failed = Laden van assetfoto's mislukt
-asset-media-upload-failed = Uploaden van assetfoto's mislukt
-asset-media-delete-failed = Verwijderen van assetfoto mislukt
+asset-media-upload-failed = Uploaden van assetbestanden mislukt
+asset-media-delete-failed = Verwijderen van assetbestand mislukt
 asset-media-delete-aria = { $name } verwijderen
+asset-media-download-aria = { $name } downloaden
+asset-media-files-heading = Bestanden
 
 # Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
 asset-status-in-service = In gebruik
@@ -4744,7 +4866,8 @@ asset-lifecycle-heading = Levenscyclus
 asset-lifecycle-description = Volg operationele statuswijzigingen zoals reparaties, uitleningen en buiten gebruikstelling.
 asset-lifecycle-current-label = Huidige status
 asset-lifecycle-change-status = Status wijzigen
-asset-lifecycle-correct-status = Status corrigeren
+# MT: pending native review
+asset-lifecycle-disposed-final = Afvoer is definitief
 # MT: pending native review
 asset-lifecycle-managed-by-loan = Beheerd door de actieve uitlening
 # MT: pending native review
@@ -4806,6 +4929,8 @@ asset-loan-loaned-relative = Uitgeleend { $when }
 asset-loan-ticket = Ticket #{ $id }
 # MT: pending native review
 asset-loan-unknown-borrower = Onbekende lener
+# MT: pending native review
+asset-loan-deleted-borrower = Verwijderde gebruiker
 # MT: pending native review
 asset-loan-due-overdue = Te laat
 # MT: pending native review
@@ -5036,7 +5161,8 @@ admin-groups-config-no-users-found = Geen gebruikers gevonden
 admin-groups-config-no-devices-found = Geen activa gevonden
 admin-groups-config-no-groups-found = Geen groepen gevonden
 admin-groups-config-synced-badge = Gesynchroniseerd
-admin-groups-config-synced-intune-tooltip = Gesynchroniseerd vanaf Microsoft Intune
+# TODO native-review nl-NL for the key below.
+admin-groups-config-synced-intune-tooltip = Gesynchroniseerd vanaf Microsoft Entra ID
 admin-groups-config-selected-count = { $count } geselecteerd
 admin-groups-config-member-count = { $count ->
     [one] { $count } lid
@@ -5913,6 +6039,8 @@ tickets-collaborative-article-open-doc = Gekoppeld document openen
 tickets-collaborative-article-promote-confirm-title = Notitie promoveren naar document?
 tickets-collaborative-article-promote-confirm-message = Hiermee wordt de inhoud van de notitie naar een nieuw document verplaatst en wordt de notitie vervangen door een insluiting ervan. Het document opent in volledig scherm en het ticket blijft het inline tonen.
 tickets-collaborative-article-promote-confirm-label = Promoveren
+# Notitie behouden (machine, nog na te kijken door moedertaalspreker).
+tickets-collaborative-article-promote-note-kept = Je notitie is op het ticket gebleven, omdat het document de laatste wijzigingen miste.
 tickets-project-info-remove = Uit project verwijderen
 tickets-project-info-description = Beschrijving
 tickets-project-info-project-id = Project-ID
@@ -6164,6 +6292,9 @@ admin-ldap-saving = Opslaan…
 admin-ldap-saved = LDAP-instellingen opgeslagen
 admin-ldap-error-load = Laden van LDAP-instellingen mislukt
 admin-ldap-error-save = Opslaan van LDAP-instellingen mislukt
+admin-ldap-save-needs-numbers = Vul de poort, time-out en paginagrootte in om op te slaan.
+admin-ldap-save-needs-host = Voeg een host toe om op te slaan terwijl de integratie aan staat.
+admin-ldap-save-needs-base-dn = Voeg een basis-DN voor gebruikers toe om op te slaan terwijl de integratie aan staat.
 admin-ldap-error-sync = Synchronisatie mislukt; raadpleeg de serverlogboeken
 admin-ldap-section-status = Synchronisatie en status
 admin-ldap-mode-incremental = Incrementele synchronisatie actief
@@ -6584,13 +6715,24 @@ user-settings-account-setup-pending = In afwachting
 user-settings-invitation-pending = Uitnodiging in afwachting
 user-settings-resend-invitation-title = Uitnodigingsmail opnieuw sturen
 user-settings-danger-zone-title = Gevarenzone
-user-settings-danger-zone-subtitle = Onomkeerbare en destructieve acties
+# TODO native-review nl-NL for the account-deletion keys below.
+user-settings-danger-zone-subtitle = Acties die toegang of gegevens verwijderen
 user-settings-delete-modal-title = Accountverwijdering bevestigen
 user-settings-delete-item-profile = Profielinformatie en instellingen
 user-settings-delete-item-tickets = Alle tickets gemaakt door of toegewezen aan deze gebruiker
 user-settings-delete-item-comments = Reacties en activiteitengeschiedenis
 user-settings-delete-item-access = Toegang tot alle systemen en bronnen
-user-settings-password-placeholder = Voer je wachtwoord in
+user-settings-delete-user-title = Gebruikersaccount verwijderen
+user-settings-delete-user-description = Meldt { $name } af en blokkeert de toegang direct. Het account wordt na 30 dagen definitief verwijderd, tenzij een beheerder het herstelt.
+user-settings-delete-button = Account verwijderen
+user-settings-delete-self-hint = Vraag de beheerder van je werkruimte om je account te verwijderen.
+user-settings-delete-modal-warning = { $name } verliest direct de toegang. Het account wordt na 30 dagen definitief verwijderd en een beheerder kan het tot die tijd herstellen.
+user-settings-delete-modal-removes = Na 30 dagen wordt het volgende definitief verwijderd:
+user-settings-delete-stepup-password = Voer je wachtwoord in om te bevestigen
+user-settings-delete-stepup-mfa = Voer ter bevestiging een code uit je authenticator-app of een back-upcode in
+user-settings-delete-cancel = Annuleren
+user-settings-delete-confirm = Account verwijderen
+user-settings-delete-error = Kan het account niet verwijderen. Probeer het opnieuw.
 admin-plugins-list-title = Plug-ins
 admin-plugins-list-aria-filter = Plug-ins filteren
 admin-plugins-list-search-placeholder = Plug-ins zoeken

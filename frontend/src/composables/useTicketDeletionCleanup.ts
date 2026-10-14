@@ -55,15 +55,16 @@ export function useTicketDeletionCleanup(): void {
   const ticketsStore = useSyncTicketsStore()
 
   // `number` comes from the delete event; an older server's carries none,
-  // and its routes carry the id.
-  const cleanupTicket = (id: number, number: number = id) => {
+  // and its routes carry the id. `priorUuid` is the uuid of the row the pool
+  // held before the delete (`SyncAction.prior`).
+  const cleanupTicket = (id: number, number: number = id, priorUuid?: string) => {
     // Fire-and-forget; purgeData awaits IDB but we don't gate anything
     // on it. The docId is keyed by the ticket's immutable UUID (see
-    // utils/collabDocId.ts), so we resolve it from the pool. Best-effort:
-    // if the pool row is already gone the orphaned cache is harmless (its
-    // UUID never recycles) and the LRU prune reclaims it.
+    // utils/collabDocId.ts). The delete has already removed the pool row by
+    // the time this runs, so the uuid comes from the row it removed, and
+    // from the pool only when that is missing.
     const uuid = workspaces.activeWorkspace?.workspace_uuid
-    const ticketUuid = ticketsStore.byId(id).value?.uuid
+    const ticketUuid = priorUuid ?? ticketsStore.byId(id).value?.uuid
     if (uuid && ticketUuid) {
       void collab.purgeData(buildCollabDocId(uuid, 'ticket', ticketUuid))
     }
@@ -94,7 +95,14 @@ export function useTicketDeletionCleanup(): void {
         if (action.op !== 'D') continue
         const id = Number(action.aggregate_id)
         const number = (action.data as { number?: unknown } | null)?.number
-        if (Number.isFinite(id)) cleanupTicket(id, typeof number === 'number' ? number : id)
+        const priorUuid = action.prior?.uuid
+        if (Number.isFinite(id)) {
+          cleanupTicket(
+            id,
+            typeof number === 'number' ? number : id,
+            typeof priorUuid === 'string' ? priorUuid : undefined,
+          )
+        }
       }
     },
     { aggregates: ['ticket'] },

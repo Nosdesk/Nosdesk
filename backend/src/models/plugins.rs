@@ -417,6 +417,8 @@ pub struct PluginData {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub workspace_id: i32,
+    /// Bumped on every write; storage compare-and-set checks it.
+    pub version: i64,
 }
 
 impl PluginData {

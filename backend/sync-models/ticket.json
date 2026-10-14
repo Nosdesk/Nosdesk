@@ -35,10 +35,14 @@
     { "type": "ticket.merged", "op": "U" },
     { "type": "ticket.merged_into", "op": "U" },
     { "type": "ticket.merge_notice_sent", "op": "U" },
-    { "type": "ticket.linked", "op": "U" },
-    { "type": "ticket.unlinked", "op": "U" },
     { "type": "ticket.sla_updated", "op": "U" },
-    { "type": "ticket.sla_breached", "op": "U" }
+    { "type": "ticket.sla_breached", "op": "U" },
+    { "type": "ticket.tags_changed", "op": "U" },
+    { "type": "ticket.rated", "op": "U" },
+    { "type": "ticket.rule_applied", "op": "U" },
+    { "type": "ticket.watcher_added", "op": "U" },
+    { "type": "ticket.watcher_removed", "op": "U" },
+    { "type": "ticket.watcher_pref_changed", "op": "U" }
   ],
   "groups": [
     "workspace:1",

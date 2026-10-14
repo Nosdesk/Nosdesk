@@ -81,11 +81,16 @@ fn insert_page(
         .expect("insert page")
 }
 
-/// Give the page an explicit visibility override naming somebody else, which
-/// is the cheapest way to make `can_user_access_page` say no: any override at
-/// all switches the page from "inherit" to "listed users and groups only".
+/// Give the page its own rules naming somebody else, which is the cheapest
+/// way to make the page rule say no: a restricted page is open only to the
+/// users and groups listed.
 fn restrict_page_to(conn: &mut DbConnection, page_id: i32, workspace_id: i32, grantee: uuid::Uuid) {
     use backend::schema::documentation_page_visibility as v;
+    use backend::schema::documentation_pages as p;
+    diesel::update(p::table.find(page_id))
+        .set(p::restricted.eq(true))
+        .execute(conn)
+        .expect("restrict page");
     diesel::insert_into(v::table)
         .values((
             v::page_id.eq(page_id),
@@ -153,6 +158,7 @@ fn an_export_omits_an_embedded_page_the_reader_cannot_open() {
         PageAudience::User {
             user_uuid: f.reader,
             is_admin: false,
+            is_staff: false,
         },
     );
 
@@ -183,6 +189,7 @@ fn an_export_includes_an_embedded_page_the_reader_can_open() {
         PageAudience::User {
             user_uuid: f.reader,
             is_admin: true,
+            is_staff: true,
         },
     );
 

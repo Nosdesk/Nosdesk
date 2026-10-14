@@ -57,8 +57,20 @@ export interface DocCollectionRow {
   description_text: string | null
   hide_titles_from_non_members: boolean
   require_verification: boolean
+  /** Open only to `grants`; admins only when there are none. */
+  restricted: boolean
+  /**
+   * Who a restricted collection is open to: groups by id and name, people
+   * by uuid (named from the pool's `user` rows). Empty when open.
+   */
+  grants: DocCollectionGrants
   created_at: string
   updated_at: string
+}
+
+export interface DocCollectionGrants {
+  groups: Array<{ id: number; name: string }>
+  users: string[]
 }
 
 /** A page plus its child subtree (parent_id linkage). */

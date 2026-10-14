@@ -534,13 +534,18 @@ impl From<PluginData> for PluginSettingResponse {
 pub struct SetPluginDataRequest {
     pub key: String,
     pub value: serde_json::Value,
+    /// Storage only: write only if the entry is still at this version (0 =
+    /// the key must not exist yet). Absent = unconditional write.
+    #[serde(default)]
+    pub expected_version: Option<i64>,
 }
 
-/// Plugin storage response
+/// Plugin storage response. `version` is 0 for a key that isn't set.
 #[derive(Debug, Serialize)]
 pub struct PluginStorageResponse {
     pub key: String,
     pub value: Option<serde_json::Value>,
+    pub version: i64,
 }
 
 impl From<PluginData> for PluginStorageResponse {
@@ -548,6 +553,7 @@ impl From<PluginData> for PluginStorageResponse {
         PluginStorageResponse {
             key: d.key,
             value: d.value,
+            version: d.version,
         }
     }
 }

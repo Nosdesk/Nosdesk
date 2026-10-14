@@ -1,13 +1,15 @@
 //! Lists that live in more than one layer agree. Priorities: the Rust enum,
 //! the database enum and the app's `PRIORITY_OPTIONS` name the same five
 //! values, and the app lists them most severe first, the reverse of
-//! `TicketPriority::ALL`.
+//! `TicketPriority::ALL`. Webhook events: the admin UI's `WEBHOOK_EVENTS`
+//! offers exactly the names the API accepts.
 
 use diesel::prelude::*;
 use diesel::sql_types::Text;
 use regex::Regex;
 
 use backend::models::TicketPriority;
+use backend::services::webhooks::WebhookEventType;
 
 use crate::common;
 
@@ -50,4 +52,25 @@ fn priorities_agree_across_layers() {
         app, most_severe_first,
         "PRIORITY_OPTIONS, most severe first"
     );
+}
+
+#[test]
+fn webhook_events_agree_across_layers() {
+    let mut api: Vec<&str> = WebhookEventType::all();
+    api.sort();
+
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../packages/core/src/types/webhook.ts");
+    let ts = std::fs::read_to_string(&path).expect("read webhook.ts");
+    let start = ts
+        .find("export const WEBHOOK_EVENTS")
+        .expect("WEBHOOK_EVENTS");
+    let body = &ts[start..start + ts[start..].find("];").expect("end of the list")];
+    let mut app: Vec<String> = Regex::new(r#"value:\s*["']([\w.]+)["']"#)
+        .expect("pattern")
+        .captures_iter(body)
+        .map(|c| c[1].to_string())
+        .collect();
+    app.sort();
+    assert_eq!(app, api, "WEBHOOK_EVENTS against WebhookEventType::all()");
 }

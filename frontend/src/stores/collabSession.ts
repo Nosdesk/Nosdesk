@@ -45,6 +45,7 @@ import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData
 import { collabWsBaseUrl } from '@nosdesk/core/transport'
 import { sessionGone } from '@nosdesk/core/services/session'
 import { discardCollabToken, getCollabToken, peekCollabToken } from '@/services/collabToken'
+import { retryDelay } from '@nosdesk/core/retryDelay'
 
 /**
  * How long after refcount hits 0 we keep the websocket open
@@ -157,6 +158,8 @@ interface LinkState {
   /** Connected since the last deliberate disconnect, so not connecting
    *  again means the connection dropped. */
   everConnected: boolean
+  /** The `wakes` count when the current connect started. */
+  startedAtWake: number
   /** Recompute the doc's status; set by the store. */
   changed: () => void
 }
@@ -175,6 +178,7 @@ function linkState(provider: WebsocketProvider): LinkState {
       refusal: null,
       retriedToken: false,
       everConnected: false,
+      startedAtWake: -1,
       changed: () => {},
     }
     linkStates.set(provider, state)
@@ -204,9 +208,11 @@ function deriveConnectionStatus(provider: WebsocketProvider): ConnectionStatus {
 }
 
 /** Backoff between token fetches after a failed one: the first retry soon
- *  (an API blip), then further apart, so an outage can't become a tight loop. */
+ *  (an API blip), then further apart, so an outage can't become a tight loop.
+ *  It tops out at 30 s while the browser says it is offline (its `online`
+ *  event cuts the wait short), else at 5 to 8 s (`retryDelay`): a link can
+ *  come back with no event at all, and then only a retry finds out. */
 const TOKEN_RETRY_FIRST_MS = 2000
-const TOKEN_RETRY_MAX_MS = 30_000
 
 /** Providers torn down by `evict`; a token fetch that finishes afterwards
  *  must not reconnect them. */
@@ -241,6 +247,7 @@ async function connectWithValidToken(provider: WebsocketProvider): Promise<void>
   stopConnecting(provider)
   const link = linkState(provider)
   const attempt = link.attempt
+  link.startedAtWake = wakes
   // A connect started again: an earlier terminal close no longer stands.
   link.terminal = false
   link.refusal = null
@@ -297,7 +304,7 @@ function retryTokenLater(provider: WebsocketProvider): void {
   if (link.retryTimer) clearTimeout(link.retryTimer)
   provider.shouldConnect = false
   link.tokenPending = true
-  const delay = Math.min(TOKEN_RETRY_MAX_MS, TOKEN_RETRY_FIRST_MS * 2 ** link.tokenFailures)
+  const delay = retryDelay(link.tokenFailures, TOKEN_RETRY_FIRST_MS, isOffline())
   link.tokenFailures++
   link.retryTimer = setTimeout(() => {
     link.retryTimer = null
@@ -360,10 +367,46 @@ interface SessionEntry {
  */
 const sessions = new Map<string, SessionEntry>()
 
-/** Fetch a token now for every doc waiting to retry one. */
-function retryPendingTokens(): void {
+/** When the device last went offline, while it still is; null once back. */
+let offlineSince: number | null = null
+/** Counts coming back online and showing the tab, so a connect started
+ *  since the latest one isn't started over again. */
+let wakes = 0
+
+/**
+ * Back online, or the tab shown again: every doc that should be connected
+ * tries now, whatever it was waiting on. A pending token retry or y-websocket
+ * reconnect is cut short, a token fetch or dial still on its way from before
+ * (which may never answer) is dropped, and a socket that has heard nothing
+ * since the device went offline is redialled. Both backoffs start over, so a
+ * failure after this is retried soon rather than at the outage's 30 s cap.
+ * Every doc asks for one shared token fetch.
+ */
+function reconnectNow(): void {
+  // A tab shown while still offline waits for `online`.
+  if (isOffline()) return
   for (const entry of sessions.values()) {
-    if (linkState(entry.provider).retryTimer) void connectWithValidToken(entry.provider)
+    const { provider } = entry
+    const link = linkState(provider)
+    // Refused for good, or let go while the tab was hidden (shown again,
+    // `reconnectShownTab` reconnects those).
+    if (link.terminal || hiddenTabProviders.has(provider)) continue
+    const wanted = provider.shouldConnect || link.tokenPending || link.retryTimer !== null
+    if (!wanted) continue
+    // Already started since this wake (a shown tab's reconnect): let it run.
+    if (link.startedAtWake === wakes && link.retryTimer === null && !provider.wsconnected) continue
+    const silentSinceOffline =
+      offlineSince !== null && provider.wsLastMessageReceived <= offlineSince
+    if (provider.wsconnected && !silentSinceOffline) continue
+    link.tokenFailures = 0
+    stopConnecting(provider)
+    // A socket still connecting, or one that went quiet, is closed first so
+    // the new dial isn't a no-op. Closed with `shouldConnect` off, so its
+    // `connection-close` doesn't start a connect of its own.
+    if (provider.ws) provider.disconnect()
+    // After the close, which counts one failed attempt of its own.
+    provider.wsUnsuccessfulReconnects = 0
+    void connectWithValidToken(provider)
   }
 }
 
@@ -418,7 +461,29 @@ if (typeof document !== 'undefined') {
     }
     if (hiddenTabTimer) clearTimeout(hiddenTabTimer)
     hiddenTabTimer = null
+    wakes++
     reconnectShownTab()
+    reconnectNow()
+  })
+}
+
+// Going offline or back online changes every doc's status at once. Back
+// online, every doc reconnects straight away (`reconnectNow`).
+if (typeof window !== 'undefined') {
+  const refreshAll = () => {
+    for (const { provider } of sessions.values()) linkState(provider).changed()
+  }
+  // `collabToken` (imported above) registers its own `online` listener first,
+  // so the token fetch these connects share is already a fresh one.
+  window.addEventListener('online', () => {
+    wakes++
+    reconnectNow()
+    offlineSince = null
+    refreshAll()
+  })
+  window.addEventListener('offline', () => {
+    offlineSince ??= Date.now()
+    refreshAll()
   })
 }
 
@@ -695,19 +760,6 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       },
       due === 'reconnecting' ? RECONNECT_GRACE_MS : SLOW_CONNECT_MS,
     )
-  }
-
-  // Going offline or back online changes every doc's status at once. Back
-  // online, a doc waiting to retry its token fetch tries again straight away.
-  if (typeof window !== 'undefined') {
-    const refreshAll = () => {
-      for (const entry of sessions.values()) refreshStatus(entry)
-    }
-    window.addEventListener('online', () => {
-      retryPendingTokens()
-      refreshAll()
-    })
-    window.addEventListener('offline', refreshAll)
   }
 
   function refreshSnapshot(): void {

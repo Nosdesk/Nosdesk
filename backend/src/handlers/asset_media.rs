@@ -1,8 +1,9 @@
 //! Asset media endpoints.
 //!
-//! Asset photos live outside the ticket-comment attachment model so
-//! authorization, storage paths, and sync visibility can follow asset
-//! ownership directly instead of borrowing ticket/comment semantics.
+//! Asset photos and documents (service reports, invoices) live outside the
+//! ticket-comment attachment model so authorization, storage paths, and sync
+//! visibility can follow asset ownership directly instead of borrowing
+//! ticket/comment semantics.
 
 use std::sync::Arc;
 
@@ -21,11 +22,103 @@ use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::handlers::files::{authorize_at_owning_workspace, serve_or_not_found};
 use crate::models::{AssetMediaUpdate, NewAssetMedia};
 use crate::repository::{asset_media as repo, assets as assets_repo};
-use crate::utils::file_validation::FileValidator;
+use crate::utils::file_validation::{get_max_file_size, FileValidator};
 use crate::utils::image::generate_asset_media_thumbnail;
 use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
 
 const ASSET_MEDIA_THUMB_SIZE: u32 = 320;
+const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
+const MAX_DOCUMENT_SIZE: usize = 25 * 1024 * 1024;
+
+const DOCX: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const XLSX: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const PPTX: &str = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const ODT: &str = "application/vnd.oasis.opendocument.text";
+const ODS: &str = "application/vnd.oasis.opendocument.spreadsheet";
+const ODP: &str = "application/vnd.oasis.opendocument.presentation";
+const ZIP: &str = "application/zip";
+const OLE: &str = "application/x-ole-storage";
+/// What `FileValidator::validate_file` reports when no signature matches.
+const UNKNOWN: &str = "application/octet-stream";
+
+/// Document types an asset accepts besides images: extension, the MIME it is
+/// stored as, and the magic-byte MIMEs its content may sniff as. Office files
+/// are ZIP or OLE containers, which the sniffer can report generically; text
+/// formats have no signature at all.
+const DOCUMENT_TYPES: &[(&str, &str, &[&str])] = &[
+    ("pdf", "application/pdf", &["application/pdf"]),
+    ("doc", "application/msword", &["application/msword", OLE]),
+    ("docx", DOCX, &[DOCX, ZIP]),
+    (
+        "xls",
+        "application/vnd.ms-excel",
+        &["application/vnd.ms-excel", OLE],
+    ),
+    ("xlsx", XLSX, &[XLSX, ZIP]),
+    (
+        "ppt",
+        "application/vnd.ms-powerpoint",
+        &["application/vnd.ms-powerpoint", OLE],
+    ),
+    ("pptx", PPTX, &[PPTX, ZIP]),
+    ("odt", ODT, &[ODT, ZIP]),
+    ("ods", ODS, &[ODS, ZIP]),
+    ("odp", ODP, &[ODP, ZIP]),
+    ("rtf", "application/rtf", &["application/rtf"]),
+    ("txt", "text/plain", &[UNKNOWN]),
+    ("csv", "text/csv", &[UNKNOWN]),
+];
+
+/// The `asset_media.kind` an upload is stored as. Only photos get a thumbnail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MediaKind {
+    Photo,
+    Document,
+}
+
+impl MediaKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            MediaKind::Photo => "photo",
+            MediaKind::Document => "document",
+        }
+    }
+}
+
+/// Classify an upload that already passed `FileValidator::validate_file`.
+/// Images are photos whatever their name; anything else must carry a listed
+/// document extension and sniff as that type. Returns the kind and the MIME
+/// to store, or the refusal message.
+pub(crate) fn classify_upload(
+    bytes: &[u8],
+    detected_mime: &str,
+    filename: &str,
+) -> Result<(MediaKind, String), &'static str> {
+    const REFUSED: &str = "Only images, PDFs, office documents, and text files are allowed";
+    if detected_mime.starts_with("image/") {
+        if bytes.len() > MAX_IMAGE_SIZE {
+            return Err("Image too large (max 10MB)");
+        }
+        return Ok((MediaKind::Photo, detected_mime.to_string()));
+    }
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .ok_or(REFUSED)?;
+    let (_, stored_mime, sniffs_as) = DOCUMENT_TYPES
+        .iter()
+        .find(|(e, _, _)| *e == ext)
+        .ok_or(REFUSED)?;
+    if !sniffs_as.contains(&detected_mime) {
+        return Err(REFUSED);
+    }
+    // No signature to check for text: refuse binary content wearing a .txt.
+    if detected_mime == UNKNOWN && bytes.iter().take(8192).any(|b| *b == 0) {
+        return Err(REFUSED);
+    }
+    Ok((MediaKind::Document, (*stored_mime).to_string()))
+}
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateAssetMediaBody {
@@ -35,11 +128,12 @@ pub struct UpdateAssetMediaBody {
 
 pub async fn list_for_asset(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
     match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::list_for_asset(conn, asset_id)
     }) {
@@ -104,11 +198,14 @@ pub async fn upload_for_asset(
                 error!(error = ?e, "error reading asset media chunk");
                 crate::errors::internal_error("Error reading chunk")
             })?;
-            const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
-            if total_size + data.len() > MAX_IMAGE_SIZE {
-                return Err(crate::errors::bad_request_error(
-                    "File too large (max 10MB)",
-                ));
+            // Documents up to 25MB, within the instance's MAX_FILE_SIZE_MB;
+            // `classify_upload` holds images to 10MB.
+            let max_size = MAX_DOCUMENT_SIZE.min(get_max_file_size());
+            if total_size + data.len() > max_size {
+                return Err(crate::errors::bad_request_error(format!(
+                    "File too large (max {}MB)",
+                    max_size / (1024 * 1024)
+                )));
             }
             total_size += data.len();
             file_data.extend_from_slice(&data);
@@ -119,11 +216,8 @@ pub async fn upload_for_asset(
                 warn!(error = ?e, filename = %sanitized_filename, "asset media validation failed");
                 crate::errors::bad_request_error(format!("Invalid file: {e}"))
             })?;
-        if !detected_mime.starts_with("image/") {
-            return Err(crate::errors::bad_request_error(
-                "Only image files are allowed",
-            ));
-        }
+        let (kind, stored_mime) = classify_upload(&file_data, &detected_mime, &sanitized_filename)
+            .map_err(crate::errors::bad_request_error)?;
 
         let checksum_bytes = digest::digest(&digest::SHA256, &file_data);
         let checksum = checksum_bytes
@@ -135,7 +229,7 @@ pub async fn upload_for_asset(
         let folder = format!("assets/{asset_id}/media");
         let stored_file = storage
             .0
-            .store_file(&file_data, &sanitized_filename, &detected_mime, &folder)
+            .store_file(&file_data, &sanitized_filename, &stored_mime, &folder)
             .await
             .map_err(|e| {
                 error!(asset_id, error = ?e, filename = %sanitized_filename, "failed to store asset media");
@@ -148,9 +242,13 @@ pub async fn upload_for_asset(
             .split_once('_')
             .map(|(stem, _)| stem)
             .unwrap_or(stored_file.id.as_str());
-        let thumbnail_url = if let Some(webp) =
-            generate_asset_media_thumbnail(&file_data, ASSET_MEDIA_THUMB_SIZE).await
-        {
+        let thumbnail = match kind {
+            MediaKind::Photo => {
+                generate_asset_media_thumbnail(&file_data, ASSET_MEDIA_THUMB_SIZE).await
+            }
+            MediaKind::Document => None,
+        };
+        let thumbnail_url = if let Some(webp) = thumbnail {
             let thumb_path = format!("assets/{asset_id}/media/thumb/{thumb_stem}.webp");
             match storage.0.put_file(&webp, &thumb_path, "image/webp").await {
                 Ok(_) => Some(format!(
@@ -170,9 +268,9 @@ pub async fn upload_for_asset(
             thumbnail_url,
             name: sanitized_filename,
             file_size: Some(total_size as i64),
-            mime_type: Some(detected_mime),
+            mime_type: Some(stored_mime),
             checksum: Some(checksum),
-            kind: "photo".to_string(),
+            kind: kind.as_str().to_string(),
             sort_order: 0,
             caption: None,
             uploaded_by: Some(auth.user_uuid),
@@ -295,6 +393,10 @@ pub async fn serve_asset_media_file(
         &auth,
         |c| assets_repo::asset_workspace_id(c, asset_id),
         |c, _, _| {
+            // A requester shown no assets reads it as missing.
+            if crate::handlers::assets::assets_hidden_from(c, &auth) {
+                return Ok(None);
+            }
             // Read again under the pin: the asset must be in this workspace.
             Ok(assets_repo::get_device_by_id(c, asset_id)
                 .optional()?
@@ -305,4 +407,55 @@ pub async fn serve_asset_media_file(
 
     let file_path = format!("assets/{asset_id}/media/{filename}");
     serve_or_not_found(storage, &file_path, &req, Caching::Private).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn images_are_photos_whatever_their_name() {
+        let (kind, mime) = classify_upload(b"png", "image/png", "scan.pdf").unwrap();
+        assert_eq!(kind, MediaKind::Photo);
+        assert_eq!(mime, "image/png");
+    }
+
+    #[test]
+    fn oversized_images_are_refused() {
+        let big = vec![0u8; MAX_IMAGE_SIZE + 1];
+        assert!(classify_upload(&big, "image/jpeg", "photo.jpg").is_err());
+    }
+
+    #[test]
+    fn documents_must_sniff_as_their_extension() {
+        let (kind, mime) =
+            classify_upload(b"%PDF-1.7", "application/pdf", "Service-Report.PDF").unwrap();
+        assert_eq!(kind, MediaKind::Document);
+        assert_eq!(mime, "application/pdf");
+
+        // A generic ZIP sniff is fine for OOXML, which is a ZIP container.
+        let (kind, mime) = classify_upload(b"PK", ZIP, "invoice.docx").unwrap();
+        assert_eq!(kind, MediaKind::Document);
+        assert_eq!(mime, DOCX);
+
+        // A PDF renamed .docx, or a ZIP named .pdf, is refused.
+        assert!(classify_upload(b"%PDF", "application/pdf", "invoice.docx").is_err());
+        assert!(classify_upload(b"PK", ZIP, "invoice.pdf").is_err());
+    }
+
+    #[test]
+    fn text_files_need_text_content() {
+        let (kind, mime) = classify_upload(b"serial,date\n1,2", UNKNOWN, "log.csv").unwrap();
+        assert_eq!(kind, MediaKind::Document);
+        assert_eq!(mime, "text/csv");
+        assert!(classify_upload(b"\x7fELF\0\0", UNKNOWN, "notes.txt").is_err());
+    }
+
+    #[test]
+    fn unlisted_types_are_refused() {
+        assert!(classify_upload(b"PK", ZIP, "bundle.zip").is_err());
+        assert!(classify_upload(b"<html>", UNKNOWN, "page.html").is_err());
+        assert!(classify_upload(b"data", UNKNOWN, "no-extension").is_err());
+        assert!(classify_upload(b"ID3", "audio/mpeg", "song.mp3").is_err());
+    }
 }

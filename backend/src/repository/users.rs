@@ -196,6 +196,7 @@ pub fn get_paginated_users(
     search_by: SearchBy,
     role: Option<String>,
     population: Option<Population>,
+    assignable: bool,
     deleted: DeletedFilter,
     workspace_id: i32,
 ) -> Result<(Vec<User>, i64), Error> {
@@ -225,16 +226,23 @@ pub fn get_paginated_users(
         _ => None,
     };
 
-    // Parse role filter — accepts a single role ("admin") or a
-    // comma-separated set ("admin,technician") so the assignee
-    // picker can hit the eligible-staff set in one request instead
-    // of one request per role. "all" stays the no-filter sentinel.
+    // Parse role filter: a single role ("admin") or a comma-separated set
+    // ("technician,audit_reviewer"), as the people list's multi-select sends.
+    // "agent" is the plugin API's word for "technician"; unknown pieces are
+    // dropped. "all" stays the no-filter sentinel.
     let parsed_roles: Vec<String> = match role.as_deref() {
         None => Vec::new(),
         Some("all") => Vec::new(),
         Some(s) => s
             .split(',')
             .map(|piece| piece.trim().to_lowercase())
+            .map(|piece| {
+                if piece == "agent" {
+                    "technician".to_string()
+                } else {
+                    piece
+                }
+            })
             .filter(|piece| !piece.is_empty())
             .filter(|piece| crate::utils::parse_roles(piece).is_ok())
             .collect(),
@@ -362,6 +370,9 @@ pub fn get_paginated_users(
     if let Some(ref filter) = population_sql {
         count_query = count_query.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(filter));
     }
+    if assignable {
+        count_query = count_query.filter(crate::repository::assignees::assignable_in(workspace_id));
+    }
     count_query = match deleted {
         DeletedFilter::Active => count_query.filter(users::deleted_at.is_null()),
         DeletedFilter::Only => count_query.filter(users::deleted_at.is_not_null()),
@@ -381,6 +392,9 @@ pub fn get_paginated_users(
     }
     if let Some(ref filter) = role_sql_filter {
         query = query.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(filter));
+    }
+    if assignable {
+        query = query.filter(crate::repository::assignees::assignable_in(workspace_id));
     }
     query = match deleted {
         DeletedFilter::Active => query.filter(users::deleted_at.is_null()),
@@ -591,6 +605,19 @@ pub fn list_users_pending_purge(
         .load::<User>(conn)
 }
 
+// sync-audit-only: read-only lookup for the purge jobs
+/// The workspace a background purge of this account is recorded in: its
+/// lowest-id membership, removed or not (a soft-deleted user's memberships
+/// may be removed). `None` when it belongs to no workspace. `users` has no
+/// workspace of its own, and the audit trigger needs one.
+// members-any-status: a soft-deleted user's memberships may all be removed; the purge still needs their workspace
+pub fn home_workspace_id(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<Option<i32>, Error> {
+    workspace_members::table
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .select(diesel::dsl::min(workspace_members::workspace_id))
+        .first::<Option<i32>>(conn)
+}
+
 // sync-audit-only: vestigial low-level helper; handlers use sync-wired user_helpers
 /// Hard-delete a user and every row that FK-references them. Only
 /// the retention worker (after the grace window) and the
@@ -731,6 +758,18 @@ pub fn purge_user(
         diesel::update(user_emails::table.filter(user_emails::created_by.eq(user_uuid)))
             .set(user_emails::created_by.eq::<Option<Uuid>>(None))
             .execute(conn)?;
+
+        // 2l. Device loans: return any active loan, restoring the asset's
+        // status. The user delete below then sets the borrower NULL (ON DELETE
+        // SET NULL), so the ledger outlives the account.
+        crate::repository::asset_loans::return_loans_of_purged_borrower(conn, user_uuid).map_err(
+            |e| match e {
+                crate::repository::asset_loans::LoanError::Db(e) => e,
+                other => Error::QueryBuilderError(
+                    format!("releasing the purged borrower's loans: {other:?}").into(),
+                ),
+            },
+        )?;
 
         // === Phase 3: Delete CASCADE tables explicitly (for clarity) ===
         // These would be deleted automatically by CASCADE, but explicit is clearer
@@ -915,6 +954,9 @@ pub fn set_user_roles(
     if authority.refuses_change(&current, workspace_role) {
         return Ok(SetUserRolesOutcome::ExternallyManaged);
     }
+    // The platform role holds in every workspace they belong to; the
+    // workspace role in this one.
+    let access = crate::repository::documentation::doc_access_everywhere(conn, user_uuid)?;
     diesel::update(users::table.find(user_uuid))
         .set((
             users::platform_role.eq(platform_role),
@@ -929,6 +971,8 @@ pub fn set_user_roles(
     )
     .set(workspace_members::role.eq(workspace_role))
     .execute(conn)?;
+    // What this person may open can change with either role.
+    crate::repository::documentation::emit_if_access_changed_everywhere(conn, user_uuid, &access)?;
     Ok(SetUserRolesOutcome::Applied)
 }
 
@@ -1060,6 +1104,7 @@ mod tests {
             SearchBy::NameOrEmail,
             None,
             None,
+            false,
             DeletedFilter::Active,
             crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
         )
@@ -1086,6 +1131,7 @@ mod tests {
             SearchBy::NameOrEmail,
             None,
             None,
+            false,
             DeletedFilter::Only,
             crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
         )
@@ -1116,6 +1162,7 @@ mod tests {
                 SearchBy::NameOrEmail,
                 None,
                 Some(pop),
+                false,
                 DeletedFilter::Active,
                 ws,
             )

@@ -30,7 +30,7 @@ use crate::models::{NewTicket, TicketPriority};
 use crate::repository::tickets as ticket_repo;
 
 use super::csv_parser::ParsedCsv;
-use super::types::{ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS};
+use super::types::{CommitError, ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS};
 
 const HEADERS: &[&str] = &[
     "title",
@@ -87,11 +87,12 @@ impl Importer for TicketImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-    ) -> Result<ImportedRecords, diesel::result::Error> {
+    ) -> Result<ImportedRecords, CommitError> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
-            ));
+            )
+            .into());
         }
         let ctx = ImportContext::load(conn)?;
 

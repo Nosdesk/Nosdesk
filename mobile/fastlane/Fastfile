@@ -8,6 +8,13 @@
 # The app selects its server at runtime, so one build serves any environment.
 # All paths are relative to `mobile/` (where fastlane runs).
 
+# fastlane/README.md is hand-written; don't let fastlane regenerate it.
+skip_docs
+
+# An outdated fastlane prints its whole changelog after every run. Keep the
+# one-line notice (Dependabot keeps the lockfile current); drop the changelog.
+ENV["FASTLANE_HIDE_CHANGELOG"] ||= "1"
+
 APP_ID          = ENV.fetch("APP_IDENTIFIER", "com.nosdesk.app")
 APPLE_PROJECT   = "src-tauri/gen/apple/#{ENV.fetch('APPLE_PROJECT_NAME', 'Nosdesk')}.xcodeproj"
 APPLE_INFO_PLIST = "src-tauri/gen/apple/app_iOS/Info.plist"
@@ -25,17 +32,68 @@ def tauri(*args)
   sh("pnpm", "tauri", *args)
 end
 
+# The marketing version, from the one place Tauri reads it. Lane code runs
+# inside fastlane/, so the path is taken from fastlane's own folder.
+def app_version
+  JSON.parse(File.read(File.join(FastlaneCore::FastlaneFolder.path, "..", "src-tauri", "tauri.conf.json"))).fetch("version")
+end
+
+# Listing text and screenshots are generated in nosdesk-com
+# (apps/marketing/video/store/out/fastlane) and read from there, so the images
+# stay out of this repo. Layout: metadata/<locale>/ and screenshots/<locale>/
+# for iOS, metadata/android/<locale>/ for Play.
+def store_assets
+  dir = File.expand_path(ENV.fetch("STORE_ASSETS_DIR"))
+  UI.user_error!("STORE_ASSETS_DIR has no metadata folder: #{dir}") unless File.directory?(File.join(dir, "metadata"))
+  dir
+end
+
+def asc_api_key
+  app_store_connect_api_key(
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    key_content: ENV.fetch("ASC_KEY_CONTENT"), # base64 of the .p8
+    is_key_content_base64: true,
+  )
+end
+
+# The App Store listing, shared by the metadata and release lanes.
+def deliver_listing(**options)
+  deliver(
+    api_key: asc_api_key,
+    app_version: app_version,
+    metadata_path: File.join(store_assets, "metadata"),
+    screenshots_path: File.join(store_assets, "screenshots"),
+    ignore_language_directory_validation: true, # metadata/android is Play's
+    overwrite_screenshots: true,
+    skip_binary_upload: true,
+    primary_category: "BUSINESS",
+    secondary_category: "PRODUCTIVITY",
+    copyright: "#{Time.now.year} Nosdesk Pty Ltd",
+    precheck_include_in_app_purchases: false,
+    force: true, # no HTML preview prompt
+    # The reviewer's contact and demo account. Sent on every upload: deliver
+    # reads the version's review detail unconditionally, and only this
+    # creates it on a first submission.
+    app_review_information: {
+      first_name: ENV.fetch("REVIEW_FIRST_NAME"),
+      last_name: ENV.fetch("REVIEW_LAST_NAME"),
+      phone_number: ENV.fetch("REVIEW_PHONE"),
+      email_address: ENV.fetch("REVIEW_EMAIL"),
+      demo_user: ENV.fetch("REVIEW_DEMO_USER"),
+      demo_password: ENV.fetch("REVIEW_DEMO_PASSWORD"),
+      notes: ENV.fetch("REVIEW_NOTES", "On the first screen tap Nosdesk Cloud, then sign in with the demo account. It opens a workspace with sample tickets, requesters and devices."),
+    },
+    **options,
+  )
+end
+
 platform :ios do
   desc "Build and upload an iOS build to TestFlight"
   lane :beta do
     setup_ci # ephemeral keychain on hosted runners; a no-op locally
 
-    api_key = app_store_connect_api_key(
-      key_id: ENV.fetch("ASC_KEY_ID"),
-      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
-      key_content: ENV.fetch("ASC_KEY_CONTENT"), # base64 of the .p8
-      is_key_content_base64: true,
-    )
+    api_key = asc_api_key
 
     # Generate the Xcode project (gitignored; xcodegen builds it from
     # project.yml). Required before build on a fresh CI checkout.
@@ -59,11 +117,19 @@ platform :ios do
     )
   end
 
-  desc "Promote the latest TestFlight build to App Store review"
+  desc "Upload the App Store listing (text, categories, screenshots) without submitting"
+  lane :metadata do
+    deliver_listing(submit_for_review: false)
+  end
+
+  desc "Submit TestFlight build BUILD_NUMBER for App Store review, with the listing"
   lane :release do
-    # First submission is done by hand in App Store Connect (listing, privacy,
-    # screenshots). Once the listing exists this can call deliver(...).
-    UI.message("Submit/promote in App Store Connect, or wire deliver() here.")
+    deliver_listing(
+      build_number: ENV.fetch("BUILD_NUMBER"),
+      submit_for_review: true,
+      automatic_release: true,
+      submission_information: { export_compliance_uses_encryption: false, content_rights_contains_third_party_content: false },
+    )
   end
 end
 
@@ -83,16 +149,39 @@ platform :android do
     )
   end
 
+  desc "Upload the Play listing (text, icon, feature graphic, screenshots) without a release"
+  lane :metadata do
+    # supply attaches listing uploads to a release, so it needs a build that
+    # exists on a track: BUILD_NUMBER is the version code, on internal.
+    upload_to_play_store(
+      json_key: ENV.fetch("PLAY_JSON_KEY_PATH"),
+      track: "internal",
+      version_code: ENV.fetch("BUILD_NUMBER"),
+      metadata_path: File.join(store_assets, "metadata", "android"),
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_changelogs: true,
+      sync_image_upload: true,
+    )
+  end
+
   desc "Promote the Play internal track to production"
   lane :promote do
     upload_to_play_store(
       track: "internal",
       track_promote_to: "production",
+      version_code: ENV.fetch("BUILD_NUMBER"),
+      # An app that has never been published only accepts draft releases:
+      # promote with PLAY_RELEASE_STATUS=draft, then send it for review in the
+      # Play Console. After that, completed rolls straight out.
+      track_promote_release_status: ENV.fetch("PLAY_RELEASE_STATUS", "completed"),
       json_key: ENV.fetch("PLAY_JSON_KEY_PATH"),
       skip_upload_apk: true,
       skip_upload_aab: true,
+      # The release notes: changelogs/<version code>.txt, else default.txt.
+      metadata_path: File.join(store_assets, "metadata", "android"),
       skip_upload_metadata: true,
-      skip_upload_changelogs: true,
+      skip_upload_changelogs: false,
       skip_upload_images: true,
       skip_upload_screenshots: true,
     )

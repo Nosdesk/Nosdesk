@@ -167,6 +167,7 @@ import {
 import { highlightTerms } from '@nosdesk/core/utils/highlight';
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue';
 import type { PopoverAnchor } from '@/composables/popoverAnchor';
+import { queryLoadError } from '@/composables/queryLoadError';
 
 
 const { $t } = useFluent();
@@ -224,9 +225,7 @@ const responses = computed<CannedResponseListItem[]>(() =>
 const loading = computed(
   () => listQuery.status.value === 'pending' && listQuery.data.value === undefined,
 );
-const error = computed(() =>
-  listQuery.error.value ? $t('ticket-picker-canned-load-error') : '',
-);
+const error = queryLoadError(listQuery, () => $t('ticket-picker-canned-load-error'));
 
 // Parsed search terms shared by the filter and the hit highlighter.
 const searchTerms = computed<string[]>(() =>

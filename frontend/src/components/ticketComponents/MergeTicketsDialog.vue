@@ -19,6 +19,7 @@ import Checkbox from '@/components/common/Checkbox.vue'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import { mergeTickets } from '@nosdesk/core/services/ticketService'
 import { ticketNumber, ticketPath, ticketPathForId } from '@/utils/ticketNumbers'
+import { mergeDestination } from '@/utils/mergeDestination'
 
 /** Minimal ticket shape the dialog needs. Both the API `Ticket` and the
  *  sync store's `SyncTicket` satisfy it, so the bulk bar can pass either.
@@ -37,7 +38,8 @@ const props = defineProps<{
   open: boolean
   selectedTickets: MergeDialogTicket[]
   /** The ticket the agent is merging into: the one right-clicked, or the
-   *  last one ticked. Defaults to the oldest when absent or not selected. */
+   *  one last ticked on. Defaults to the oldest when absent or not selected
+   *  (see `mergeDestination`). */
   preferredDestinationId?: number | null
 }>()
 
@@ -81,17 +83,6 @@ const destinationOptions = computed(() =>
   props.selectedTickets.map((t) => ({ value: String(t.id), label: `#${ticketNumber(t)} ${t.title}` })),
 )
 
-/** Oldest selected ticket: by created timestamp when present (ISO
- *  strings sort lexicographically), else by lowest id. The agent can
- *  override via the picker. */
-function oldest(tickets: MergeDialogTicket[]): MergeDialogTicket | null {
-  if (tickets.length === 0) return null
-  return [...tickets].sort((a, b) => {
-    if (a.created && b.created) return a.created.localeCompare(b.created)
-    return a.id - b.id
-  })[0]
-}
-
 function seedDescription() {
   const dest = props.selectedTickets.find((t) => t.id === destinationId.value)
   const lines: string[] = []
@@ -119,8 +110,7 @@ watch(
   () => props.open,
   (open) => {
     if (!open) return
-    const preferred = props.selectedTickets.find((t) => t.id === props.preferredDestinationId)
-    destinationId.value = (preferred ?? oldest(props.selectedTickets))?.id ?? null
+    destinationId.value = mergeDestination(props.selectedTickets, props.preferredDestinationId)?.id ?? null
     reason.value = ''
     notifyCustomer.value = false
     submitting.value = false

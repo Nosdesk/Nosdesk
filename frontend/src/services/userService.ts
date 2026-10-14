@@ -13,7 +13,11 @@ export type { User };
 
 // Extended pagination params for users
 export interface UserPaginationParams extends PaginationParams {
+  /** One role or a comma list: `admin`, `technician` (or `agent`),
+   * `user`, `audit_reviewer`. */
   role?: string;
+  /** Only the people who can be assigned tickets in this workspace. */
+  assignable?: boolean;
   /** People population: `"team"` (staff) or `"requesters"` (end-users).
    * Absent shows the combined directory. */
   population?: 'team' | 'requesters';
@@ -26,6 +30,15 @@ export interface UserPaginationParams extends PaginationParams {
 
 // Re-export for backwards compatibility
 export type { PaginatedResponse } from '@nosdesk/core/types/pagination';
+
+/** `POST /users/bulk` outcome. The skip and failure counts come back on a
+ *  delete; a role change reports `affected` and `skipped_staff` only. */
+export interface BulkUserActionResult {
+  affected: number;
+  skipped_admin?: number;
+  skipped_staff?: number;
+  failed?: number;
+}
 
 // User Email interface matching the backend model
 export interface UserEmail {
@@ -312,21 +325,21 @@ const userService = {
    * `user-soft-deleted`; the retention worker hard-deletes after
    * the configured grace window. Returns the new deleted_at +
    * purge_at so the caller can show "delete in N days".
+   *
+   * `credential` is the caller's own step-up (password or 2FA code), which
+   * the backend verifies. Throws on failure so the caller can show the
+   * server's reason, such as a wrong password.
    */
-  async deleteUser(uuid: string): Promise<
-    { deleted_at: string; purge_at: string } | null
-  > {
-    try {
-      const { data } = await apiClient.delete<{
-        uuid: string;
-        deleted_at: string;
-        purge_at: string;
-      }>(`/users/${uuid}`);
-      return { deleted_at: data.deleted_at, purge_at: data.purge_at };
-    } catch (error) {
-      logger.error('Failed to delete user', { error, uuid });
-      return null;
-    }
+  async deleteUser(
+    uuid: string,
+    credential: { password?: string; mfa_code?: string } = {},
+  ): Promise<{ deleted_at: string; purge_at: string }> {
+    const { data } = await apiClient.delete<{
+      uuid: string;
+      deleted_at: string;
+      purge_at: string;
+    }>(`/users/${uuid}`, { data: credential });
+    return { deleted_at: data.deleted_at, purge_at: data.purge_at };
   },
 
   /** Restore a soft-deleted user. Idempotent on the FE side; the
@@ -515,8 +528,15 @@ const userService = {
     }
   },
 
-  // Bulk operations on users (admin only)
-  async bulkAction(request: { action: 'delete' | 'set-role'; ids: string[]; value?: string }): Promise<{ affected: number }> {
+  // Bulk operations on users (admin only). `delete` needs the caller's
+  // step-up credential (`password` or `mfa_code`).
+  async bulkAction(request: {
+    action: 'delete' | 'set-role';
+    ids: string[];
+    value?: string;
+    password?: string;
+    mfa_code?: string;
+  }): Promise<BulkUserActionResult> {
     const response = await apiClient.post('/users/bulk', request);
     return response.data;
   },

@@ -40,6 +40,8 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
     assets: {
       get: (id) => inproc.assets.get(id),
       list: () => inproc.assets.list(),
+      query: (params) => inproc.assets.query(params),
+      kinds: () => inproc.assets.kinds(),
       update: (id, patch) => inproc.assets.update(id, patch),
     },
     users: {
@@ -76,7 +78,10 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
 
     storage: {
       get: (key) => inproc.storage.get(key),
+      getEntry: (key) => inproc.storage.getEntry(key),
       set: (key, value) => inproc.storage.set(key, value),
+      compareAndSet: (key, value, expectedVersion) =>
+        inproc.storage.compareAndSet(key, value, expectedVersion),
       delete: (key) => inproc.storage.delete(key),
     },
 

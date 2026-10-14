@@ -12,7 +12,8 @@
 
 import pluginService from '@nosdesk/core/services/pluginService';
 import { getTicketById, getTickets, addCommentToTicket, updateTicket, deleteTicket } from '@nosdesk/core/services/ticketService';
-import { getAssetById, getAssets, updateAsset } from '@/services/assetService';
+import { getAssetById, getAssets, getPaginatedAssets, updateAsset } from '@/services/assetService';
+import { assetKindsService } from '@nosdesk/core/services/assetKindsService';
 import { convertToAuthenticatedPath } from '@/services/fileService';
 import userService from '@/services/userService';
 import { useAuthStore } from '@/stores/auth';
@@ -29,6 +30,10 @@ import type {
   PluginComment,
   PluginTicketPatch,
   PluginAssetPatch,
+  PluginAssetQuery,
+  PluginAssetPage,
+  PluginAssetKind,
+  PluginStorageEntry,
   PluginUser,
 } from '@nosdesk/plugin-sdk';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@nosdesk/core/types/plugin';
@@ -147,6 +152,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     role: u.workspace_role ?? u.platform_role ?? '',
   });
 
+  let assetQuerySeq = 0;
+
   const api: PluginAPI = {
     version: '1.0.0',
 
@@ -254,8 +261,68 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           throw upstream('failed to list assets', error);
         }
       },
+      async query(params: PluginAssetQuery = {}): Promise<PluginAssetPage> {
+        if (!hasPermission('asset:read')) denied('asset:read');
+        const csv = (v: string | number | (string | number)[] | undefined) =>
+          v === undefined ? undefined : ([] as (string | number)[]).concat(v).join(',') || undefined;
+        const page = Math.max(1, Math.floor(params.page ?? 1));
+        const pageSize = Math.min(100, Math.max(1, Math.floor(params.pageSize ?? 25)));
+        try {
+          // A key per call: a shared one would cancel a plugin's concurrent queries.
+          const result = await getPaginatedAssets(
+            {
+              page,
+              pageSize,
+              search: params.search || undefined,
+              kind: csv(params.kind),
+              groups: csv(params.group),
+              status: csv(params.status),
+              sortField: params.sortBy,
+              sortDirection: params.sortOrder,
+            },
+            `plugin-assets-query-${plugin.uuid}-${++assetQuerySeq}`,
+          );
+          return {
+            assets: result.data,
+            total: result.total,
+            page: result.page,
+            pageSize: result.pageSize,
+            totalPages: result.totalPages,
+          };
+        } catch (error) {
+          throw upstream('failed to query assets', error);
+        }
+      },
+      async kinds(): Promise<PluginAssetKind[]> {
+        if (!hasPermission('asset:read')) denied('asset:read');
+        try {
+          const kinds = await assetKindsService.list();
+          return kinds.map((k) => ({
+            id: k.id,
+            slug: k.slug,
+            label: k.label,
+            description: k.description,
+            icon: k.icon,
+            category: k.category,
+            attributeSchema: k.attribute_schema,
+            sortOrder: k.sort_order,
+            isBuiltin: k.is_builtin,
+          }));
+        } catch (error) {
+          throw upstream('failed to list asset kinds', error);
+        }
+      },
       async update(id: number, patch: PluginAssetPatch): Promise<Asset | null> {
         if (!hasPermission('asset:write')) denied('asset:write');
+        // PUT /assets/{id} ignores `status`, so it would be dropped silently.
+        // Status changes go through the asset lifecycle, which plugins can't
+        // use yet: refuse rather than report a success that didn't happen.
+        if (patch?.status !== undefined) {
+          throw new PluginApiError(
+            'invalid',
+            'asset status changes go through the asset lifecycle, which is not available to plugins yet',
+          );
+        }
         try {
           return await updateAsset(id, patch as Partial<Asset>, pluginAttribution);
         } catch (error) {
@@ -414,12 +481,45 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           throw upstream('failed to get storage', error);
         }
       },
+      async getEntry<T>(key: string): Promise<PluginStorageEntry<T>> {
+        if (!hasPermission('storage:plugin')) denied('storage:plugin');
+        try {
+          const result = await pluginService.getStorage(plugin.uuid, key);
+          return { value: (result.value ?? null) as T | null, version: result.version ?? 0 };
+        } catch (error) {
+          throw upstream('failed to get storage', error);
+        }
+      },
       async set<T>(key: string, value: T): Promise<boolean> {
         if (!hasPermission('storage:plugin')) denied('storage:plugin');
         try {
           await pluginService.setStorage(plugin.uuid, { key, value });
           return true;
         } catch (error) {
+          throw upstream('failed to set storage', error);
+        }
+      },
+      async compareAndSet<T>(key: string, value: T, expectedVersion: number): Promise<number> {
+        if (!hasPermission('storage:plugin')) denied('storage:plugin');
+        if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
+          throw new PluginApiError('invalid', 'expectedVersion must be a whole number, 0 or more');
+        }
+        try {
+          const result = await pluginService.setStorage(plugin.uuid, {
+            key,
+            value,
+            expected_version: expectedVersion,
+          });
+          return result.version;
+        } catch (error) {
+          const status = (error as { response?: { status?: number; data?: { version?: number } } })
+            ?.response;
+          if (status?.status === 409) {
+            throw new PluginApiError(
+              'conflict',
+              `storage key "${key}" is at version ${status.data?.version ?? 'unknown'}, not ${expectedVersion}`,
+            );
+          }
           throw upstream('failed to set storage', error);
         }
       },
@@ -587,6 +687,8 @@ export interface PluginAPI {
   assets: {
     get(id: number): Promise<Asset | null>;
     list(): Promise<Asset[]>;
+    query(params?: PluginAssetQuery): Promise<PluginAssetPage>;
+    kinds(): Promise<PluginAssetKind[]>;
     update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;
   };
 
@@ -609,7 +711,9 @@ export interface PluginAPI {
   // Plugin storage
   storage: {
     get<T>(key: string): Promise<T | null>;
+    getEntry<T>(key: string): Promise<PluginStorageEntry<T>>;
     set<T>(key: string, value: T): Promise<boolean>;
+    compareAndSet<T>(key: string, value: T, expectedVersion: number): Promise<number>;
     delete(key: string): Promise<boolean>;
   };
 

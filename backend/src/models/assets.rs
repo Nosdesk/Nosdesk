@@ -128,6 +128,11 @@ impl AssetStatus {
     }
 }
 
+/// Sanitization categories a disposal record may carry: the NIST SP 800-88
+/// clear / purge / destroy levels, plus `none` for assets with no data to
+/// sanitize. Stored in `asset_disposals.sanitization_method`.
+pub const SANITIZATION_METHODS: &[&str] = &["clear", "purge", "destroy", "none"];
+
 /// Default kind for callers that omit `kind` from the JSON
 /// payload. Mirrors the DB-level default on `assets.kind`
 /// (`'generic'` as of 2026-05-20-130000) so a workspace-neutral
@@ -170,20 +175,33 @@ pub struct NewAsset {
     pub low_stock_threshold: Option<bigdecimal::BigDecimal>,
 }
 
+/// Partial update for an asset. Outer `Option` = "leave unchanged"; for the
+/// nullable columns the inner one distinguishes "set" from "clear". On the
+/// fields read with `double_option`, an absent JSON key leaves the column and
+/// an explicit `null` clears it.
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::assets)]
 pub struct AssetUpdate {
     pub name: Option<String>,
-    pub serial_number: Option<String>,
+    /// A blank serial clears it (see `repository::assets::update_device`).
+    #[serde(default, deserialize_with = "crate::utils::double_option::deserialize")]
+    pub serial_number: Option<Option<String>>,
     pub manufacturer: Option<String>,
     pub model: Option<String>,
-    pub location: Option<String>,
-    pub notes: Option<String>,
-    pub primary_user_uuid: Option<Uuid>,
-    /// The accountable "managed by" custodian. `None` leaves it unchanged.
-    pub managed_by_user_uuid: Option<Uuid>,
-    pub purchase_date: Option<NaiveDate>,
-    pub asset_tag: Option<String>,
+    #[serde(default, deserialize_with = "crate::utils::double_option::deserialize")]
+    pub location: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::utils::double_option::deserialize")]
+    pub notes: Option<Option<String>>,
+    /// The holder ("used by").
+    #[serde(default, deserialize_with = "crate::utils::double_option::deserialize")]
+    pub primary_user_uuid: Option<Option<Uuid>>,
+    /// The accountable "managed by" custodian.
+    #[serde(default, deserialize_with = "crate::utils::double_option::deserialize")]
+    pub managed_by_user_uuid: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::utils::double_option::deserialize")]
+    pub purchase_date: Option<Option<NaiveDate>>,
+    #[serde(default, deserialize_with = "crate::utils::double_option::deserialize")]
+    pub asset_tag: Option<Option<String>>,
     pub updated_at: Option<NaiveDateTime>,
     pub kind: Option<String>,
     pub attributes: Option<serde_json::Value>,
@@ -517,7 +535,9 @@ pub struct NewAssetDisposal {
 pub struct AssetLoan {
     pub id: i32,
     pub asset_id: i32,
-    pub borrower_user_uuid: Uuid,
+    /// NULL once the borrower's account is purged: the loan stays in the
+    /// ledger without them.
+    pub borrower_user_uuid: Option<Uuid>,
     pub loaned_at: chrono::DateTime<chrono::Utc>,
     pub due_back: Option<NaiveDate>,
     pub returned_at: Option<chrono::DateTime<chrono::Utc>>,

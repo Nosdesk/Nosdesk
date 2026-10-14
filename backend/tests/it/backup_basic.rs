@@ -56,7 +56,7 @@ fn round_trip_preserves_every_table_byte_for_byte() {
         None,
         backup_service::RestoreOptions {
             force_non_empty: true,
-            ignore_schema_mismatch: false,
+            ..Default::default()
         },
     )
     .expect("restore succeeded");

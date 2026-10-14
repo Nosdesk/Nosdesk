@@ -1,0 +1,40 @@
+name: Registry root key
+
+# Verifies the live plugin registry (https://nosdesk.com/registry) against the
+# root key compiled into the backend (ROOT_PUBKEY in
+# backend/src/services/plugins/signing.rs). The registry is signed from the
+# nosdesk-com repo, so a root rotation there changes nothing here; the daily
+# run is what catches it. release.yml calls this before it builds an image,
+# so a release never ships a key the registry no longer signs with.
+#
+# PRs run it only when they touch the key or this check, so a network blip
+# never reds an unrelated PR, and it is not a required check.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'backend/src/services/plugins/signing.rs'
+      - 'scripts/verify-registry-root.sh'
+      - '.github/workflows/registry-root.yml'
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Live registry verifies against the compiled-in root
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify https://nosdesk.com/registry
+        run: bash scripts/verify-registry-root.sh

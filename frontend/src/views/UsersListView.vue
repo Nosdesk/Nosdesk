@@ -17,6 +17,7 @@ import { openControlPlaneSeats } from '@/services/activeWorkspace'
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
 import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Modal from '@/components/Modal.vue'
@@ -25,6 +26,7 @@ import Button from '@/components/common/Button.vue'
 import ListViewToolbar from '@/components/views/ListViewToolbar.vue'
 import ListViewModals from '@/components/views/ListViewModals.vue'
 import { useListView } from '@/composables/useListView'
+import { useStepUpMethod } from '@/composables/useStepUpMethod'
 import type { ChipFacetDef } from '@/composables/useChipFiltersFromControls'
 import type { GroupAxisDef } from '@/composables/useListGrouping'
 import { useAuthStore } from '@/stores/auth'
@@ -34,7 +36,7 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import NosdeskAccountChip from '@/components/identity/NosdeskAccountChip.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import userService from '@/services/userService'
+import userService, { type BulkUserActionResult } from '@/services/userService'
 import { usersKeys } from '@nosdesk/core/queries/users'
 import { effectiveRole, type User, type UserRole } from '@nosdesk/core/types/user'
 import { peopleColumns, peopleFacets, peopleGroupAxes } from '@/utils/peopleListLayout'
@@ -348,12 +350,76 @@ const bulkActionMutation = useMutation({
   },
 })
 
-async function confirmDelete() {
+// The admin confirms bulk delete with their own step-up credential, the same
+// check as deleting one user.
+const deleteCredential = ref('')
+const deleteError = ref<string | null>(null)
+const isBulkDeleting = ref(false)
+const {
+  method: deleteStepUpMethod,
+  loaded: deleteStepUpLoaded,
+  load: loadDeleteStepUp,
+  credential: deleteStepUpBody,
+} = useStepUpMethod()
+const deleteConfirmDisabled = computed(
+  () => isBulkDeleting.value
+    || !deleteStepUpLoaded.value
+    || (deleteStepUpMethod.value !== 'none' && deleteCredential.value.trim().length === 0),
+)
+
+function openDeleteConfirm() {
+  deleteCredential.value = ''
+  deleteError.value = null
+  showDeleteConfirm.value = true
+  void loadDeleteStepUp()
+}
+
+function closeDeleteConfirm() {
   showDeleteConfirm.value = false
+  deleteCredential.value = ''
+  deleteError.value = null
+}
+
+async function confirmDelete() {
+  if (deleteConfirmDisabled.value) return
   const ids = listView.selection.selectedIds.value
   if (ids.length === 0) return
-  await bulkActionMutation.mutateAsync({ action: 'delete', ids })
-  listView.selection.clear()
+  isBulkDeleting.value = true
+  deleteError.value = null
+  try {
+    const result = await userService.bulkAction({
+      action: 'delete',
+      ids,
+      ...deleteStepUpBody(deleteCredential.value),
+    })
+    closeDeleteConfirm()
+    listView.selection.clear()
+    reportBulkDelete(result)
+  } catch (err) {
+    // Keep the modal open so the admin can correct the credential.
+    deleteError.value = extractErrorMessage(err, t('user-mgmt-bulk-action-error'))
+  } finally {
+    isBulkDeleting.value = false
+    void queryCache.invalidateQueries({ key: usersKeys.root })
+  }
+}
+
+// The server skips admins and control-plane-managed staff rather than
+// failing the batch, so say what didn't happen; a silent 200 reads as
+// "delete does nothing".
+function reportBulkDelete(result: BulkUserActionResult) {
+  if (result.affected > 0) {
+    toast.success(t('user-mgmt-bulk-deleted', { count: result.affected }))
+  }
+  if (result.skipped_admin) {
+    toast.warning(t('user-mgmt-bulk-skipped-admin', { count: result.skipped_admin }))
+  }
+  if (result.skipped_staff) {
+    toast.info(t('user-mgmt-bulk-skipped-staff', { count: result.skipped_staff }))
+  }
+  if (result.failed) {
+    toast.error(t('user-mgmt-bulk-delete-failed', { count: result.failed }))
+  }
 }
 
 async function applyRoleChange(role: string) {
@@ -686,7 +752,7 @@ function formatPurgeAt(deletedAt: string): string {
             type="button"
             class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-status-error hover:bg-status-error/10 transition-colors whitespace-nowrap disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             :disabled="bulkActionMutation.asyncStatus.value === 'loading'"
-            @click="showDeleteConfirm = true"
+            @click="openDeleteConfirm"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -711,14 +777,38 @@ function formatPurgeAt(deletedAt: string): string {
       </template>
     </ListPageLayout>
 
-    <BulkConfirmDialog
+    <ConfirmModal
       :show="showDeleteConfirm"
+      variant="danger"
       :title="$t('user-mgmt-bulk-delete-title', { count: listView.selection.selectedCount.value })"
       :message="$t('user-mgmt-bulk-delete-message', { count: listView.selection.selectedCount.value })"
       :confirm-label="$t('user-mgmt-bulk-delete-count', { count: listView.selection.selectedCount.value })"
+      :confirm-disabled="deleteConfirmDisabled"
+      :loading="isBulkDeleting"
       @confirm="confirmDelete"
-      @close="showDeleteConfirm = false"
-    />
+      @close="closeDeleteConfirm"
+    >
+      <template #body>
+        <!-- The admin's own step-up: password, else a 2FA code, else nothing
+             to enter (SSO-only without MFA). -->
+        <div v-if="deleteStepUpMethod !== 'none'" class="flex flex-col gap-2">
+          <label for="bulk-delete-credential" class="text-sm font-medium text-secondary">
+            {{ deleteStepUpMethod === 'password'
+              ? $t('user-settings-delete-stepup-password')
+              : $t('user-settings-delete-stepup-mfa') }}
+          </label>
+          <FormInput
+            id="bulk-delete-credential"
+            v-model="deleteCredential"
+            :type="deleteStepUpMethod === 'password' ? 'password' : 'text'"
+            :inputmode="deleteStepUpMethod === 'mfa' ? 'numeric' : undefined"
+            :autocomplete="deleteStepUpMethod === 'password' ? 'current-password' : 'one-time-code'"
+            @keyup.enter="confirmDelete"
+          />
+        </div>
+        <p v-if="deleteError" class="text-sm text-status-error">{{ deleteError }}</p>
+      </template>
+    </ConfirmModal>
 
     <BulkConfirmDialog
       :show="purgeTarget !== null"

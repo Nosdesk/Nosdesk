@@ -69,6 +69,11 @@ export interface BulkSelection<_T> {
   clear: () => void
   /** Imperative check used by row checkbox inputs. */
   isSelected: (id: string) => boolean
+  /** The id last ticked on by itself, while it stays selected. `null`
+   *  after a select-all or a shift-range (those add in list order, which
+   *  says nothing about which ticket the user picked last) and after a
+   *  clear. */
+  lastTickedId: ComputedRef<string | null>
 }
 
 const defaultItemId = <T>(item: T): string => {
@@ -85,6 +90,7 @@ export function useBulkSelection<T>(
   const selectedSet = ref<Set<string>>(new Set())
   const allMatching = ref(false)
   const lastSelectedId = ref<string | null>(null)
+  const lastTickedId = ref<string | null>(null)
 
   // Filter changed → drop selection. Doing this in a watcher (not
   // a computed) keeps the user's selection stable across re-renders
@@ -96,6 +102,7 @@ export function useBulkSelection<T>(
         selectedSet.value = new Set()
         allMatching.value = false
         lastSelectedId.value = null
+        lastTickedId.value = null
       }
     },
   )
@@ -121,12 +128,18 @@ export function useBulkSelection<T>(
         for (let i = start; i <= end; i++) next.add(visibleIds[i])
         selectedSet.value = next
         lastSelectedId.value = id
+        lastTickedId.value = null
         return
       }
     }
     const next = new Set(selectedSet.value)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
+    if (next.has(id)) {
+      next.delete(id)
+      if (lastTickedId.value === id) lastTickedId.value = null
+    } else {
+      next.add(id)
+      lastTickedId.value = id
+    }
     selectedSet.value = next
     lastSelectedId.value = id
     // Manual mutation revokes the "all matching" claim.
@@ -148,6 +161,7 @@ export function useBulkSelection<T>(
       selectedSet.value = next
     }
     lastSelectedId.value = null
+    lastTickedId.value = null
     if (allMatching.value) allMatching.value = false
   }
 
@@ -159,6 +173,7 @@ export function useBulkSelection<T>(
     selectedSet.value = new Set()
     allMatching.value = false
     lastSelectedId.value = null
+    lastTickedId.value = null
   }
 
   function isSelected(id: string): boolean {
@@ -175,5 +190,6 @@ export function useBulkSelection<T>(
     selectAllMatching,
     clear,
     isSelected,
+    lastTickedId: computed(() => lastTickedId.value),
   }
 }

@@ -346,7 +346,15 @@ pub async fn rename_workspace(
         return Err(ApiError::BadRequest("name must not be empty".into()));
     }
 
-    match pc.run(|conn| workspaces::rename_workspace(conn, id, &name)) {
+    // Hosted: a portal still named after the workspace follows the rename;
+    // one an admin named otherwise keeps its name.
+    let hosted = crate::middleware::workspace_context::is_hosted();
+    match pc.run(|conn| {
+        if hosted {
+            crate::repository::site_settings::follow_workspace_rename(conn, id, &name)?;
+        }
+        workspaces::rename_workspace(conn, id, &name)
+    }) {
         Ok(Some(ws)) => {
             info!(workspace_id = ws.id, name = %name, "admin/workspaces renamed");
             Ok(HttpResponse::Ok().json(WorkspaceSummary::from(ws)))

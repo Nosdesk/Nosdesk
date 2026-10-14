@@ -15,6 +15,7 @@ use tracing::error;
 
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
+use crate::models::AssetAudit;
 use crate::repository::asset_audits as repo;
 use crate::services::notifications::types::{
     NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
@@ -178,17 +179,40 @@ pub async fn record(
     }
 }
 
+/// Stock counts as anyone but staff may see them: without the notes.
+pub(crate) fn strip_staff_audit_fields<'a>(
+    rows: impl IntoIterator<Item = &'a mut AssetAudit>,
+    auth: &AuthContext,
+) {
+    if auth.can_handle_tickets() {
+        return;
+    }
+    for row in rows {
+        row.notes = None;
+    }
+}
+
+/// An asset's stock counts. Notes are staff only.
 pub async fn list_for_asset(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
     query: web::Query<ListAuditsQuery>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = query.offset.unwrap_or(0).max(0);
-    match tc.run(|conn| repo::list_for_asset(conn, asset_id, limit, offset)) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+    match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
+        repo::list_for_asset(conn, asset_id, limit, offset)
+    }) {
+        Ok(mut rows) => {
+            strip_staff_audit_fields(&mut rows, &auth);
+            HttpResponse::Ok().json(rows)
+        }
+        Err(diesel::result::Error::NotFound) => {
+            errors::not_found_msg(format!("Asset {asset_id} not found"))
+        }
         Err(e) => {
             error!(asset_id, error = ?e, "failed to list asset audits");
             errors::internal("Failed to load audit history")

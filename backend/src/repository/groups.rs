@@ -247,9 +247,16 @@ pub fn update_group(
     }
 
     conn.transaction(|conn| {
+        let before: Group = groups::table.find(group_id).first(conn)?;
         let group: Group = diesel::update(groups::table.find(group_id))
             .set(&group_update)
             .get_result(conn)?;
+        // Collection rows name the groups they are shared with.
+        if group.name != before.name {
+            crate::repository::documentation_collections::emit_collections_shared_with_group(
+                conn, group.id,
+            )?;
+        }
         emit::record(
             conn,
             SyncEmit {
@@ -275,6 +282,11 @@ pub fn update_group(
 /// Delete a group (cascades to user_groups and category_group_visibility)
 pub fn delete_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<usize> {
     conn.transaction(|conn| {
+        // The group's grants and inclusions go with it: read what they
+        // opened first, and re-emit it after.
+        let affected = with_including_groups(conn, &[group_id])?;
+        let (collections, pages) =
+            crate::repository::documentation::records_granted_to_groups(conn, &affected)?;
         let result = diesel::delete(groups::table.find(group_id)).execute(conn)?;
         if result > 0 {
             emit::record(
@@ -288,6 +300,12 @@ pub fn delete_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<usize
                     groups: sync_groups::workspace(),
                     causation_id: None,
                 },
+            )?;
+            crate::repository::documentation::emit_records(
+                conn,
+                &collections,
+                &pages,
+                sync_groups::workspace(),
             )?;
         }
         Ok(result)
@@ -398,6 +416,38 @@ pub fn get_synced_groups_for_user(
         .load(conn)
 }
 
+/// What `user_uuid` may open in the pinned workspace, read before a change to
+/// their groups, for [`emit_if_their_access_changed`]. `None` when unpinned.
+fn their_access(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+) -> QueryResult<Option<(i32, crate::repository::documentation::DocAccess)>> {
+    match crate::sync::session::current_workspace_id(conn)? {
+        Some(ws) => Ok(Some((
+            ws,
+            crate::repository::documentation::doc_access(conn, ws, user_uuid)?,
+        ))),
+        None => Ok(None),
+    }
+}
+
+/// After a change to one person's groups: re-emit to them what it changed
+/// (see `documentation::emit_if_access_changed`). Unpinned, it falls back to
+/// re-emitting the records `group_ids` are granted to the workspace.
+fn emit_if_their_access_changed(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    before: Option<(i32, crate::repository::documentation::DocAccess)>,
+    group_ids: &[i32],
+) -> QueryResult<()> {
+    match before {
+        Some((ws, access)) => {
+            crate::repository::documentation::emit_if_access_changed(conn, ws, user_uuid, &access)
+        }
+        None => crate::repository::documentation::emit_records_granted_to_groups(conn, group_ids),
+    }
+}
+
 /// Add a user to a group
 pub fn add_user_to_group(
     conn: &mut DbConnection,
@@ -406,6 +456,7 @@ pub fn add_user_to_group(
     created_by: Option<Uuid>,
 ) -> QueryResult<UserGroup> {
     conn.transaction(|conn| {
+        let access = their_access(conn, user_uuid)?;
         // Check if already exists
         let existing = user_groups::table
             .filter(user_groups::user_uuid.eq(user_uuid))
@@ -441,6 +492,7 @@ pub fn add_user_to_group(
                 causation_id: None,
             },
         )?;
+        emit_if_their_access_changed(conn, user_uuid, access, &[group_id])?;
         Ok(membership)
     })
 }
@@ -452,6 +504,7 @@ pub fn remove_user_from_group(
     group_id: i32,
 ) -> QueryResult<usize> {
     conn.transaction(|conn| {
+        let access = their_access(conn, *user_uuid)?;
         let result = diesel::delete(
             user_groups::table
                 .filter(user_groups::user_uuid.eq(user_uuid))
@@ -474,6 +527,7 @@ pub fn remove_user_from_group(
                     causation_id: None,
                 },
             )?;
+            emit_if_their_access_changed(conn, *user_uuid, access, &[group_id])?;
         }
         Ok(result)
     })
@@ -487,6 +541,12 @@ pub fn set_group_members(
     created_by: Option<Uuid>,
 ) -> QueryResult<Vec<UserGroup>> {
     conn.transaction(|conn| {
+        let previous: std::collections::HashSet<Uuid> = user_groups::table
+            .filter(user_groups::group_id.eq(group_id))
+            .select(user_groups::user_uuid)
+            .load::<Uuid>(conn)?
+            .into_iter()
+            .collect();
         // Delete all existing members
         diesel::delete(user_groups::table.filter(user_groups::group_id.eq(group_id)))
             .execute(conn)?;
@@ -524,6 +584,30 @@ pub fn set_group_members(
                 causation_id: None,
             },
         )?;
+        // A directory sync sets the same members on every run: only a real
+        // change in who is in the group changes what anyone may open.
+        let now: std::collections::HashSet<Uuid> = member_uuids.iter().copied().collect();
+        let changed: Vec<Uuid> = now.symmetric_difference(&previous).copied().collect();
+        match changed.as_slice() {
+            [] => {}
+            // One person joined or left: re-send to them alone.
+            [one] => {
+                let affected = with_including_groups(conn, &[group_id])?;
+                let (collections, pages) =
+                    crate::repository::documentation::records_granted_to_groups(conn, &affected)?;
+                crate::repository::documentation::emit_records(
+                    conn,
+                    &collections,
+                    &pages,
+                    sync_groups::for_user(*one),
+                )?;
+            }
+            // Several: one re-send to the workspace, each reader's rows
+            // decided as they receive them.
+            _ => {
+                crate::repository::documentation::emit_records_granted_to_groups(conn, &[group_id])?
+            }
+        }
         Ok(inserted)
     })
 }
@@ -536,6 +620,11 @@ pub fn set_user_groups(
     created_by: Option<Uuid>,
 ) -> QueryResult<Vec<UserGroup>> {
     conn.transaction(|conn| {
+        let access = their_access(conn, user_uuid)?;
+        let previous: Vec<i32> = user_groups::table
+            .filter(user_groups::user_uuid.eq(user_uuid))
+            .select(user_groups::group_id)
+            .load(conn)?;
         // Delete all existing memberships for this user
         diesel::delete(user_groups::table.filter(user_groups::user_uuid.eq(user_uuid)))
             .execute(conn)?;
@@ -573,6 +662,14 @@ pub fn set_user_groups(
                 causation_id: None,
             },
         )?;
+        // Only groups the person actually joined or left change what they
+        // may open; a directory sync that finds the same groups emits none.
+        let before: std::collections::HashSet<i32> = previous.into_iter().collect();
+        let after: std::collections::HashSet<i32> = group_ids.iter().copied().collect();
+        let changed: Vec<i32> = before.symmetric_difference(&after).copied().collect();
+        if !changed.is_empty() {
+            emit_if_their_access_changed(conn, user_uuid, access, &changed)?;
+        }
         Ok(inserted)
     })
 }
@@ -684,7 +781,7 @@ pub fn upsert_external_group(
             .filter(groups::external_id.eq(external_id))
             .first::<Group>(conn);
 
-        let (group, was_created) = match existing {
+        let (group, was_created, renamed) = match existing {
             Ok(group) => {
                 // Update existing group
                 let update = ExternalGroupUpdate {
@@ -701,7 +798,8 @@ pub fn upsert_external_group(
                     .set(&update)
                     .get_result(conn)?;
 
-                (updated, false)
+                let renamed = updated.name != group.name;
+                (updated, false, renamed)
             }
             Err(diesel::result::Error::NotFound) => {
                 // Create new group
@@ -719,10 +817,16 @@ pub fn upsert_external_group(
                     .values(&new_group)
                     .get_result(conn)?;
 
-                (created, true)
+                (created, true, false)
             }
             Err(e) => return Err(e),
         };
+        // Collection rows name the groups they are shared with.
+        if renamed {
+            crate::repository::documentation_collections::emit_collections_shared_with_group(
+                conn, group.id,
+            )?;
+        }
 
         emit::record(
             conn,
@@ -823,6 +927,25 @@ pub fn get_included_groups(
         .load(conn)
 }
 
+/// `group_ids` and every group that includes one of them: whose members a
+/// change to these groups' members also changes (inclusion is one level).
+pub fn with_including_groups(conn: &mut DbConnection, group_ids: &[i32]) -> QueryResult<Vec<i32>> {
+    let mut all: Vec<i32> = group_ids.to_vec();
+    if group_ids.is_empty() {
+        return Ok(all);
+    }
+    let parents: Vec<i32> = group_includes::table
+        .filter(group_includes::child_group_id.eq_any(group_ids))
+        .select(group_includes::parent_group_id)
+        .load(conn)?;
+    for parent in parents {
+        if !all.contains(&parent) {
+            all.push(parent);
+        }
+    }
+    Ok(all)
+}
+
 /// Get the parent groups that include a given child group
 pub fn get_parent_groups(conn: &mut DbConnection, child_group_id: i32) -> QueryResult<Vec<Group>> {
     group_includes::table
@@ -878,7 +1001,7 @@ pub fn add_group_include(
             created_by,
         };
 
-        diesel::insert_into(group_includes::table)
+        let added = diesel::insert_into(group_includes::table)
             .values(&new_include)
             .on_conflict((
                 group_includes::parent_group_id,
@@ -907,6 +1030,9 @@ pub fn add_group_include(
                 causation_id: None,
             },
         )?;
+        if added > 0 {
+            crate::repository::documentation::emit_records_granted_to_groups(conn, &[parent_id])?;
+        }
         Ok(include)
     })
 }
@@ -940,6 +1066,7 @@ pub fn remove_group_include(
                     causation_id: None,
                 },
             )?;
+            crate::repository::documentation::emit_records_granted_to_groups(conn, &[parent_id])?;
         }
         Ok(result)
     })
@@ -987,6 +1114,12 @@ pub fn set_group_includes(
             }
         }
 
+        let previous: std::collections::HashSet<i32> = group_includes::table
+            .filter(group_includes::parent_group_id.eq(parent_id))
+            .select(group_includes::child_group_id)
+            .load::<i32>(conn)?
+            .into_iter()
+            .collect();
         // Delete existing includes
         diesel::delete(group_includes::table.filter(group_includes::parent_group_id.eq(parent_id)))
             .execute(conn)?;
@@ -1024,6 +1157,11 @@ pub fn set_group_includes(
                 causation_id: None,
             },
         )?;
+        // Only a real change in what the parent includes changes who is in it.
+        let now: std::collections::HashSet<i32> = child_ids.iter().copied().collect();
+        if now != previous {
+            crate::repository::documentation::emit_records_granted_to_groups(conn, &[parent_id])?;
+        }
         Ok(inserted)
     })
 }

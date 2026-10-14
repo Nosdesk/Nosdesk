@@ -140,6 +140,40 @@ async fn admin_workspaces_lifecycle_contract() {
         serde_json::from_slice(&resp.body().await.expect("body")).expect("json");
     assert!(list.iter().any(|w| w["slug"] == "acme-co"));
 
+    // Self-hosted: the portal keeps "Nosdesk" until an admin names it.
+    let app_name = |conn: &mut diesel::pg::PgConnection| -> Option<String> {
+        use backend::schema::site_settings;
+        site_settings::table
+            .filter(site_settings::workspace_id.eq(new_id))
+            .select(site_settings::app_name)
+            .first(conn)
+            .optional()
+            .expect("read app_name")
+    };
+    let created_name = app_name(&mut pool.get().expect("conn"));
+    assert!(
+        matches!(created_name.as_deref(), None | Some("Nosdesk")),
+        "self-hosted create must not name the portal, got {created_name:?}"
+    );
+    // An admin happens to name the portal after the workspace.
+    {
+        let mut conn = pool.get().expect("conn");
+        let actor =
+            backend::sync::actor::ActorContext::system("test:app_name").with_workspace(new_id);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |c| {
+                diesel::sql_query(
+                    "INSERT INTO site_settings (app_name) VALUES ('Acme') \
+                     ON CONFLICT (workspace_id) DO UPDATE SET app_name = EXCLUDED.app_name",
+                )
+                .execute(c)
+            },
+        )
+        .expect("name portal");
+    }
+
     // --- 3: rename ---
     let resp = client
         .patch(format!("{base}/{new_id}"))
@@ -149,6 +183,11 @@ async fn admin_workspaces_lifecycle_contract() {
         .await
         .expect("send rename");
     assert_eq!(resp.status(), 200);
+    assert_eq!(
+        app_name(&mut pool.get().expect("conn")).as_deref(),
+        Some("Acme"),
+        "self-hosted rename leaves the portal's name alone"
+    );
 
     // --- 4: archive ---
     let resp = client

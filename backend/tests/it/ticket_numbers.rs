@@ -133,7 +133,7 @@ fn a_restore_counts_on_from_the_restored_numbers() {
         None,
         backup::RestoreOptions {
             force_non_empty: true,
-            ignore_schema_mismatch: false,
+            ..Default::default()
         },
     )
     .expect("restore_database");

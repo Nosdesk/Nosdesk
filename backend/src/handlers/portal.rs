@@ -1283,6 +1283,7 @@ fn my_ticket(mut tc: TenantConn, portal: PortalContext, ticket_id: i32) -> HttpR
 /// public reply of a ticket the requester can see. The agent file routes
 /// authenticate agent sessions only, so the portal serves its own; whether the
 /// file may load is the same decision (`repository::file_access`).
+// ticket-access: attachment_for_viewer applies portal ticket visibility
 pub async fn download_attachment(
     mut tc: TenantConn,
     portal: PortalContext,
@@ -1871,7 +1872,8 @@ pub struct AddParticipantRequest {
 /// `POST /api/portal/tickets/{id}/participants`: the requester adds someone
 /// by email. They join the workspace as a requester if they're new, can see
 /// the request in their portal, get the team's replies by email, and are told
-/// they were added. 404 for anyone but the requester.
+/// they were added. 404 for anyone but the requester, and for a ticket the
+/// caller can't see or that doesn't exist.
 pub async fn add_participant(
     mut tc: TenantConn,
     portal: PortalContext,
@@ -1886,6 +1888,10 @@ pub async fn add_participant(
     }
     let email_service = crate::utils::email::EmailService::from_env().ok();
     let result = tc.run(move |conn| {
+        let vis = portal_visibility(conn, requester)?;
+        if !can_view_ticket(conn, &vis, ticket_id)? {
+            return Ok(Err(errors::not_found("Ticket not found")));
+        }
         let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
         if ticket.requester_uuid != Some(requester) {
             return Ok(Err(errors::not_found("Ticket not found")));
@@ -1960,6 +1966,7 @@ pub async fn add_participant(
     match result {
         Ok(Ok(people)) => HttpResponse::Ok().json(json!({ "participants": people })),
         Ok(Err(resp)) => resp,
+        Err(diesel::result::Error::NotFound) => errors::not_found("Ticket not found"),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to add participant");
             errors::internal("Failed to add that person")
@@ -1968,7 +1975,8 @@ pub async fn add_participant(
 }
 
 /// `DELETE /api/portal/tickets/{id}/participants/{user_uuid}`: the requester
-/// removes someone, or a participant leaves. The requester stays.
+/// removes someone, or a participant leaves. The requester stays. 404 for a
+/// ticket the caller can't see or that doesn't exist.
 pub async fn remove_participant(
     mut tc: TenantConn,
     portal: PortalContext,
@@ -1977,6 +1985,10 @@ pub async fn remove_participant(
     let (ticket_id, target) = path.into_inner();
     let viewer = portal.user_uuid;
     let result = tc.run(move |conn| {
+        let vis = portal_visibility(conn, viewer)?;
+        if !can_view_ticket(conn, &vis, ticket_id)? {
+            return Ok(None);
+        }
         let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
         let is_requester = ticket.requester_uuid == Some(viewer);
         if Some(target) == ticket.requester_uuid || !(is_requester || target == viewer) {
@@ -1987,7 +1999,7 @@ pub async fn remove_participant(
     });
     match result {
         Ok(Some(people)) => HttpResponse::Ok().json(json!({ "participants": people })),
-        Ok(None) => errors::not_found("Ticket not found"),
+        Ok(None) | Err(diesel::result::Error::NotFound) => errors::not_found("Ticket not found"),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to remove participant");
             errors::internal("Failed to remove that person")
@@ -2045,6 +2057,7 @@ pub struct ResolveRequest {
 /// `POST /api/portal/tickets/{id}/resolve`: the requester says it's fixed.
 /// An open request is resolved (moved to the first done state), and the
 /// answer is recorded as a good rating. 404 for anyone but the requester.
+// ticket-access: resolve_as_requester matches only the caller's own request
 pub async fn resolve_my_ticket(
     mut tc: TenantConn,
     portal: PortalContext,

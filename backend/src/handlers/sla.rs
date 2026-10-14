@@ -32,7 +32,7 @@ use serde::Serialize;
 use tracing::error;
 
 use crate::errors::{self, ApiError};
-use crate::extractors::{AuthContext, TenantConn};
+use crate::extractors::{AuthContext, TenantConn, TicketAccess};
 use crate::models::{SlaPolicy, Ticket, WorkflowState, WorkspaceRole};
 use crate::repository::sla_admin::{
     self, SlaPolicyBody, WorkingCalendarBody, WorkingCalendarHolidayBody,
@@ -473,15 +473,11 @@ pub enum SlaExplainFilter {
     AssigneeGroup { id: i32, name: String },
 }
 
-/// GET /api/tickets/{id}/sla/explain. Authenticated; the matcher
-/// runs inside the user's tenant connection so RLS keeps cross-
-/// workspace visibility off.
-pub async fn explain_for_ticket(
-    mut tc: TenantConn,
-    path: web::Path<i32>,
-    _auth: AuthContext,
-) -> impl Responder {
-    let ticket_id = path.into_inner();
+/// GET /api/tickets/{id}/sla/explain. Visibility-gated by `TicketAccess`;
+/// the matcher runs inside the user's tenant connection so RLS keeps
+/// cross-workspace visibility off.
+pub async fn explain_for_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
+    let ticket_id = access.ticket_id;
     let result: Result<Option<SlaExplain>, diesel::result::Error> = tc.run(|conn| {
         use crate::schema::{groups, sla_policies, ticket_categories, tickets, workflow_states};
 
