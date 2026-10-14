@@ -177,11 +177,11 @@ async function copyRedirect(): Promise<void> {
           :placeholder="kind === 'entra' ? 'Microsoft' : kind === 'google' ? 'Google' : ''"
         />
 
-        <div v-if="state.data.value.redirect_uri" class="flex flex-col gap-1.5">
+        <div v-if="state.data.value?.redirect_uri" class="flex flex-col gap-1.5">
           <span class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('requester-sso-redirect-label') }}</span>
           <div class="flex items-center gap-2">
             <code class="flex-1 min-w-0 truncate rounded-lg bg-surface-alt border border-default px-3 py-2 text-sm text-primary select-all">
-              {{ state.data.value.redirect_uri }}
+              {{ state.data.value?.redirect_uri }}
             </code>
             <Button type="button" variant="secondary" size="sm" icon="copy" @click="copyRedirect">
               {{ t('requester-sso-copy') }}
