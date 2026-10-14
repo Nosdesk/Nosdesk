@@ -25,6 +25,7 @@ mod asset_attribute_sort;
 mod asset_audits;
 mod asset_disposal_audit;
 mod asset_kinds_picker;
+mod asset_list_loan_lifecycle;
 mod asset_media_documents;
 mod assignable_people;
 mod assignee_eligibility;

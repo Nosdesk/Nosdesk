@@ -312,7 +312,7 @@ pub fn get_paginated_devices(
     groups: Option<String>,
     kind: Option<String>,
     low_stock_only: bool,
-) -> Result<(Vec<Asset>, i64), Error> {
+) -> Result<(Vec<AssetListRow>, i64), Error> {
     // manufacturer slot is `None`: there is no manufacturer-filter
     // consumer yet. The former `?type=` param fed this slot, which
     // silently filtered on `manufacturer`; that dead pathway is gone.
@@ -342,21 +342,141 @@ pub fn get_paginated_devices(
     );
     query = filter_kinds(query, kind.as_deref());
 
-    // Apply sorting. `attr:<key>` sorts on a kind attribute.
+    // Apply sorting. `attr:<key>` sorts on a kind attribute; `borrower` and
+    // `last_status_change` on the open loan and the newest lifecycle event.
+    let ascending = sort_direction.as_deref() == Some("asc");
     let attribute_sort = sort_field
         .as_deref()
         .and_then(|f| f.strip_prefix("attr:"))
         .filter(|key| is_attribute_key(key));
     if let Some(key) = attribute_sort {
-        query = order_by_attribute(query, key, sort_direction.as_deref() == Some("asc"));
+        query = order_by_attribute(query, key, ascending);
+    } else if let Some(expression) = derived_sort_expression(sort_field.as_deref()) {
+        query = order_by_derived(query, expression, ascending);
     } else {
         query = order_by_column(query, sort_field.as_deref(), sort_direction.as_deref());
     }
 
     let offset = (page - 1) * page_size;
-    let results = query.offset(offset).limit(page_size).load::<Asset>(conn)?;
+    let rows = query
+        .select((
+            assets::all_columns,
+            diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::Jsonb>>(
+                CURRENT_LOAN_JSON,
+            ),
+            diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::Jsonb>>(
+                LATEST_LIFECYCLE_JSON,
+            ),
+        ))
+        .offset(offset)
+        .limit(page_size)
+        .load::<(Asset, Option<serde_json::Value>, Option<serde_json::Value>)>(conn)?;
+
+    let results = rows
+        .into_iter()
+        .map(|(asset, loan, lifecycle)| {
+            Ok(AssetListRow {
+                asset,
+                current_loan: decode_json(loan)?,
+                latest_lifecycle: decode_json(lifecycle)?,
+            })
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
 
     Ok((results, total))
+}
+
+/// The name a user goes by in this workspace: the profile's display name
+/// when set, else the account name, as `get_user_map_by_uuids_with_persona`
+/// resolves it. `{uuid}` is the user column to resolve, `{ws}` the row's
+/// workspace column.
+macro_rules! persona_name_sql {
+    ($uuid:literal, $ws:literal) => {
+        concat!(
+            "(SELECT COALESCE(NULLIF(BTRIM(up.display_name), ''), u.name) \
+             FROM users u LEFT JOIN user_profiles up \
+             ON up.user_uuid = u.uuid AND up.workspace_id = ",
+            $ws,
+            " WHERE u.uuid = ",
+            $uuid,
+            ")"
+        )
+    };
+}
+
+/// The asset's open loan as JSON (`AssetCurrentLoan`), or NULL. The partial
+/// unique index `uq_asset_loans_active_per_asset` allows at most one, and
+/// serves the probe. Correlated to the outer `assets` row, so it runs once
+/// per returned row, not per asset in the workspace.
+const CURRENT_LOAN_JSON: &str = concat!(
+    "(SELECT to_jsonb(l) FROM (SELECT al.borrower_user_uuid, ",
+    persona_name_sql!("al.borrower_user_uuid", "al.workspace_id"),
+    " AS borrower_name, al.loaned_at AS issued_at, al.due_back AS due_at \
+     FROM asset_loans al WHERE al.asset_id = assets.id AND al.returned_at IS NULL \
+     ORDER BY al.loaned_at DESC, al.id DESC LIMIT 1) l)"
+);
+
+/// The asset's newest lifecycle event as JSON (`AssetLatestLifecycle`), or
+/// NULL. Newest by `(occurred_at, id)`; `idx_asset_lifecycle_events_asset`
+/// (asset_id, occurred_at DESC) serves the probe.
+const LATEST_LIFECYCLE_JSON: &str = concat!(
+    "(SELECT to_jsonb(e) FROM (SELECT ev.from_status, ev.to_status, ev.reason, \
+     ev.occurred_at, ev.actor_uuid, ",
+    persona_name_sql!("ev.actor_uuid", "ev.workspace_id"),
+    " AS actor_name FROM asset_lifecycle_events ev WHERE ev.asset_id = assets.id \
+     ORDER BY ev.occurred_at DESC, ev.id DESC LIMIT 1) e)"
+);
+
+/// Sort key for `sortField=borrower`: the open loan's borrower name, case
+/// folded. NULL (no open loan, or a purged borrower) sorts last.
+const BORROWER_SORT: &str = concat!(
+    "(SELECT LOWER(",
+    persona_name_sql!("al.borrower_user_uuid", "al.workspace_id"),
+    ") FROM asset_loans al WHERE al.asset_id = assets.id AND al.returned_at IS NULL \
+     ORDER BY al.loaned_at DESC, al.id DESC LIMIT 1)"
+);
+
+/// Sort key for `sortField=last_status_change`: when the newest lifecycle
+/// event happened. NULL (no events) sorts last.
+const LAST_STATUS_CHANGE_SORT: &str =
+    "(SELECT MAX(ev.occurred_at) FROM asset_lifecycle_events ev WHERE ev.asset_id = assets.id)";
+
+/// The SQL sort key for a sort field derived from a related table, if
+/// `sort_field` names one.
+fn derived_sort_expression(sort_field: Option<&str>) -> Option<&'static str> {
+    match sort_field {
+        Some("borrower") => Some(BORROWER_SORT),
+        Some("last_status_change") => Some(LAST_STATUS_CHANGE_SORT),
+        _ => None,
+    }
+}
+
+/// Order by a derived sort key, NULLs last either way; name then id break
+/// ties so pages don't shuffle.
+fn order_by_derived<'a>(
+    query: AssetBoxedQuery<'a>,
+    expression: &'static str,
+    ascending: bool,
+) -> AssetBoxedQuery<'a> {
+    let direction = if ascending {
+        " ASC NULLS LAST"
+    } else {
+        " DESC NULLS LAST"
+    };
+    query
+        .order(diesel::dsl::sql::<diesel::sql_types::Text>(expression).sql(direction))
+        .then_order_by(assets::name.asc())
+        .then_order_by(assets::id.asc())
+}
+
+/// Decode one of the JSON subselects into its typed row.
+fn decode_json<T: serde::de::DeserializeOwned>(
+    value: Option<serde_json::Value>,
+) -> Result<Option<T>, Error> {
+    value
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| Error::DeserializationError(Box::new(e)))
 }
 
 /// A kind attribute key as the schema validator allows it

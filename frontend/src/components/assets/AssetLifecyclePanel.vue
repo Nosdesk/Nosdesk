@@ -20,7 +20,7 @@ import {
 import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
-import { metaForAssetStatus } from '@/utils/assetStatusMeta';
+import { lifecycleTransitionLabel, metaForAssetStatus } from '@/utils/assetStatusMeta';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import { numberForTicketId } from '@/composables/useTicketNumberLookup';
 import { ticketPath } from '@/utils/ticketNumbers';
@@ -230,16 +230,7 @@ function actorLabel(uuid: string | null | undefined): string {
 }
 
 function transitionSummary(event: AssetLifecycleEvent): string {
-  const toMeta = metaForAssetStatus(event.to_status);
-  const toLabel = t(toMeta.labelKey);
-  if (event.from_status) {
-    const fromMeta = metaForAssetStatus(event.from_status);
-    return t('asset-lifecycle-timeline-transition', {
-      from: t(fromMeta.labelKey),
-      to: toLabel,
-    });
-  }
-  return t('asset-lifecycle-timeline-initial', { to: toLabel });
+  return lifecycleTransitionLabel(t, event.from_status, event.to_status);
 }
 
 function metadataLines(event: AssetLifecycleEvent): string[] {

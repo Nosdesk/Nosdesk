@@ -71,13 +71,18 @@ export interface PluginAssetQuery {
   /** Lifecycle status(es): `in_service`, `in_repair`, and so on. */
   status?: string | string[];
   /** A column (`name`, `serial_number`, `model`, `location`, `status`,
-   * `created_at`, `updated_at`, `quantity`) or `attr:<key>` for a kind
-   * attribute. Default `name`. */
+   * `created_at`, `updated_at`, `quantity`), `borrower` (open loan's
+   * borrower name), `last_status_change` (newest lifecycle event) or
+   * `attr:<key>` for a kind attribute. Default `name`. */
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 }
 
-/** One page of `assets.query`. */
+/** One page of `assets.query`. Each row also carries `current_loan` (the
+ * open loan: borrower uuid and name, `issued_at`, `due_at`) and
+ * `latest_lifecycle` (the newest status change: `from_status`, `to_status`,
+ * `occurred_at`, and for staff `reason` and `actor_*`), each null when there
+ * is none. */
 export interface PluginAssetPage {
   assets: Asset[];
   total: number;

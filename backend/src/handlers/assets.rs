@@ -392,6 +392,16 @@ pub struct AssetResponse {
     pub model_id: Option<i32>,
 }
 
+/// A row of the paginated list: the asset, its open loan and its newest
+/// lifecycle event. Both keys are always present, null when there is none.
+#[derive(Debug, Serialize)]
+pub struct AssetListItem {
+    #[serde(flatten)]
+    pub asset: AssetResponse,
+    pub current_loan: Option<crate::models::AssetCurrentLoan>,
+    pub latest_lifecycle: Option<crate::models::AssetLatestLifecycle>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct UserInfo {
     pub uuid: String,
@@ -521,8 +531,10 @@ fn resolve_asset_user(u: &User, conn: &mut crate::db::DbConnection) -> UserInfo 
 
 /// Assets as `auth` may see them. Staff get them whole. Anyone else gets no
 /// notes, and the embedded primary user goes through `sync::user_projection`,
-/// as the user routes do: of someone else, the name and avatar. `body` is one
-/// asset, a list of them, or a page (`data`).
+/// as the user routes do: of someone else, the name and avatar. A list row's
+/// open loan keeps who has the asset and when, as the loan ledger shows
+/// anyone; its newest lifecycle event loses the reason and who made the
+/// change. `body` is one asset, a list of them, or a page (`data`).
 fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Value {
     let mut body = serde_json::to_value(body).unwrap_or(serde_json::Value::Null);
     if auth.can_handle_tickets() {
@@ -546,6 +558,14 @@ fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Va
         }
         if let Some(user) = asset.get_mut("primary_user") {
             crate::sync::user_projection::value_for_viewer(user, viewer);
+        }
+        if let Some(event) = asset
+            .get_mut("latest_lifecycle")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            for field in ["reason", "actor_uuid", "actor_name"] {
+                event.remove(field);
+            }
         }
     }
     body
@@ -1114,15 +1134,31 @@ pub async fn get_paginated_devices(
             kind,
             low_stock,
         )?;
-        let device_responses = devices_to_responses(conn, devices);
-        Ok((device_responses, total))
+        let mut extras = Vec::with_capacity(devices.len());
+        let devices: Vec<Asset> = devices
+            .into_iter()
+            .map(|row| {
+                extras.push((row.current_loan, row.latest_lifecycle));
+                row.asset
+            })
+            .collect();
+        let rows: Vec<AssetListItem> = devices_to_responses(conn, devices)
+            .into_iter()
+            .zip(extras)
+            .map(|(asset, (current_loan, latest_lifecycle))| AssetListItem {
+                asset,
+                current_loan,
+                latest_lifecycle,
+            })
+            .collect();
+        Ok((rows, total))
     });
 
     match result {
-        Ok((device_responses, total)) => {
+        Ok((rows, total)) => {
             let total_pages = (total as f64 / page_size as f64).ceil() as i64;
             let response = PaginatedResponse {
-                data: device_responses,
+                data: rows,
                 total,
                 page,
                 page_size,
