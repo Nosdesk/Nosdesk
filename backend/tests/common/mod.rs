@@ -902,3 +902,97 @@ pub fn user_tables(conn: &mut PgConnection) -> Vec<String> {
     .map(|r| r.table_name)
     .collect()
 }
+
+/// How long a test waits for the sync feed to serve its newest row.
+///
+/// The feed serves only rows below the commit horizon, the oldest
+/// transaction still open anywhere on the Postgres server, so an open
+/// transaction in any database holds back every test's feed. Locally
+/// that is usually another suite on the shared dev Postgres (another
+/// worktree's `cargo test`), often a finished test's `TestDb` drop:
+/// `DROP DATABASE` keeps its transaction open while it waits for the
+/// checkpoint it forces, and with many drops at once those queue. It
+/// was seen holding the horizon for 17s, past the 10s the polls used to
+/// allow. A wait returns as soon as the feed catches up, so the
+/// deadline only bounds a real failure, which then names the holder.
+pub const FEED_SETTLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Paces a poll of the sync feed until it serves the action `newest`:
+/// call [`FeedWait::pause`] after each poll that falls short. Past
+/// [`FEED_SETTLE_TIMEOUT`] it panics, naming the transactions holding
+/// the horizon.
+pub struct FeedWait {
+    newest: i64,
+    deadline: std::time::Instant,
+}
+
+impl FeedWait {
+    pub fn new(newest: i64) -> Self {
+        Self {
+            newest,
+            deadline: std::time::Instant::now() + FEED_SETTLE_TIMEOUT,
+        }
+    }
+
+    pub async fn pause(&self) {
+        self.check_deadline();
+        actix_web::rt::time::sleep(Self::INTERVAL).await;
+    }
+
+    /// [`Self::pause`] for a test outside an async runtime.
+    pub fn pause_blocking(&self) {
+        self.check_deadline();
+        std::thread::sleep(Self::INTERVAL);
+    }
+
+    const INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+
+    fn check_deadline(&self) {
+        if std::time::Instant::now() >= self.deadline {
+            panic!(
+                "the feed never reached the newest action ({}) in {:?}; {}",
+                self.newest,
+                FEED_SETTLE_TIMEOUT,
+                horizon_holders()
+            );
+        }
+    }
+}
+
+/// The open transactions holding the cluster's commit horizon back, oldest
+/// first, as one line each: database, application, state, how long the
+/// transaction has been open and its query. The sync feed serves only rows
+/// below that horizon, and it spans every database on the server, so a
+/// delta that never catches up names its holder here.
+pub fn horizon_holders() -> String {
+    use diesel::sql_types::Text;
+    #[derive(diesel::QueryableByName)]
+    struct Holder {
+        #[diesel(sql_type = Text)]
+        line: String,
+    }
+    let Ok(mut admin) = PgConnection::establish(&admin_url()) else {
+        return "(could not connect to read pg_stat_activity)".to_string();
+    };
+    let rows: Vec<Holder> = diesel::sql_query(
+        "SELECT format('xid %s db=%s app=%s state=%s open=%s query=%s', \
+                backend_xid, datname, application_name, state, \
+                date_trunc('millisecond', now() - xact_start), left(query, 160)) AS line \
+         FROM pg_stat_activity WHERE backend_xid IS NOT NULL \
+         ORDER BY age(backend_xid) DESC LIMIT 10",
+    )
+    .load(&mut admin)
+    .unwrap_or_default();
+    let horizon: Vec<Holder> =
+        diesel::sql_query("SELECT pg_snapshot_xmin(pg_current_snapshot())::text AS line")
+            .load(&mut admin)
+            .unwrap_or_default();
+    format!(
+        "horizon {}; holders:\n{}",
+        horizon.first().map(|h| h.line.as_str()).unwrap_or("?"),
+        rows.into_iter()
+            .map(|h| h.line)
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}

@@ -256,7 +256,8 @@ async fn delta(f: &Fixture, viewer: Uuid) -> (Vec<Value>, Value) {
         "/api/sync/delta?from=0&limit=5000&groups=workspace:{},user:{viewer},ticket:{}",
         f.ws.workspace_id, f.ticket
     );
-    for _ in 0..200 {
+    let wait = common::FeedWait::new(newest);
+    loop {
         let body = get_json(f, viewer, &uri).await;
         if body["last_sync_id"].as_i64().is_some_and(|id| id >= newest) {
             return (
@@ -264,9 +265,8 @@ async fn delta(f: &Fixture, viewer: Uuid) -> (Vec<Value>, Value) {
                 body["capabilities"].clone(),
             );
         }
-        actix_web::rt::time::sleep(std::time::Duration::from_millis(50)).await;
+        wait.pause().await;
     }
-    panic!("the delta never reached the newest action ({newest})");
 }
 
 /// Every action recorded in the workspace, shaped as the live stream carries

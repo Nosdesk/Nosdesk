@@ -748,7 +748,7 @@ fn newest_action(pool: &TestPool, ws: i32, user: Uuid) -> i64 {
 /// `user`'s delta after `cursor`, once it covers everything recorded so far,
 /// and the cursor after it. The delta serves only settled rows (below the
 /// cluster-wide commit horizon), so another test's open transaction can hold
-/// the newest rows back for a moment.
+/// the newest rows back; [`common::FeedWait`] says for how long.
 macro_rules! delta_after {
     ($app:expr, $f:expr, $pool:expr, $user:expr, $cursor:expr) => {{
         let newest = newest_action(&$pool, $f.workspace.workspace_id, $user);
@@ -758,8 +758,8 @@ macro_rules! delta_after {
             $f.workspace.workspace_id,
             $user
         );
-        let mut out: Option<(Vec<Value>, Cursor)> = None;
-        for _ in 0..200 {
+        let wait = common::FeedWait::new(newest);
+        loop {
             let resp = http_test::call_service(
                 &$app,
                 request(Method::GET, &uri, $user, None).to_request(),
@@ -769,15 +769,11 @@ macro_rules! delta_after {
             let body: Value = http_test::read_body_json(resp).await;
             let last = body["last_sync_id"].as_i64().expect("last_sync_id");
             if last >= newest {
-                out = Some((
-                    body["actions"].as_array().expect("actions").clone(),
-                    (last, body["last_xid8"].as_i64().expect("last_xid8")),
-                ));
-                break;
+                let next: Cursor = (last, body["last_xid8"].as_i64().expect("last_xid8"));
+                break (body["actions"].as_array().expect("actions").clone(), next);
             }
-            actix_web::rt::time::sleep(std::time::Duration::from_millis(50)).await;
+            wait.pause().await;
         }
-        out.unwrap_or_else(|| panic!("the delta never reached the newest action ({newest})"))
     }};
 }
 
