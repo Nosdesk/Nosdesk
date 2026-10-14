@@ -32,7 +32,8 @@ export interface PluginComment {
 }
 
 /** The writable-field subset a plugin may patch on a ticket (`ticket:write`).
- * Deliberately narrow, not the full ticket. */
+ * Deliberately narrow, not the full ticket: a patch with any other key is
+ * refused with an `invalid` PluginApiError naming the key. */
 export interface PluginTicketPatch {
   title?: string;
   priority?: string;
@@ -40,7 +41,9 @@ export interface PluginTicketPatch {
   assignee?: string | null;
 }
 
-/** The writable-field subset a plugin may patch on an asset (`asset:write`). */
+/** The writable-field subset a plugin may patch on an asset (`asset:write`).
+ * A patch with any other key is refused with an `invalid` PluginApiError
+ * naming the key. */
 export interface PluginAssetPatch {
   name?: string;
   /**
@@ -98,6 +101,15 @@ export interface PluginAssetKind {
   attributeSchema: Record<string, unknown>;
   sortOrder: number;
   isBuiltin: boolean;
+}
+
+/** A native asset group, as `assets.groups()` lists it. `id` is the value
+ * `assets.query({ group })` filters on. */
+export interface PluginAssetGroup {
+  id: number;
+  name: string;
+  /** The group's colour as the app stores it (a CSS colour), or null. */
+  color: string | null;
 }
 
 /** A plugin storage entry with its version, for `storage.compareAndSet`.
@@ -245,6 +257,10 @@ export interface HostApi {
      * (`asset:read`). Reading kinds also needs the acting user to be an agent
      * or admin; for anyone else the call throws `upstream`. */
     kinds(): Promise<PluginAssetKind[]>;
+    /** The workspace's active (not archived) asset groups (`asset:read`),
+     * since API 1.2. A user who isn't an agent or admin gets an empty list
+     * unless the workspace shows assets to requesters. */
+    groups(): Promise<PluginAssetGroup[]>;
     /** Patch an asset (`asset:write`). Acts as the current user. */
     update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;
   };
@@ -307,7 +323,10 @@ export interface HostApi {
    * call while one is pending throws `rate_limited`. Every dialog names the
    * plugin, so the user can tell it apart from the app's own. If the plugin is
    * unmounted while a dialog is open (the user navigates away, the panel
-   * closes), the dialog closes and resolves as cancelled.
+   * closes), the dialog closes and resolves as cancelled. Don't reopen a dialog
+   * the user dismissed: after three dismissals in a row within 30 seconds, the
+   * instance's dialogs throw `denied` for 60 seconds or until it remounts. A
+   * pick or a confirm resets the count.
    *
    * The pickers need no permission: the user chooses what to share, and the
    * result is a minimal projection. Fetch more of the record through the
