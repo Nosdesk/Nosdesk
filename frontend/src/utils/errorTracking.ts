@@ -109,20 +109,33 @@ function topFrame(stack: string): string {
   return stack.split('\n').find((line) => /:\d+:\d+/.test(line))?.trim() ?? ''
 }
 
-/** An API path with IDs and tokens replaced, so one outage groups into one report. */
+/**
+ * A segment kept as is: lowercase words of up to 16 letters joined by `-` or
+ * `_`, as every literal API segment is, or an API version. A long unbroken run
+ * of letters is more likely a token than a word.
+ */
+const WORD_SEGMENT = /^(?:[a-z]{1,16}(?:[-_][a-z]{1,16}){0,5}|v\d{1,2})$/
+
+/**
+ * An API path with every segment that is not a lowercase word replaced, so one
+ * outage groups into one report and no ID, token, email, file name or slug in a
+ * path is sent. The server groups the path again the same way.
+ */
 export function apiPath(url: string | undefined): string {
   if (!url) return '(unknown)'
   const path = url.split(/[?#]/)[0].replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '')
-  const normalised = path
-    .split('/')
-    .map((segment) => {
-      if (UUID.test(segment)) return ':uuid'
-      if (/^\d+$/.test(segment)) return ':id'
-      if (segment.length >= 20) return ':token'
-      return segment
-    })
-    .join('/')
+  const segments = path.split('/')
+  const normalised = segments.map((segment, i) => groupSegment(segment, segments[i - 1])).join('/')
   return normalised || '/'
+}
+
+function groupSegment(segment: string, previous: string | undefined): string {
+  if (!segment) return segment
+  if (previous === 'slug') return ':slug'
+  if (WORD_SEGMENT.test(segment)) return segment
+  if (UUID.test(segment)) return ':uuid'
+  if (/^\d+$/.test(segment)) return ':id'
+  return segment.length >= 20 ? ':token' : ':param'
 }
 
 export function createReporter(options: ErrorTrackingOptions, env: ReporterEnv) {

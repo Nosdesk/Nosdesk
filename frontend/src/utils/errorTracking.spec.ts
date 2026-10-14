@@ -134,6 +134,14 @@ describe('error reports', () => {
 
   it('normalises API paths', () => {
     expect(apiPath('/workspaces/0b8e6c1e-8a5a-4f5c-9d61-0a1b2c3d4e5f/members')).toBe('/workspaces/:uuid/members')
+    expect(apiPath('/admin/email-suppressions/kyle%40example.com')).toBe('/admin/email-suppressions/:param')
+    expect(apiPath('/admin/email-suppressions/kyle@example.com')).toBe('/admin/email-suppressions/:param')
+    expect(apiPath('/documentation/pages/slug/payroll-review/with-children')).toBe(
+      '/documentation/pages/slug/:slug/with-children',
+    )
+    expect(apiPath('/files/tickets/12/Jane Smith CV.pdf')).toBe('/files/tickets/:id/:param')
+    expect(apiPath('/api/v1/canned-response-starters')).toBe('/api/v1/canned-response-starters')
+    expect(apiPath('/notifications/devices/f00dCAFE')).toBe('/notifications/devices/:param')
     expect(apiPath(undefined)).toBe('(unknown)')
     expect(apiPath('')).toBe('(unknown)')
   })
