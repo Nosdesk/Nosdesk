@@ -5430,6 +5430,14 @@ plugin-detail-settings-heading = Instellingen
 plugin-detail-integration-page-heading = Configuratie
 # machine, door een moedertaalspreker te controleren
 plugin-modal-title = Plug-in
+# Host-drawn plugin dialogs (PluginDialogHost). { $plugin } is the plugin's name.
+plugin-dialog-attribution = Van de plug-in { $plugin }
+plugin-dialog-pick-user-title = { $plugin } vraagt u een gebruiker te kiezen
+plugin-dialog-pick-asset-title = { $plugin } vraagt u een activum te kiezen
+plugin-dialog-pick-ticket-title = { $plugin } vraagt u een ticket te kiezen
+plugin-dialog-pick-date-title = { $plugin } vraagt u een datum te kiezen
+plugin-dialog-date-label = Datum
+plugin-dialog-choose = Kiezen
 plugin-detail-metadata-heading = Metadata
 plugin-detail-metadata-source = Bron
 plugin-detail-metadata-permissions = Machtigingen

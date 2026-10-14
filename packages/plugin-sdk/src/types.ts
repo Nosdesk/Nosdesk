@@ -291,7 +291,136 @@ export interface HostApi {
     get(key: string): Promise<unknown | null>;
   };
   notify(message: string, type?: 'info' | 'success' | 'warning' | 'error'): Promise<void>;
-  ui: { isPrinting(): Promise<boolean> };
+  /**
+   * UI the host draws natively, over the whole app instead of inside the
+   * plugin's iframe, so it is never clipped to the panel. There is no
+   * `ui.toast`: `notify` already is the toast.
+   *
+   * Everything here except `isPrinting` arrived in runtime API 1.1. Feature
+   * detect before calling on an older host:
+   *
+   *     const [major, minor] = (await api.version).split('.').map(Number);
+   *     const hasHostDialogs = major > 1 || (major === 1 && minor >= 1);
+   *
+   * Dialogs (`confirm` and the `pick*` methods) wait on the user, so they never
+   * time out, and a plugin instance may have only one open at a time: a second
+   * call while one is pending throws `rate_limited`. Every dialog names the
+   * plugin, so the user can tell it apart from the app's own. If the plugin is
+   * unmounted while a dialog is open (the user navigates away, the panel
+   * closes), the dialog closes and resolves as cancelled.
+   *
+   * The pickers need no permission: the user chooses what to share, and the
+   * result is a minimal projection. Fetch more of the record through the
+   * permission-gated `get` methods. A picker lists records with the viewer's own
+   * session, so it shows only what the viewer may see; a viewer who can't list
+   * users, assets or tickets gets an empty or refused list.
+   */
+  ui: PluginUiApi;
+}
+
+/** The host-rendered UI calls on `HostApi.ui`. */
+export interface PluginUiApi {
+  /** Whether the page is being printed. */
+  isPrinting(): Promise<boolean>;
+  /**
+   * Ask the user to confirm an action, in the app's own confirmation dialog.
+   * Resolves `true` on confirm and `false` on cancel, Escape, or the plugin
+   * unmounting. `danger` styles the confirm button as destructive. Since 1.1.
+   */
+  confirm(opts: PluginConfirmOptions): Promise<boolean>;
+  /**
+   * Let the user choose a workspace member. Resolves to `{ uuid, name }` (no
+   * email; read more with `users.get`, which needs `user:read`), or `null` on
+   * cancel. Lists people with the viewer's session: a viewer who can't list
+   * users sees an empty or refused picker. No permission needed. Since 1.1.
+   */
+  pickUser(opts?: PluginPickOptions): Promise<PluginPickedUser | null>;
+  /**
+   * Let the user choose an asset. Resolves to `{ id, name, assetTag }`, or
+   * `null` on cancel. Lists assets with the viewer's session: a viewer who
+   * can't list assets sees an empty or refused picker. Read the full asset with
+   * `assets.get` (`asset:read`). No permission needed. Since 1.1.
+   */
+  pickAsset(opts?: PluginPickOptions): Promise<PluginPickedAsset | null>;
+  /**
+   * Let the user choose a ticket. Resolves to `{ id, title }` (the ticket id,
+   * not its number), or `null` on cancel. Lists tickets with the viewer's
+   * session: a viewer who can't list tickets sees an empty or refused picker.
+   * Read the full ticket with `tickets.get` (`ticket:read`). No permission
+   * needed. Since 1.1.
+   */
+  pickTicket(opts?: PluginPickOptions): Promise<PluginPickedTicket | null>;
+  /**
+   * Let the user choose a date. Resolves to a date-only ISO string
+   * (`YYYY-MM-DD`), or `null` on cancel. `initial` preselects a date in the
+   * same format; anything else throws `invalid`. Since 1.1.
+   */
+  pickDate(opts?: PluginPickDateOptions): Promise<string | null>;
+  /**
+   * Open a ticket, asset or user in the app. `id` is the ticket id, the asset
+   * id, or the user's uuid. Throws `invalid` for a malformed reference.
+   * Resolves once navigation starts; the new page may unmount the plugin. The
+   * page itself checks the viewer's access as usual. Since 1.1.
+   */
+  openRecord(ref: PluginRecordRef): Promise<void>;
+  /**
+   * Open one of this plugin's own full-page components (a `nav.item` or
+   * `nav.assets.item` in its manifest), by its `components` key. Any other name
+   * throws `invalid`. Resolves once navigation starts. Since 1.1.
+   */
+  openPage(componentName: string): Promise<void>;
+}
+
+/** Options for `ui.confirm`. */
+export interface PluginConfirmOptions {
+  /** The question, shown as the dialog title. */
+  title: string;
+  /** Optional detail under the title. */
+  message?: string;
+  /** Confirm button label (default: the app's "Confirm"). */
+  confirmLabel?: string;
+  /** Cancel button label (default: the app's "Cancel"). */
+  cancelLabel?: string;
+  /** Style the confirm button as destructive. */
+  danger?: boolean;
+}
+
+/** Options for the `ui.pick*` methods. */
+export interface PluginPickOptions {
+  /** Dialog title. The plugin's name is shown with it either way. */
+  title?: string;
+}
+
+/** Options for `ui.pickDate`. */
+export interface PluginPickDateOptions extends PluginPickOptions {
+  /** Preselected date, `YYYY-MM-DD`. */
+  initial?: string;
+}
+
+/** The user `ui.pickUser` resolves to. */
+export interface PluginPickedUser {
+  uuid: string;
+  name: string;
+}
+
+/** The asset `ui.pickAsset` resolves to. */
+export interface PluginPickedAsset {
+  id: number;
+  name: string;
+  assetTag: string | null;
+}
+
+/** The ticket `ui.pickTicket` resolves to. */
+export interface PluginPickedTicket {
+  id: number;
+  title: string;
+}
+
+/** A record `ui.openRecord` opens: a ticket or asset by its numeric id, a user
+ * by uuid. */
+export interface PluginRecordRef {
+  type: 'ticket' | 'asset' | 'user';
+  id: number | string;
 }
 
 /**

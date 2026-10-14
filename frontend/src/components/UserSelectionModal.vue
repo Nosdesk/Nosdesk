@@ -28,6 +28,10 @@ const props = defineProps<{
    *  Required, so a new caller has to choose. */
   scope: PickerScope;
   currentUserId?: string | null;
+  /** Replaces the default title. */
+  title?: string;
+  /** Subtitle under the title. */
+  description?: string;
 }>();
 
 const emit = defineEmits<{
@@ -92,12 +96,13 @@ const selectUser = (user: UserInfo) => {
 };
 
 // Watch for modal open/close
+// Immediate, so a caller that mounts the modal already open still loads.
 watch(() => props.show, (isShown) => {
   if (isShown) {
     searchQuery.value = '';
     loadUsers();
   }
-});
+}, { immediate: true });
 
 // Clear selection (unassign user)
 const clearUser = () => {
@@ -107,7 +112,13 @@ const clearUser = () => {
 </script>
 
 <template>
-  <Modal :show="show" @close="$emit('close')" :title="t('ui-user-selection-modal-title')" size="md">
+  <Modal
+    :show="show"
+    :title="title ?? t('ui-user-selection-modal-title')"
+    :description="description"
+    size="md"
+    @close="$emit('close')"
+  >
     <!-- A Reka Listbox: the search field is its filter (it carries
          aria-activedescendant and the arrow keys), the rows are options,
          so the whole picker works from the keyboard without leaving the

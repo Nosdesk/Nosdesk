@@ -5440,6 +5440,14 @@ plugin-detail-settings-heading = Paramètres
 plugin-detail-integration-page-heading = Configuration
 # machine, à relire par un locuteur natif
 plugin-modal-title = Extension
+# Host-drawn plugin dialogs (PluginDialogHost). { $plugin } is the plugin's name.
+plugin-dialog-attribution = De l'extension { $plugin }
+plugin-dialog-pick-user-title = { $plugin } vous demande de choisir un utilisateur
+plugin-dialog-pick-asset-title = { $plugin } vous demande de choisir un actif
+plugin-dialog-pick-ticket-title = { $plugin } vous demande de choisir un ticket
+plugin-dialog-pick-date-title = { $plugin } vous demande de choisir une date
+plugin-dialog-date-label = Date
+plugin-dialog-choose = Choisir
 plugin-detail-metadata-heading = Métadonnées
 plugin-detail-metadata-source = Source
 plugin-detail-metadata-permissions = Permissions
