@@ -106,7 +106,7 @@ async function mountView() {
 /** The control a `<label for>` with this text points at (translations resolve
  *  to the message id here; required fields append an asterisk). */
 function control(key: string) {
-  const label = wrapper!.findAll('label').find((l) => l.text().replace('*', '').trim() === key)
+  const label = wrapper!.findAll('label').find((l) => l.text().replaceAll('*', '').trim() === key)
   expect(label, key).toBeTruthy()
   return wrapper!.find(`[id="${label!.attributes('for')}"]`)
 }
