@@ -107,6 +107,20 @@ export const SLOT_REGISTRY = [
     description: 'Info panels on the asset view',
   },
   {
+    // A compact card in the asset page's right-hand rail, after the group
+    // editor. The rail is about 300px wide at desktop widths and stacks
+    // under the main column below them, so content must fit a narrow column.
+    name: 'asset.rail.panel',
+    mechanism: 'panel',
+    context: 'asset',
+    cardinality: 'many',
+    chrome: 'card',
+    order: 100,
+    status: 'stable',
+    aliases: [],
+    description: "Compact cards in the asset view's right-hand rail",
+  },
+  {
     name: 'user.sidebar.panel',
     mechanism: 'panel',
     context: 'user',

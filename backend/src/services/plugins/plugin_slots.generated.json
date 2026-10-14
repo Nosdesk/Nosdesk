@@ -26,6 +26,17 @@
     "description": "Info panels on the asset view"
   },
   {
+    "name": "asset.rail.panel",
+    "mechanism": "panel",
+    "context": "asset",
+    "cardinality": "many",
+    "chrome": "card",
+    "order": 100,
+    "status": "stable",
+    "aliases": [],
+    "description": "Compact cards in the asset view's right-hand rail"
+  },
+  {
     "name": "user.sidebar.panel",
     "mechanism": "panel",
     "context": "user",

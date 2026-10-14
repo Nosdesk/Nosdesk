@@ -872,6 +872,7 @@ mod tests {
                 icon: None,
                 action: None,
                 chrome: None,
+                audience: Default::default(),
             },
         );
         assert_err!(
@@ -894,6 +895,7 @@ mod tests {
                 icon: None,
                 action: None,
                 chrome: None,
+                audience: Default::default(),
             },
         );
         assert_err!(
@@ -919,6 +921,7 @@ mod tests {
                 icon: None,
                 action: None,
                 chrome: Some(crate::models::PluginComponentChrome::Card),
+                audience: Default::default(),
             },
         );
         assert_err!(
@@ -942,9 +945,67 @@ mod tests {
                 icon: None,
                 action: None,
                 chrome: Some(crate::models::PluginComponentChrome::None),
+                audience: Default::default(),
             },
         );
         assert!(validate(&m, &ctx_official()).is_ok());
+    }
+
+    fn component_from_json(json: serde_json::Value) -> Result<PluginComponentConfig, String> {
+        serde_json::from_value(json).map_err(|e| e.to_string())
+    }
+
+    /// The asset rail is a stable panel slot, so a component may target it.
+    #[test]
+    fn accepts_a_component_on_the_asset_rail() {
+        let mut m = baseline_manifest();
+        let component = component_from_json(serde_json::json!({
+            "slot": "asset.rail.panel",
+            "entry": "Rail",
+            "context": ["asset"],
+            "label": "Rail card",
+        }))
+        .unwrap();
+        m.components.insert("Rail".into(), component);
+        assert!(validate(&m, &ctx_official()).is_ok());
+    }
+
+    /// `audience` is optional and defaults to `all`; the three tiers parse.
+    #[test]
+    fn audience_defaults_to_all_and_accepts_each_tier() {
+        use crate::models::PluginComponentAudience as A;
+        let base = serde_json::json!({ "slot": "nav.item", "entry": "Page" });
+        assert_eq!(component_from_json(base).unwrap().audience, A::All);
+        for (raw, want) in [("all", A::All), ("staff", A::Staff), ("admin", A::Admin)] {
+            let mut m = baseline_manifest();
+            let component = component_from_json(serde_json::json!({
+                "slot": "nav.item",
+                "entry": "Page",
+                "audience": raw,
+            }))
+            .unwrap();
+            assert_eq!(component.audience, want);
+            m.components.insert("Page".into(), component);
+            assert!(validate(&m, &ctx_official()).is_ok());
+        }
+    }
+
+    /// An unknown audience fails manifest parsing (install reports it as
+    /// `InvalidManifest`), and the message names the accepted values.
+    #[test]
+    fn rejects_an_unknown_audience() {
+        for raw in ["agent", "Admin", "requester", ""] {
+            let err = component_from_json(serde_json::json!({
+                "slot": "nav.item",
+                "entry": "Page",
+                "audience": raw,
+            }))
+            .unwrap_err();
+            assert!(
+                err.contains("unknown variant") && err.contains("`all`, `staff`, `admin`"),
+                "unexpected error for {raw:?}: {err}"
+            );
+        }
     }
 
     #[test]

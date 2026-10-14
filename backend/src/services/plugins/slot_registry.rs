@@ -127,6 +127,7 @@ mod tests {
         assert!(is_known_slot("ticket-sidebar"));
         assert!(is_known_slot("asset.info.panel"));
         assert!(is_known_slot("asset-info-panels"));
+        assert!(is_known_slot("asset.rail.panel"));
         assert!(!is_known_slot("nope.not.a.slot"));
     }
 }

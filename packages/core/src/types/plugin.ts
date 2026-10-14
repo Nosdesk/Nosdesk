@@ -106,6 +106,22 @@ export type PluginComponentKind =
   | 'worker'
   | 'webhook';
 
+/**
+ * Viewer tier a component is shown to.
+ *
+ *   * `all`   : everyone who can reach the surface, requesters included.
+ *   * `staff` : workspace agents and up (the backend `can_handle_tickets` tier).
+ *   * `admin` : workspace admins and owners.
+ *
+ * A visibility setting, not a security boundary. It decides whether the host
+ * renders the component (slot panel, nav link, action, plugin page, modal);
+ * it does not protect data. The plugin's permissions are enforced on the
+ * client bridge and the viewer's own API permissions still apply to every call
+ * the plugin makes, so a component that must not leak data to requesters has
+ * to rely on those, not on `audience`.
+ */
+export type PluginAudience = 'all' | 'staff' | 'admin';
+
 export interface PluginComponentConfig {
   /** Defaults to 'slot' on the wire when unset. */
   kind?: PluginComponentKind;
@@ -121,6 +137,9 @@ export interface PluginComponentConfig {
    *  Omit to take the slot's default from `SLOT_REGISTRY`. Set `'none'` for
    *  full-bleed content a card would frame wrongly. */
   chrome?: SlotChrome;
+  /** Who the host shows this component to; omit for `'all'`. Visibility
+   *  only, not a security boundary: see `PluginAudience`. */
+  audience?: PluginAudience;
 }
 
 export interface PluginSettingDefinition {
