@@ -270,6 +270,87 @@ fn a_kind_with_required_attributes_imports() {
     assert_eq!(kind_of(&mut conn, "BADGE-001").as_deref(), Some("badge"));
 }
 
+/// Seed an asset with a tag, kind and attributes for the kind-change tests.
+fn seed_tagged_asset(conn: &mut diesel::PgConnection, tag: &str, kind: &str, attributes: &str) {
+    diesel::sql_query(
+        "INSERT INTO assets (name, kind, asset_tag, attributes) VALUES ('Seeded', $1, $2, $3::jsonb)",
+    )
+    .bind::<diesel::sql_types::Text, _>(kind)
+    .bind::<diesel::sql_types::Text, _>(tag)
+    .bind::<diesel::sql_types::Text, _>(attributes)
+    .execute(conn)
+    .expect("seed asset");
+}
+
+/// An update that changes the kind while the asset holds attributes the
+/// new kind doesn't define is a row error in the dry run, and the commit
+/// leaves that asset alone while importing the other rows.
+#[test]
+fn a_kind_change_that_would_drop_attributes_is_a_row_error() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    seed_tagged_asset(&mut conn, "KC-001", "laptop", r#"{"hostname":"pc-1"}"#);
+    let parsed = parse_text(
+        "Renamed,generic,KC-001,,,,,,,,
+         Other,generic,KC-002,,,,,,,,
+",
+    );
+
+    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    assert_eq!(summary.errors.len(), 1, "{:?}", summary.errors);
+    let err = &summary.errors[0];
+    assert_eq!((err.row, err.column.as_deref()), (2, Some("kind")));
+    assert_eq!(
+        err.message,
+        "changing kind from Laptop to Generic asset would drop attributes: hostname; \
+         change the kind on the asset page instead"
+    );
+    assert_eq!(summary.would_update, 0);
+    assert_eq!(summary.would_create, 1);
+
+    let records = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit");
+    assert_eq!(records.len(), 1);
+    assert_eq!(kind_of(&mut conn, "KC-001").as_deref(), Some("laptop"));
+    assert_eq!(kind_of(&mut conn, "KC-002").as_deref(), Some("generic"));
+    let untouched: i64 = diesel::sql_query(
+        "SELECT COUNT(*)::bigint AS count FROM assets \
+         WHERE asset_tag = 'KC-001' AND name = 'Seeded' AND attributes = '{\"hostname\":\"pc-1\"}'::jsonb",
+    )
+    .get_result::<CountRow>(&mut *conn)
+    .map(|r| r.count)
+    .expect("re-read KC-001");
+    assert_eq!(untouched, 1);
+}
+
+/// A kind change goes through when the new kind defines every attribute
+/// the asset holds, or the asset holds none. Keeping the kind is never
+/// checked.
+#[test]
+fn a_kind_change_that_keeps_every_attribute_imports() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    // Desktop defines the same keys as Laptop.
+    seed_tagged_asset(&mut conn, "KC-010", "laptop", r#"{"hostname":"pc-1"}"#);
+    seed_tagged_asset(&mut conn, "KC-011", "laptop", "{}");
+    seed_tagged_asset(&mut conn, "KC-012", "laptop", r#"{"hostname":"pc-2"}"#);
+    let parsed = parse_text(
+        "To Desktop,desktop,KC-010,,,,,,,,
+         To Generic,generic,KC-011,,,,,,,,
+         Same Kind,Laptop,KC-012,,,,,,,,
+",
+    );
+
+    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    assert!(summary.errors.is_empty(), "{:?}", summary.errors);
+    assert_eq!(summary.would_update, 3);
+
+    let records = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit");
+    assert_eq!(records.len(), 3);
+    assert_eq!(kind_of(&mut conn, "KC-010").as_deref(), Some("desktop"));
+    assert_eq!(kind_of(&mut conn, "KC-011").as_deref(), Some("generic"));
+    assert_eq!(kind_of(&mut conn, "KC-012").as_deref(), Some("laptop"));
+}
+
 /// A row the database refuses at commit, for a reason the dry-run can't
 /// foresee (a test-only constraint stands in), stops the commit with
 /// that row's number.

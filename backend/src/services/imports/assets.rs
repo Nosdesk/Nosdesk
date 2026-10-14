@@ -8,6 +8,10 @@
 //! Columns are universal-only: kind-specific attributes stay out
 //! of the CSV, so a kind's required attributes aren't enforced on
 //! import. The admin fills them in on the asset afterwards.
+//!
+//! An update that changes the kind must not leave the asset holding
+//! attributes the new kind doesn't define. Such a row is an error; the
+//! asset page, which shows what a kind change drops, is where to do it.
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -146,27 +150,51 @@ struct PlannedRow {
 struct Lookups {
     tags: HashMap<String, i32>,
     serials: HashMap<String, i32>,
+    /// Kind and attributes of each tagged asset, the rows an update can hit.
+    existing: HashMap<i32, (String, serde_json::Value)>,
     /// Lowercased slug and lowercased label, each to the kind's slug.
     kinds: HashMap<String, String>,
     kind_labels: Vec<String>,
+    by_slug: HashMap<String, KindInfo>,
+}
+
+struct KindInfo {
+    label: String,
+    /// Attribute keys the kind's schema defines.
+    properties: HashSet<String>,
 }
 
 impl Lookups {
     fn load(conn: &mut DbConnection) -> Result<Self, diesel::result::Error> {
         use crate::schema::assets;
-        let rows: Vec<(i32, Option<String>, Option<String>)> = assets::table
+        type Row = (
+            i32,
+            Option<String>,
+            Option<String>,
+            String,
+            serde_json::Value,
+        );
+        let rows: Vec<Row> = assets::table
             .filter(
                 assets::asset_tag
                     .is_not_null()
                     .or(assets::serial_number.is_not_null()),
             )
-            .select((assets::id, assets::asset_tag, assets::serial_number))
+            .select((
+                assets::id,
+                assets::asset_tag,
+                assets::serial_number,
+                assets::kind,
+                assets::attributes,
+            ))
             .load(conn)?;
         let mut tags = HashMap::new();
         let mut serials = HashMap::new();
-        for (id, tag, serial) in rows {
+        let mut existing = HashMap::new();
+        for (id, tag, serial, kind, attributes) in rows {
             if let Some(tag) = tag {
                 tags.insert(tag, id);
+                existing.insert(id, (kind, attributes));
             }
             if let Some(serial) = serial {
                 serials.insert(serial, id);
@@ -184,13 +212,31 @@ impl Lookups {
                 .entry(k.label.to_lowercase())
                 .or_insert_with(|| k.slug.clone());
         }
-        let kind_labels = registry.into_iter().map(|k| k.label).collect();
+        let kind_labels = registry.iter().map(|k| k.label.clone()).collect();
+        let by_slug = registry
+            .into_iter()
+            .map(|k| {
+                let properties = k
+                    .attribute_schema
+                    .get("properties")
+                    .and_then(serde_json::Value::as_object)
+                    .map(|props| props.keys().cloned().collect())
+                    .unwrap_or_default();
+                let info = KindInfo {
+                    label: k.label,
+                    properties,
+                };
+                (k.slug, info)
+            })
+            .collect();
 
         Ok(Self {
             tags,
             serials,
+            existing,
             kinds,
             kind_labels,
+            by_slug,
         })
     }
 }
@@ -325,6 +371,14 @@ fn plan_row(
         }
     }
 
+    // A kind change must not strand attributes the new kind doesn't
+    // define. Required attributes stay unchecked, as for new rows.
+    if let (Some(new_kind), Some(id)) = (&kind, target) {
+        if let Some(message) = kind_change_error(lookups, id, new_kind) {
+            error("kind", message);
+        }
+    }
+
     match kind {
         Some(kind) if errors.is_empty() => {
             if !tag.is_empty() {
@@ -341,6 +395,38 @@ fn plan_row(
         }
         _ => Err(errors),
     }
+}
+
+/// The error for an update that moves asset `id` to `new_kind` while it
+/// holds attributes the new kind doesn't define, if it does.
+fn kind_change_error(lookups: &Lookups, id: i32, new_kind: &str) -> Option<String> {
+    let (old_kind, attributes) = lookups.existing.get(&id)?;
+    if old_kind == new_kind {
+        return None;
+    }
+    let defined = lookups.by_slug.get(new_kind).map(|k| &k.properties);
+    let mut dropped: Vec<&str> = attributes
+        .as_object()?
+        .keys()
+        .filter(|key| !defined.is_some_and(|d| d.contains(*key)))
+        .map(String::as_str)
+        .collect();
+    if dropped.is_empty() {
+        return None;
+    }
+    dropped.sort_unstable();
+    let label = |slug: &str| {
+        lookups
+            .by_slug
+            .get(slug)
+            .map_or_else(|| slug.to_string(), |k| k.label.clone())
+    };
+    Some(format!(
+        "changing kind from {} to {} would drop attributes: {}; change the kind on the asset page instead",
+        label(old_kind),
+        label(new_kind),
+        dropped.join(", ")
+    ))
 }
 
 /// A row the database refused at commit, named for the admin. Anything
