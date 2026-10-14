@@ -1399,6 +1399,20 @@ pub async fn update_device(
     // generic update un-stamped.
     update_data.model_id = None;
 
+    // The model sets a linked asset's kind, and this route never changes
+    // the model, so a linked asset keeps its kind here. Change the kind by
+    // stamping another model or clearing it on /assets/{id}/model.
+    if existing_device.model_id.is_some()
+        && update_data
+            .kind
+            .as_deref()
+            .is_some_and(|kind| kind != existing_device.kind)
+    {
+        return errors::conflict(
+            "This asset takes its kind from its model; change or clear the model instead",
+        );
+    }
+
     // Validate kind/attributes coherence if either is being
     // changed. Updates that only touch IT-desk columns don't
     // hit the registry at all.

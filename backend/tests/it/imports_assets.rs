@@ -270,6 +270,249 @@ fn a_kind_with_required_attributes_imports() {
     assert_eq!(kind_of(&mut conn, "BADGE-001").as_deref(), Some("badge"));
 }
 
+/// Seed an asset with a tag, kind and attributes for the kind-change tests.
+fn seed_tagged_asset(conn: &mut diesel::PgConnection, tag: &str, kind: &str, attributes: &str) {
+    diesel::sql_query(
+        "INSERT INTO assets (name, kind, asset_tag, attributes) VALUES ('Seeded', $1, $2, $3::jsonb)",
+    )
+    .bind::<diesel::sql_types::Text, _>(kind)
+    .bind::<diesel::sql_types::Text, _>(tag)
+    .bind::<diesel::sql_types::Text, _>(attributes)
+    .execute(conn)
+    .expect("seed asset");
+}
+
+/// An update that changes the kind while the asset holds attributes the
+/// new kind doesn't define is a row error in the dry run, and the commit
+/// leaves that asset alone while importing the other rows.
+#[test]
+fn a_kind_change_that_would_drop_attributes_is_a_row_error() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    seed_tagged_asset(&mut conn, "KC-001", "laptop", r#"{"hostname":"pc-1"}"#);
+    let parsed = parse_text(
+        "Renamed,generic,KC-001,,,,,,,,
+         Other,generic,KC-002,,,,,,,,
+",
+    );
+
+    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    assert_eq!(summary.errors.len(), 1, "{:?}", summary.errors);
+    let err = &summary.errors[0];
+    assert_eq!((err.row, err.column.as_deref()), (2, Some("kind")));
+    assert_eq!(
+        err.message,
+        "changing kind from Laptop to Generic asset would drop attributes: hostname; \
+         change the kind on the asset page instead"
+    );
+    assert_eq!(summary.would_update, 0);
+    assert_eq!(summary.would_create, 1);
+
+    let records = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit");
+    assert_eq!(records.len(), 1);
+    assert_eq!(kind_of(&mut conn, "KC-001").as_deref(), Some("laptop"));
+    assert_eq!(kind_of(&mut conn, "KC-002").as_deref(), Some("generic"));
+    let untouched: i64 = diesel::sql_query(
+        "SELECT COUNT(*)::bigint AS count FROM assets \
+         WHERE asset_tag = 'KC-001' AND name = 'Seeded' AND attributes = '{\"hostname\":\"pc-1\"}'::jsonb",
+    )
+    .get_result::<CountRow>(&mut *conn)
+    .map(|r| r.count)
+    .expect("re-read KC-001");
+    assert_eq!(untouched, 1);
+}
+
+/// A kind change goes through when the new kind defines every attribute
+/// the asset holds, or the asset holds none. Keeping the kind is never
+/// checked.
+#[test]
+fn a_kind_change_that_keeps_every_attribute_imports() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    // Desktop defines the same keys as Laptop.
+    seed_tagged_asset(&mut conn, "KC-010", "laptop", r#"{"hostname":"pc-1"}"#);
+    seed_tagged_asset(&mut conn, "KC-011", "laptop", "{}");
+    seed_tagged_asset(&mut conn, "KC-012", "laptop", r#"{"hostname":"pc-2"}"#);
+    let parsed = parse_text(
+        "To Desktop,desktop,KC-010,,,,,,,,
+         To Generic,generic,KC-011,,,,,,,,
+         Same Kind,Laptop,KC-012,,,,,,,,
+",
+    );
+
+    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    assert!(summary.errors.is_empty(), "{:?}", summary.errors);
+    assert_eq!(summary.would_update, 3);
+
+    let records = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit");
+    assert_eq!(records.len(), 3);
+    assert_eq!(kind_of(&mut conn, "KC-010").as_deref(), Some("desktop"));
+    assert_eq!(kind_of(&mut conn, "KC-011").as_deref(), Some("generic"));
+    assert_eq!(kind_of(&mut conn, "KC-012").as_deref(), Some("laptop"));
+}
+
+#[derive(diesel::QueryableByName)]
+struct NameKindRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    name: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    kind: String,
+}
+
+fn name_and_kind(conn: &mut diesel::PgConnection, tag: &str) -> (String, String) {
+    let row: NameKindRow = diesel::sql_query("SELECT name, kind FROM assets WHERE asset_tag = $1")
+        .bind::<diesel::sql_types::Text, _>(tag)
+        .get_result(conn)
+        .expect("read asset");
+    (row.name, row.kind)
+}
+
+/// The asset page doesn't offer a kind change on an asset linked to a
+/// model, since the model sets the kind, so the import refuses one too. A
+/// row that keeps the kind still updates the asset.
+#[test]
+fn a_kind_change_on_a_model_linked_asset_is_a_row_error() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    diesel::sql_query(
+        "WITH m AS (INSERT INTO manufacturers (name) VALUES ('Lenovo') RETURNING id),
+              am AS (INSERT INTO asset_models (manufacturer_id, name, kind)
+                     SELECT id, 'ThinkPad T14', 'laptop' FROM m RETURNING id)
+         INSERT INTO assets (name, kind, asset_tag, model_id)
+         SELECT v.name, 'laptop', v.tag, am.id
+         FROM am, (VALUES ('Laptop-01', 'KC-020'), ('Laptop-03', 'KC-022')) AS v(name, tag)",
+    )
+    .execute(&mut *conn)
+    .expect("seed model-linked assets");
+
+    let parsed = parse_text(
+        "Model Change,desktop,KC-020,,,,,,,,\n\
+         Model Same Kind,laptop,KC-022,,,,,,,,\n",
+    );
+
+    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let errors: Vec<(usize, Option<&str>, &str)> = summary
+        .errors
+        .iter()
+        .map(|e| (e.row, e.column.as_deref(), e.message.as_str()))
+        .collect();
+    assert_eq!(
+        errors,
+        vec![(
+            2,
+            Some("kind"),
+            "Laptop-01 takes its kind from its model ThinkPad T14; \
+             change the model on the asset page instead"
+        )]
+    );
+    assert_eq!(summary.would_update, 1);
+
+    let records = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit");
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        name_and_kind(&mut conn, "KC-020"),
+        ("Laptop-01".to_string(), "laptop".to_string())
+    );
+    assert_eq!(
+        name_and_kind(&mut conn, "KC-022"),
+        ("Model Same Kind".to_string(), "laptop".to_string())
+    );
+}
+
+fn updated_at(conn: &mut diesel::PgConnection, tag: &str) -> chrono::NaiveDateTime {
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = diesel::sql_types::Timestamp)]
+        updated_at: chrono::NaiveDateTime,
+    }
+    diesel::sql_query("SELECT updated_at FROM assets WHERE asset_tag = $1")
+        .bind::<diesel::sql_types::Text, _>(tag)
+        .get_result::<Row>(conn)
+        .expect("read updated_at")
+        .updated_at
+}
+
+/// PUT takes no imported column on an asset synced from Microsoft, so the
+/// import doesn't either. A row that would change one is an error on the
+/// first such column; a row that matches (blank cells leave a column as it
+/// is) writes nothing. Re-importing an export is a no-op.
+#[test]
+fn a_synced_asset_takes_no_column_from_the_file() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    diesel::sql_query(
+        "INSERT INTO assets (name, kind, asset_tag, serial_number, manufacturer, model,
+                             location, notes, external_sync_source, updated_at)
+         SELECT 'PC-' || n, 'device', 'KC-0' || n, 'SN-' || n, 'Dell', 'OptiPlex',
+                'Lab', 'Imaged in March', 'entra', TIMESTAMP '2026-01-01 00:00:00'
+         FROM generate_series(31, 35) AS n",
+    )
+    .execute(&mut *conn)
+    .expect("seed synced assets");
+
+    let parsed = parse_text(
+        "PC-31,device,KC-031,,,,,,,,\n\
+         PC-32,laptop,KC-032,,,,,,,,\n\
+         Renamed,device,KC-033,,,,,,,,\n\
+         PC-34,device,KC-034,,,,,Returned,,,\n\
+         PC-35,device,KC-035,,,,,,,pcs,\n",
+    );
+
+    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let errors: Vec<(usize, Option<&str>, &str)> = summary
+        .errors
+        .iter()
+        .map(|e| (e.row, e.column.as_deref(), e.message.as_str()))
+        .collect();
+    let synced = |name: &str, column: &str| {
+        format!(
+            "{name} is synced from Microsoft Entra, which sets its {column}; \
+             unmanage it on the asset page to edit it here"
+        )
+    };
+    assert_eq!(
+        errors,
+        vec![
+            (3, Some("kind"), synced("PC-32", "kind").as_str()),
+            (4, Some("name"), synced("PC-33", "name").as_str()),
+            (5, Some("notes"), synced("PC-34", "notes").as_str()),
+            (6, Some("unit"), synced("PC-35", "unit").as_str()),
+        ]
+    );
+    assert_eq!(summary.would_update, 1);
+    assert_eq!(summary.would_create, 0);
+
+    let records = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit");
+    assert_eq!(records.len(), 1);
+    let unchanged = chrono::NaiveDate::from_ymd_opt(2026, 1, 1)
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .expect("date");
+    for n in 31..=35 {
+        let tag = format!("KC-0{n}");
+        assert_eq!(
+            name_and_kind(&mut conn, &tag),
+            (format!("PC-{n}"), "device".to_string())
+        );
+        assert_eq!(updated_at(&mut conn, &tag), unchanged, "{tag}");
+    }
+
+    // An export of the synced assets imports back without an error.
+    let exported: Vec<backend::models::Asset> = {
+        use backend::schema::assets;
+        assets::table
+            .filter(assets::asset_tag.like("KC-03%"))
+            .load(&mut *conn)
+            .expect("load assets")
+    };
+    let csv = backend::services::imports::assets::write_assets_csv(&exported).expect("export");
+    let file = tempfile::NamedTempFile::new().expect("temp csv");
+    std::fs::write(file.path(), csv).expect("write csv");
+    let reimport = csv_parser::parse_file(file.path()).expect("parse");
+    let summary = imports::dry_run(&mut conn, ImportType::Assets, &reimport).expect("dry-run");
+    assert!(summary.errors.is_empty(), "{:?}", summary.errors);
+    assert_eq!(summary.would_update, 5);
+}
+
 /// A row the database refuses at commit, for a reason the dry-run can't
 /// foresee (a test-only constraint stands in), stops the commit with
 /// that row's number.

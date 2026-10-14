@@ -26,6 +26,7 @@ mod asset_audits;
 mod asset_disposal_audit;
 mod asset_kinds_picker;
 mod asset_media_documents;
+mod asset_model_kind;
 mod assignable_people;
 mod assignee_eligibility;
 mod assignment_on_create;

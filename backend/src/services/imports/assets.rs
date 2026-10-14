@@ -8,6 +8,13 @@
 //! Columns are universal-only: kind-specific attributes stay out
 //! of the CSV, so a kind's required attributes aren't enforced on
 //! import. The admin fills them in on the asset afterwards.
+//!
+//! An update writes only what `PUT /assets/{id}` and the asset page would.
+//! An asset synced from Microsoft takes no column from the file: its row
+//! must match what's stored. An asset linked to a model keeps its kind,
+//! since the model sets it. A kind change never leaves the asset holding
+//! attributes the new kind doesn't define. Any other row is an error that
+//! points to the asset page.
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -18,6 +25,7 @@ use diesel::prelude::*;
 use crate::db::DbConnection;
 use crate::models::{Asset, AssetLifecycleEvent, AssetUpdate, NewAsset};
 use crate::repository::asset_kinds as kind_repo;
+use crate::repository::asset_models as model_repo;
 use crate::repository::assets as asset_repo;
 
 use super::csv_parser::ParsedCsv;
@@ -78,7 +86,7 @@ impl Importer for AssetImporter {
             match plan_row(row, &lookups, &mut claims) {
                 Ok(planned) => match planned.action {
                     RowAction::Create => summary.would_create += 1,
-                    RowAction::Update(_) => summary.would_update += 1,
+                    RowAction::Update(_) | RowAction::Unchanged(_) => summary.would_update += 1,
                 },
                 Err(field_errors) => {
                     for (column, message) in field_errors {
@@ -122,6 +130,11 @@ impl Importer for AssetImporter {
                 RowAction::Update(asset_id) => {
                     asset_repo::update_device(conn, asset_id, build_asset_update(row, planned.kind))
                 }
+                // A synced asset's row matched it, so there is nothing to write.
+                RowAction::Unchanged(asset_id) => match lookups.existing.get(&asset_id) {
+                    Some(asset) => Ok(asset.clone()),
+                    None => continue,
+                },
             };
             assets.push(written.map_err(|e| row_write_error(row_num, e))?);
         }
@@ -134,6 +147,8 @@ enum RowAction {
     Create,
     /// Update the existing asset with this id (matched on `asset_tag`).
     Update(i32),
+    /// A synced asset whose row matches what's stored: nothing to write.
+    Unchanged(i32),
 }
 
 struct PlannedRow {
@@ -146,32 +161,49 @@ struct PlannedRow {
 struct Lookups {
     tags: HashMap<String, i32>,
     serials: HashMap<String, i32>,
+    /// Each tagged asset, the rows an update can hit.
+    existing: HashMap<i32, Asset>,
+    /// Asset model names by id.
+    models: HashMap<i32, String>,
     /// Lowercased slug and lowercased label, each to the kind's slug.
     kinds: HashMap<String, String>,
     kind_labels: Vec<String>,
+    by_slug: HashMap<String, KindInfo>,
+}
+
+struct KindInfo {
+    label: String,
+    /// Attribute keys the kind's schema defines.
+    properties: HashSet<String>,
 }
 
 impl Lookups {
     fn load(conn: &mut DbConnection) -> Result<Self, diesel::result::Error> {
         use crate::schema::assets;
-        let rows: Vec<(i32, Option<String>, Option<String>)> = assets::table
+        let rows: Vec<Asset> = assets::table
             .filter(
                 assets::asset_tag
                     .is_not_null()
                     .or(assets::serial_number.is_not_null()),
             )
-            .select((assets::id, assets::asset_tag, assets::serial_number))
             .load(conn)?;
         let mut tags = HashMap::new();
         let mut serials = HashMap::new();
-        for (id, tag, serial) in rows {
-            if let Some(tag) = tag {
-                tags.insert(tag, id);
+        let mut existing = HashMap::new();
+        for asset in rows {
+            if let Some(serial) = &asset.serial_number {
+                serials.insert(serial.clone(), asset.id);
             }
-            if let Some(serial) = serial {
-                serials.insert(serial, id);
+            if let Some(tag) = &asset.asset_tag {
+                tags.insert(tag.clone(), asset.id);
+                existing.insert(asset.id, asset);
             }
         }
+
+        let models = model_repo::list(conn)?
+            .into_iter()
+            .map(|m| (m.id, m.name))
+            .collect();
 
         let registry = kind_repo::list_kinds(conn)?;
         let mut kinds = HashMap::new();
@@ -184,13 +216,32 @@ impl Lookups {
                 .entry(k.label.to_lowercase())
                 .or_insert_with(|| k.slug.clone());
         }
-        let kind_labels = registry.into_iter().map(|k| k.label).collect();
+        let kind_labels = registry.iter().map(|k| k.label.clone()).collect();
+        let by_slug = registry
+            .into_iter()
+            .map(|k| {
+                let properties = k
+                    .attribute_schema
+                    .get("properties")
+                    .and_then(serde_json::Value::as_object)
+                    .map(|props| props.keys().cloned().collect())
+                    .unwrap_or_default();
+                let info = KindInfo {
+                    label: k.label,
+                    properties,
+                };
+                (k.slug, info)
+            })
+            .collect();
 
         Ok(Self {
             tags,
             serials,
+            existing,
+            models,
             kinds,
             kind_labels,
+            by_slug,
         })
     }
 }
@@ -325,6 +376,29 @@ fn plan_row(
         }
     }
 
+    // An update follows what PUT and the asset page allow. Required
+    // attributes stay unchecked, as for new rows.
+    let mut synced = false;
+    if let (Some(new_kind), Some(asset)) = (&kind, target.and_then(|id| lookups.existing.get(&id)))
+    {
+        if let Some(source) = &asset.external_sync_source {
+            synced = true;
+            if let Some(column) = synced_column_change(row, asset, new_kind) {
+                error(
+                    column,
+                    format!(
+                        "{} is synced from {}, which sets its {}; unmanage it on the asset page to edit it here",
+                        asset.name,
+                        sync_source_name(source),
+                        column.replace('_', " ")
+                    ),
+                );
+            }
+        } else if let Some(message) = kind_change_error(lookups, asset, new_kind) {
+            error("kind", message);
+        }
+    }
+
     match kind {
         Some(kind) if errors.is_empty() => {
             if !tag.is_empty() {
@@ -334,6 +408,7 @@ fn plan_row(
                 claims.serials.insert(serial);
             }
             let action = match target {
+                Some(id) if synced => RowAction::Unchanged(id),
                 Some(id) => RowAction::Update(id),
                 None => RowAction::Create,
             };
@@ -341,6 +416,103 @@ fn plan_row(
         }
         _ => Err(errors),
     }
+}
+
+/// Display name of an `external_sync_source`, worded as on the asset page.
+fn sync_source_name(source: &str) -> &'static str {
+    match source {
+        "entra" => "Microsoft Entra",
+        "intune" => "Microsoft Intune",
+        _ => "an external source",
+    }
+}
+
+/// The first column, in file order, where the row would change a synced
+/// asset. PUT takes none of these on a synced asset. Values compare as the
+/// update would write them, so a blank cell that leaves a column as it is
+/// never differs, and stored values compare trimmed, so a re-imported
+/// export matches.
+fn synced_column_change(
+    row: &HashMap<String, String>,
+    asset: &Asset,
+    new_kind: &str,
+) -> Option<&'static str> {
+    fn stored(value: &Option<String>) -> Option<&str> {
+        value.as_deref().map(str::trim).filter(|v| !v.is_empty())
+    }
+    // Columns a blank cell leaves as they are.
+    let kept = |column: &str, current: &Option<String>| {
+        opt_string(row, column).is_some_and(|v| Some(v.as_str()) != stored(current))
+    };
+    // Columns a blank cell clears.
+    let cleared = |column: &str, current: &Option<BigDecimal>| {
+        check_decimal(row, column).is_ok_and(|v| v != *current)
+    };
+    let changed: [(&'static str, bool); 10] = [
+        ("name", trimmed(row, "name") != asset.name.trim()),
+        ("kind", new_kind != asset.kind),
+        ("serial_number", kept("serial_number", &asset.serial_number)),
+        ("manufacturer", kept("manufacturer", &asset.manufacturer)),
+        ("model", kept("model", &asset.model)),
+        ("location", kept("location", &asset.location)),
+        ("notes", kept("notes", &asset.notes)),
+        ("quantity", cleared("quantity", &asset.quantity)),
+        (
+            "unit",
+            opt_string(row, "unit").as_deref() != stored(&asset.unit),
+        ),
+        (
+            "low_stock_threshold",
+            cleared("low_stock_threshold", &asset.low_stock_threshold),
+        ),
+    ];
+    changed
+        .into_iter()
+        .find_map(|(column, changed)| changed.then_some(column))
+}
+
+/// The error for an update that moves `existing` (not synced) to
+/// `new_kind`, if the asset page wouldn't allow it: its model sets its
+/// kind, or it holds attributes the new kind doesn't define.
+fn kind_change_error(lookups: &Lookups, existing: &Asset, new_kind: &str) -> Option<String> {
+    let old_kind = &existing.kind;
+    if old_kind == new_kind {
+        return None;
+    }
+    if let Some(model_id) = existing.model_id {
+        let model = lookups.models.get(&model_id).map_or_else(
+            || "its model".to_string(),
+            |name| format!("its model {name}"),
+        );
+        return Some(format!(
+            "{} takes its kind from {model}; change the model on the asset page instead",
+            existing.name
+        ));
+    }
+    let attributes = &existing.attributes;
+    let defined = lookups.by_slug.get(new_kind).map(|k| &k.properties);
+    let mut dropped: Vec<&str> = attributes
+        .as_object()?
+        .keys()
+        .filter(|key| !defined.is_some_and(|d| d.contains(*key)))
+        .map(String::as_str)
+        .collect();
+    if dropped.is_empty() {
+        return None;
+    }
+    dropped.sort_unstable();
+    let label = |slug: &str| {
+        lookups
+            .by_slug
+            .get(slug)
+            .map_or_else(|| slug.to_string(), |k| k.label.clone())
+    };
+    Some(format!(
+        "changing kind from {} to {} would drop attributes: {}; change the kind on the asset page instead",
+        label(old_kind),
+        label(new_kind),
+        dropped.join(", ")
+    ))
 }
 
 /// A row the database refused at commit, named for the admin. Anything
