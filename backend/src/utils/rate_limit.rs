@@ -1,6 +1,13 @@
 use uuid::Uuid;
 
 /// Get Redis URL from environment with sensible default
+/// The line a refusal logs. Only the key's prefix: the rest can be an email
+/// address, a user or a client address.
+fn refusal_message(key: &str, current: u64, max_attempts: u32) -> String {
+    let bucket = key.split(':').next().unwrap_or("");
+    format!("Rate limit exceeded for {bucket} ({current}/{max_attempts})")
+}
+
 pub fn get_redis_url() -> String {
     std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string())
 }
@@ -77,7 +84,7 @@ impl RateLimiter {
             }
         };
         if current > u64::from(max_attempts) {
-            tracing::warn!("Rate limit exceeded for key: {key} ({current}/{max_attempts})");
+            tracing::warn!("{}", refusal_message(key, current, max_attempts));
             return Ok(false);
         }
         Ok(true)
@@ -386,6 +393,13 @@ mod tests {
         let a = RateLimiter::login_attempt_key("alice@example.com", Some(attacker));
         let b = RateLimiter::login_attempt_key("alice@example.com", Some(legit_user));
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn a_refusal_logs_the_bucket_not_the_key() {
+        let line =
+            super::refusal_message("passkey_login_attempts:kyle@example.com:203.0.113.9", 6, 5);
+        assert_eq!(line, "Rate limit exceeded for passkey_login_attempts (6/5)");
     }
 
     // Note: Integration tests requiring Redis would go in tests/ directory

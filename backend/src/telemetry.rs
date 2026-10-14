@@ -18,7 +18,8 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 /// signal at debug. Operators can still bump any of these by setting
 /// `RUST_LOG` explicitly.
 ///
-/// Production (`LOG_FORMAT=json`) emits via `RedactingJsonLayer` — a
+/// Production (anything but an explicit `ENVIRONMENT=development` / `dev`,
+/// unset included) emits via `RedactingJsonLayer`, a
 /// field-allowlist JSON serializer that drops anything outside the policy in
 /// `utils::tracing_redact`. Local dev keeps the pretty formatter because
 /// developer laptops aren't sub-processors of anyone's data. See the "Log
@@ -31,26 +32,12 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 /// the "served" event. The bare event is suppressed inside the layer by target
 /// check.
 pub fn init() {
-    let is_production = std::env::var("ENVIRONMENT").unwrap_or_default() == "production";
-
-    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| {
-        let base = if is_production { "info" } else { "debug" };
-        format!(
-            "{base},tantivy=warn,h2=info,hyper=info,hyper_util=info,rustls=info,mio=info,want=info"
-        )
-    });
-
-    // Fail-safe: production defaults to the redacting JSON layer even when
-    // LOG_FORMAT is unset. Previously redaction was opt-in via LOG_FORMAT=json
-    // — a var set in no committed config — so a missing env var silently shipped
-    // the un-redacted pretty formatter with raw PII fields. An explicit
-    // LOG_FORMAT still wins in both directions (LOG_FORMAT=pretty forces human
-    // output in prod for a debugging session; LOG_FORMAT=json forces JSON in dev).
-    let json_logs = match std::env::var("LOG_FORMAT").ok().as_deref() {
-        Some("json") => true,
-        Some(_) => false,
-        None => is_production,
-    };
+    let settings = LogSettings::from_env(
+        std::env::var("ENVIRONMENT").ok().as_deref(),
+        std::env::var("LOG_FORMAT").ok().as_deref(),
+    );
+    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| settings.default_filter());
+    let json_logs = settings.json;
     let env_filter = || EnvFilter::new(&log_level);
     let registry = tracing_subscriber::registry();
     let _ = if json_logs {
@@ -70,4 +57,75 @@ pub fn init() {
     };
 
     info!(log_level = %log_level, "Log level configured");
+}
+
+/// How the backend logs, from `ENVIRONMENT` and `LOG_FORMAT`.
+#[derive(Debug, PartialEq, Eq)]
+struct LogSettings {
+    /// The redacting JSON layer rather than the pretty formatter.
+    json: bool,
+    /// `info` rather than `debug` when `RUST_LOG` is unset.
+    production: bool,
+}
+
+impl LogSettings {
+    /// Production follows the same rule as the rest of the security posture
+    /// ([`crate::config_utils::assume_production_from`]): anything but an
+    /// explicit `development` / `dev`, an unset `ENVIRONMENT` included. So an
+    /// install that never sets it gets redacted JSON logs, and the dev stack,
+    /// which sets `ENVIRONMENT=development`, keeps the pretty formatter. An
+    /// explicit `LOG_FORMAT` wins either way: `json` forces JSON, anything else
+    /// the pretty formatter (a debugging session on a production host).
+    fn from_env(environment: Option<&str>, log_format: Option<&str>) -> Self {
+        let production = crate::config_utils::assume_production_from(environment);
+        let json = match log_format.map(str::trim) {
+            Some(f) if f.eq_ignore_ascii_case("json") => true,
+            Some(_) => false,
+            None => production,
+        };
+        Self { json, production }
+    }
+
+    fn default_filter(&self) -> String {
+        let base = if self.production { "info" } else { "debug" };
+        format!(
+            "{base},tantivy=warn,h2=info,hyper=info,hyper_util=info,rustls=info,mio=info,want=info"
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LogSettings;
+
+    #[test]
+    fn an_unset_environment_logs_like_production() {
+        let s = LogSettings::from_env(None, None);
+        assert!(s.json, "unset ENVIRONMENT must get the redacting layer");
+        assert!(s.default_filter().starts_with("info,"));
+        for env in ["", "  ", "production", "Production", "staging", "prod"] {
+            assert!(LogSettings::from_env(Some(env), None).json, "{env:?}");
+        }
+    }
+
+    #[test]
+    fn an_explicit_dev_environment_keeps_the_pretty_formatter() {
+        for env in ["development", "dev", "DEV", " Development "] {
+            let s = LogSettings::from_env(Some(env), None);
+            assert!(!s.json, "{env:?}");
+            assert!(s.default_filter().starts_with("debug,"));
+        }
+    }
+
+    #[test]
+    fn log_format_wins_either_way() {
+        assert!(LogSettings::from_env(Some("development"), Some("json")).json);
+        assert!(LogSettings::from_env(Some("development"), Some("JSON")).json);
+        assert!(!LogSettings::from_env(None, Some("pretty")).json);
+        assert!(!LogSettings::from_env(Some("production"), Some("pretty")).json);
+        // The level still follows the environment.
+        assert!(LogSettings::from_env(None, Some("pretty"))
+            .default_filter()
+            .starts_with("info,"));
+    }
 }

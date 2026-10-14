@@ -94,11 +94,25 @@ pub fn resolve(peer_addr: Option<SocketAddr>, xff_header: Option<&str>) -> Optio
     Some(peer)
 }
 
-/// Resolve the client IP from an `actix_web::HttpRequest`.
-/// The address a rate limit counts: an IPv4 address as is (including one
-/// written IPv4-mapped), an IPv6 address by its /64, the block one subscriber
-/// usually gets, so rotating through it doesn't reset the count.
+/// The client a rate limit counts, as it appears in a rate-limit key: a
+/// pseudonym for the address rather than the address itself. An IPv4 address
+/// counts as is (including one written IPv4-mapped) and an IPv6 address by its
+/// /64, the block one subscriber usually gets, so rotating through it doesn't
+/// reset the count.
+///
+/// The pseudonym is a keyed hash, so a key never carries a raw address: the
+/// rate limiter logs its key when it refuses a request, and Redis holds it.
+/// It is stable for one deployment (every replica derives the same key from
+/// `JWT_SECRET`), so one client's 429s correlate across lines and buckets, and
+/// an operator who needs the address finds it in the proxy log for the same
+/// request.
 pub fn limit_bucket(ip: IpAddr) -> String {
+    let tag = ring::hmac::sign(bucket_key(), limit_network(ip).as_bytes());
+    hex::encode(&tag.as_ref()[..8])
+}
+
+/// The address or network a rate limit counts, before it is hashed.
+fn limit_network(ip: IpAddr) -> String {
     match ip {
         IpAddr::V4(v4) => v4.to_string(),
         IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
@@ -111,6 +125,29 @@ pub fn limit_bucket(ip: IpAddr) -> String {
     }
 }
 
+/// The key [`limit_bucket`] hashes with: derived from `JWT_SECRET` under its
+/// own label, so it is shared by every replica and is not the signing key
+/// itself. Without `JWT_SECRET` (a test binary) it is random for the process.
+fn bucket_key() -> &'static ring::hmac::Key {
+    static KEY: std::sync::OnceLock<ring::hmac::Key> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| {
+        let secret = std::env::var("JWT_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(String::into_bytes)
+            .unwrap_or_else(|| {
+                let mut bytes = [0u8; 32];
+                ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut bytes)
+                    .expect("system randomness");
+                bytes.to_vec()
+            });
+        let root = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &secret);
+        let derived = ring::hmac::sign(&root, b"nosdesk rate-limit bucket v1");
+        ring::hmac::Key::new(ring::hmac::HMAC_SHA256, derived.as_ref())
+    })
+}
+
+/// Resolve the client IP from an `actix_web::HttpRequest`.
 pub fn from_http_request(req: &actix_web::HttpRequest) -> Option<IpAddr> {
     let xff = req.headers().get(XFF_HEADER).and_then(|h| h.to_str().ok());
     resolve(req.peer_addr(), xff)
@@ -151,7 +188,23 @@ mod tests {
         assert_eq!(limit_bucket(a), limit_bucket(b));
         assert_ne!(limit_bucket(a), limit_bucket(c));
         let mapped: std::net::IpAddr = "::ffff:203.0.113.7".parse().unwrap();
-        assert_eq!(limit_bucket(mapped), "203.0.113.7");
+        let plain: std::net::IpAddr = "203.0.113.7".parse().unwrap();
+        assert_eq!(limit_bucket(mapped), limit_bucket(plain));
+        assert_ne!(
+            limit_bucket(plain),
+            limit_bucket("203.0.113.8".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn a_bucket_names_no_address() {
+        use super::limit_bucket;
+        for raw in ["203.0.113.7", "2001:db8:1:2:aaaa::1", "::ffff:203.0.113.7"] {
+            let bucket = limit_bucket(raw.parse().unwrap());
+            assert_eq!(bucket.len(), 16, "{bucket}");
+            assert!(bucket.bytes().all(|b| b.is_ascii_hexdigit()), "{bucket}");
+            assert!(!bucket.contains('.') && !bucket.contains(':'), "{bucket}");
+        }
     }
 
     use super::*;
