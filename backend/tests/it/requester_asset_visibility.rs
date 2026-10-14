@@ -936,3 +936,79 @@ async fn lifecycle_reasons_actors_and_metadata_stay_with_staff() {
         }
     }
 }
+
+/// A disposal record reaches anyone but staff as that the asset was disposed,
+/// when, how it was sanitised and whether it held data. The notes, the ITAD
+/// vendor, the certificate and who recorded it stay with staff, and so does
+/// the list of past ITAD vendors. Neither the record card nor the history
+/// export carries the disposal detail.
+#[actix_web::test]
+async fn disposal_notes_vendor_and_actor_stay_with_staff() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    const NOTES: &str = "Disposal note: wiped twice, drive shredded";
+    const VENDOR: &str = "Shred Vendor Pty";
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::asset_lifecycle::transition(
+            c,
+            backend::repository::asset_lifecycle::TransitionInput {
+                asset_id: f.asset,
+                to_status: "disposed".to_string(),
+                reason: None,
+                ticket_id: None,
+                metadata: json!({}),
+                actor_uuid: Some(f.agent),
+                disposal: Some(backend::repository::asset_lifecycle::DisposalInput {
+                    sanitization_method: "destroy".to_string(),
+                    data_bearing: true,
+                    certificate_file_id: None,
+                    itad_vendor: Some(VENDOR.to_string()),
+                    notes: Some(NOTES.to_string()),
+                }),
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .expect("dispose of the asset");
+
+    for (viewer, who, sees) in [(f.member, "member", false), (f.agent, "agent", true)] {
+        let disposal = get_json(&f, viewer, &format!("/api/assets/{}/disposal", f.asset)).await;
+        assert_eq!(disposal["asset_id"], json!(f.asset), "{who}: {disposal}");
+        assert_eq!(disposal["sanitization_method"], "destroy", "{who}");
+        assert_eq!(disposal["data_bearing"], true, "{who}");
+        assert!(disposal["occurred_at"].is_string(), "{who}: disposal time");
+        assert_eq!(disposal["notes"].as_str(), sees.then_some(NOTES), "{who}");
+        assert_eq!(
+            disposal["itad_vendor"].as_str(),
+            sees.then_some(VENDOR),
+            "{who}"
+        );
+        assert_eq!(
+            disposal["actor_uuid"].as_str().map(str::to_string),
+            sees.then(|| f.agent.to_string()),
+            "{who}: disposal actor"
+        );
+        assert!(disposal["certificate_file_id"].is_null(), "{who}");
+
+        let vendors = get_json(&f, viewer, "/api/assets/itad-vendors").await;
+        assert_eq!(
+            vendors,
+            if sees { json!([VENDOR]) } else { json!([]) },
+            "{who}: past ITAD vendors"
+        );
+
+        for uri in [
+            format!("/api/assets/{}/record-card", f.asset),
+            "/api/assets/export?scope=history&format=json".to_string(),
+        ] {
+            let (status, body) = call(&f, viewer, Method::GET, &uri, None).await;
+            assert_eq!(status, StatusCode::OK, "{who}: {uri}");
+            assert!(body.contains("disposed"), "{who}: {uri} lists the disposal");
+            assert!(
+                !body.contains(NOTES) && !body.contains(VENDOR),
+                "{who}: {uri} carries no disposal detail"
+            );
+        }
+    }
+}
