@@ -6,6 +6,8 @@
 // backend validates via `csrf_cookie_for_path` for `/api/portal/*`.
 import axios from 'axios'
 
+import { ErrorTracker } from '@/utils/errorTracking'
+
 import { embedBearer, embedHome, isEmbed, signInEmbedded } from './embed'
 import { signInQuery } from './signInRedirect'
 
@@ -75,6 +77,10 @@ portalApi.interceptors.response.use(
   async (error) => {
     const original = error?.config
     const status = error?.response?.status
+    if (typeof status === 'number' && status >= 500) {
+      // Reported like the agent app's: the path is grouped before it is sent.
+      ErrorTracker.captureHttp(status, original?.method, `/api/portal/${String(original?.url ?? '').replace(/^\//, '')}`)
+    }
     if (status === 401 && original && !original._retried) {
       original._retried = true
       if (isEmbed) {

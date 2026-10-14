@@ -52,7 +52,30 @@ describe('error reports', () => {
       build_sha: 'abc1234',
       count: 1,
     })
-    expect(report.stack).toContain('boom')
+    // Frame lines only: the message line is in `message` already.
+    expect(report.stack).toMatch(/:\d+:\d+/)
+    expect(report.stack).not.toContain('boom')
+  })
+
+  it('keeps every request under the server cap, however long the stacks', () => {
+    const { reporter, send, sent, timers } = setup()
+    for (let i = 0; i < 10; i++) {
+      // Control characters cost six bytes each once serialised.
+      const error = new Error(`m${i} ${'\u0001'.repeat(400)}`)
+      const frame = `    at f${i} (https://h.test/assets/${'x'.repeat(300)}.js:${i + 1}:1)`
+      error.stack = `Error: ${'y'.repeat(5000)}\n${Array(40).fill(frame).join('\n')}`
+      reporter.capture('error', error)
+    }
+    timers[0]()
+    expect(sent()).toHaveLength(10)
+    expect(send.mock.calls.length).toBeGreaterThan(1)
+    for (const [, body] of send.mock.calls) {
+      expect(new TextEncoder().encode(body).length).toBeLessThanOrEqual(24 * 1024)
+    }
+    for (const report of sent()) {
+      expect(report.stack.split('\n').length).toBeLessThanOrEqual(8)
+      expect(report.stack).not.toContain('yyyy')
+    }
   })
 
   it('counts repeats while queued and never resends an error it already sent', () => {
@@ -134,6 +157,15 @@ describe('error reports', () => {
 
   it('normalises API paths', () => {
     expect(apiPath('/workspaces/0b8e6c1e-8a5a-4f5c-9d61-0a1b2c3d4e5f/members')).toBe('/workspaces/:uuid/members')
+    expect(apiPath('/admin/email-suppressions/kyle%40example.com')).toBe('/admin/email-suppressions/:param')
+    expect(apiPath('/admin/email-suppressions/kyle@example.com')).toBe('/admin/email-suppressions/:param')
+    expect(apiPath('/documentation/pages/slug/payroll-review/with-children')).toBe(
+      '/documentation/pages/slug/:slug/with-children',
+    )
+    expect(apiPath('/files/tickets/12/Jane Smith CV.pdf')).toBe('/files/tickets/:id/:param')
+    expect(apiPath('/api/v1/canned-response-starters')).toBe('/api/v1/canned-response-starters')
+    expect(apiPath('/notifications/devices/f00dCAFE')).toBe('/notifications/devices/:param')
+    expect(apiPath('tickets/12')).toBe('/tickets/:id')
     expect(apiPath(undefined)).toBe('(unknown)')
     expect(apiPath('')).toBe('(unknown)')
   })

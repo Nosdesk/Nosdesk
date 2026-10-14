@@ -56,7 +56,11 @@ const PAGE_CAP = 10
 const SESSION_CAP = 30
 const FLUSH_DELAY_MS = 2000
 const MAX_MESSAGE = 300
-const MAX_STACK = 4000
+/** Stack lines kept, and the length of each: the frames the server reads, no more. */
+const MAX_FRAMES = 8
+const MAX_FRAME_LINE = 200
+/** One request's body, in bytes. The server refuses more than 32 KB. */
+const MAX_BODY_BYTES = 24 * 1024
 const SESSION_KEY = 'nosdesk:error-reports-sent'
 const ENABLE_KEY = 'nosdesk:error-reports'
 
@@ -104,25 +108,56 @@ function ignored(error: unknown, d: Described): boolean {
   return EXTENSION.test(d.stack)
 }
 
+/**
+ * The stack's frame lines only, trimmed. The message line V8 puts first can be
+ * long and is already in `message`; ten untrimmed stacks would overflow the
+ * request.
+ */
+function frameLines(stack: string): string {
+  return stack
+    .split('\n')
+    .filter((line) => /:\d+:\d+\)?\s*$/.test(line))
+    .slice(0, MAX_FRAMES)
+    .map((line) => line.slice(0, MAX_FRAME_LINE))
+    .join('\n')
+}
+
 /** The first line of a stack that names a position, for telling errors apart. */
 function topFrame(stack: string): string {
   return stack.split('\n').find((line) => /:\d+:\d+/.test(line))?.trim() ?? ''
 }
 
-/** An API path with IDs and tokens replaced, so one outage groups into one report. */
+/**
+ * A segment kept as is: lowercase words of up to 16 letters joined by `-` or
+ * `_`, as every literal API segment is, or an API version. A long unbroken run
+ * of letters is more likely a token than a word.
+ */
+const WORD_SEGMENT = /^(?:[a-z]{1,16}(?:[-_][a-z]{1,16}){0,5}|v\d{1,2})$/
+
+/**
+ * An API path with every segment that is not a lowercase word replaced, so one
+ * outage groups into one report and no ID, token, email, file name or slug in a
+ * path is sent. The server groups the path again the same way.
+ */
 export function apiPath(url: string | undefined): string {
   if (!url) return '(unknown)'
   const path = url.split(/[?#]/)[0].replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '')
-  const normalised = path
-    .split('/')
-    .map((segment) => {
-      if (UUID.test(segment)) return ':uuid'
-      if (/^\d+$/.test(segment)) return ':id'
-      if (segment.length >= 20) return ':token'
-      return segment
-    })
-    .join('/')
-  return normalised || '/'
+  const segments = path.split('/')
+  const normalised = segments.map((segment, i) => groupSegment(segment, segments[i - 1])).join('/')
+  return normalised.startsWith('/') ? normalised : `/${normalised}`
+}
+
+function groupSegment(segment: string, previous: string | undefined): string {
+  if (!segment) return segment
+  if (previous === 'slug') return ':slug'
+  if (WORD_SEGMENT.test(segment)) return segment
+  if (UUID.test(segment)) return ':uuid'
+  if (/^\d+$/.test(segment)) return ':id'
+  return segment.length >= 20 ? ':token' : ':param'
+}
+
+function byteLength(text: string): number {
+  return new TextEncoder().encode(text).length
 }
 
 export function createReporter(options: ErrorTrackingOptions, env: ReporterEnv) {
@@ -132,11 +167,7 @@ export function createReporter(options: ErrorTrackingOptions, env: ReporterEnv) 
   let sentThisPage = 0
   let scheduled = false
 
-  function flush(pageHidden = false) {
-    scheduled = false
-    if (queue.length === 0) return
-    const reports = queue.splice(0)
-    queued.clear()
+  function send(reports: ErrorReport[], pageHidden: boolean) {
     // Never throw from here: a throw in the flush timer would itself be an
     // uncaught error, and report itself.
     try {
@@ -144,6 +175,23 @@ export function createReporter(options: ErrorTrackingOptions, env: ReporterEnv) 
     } catch {
       // Dropped. The next error tries again.
     }
+  }
+
+  function flush(pageHidden = false) {
+    scheduled = false
+    if (queue.length === 0) return
+    const reports = queue.splice(0)
+    queued.clear()
+    // Split so no request passes the server's body cap.
+    let batch: ErrorReport[] = []
+    for (const report of reports) {
+      if (batch.length > 0 && byteLength(JSON.stringify({ reports: [...batch, report] })) > MAX_BODY_BYTES) {
+        send(batch, pageHidden)
+        batch = []
+      }
+      batch.push(report)
+    }
+    send(batch, pageHidden)
   }
 
   function route(): string {
@@ -187,7 +235,7 @@ export function createReporter(options: ErrorTrackingOptions, env: ReporterEnv) 
       const d = describe(error)
       if (ignored(error, d)) return
       const message = d.message.slice(0, MAX_MESSAGE)
-      const stack = d.stack.slice(0, MAX_STACK)
+      const stack = frameLines(d.stack)
       add(`${kind}|${message}|${topFrame(stack)}`, { kind, message, stack })
     },
     captureHttp(status: number, method: string | undefined, url: string | undefined) {

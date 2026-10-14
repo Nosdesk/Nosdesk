@@ -905,7 +905,7 @@ pub fn configure_app(
             // and auth quotas. 32 KB covers the ten reports a request carries.
             .service(
                 web::resource("/api/client-errors")
-                    .app_data(web::PayloadConfig::new(32 * 1024))
+                    .app_data(web::PayloadConfig::new(crate::handlers::client_errors::MAX_BODY_BYTES))
                     .app_data(state.client_errors_limiter_data.clone())
                     .wrap(RateLimiter::default())
                     .route(web::post().to(crate::handlers::client_errors::report))
@@ -1520,10 +1520,7 @@ pub async fn build_server(
     // for the same reason: a page stuck in an error loop can only exhaust
     // this bucket, never the quotas that gate sign-in.
     let client_errors_limiter = Limiter::builder(&redis_url)
-        .key_by(|req: &actix_web::dev::ServiceRequest| {
-            crate::utils::client_ip::from_service_request(req)
-                .map(|ip| format!("clienterr:{}", crate::utils::client_ip::limit_bucket(ip)))
-        })
+        .key_by(crate::handlers::client_errors::rate_limit_key)
         .limit(rate_limit_per_minute as usize)
         .period(Duration::from_secs(60))
         .build()
