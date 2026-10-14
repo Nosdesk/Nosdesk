@@ -2851,6 +2851,10 @@ assets-list-borrower-unknown = Uitgeleend
 assets-list-borrower-unknown-title = Uitgeleend aan een account dat niet meer bestaat
 assets-list-borrower-title = Uitgeleend op { $loaned }
 assets-list-borrower-title-due = Uitgeleend op { $loaned }, terug op { $due }
+# MT: pending native review
+assets-list-user-on-loan-title = Uitgeleend aan { $name }
+# MT: pending native review
+assets-list-user-assigned-title = Toegewezen aan { $name }
 assets-list-status-changed-by = { $when } door { $name }
 assets-list-status-changed-reason = Reden: { $reason }
 
@@ -2980,6 +2984,8 @@ asset-detail-field-created = Aangemaakt
 asset-detail-field-last-updated = Laatst bijgewerkt
 asset-detail-manually-managed = Handmatig beheerd
 asset-detail-manually-managed-description = Dit apparaat is aangemaakt en wordt handmatig beheerd in Nosdesk
+# MT: pending native review
+asset-detail-external-sync-note = Gesynchroniseerde velden zijn hier alleen-lezen en worden bij elke synchronisatie bijgewerkt.
 asset-detail-section-microsoft-integration = Microsoft-integratie
 asset-detail-field-last-intune-check-in = Laatste Intune-check-in
 asset-detail-action-view-in-intune = Bekijken in Intune
@@ -4873,18 +4879,18 @@ asset-status-lost = Verloren
 asset-status-disposed = Afgevoerd
 asset-status-unknown = Onbekend
 
-asset-lifecycle-heading = Levenscyclus
+asset-lifecycle-heading = Statusgeschiedenis
 asset-lifecycle-description = Volg operationele statuswijzigingen zoals reparaties, uitleningen en buiten gebruikstelling.
 asset-lifecycle-current-label = Huidige status
 asset-lifecycle-change-status = Status wijzigen
 # MT: pending native review
 asset-lifecycle-disposed-final = Afvoer is definitief
 # MT: pending native review
-asset-lifecycle-managed-by-loan = Beheerd door de actieve uitlening
+asset-state-label = Huidige status
+# MT: pending native review
+asset-state-since = Sinds { $date }
 # MT: pending native review
 asset-loan-heading = Uitleningen
-# MT: pending native review
-asset-loan-description = Leen dit apparaat tijdelijk uit en volg de teruggave.
 # MT: pending native review
 asset-loan-loan-out = Uitlenen
 # MT: pending native review
@@ -4927,14 +4933,6 @@ asset-loan-return-notes = Notities bij teruggave (optioneel)
 # MT: pending native review
 asset-loan-cancel = Annuleren
 # MT: pending native review
-asset-loan-not-loanable = Dit apparaat kan alleen worden uitgeleend als het in gebruik of op voorraad is.
-# MT: pending native review
-asset-loan-empty-title = Nog geen uitleningen
-# MT: pending native review
-asset-loan-empty-description = Leen dit apparaat uit om bij te houden wie het heeft en wanneer het terug moet.
-# MT: pending native review
-asset-loan-history = Uitleengeschiedenis
-# MT: pending native review
 asset-loan-loaned-relative = Uitgeleend { $when }
 # MT: pending native review
 asset-loan-ticket = Ticket #{ $id }
@@ -4943,7 +4941,10 @@ asset-loan-unknown-borrower = Onbekende lener
 # MT: pending native review
 asset-loan-deleted-borrower = Verwijderde gebruiker
 # MT: pending native review
-asset-loan-due-overdue = Te laat
+asset-loan-due-overdue = { $days } { $days ->
+    [one] dag
+   *[other] dagen
+} te laat
 # MT: pending native review
 asset-loan-due-today = Vandaag terug
 # MT: pending native review

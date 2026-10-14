@@ -9,6 +9,7 @@ import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
 import { StatusBadgeCell } from '@/components/common/cells'
+import { usedByCell } from '@/utils/assetLoanStatusColumns'
 import type { Asset } from '@nosdesk/core/types/asset'
 
 const props = defineProps<{ asset: Asset }>()
@@ -23,6 +24,10 @@ const isLowStock = computed(() => {
   if (q == null || th == null) return false
   return parseFloat(q) <= parseFloat(th)
 })
+
+/** The borrower while the asset is on loan, else the assigned user, as in
+ *  the desktop table's Used by column. */
+const usedBy = computed(() => usedByCell(t, props.asset.primary_user, props.asset.current_loan))
 
 const warrantyStatus = computed(
   () => (props.asset.attributes?.warranty_status as string | undefined) ?? '',
@@ -69,7 +74,15 @@ const needsWarrantyAttention = computed(
 
       <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-xs">
         <span v-if="asset.attributes?.hostname" class="text-tertiary font-mono truncate max-w-[160px]">{{ asset.attributes.hostname }}</span>
-        <span v-if="asset.primary_user" class="text-secondary truncate max-w-[120px]">{{ asset.primary_user.name }}</span>
+        <span
+          v-if="usedBy.kind === 'loan'"
+          class="inline-flex items-center gap-1 min-w-0 max-w-[140px]"
+          :title="usedBy.title"
+        >
+          <Icon v-if="usedBy.overdue" name="warning" size="xs" class="shrink-0 text-status-error" />
+          <span class="text-secondary truncate">{{ usedBy.name ?? t('assets-list-borrower-unknown') }}</span>
+        </span>
+        <span v-else-if="usedBy.kind === 'user'" class="text-secondary truncate max-w-[120px]">{{ usedBy.name }}</span>
         <span
           v-if="isLowStock"
           class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border bg-status-warning-muted text-status-warning border-status-warning/30"

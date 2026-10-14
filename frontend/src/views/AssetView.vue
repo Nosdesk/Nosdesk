@@ -24,6 +24,7 @@ import AssetGroupEditor from '@/components/assets/AssetGroupEditor.vue';
 import AssetMediaPanel from '@/components/assets/AssetMediaPanel.vue';
 import AssetLifecyclePanel from '@/components/assets/AssetLifecyclePanel.vue';
 import AssetLoanPanel from '@/components/assets/AssetLoanPanel.vue';
+import AssetStateHeader from '@/components/assets/AssetStateHeader.vue';
 import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
 import AssetModelField from '@/components/assets/AssetModelField.vue';
 import { kindIconName } from '@/components/assets/assetKindIcon';
@@ -355,9 +356,7 @@ const locationSuggestions = computed(() => {
 });
 
 const managementLabel = computed(() =>
-  isSynced.value
-    ? t('asset-detail-external-sync-source', { source: device.value?.external_sync_source || '' })
-    : t('asset-detail-manually-managed'),
+  isSynced.value ? syncSourceLabel.value : t('asset-detail-manually-managed'),
 );
 
 const isKindEditable = computed(() => isEditable.value);
@@ -630,7 +629,7 @@ watch(() => route.params.id, () => {
 const auth = useAuthStore();
 const canChangeLifecycle = computed(() => auth.isTechnician);
 
-// A status transition from the lifecycle panel doesn't flow back through
+// A status transition from the state header doesn't flow back through
 // the own-change sync filter, so reflect it optimistically (the status
 // badge updates at once) and refetch for the authoritative record.
 function onAssetTransitioned(toStatus: string) {
@@ -680,16 +679,24 @@ useSyncActions(
       <div class="flex flex-col gap-4 px-4 py-4 sm:px-6 mx-auto w-full max-w-8xl">
         <AlertMessage v-if="error" type="error" :message="error" />
 
-        <!-- Sync context. The name lives in the site header (like a
-             ticket title) and status is shown in the lifecycle panel. -->
-        <div v-if="isSynced" class="flex flex-wrap items-center gap-2">
-          <span
-            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-surface-alt text-secondary border border-default"
-          >
-            <Icon name="lock" size="xs" />
-            {{ $t('asset-detail-readonly') }}
-          </span>
-        </div>
+        <!-- Current state: status, borrower and the actions that change
+             them. The name lives in the site header (like a ticket title). -->
+        <AssetStateHeader
+          :asset-id="device.id"
+          :status="device.status"
+          :can-edit="canChangeLifecycle"
+          @loan-changed="() => invalidateAsset()"
+          @transitioned="onAssetTransitioned"
+        >
+          <template v-if="isSynced" #meta>
+            <span
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-surface-alt text-secondary border border-default"
+            >
+              <Icon name="lock" size="xs" />
+              {{ $t('asset-detail-readonly') }}
+            </span>
+          </template>
+        </AssetStateHeader>
 
         <div class="asset-grid items-start">
           <!-- Primary column: the property list (extend on demand) and
@@ -1018,10 +1025,13 @@ useSyncActions(
               />
             </SectionCard>
 
-            <!-- Sub-record panels: lifecycle, loans, usage, media,
+            <!-- Sub-record panels: loans, status history, usage, media,
                  plugins. These accrue over an asset's life rather than
                  being creation inputs, so they sit below the property
-                 list in the same wide column. -->
+                 list in the same wide column. The Loans card appears
+                 once the asset has been loaned. -->
+            <AssetLoanPanel :asset-id="device.id" />
+
             <SectionCard content-padding="p-4">
               <template #title>{{ $t('asset-lifecycle-heading') }}</template>
               <template #headerActions>
@@ -1039,17 +1049,6 @@ useSyncActions(
                 :asset-id="device.id"
                 :current-status="device.status"
                 :can-edit="canChangeLifecycle"
-                @transitioned="onAssetTransitioned"
-              />
-            </SectionCard>
-
-            <SectionCard content-padding="p-4">
-              <template #title>{{ $t('asset-loan-heading') }}</template>
-              <AssetLoanPanel
-                :asset-id="device.id"
-                :current-status="device.status"
-                :can-edit="canChangeLifecycle"
-                @changed="() => invalidateAsset()"
               />
             </SectionCard>
 

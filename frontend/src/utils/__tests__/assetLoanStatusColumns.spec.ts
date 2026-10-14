@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { setDateConfig } from '@nosdesk/core/utils/dateUtils'
-import { borrowerCell, lastStatusChangeCell } from '@/utils/assetLoanStatusColumns'
+import { borrowerCell, lastStatusChangeCell, usedByCell } from '@/utils/assetLoanStatusColumns'
 
 // Echo the key and its arguments so assertions see what was asked for.
 const t = (key: string, args?: Record<string, string>) =>
@@ -83,5 +83,49 @@ describe('lastStatusChangeCell', () => {
       'asset-lifecycle-timeline-initial(to=asset-status-in-stock)',
       'Jun 1, 2025, 09:00 AM',
     ])
+  })
+})
+
+describe('usedByCell', () => {
+  const loan = {
+    borrower_user_uuid: 'u-1',
+    borrower_name: 'Mia',
+    loaned_at: '2026-10-01T09:00:00Z',
+    due_back: '2999-12-01',
+  }
+
+  it('is the assigned user, or unassigned, without an open loan', () => {
+    expect(usedByCell(t, { uuid: 'u-9', name: 'Sam' }, null)).toEqual({ kind: 'user', uuid: 'u-9', name: 'Sam' })
+    expect(usedByCell(t, null, undefined)).toEqual({ kind: 'unassigned' })
+  })
+
+  it('is the borrower during a loan, naming the assigned user in the title', () => {
+    expect(usedByCell(t, { uuid: 'u-9', name: 'Sam' }, loan)).toEqual({
+      kind: 'loan',
+      uuid: 'u-1',
+      name: 'Mia',
+      overdue: false,
+      title: [
+        'assets-list-user-on-loan-title(name=Mia)',
+        'assets-list-borrower-title-due(loaned=Oct 1, 2026,due=Dec 1, 2999)',
+        'assets-list-user-assigned-title(name=Sam)',
+      ].join('\n'),
+    })
+  })
+
+  it('is overdue once the due date has passed', () => {
+    expect(usedByCell(t, null, { ...loan, due_back: '2020-01-01' })).toMatchObject({ overdue: true })
+  })
+
+  it('reads as loaned when the borrower account is gone', () => {
+    expect(
+      usedByCell(t, null, { ...loan, borrower_user_uuid: null, borrower_name: null, due_back: null }),
+    ).toEqual({
+      kind: 'loan',
+      uuid: null,
+      name: null,
+      overdue: false,
+      title: 'assets-list-borrower-unknown-title\nassets-list-borrower-title(loaned=Oct 1, 2026)',
+    })
   })
 })

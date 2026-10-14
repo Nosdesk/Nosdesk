@@ -6,7 +6,7 @@ import { createFluentVue } from 'fluent-vue'
 import { createPinia } from 'pinia'
 import type { AssetLoan } from '@nosdesk/core/types/asset'
 
-// The asset's loan panel keeps showing the loans it has when a refetch fails
+// The asset's Loans card keeps showing the loans it has when a refetch fails
 // (as one does while the network is down), and recovers once it is back.
 
 const LOAN: AssetLoan = {
@@ -52,9 +52,10 @@ afterEach(() => {
 async function mountPanel() {
   let cache!: ReturnType<typeof useQueryCache>
   wrapper = mount(AssetLoanPanel, {
-    props: { assetId: 7, currentStatus: 'in_service' },
+    props: { assetId: 7 },
     shallow: true,
     global: {
+      stubs: { SectionCard: { template: '<div><slot name="title" /><slot /></div>' } },
       plugins: [
         createFluentVue({ bundles: [new FluentBundle('en-US')] }),
         createPinia(),
