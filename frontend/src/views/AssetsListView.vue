@@ -378,8 +378,8 @@ const columns = computed(() => [
   { field: 'quantity', label: t('assets-list-column-stock'), width: 'minmax(78px,110px)', sortable: true, responsive: 'md' as const, defaultHidden: true },
   { field: 'status', label: t('assets-list-column-status'), width: 'minmax(84px,118px)', sortable: true, responsive: 'always' as const },
   { field: 'warranty_status', label: t('assets-list-column-warranty'), width: 'minmax(70px,98px)', sortable: false, responsive: 'always' as const },
-  { field: 'borrower', label: t('assets-list-column-borrower'), width: 'minmax(98px,170px)', sortable: true, responsive: 'md' as const, defaultHidden: true },
-  { field: 'last_status_change', label: t('assets-list-column-last-status-change'), width: 'minmax(130px,230px)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
+  { field: 'borrower', label: t('assets-list-column-borrower'), width: 'minmax(110px,180px)', sortable: true, responsive: 'md' as const, defaultHidden: true },
+  { field: 'last_status_change', label: t('assets-list-column-status-changed'), width: 'minmax(160px,230px)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
   ...attributeColumns.value,
 ])
 

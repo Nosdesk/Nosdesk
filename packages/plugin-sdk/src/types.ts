@@ -79,10 +79,10 @@ export interface PluginAssetQuery {
 }
 
 /** One page of `assets.query`. Each row also carries `current_loan` (the
- * open loan: borrower uuid and name, `issued_at`, `due_at`) and
+ * open loan: borrower uuid and name, `loaned_at`, `due_back`) and
  * `latest_lifecycle` (the newest status change: `from_status`, `to_status`,
- * `occurred_at`, and for staff `reason` and `actor_*`), each null when there
- * is none. */
+ * `occurred_at`, and for staff `reason` and `actor_*`, null for anyone else),
+ * each null when there is none. */
 export interface PluginAssetPage {
   assets: Asset[];
   total: number;

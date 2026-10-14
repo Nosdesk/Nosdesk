@@ -411,7 +411,7 @@ macro_rules! persona_name_sql {
 const CURRENT_LOAN_JSON: &str = concat!(
     "(SELECT to_jsonb(l) FROM (SELECT al.borrower_user_uuid, ",
     persona_name_sql!("al.borrower_user_uuid", "al.workspace_id"),
-    " AS borrower_name, al.loaned_at AS issued_at, al.due_back AS due_at \
+    " AS borrower_name, al.loaned_at, al.due_back \
      FROM asset_loans al WHERE al.asset_id = assets.id AND al.returned_at IS NULL \
      ORDER BY al.loaned_at DESC, al.id DESC LIMIT 1) l)"
 );

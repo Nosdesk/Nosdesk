@@ -19,14 +19,14 @@ describe('borrowerCell', () => {
       borrowerCell(t, {
         borrower_user_uuid: 'u-1',
         borrower_name: 'Mia',
-        issued_at: '2026-10-01T09:00:00Z',
-        due_at: '2026-12-01',
+        loaned_at: '2026-10-01T09:00:00Z',
+        due_back: '2026-12-01',
       }),
     ).toEqual({
       kind: 'user',
       uuid: 'u-1',
       name: 'Mia',
-      title: 'assets-list-borrower-title-due(issued=Oct 1, 2026,due=Dec 1, 2026)',
+      title: 'Mia\nassets-list-borrower-title-due(loaned=Oct 1, 2026,due=Dec 1, 2026)',
     })
   })
 
@@ -34,12 +34,12 @@ describe('borrowerCell', () => {
     const cell = borrowerCell(t, {
       borrower_user_uuid: null,
       borrower_name: null,
-      issued_at: '2026-10-01T09:00:00Z',
-      due_at: null,
+      loaned_at: '2026-10-01T09:00:00Z',
+      due_back: null,
     })
     expect(cell).toEqual({
       kind: 'unknown',
-      title: 'assets-list-borrower-unknown-title\nassets-list-borrower-title(issued=Oct 1, 2026)',
+      title: 'assets-list-borrower-unknown-title\nassets-list-borrower-title(loaned=Oct 1, 2026)',
     })
   })
 })
@@ -49,7 +49,7 @@ describe('lastStatusChangeCell', () => {
     expect(lastStatusChangeCell(t, null)).toBeNull()
   })
 
-  it('labels a transition and puts who and why in the title', () => {
+  it('shows where the status came from, with who and why in the title', () => {
     const cell = lastStatusChangeCell(t, {
       from_status: 'in_repair',
       to_status: 'in_service',
@@ -60,22 +60,28 @@ describe('lastStatusChangeCell', () => {
     })
     const label =
       'asset-lifecycle-timeline-transition(from=asset-status-in-repair,to=asset-status-in-service)'
-    expect(cell?.label).toBe(label)
     expect(cell?.date).toBe('Jun 1, 2025')
+    expect(cell?.from).toBe('assets-list-status-changed-from(status=asset-status-in-repair)')
     expect(cell?.title.split('\n')).toEqual([
       label,
-      'assets-list-last-status-change-by(when=Jun 1, 2025, 09:00 AM,name=Ana)',
-      'assets-list-last-status-change-reason(reason=Screen replaced)',
+      'assets-list-status-changed-by(when=Jun 1, 2025, 09:00 AM,name=Ana)',
+      'assets-list-status-changed-reason(reason=Screen replaced)',
     ])
   })
 
-  it('labels a first status and leaves out what a requester does not get', () => {
+  it('marks a first status and leaves out what a requester does not get', () => {
     const cell = lastStatusChangeCell(t, {
       from_status: null,
       to_status: 'in_stock',
+      reason: null,
       occurred_at: '2025-06-01T09:00:00Z',
+      actor_uuid: null,
+      actor_name: null,
     })
-    expect(cell?.label).toBe('asset-lifecycle-timeline-initial(to=asset-status-in-stock)')
-    expect(cell?.title.split('\n')).toEqual([cell?.label, 'Jun 1, 2025, 09:00 AM'])
+    expect(cell?.from).toBe('assets-list-status-changed-initial')
+    expect(cell?.title.split('\n')).toEqual([
+      'asset-lifecycle-timeline-initial(to=asset-status-in-stock)',
+      'Jun 1, 2025, 09:00 AM',
+    ])
   })
 })

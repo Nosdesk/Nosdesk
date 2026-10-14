@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * The inventory list's Last status change cell: a short date, then the
- * newest transition, on one line. The date leads so a narrow column
- * truncates the transition, not the date. The title gives the full date and, for staff, who
- * made the change and why.
+ * The inventory list's Status changed cell: a short date and the status the
+ * asset moved from ("Oct 14 · from In service"). The Status column shows
+ * where it went. The title has the whole transition, the full date and, for
+ * staff, who made the change and why.
  */
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -17,8 +17,9 @@ const cell = computed(() => lastStatusChangeCell((key, args) => fluent.$t(key, a
 </script>
 
 <template>
-  <div v-if="cell" class="flex items-center gap-1.5 min-w-0 text-xs" :title="cell.title">
-    <span class="text-tertiary tabular-nums whitespace-nowrap flex-shrink-0">{{ cell.date }}</span>
-    <span class="text-secondary truncate">{{ cell.label }}</span>
+  <div v-if="cell" class="flex items-center gap-1 min-w-0 text-xs" :title="cell.title">
+    <span class="text-secondary tabular-nums whitespace-nowrap flex-shrink-0">{{ cell.date }}</span>
+    <span class="text-tertiary flex-shrink-0" aria-hidden="true">·</span>
+    <span class="text-tertiary truncate">{{ cell.from }}</span>
   </div>
 </template>

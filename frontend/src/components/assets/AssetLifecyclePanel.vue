@@ -340,7 +340,9 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
         <div class="flex items-baseline justify-between gap-3 flex-wrap">
           <span class="text-sm font-medium text-primary">{{ transitionSummary(event) }}</span>
           <span class="text-xs text-tertiary whitespace-nowrap">
-            {{ actorLabel(event.actor_uuid) }} · {{ formatRelativeTime(event.occurred_at, { addSuffix: true }) }}
+            <!-- Who made a change is staff only; a requester's events carry
+                 no actor, reason, ticket or metadata. -->
+            <template v-if="canEdit">{{ actorLabel(event.actor_uuid) }} · </template>{{ formatRelativeTime(event.occurred_at, { addSuffix: true }) }}
           </span>
         </div>
         <div

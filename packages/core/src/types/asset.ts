@@ -93,20 +93,20 @@ export interface AssetCurrentLoan {
   borrower_user_uuid: string | null;
   /** The borrower's display name in this workspace; null with the uuid. */
   borrower_name: string | null;
-  issued_at: string;
+  loaned_at: string;
   /** Due-back calendar date (`YYYY-MM-DD`), or null for an open-ended loan. */
-  due_at: string | null;
+  due_back: string | null;
 }
 
 /** An asset's newest lifecycle event as a list row carries it. `reason` and
- *  `actor_*` are staff only: absent for anyone else. */
+ *  `actor_*` are staff only: null for anyone else. */
 export interface AssetLatestLifecycle {
   from_status: string | null;
   to_status: string;
-  reason?: string | null;
+  reason: string | null;
   occurred_at: string;
-  actor_uuid?: string | null;
-  actor_name?: string | null;
+  actor_uuid: string | null;
+  actor_name: string | null;
 }
 
 /** Canonical asset lifecycle states. Mirrors the backend
@@ -137,7 +137,9 @@ export const ASSET_STATUSES: AssetStatus[] = [
 
 /** One row of an asset's append-only lifecycle log. `metadata`
  *  carries state-specific fields (repair vendor/RMA/offsite, loan
- *  recipient/due-back) so new workflows need no schema change. */
+ *  recipient/due-back) so new workflows need no schema change.
+ *  `reason`, `ticket_id`, `actor_uuid` and `metadata` are staff only:
+ *  null (metadata `{}`) for anyone else. */
 export interface AssetLifecycleEvent {
   id: number;
   asset_id: number;

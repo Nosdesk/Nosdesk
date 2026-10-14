@@ -2,7 +2,7 @@
 /**
  * The inventory list's Borrower cell: the open loan's borrower, a muted
  * "Loaned" when the borrower's account is gone, nothing when the asset
- * isn't out. The title gives the loan dates.
+ * isn't out. The title gives the borrower and the loan dates.
  */
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'

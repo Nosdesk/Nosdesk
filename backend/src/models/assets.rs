@@ -530,13 +530,14 @@ pub struct AssetCurrentLoan {
     pub borrower_user_uuid: Option<Uuid>,
     /// The workspace display name when set, else the account name.
     pub borrower_name: Option<String>,
-    pub issued_at: chrono::DateTime<chrono::Utc>,
-    /// The loan's due-back date, a calendar date.
-    pub due_at: Option<NaiveDate>,
+    /// As the loan ledger names them.
+    pub loaned_at: chrono::DateTime<chrono::Utc>,
+    pub due_back: Option<NaiveDate>,
 }
 
 /// An asset's newest lifecycle event, by `(occurred_at, id)`, as the
-/// paginated list carries it. `reason` and `actor_*` are staff only.
+/// paginated list carries it. `reason` and `actor_*` are staff only: null
+/// for anyone else.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetLatestLifecycle {
     pub from_status: Option<String>,

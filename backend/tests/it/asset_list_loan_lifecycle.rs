@@ -259,8 +259,8 @@ async fn staff_rows_carry_the_open_loan_and_newest_event() {
         a["current_loan"]["borrower_name"], "Zoe Persona",
         "the workspace display name wins over the account name"
     );
-    assert_eq!(a["current_loan"]["due_at"], "2026-12-01");
-    assert!(a["current_loan"]["issued_at"].is_string());
+    assert_eq!(a["current_loan"]["due_back"], "2026-12-01");
+    assert!(a["current_loan"]["loaned_at"].is_string());
     assert_eq!(a["latest_lifecycle"]["to_status"], "on_loan");
 
     let b = by_name(&rows, "b returned");
@@ -280,7 +280,7 @@ async fn staff_rows_carry_the_open_loan_and_newest_event() {
         f.plain_borrower.to_string()
     );
     assert_eq!(c["current_loan"]["borrower_name"], "Mia");
-    assert!(c["current_loan"]["due_at"].is_null());
+    assert!(c["current_loan"]["due_back"].is_null());
 
     let d = by_name(&rows, "d gone");
     assert!(
@@ -380,21 +380,23 @@ async fn a_requester_sees_who_has_it_but_not_why_it_changed() {
         json!({
             "borrower_user_uuid": f.persona_borrower.to_string(),
             "borrower_name": "Zoe Persona",
-            "issued_at": a["current_loan"]["issued_at"],
-            "due_at": "2026-12-01",
+            "loaned_at": a["current_loan"]["loaned_at"],
+            "due_back": "2026-12-01",
         }),
         "who has the asset and until when, as the loan ledger shows a requester"
     );
 
-    let event = by_name(&rows, "e repaired")["latest_lifecycle"]
-        .as_object()
-        .expect("event")
-        .clone();
-    let mut keys: Vec<&str> = event.keys().map(String::as_str).collect();
-    keys.sort_unstable();
+    let event = &by_name(&rows, "e repaired")["latest_lifecycle"];
     assert_eq!(
-        keys,
-        ["from_status", "occurred_at", "to_status"],
-        "no reason and no actor for a requester"
+        event,
+        &json!({
+            "from_status": "in_repair",
+            "to_status": "in_service",
+            "occurred_at": event["occurred_at"],
+            "reason": null,
+            "actor_uuid": null,
+            "actor_name": null,
+        }),
+        "no reason and no actor for a requester, as the lifecycle timeline gives it"
     );
 }

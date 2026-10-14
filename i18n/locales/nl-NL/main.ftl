@@ -2844,13 +2844,15 @@ assets-list-attribute-yes = Ja
 assets-list-attribute-no = Nee
 # MACHINE TRANSLATION, pending native review
 assets-list-column-borrower = Lener
-assets-list-column-last-status-change = Laatste statuswijziging
+assets-list-column-status-changed = Status gewijzigd
+assets-list-status-changed-from = van { $status }
+assets-list-status-changed-initial = eerste status
 assets-list-borrower-unknown = Uitgeleend
 assets-list-borrower-unknown-title = Uitgeleend aan een account dat niet meer bestaat
-assets-list-borrower-title = Uitgeleend op { $issued }
-assets-list-borrower-title-due = Uitgeleend op { $issued }, terug op { $due }
-assets-list-last-status-change-by = { $when } door { $name }
-assets-list-last-status-change-reason = Reden: { $reason }
+assets-list-borrower-title = Uitgeleend op { $loaned }
+assets-list-borrower-title-due = Uitgeleend op { $loaned }, terug op { $due }
+assets-list-status-changed-by = { $when } door { $name }
+assets-list-status-changed-reason = Reden: { $reason }
 
 assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock

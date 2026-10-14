@@ -531,10 +531,8 @@ fn resolve_asset_user(u: &User, conn: &mut crate::db::DbConnection) -> UserInfo 
 
 /// Assets as `auth` may see them. Staff get them whole. Anyone else gets no
 /// notes, and the embedded primary user goes through `sync::user_projection`,
-/// as the user routes do: of someone else, the name and avatar. A list row's
-/// open loan keeps who has the asset and when, as the loan ledger shows
-/// anyone; its newest lifecycle event loses the reason and who made the
-/// change. `body` is one asset, a list of them, or a page (`data`).
+/// as the user routes do: of someone else, the name and avatar. `body` is one
+/// asset, a list of them, or a page (`data`).
 fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Value {
     let mut body = serde_json::to_value(body).unwrap_or(serde_json::Value::Null);
     if auth.can_handle_tickets() {
@@ -558,14 +556,6 @@ fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Va
         }
         if let Some(user) = asset.get_mut("primary_user") {
             crate::sync::user_projection::value_for_viewer(user, viewer);
-        }
-        if let Some(event) = asset
-            .get_mut("latest_lifecycle")
-            .and_then(serde_json::Value::as_object_mut)
-        {
-            for field in ["reason", "actor_uuid", "actor_name"] {
-                event.remove(field);
-            }
         }
     }
     body
@@ -981,7 +971,7 @@ pub async fn export_assets(
         Ok((rows, events, slug))
     });
 
-    let (mut rows, events, slug) = match export_result {
+    let (mut rows, mut events, slug) = match export_result {
         Ok(v) => v,
         Err(e) => {
             error!(error = ?e, "Database error exporting assets");
@@ -990,6 +980,10 @@ pub async fn export_assets(
     };
     // The CSV keeps its `notes` column, blank, so a re-import still parses.
     strip_staff_asset_fields(&mut rows, &auth);
+    // History keeps its columns too, blank where the timeline is staff only.
+    if let Some(events) = events.as_mut() {
+        crate::handlers::asset_lifecycle::strip_staff_lifecycle_fields(events, &auth);
+    }
 
     let kind = if events.is_some() {
         "asset-history"
@@ -1045,7 +1039,7 @@ pub async fn record_card(
         let events = repository::asset_lifecycle::history_for_export(conn, &[asset_id])?;
         Ok((asset, events))
     });
-    let (asset, events) = match result {
+    let (asset, mut events) = match result {
         Ok(v) => v,
         Err(diesel::result::Error::NotFound) => {
             return errors::not_found_msg(format!("Asset {asset_id} not found"));
@@ -1055,6 +1049,7 @@ pub async fn record_card(
             return errors::internal("Failed to build asset record card");
         }
     };
+    crate::handlers::asset_lifecycle::strip_staff_lifecycle_fields(&mut events, &auth);
     let body = match write_history_csv(std::slice::from_ref(&asset), &events) {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -1145,10 +1140,22 @@ pub async fn get_paginated_devices(
         let rows: Vec<AssetListItem> = devices_to_responses(conn, devices)
             .into_iter()
             .zip(extras)
-            .map(|(asset, (current_loan, latest_lifecycle))| AssetListItem {
-                asset,
-                current_loan,
-                latest_lifecycle,
+            .map(|(asset, (current_loan, mut latest_lifecycle))| {
+                // The open loan is kept whole: the loan ledger shows anyone
+                // who has the asset and when. The event is reduced as the
+                // lifecycle timeline reduces it.
+                if !auth.can_handle_tickets() {
+                    if let Some(event) = latest_lifecycle.as_mut() {
+                        event.reason = None;
+                        event.actor_uuid = None;
+                        event.actor_name = None;
+                    }
+                }
+                AssetListItem {
+                    asset,
+                    current_loan,
+                    latest_lifecycle,
+                }
             })
             .collect();
         Ok((rows, total))
