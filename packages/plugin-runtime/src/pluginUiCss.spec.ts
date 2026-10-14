@@ -127,7 +127,11 @@ describe('PLUGIN_UI_CSS', () => {
     expect(coarse).toMatch(/\.nd-switch::after/)
   })
 
+  it('sets the app body size (14px) as the document base', () => {
+    expect(PLUGIN_UI_CSS).toMatch(/body \{[^}]*font-size: 14px;/)
+  })
+
   it('has no em dashes', () => {
-    expect(PLUGIN_UI_CSS).not.toContain('—')
+    expect(PLUGIN_UI_CSS).not.toContain('\u2014')
   })
 })

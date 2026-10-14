@@ -5,14 +5,14 @@
 // push. This is what gives a plugin's raw DOM the app's fonts, colours,
 // scrollbars, buttons, and inputs without the plugin reimplementing them.
 //
-// The classes are the plugin contract, versioned with the runtime. Keep every
-// one of them and its look stable; changes are additive only. The original set
-// is `.nd-btn` / `.nd-btn--primary`, `.nd-input`, `.nd-textarea`, `.nd-card`,
-// `.nd-label`, `.nd-muted`. The second set (button variants, select, checkbox,
-// radio, switch, field, badge, table, tabs, callout, empty state and layout
-// helpers) copies its metrics from the app's own components, named next to
-// each block below, so a plugin's controls sit next to the app's without a
-// visible seam.
+// The class NAMES are the plugin contract, versioned with the runtime: never
+// remove or rename one, only add. Their look tracks the app. Each block copies
+// its metrics from the app component named next to it (Button, FormInput,
+// FormTextarea, BaseDropdown, Checkbox, ToggleSwitch, StatusPill, DataTable,
+// the tabs recipe, Callout, EmptyState), so a plugin's controls sit next to
+// the app's without a visible seam. The original names are `.nd-btn` /
+// `.nd-btn--primary`, `.nd-input`, `.nd-textarea`, `.nd-card`, `.nd-label`,
+// `.nd-muted`.
 //
 // Only `--nd-*` names from the host contract are referenced (TOKEN_MAP and the
 // metric tokens in frontend/src/plugins/theme.ts). Tints the contract has no
@@ -43,10 +43,12 @@ html, body { margin: 0; padding: 0; }
    a spurious x-scrollbar. Vertical stays visible so nothing is silently hidden
    if a height report ever lags. */
 body { overflow-x: hidden; }
+/* 14px on a 20px line is the app's body text (\`text-sm\`): the values in a
+   SectionCard, table cells, md buttons and form controls all use it. */
 body {
   font-family: var(--nd-font-sans, system-ui, -apple-system, sans-serif);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.4286;
   color: var(--nd-text, #1f2937);
   background: transparent;
   -webkit-font-smoothing: antialiased;
@@ -61,25 +63,35 @@ body {
 
 a { color: var(--nd-accent, #FF6B1A); }
 
+/* Buttons: the app's button recipe (frontend/src/recipes/button.ts), md
+   size. The default \`.nd-btn\` is the app's secondary button: surface-alt fill
+   with the default border. Filled and ghost variants have no border, as in the
+   app, so they are 2px shorter than the bordered default exactly like the
+   app's buttons are. */
 .nd-btn {
   font: inherit;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
   border-radius: var(--nd-radius, 8px);
   border: 1px solid var(--nd-border, #e5e7eb);
-  background: var(--nd-surface, #ffffff);
+  background: var(--nd-surface-alt, #f3f4f6);
   color: var(--nd-text, #1f2937);
+  font-size: 14px;
   font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
-.nd-btn:hover { background: var(--nd-surface-hover, #f3f4f6); }
+.nd-btn:hover { background: var(--nd-surface-hover, #e5e7eb); }
 .nd-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .nd-btn--primary {
   background: var(--nd-accent, #FF6B1A);
   border-color: var(--nd-accent, #FF6B1A);
+  border-width: 0;
   color: var(--nd-on-accent, #000000);
 }
 .nd-btn--primary:hover {
@@ -87,22 +99,30 @@ a { color: var(--nd-accent, #FF6B1A); }
   border-color: var(--nd-accent-hover, #EB5808);
 }
 
+/* Text inputs: the app's FormInput and FormTextarea. A surface-alt fill with a
+   subtle border, 8px 12px padding at 14px (38px tall), and on focus an accent
+   border with a 2px accent ring. The textarea's border steps up on hover. */
 .nd-input, .nd-textarea {
   font: inherit;
   width: 100%;
   box-sizing: border-box;
-  padding: 6px 8px;
-  border: 1px solid var(--nd-border, #e5e7eb);
+  padding: 8px 12px;
+  border: 1px solid var(--nd-border-subtle, #f3f4f6);
   border-radius: var(--nd-radius, 8px);
-  background: var(--nd-surface, #ffffff);
+  background: var(--nd-surface-alt, #f3f4f6);
   color: var(--nd-text, #1f2937);
+  font-size: 14px;
+  line-height: 20px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.nd-input::placeholder, .nd-textarea::placeholder { color: var(--nd-text-tertiary, #9ca3af); }
-.nd-input:focus, .nd-textarea:focus {
-  outline: none;
+.nd-input::placeholder, .nd-textarea::placeholder { color: var(--nd-text-tertiary, #6b7280); opacity: 1; }
+.nd-input:focus, .nd-textarea:focus { outline: none; }
+.nd-input:focus-visible, .nd-textarea:focus-visible {
   border-color: var(--nd-accent, #FF6B1A);
+  box-shadow: 0 0 0 2px var(--nd-accent, #FF6B1A);
 }
 .nd-textarea { resize: vertical; }
+.nd-textarea:hover:not(:disabled):not(:focus-visible):not([aria-invalid="true"]) { border-color: var(--nd-border, #e5e7eb); }
 
 /* An INNER sub-card, for grouping content inside a panel.
  *
@@ -125,25 +145,24 @@ a { color: var(--nd-accent, #FF6B1A); }
 .nd-label { font-weight: 600; color: var(--nd-text, #1f2937); }
 .nd-muted { color: var(--nd-text-tertiary, #6b7280); }
 
-/* Button variants, size, focus and disabled. Metrics from the app's button
-   recipe (frontend/src/recipes/button.ts). \`.nd-btn--secondary\` spells out the
-   default look for markup that wants to name it. */
+/* Button variants, size, focus and disabled. \`.nd-btn--secondary\` spells
+   out the default look for markup that wants to name it. */
 .nd-btn--secondary {
-  background: var(--nd-surface, #ffffff);
+  background: var(--nd-surface-alt, #f3f4f6);
   border-color: var(--nd-border, #e5e7eb);
   color: var(--nd-text, #1f2937);
 }
 .nd-btn--secondary:hover { background: var(--nd-surface-hover, #e5e7eb); }
 .nd-btn--danger {
   background: var(--nd-error, #EF4444);
-  border-color: var(--nd-error, #EF4444);
+  border-width: 0;
   color: #ffffff;
 }
 .nd-btn--danger:hover { background: var(--nd-error, #EF4444); }
 .nd-btn--danger:hover:not(:disabled) { opacity: 0.9; }
 .nd-btn--ghost {
   background: transparent;
-  border-color: transparent;
+  border-width: 0;
   color: var(--nd-text-secondary, #4b5563);
 }
 .nd-btn--ghost:hover {
@@ -157,24 +176,27 @@ a { color: var(--nd-accent, #FF6B1A); }
 }
 .nd-btn--ghost:disabled:hover { background: transparent; color: var(--nd-text-secondary, #4b5563); }
 
-/* Native select, sized and coloured like \`.nd-input\`. The chevron is two
-   gradient strokes in the tertiary text colour, so it follows the theme
-   without an image. Hover and focus follow the app's dropdown trigger
-   (components/common/BaseDropdown.vue). */
+/* Native select: the app's dropdown trigger (BaseDropdown, sm, the size used
+   almost everywhere). Surface-alt fill, subtle border, 6px 12px at 14px (34px
+   tall). The chevron is two gradient strokes in the tertiary text colour, so
+   it follows the theme without an image. Hover steps the border up; focus is
+   an accent border with a 1px accent ring. */
 .nd-select {
   font: inherit;
   width: 100%;
-  padding: 6px 30px 6px 8px;
-  border: 1px solid var(--nd-border, #e5e7eb);
+  padding: 6px 36px 6px 12px;
+  border: 1px solid var(--nd-border-subtle, #f3f4f6);
   border-radius: var(--nd-radius, 8px);
-  background-color: var(--nd-surface, #ffffff);
+  background-color: var(--nd-surface-alt, #f3f4f6);
   color: var(--nd-text, #1f2937);
+  font-size: 14px;
+  line-height: 20px;
   -webkit-appearance: none;
   appearance: none;
   background-image:
     linear-gradient(45deg, transparent calc(50% - 0.8px), var(--nd-text-tertiary, #6b7280) calc(50% - 0.8px), var(--nd-text-tertiary, #6b7280) calc(50% + 0.8px), transparent calc(50% + 0.8px)),
     linear-gradient(135deg, transparent calc(50% - 0.8px), var(--nd-text-tertiary, #6b7280) calc(50% - 0.8px), var(--nd-text-tertiary, #6b7280) calc(50% + 0.8px), transparent calc(50% + 0.8px));
-  background-position: calc(100% - 16px) 50%, calc(100% - 10px) 50%;
+  background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%;
   background-size: 6px 6px;
   background-repeat: no-repeat;
   cursor: pointer;
@@ -186,7 +208,16 @@ a { color: var(--nd-accent, #FF6B1A); }
   border-color: var(--nd-accent, #FF6B1A);
   box-shadow: 0 0 0 1px var(--nd-accent, #FF6B1A);
 }
-.nd-select[multiple], .nd-select[size] { padding-right: 8px; background-image: none; }
+.nd-select[multiple], .nd-select[size] { padding-right: 12px; background-image: none; }
+
+/* Inside the recessed \`.nd-card\` the fill would vanish into the card, so
+   controls step back up to the surface there. */
+.nd-card .nd-input, .nd-card .nd-textarea, .nd-card .nd-select {
+  background-color: var(--nd-surface, #ffffff);
+}
+.nd-card :is(.nd-input, .nd-textarea, .nd-select):not(:focus):not(:hover):not([aria-invalid="true"]) {
+  border-color: var(--nd-border, #e5e7eb);
+}
 
 /* Checkbox and radio stay native and take the accent through accent-color.
    16px is the app's Checkbox size. A label wrapping one lays out as the app's
@@ -348,7 +379,7 @@ label:has(> :disabled) { cursor: not-allowed; }
    inventory page. 10px uppercase header on the surface, 28px rows on the app
    background, a rule between rows, the hover row on surface-hover, 16px
    outer cell padding. Cells stay on one line, as the app's do, so a row keeps
-   its height. Cell text inherits the kit's 13px body size. Wrap a table in
+   its height. Cell text is the 14px body size. Wrap a table in
    \`.nd-table-wrap\` to scroll it sideways inside the wrapper instead of
    clipping. For a sortable column put a \`button\` in the \`th\` and set
    aria-sort on the \`th\`; the arrow follows aria-sort. \`.nd-num\` right
