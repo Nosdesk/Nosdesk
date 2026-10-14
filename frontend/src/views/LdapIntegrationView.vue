@@ -20,7 +20,6 @@
       </header>
 
       <AlertMessage v-if="loadError" type="error" :message="loadError" />
-      <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
       <!-- Cold-load skeleton (only on a genuine cold cache) -->
       <Skeleton v-if="isFirstLoad" class="flex flex-col gap-4">
@@ -497,6 +496,24 @@
               {{ saving ? $t('admin-ldap-saving') : $t('admin-ldap-save') }}
             </Button>
           </div>
+
+          <!-- Save/sync outcome and why Save is unavailable, next to the buttons
+               so a failure is visible without scrolling back up. -->
+          <p
+            v-if="errorMessage"
+            role="alert"
+            data-test="ldap-action-error"
+            class="w-full text-sm text-status-error sm:text-right break-words"
+          >
+            {{ errorMessage }}
+          </p>
+          <p
+            v-else-if="saveBlockedReason"
+            data-test="ldap-save-blocked"
+            class="w-full text-xs text-secondary sm:text-right"
+          >
+            {{ saveBlockedReason }}
+          </p>
         </div>
       </template>
     </div>
@@ -541,9 +558,40 @@ const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const toast = useToastStore();
 
-interface FormState extends Omit<UpsertLdapSettings, 'ca_cert_pem'> {
+type NumberField = 'port' | 'connect_timeout_secs' | 'page_size';
+
+interface FormState extends Omit<UpsertLdapSettings, 'ca_cert_pem' | NumberField> {
   ca_cert_pem: string; // '' <-> null
   bind_password: string; // write-only, never seeded
+  // A cleared number input is null; Save stays off until it is filled.
+  port: number | null;
+  connect_timeout_secs: number | null;
+  page_size: number | null;
+}
+
+/** Structural equality for the JSONB maps, ignoring object key order (Postgres
+ *  hands jsonb keys back in its own order, the presets come alphabetical, and
+ *  local edits append). Array order still counts. */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((v, i) => sameJson(v, b[i]))
+    );
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const ao = a as Record<string, unknown>;
+    const bo = b as Record<string, unknown>;
+    const keys = Object.keys(ao);
+    return (
+      keys.length === Object.keys(bo).length &&
+      keys.every((k) => Object.prototype.hasOwnProperty.call(bo, k) && sameJson(ao[k], bo[k]))
+    );
+  }
+  return false;
 }
 
 /** AD-flavoured defaults for a brand-new config. */
@@ -699,21 +747,23 @@ const filterError = computed(() =>
 
 function toUpsert(): UpsertLdapSettings {
   const f = form.value;
+  // Null numbers never reach the server (canSave blocks them); 0 keeps the
+  // dirty check honest until they are filled.
   return {
     enabled: f.enabled,
     host: f.host.trim(),
-    port: f.port,
+    port: f.port ?? 0,
     tls_mode: f.tls_mode,
     verify_certs: f.verify_certs,
     ca_cert_pem: f.ca_cert_pem.trim() ? f.ca_cert_pem : null,
     follow_referrals: f.follow_referrals,
-    connect_timeout_secs: f.connect_timeout_secs,
+    connect_timeout_secs: f.connect_timeout_secs ?? 0,
     auth_mode: f.auth_mode,
     bind_dn: f.bind_dn.trim(),
     user_base_dn: f.user_base_dn.trim(),
     username_attribute: f.username_attribute.trim(),
     user_filter: f.user_filter.trim(),
-    page_size: f.page_size,
+    page_size: f.page_size ?? 0,
     attribute_map: f.attribute_map,
     group_config: f.group_config,
     provisioning: f.provisioning,
@@ -742,18 +792,25 @@ const isDirty = computed(() => {
     f.username_attribute !== s.username_attribute ||
     f.user_filter !== s.user_filter ||
     f.page_size !== s.page_size ||
-    JSON.stringify(f.group_config) !== JSON.stringify(s.group_config ?? {}) ||
-    JSON.stringify(f.attribute_map) !== JSON.stringify(s.attribute_map ?? {})
+    !sameJson(f.group_config, s.group_config ?? {}) ||
+    !sameJson(f.attribute_map, s.attribute_map ?? {}) ||
+    !sameJson(f.provisioning, s.provisioning ?? {})
   );
 });
 
-const canSave = computed(() => {
+// Why Save is unavailable, shown beside the button ('' when it can save).
+const saveBlockedReason = computed(() => {
   const f = form.value;
-  if (filterError.value) return false;
+  if (filterError.value) return filterError.value;
+  if (f.port == null || f.connect_timeout_secs == null || f.page_size == null) {
+    return t('admin-ldap-save-needs-numbers');
+  }
   // An enabled config needs somewhere to connect + search.
-  if (f.enabled && (!f.host.trim() || !f.user_base_dn.trim())) return false;
-  return true;
+  if (f.enabled && !f.host.trim()) return t('admin-ldap-save-needs-host');
+  if (f.enabled && !f.user_base_dn.trim()) return t('admin-ldap-save-needs-base-dn');
+  return '';
 });
+const canSave = computed(() => saveBlockedReason.value === '');
 
 // Test + sync run against the SAVED config, so they're gated on a clean form.
 const canTest = computed(() => saved.value !== null && !isDirty.value);
@@ -764,12 +821,14 @@ const syncHint = computed(() => {
   return '';
 });
 
-// Any edit invalidates a prior test result (it authenticated the old values).
+// Any edit invalidates a prior test result (it authenticated the old values)
+// and a prior save or sync error (it was about the old values).
 watch(
   () => JSON.stringify(toUpsert()) + form.value.bind_password,
   () => {
     testResult.value = 'idle';
     testErrorMessage.value = '';
+    errorMessage.value = '';
     // The preview reflects the saved config; an edit makes it stale.
     previewData.value = null;
   },

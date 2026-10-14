@@ -28,7 +28,9 @@ use crate::repository::workspaces::{
 };
 
 use super::csv_parser::ParsedCsv;
-use super::types::{ImportSummary, ImportedRecords, ImportedUser, Importer, RowError, MAX_ERRORS};
+use super::types::{
+    CommitError, ImportSummary, ImportedRecords, ImportedUser, Importer, RowError, MAX_ERRORS,
+};
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
 
@@ -79,12 +81,13 @@ impl Importer for UserImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-    ) -> Result<ImportedRecords, diesel::result::Error> {
+    ) -> Result<ImportedRecords, CommitError> {
         use crate::schema::users;
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
-            ));
+            )
+            .into());
         }
         let existing_emails = load_existing_primary_emails(conn)?;
         let mut emails_in_file: HashSet<String> = HashSet::new();
@@ -174,12 +177,18 @@ impl Importer for UserImporter {
                         // LastOwner: proceed with the profile + platform_role.
                         _ => {}
                     }
+                    // The platform role holds in every workspace they belong to.
+                    let access =
+                        crate::repository::documentation::doc_access_everywhere(conn, uuid)?;
                     diesel::update(users::table.find(uuid))
                         .set((
                             users::platform_role.eq(platform_role_enum.as_str()),
                             users::updated_at.eq(chrono::Utc::now().naive_utc()),
                         ))
                         .execute(conn)?;
+                    crate::repository::documentation::emit_if_access_changed_everywhere(
+                        conn, uuid, &access,
+                    )?;
                     // The profile-field change goes through update_user, which
                     // emits user.updated and returns the refreshed model for
                     // indexing.

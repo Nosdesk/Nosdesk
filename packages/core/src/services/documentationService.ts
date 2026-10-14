@@ -539,7 +539,13 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
 /**
  * Create a new article
  */
-export const createArticle = async (article: Partial<Page>): Promise<Page | null> => {
+export const createArticle = async (
+  article: Partial<Page> & {
+    collection_id?: number | null
+    /** A page this one copies: the copy goes in its collection and takes its rules. */
+    copy_access_from?: number | null
+  },
+): Promise<Page | null> => {
   try {
     // Convert status string to enum value expected by backend
     let statusValue;
@@ -558,7 +564,7 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
     // the backend cascades from `parent_id` (so creating a
     // child of an existing page inherits the parent's collection
     // automatically).
-    const collectionId = (article as Partial<Page> & { collection_id?: number }).collection_id;
+    const collectionId = article.collection_id ?? undefined;
     const payload = {
       title: article.title || translate('docs-untitled-page', undefined, 'Untitled'),
       icon: article.icon || '📄',
@@ -578,6 +584,7 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
       yjs_client_id: null,
       has_unsaved_changes: false,
       ...(collectionId !== undefined ? { collection_id: collectionId } : {}),
+      ...(article.copy_access_from != null ? { copy_access_from: article.copy_access_from } : {}),
     };
 
     // Print payload as a formatted string for debugging
@@ -887,6 +894,8 @@ export const permanentlyDeletePage = async (pageId: string | number): Promise<bo
 };
 
 export interface PageVisibilityResponse {
+  /** The page has its own rules (admins only when no one is listed). */
+  restricted?: boolean;
   groups: Array<{ id: number; name: string }>;
   users: Array<{ uuid: string; name: string; avatar_url?: string | null; avatar_thumb?: string | null }>;
 }
@@ -905,14 +914,22 @@ export const getPageVisibility = async (pageId: number): Promise<PageVisibilityR
 };
 
 /**
- * Set visibility for a documentation page (admin only)
- * Empty group_ids + user_uuids clears override (page inherits from collections)
+ * Set visibility for a documentation page (admin only). `restricted` gives
+ * the page its own rules: open only to the groups and people given, admins
+ * only when there are none. Unrestricted, the page follows its collection.
+ * Omitted, it follows from whether any are given.
  */
-export const setPageVisibility = async (pageId: number, groupIds: number[], userUuids: string[] = []): Promise<boolean> => {
+export const setPageVisibility = async (
+  pageId: number,
+  groupIds: number[],
+  userUuids: string[] = [],
+  restricted?: boolean,
+): Promise<boolean> => {
   try {
     await apiClient.put(`/documentation/pages/${pageId}/visibility`, {
       group_ids: groupIds,
       user_uuids: userUuids,
+      ...(restricted !== undefined ? { restricted } : {}),
     });
     return true;
   } catch (error) {
@@ -1150,13 +1167,26 @@ export const verifyPage = async (
  * places the page in the system "Tickets" collection. Used by the
  * ticket "Save as doc" action.
  */
+export interface TicketPageResult {
+  page: Page;
+  /** False when the ticket already had a page, so nothing was copied. */
+  created: boolean;
+  /** Yjs state vector of the page's copy of the note, when it has one. */
+  stateVector: Uint8Array | null;
+}
+
 export const createPageFromTicket = async (
   ticketId: number,
   payload: { title: string; icon?: string | null; parent_id?: number | null; description?: string | null },
-): Promise<Page | null> => {
+): Promise<TicketPageResult | null> => {
   try {
     const response = await apiClient.post(`/tickets/${ticketId}/documentation/create`, payload);
-    return convertToPage(response.data);
+    const stateVector = (response.data as { yjs_state_vector?: unknown } | null)?.yjs_state_vector;
+    return {
+      page: convertToPage(response.data),
+      created: response.status === 201,
+      stateVector: Array.isArray(stateVector) ? new Uint8Array(stateVector as number[]) : null,
+    };
   } catch (error) {
     logger.error(`Error creating doc from ticket ${ticketId}:`, error);
     return null;

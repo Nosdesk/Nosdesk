@@ -104,7 +104,13 @@ export function installSlugCarrier(router: Router): void {
   }
 }
 
-function withActiveSlug(router: Router, to: RouteLocationRaw): RouteLocationRaw {
+/**
+ * `to` with the active workspace slug, as a navigation to it would carry it.
+ * A `<RouterLink>` computes its href with `router.resolve`, which the carrier
+ * doesn't wrap, so a bare `to` clicks through to the right workspace but shows
+ * (and opens in a new tab as) a slug-less URL. Pass the link this instead.
+ */
+export function withActiveSlug(router: Router, to: RouteLocationRaw): RouteLocationRaw {
   if (getWorkspaceRouting() !== 'path') return to;
   const slug = activeWorkspaceSlug();
   if (!slug) return to;

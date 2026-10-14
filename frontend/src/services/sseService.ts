@@ -4,6 +4,7 @@ import { translate } from '@nosdesk/core/i18n';
 import { useAuthStore } from "@/stores/auth";
 import { sseStreamUrl } from "@nosdesk/core/transport";
 import apiClient from "@nosdesk/core/apiClient";
+import { retryDelay } from "@nosdesk/core/retryDelay";
 
 // Event handler type - uses unknown since SSE events have varying shapes
 type EventHandler = (data: unknown) => void;
@@ -54,11 +55,11 @@ class SSEService {
   private eventListeners = new Map<SSEEventType, Set<EventHandler>>();
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
+  /** The first wait between attempts, doubling after each failure up to
+   *  30 s while the browser says it is offline, else 5 to 8 s (`retryDelay`).
+   *  Reconnecting never gives up: a stream that stopped trying left the tab
+   *  without live updates until a reload. */
   private readonly baseReconnectDelay = 1000;
-  /** The longest wait between attempts. Reconnecting never gives up: a
-   *  stream that stopped trying left the tab without live updates until a
-   *  reload. */
-  private readonly maxReconnectDelay = 30000;
   private sseToken: string | null = null;
   private tokenExpiryTime: number | null = null;
   // Unique client ID assigned by the server on connection (for echo suppression)
@@ -69,6 +70,11 @@ class SSEService {
   // connection serves all of them; its topic set is rebuilt on every connect.
   private started = false;
   private watchedTickets = new Map<number, number>();
+  /** Bumped whenever the stream is torn down, so a connect still waiting on
+   *  its token when that happened doesn't open a stream afterwards. */
+  private connectGeneration = 0;
+  /** The device went offline since the last `online` event. */
+  private wentOffline = false;
 
   private wanted(): boolean {
     return this.started || this.watchedTickets.size > 0;
@@ -78,20 +84,32 @@ class SSEService {
     // Back online, or back to the tab: try now instead of waiting out the
     // backoff, which can be up to `maxReconnectDelay`.
     if (typeof window !== "undefined") {
-      window.addEventListener("online", () => this.resumeNow());
+      window.addEventListener("offline", () => {
+        this.wentOffline = true;
+      });
+      window.addEventListener("online", () => {
+        const afterOutage = this.wentOffline;
+        this.wentOffline = false;
+        this.resumeNow(afterOutage);
+      });
       document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") this.resumeNow();
+        if (document.visibilityState === "visible") this.resumeNow(false);
       });
     }
   }
 
-  /** Reconnect at once if the stream is wanted but down. */
-  private resumeNow(): void {
-    if (!this.wanted() || this.eventSource || this.isConnecting.value) return;
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
+  /**
+   * Reconnect at once if the stream is wanted but down. After an outage
+   * (`restart`) the stream starts over even if it looks open or is still
+   * connecting: a connection from before may be dead without knowing it, and
+   * a token fetch from before may never answer.
+   */
+  private resumeNow(restart: boolean): void {
+    if (!this.wanted()) return;
+    if (!restart && (this.eventSource || this.isConnecting.value)) return;
+    this.cleanup();
+    this.isConnected.value = false;
+    this.isConnecting.value = false;
     this.reconnectAttempts = 0;
     void this.connect();
   }
@@ -129,7 +147,8 @@ class SSEService {
     }
 
     try {
-      const response = await apiClient.post("/events/token");
+      // Bounded, so a request that never answers is retried instead.
+      const response = await apiClient.post("/events/token", undefined, { timeout: 10_000 });
       const data = response.data;
 
       // Cache the token and the moment we should stop using it (expiry minus
@@ -269,10 +288,8 @@ class SSEService {
     }
     if (!this.wanted()) return;
 
-    const delay = Math.min(
-      this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
-      this.maxReconnectDelay,
-    );
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    const delay = retryDelay(this.reconnectAttempts, this.baseReconnectDelay, offline);
 
     this.reconnectTimeout = setTimeout(() => {
       this.reconnect();
@@ -372,10 +389,13 @@ class SSEService {
 
     this.isConnecting.value = true;
     this.lastError.value = null;
+    const generation = this.connectGeneration;
 
     try {
       // Get SSE token
       const sseToken = await this.getSseToken();
+      // Torn down while the token was on its way; a newer connect owns it.
+      if (generation !== this.connectGeneration) return;
 
       // Build URL. `topics` declares the subscription set the server
       // should attach this connection to: the caller's personal
@@ -410,6 +430,7 @@ class SSEService {
       this.setupConnectionHandlers();
       this.setupEventHandlers();
     } catch (error) {
+      if (generation !== this.connectGeneration) return;
       logger.error("SSE: Failed to connect:", error);
       this.isConnecting.value = false;
       this.lastError.value =
@@ -436,6 +457,7 @@ class SSEService {
 
   // Cleanup resources
   private cleanup(): void {
+    this.connectGeneration++;
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;

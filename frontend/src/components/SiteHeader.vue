@@ -14,6 +14,7 @@ import NotificationBell from "./NotificationBell.vue";
 import Icon from "./common/Icon.vue";
 import { useAuthStore } from '@/stores/auth';
 import { useMobileDetection } from '@/composables/useMobileDetection';
+import { HEADER_ACTION_SLOT_ID, headerActionSlotFilled } from '@/composables/useHeaderActionSlot';
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args);
@@ -38,6 +39,12 @@ const showBackArrow = computed(
 );
 
 const authStore = useAuthStore();
+
+// On a phone the trailing slot holds either the avatar or a page-level
+// action a view teleports in (the documentation page's actions menu). The
+// bar has room for one, and a detail page's own actions win; the avatar
+// menu is still reachable from every other screen.
+const showAvatar = computed(() => !(isMobile.value && headerActionSlotFilled.value));
 
 interface Props {
   title?: string;
@@ -343,8 +350,12 @@ const handleCreateClick = () => {
             <NotificationBell />
         </div>
 
+        <!-- Page-level action slot, filled by Teleport from the view on
+             mobile (see useHeaderActionSlot). -->
+        <span :id="HEADER_ACTION_SLOT_ID" class="contents"></span>
+
         <!-- User Profile Menu -->
-        <div class="relative">
+        <div v-if="showAvatar" class="relative">
           <button
             type="button"
             ref="buttonRef"

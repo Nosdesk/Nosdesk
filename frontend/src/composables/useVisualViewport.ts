@@ -1,4 +1,4 @@
-import { watch, onUnmounted, type Ref } from 'vue';
+import { ref, watch, onUnmounted, type Ref } from 'vue';
 
 /**
  * While `active`, publish the on-screen keyboard height to one CSS var:
@@ -16,6 +16,9 @@ export function useVisualViewport(active: Ref<boolean>) {
   const root = document.documentElement;
   let bound = false;
   let raf = 0;
+  // The same number as the CSS var, for a caller that needs it in script
+  // (an editor's scroll margin). Zero whenever inactive.
+  const keyboardHeight = ref(0);
 
   const apply = () => {
     raf = 0;
@@ -26,6 +29,7 @@ export function useVisualViewport(active: Ref<boolean>) {
     // dismiss (~24px residual, WebKit #297779).
     if (kb < 24) kb = 0;
     root.style.setProperty('--keyboard-height', `${kb}px`);
+    keyboardHeight.value = kb;
   };
 
   // visualViewport events fire many times per keyboard animation; coalesce to
@@ -54,11 +58,14 @@ export function useVisualViewport(active: Ref<boolean>) {
     vv?.removeEventListener('resize', update);
     vv?.removeEventListener('scroll', update);
     root.style.removeProperty('--keyboard-height');
+    keyboardHeight.value = 0;
     bound = false;
   };
 
   watch(active, (on) => (on ? bind() : unbind()), { immediate: true });
   onUnmounted(unbind);
+
+  return { keyboardHeight };
 }
 
 export default useVisualViewport;

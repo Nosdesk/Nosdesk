@@ -221,30 +221,27 @@ pub async fn search(
             if !doc_ids.is_empty() && !auth.is_workspace_admin() {
                 let mut conn = helpers::db_conn(&pool)?;
                 helpers::pin_workspace(&mut conn, ws.workspace_id);
-                let user = auth.user_uuid;
-                let mut allowed = std::collections::HashSet::new();
-                for id in doc_ids {
-                    match crate::repository::documentation::can_user_access_page(
-                        &mut conn, id, &user, false,
-                    ) {
-                        Ok(true) => {
-                            allowed.insert(id);
-                        }
-                        Ok(false) => {}
-                        Err(e) => {
-                            error!(error = ?e, "search documentation filter failed");
-                            return Err(ApiError::Internal("Search failed".into()));
-                        }
+                let audience = crate::repository::PageAudience::from_auth(&auth);
+                let hidden = match audience.hidden_pages(&mut conn, &doc_ids) {
+                    Ok(hidden) => hidden,
+                    Err(e) => {
+                        error!(error = ?e, "search documentation filter failed");
+                        return Err(ApiError::Internal("Search failed".into()));
                     }
-                }
-                let before = response.results.len();
+                };
+                let allowed: std::collections::HashSet<i32> = doc_ids
+                    .into_iter()
+                    .filter(|id| !hidden.contains(id))
+                    .collect();
                 response.results.retain(|r| {
                     r.entity_type != "documentation"
                         || i32::try_from(r.entity_id).is_ok_and(|id| allowed.contains(&id))
                 });
-                response.total = response
-                    .total
-                    .saturating_sub(before - response.results.len());
+            }
+            // The index's total counts documentation hits past this page too,
+            // including pages the caller can't open; count only what they get.
+            if log_doc_search && !auth.is_workspace_admin() {
+                response.total = response.results.len();
             }
 
             // The index links a hit to its ticket by id; people know the

@@ -108,6 +108,9 @@ pub async fn set_ticket_tags(
     body: web::Json<SetTicketTagsBody>,
 ) -> impl Responder {
     let TicketAccess { ticket_id, auth } = access;
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Only the helpdesk team can tag tickets");
+    }
     if let Some(refused) = crate::handlers::helpers::refuse_merged(&mut tc, &[ticket_id]) {
         return refused;
     }

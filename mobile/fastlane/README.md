@@ -13,6 +13,27 @@ staging and production.
 Build numbers come from `github.run_number` (env `BUILD_NUMBER` /
 `NOSDESK_VERSION_CODE`) so re-uploads never collide.
 
+## Store listing and submission
+
+Run these locally from `mobile/`. Listing text and screenshots are generated in
+nosdesk-com (`apps/marketing/video/store`) and read from its `out/fastlane`
+folder, so the images stay out of this repo:
+
+```sh
+export STORE_ASSETS_DIR=~/dev/nosdesk-com/apps/marketing/video/store/out/fastlane
+bundle exec fastlane ios metadata       # App Store listing, no submission
+BUILD_NUMBER=<build> bundle exec fastlane android metadata   # Play listing, no release
+BUILD_NUMBER=<testflight build> bundle exec fastlane ios release
+BUILD_NUMBER=<build> bundle exec fastlane android promote    # internal -> production
+```
+
+Both iOS lanes need `REVIEW_FIRST_NAME`, `REVIEW_LAST_NAME`, `REVIEW_PHONE`,
+`REVIEW_EMAIL`, `REVIEW_DEMO_USER` and `REVIEW_DEMO_PASSWORD` (optional
+`REVIEW_NOTES`). `ios release` submits that TestFlight build for review and
+releases it on approval. App Privacy, age rating, Play data safety and content
+rating are set once by hand in each console. The first Play release must be
+promoted with `PLAY_RELEASE_STATUS=draft` and sent for review in the Console.
+
 ## One-time account setup (no pipeline removes this)
 
 1. **Apple Developer Program** membership; in **App Store Connect** create the

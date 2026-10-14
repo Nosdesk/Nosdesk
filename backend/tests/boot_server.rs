@@ -47,20 +47,19 @@ async fn real_server_boots_and_serves() {
     std::env::set_var("NOSDESK_UPLOAD_DIR", &uploads);
     let search = std::env::temp_dir().join(format!("nosdesk-l3-search-{}", std::process::id()));
     std::env::set_var("SEARCH_INDEX_PATH", &search);
+    // No registry sync: it would fetch https://nosdesk.com/registry.
+    std::env::set_var("NOSDESK_REGISTRY_URL", "");
 
-    let config = Config::from_source(
-        &|k| match k {
-            // Explicit dev label: the mock getter bypasses process env, so the
-            // `.cargo/config.toml` ENVIRONMENT=development doesn't reach here, and
-            // an unset ENVIRONMENT now assumes production (which would demand
-            // FRONTEND_URL etc.). This boots a real server for a smoke test.
-            "ENVIRONMENT" => Some("development".to_string()),
-            "JWT_SECRET" => Some("0123456789abcdef0123456789abcdef01".to_string()),
-            "REDIS_URL" => Some(redis.clone()),
-            _ => None,
-        },
-        true,
-    )
+    let config = Config::from_source(&|k| match k {
+        // Explicit dev label: the mock getter bypasses process env, so the
+        // `.cargo/config.toml` ENVIRONMENT=development doesn't reach here, and
+        // an unset ENVIRONMENT now assumes production (which would demand
+        // FRONTEND_URL etc.). This boots a real server for a smoke test.
+        "ENVIRONMENT" => Some("development".to_string()),
+        "JWT_SECRET" => Some("0123456789abcdef0123456789abcdef01".to_string()),
+        "REDIS_URL" => Some(redis.clone()),
+        _ => None,
+    })
     .expect("test config builds");
 
     // Ephemeral port; hand the pre-bound listener to build_server (the whole

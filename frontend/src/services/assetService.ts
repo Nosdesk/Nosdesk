@@ -16,6 +16,8 @@ export interface AssetPaginationParams extends PaginationParams {
   location?: string;
   /** Comma-separated native asset-group ids; matches assets in ANY of them. */
   groups?: string;
+  /** Comma-separated asset kind slugs; matches assets of ANY of them. */
+  kind?: string;
   /** Set to `'true'` to restrict the page to stock-tracked
    *  assets at or below their low-stock threshold. Backend
    *  treats anything else as off. */
@@ -213,7 +215,7 @@ export async function downloadAssetRecordCard(assetId: number): Promise<void> {
 }
 
 // Get paginated assets
-export const getPaginatedAssets = async (params: PaginationParams, requestKey: string = 'paginated-assets'): Promise<PaginatedResponse<Asset>> => {
+export const getPaginatedAssets = async (params: AssetPaginationParams, requestKey: string = 'paginated-assets'): Promise<PaginatedResponse<Asset>> => {
   try {
     // Create cancellable request
     const controller = requestManager.createRequest(requestKey);

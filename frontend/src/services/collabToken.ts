@@ -19,6 +19,13 @@ interface CollabTokenResponse {
 let cached: { token: string; expiresAt: number } | null = null;
 /** One fetch shared by every caller that finds the cache empty. */
 let inflight: Promise<string> | null = null;
+/** Bumped each time the device comes back online. A fetch started before
+ *  that may have gone out on a connection that died meanwhile and never
+ *  answer, so callers after it start a new one instead of waiting on it. */
+let network = 0;
+let inflightNetwork = 0;
+/** A fetch with no answer by then is abandoned (and retried by its caller). */
+const TOKEN_FETCH_TIMEOUT_MS = 10_000;
 /** Bumped by `resetCollabToken`, so a fetch that finishes after a reset
  *  (a workspace switch, sign-out) doesn't cache the old workspace's token. */
 let generation = 0;
@@ -39,11 +46,13 @@ const FALLBACK_BUFFER_RATIO = 0.5;
 export async function getCollabToken(): Promise<string> {
   const valid = peekCollabToken();
   if (valid) return valid;
-  if (!inflight) {
+  if (!inflight || inflightNetwork !== network) {
     const startedIn = generation;
     const fetching: Promise<string> = (async () => {
       const now = Date.now();
-      const { data } = await apiClient.post<CollabTokenResponse>('/collaboration/token');
+      const { data } = await apiClient.post<CollabTokenResponse>('/collaboration/token', undefined, {
+        timeout: TOKEN_FETCH_TIMEOUT_MS,
+      });
       const bufferSecs = data.refresh_buffer ?? data.expires_in * FALLBACK_BUFFER_RATIO;
       // Store the moment we should stop using it, not the raw expiry, so the
       // buffer is applied once here rather than at every read.
@@ -58,6 +67,7 @@ export async function getCollabToken(): Promise<string> {
       if (inflight === fetching) inflight = null;
     });
     inflight = fetching;
+    inflightNetwork = network;
   }
   return inflight;
 }
@@ -146,13 +156,21 @@ export function keepCollabTokenWarm(workspaceSlug: string | null): void {
   void refreshWarmToken();
 }
 
-// Hidden, nothing is fetched; visible again, a token is fetched at once (no
-// waiting out a retry delay from before).
+// Hidden, nothing is fetched; visible again or back online, a token is
+// fetched at once (no waiting out a retry delay from before).
+function refreshWarmTokenNow(): void {
+  if (warming && !pageHidden()) {
+    warmFailures = 0;
+    void refreshWarmToken();
+  }
+}
+
 if (typeof document !== 'undefined') {
-  document.addEventListener('visibilitychange', () => {
-    if (warming && !pageHidden()) {
-      warmFailures = 0;
-      void refreshWarmToken();
-    }
+  document.addEventListener('visibilitychange', refreshWarmTokenNow);
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    network++;
+    refreshWarmTokenNow();
   });
 }

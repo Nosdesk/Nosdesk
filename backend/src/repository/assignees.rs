@@ -10,7 +10,10 @@
 
 use std::collections::HashSet;
 
+use diesel::dsl::exists;
+use diesel::pg::Pg;
 use diesel::prelude::*;
+use diesel::sql_types::Bool;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
@@ -18,28 +21,39 @@ use crate::models::{PlatformRole, WorkspaceRole};
 use crate::repository::tickets::TicketWriteError;
 use crate::schema::{users, workspace_members};
 
+/// The rule, as a filter on `users`: a platform admin, or a current member of
+/// `workspace_id` at Agent or above. Every check of who can be assigned goes
+/// through it, the people list's `assignable` filter included.
+pub fn assignable_in(
+    workspace_id: i32,
+) -> Box<dyn BoxableExpression<users::table, Pg, SqlType = Bool>> {
+    let roles = [
+        WorkspaceRole::Owner,
+        WorkspaceRole::Admin,
+        WorkspaceRole::Agent,
+    ]
+    .map(|r| r.as_str());
+    let staff = workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::removed_at.is_null())
+        .filter(workspace_members::role.eq_any(roles))
+        .select(workspace_members::user_uuid);
+    Box::new(
+        users::platform_role
+            .eq(PlatformRole::PlatformAdmin.as_str())
+            .or(users::uuid.eq_any(staff)),
+    )
+}
+
 /// Whether `user` can be assigned tickets in `workspace_id`.
 pub fn is_assignable(conn: &mut DbConnection, workspace_id: i32, user: Uuid) -> QueryResult<bool> {
-    let Some(platform_role) = users::table
-        .find(user)
-        .filter(users::deleted_at.is_null())
-        .select(users::platform_role)
-        .first::<String>(conn)
-        .optional()?
-    else {
-        return Ok(false);
-    };
-    if PlatformRole::from_db(&platform_role).is_platform_admin() {
-        return Ok(true);
-    }
-    let role = workspace_members::table
-        .filter(workspace_members::workspace_id.eq(workspace_id))
-        .filter(workspace_members::user_uuid.eq(user))
-        .filter(workspace_members::removed_at.is_null())
-        .select(workspace_members::role)
-        .first::<String>(conn)
-        .optional()?;
-    Ok(role.is_some_and(|r| WorkspaceRole::from_db(&r).meets(WorkspaceRole::Agent)))
+    diesel::select(exists(
+        users::table
+            .filter(users::uuid.eq(user))
+            .filter(users::deleted_at.is_null())
+            .filter(assignable_in(workspace_id)),
+    ))
+    .get_result(conn)
 }
 
 /// Refuse `user` as an assignee in `workspace_id` unless they can work
@@ -66,6 +80,7 @@ pub fn ensure_assignable_here(conn: &mut DbConnection, user: Uuid) -> Result<(),
 }
 
 /// Which of `candidates` can be assigned tickets in the pinned workspace.
+/// None when nothing is pinned, as [`ensure_assignable_here`] refuses.
 pub fn assignable_among(
     conn: &mut DbConnection,
     candidates: &[Uuid],
@@ -73,29 +88,17 @@ pub fn assignable_among(
     if candidates.is_empty() {
         return Ok(HashSet::new());
     }
-    let mut assignable: HashSet<Uuid> = users::table
+    let Some(workspace_id) = pinned_workspace_id(conn)? else {
+        return Ok(HashSet::new());
+    };
+    Ok(users::table
         .filter(users::uuid.eq_any(candidates))
         .filter(users::deleted_at.is_null())
-        .select((users::uuid, users::platform_role))
-        .load::<(Uuid, String)>(conn)?
+        .filter(assignable_in(workspace_id))
+        .select(users::uuid)
+        .load::<Uuid>(conn)?
         .into_iter()
-        .filter(|(_, role)| PlatformRole::from_db(role).is_platform_admin())
-        .map(|(uuid, _)| uuid)
-        .collect();
-    assignable.extend(
-        workspace_members::table
-            .inner_join(users::table.on(users::uuid.eq(workspace_members::user_uuid)))
-            .filter(workspace_members::workspace_id.eq(crate::repository::pinned_workspace()))
-            .filter(workspace_members::user_uuid.eq_any(candidates))
-            .filter(workspace_members::removed_at.is_null())
-            .filter(users::deleted_at.is_null())
-            .select((workspace_members::user_uuid, workspace_members::role))
-            .load::<(Uuid, String)>(conn)?
-            .into_iter()
-            .filter(|(_, role)| WorkspaceRole::from_db(role).meets(WorkspaceRole::Agent))
-            .map(|(uuid, _)| uuid),
-    );
-    Ok(assignable)
+        .collect())
 }
 
 /// The members of `group_id` (directly or through an included group, in the

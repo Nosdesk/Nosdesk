@@ -1,0 +1,24 @@
+{
+	"version": 6,
+	"generated_at": "2026-06-14T22:58:58.188413231+00:00",
+	"plugins": [
+		{
+			"name": "github-integration",
+			"display_name": "GitHub Integration",
+			"tier": "official",
+			"publisher_pubkey": "w4XBAScFd+NL83wZ0zwEjTlXm+RJOphr3ZlvHh1kzA0=",
+			"description": "Link tickets to GitHub issues and pull requests. See issue state, labels, and recent activity directly in the ticket sidebar without leaving Nosdesk.",
+			"homepage": "https://github.com/Nosdesk/plugin-github",
+			"icon_url": "https://nosdesk.com/registry/icons/github-integration.svg",
+			"versions": [
+				{
+					"version": "0.1.0",
+					"released_at": "2026-04-25T00:00:00Z",
+					"download_url": "https://github.com/Nosdesk/plugin-github/releases/download/v0.1.0/github-integration-0.1.0.zip",
+					"sha256": "21a0fd88b5287f70eb9ab79b2abad9f407b681edf7aa275d0085da577b8f6b2e",
+					"min_nosdesk_version": "0.1.0"
+				}
+			]
+		}
+	]
+}

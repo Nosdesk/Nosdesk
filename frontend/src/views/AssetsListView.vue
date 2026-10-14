@@ -31,6 +31,8 @@ import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
 import CreateRolloutModal from '@/components/assets/CreateRolloutModal.vue'
 import AssetMobileRow from '@/components/assets/AssetMobileRow.vue'
 import AssetPlanningMobile from '@/components/assets/AssetPlanningMobile.vue'
+import AssetAttributeCell from '@/components/assets/AssetAttributeCell.vue'
+import { attributeColumnDefs, isAttributeColumn } from '@/utils/assetAttributeColumns'
 import type { GroupBucket } from '@/composables/useListGrouping'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
@@ -337,12 +339,30 @@ const groupAxes: GroupAxisDef<Asset>[] = [
  *
  * `kind` and `quantity` are hidden by default: kind reads the same for
  * every row on a device-only workspace, and quantity is populated only
- * for `bulk` kinds. Both are static rather than derived from the kinds
- * registry — that query resolves *after* setup, and a field appearing
- * in the registry late gets tail-appended by `reconcileOrder`, which
- * would shuffle the column to the far right and overwrite the user's
- * saved order on every load.
+ * for `bulk` kinds.
+ *
+ * Kind attributes follow as `attr:<key>` columns, derived from the kinds
+ * registry, which can resolve after setup. They are hidden until picked,
+ * and `retainUnknownIds` keeps a picked one's stored position and
+ * visibility while the registry is still loading, so a late registry
+ * neither shuffles nor reveals them. Keys with a dedicated column above
+ * are left out.
  */
+const DEDICATED_ATTRIBUTE_KEYS = new Set(['hostname', 'warranty_status'])
+const attributeColumns = computed(() =>
+  attributeColumnDefs(kinds.value, DEDICATED_ATTRIBUTE_KEYS).map((def) => ({
+    field: def.field,
+    label: def.label,
+    width: 'minmax(90px,180px)',
+    sortable: true,
+    responsive: 'md' as const,
+    defaultHidden: true,
+    pickerSection: t('assets-list-columns-attributes'),
+    valueType: def.valueType,
+    attributeKey: def.key,
+  })),
+)
+
 const columns = computed(() => [
   { field: 'name', label: t('assets-list-column-device'), width: 'minmax(170px,1fr)', sortable: true, responsive: 'always' as const },
   { field: 'kind', label: t('asset-detail-field-kind'), width: 'minmax(85px,125px)', sortable: false, responsive: 'md' as const, defaultHidden: true },
@@ -354,6 +374,7 @@ const columns = computed(() => [
   { field: 'quantity', label: t('assets-list-column-stock'), width: 'minmax(78px,110px)', sortable: true, responsive: 'md' as const, defaultHidden: true },
   { field: 'status', label: t('assets-list-column-status'), width: 'minmax(84px,118px)', sortable: true, responsive: 'always' as const },
   { field: 'warranty_status', label: t('assets-list-column-warranty'), width: 'minmax(70px,98px)', sortable: false, responsive: 'always' as const },
+  ...attributeColumns.value,
 ])
 
 // Shell composable bundling controls + page + selection + chip
@@ -392,6 +413,7 @@ const listView = useListView({
   },
   columns,
   pinnedColumnIds: ['name'],
+  retainUnknownColumnIds: isAttributeColumn,
 })
 
 // Display source: the complete planning dataset when a planning lens
@@ -783,6 +805,10 @@ async function exportAssetsCsv(scope?: 'history') {
             :value="warrantyStatus(item)"
           />
           <span v-else class="text-xs text-tertiary truncate">{{ warrantyStatus(item) || '-' }}</span>
+        </template>
+
+        <template v-for="col in attributeColumns" :key="col.field" #[`cell-${col.field}`]="{ item }">
+          <AssetAttributeCell :value="item.attributes?.[col.attributeKey]" :value-type="col.valueType" />
         </template>
       </DataTable>
     </template>

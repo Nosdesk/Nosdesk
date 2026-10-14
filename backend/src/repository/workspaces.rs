@@ -346,6 +346,37 @@ pub fn membership(
         .optional()
 }
 
+/// The workspaces `user_uuid` is an active member of, whatever workspace the
+/// connection is pinned to (row security would show only that one). For a
+/// write that changes something global about them, such as their platform
+/// role.
+///
+/// Reads through the bypass role inside a savepoint that is then rolled
+/// back, so the elevation, and the system actor it sets, end with the read and
+/// the caller's transaction carries on as it was.
+pub fn workspace_ids_of_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Vec<i32>> {
+    let mut ids = None;
+    let outcome = conn.transaction::<(), DieselError, _>(|conn| {
+        let actor = crate::sync::actor::ActorContext::system("repository:workspace_ids_of_user");
+        // cross-tenant: a person's memberships across every workspace, for a change to their platform role, which holds in all of them; ids only, and rolled back with the savepoint.
+        let read = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            workspace_members::table
+                .filter(workspace_members::user_uuid.eq(user_uuid))
+                .filter(workspace_members::removed_at.is_null())
+                .select(workspace_members::workspace_id)
+                .order(workspace_members::workspace_id.asc())
+                .load::<i32>(conn)
+        })?;
+        ids = Some(read);
+        Err(DieselError::RollbackTransaction)
+    });
+    match (ids, outcome) {
+        (Some(ids), _) => Ok(ids),
+        (None, Err(e)) => Err(e),
+        (None, Ok(())) => Err(DieselError::NotFound),
+    }
+}
+
 /// Outcome of [`add_membership`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum AddMembershipOutcome {
@@ -399,6 +430,7 @@ pub fn add_membership(
     // keep the old behaviour for the still-active case with the WHERE clause.
     // The re-activation is an UPDATE, so it goes through the seat-limit
     // trigger, which is why that trigger had to learn about `removed_at` too.
+    let access = crate::repository::documentation::doc_access(conn, workspace_id, user_uuid)?;
     let rows = diesel::sql_query(
         "INSERT INTO workspace_members (workspace_id, user_uuid, role, accepted_at) \
          VALUES ($1, $2, $3, now()) \
@@ -410,6 +442,12 @@ pub fn add_membership(
     .bind::<diesel::sql_types::Uuid, _>(user_uuid)
     .bind::<diesel::sql_types::Text, _>(role)
     .execute(conn)?;
+    crate::repository::documentation::emit_if_access_changed(
+        conn,
+        workspace_id,
+        user_uuid,
+        &access,
+    )?;
     Ok(AddMembershipOutcome::Added(rows))
 }
 
@@ -461,13 +499,21 @@ pub fn ensure_membership(
     user_uuid: Uuid,
     role: &str,
 ) -> QueryResult<String> {
-    upsert_membership_returning(
+    let access = crate::repository::documentation::doc_access(conn, workspace_id, user_uuid)?;
+    let role = upsert_membership_returning(
         conn,
         workspace_id,
         user_uuid,
         role,
         "workspace_members.role",
-    )
+    )?;
+    crate::repository::documentation::emit_if_access_changed(
+        conn,
+        workspace_id,
+        user_uuid,
+        &access,
+    )?;
+    Ok(role)
 }
 
 /// Create-or-set a membership's role (the control-plane role-change path).
@@ -480,7 +526,15 @@ pub fn upsert_membership_role(
     user_uuid: Uuid,
     role: &str,
 ) -> QueryResult<String> {
-    upsert_membership_returning(conn, workspace_id, user_uuid, role, "EXCLUDED.role")
+    let access = crate::repository::documentation::doc_access(conn, workspace_id, user_uuid)?;
+    let role = upsert_membership_returning(conn, workspace_id, user_uuid, role, "EXCLUDED.role")?;
+    crate::repository::documentation::emit_if_access_changed(
+        conn,
+        workspace_id,
+        user_uuid,
+        &access,
+    )?;
+    Ok(role)
 }
 
 /// Count the workspace's staff members (role IN owner/admin/agent) — the seats
@@ -895,6 +949,7 @@ pub fn remove_membership(
     // Stamp rather than delete. The row is what lets a former member's name
     // still render on the tickets, comments and audit entries they left behind;
     // deleting it turned every one of those into an unknown user.
+    let access = crate::repository::documentation::doc_access(conn, workspace_id, user_uuid)?;
     diesel::update(
         workspace_members::table
             .filter(workspace_members::workspace_id.eq(workspace_id))
@@ -903,6 +958,12 @@ pub fn remove_membership(
     )
     .set(workspace_members::removed_at.eq(chrono::Utc::now()))
     .execute(conn)?;
+    crate::repository::documentation::emit_if_access_changed(
+        conn,
+        workspace_id,
+        user_uuid,
+        &access,
+    )?;
     Ok(RemoveMembershipOutcome::Removed)
 }
 
@@ -991,6 +1052,7 @@ pub fn update_membership_role(
         }
     }
 
+    let access = crate::repository::documentation::doc_access(conn, workspace_id, user_uuid)?;
     let updated = diesel::update(
         workspace_members::table
             .filter(workspace_members::workspace_id.eq(workspace_id))
@@ -999,6 +1061,12 @@ pub fn update_membership_role(
     )
     .set(workspace_members::role.eq(new_role))
     .get_result::<WorkspaceMember>(conn)?;
+    crate::repository::documentation::emit_if_access_changed(
+        conn,
+        workspace_id,
+        user_uuid,
+        &access,
+    )?;
     Ok(UpdateMembershipRoleResult::Updated(updated))
 }
 

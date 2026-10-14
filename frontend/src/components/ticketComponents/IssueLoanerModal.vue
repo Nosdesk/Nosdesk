@@ -192,6 +192,7 @@ async function submit() {
 
   <UserSelectionModal
     :show="showBorrowerPicker"
+    scope="requester"
     :current-user-id="borrower?.uuid ?? null"
     @close="showBorrowerPicker = false"
     @select-user="onSelectBorrower"

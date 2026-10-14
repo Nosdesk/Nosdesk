@@ -1214,6 +1214,7 @@ pub fn configure_app(
                     // Requester sign-in provider (workspace admins).
                     .configure(crate::handlers::requester_sso::config)
                     .configure(crate::handlers::approval_settings::config)
+                    .configure(crate::handlers::asset_settings::config)
                     .configure(crate::handlers::approvals::config)
                     .configure(crate::handlers::widget::config)
                     .configure(crate::handlers::teams::config)
@@ -1732,29 +1733,10 @@ pub async fn build_server(
     // know the real root to be; an attacker who swaps the backend
     // binary with one linking a different root will announce the
     // substitution in the logs on the next boot.
-    match crate::services::plugins::signing::root_pubkey() {
-        Some(root_b64) => {
-            use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-            match BASE64.decode(root_b64.as_bytes()) {
-                Ok(bytes) if bytes.len() == 32 => {
-                    info!(
-                        fingerprint = %crate::services::plugins::signing::fingerprint(&bytes),
-                        "Nosdesk plugin root pubkey loaded"
-                    );
-                }
-                _ => {
-                    warn!(
-                        "NOSDESK_ROOT_PUBKEY is set but not a valid base64-encoded 32-byte Ed25519 pubkey; official-tier installs will fail"
-                    );
-                }
-            }
-        }
-        None => {
-            warn!(
-                "NOSDESK_ROOT_PUBKEY is not baked in; registry sync and official-tier installs will fail"
-            );
-        }
-    }
+    info!(
+        fingerprint = %crate::services::plugins::signing::ROOT_PUBKEY_FINGERPRINT,
+        "Nosdesk plugin root pubkey loaded"
+    );
 
     // Provision plugins from /app/plugins/ directory
     {
@@ -1798,6 +1780,7 @@ pub async fn build_server(
             },
         );
     }
+    crate::services::seed::name_hosted_workspaces(&pool);
 
     let (state, background_tasks) = build_state(
         &config,

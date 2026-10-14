@@ -121,4 +121,33 @@ describe('GlobalSearchModal', () => {
     expect(document.activeElement).toBe(wrapper!.get('#opener').element)
     expect(wrapper!.get('#bystander').element.closest('[aria-hidden="true"]')).toBeNull()
   })
+
+  // Each list is its own scroll region and is the listbox the input names, so
+  // the combobox's popup is what scrolls (axe exempts only that).
+  it('scrolls the results listbox itself, keeping the row the arrow moved to in view', async () => {
+    const scrolled: string[] = []
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.textContent?.trim() ?? '')
+    }
+    try {
+      await open()
+      input().value = 'hello'
+      input().dispatchEvent(new Event('input', { bubbles: true }))
+      await flushPromises()
+      await settle(200)
+      await flushPromises()
+
+      const listbox = document.getElementById(input().getAttribute('aria-controls')!)!
+      expect(listbox.getAttribute('role')).toBe('listbox')
+      expect(listbox.classList.contains('overflow-y-auto')).toBe(true)
+
+      scrolled.length = 0
+      await key('ArrowDown')
+      await nextTick()
+      expect(scrolled.at(-1)).toContain('Other hello')
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+  })
 })

@@ -15,6 +15,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue'
 import Button from '@/components/common/Button.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useRuleStepText } from '@/composables/useRuleStepText'
+import { queryLoadError } from '@/composables/queryLoadError'
 import { extractErrorMessage } from '@/utils/errors'
 import rulesService from '@nosdesk/core/services/rulesService'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
@@ -42,6 +43,7 @@ const startersQuery = useQuery({
   staleTime: 60 * 60 * 1000,
 })
 const starters = computed(() => startersQuery.data.value ?? [])
+const loadError = queryLoadError(startersQuery, () => t('admin-rules-starters-error-load'))
 const stepText = useRuleStepText({ enabled: () => props.show, userUuids: () => [] })
 const steps = (starter: StarterRule) =>
   starter.actions.map((a) => stepText.planned(a)).filter((s): s is string => !!s)
@@ -85,7 +87,7 @@ async function add(starter: StarterRule) {
   >
     <div class="flex flex-col gap-3">
       <AlertMessage v-if="error" type="error" :message="error" />
-      <AlertMessage v-if="startersQuery.error.value" type="error" :message="t('admin-rules-starters-error-load')" />
+      <AlertMessage v-if="loadError" type="error" :message="loadError" />
       <ul class="flex flex-col gap-2">
         <li
           v-for="starter in starters"

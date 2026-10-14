@@ -8,6 +8,8 @@ import FormInput from '@/components/common/FormInput.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
 import { assetMediaService, assetMediaKeys } from '@nosdesk/core/services/assetMediaService';
+import { formatFileSize } from '@nosdesk/core/utils/formatFileSize';
+import { convertToAuthenticatedPath } from '@/services/fileService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import type { AssetMedia } from '@nosdesk/core/types/asset';
 
@@ -31,6 +33,22 @@ const mediaQuery = useQuery({
 const media = computed<AssetMedia[]>(() =>
   Array.isArray(mediaQuery.data.value) ? mediaQuery.data.value : [],
 );
+/** Photos render as thumbnails; documents (service reports, invoices) as
+ *  file rows. Matches the server, which thumbnails only `photo` uploads. */
+function isImage(item: AssetMedia): boolean {
+  return item.kind === 'photo' || (item.mime_type ?? '').startsWith('image/');
+}
+const images = computed(() => media.value.filter(isImage));
+const documents = computed(() => media.value.filter((m) => !isImage(m)));
+
+/** Extensions the server accepts besides images (see `DOCUMENT_TYPES`). */
+const ACCEPT = [
+  'image/*',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.odt', '.ods', '.odp', '.rtf', '.txt', '.csv',
+].join(',');
+
+
 const isFirstLoad = computed(
   () => mediaQuery.status.value === 'pending' && mediaQuery.data.value === undefined,
 );
@@ -41,7 +59,7 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 
 const lightboxOpen = ref(false);
 const lightboxIndex = ref(0);
-const lightboxItem = computed(() => media.value[lightboxIndex.value] ?? null);
+const lightboxItem = computed(() => images.value[lightboxIndex.value] ?? null);
 
 const editingCaptionId = ref<number | null>(null);
 const captionDraft = ref('');
@@ -111,13 +129,13 @@ function closeLightbox() {
 }
 
 function lightboxPrev() {
-  if (media.value.length === 0) return;
-  lightboxIndex.value = (lightboxIndex.value - 1 + media.value.length) % media.value.length;
+  if (images.value.length === 0) return;
+  lightboxIndex.value = (lightboxIndex.value - 1 + images.value.length) % images.value.length;
 }
 
 function lightboxNext() {
-  if (media.value.length === 0) return;
-  lightboxIndex.value = (lightboxIndex.value + 1) % media.value.length;
+  if (images.value.length === 0) return;
+  lightboxIndex.value = (lightboxIndex.value + 1) % images.value.length;
 }
 
 function onLightboxKeydown(event: KeyboardEvent) {
@@ -176,17 +194,18 @@ function onDragOver(event: DragEvent) {
 
 async function onDrop(target: AssetMedia) {
   if (!props.canEdit || dragMediaId.value == null || reordering.value) return;
-  const fromIdx = media.value.findIndex((m) => m.id === dragMediaId.value);
-  const toIdx = media.value.findIndex((m) => m.id === target.id);
+  // Photos reorder among themselves; documents keep their own order.
+  const fromIdx = images.value.findIndex((m) => m.id === dragMediaId.value);
+  const toIdx = images.value.findIndex((m) => m.id === target.id);
   dragMediaId.value = null;
   if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
 
-  const reordered = [...media.value];
+  const reordered = [...images.value];
   const [moved] = reordered.splice(fromIdx, 1);
   reordered.splice(toIdx, 0, moved);
-  const before = media.value;
+  const before = images.value;
   const withOrder = reordered.map((m, index) => ({ ...m, sort_order: index }));
-  setMediaCache(withOrder);
+  setMediaCache([...withOrder, ...documents.value]);
 
   reordering.value = true;
   errorMessage.value = '';
@@ -214,7 +233,7 @@ onUnmounted(() => window.removeEventListener('keydown', onLightboxKeydown));
 
 watch(lightboxOpen, (open) => {
   if (!open) return;
-  const idx = media.value.findIndex((m) => m.id === lightboxItem.value?.id);
+  const idx = images.value.findIndex((m) => m.id === lightboxItem.value?.id);
   if (idx >= 0) lightboxIndex.value = idx;
 });
 
@@ -240,7 +259,7 @@ useSyncActions(
     <input
       ref="fileInputRef"
       type="file"
-      accept="image/*"
+      :accept="ACCEPT"
       multiple
       class="hidden"
       @change="onFileChange"
@@ -263,9 +282,9 @@ useSyncActions(
       </div>
     </div>
 
-    <div v-else class="grid gap-2" :class="compact ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-3'">
+    <div v-if="images.length > 0" class="grid gap-2" :class="compact ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-3'">
       <div
-        v-for="(item, index) in media"
+        v-for="(item, index) in images"
         :key="item.id"
         class="group relative rounded-lg overflow-hidden border border-default bg-surface-alt aspect-square"
         :class="canEdit && !reordering ? 'cursor-grab active:cursor-grabbing' : ''"
@@ -350,6 +369,52 @@ useSyncActions(
       </div>
     </div>
 
+    <div v-if="documents.length > 0" class="flex flex-col gap-1.5">
+      <p v-if="images.length > 0" class="text-xs font-medium text-tertiary">
+        {{ $t('asset-media-files-heading') }}
+      </p>
+      <ul class="flex flex-col divide-y divide-default rounded-lg border border-default bg-surface-alt">
+        <li
+          v-for="item in documents"
+          :key="item.id"
+          class="group flex items-center gap-2 px-3 py-2 min-w-0"
+        >
+          <Icon  name="document" size="sm" class="text-tertiary flex-shrink-0" />
+          <a
+            :href="convertToAuthenticatedPath(item.url)"
+            target="_blank"
+            rel="noopener"
+            :download="item.name"
+            class="flex-1 min-w-0 flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded"
+            :aria-label="$t('asset-media-download-aria', { name: item.name })"
+          >
+            <span class="text-sm text-primary truncate hover:underline">{{ item.caption || item.name }}</span>
+            <span class="text-xs text-tertiary truncate">
+              <template v-if="item.caption">{{ item.name }} · </template>{{ formatFileSize(item.file_size) }}
+            </span>
+          </a>
+          <a
+            :href="convertToAuthenticatedPath(item.url)"
+            :download="item.name"
+            class="p-1.5 rounded-md text-tertiary hover:text-primary flex-shrink-0"
+            :title="$t('asset-media-download-aria', { name: item.name })"
+            :aria-label="$t('asset-media-download-aria', { name: item.name })"
+          >
+            <Icon name="download" size="xs" />
+          </a>
+          <button
+            v-if="canEdit"
+            type="button"
+            class="p-1.5 rounded-md text-tertiary hover:text-status-error flex-shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+            :aria-label="$t('asset-media-delete-aria', { name: item.name })"
+            @click="deleteMedia(item)"
+          >
+            <Icon name="trash" size="xs" />
+          </button>
+        </li>
+      </ul>
+    </div>
+
     <Modal
       :show="lightboxOpen"
       :title="lightboxItem?.caption || lightboxItem?.name || $t('asset-media-heading')"
@@ -365,7 +430,7 @@ useSyncActions(
             class="max-w-full max-h-[70vh] object-contain"
           />
           <button
-            v-if="media.length > 1"
+            v-if="images.length > 1"
             type="button"
             class="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 text-white hover:bg-black/80"
             :aria-label="$t('asset-media-lightbox-previous')"
@@ -374,7 +439,7 @@ useSyncActions(
             <Icon name="chevronLeft" />
           </button>
           <button
-            v-if="media.length > 1"
+            v-if="images.length > 1"
             type="button"
             class="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 text-white hover:bg-black/80"
             :aria-label="$t('asset-media-lightbox-next')"

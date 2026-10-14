@@ -64,23 +64,41 @@ pub const MAX_ENVELOPE_SIZE: usize = 64 * 1024;
 /// us to scan it.
 pub const MAX_ARCHIVE_SIZE: usize = 2 * 1024 * 1024;
 
-/// Base64 Ed25519 pubkey of the Nosdesk root signing key, baked in at
-/// compile time via the `NOSDESK_ROOT_PUBKEY` env var. `None` in local
-/// dev builds where the env var is unset, in which case official-tier
-/// installs are refused at runtime. Never fall back to a hard-coded
-/// key, since that weakens the trust root for anyone who forgets to
-/// set the env.
-pub fn root_pubkey() -> Option<&'static str> {
-    option_env!("NOSDESK_ROOT_PUBKEY")
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+/// The Nosdesk root public key (base64 Ed25519). It signs the plugin
+/// registry at https://nosdesk.com/registry and every official-tier plugin.
+/// The same key is served at https://nosdesk.com/registry/root.pub.
+///
+/// A public key is not a secret, so it lives here rather than in a build
+/// argument: every build, official or self-built, trusts the same root, and
+/// a release cannot pick up a stale value from CI.
+///
+/// Rotating the root: sign the registry with the new key (nosdesk-com
+/// `registry-publish.yml`), re-sign the official plugins, then change this
+/// constant and [`ROOT_PUBKEY_FINGERPRINT`] together and ship a release.
+/// Builds keep trusting the key they were compiled with, so instances on
+/// older releases stop verifying the registry until they upgrade. The
+/// scheduled `registry-root.yml` workflow fails while this constant and the
+/// live registry disagree. Forks running their own registry change the
+/// constant to their own root.
+///
+/// No runtime override: this key grants the official tier, and an env var
+/// that swaps it would let anyone with access to the environment stand up
+/// a registry of their own as "official".
+pub const ROOT_PUBKEY: &str = "w4XBAScFd+NL83wZ0zwEjTlXm+RJOphr3ZlvHh1kzA0=";
+
+/// [`fingerprint`] of [`ROOT_PUBKEY`], as the startup log and the
+/// registry error messages print it.
+pub const ROOT_PUBKEY_FINGERPRINT: &str = "1e0fad90449c810b";
+
+/// The raw 32 bytes of [`ROOT_PUBKEY`].
+pub fn root_pubkey_bytes() -> Vec<u8> {
+    // Cannot fail: `root_pubkey_is_a_valid_ed25519_key` pins the constant.
+    base64_decode(ROOT_PUBKEY).expect("ROOT_PUBKEY is valid base64")
 }
 
-/// `true` if `pubkey_b64` matches the compiled-in Nosdesk root pubkey.
-/// Returns `false` when no root is configured, which correctly fails
-/// closed for any attempted official-tier install.
+/// `true` if `pubkey_b64` is the Nosdesk root public key.
 pub fn is_nosdesk_root(pubkey_b64: &str) -> bool {
-    matches!(root_pubkey(), Some(root) if root == pubkey_b64)
+    pubkey_b64 == ROOT_PUBKEY
 }
 
 /// Labels for the authority chain a signer's pubkey resolved through.
@@ -863,6 +881,22 @@ mod tests {
             Err(SigningError::UnsupportedVersion(99)) => {}
             other => panic!("expected UnsupportedVersion(99), got {other:?}"),
         }
+    }
+
+    #[test]
+    fn root_pubkey_is_a_valid_ed25519_key() {
+        let bytes = root_pubkey_bytes();
+        assert_eq!(bytes.len(), 32);
+        // That it verifies real signatures is pinned by the registry tests.
+        assert_eq!(fingerprint(&bytes), ROOT_PUBKEY_FINGERPRINT);
+        assert!(is_nosdesk_root(ROOT_PUBKEY));
+    }
+
+    #[test]
+    fn root_pubkey_matches_the_published_root_pub() {
+        // A copy of https://nosdesk.com/registry/root.pub.
+        let published = include_str!("../../../tests/fixtures/registry/root.pub");
+        assert_eq!(published.trim(), ROOT_PUBKEY);
     }
 
     #[test]

@@ -40,10 +40,40 @@ use tracing::{info, warn};
 use crate::db::DbConnection;
 
 /// Public halves of the license signing keypairs, baked into the binary and
-/// selected by the token's `kid` header. One key today; a rotation release
-/// adds the new key here beside the old one (see the CP licensing runbook).
-/// The private halves are held only by Nosdesk.
-const LICENSE_PUBLIC_KEYS: &[&str] = &[include_str!("../license_pubkey.pem")];
+/// selected by the token's `kid` header (see [`select_keys`]). The private
+/// halves are held only by Nosdesk. A rotation release adds the new PEM to
+/// `license_keys/` and to the lists below beside the old one.
+///
+/// Production signing key, kid `4a7e6b74183a8b11`. Every build trusts it.
+const PRODUCTION_LICENSE_KEY: &str = include_str!("../license_keys/production.pem");
+
+/// Staging signing key, kid `c9cb9e8b445ddf00`. The staging control plane
+/// mints test licences with it, so only builds compiled with
+/// `NOSDESK_TRUST_STAGING_LICENSES=1` (the dev stack and the nosdesk-dev
+/// image) trust it. Release images don't, so a staging-minted licence never
+/// unlocks a production install.
+const STAGING_LICENSE_KEY: &str = include_str!("../license_keys/staging.pem");
+
+/// Keys a release build trusts.
+const RELEASE_LICENSE_KEYS: &[&str] = &[PRODUCTION_LICENSE_KEY];
+
+/// Keys a dev or staging build trusts.
+const STAGING_BUILD_LICENSE_KEYS: &[&str] = &[PRODUCTION_LICENSE_KEY, STAGING_LICENSE_KEY];
+
+/// Whether this binary was compiled to trust the staging key. Anything other
+/// than exactly `1` (unset included) means production only.
+fn build_trusts_staging_key() -> bool {
+    matches!(option_env!("NOSDESK_TRUST_STAGING_LICENSES"), Some("1"))
+}
+
+/// The PEMs a build trusts, given whether it trusts the staging key.
+fn trusted_key_pems(trust_staging: bool) -> &'static [&'static str] {
+    if trust_staging {
+        STAGING_BUILD_LICENSE_KEYS
+    } else {
+        RELEASE_LICENSE_KEYS
+    }
+}
 
 /// Issuer every valid license must carry.
 pub const LICENSE_ISSUER: &str = "https://nosdesk.com";
@@ -232,14 +262,34 @@ impl VerifyingKey {
     }
 }
 
+fn parse_keys(pems: &[&str]) -> Vec<VerifyingKey> {
+    pems.iter()
+        .filter_map(|pem| VerifyingKey::from_pem(pem))
+        .collect()
+}
+
 fn embedded_keys() -> &'static [VerifyingKey] {
     static KEYS: OnceLock<Vec<VerifyingKey>> = OnceLock::new();
-    KEYS.get_or_init(|| {
-        LICENSE_PUBLIC_KEYS
-            .iter()
-            .filter_map(|pem| VerifyingKey::from_pem(pem))
-            .collect()
-    })
+    KEYS.get_or_init(|| parse_keys(trusted_key_pems(build_trusts_staging_key())))
+}
+
+/// The keys a token may be verified with. A `kid` selects exactly the key it
+/// names; a `kid` this build does not trust is refused as
+/// [`LicenseError::UnknownKey`] without trying any key. A token with no `kid`
+/// (`nosdesk-cli license sign` mints these) is tried against every trusted
+/// key, and its signature still has to verify against one of them.
+fn select_keys<'k>(
+    kid: Option<&str>,
+    keys: &'k [VerifyingKey],
+) -> Result<Vec<&'k VerifyingKey>, LicenseError> {
+    let candidates: Vec<&VerifyingKey> = match kid {
+        Some(kid) => keys.iter().filter(|k| k.kid == kid).collect(),
+        None => keys.iter().collect(),
+    };
+    if candidates.is_empty() {
+        return Err(LicenseError::UnknownKey);
+    }
+    Ok(candidates)
 }
 
 fn map_jwt_error(e: &jsonwebtoken::errors::Error) -> LicenseError {
@@ -261,13 +311,7 @@ fn inspect_with(token: &str, keys: &[VerifyingKey]) -> Result<LicenseInfo, Licen
     if header.alg != Algorithm::EdDSA {
         return Err(LicenseError::Malformed);
     }
-    let candidates: Vec<&VerifyingKey> = match &header.kid {
-        Some(kid) => keys.iter().filter(|k| &k.kid == kid).collect(),
-        None => keys.iter().collect(),
-    };
-    if candidates.is_empty() {
-        return Err(LicenseError::UnknownKey);
-    }
+    let candidates = select_keys(header.kid.as_deref(), keys)?;
 
     let mut validation = Validation::new(Algorithm::EdDSA);
     validation.validate_exp = false;
@@ -778,9 +822,105 @@ mod tests {
     /// licence would read as signed by an unknown key.
     #[test]
     fn embedded_kid_matches_the_control_plane_derivation() {
-        let keys = embedded_keys();
-        assert_eq!(keys.len(), LICENSE_PUBLIC_KEYS.len());
-        assert_eq!(keys[0].kid, "c9cb9e8b445ddf00");
+        let kid = |pem: &str| VerifyingKey::from_pem(pem).expect("pem").kid;
+        assert_eq!(kid(PRODUCTION_LICENSE_KEY), PRODUCTION_KID);
+        assert_eq!(kid(STAGING_LICENSE_KEY), STAGING_KID);
+    }
+
+    #[test]
+    fn embedded_keys_include_the_production_key() {
+        assert!(embedded_keys().iter().any(|k| k.kid == "4a7e6b74183a8b11"));
+    }
+
+    #[test]
+    fn embedded_keys_are_the_build_trusted_set() {
+        let embedded: Vec<&str> = embedded_keys().iter().map(|k| k.kid.as_str()).collect();
+        let expected = if build_trusts_staging_key() {
+            vec![PRODUCTION_KID, STAGING_KID]
+        } else {
+            vec![PRODUCTION_KID]
+        };
+        assert_eq!(embedded, expected);
+    }
+
+    const PRODUCTION_KID: &str = "4a7e6b74183a8b11";
+    const STAGING_KID: &str = "c9cb9e8b445ddf00";
+
+    fn kids(pems: &[&str]) -> Vec<String> {
+        parse_keys(pems).into_iter().map(|k| k.kid).collect()
+    }
+
+    #[test]
+    fn release_builds_trust_production_only() {
+        assert_eq!(kids(trusted_key_pems(false)), vec![PRODUCTION_KID]);
+    }
+
+    #[test]
+    fn staging_builds_trust_production_and_staging() {
+        assert_eq!(
+            kids(trusted_key_pems(true)),
+            vec![PRODUCTION_KID, STAGING_KID]
+        );
+    }
+
+    /// A licence naming the staging kid is refused by a release build before
+    /// any signature check, and reaches the staging key in a staging build.
+    /// Signed by the throwaway key, so the staging build then reports a bad
+    /// signature rather than accepting it.
+    #[test]
+    fn staging_kid_is_unknown_to_release_builds() {
+        let token = mint_with_kid(Some(STAGING_KID), 3600);
+        assert_eq!(
+            inspect_with(&token, &parse_keys(trusted_key_pems(false))).expect_err("release"),
+            LicenseError::UnknownKey
+        );
+        assert_eq!(
+            inspect_with(&token, &parse_keys(trusted_key_pems(true))).expect_err("staging"),
+            LicenseError::BadSignature
+        );
+    }
+
+    #[test]
+    fn kid_selects_exactly_one_key() {
+        let keys = parse_keys(trusted_key_pems(true));
+        let picked = select_keys(Some(PRODUCTION_KID), &keys).expect("production");
+        assert_eq!(picked.len(), 1);
+        assert_eq!(picked[0].kid, PRODUCTION_KID);
+        assert_eq!(
+            select_keys(Some("0000000000000000"), &keys).err(),
+            Some(LicenseError::UnknownKey)
+        );
+        assert_eq!(select_keys(None, &keys).map(|k| k.len()), Ok(2));
+    }
+
+    /// Every PEM in `license_keys/` is embedded, and both images copy the
+    /// whole directory, so a key added to the directory can't be left out of
+    /// the binary or the Docker build context.
+    #[test]
+    fn every_key_file_is_embedded_and_copied() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut on_disk: Vec<String> = std::fs::read_dir(root.join("license_keys"))
+            .expect("license_keys dir")
+            .map(|e| e.expect("entry").path())
+            .filter(|p| p.extension().is_some_and(|x| x == "pem"))
+            .map(|p| std::fs::read_to_string(p).expect("read pem"))
+            .collect();
+        on_disk.sort();
+        let mut embedded: Vec<String> = STAGING_BUILD_LICENSE_KEYS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        embedded.sort();
+        assert_eq!(on_disk, embedded);
+
+        for dockerfile in ["Dockerfile", "Dockerfile.dev"] {
+            let text = std::fs::read_to_string(root.join(dockerfile)).expect("dockerfile");
+            assert!(
+                text.lines()
+                    .any(|l| l.trim() == "COPY backend/license_keys ./license_keys"),
+                "{dockerfile} must COPY the whole license_keys directory"
+            );
+        }
     }
 
     #[test]

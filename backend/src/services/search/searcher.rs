@@ -206,7 +206,11 @@ fn build_search_query(
 }
 
 /// Build a query for a single field. Each whitespace-separated word
-/// in the user query becomes a Should branch combining:
+/// in the user query becomes a Should branch. The word is split into
+/// tokens where the index's default tokenizer splits text (any
+/// character that isn't a letter or digit), so "IT-0042" looks for the
+/// tokens "it" and "0042" the index holds, and a word of several tokens
+/// needs all of them. Each token matches through:
 ///   * an exact `TermQuery` (full-token match — wins on tf-idf when
 ///     the query happens to be the complete word, e.g. typing
 ///     "https" matches the indexed "https" token directly), and
@@ -217,32 +221,54 @@ fn build_search_query(
 ///     for "edge ngram at index time" without the index-size blowup
 ///     of indexing every prefix.
 ///
-/// Words shorter than `MIN_PREFIX_QUERY_LEN` skip the prefix branch
+/// Tokens shorter than `MIN_PREFIX_QUERY_LEN` skip the prefix branch
 /// to avoid matching nearly every term in the index.
 fn build_field_query(field: tantivy::schema::Field, query_str: &str) -> BooleanQuery {
     let mut clauses: Vec<(Occur, Box<dyn Query>)> = Vec::new();
 
-    for raw_term in query_str.split_whitespace() {
-        let term = raw_term.to_lowercase();
-        if term.is_empty() {
-            continue;
-        }
-
-        let tantivy_term = tantivy::Term::from_field_text(field, &term);
-        let exact: Box<dyn Query> = Box::new(TermQuery::new(
-            tantivy_term,
-            IndexRecordOption::WithFreqsAndPositions,
-        ));
-        clauses.push((Occur::Should, exact));
-
-        if term.chars().count() >= MIN_PREFIX_QUERY_LEN {
-            let pattern = format!("{}.*", regex_escape(&term));
-            if let Ok(regex_query) = RegexQuery::from_pattern(&pattern, field) {
-                clauses.push((Occur::Should, Box::new(regex_query)));
+    for raw_word in query_str.split_whitespace() {
+        let word = raw_word.to_lowercase();
+        let tokens: Vec<&str> = word
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| !t.is_empty())
+            .collect();
+        match tokens.as_slice() {
+            [] => {}
+            [token] => clauses.push((Occur::Should, Box::new(token_query(field, token)))),
+            _ => {
+                let all: Vec<(Occur, Box<dyn Query>)> = tokens
+                    .iter()
+                    .map(|t| {
+                        (
+                            Occur::Must,
+                            Box::new(token_query(field, t)) as Box<dyn Query>,
+                        )
+                    })
+                    .collect();
+                clauses.push((Occur::Should, Box::new(BooleanQuery::new(all))));
             }
         }
     }
 
+    BooleanQuery::new(clauses)
+}
+
+/// One token: an exact match, or (when long enough) a prefix match.
+fn token_query(field: tantivy::schema::Field, token: &str) -> BooleanQuery {
+    let tantivy_term = tantivy::Term::from_field_text(field, token);
+    let mut clauses: Vec<(Occur, Box<dyn Query>)> = vec![(
+        Occur::Should,
+        Box::new(TermQuery::new(
+            tantivy_term,
+            IndexRecordOption::WithFreqsAndPositions,
+        )),
+    )];
+    if token.chars().count() >= MIN_PREFIX_QUERY_LEN {
+        let pattern = format!("{}.*", regex_escape(token));
+        if let Ok(regex_query) = RegexQuery::from_pattern(&pattern, field) {
+            clauses.push((Occur::Should, Box::new(regex_query)));
+        }
+    }
     BooleanQuery::new(clauses)
 }
 
@@ -392,6 +418,39 @@ mod tests {
         )
         .expect("ws2");
         assert_eq!(ids(&ws2), vec!["ticket-2"], "ws2 sees only its own ticket");
+    }
+
+    /// A hyphenated tag is indexed as separate tokens; the query splits
+    /// the same way and needs every token, so the tag finds its asset and
+    /// a different tag sharing a prefix token doesn't.
+    #[test]
+    fn hyphenated_words_match_their_tokens() {
+        let tagged = |id: i64, meta: &str| {
+            IndexDocument::new(EntityType::Asset, id, "Laptop", "")
+                .metadata(meta)
+                .workspace_id(1)
+        };
+        let docs = vec![tagged(1, "IT-0042 SN-77AB"), tagged(2, "IT-0099")];
+        let (_index, schema, reader) = index_docs(&docs);
+        let q = |text: &str| {
+            execute_search(
+                &reader,
+                &schema,
+                text,
+                10,
+                None,
+                true,
+                1,
+                SortOrder::Relevance,
+                None,
+            )
+            .expect("search")
+        };
+
+        assert_eq!(ids(&q("IT-0042")), vec!["device-1"]);
+        assert_eq!(ids(&q("it-004")), vec!["device-1"]);
+        assert_eq!(ids(&q("sn-77ab")), vec!["device-1"]);
+        assert!(q("IT-0077").results.is_empty());
     }
 
     #[test]

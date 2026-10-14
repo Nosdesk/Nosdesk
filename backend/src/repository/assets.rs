@@ -28,7 +28,7 @@ pub trait AssetDeletedObserver: Send + Sync {
 /// while the full REST device DTO carries Microsoft Graph and
 /// warranty columns that aren't needed for picker / chip
 /// rendering.
-fn asset_sync_payload(device: &Asset) -> serde_json::Value {
+pub fn asset_sync_payload(device: &Asset) -> serde_json::Value {
     json!({
         "id": device.id,
         "name": device.name,
@@ -70,6 +70,35 @@ pub(crate) fn emit_asset_event(
     Ok(())
 }
 
+/// What requester-role members may see of the pinned workspace's assets. A
+/// workspace with no settings row yet has the default, every asset. With no
+/// workspace pinned there is no setting to read, so the answer is none: a
+/// caller that forgot the pin never shows requesters an asset.
+pub fn requester_asset_visibility(
+    conn: &mut DbConnection,
+) -> QueryResult<RequesterAssetVisibility> {
+    let stored: Option<String> = site_settings::table
+        .filter(
+            site_settings::workspace_id
+                .nullable()
+                .eq(pinned_workspace().nullable()),
+        )
+        .select(site_settings::requester_asset_visibility)
+        .first(conn)
+        .optional()?;
+    if let Some(stored) = stored {
+        return Ok(
+            RequesterAssetVisibility::parse(&stored).unwrap_or(RequesterAssetVisibility::None)
+        );
+    }
+    let pinned: Option<i32> = diesel::select(pinned_workspace().nullable()).get_result(conn)?;
+    Ok(if pinned.is_some() {
+        RequesterAssetVisibility::All
+    } else {
+        RequesterAssetVisibility::None
+    })
+}
+
 // Asset operations
 pub fn get_all_devices(conn: &mut DbConnection) -> QueryResult<Vec<Asset>> {
     assets::table.order_by(assets::id.asc()).load::<Asset>(conn)
@@ -102,6 +131,7 @@ fn apply_device_filters<'a>(
                 assets::name
                     .ilike(pattern.clone())
                     .or(assets::serial_number.ilike(pattern.clone()))
+                    .or(assets::asset_tag.ilike(pattern.clone()))
                     .or(assets::model.ilike(pattern.clone()))
                     .or(assets::manufacturer.ilike(pattern.clone()))
                     .or(assets::id.eq_any(
@@ -221,6 +251,22 @@ fn apply_device_filters<'a>(
     query
 }
 
+/// Restrict to assets of any kind in a comma-separated slug list.
+fn filter_kinds<'a>(query: AssetBoxedQuery<'a>, kinds: Option<&str>) -> AssetBoxedQuery<'a> {
+    let slugs: Vec<String> = kinds
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != "all")
+        .map(str::to_string)
+        .collect();
+    if slugs.is_empty() {
+        query
+    } else {
+        query.filter(assets::kind.eq_any(slugs))
+    }
+}
+
 /// Filter inputs shared by the paginated list and CSV export.
 pub struct AssetListFilters<'a> {
     pub search: Option<&'a str>,
@@ -264,12 +310,13 @@ pub fn get_paginated_devices(
     warranty: Option<String>,
     location: Option<String>,
     groups: Option<String>,
+    kind: Option<String>,
     low_stock_only: bool,
 ) -> Result<(Vec<Asset>, i64), Error> {
     // manufacturer slot is `None`: there is no manufacturer-filter
     // consumer yet. The former `?type=` param fed this slot, which
     // silently filtered on `manufacturer`; that dead pathway is gone.
-    let total: i64 = apply_device_filters(
+    let total = apply_device_filters(
         assets::table.into_boxed(),
         search.as_deref(),
         warranty.as_deref(),
@@ -278,9 +325,10 @@ pub fn get_paginated_devices(
         status.as_deref(),
         groups.as_deref(),
         low_stock_only,
-    )
-    .count()
-    .get_result(conn)?;
+    );
+    let total: i64 = filter_kinds(total, kind.as_deref())
+        .count()
+        .get_result(conn)?;
 
     let mut query = apply_device_filters(
         assets::table.into_boxed(),
@@ -292,9 +340,64 @@ pub fn get_paginated_devices(
         groups.as_deref(),
         low_stock_only,
     );
+    query = filter_kinds(query, kind.as_deref());
 
-    // Apply sorting
-    match (sort_field.as_deref(), sort_direction.as_deref()) {
+    // Apply sorting. `attr:<key>` sorts on a kind attribute.
+    let attribute_sort = sort_field
+        .as_deref()
+        .and_then(|f| f.strip_prefix("attr:"))
+        .filter(|key| is_attribute_key(key));
+    if let Some(key) = attribute_sort {
+        query = order_by_attribute(query, key, sort_direction.as_deref() == Some("asc"));
+    } else {
+        query = order_by_column(query, sort_field.as_deref(), sort_direction.as_deref());
+    }
+
+    let offset = (page - 1) * page_size;
+    let results = query.offset(offset).limit(page_size).load::<Asset>(conn)?;
+
+    Ok((results, total))
+}
+
+/// A kind attribute key as the schema validator allows it
+/// (`^[a-z][a-z0-9_]*$`), so an `attr:` sort names nothing else.
+fn is_attribute_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && key.len() <= 64
+}
+
+/// Order by one attribute's JSON value. jsonb ordering compares numbers
+/// numerically, strings (ISO dates included) as text, and booleans false
+/// before true. Assets without the key sort last either way; name breaks ties.
+fn order_by_attribute<'a>(
+    query: AssetBoxedQuery<'a>,
+    key: &str,
+    ascending: bool,
+) -> AssetBoxedQuery<'a> {
+    let direction = if ascending {
+        " ASC NULLS LAST"
+    } else {
+        " DESC NULLS LAST"
+    };
+    query
+        .order(
+            diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::Jsonb>>(
+                "attributes -> ",
+            )
+            .bind::<diesel::sql_types::Text, _>(key.to_string())
+            .sql(direction),
+        )
+        .then_order_by(assets::name.asc())
+}
+
+fn order_by_column<'a>(
+    mut query: AssetBoxedQuery<'a>,
+    sort_field: Option<&str>,
+    sort_direction: Option<&str>,
+) -> AssetBoxedQuery<'a> {
+    match (sort_field, sort_direction) {
         (Some("id"), Some("asc")) => query = query.order(assets::id.asc()),
         (Some("id"), _) => query = query.order(assets::id.desc()),
         (Some("name"), Some("asc")) => query = query.order(assets::name.asc()),
@@ -320,11 +423,7 @@ pub fn get_paginated_devices(
         (Some("quantity"), _) => query = query.order(assets::quantity.desc().nulls_last()),
         _ => query = query.order(assets::name.asc()),
     }
-
-    let offset = (page - 1) * page_size;
-    let results = query.offset(offset).limit(page_size).load::<Asset>(conn)?;
-
-    Ok((results, total))
+    query
 }
 
 #[derive(Debug, QueryableByName)]
@@ -408,6 +507,11 @@ fn normalize_serial(serial: Option<String>) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// A whitespace-only value is no value: `None`, so the column is cleared.
+fn blank_is_null(value: Option<String>) -> Option<String> {
+    value.filter(|v| !v.trim().is_empty())
+}
+
 pub fn create_device(conn: &mut DbConnection, mut new_device: NewAsset) -> QueryResult<Asset> {
     new_device.serial_number = normalize_serial(new_device.serial_number);
     // Wrap the INSERT + sync emit in a single transaction so a
@@ -429,11 +533,13 @@ pub fn update_device(
     device_update: AssetUpdate,
 ) -> QueryResult<Asset> {
     let mut update = device_update;
-    // Same canonicalisation as create: a blank serial means "no serial". With
-    // AsChangeset's `Option<String>`, `None` leaves the column unchanged, so a
-    // cleared serial collapses to "leave as-is" rather than writing `""` (which
-    // would risk a unique-index collision). See issue #24.
-    update.serial_number = normalize_serial(update.serial_number);
+    // Same canonicalisation as create: a blank serial means "no serial", so it
+    // clears the column (NULL, never `""`, which would collide on the unique
+    // index; see issue #24). Blank location, notes and asset tag clear too.
+    update.serial_number = update.serial_number.map(normalize_serial);
+    update.location = update.location.map(blank_is_null);
+    update.notes = update.notes.map(blank_is_null);
+    update.asset_tag = update.asset_tag.map(blank_is_null);
     update.updated_at = Some(Utc::now().naive_utc());
 
     // emit::record fires inside emit_asset_event.
@@ -610,7 +716,7 @@ pub fn get_devices_by_microsoft_ids_full(
 mod tests {
     use super::*;
     use crate::models::NewAsset;
-    use crate::test_helpers::setup_test_connection;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     fn minimal_device(name: &str) -> NewAsset {
         NewAsset {
@@ -741,6 +847,92 @@ mod tests {
 
         let updated = update_device(&mut conn, dev.id, upd).unwrap();
         assert_eq!(updated.name, "NewName");
+    }
+
+    /// Parse a PUT body the way the handler does.
+    fn body(json: serde_json::Value) -> AssetUpdate {
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn update_leaves_absent_fields_and_clears_null_ones() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Holder", "user");
+        let dev = create_device(&mut conn, minimal_device("Clearable")).unwrap();
+        let set = body(serde_json::json!({
+            "serial_number": "SN-CLEAR-1",
+            "location": "Level 3",
+            "notes": "Spare charger in drawer",
+            "primary_user_uuid": user.uuid,
+            "managed_by_user_uuid": user.uuid,
+            "purchase_date": "2026-01-15",
+            "asset_tag": "TAG-1",
+        }));
+        update_device(&mut conn, dev.id, set).unwrap();
+
+        // Absent keys leave every column alone.
+        let kept = update_device(
+            &mut conn,
+            dev.id,
+            body(serde_json::json!({ "name": "Renamed" })),
+        )
+        .unwrap();
+        assert_eq!(kept.name, "Renamed");
+        assert_eq!(kept.serial_number.as_deref(), Some("SN-CLEAR-1"));
+        assert_eq!(kept.location.as_deref(), Some("Level 3"));
+        assert_eq!(kept.notes.as_deref(), Some("Spare charger in drawer"));
+        assert_eq!(kept.primary_user_uuid, Some(user.uuid));
+        assert_eq!(kept.managed_by_user_uuid, Some(user.uuid));
+        assert!(kept.purchase_date.is_some());
+        assert_eq!(kept.asset_tag.as_deref(), Some("TAG-1"));
+
+        // Explicit nulls clear them.
+        let cleared = update_device(
+            &mut conn,
+            dev.id,
+            body(serde_json::json!({
+                "serial_number": null,
+                "location": null,
+                "notes": null,
+                "primary_user_uuid": null,
+                "managed_by_user_uuid": null,
+                "purchase_date": null,
+                "asset_tag": null,
+            })),
+        )
+        .unwrap();
+        assert_eq!(cleared.name, "Renamed");
+        assert!(cleared.serial_number.is_none());
+        assert!(cleared.location.is_none());
+        assert!(cleared.notes.is_none());
+        assert!(cleared.primary_user_uuid.is_none());
+        assert!(cleared.managed_by_user_uuid.is_none());
+        assert!(cleared.purchase_date.is_none());
+        assert!(cleared.asset_tag.is_none());
+    }
+
+    #[test]
+    fn blank_text_clears_to_null() {
+        let mut conn = setup_test_connection();
+        let dev = create_device(&mut conn, minimal_device("Blanked")).unwrap();
+        update_device(
+            &mut conn,
+            dev.id,
+            body(serde_json::json!({ "serial_number": "SN-BLANK-1", "location": "Desk", "asset_tag": "T-2" })),
+        )
+        .unwrap();
+        let blanked = update_device(
+            &mut conn,
+            dev.id,
+            body(serde_json::json!({ "serial_number": "  ", "location": "", "asset_tag": " " })),
+        )
+        .unwrap();
+        assert!(
+            blanked.serial_number.is_none(),
+            "blank serial is NULL, never ''"
+        );
+        assert!(blanked.location.is_none());
+        assert!(blanked.asset_tag.is_none());
     }
 
     #[test]

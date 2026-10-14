@@ -27,6 +27,7 @@ import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import authService, { type SessionInfo } from '@nosdesk/core/services/authService';
 import { extractErrorMessage } from '@/utils/errors';
+import { useStepUpMethod } from '@/composables/useStepUpMethod';
 import { logger } from '@nosdesk/core/utils/logger';
 import { formatRelativeTime, formatDate } from '@nosdesk/core/utils/dateUtils';
 import Icon from '@/components/common/Icon.vue';
@@ -70,32 +71,10 @@ function refresh() {
   queryCache.invalidateQueries({ key: SESSIONS_KEY });
 }
 
-// Which credential the bulk-revoke step-up should ask for. Prefer the
-// local password (the mfa_disable precedent); fall back to a TOTP/backup
-// code for accounts without one; 'none' when there's nothing to step up
-// (OAuth-only, no MFA). Loaded once on mount, best-effort.
-const hasLocalPassword = ref(false);
-const mfaEnabled = ref(false);
-const stepUpMethod = computed<'password' | 'mfa' | 'none'>(() => {
-  if (hasLocalPassword.value) return 'password';
-  if (mfaEnabled.value) return 'mfa';
-  return 'none';
-});
-
-onMounted(async () => {
-  try {
-    const identities = await authService.getUserAuthIdentities();
-    hasLocalPassword.value = identities.some((i) => i.provider_type === 'local');
-  } catch (err) {
-    logger.debug('Could not load auth identities for session step-up', { error: err });
-  }
-  try {
-    const status = await authService.getMFAStatus();
-    mfaEnabled.value = status.enabled;
-  } catch (err) {
-    logger.debug('Could not load MFA status for session step-up', { error: err });
-  }
-});
+// Which credential the bulk-revoke step-up asks for. Loaded once on
+// mount, best-effort.
+const { method: stepUpMethod, load: loadStepUp, credential: stepUpBody } = useStepUpMethod();
+onMounted(loadStepUp);
 
 /**
  * Coarse OS family from a user-agent, shared by the label and the icon so the
@@ -229,13 +208,7 @@ async function handleRevokeAll() {
   revokingAll.value = true;
   modalError.value = null;
   try {
-    const credential =
-      stepUpMethod.value === 'password'
-        ? { password: stepUpCredential.value }
-        : stepUpMethod.value === 'mfa'
-          ? { mfa_code: stepUpCredential.value.trim() }
-          : {};
-    await authService.revokeAllOtherSessions(credential);
+    await authService.revokeAllOtherSessions(stepUpBody(stepUpCredential.value));
     closeRevokeAllModal();
     refresh();
     emit('success', t('settings-sessions-revoke-others-success'));

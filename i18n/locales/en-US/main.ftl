@@ -225,8 +225,7 @@ connect-server-label = Server address
 connect-server-placeholder = help.yourcompany.com
 connect-submit = Connect
 connect-back = Back
-connect-no-account = New to Nosdesk?
-connect-no-account-cta = Start a free trial
+connect-no-account = You need a Nosdesk workspace to sign in. Learn more at nosdesk.com.
 connect-switch-server = Switch server
 login-email-label = Email
 login-email-placeholder = Enter your email
@@ -251,6 +250,9 @@ login-error-no-seat = This account doesn't have access to a workspace yet. Ask y
 login-error-no-email = Your identity provider didn't share an email address for this account. Ask your administrator to check the sign-in configuration.
 login-error-email-unverified = Your identity provider hasn't verified your email address, so it can't be used to sign in here. Verify it with the provider, then try again.
 login-error-generic = Sign-in failed. Please try again.
+login-error-state-expired = Your sign-in took too long. Please sign in again.
+login-error-provider-denied = Sign-in was cancelled.
+login-error-signin-failed = Sign-in couldn't be completed. Please try again.
 login-mfa-title = Two-Factor Authentication
 login-mfa-subtitle = Please enter your authentication code
 login-mfa-code-label = Authentication Code
@@ -455,16 +457,64 @@ ticket-list-bulk-assign = Assign
 ticket-list-bulk-merge = Merge
 ticket-list-bulk-clear-title = Clear selection (Esc)
 ticket-list-bulk-clear = Clear
+
+# A change the server refused and the app rolled back. The title names the
+# change; the message says why.
+sync-rejected-assign = { $count ->
+    [one] Couldn't assign 1 ticket
+   *[other] Couldn't assign { $count } tickets
+}
+sync-rejected-status = { $count ->
+    [one] Couldn't change the status of 1 ticket
+   *[other] Couldn't change the status of { $count } tickets
+}
+sync-rejected-priority = { $count ->
+    [one] Couldn't change the priority of 1 ticket
+   *[other] Couldn't change the priority of { $count } tickets
+}
+sync-rejected-rename = { $count ->
+    [one] Couldn't rename 1 ticket
+   *[other] Couldn't rename { $count } tickets
+}
+sync-rejected-tags = { $count ->
+    [one] Couldn't change the tags on 1 ticket
+   *[other] Couldn't change the tags on { $count } tickets
+}
+sync-rejected-dates = { $count ->
+    [one] Couldn't change the dates of 1 ticket
+   *[other] Couldn't change the dates of { $count } tickets
+}
+sync-rejected-ticket = { $count ->
+    [one] Couldn't update 1 ticket
+   *[other] Couldn't update { $count } tickets
+}
+sync-rejected-project = { $count ->
+    [one] Couldn't update 1 project
+   *[other] Couldn't update { $count } projects
+}
+sync-rejected-other = { $count ->
+    [one] Couldn't save 1 change
+   *[other] Couldn't save { $count } changes
+}
+sync-rejected-reason-invalid-assignee = Only agents and admins can be assigned tickets.
+sync-rejected-reason-forbidden = You don't have permission to make this change.
+sync-rejected-reason-ticket-merged = Merged tickets can't be changed.
+sync-rejected-reason-approval-pending = Requests waiting for approval stay open. Approve or skip the approval first.
+sync-rejected-reason-invalid-reference = The change refers to something that no longer exists.
+sync-rejected-reason-not-found = { $count ->
+    [one] It was deleted, or you can no longer see it.
+   *[other] They were deleted, or you can no longer see them.
+}
+sync-rejected-reason-internal = Something went wrong on the server. Try again.
+sync-rejected-reason-unsupported = This change can't be saved from here. Reload the page and try again.
+sync-rejected-reason-generic = The server didn't accept the change.
 ticket-list-context-copy-number = Copy ticket number
 ticket-list-context-assign-to-me = Assign to me
 ticket-list-context-actions-heading = Actions
 ticket-list-context-selection-heading = Selection
 ticket-list-context-select = Select
 ticket-list-context-deselect = Deselect
-ticket-list-context-merge = { $count ->
-    [one] Merge ticket…
-   *[other] Merge { $count } tickets…
-}
+ticket-list-context-merge-into = Merge into #{ $number }…
 ticket-list-context-merge-hint = Select at least 2 tickets to merge
 ticket-list-context-flagged-toast = Flagged for documentation
 ticket-flag-already-documented = Already documented in “{ $title }”
@@ -1017,6 +1067,14 @@ admin-asset-kinds-field-icon-hint = Optional icon name (e.g. "monitor", "phone")
 admin-asset-kinds-field-attribute-schema-hint = JSON Schema subset. The Builder view is the default; switch to View JSON for hand-edits.
 admin-asset-kinds-view-builder = View Builder
 admin-asset-kinds-view-json = View JSON
+asset-access-title = Requester access
+asset-access-description = What people with the requester role see of this workspace's assets. Staff always see every asset.
+asset-access-all = All assets
+asset-access-none = None
+asset-access-all-hint = Requesters see every asset, including ones they don't hold, in their app and on the asset pages.
+asset-access-none-hint = Requesters see no assets at all: not the asset list, not assets linked to their tickets, and not the devices or loans on their own profile.
+asset-access-saved = Requester access saved
+asset-access-save-failed = Couldn't save requester access
 
 # Asset Kinds — typed attribute builder (AttributeEditor +
 # AttributeRow). Replaces the raw JSON textarea for the common
@@ -1166,7 +1224,7 @@ admin-nav-webhooks-description = Configure webhooks to send events to external s
 admin-nav-plugins-title = Plugins
 admin-nav-plugins-description = Manage installed plugins and integrations
 admin-nav-data-import-title = Data Import
-admin-nav-data-import-description = Import data from Intune, CSV files, and other sources
+admin-nav-data-import-description = Import data from Microsoft Entra ID, CSV files, and other sources
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Sync users and groups from an LDAP or Active Directory server
 admin-nav-audit-log-title = Audit Log
@@ -1649,13 +1707,13 @@ admin-data-import-status-available = Available
 admin-data-import-status-coming-soon = Coming Soon
 admin-data-import-status-beta = Beta
 admin-data-import-microsoft-title = Microsoft Graph
-admin-data-import-microsoft-description = Import data from Microsoft 365, including Azure AD, Intune, and other Microsoft services
+admin-data-import-microsoft-description = Import users, groups and devices from Microsoft Entra ID
 admin-data-import-csv-title = CSV Import
 admin-data-import-csv-description = Import data from CSV files, including assets, users, and other resources
 admin-data-import-api-title = API Integrations
 admin-data-import-api-description = Connect to third-party APIs to import and synchronize data
-admin-data-import-ad-title = Active Directory
-admin-data-import-ad-description = Import data from on-premises Active Directory servers
+admin-data-import-ad-title = LDAP / Active Directory
+admin-data-import-ad-description = Sync users and groups from Active Directory or another LDAP directory
 
 # Admin: Authentication Providers (AuthProvidersView).
 admin-auth-providers-title = Authentication Providers
@@ -2351,7 +2409,7 @@ admin-msgraph-modal-description = Select the data entities you want to import fr
 admin-msgraph-entity-users-name = Users
 admin-msgraph-entity-users-description = Import user accounts and profiles from Microsoft Entra ID
 admin-msgraph-entity-devices-name = Devices
-admin-msgraph-entity-devices-description = Import managed devices from Microsoft Intune with user assignments
+admin-msgraph-entity-devices-description = Import devices registered in Microsoft Entra ID
 admin-msgraph-entity-groups-name = Groups
 admin-msgraph-entity-groups-description = Import security and distribution groups from Microsoft Entra ID
 admin-msgraph-modal-info = Synchronization will import the latest data from Microsoft services. This may take several minutes depending on the amount of data.
@@ -2563,6 +2621,10 @@ admin-webhooks-event-documentation-updated = Documentation Updated
 admin-webhooks-event-user-created = User Created
 admin-webhooks-event-user-updated = User Updated
 admin-webhooks-event-user-deleted = User Deleted
+admin-webhooks-event-ticket-sla-breached = Ticket SLA Breached
+admin-webhooks-event-asset-created = Asset Created
+admin-webhooks-event-asset-deleted = Asset Deleted
+admin-webhooks-event-documentation-created = Documentation Created
 
 # Users list (UsersListView): people directory with role filter,
 # bulk role change, and bulk delete.
@@ -2627,6 +2689,22 @@ user-mgmt-bulk-delete-message = { $count ->
    *[other] Delete { $count } users? They will be restorable for 30 days, then permanently removed.
 }
 user-mgmt-bulk-action-error = Failed to perform bulk action. Please try again.
+user-mgmt-bulk-deleted = { $count ->
+    [one] Deleted one user. They can be restored from Deleted for 30 days.
+   *[other] Deleted { $count } users. They can be restored from Deleted for 30 days.
+}
+user-mgmt-bulk-skipped-admin = { $count ->
+    [one] One administrator wasn't deleted. Change their role first, then delete them.
+   *[other] { $count } administrators weren't deleted. Change their role first, then delete them.
+}
+user-mgmt-bulk-skipped-staff = { $count ->
+    [one] One staff member is managed in your Nosdesk account, so they weren't deleted here.
+   *[other] { $count } staff members are managed in your Nosdesk account, so they weren't deleted here.
+}
+user-mgmt-bulk-delete-failed = { $count ->
+    [one] One user couldn't be deleted. Try again.
+   *[other] { $count } users couldn't be deleted. Try again.
+}
 user-mgmt-deleted-off = Show deleted
 user-mgmt-deleted-on = Hide deleted
 user-mgmt-deleted-badge = Deleted
@@ -2819,6 +2897,9 @@ assets-list-column-location = Location
 assets-list-column-user = User
 assets-list-column-status = Status
 assets-list-column-warranty = Warranty
+assets-list-columns-attributes = Attributes
+assets-list-attribute-yes = Yes
+assets-list-attribute-no = No
 
 assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock
@@ -2865,6 +2946,8 @@ asset-detail-error-create = Failed to create asset. Please try again.
 asset-detail-error-delete = Failed to delete asset. Please try again.
 asset-detail-error-unmanage = Failed to unmanage device. Please try again.
 asset-detail-section-details = Asset details
+asset-detail-section-notes = Notes
+asset-detail-notes-placeholder = Add notes about this asset
 asset-detail-section-kind = Asset Kind
 asset-detail-field-kind = Kind
 assets-list-create-error = Could not create a new asset. Please try again.
@@ -3373,6 +3456,10 @@ doc-detail-copied = Copied
 doc-detail-untitled = Untitled
 doc-detail-status-draft = Draft
 doc-detail-status-archived = Archived
+doc-detail-status-published = Published
+# Phone only: the strip above the tab bar while a page is a draft.
+doc-detail-draft-strip-title = Draft
+doc-detail-draft-strip-body = Staff only until published.
 doc-detail-needs-verification = Needs verification
 doc-detail-needs-verification-title = Verify this page
 doc-detail-verification-stale = Verification stale
@@ -3426,7 +3513,6 @@ collection-page-count = { $count ->
    }
 collection-delete-title = Delete { $name }?
 collection-delete-title-fallback = Delete collection?
-collection-delete-message = Pages in this collection will not be deleted.
 collection-delete-confirm = Delete
 
 # CSV import (CsvImportView): admin page for importing users,
@@ -3462,7 +3548,10 @@ csv-import-summary-rows = Rows in file
 csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
 csv-import-summary-create = Will create
 csv-import-summary-update = Will update
-csv-import-errors-heading = { $count } row(s) have errors
+csv-import-errors-heading = { $count ->
+    [one] 1 row has errors and will be skipped
+   *[other] { $count } rows have errors and will be skipped
+}
 csv-import-errors-truncated = showing first 100
 csv-import-errors-row = Row
 csv-import-errors-column = Column
@@ -3474,7 +3563,14 @@ csv-import-action-view-assets = View assets
 csv-import-action-view-users = View users
 csv-import-action-view-tickets = View tickets
 csv-import-done-heading = Import complete
-csv-import-done-body = { $count } row(s) committed.
+csv-import-done-body = { $count ->
+    [one] Imported 1 row.
+   *[other] Imported { $count } rows.
+}
+csv-import-done-skipped = { $count ->
+    [one] 1 row was skipped because it had errors.
+   *[other] { $count } rows were skipped because they had errors.
+}
 csv-import-error-generic = Import failed. Check the file and try again.
 csv-import-error-commit-failed = Apply failed; rows were not committed.
 csv-import-action-import = Import Data
@@ -3648,6 +3744,8 @@ editor-toolbar-numbered-list = Numbered List
 editor-toolbar-insert = Insert
 editor-toolbar-undo = Undo
 editor-toolbar-redo = Redo
+editor-toolbar-done = Done
+editor-toolbar-label = Formatting
 editor-toolbar-revision-history = Revision History
 editor-toolbar-editing-with = Editing with:
 editor-toolbar-connection-connecting = Connecting...
@@ -4182,7 +4280,6 @@ docs-collection-browser-new = New
 docs-collection-browser-name-placeholder = Collection name...
 docs-collection-browser-cancel = Cancel
 docs-collection-browser-create = Create
-docs-collection-browser-loading-label = Loading collections
 docs-collection-browser-pages = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -4210,12 +4307,16 @@ docs-collection-tree-list-empty = No pages in this collection yet.
 
 # Docs: collection visibility modal (CollectionVisibilityModal)
 docs-collection-visibility-title = Collection Access
-docs-collection-visibility-description = Select which groups and users can access this collection. Empty selection means the collection is public (visible to everyone).
+docs-collection-visibility-description = Choose who can open this collection.
 docs-collection-visibility-public = Public, visible to all users
 docs-collection-visibility-picker-placeholder = Search users and groups...
 docs-collection-visibility-cancel = Cancel
 docs-collection-visibility-save = Save
 docs-collection-visibility-saving = Saving...
+docs-access-label = Who can open it
+docs-access-everyone = Everyone in the workspace
+docs-access-chosen = Only people and groups you choose
+docs-access-admins-only = Only admins can open it until you add people or groups.
 
 # Shared assignment picker (AssignmentPicker)
 assignment-picker-loading = Searching…
@@ -4374,9 +4475,6 @@ docs-collection-appearance-open-aria = Change collection icon and color
 docs-edit-collection-description = Short description
 docs-edit-collection-description-placeholder = Optional tagline shown above the collection's overview
 docs-edit-collection-description-help = The full overview is edited in-place on the collection landing page.
-docs-edit-collection-hide-titles-aria = Hide page titles from non-members
-docs-edit-collection-hide-titles-label = Hide page titles from non-members
-docs-edit-collection-hide-titles-help = Cross-collection wikilinks render as "Restricted page" for viewers without access, instead of leaking the title. Recommended for sensitive collections.
 docs-edit-collection-require-verification-aria = Require verification for pages in this collection
 docs-edit-collection-require-verification-label = Require verification
 docs-edit-collection-require-verification-help = Unverified pages show a "needs verification" prompt. Use for compliance content like policies and SOPs. Off by default, an unverified page reads as neutral.
@@ -4769,16 +4867,18 @@ asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
 
 # Asset media panel.
-asset-media-heading = Photos
+asset-media-heading = Photos and files
 asset-media-description = Photos are stored against this asset and visible to workspace members.
-asset-media-add = Add photos
+asset-media-add = Add photos or files
 asset-media-loading = Loading photos…
-asset-media-empty-title = No photos attached
-asset-media-empty-description = Add reference photos for materials, equipment, vehicles, labels, or storage locations.
+asset-media-empty-title = No photos or files attached
+asset-media-empty-description = Add reference photos, or documents such as service reports, invoices, and manuals (PDF, Office, text).
 asset-media-load-failed = Failed to load asset photos
-asset-media-upload-failed = Failed to upload asset photos
-asset-media-delete-failed = Failed to delete asset photo
+asset-media-upload-failed = Failed to upload asset files
+asset-media-delete-failed = Failed to delete asset file
 asset-media-delete-aria = Delete { $name }
+asset-media-download-aria = Download { $name }
+asset-media-files-heading = Files
 asset-media-lightbox-previous = Previous photo
 asset-media-lightbox-next = Next photo
 asset-media-caption-edit-aria = Edit caption for { $name }
@@ -4805,7 +4905,7 @@ asset-lifecycle-heading = Lifecycle
 asset-lifecycle-description = Track operational status changes such as repairs, loans, and retirement.
 asset-lifecycle-current-label = Current status
 asset-lifecycle-change-status = Change status
-asset-lifecycle-correct-status = Correct status
+asset-lifecycle-disposed-final = Disposal is final
 asset-lifecycle-managed-by-loan = Managed by the active loan
 
 # Asset loans
@@ -4844,6 +4944,7 @@ asset-loan-history = Loan history
 asset-loan-loaned-relative = Loaned { $when }
 asset-loan-ticket = Ticket #{ $id }
 asset-loan-unknown-borrower = Unknown borrower
+asset-loan-deleted-borrower = Deleted user
 asset-loan-due-overdue = Overdue
 asset-loan-due-today = Due today
 asset-loan-due-soon = Due in { $days } { $days ->
@@ -5058,7 +5159,7 @@ admin-groups-config-no-users-found = No users found
 admin-groups-config-no-devices-found = No assets found
 admin-groups-config-no-groups-found = No groups found
 admin-groups-config-synced-badge = Synced
-admin-groups-config-synced-intune-tooltip = Synced from Microsoft Intune
+admin-groups-config-synced-intune-tooltip = Synced from Microsoft Entra ID
 admin-groups-config-selected-count = { $count } selected
 admin-groups-config-member-count = { $count ->
     [one] { $count } member
@@ -5948,6 +6049,7 @@ tickets-collaborative-article-open-doc = Open linked document
 tickets-collaborative-article-promote-confirm-title = Promote note to a document?
 tickets-collaborative-article-promote-confirm-message = This moves the note's content into a new document and replaces the note with an embed of it. The document opens in full-page view, and the ticket keeps showing it inline.
 tickets-collaborative-article-promote-confirm-label = Promote
+tickets-collaborative-article-promote-note-kept = Your note stayed on the ticket because the document was missing its latest edits.
 tickets-project-info-remove = Remove from project
 tickets-project-info-description = Description
 tickets-project-info-project-id = Project ID
@@ -6193,6 +6295,9 @@ admin-ldap-saving = Saving…
 admin-ldap-saved = LDAP settings saved
 admin-ldap-error-load = Failed to load LDAP settings
 admin-ldap-error-save = Failed to save LDAP settings
+admin-ldap-save-needs-numbers = Fill in the port, timeout and page size to save.
+admin-ldap-save-needs-host = Add a host to save while the integration is on.
+admin-ldap-save-needs-base-dn = Add a user base DN to save while the integration is on.
 admin-ldap-error-sync = Sync failed; see server logs
 admin-ldap-section-status = Sync & status
 admin-ldap-mode-incremental = Incremental sync active
@@ -6588,13 +6693,23 @@ user-settings-account-setup-pending = Pending
 user-settings-invitation-pending = Invitation pending
 user-settings-resend-invitation-title = Resend Invitation Email
 user-settings-danger-zone-title = Danger Zone
-user-settings-danger-zone-subtitle = Irreversible and destructive actions
+user-settings-danger-zone-subtitle = Actions that remove access or data
 user-settings-delete-modal-title = Confirm Account Deletion
 user-settings-delete-item-profile = Profile information and settings
 user-settings-delete-item-tickets = All tickets created or assigned to this user
 user-settings-delete-item-comments = Comments and activity history
 user-settings-delete-item-access = Access to all systems and resources
-user-settings-password-placeholder = Enter your password
+user-settings-delete-user-title = Delete User Account
+user-settings-delete-user-description = Signs { $name } out and blocks access now. The account is permanently deleted after 30 days unless an administrator restores it.
+user-settings-delete-button = Delete Account
+user-settings-delete-self-hint = To delete your account, ask your workspace administrator.
+user-settings-delete-modal-warning = { $name } loses access now. The account is permanently deleted after 30 days, and an administrator can restore it until then.
+user-settings-delete-modal-removes = After 30 days, this permanently removes:
+user-settings-delete-stepup-password = Enter your password to confirm
+user-settings-delete-stepup-mfa = Enter a code from your authenticator app, or a backup code, to confirm
+user-settings-delete-cancel = Cancel
+user-settings-delete-confirm = Delete Account
+user-settings-delete-error = Couldn't delete the account. Try again.
 admin-plugins-list-title = Plugins
 admin-plugins-list-aria-filter = Filter plugins
 admin-plugins-list-search-placeholder = Search plugins

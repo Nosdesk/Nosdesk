@@ -8,17 +8,20 @@
 //! the one person it is addressed to. Within those, a `user` row reaches a
 //! workspace's sessions only when it is about one of its people
 //! (`repository::directory`) and carries only the fields the viewer may see
-//! ([`crate::sync::user_projection`]), and a knowledge gap is left out for a
-//! viewer who can't open a page it names. It is the single place that
+//! ([`crate::sync::user_projection`]), a knowledge gap is left out for a
+//! viewer who can't open a page it names, and a requester gets no asset
+//! record when the workspace shows requesters no assets. It is the single place that
 //! decides "can THIS viewer see THIS row", shared by all three read paths:
 //!
 //! - **bootstrap** (snapshot): filters at the query level via
 //!   [`bootstrap_ticket_query`], and projects its `user` rows with
 //!   [`project_row`].
-//! - **delta** (pull) and the live **SSE** `SyncActions` stream: filter a
-//!   batch of actions via [`filter_actions`], which returns a keep-mask so
-//!   each path rebuilds its own representation, then [`project_row`] each
-//!   kept row.
+//! - **delta** (pull) and the live **SSE** `SyncActions` stream: decide a
+//!   batch of actions via [`deliveries`], which returns a [`Delivery`] per
+//!   row so each path rebuilds its own representation, then [`project_row`]
+//!   each sent row. A documentation record the viewer can't open is sent as
+//!   a delete naming only its id ([`Retraction`]): losing access reads as a
+//!   delete, and hidden reads as absent.
 //!
 //! Source of truth stays [`crate::repository::ticket_visibility`] + the
 //! documentation access fns; this module only orchestrates them.
@@ -28,7 +31,7 @@
 //!   ticket family and staff records. An agent sees every ticket.
 //! - `is_admin` (workspace Admin+ / platform admin) governs documentation
 //!   and admin records. An agent is NOT an admin, so docs still filter for
-//!   them.
+//!   them (drafts, archived pages and the trash excepted: staff read those).
 
 use std::collections::{HashMap, HashSet};
 
@@ -82,10 +85,11 @@ impl SyncViewer {
     }
 
     /// The documentation reader this viewer is.
-    fn pages(&self) -> documentation::PageAudience {
+    pub fn pages(&self) -> documentation::PageAudience {
         documentation::PageAudience::User {
             user_uuid: self.ctx.user_uuid,
             is_admin: self.is_admin,
+            is_staff: self.sees_all(),
         }
     }
 }
@@ -203,6 +207,19 @@ pub fn names_only_the_row(data: &serde_json::Value) -> bool {
         .is_some_and(|o| !o.is_empty() && o.keys().all(|k| k == "id" || k == "uuid"))
 }
 
+/// Records about an asset that reach requesters: the asset, its link to a
+/// ticket, usage on a ticket, and a loan to them. None of them reaches a
+/// requester when the workspace shows requesters no assets.
+fn is_asset_record(agg: SyncAggregate) -> bool {
+    matches!(
+        agg,
+        SyncAggregate::Asset
+            | SyncAggregate::TicketAsset
+            | SyncAggregate::AssetUsage
+            | SyncAggregate::AssetLoan
+    )
+}
+
 /// True when this aggregate carries a ticket id and so needs the
 /// visible-ticket set resolved for a restricted viewer.
 fn needs_ticket_resolution(agg: SyncAggregate) -> bool {
@@ -225,6 +242,10 @@ struct Resolved {
     hidden_gaps: HashSet<i64>,
     /// Which of the batch's `user` rows are about this workspace's people.
     people: HashSet<Uuid>,
+    /// The workspace shows requesters no assets and the viewer is one: no
+    /// asset record reaches them (`site_settings.requester_asset_visibility`).
+    /// Read per batch, so a change reaches open streams with their next one.
+    assets_hidden: bool,
     /// Fail-closed flags: a lookup error drops the affected family.
     doc_fail: bool,
     ticket_fail: bool,
@@ -242,10 +263,133 @@ impl Resolved {
             hidden_collections: HashSet::new(),
             hidden_gaps: HashSet::new(),
             people: HashSet::new(),
+            assets_hidden: !viewer.sees_all(),
             doc_fail: true,
             ticket_fail: true,
             gap_fail: true,
         }
+    }
+}
+
+/// What a viewer gets of one action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delivery {
+    /// The row as recorded (then [`project_row`]).
+    Send,
+    /// A delete naming only the row's id ([`Retraction`]): a documentation
+    /// record the viewer can't open, so a client that holds it drops it.
+    Retract,
+    /// Nothing.
+    Drop,
+    /// A documentation row whose visibility couldn't be looked up. Neither
+    /// sent (it may be closed to the viewer) nor dropped (it may withdraw
+    /// their access, and a cursor moved past it would never bring that
+    /// back): the delta and the live stream fail the batch, and the client
+    /// asks again.
+    Unclassified,
+}
+
+/// Whether a batch holds a row that couldn't be classified, so the reader
+/// must fail it rather than move past it.
+pub fn any_unclassified(decided: &[Delivery]) -> bool {
+    decided.contains(&Delivery::Unclassified)
+}
+
+/// What `viewer` gets of one action: the row when they may see it; for a
+/// documentation record they can't open, a delete, so a client that had it
+/// drops it; otherwise nothing. A documentation row whose lookup failed is
+/// [`Delivery::Unclassified`].
+fn action_delivery(v: &ActionView, viewer: &SyncViewer, r: &Resolved) -> Delivery {
+    let is_doc = v
+        .aggregate
+        .is_some_and(|agg| audience(agg) == Audience::Docs);
+    // A documentation row addressed to people (a re-send after a change to
+    // one person's roles or groups) is for them alone: no one else's access
+    // changed.
+    if is_doc && !v.addressees.is_empty() && !v.addressees.contains(&viewer.ctx.user_uuid) {
+        return Delivery::Drop;
+    }
+    if is_doc && r.doc_fail {
+        return Delivery::Unclassified;
+    }
+    if action_is_visible(v, viewer, r) {
+        return Delivery::Send;
+    }
+    if is_doc && v.aggregate_id.is_some() {
+        Delivery::Retract
+    } else {
+        Delivery::Drop
+    }
+}
+
+/// The delete a [`Delivery::Retract`] sends in place of a documentation row.
+/// It reads as the record's own delete does, and carries only what a client
+/// needs to apply it: no actor, no correlation, no time.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Retraction {
+    pub sync_id: i64,
+    pub aggregate: SyncAggregate,
+    pub aggregate_id: String,
+    pub op: SyncOp,
+    pub event_type: &'static str,
+    pub schema_version: i16,
+    /// `{"id": <id>}`.
+    pub data: serde_json::Value,
+    pub groups: Vec<Option<String>>,
+}
+
+impl Retraction {
+    /// The retraction of a row. `None` for a kind that is never retracted.
+    pub fn of(
+        sync_id: i64,
+        aggregate: SyncAggregate,
+        aggregate_id: &str,
+        schema_version: i16,
+        groups: Vec<Option<String>>,
+    ) -> Option<Self> {
+        let event_type = match aggregate {
+            SyncAggregate::DocumentationPage => "documentation_page.deleted",
+            SyncAggregate::DocumentationCollection => "documentation_collection.deleted",
+            _ => return None,
+        };
+        let id: i32 = aggregate_id.parse().ok()?;
+        Some(Self {
+            sync_id,
+            aggregate,
+            aggregate_id: aggregate_id.to_string(),
+            op: SyncOp::Delete,
+            event_type,
+            schema_version,
+            data: serde_json::json!({ "id": id }),
+            groups,
+        })
+    }
+
+    /// The retraction of a serialized action row (the live stream's shape).
+    pub fn of_wire_row(row: &serde_json::Value) -> Option<Self> {
+        let aggregate = row
+            .get("aggregate")
+            .cloned()
+            .and_then(|v| serde_json::from_value::<SyncAggregate>(v).ok())?;
+        let groups = row
+            .get("groups")
+            .cloned()
+            .and_then(|g| serde_json::from_value::<Vec<Option<String>>>(g).ok())
+            .unwrap_or_default();
+        Self::of(
+            row.get("sync_id")
+                .and_then(|v| v.as_i64())
+                .unwrap_or_default(),
+            aggregate,
+            row.get("aggregate_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            row.get("schema_version")
+                .and_then(|v| v.as_i64())
+                .and_then(|v| i16::try_from(v).ok())
+                .unwrap_or(1),
+            groups,
+        )
     }
 }
 
@@ -273,6 +417,8 @@ fn action_is_visible(v: &ActionView, viewer: &SyncViewer, r: &Resolved) -> bool 
                     || v.subject_uuid
                         .is_some_and(|u| u == me || r.people.contains(&u))
             }
+            // Everyone, unless the workspace shows requesters no assets.
+            SyncAggregate::Asset => !r.assets_hidden,
             _ => true,
         },
         Audience::Staff => {
@@ -288,7 +434,9 @@ fn action_is_visible(v: &ActionView, viewer: &SyncViewer, r: &Resolved) -> bool 
         }
         Audience::Admin => viewer.is_admin,
         Audience::Addressee => addressed_to_me,
-        Audience::StaffAndAddressee => viewer.sees_all() || addressed_to_me,
+        Audience::StaffAndAddressee => {
+            viewer.sees_all() || (addressed_to_me && !(is_asset_record(agg) && r.assets_hidden))
+        }
         // Documentation: exclusion model, visible to everyone EXCEPT the
         // rows in the hidden set. Fail-closed drops all doc rows.
         Audience::Docs => {
@@ -315,6 +463,9 @@ fn ticket_row_is_visible(
     let Some(visible) = r.visible_tickets.as_ref() else {
         return true; // sees_all
     };
+    if is_asset_record(agg) && r.assets_hidden {
+        return false;
+    }
     // Bare-id prune signals (`{id}` only) carry no information about a
     // ticket the viewer can't see, and MUST reach a member even when the
     // underlying row is already gone: a hard-deleted ticket/attachment can't
@@ -353,16 +504,31 @@ fn ticket_row_is_visible(
 }
 
 /// Filter a batch of actions for a viewer, returning a keep-mask
-/// parallel to `items`. Runs a few batched, indexed queries, and only
-/// for the families the batch actually contains. Never errors: a
-/// visibility-lookup failure drops the affected family wholesale
-/// (fail-closed) so a restricted viewer is never 500'd.
+/// parallel to `items`: [`deliveries`] for a reader that only keeps or
+/// drops (a retraction is dropped).
 pub fn filter_actions<T>(
     conn: &mut DbConnection,
     viewer: &SyncViewer,
     items: &[T],
     extract: impl Fn(&T) -> ActionView,
 ) -> Vec<bool> {
+    deliveries(conn, viewer, items, extract)
+        .into_iter()
+        .map(|d| d == Delivery::Send)
+        .collect()
+}
+
+/// Decide a batch of actions for a viewer, returning a [`Delivery`]
+/// parallel to `items`. Runs a few batched, indexed queries, and only
+/// for the families the batch actually contains. Never errors: a
+/// visibility-lookup failure drops the affected family wholesale
+/// (fail-closed) so a restricted viewer is never 500'd.
+pub fn deliveries<T>(
+    conn: &mut DbConnection,
+    viewer: &SyncViewer,
+    items: &[T],
+    extract: impl Fn(&T) -> ActionView,
+) -> Vec<Delivery> {
     let views: Vec<ActionView> = items.iter().map(extract).collect();
     let sees_all = viewer.sees_all();
     let viewer_uuid = viewer.ctx.user_uuid;
@@ -406,13 +572,12 @@ pub fn filter_actions<T>(
     {
         (HashSet::new(), HashSet::new(), false)
     } else {
-        match documentation::hidden_documentation_ids(
-            conn,
-            &page_ids,
-            &collection_ids,
-            &viewer.ctx.user_uuid,
-            viewer.is_admin,
-        ) {
+        // The trash view is built from these rows, so a page in the trash
+        // reaches staff who could open it under its rules, and no one else.
+        match viewer
+            .pages()
+            .hidden_with_trash(conn, &page_ids, &collection_ids)
+        {
             Ok((hp, hc)) => (hp, hc, false),
             Err(e) => {
                 tracing::error!(error = %e, "sync visibility: documentation filter failed; dropping doc rows (fail-closed)");
@@ -444,6 +609,21 @@ pub fn filter_actions<T>(
             }
         }
     };
+
+    // --- Assets (only for restricted viewers) ---
+    // Whether the workspace shows requesters its assets, read on this
+    // connection's pin. A failed read hides them (fail-closed).
+    let assets_hidden = !sees_all
+        && views
+            .iter()
+            .any(|v| v.aggregate.is_some_and(is_asset_record))
+        && match crate::repository::assets::requester_asset_visibility(conn) {
+            Ok(setting) => setting == crate::models::RequesterAssetVisibility::None,
+            Err(e) => {
+                tracing::error!(error = %e, "sync visibility: asset visibility lookup failed; dropping asset rows (fail-closed)");
+                true
+            }
+        };
 
     // --- Ticket-gated families (only for restricted viewers) ---
     let needs_resolution = views
@@ -510,26 +690,37 @@ pub fn filter_actions<T>(
         hidden_collections,
         hidden_gaps,
         people,
+        assets_hidden,
         doc_fail,
         ticket_fail,
         gap_fail,
     };
     views
         .iter()
-        .map(|v| action_is_visible(v, viewer, &resolved))
+        .map(|v| action_delivery(v, viewer, &resolved))
         .collect()
 }
 
 /// A kept row as `viewer` may see it: a `user` row loses the fields they may
-/// not see ([`user_projection`]); every other kind is sent whole. A bare-id
-/// prune names no one and is left as it is.
+/// not see ([`user_projection`]), and a usage or loan row reaches anyone but
+/// staff with its notes blanked, as the REST lists give it. The ticket id
+/// stays: the ticket panels key live updates on it. Every other kind is sent
+/// whole. A bare-id prune names no one and is left as it is.
 pub fn project_row(
     viewer: &SyncViewer,
     aggregate: Option<SyncAggregate>,
     data: &mut serde_json::Value,
 ) {
-    if aggregate == Some(SyncAggregate::User) && !names_only_the_row(data) {
-        user_projection::value_for_viewer(data, viewer.projection());
+    match aggregate {
+        Some(SyncAggregate::User) if !names_only_the_row(data) => {
+            user_projection::value_for_viewer(data, viewer.projection());
+        }
+        Some(SyncAggregate::AssetUsage | SyncAggregate::AssetLoan) if !viewer.sees_all() => {
+            if let Some(notes) = data.get_mut("notes") {
+                *notes = serde_json::Value::Null;
+            }
+        }
+        _ => {}
     }
 }
 
@@ -551,8 +742,11 @@ pub fn wire_aggregate_is_gated(wire: &str, viewer: &SyncViewer) -> bool {
         return true;
     };
     match audience(agg) {
-        // People rows are filtered to the workspace's people and projected.
-        Audience::All => agg == SyncAggregate::User,
+        // People rows are filtered to the workspace's people and projected;
+        // assets reach a requester only when the workspace shows them.
+        Audience::All => {
+            agg == SyncAggregate::User || (agg == SyncAggregate::Asset && !viewer.sees_all())
+        }
         // Staff see every staff record but a gap naming a page they can't
         // open.
         Audience::Staff => !viewer.sees_all() || agg == SyncAggregate::KnowledgeGap,
@@ -567,7 +761,7 @@ pub fn wire_aggregate_is_gated(wire: &str, viewer: &SyncViewer) -> bool {
 /// stream). The pin matters: on an unpinned connection row security hides
 /// every row the filter reads, and a documentation page it cannot load is not
 /// counted as hidden, so the filter would let restricted pages through. A pool
-/// or pin failure gives [`fail_closed_mask`].
+/// or pin failure gives [`fail_closed_deliveries`].
 pub fn filter_actions_pinned<T>(
     pool: &crate::db::Pool,
     workspace_id: i32,
@@ -575,32 +769,48 @@ pub fn filter_actions_pinned<T>(
     items: &[T],
     extract: impl Fn(&T) -> ActionView,
 ) -> Vec<bool> {
+    deliveries_pinned(pool, workspace_id, viewer, items, extract)
+        .into_iter()
+        .map(|d| d == Delivery::Send)
+        .collect()
+}
+
+/// [`deliveries`] on a pinned connection from `pool`, as
+/// [`filter_actions_pinned`] explains. A pool or pin failure gives
+/// [`fail_closed_deliveries`].
+pub fn deliveries_pinned<T>(
+    pool: &crate::db::Pool,
+    workspace_id: i32,
+    viewer: &SyncViewer,
+    items: &[T],
+    extract: impl Fn(&T) -> ActionView,
+) -> Vec<Delivery> {
     let actor =
         crate::sync::actor::ActorContext::user_at_workspace(viewer.ctx.user_uuid, workspace_id);
-    let filtered = pool.get().ok().and_then(|mut conn| {
+    let decided = pool.get().ok().and_then(|mut conn| {
         crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
-            Ok::<_, diesel::result::Error>(filter_actions(c, viewer, items, &extract))
+            Ok::<_, diesel::result::Error>(deliveries(c, viewer, items, &extract))
         })
         .ok()
     });
-    filtered.unwrap_or_else(|| fail_closed_mask(viewer, items, extract))
+    decided.unwrap_or_else(|| fail_closed_deliveries(viewer, items, extract))
 }
 
-/// Fail-closed keep-mask computed with no DB access: drops every family
+/// Fail-closed deliveries computed with no DB access: drops every family
 /// that needs a lookup (documentation and knowledge gaps for all viewers,
 /// every user row but the viewer's own, the ticket family for restricted
 /// viewers) and keeps what the viewer's role alone decides. Used by the SSE
 /// path when the off-thread visibility lookup can't run (e.g. pool
 /// exhaustion), so a transient failure never widens what a viewer gets.
-pub fn fail_closed_mask<T>(
+pub fn fail_closed_deliveries<T>(
     viewer: &SyncViewer,
     items: &[T],
     extract: impl Fn(&T) -> ActionView,
-) -> Vec<bool> {
+) -> Vec<Delivery> {
     let failed = Resolved::failed(viewer);
     items
         .iter()
-        .map(|it| action_is_visible(&extract(it), viewer, &failed))
+        .map(|it| action_delivery(&extract(it), viewer, &failed))
         .collect()
 }
 
@@ -652,6 +862,7 @@ mod tests {
             hidden_collections: HashSet::new(),
             hidden_gaps: HashSet::new(),
             people: HashSet::new(),
+            assets_hidden: false,
             doc_fail: false,
             ticket_fail: false,
             gap_fail: false,
@@ -660,6 +871,49 @@ mod tests {
 
     fn check(v: &ActionView, viewer: &SyncViewer) -> bool {
         action_is_visible(v, viewer, &resolved(viewer))
+    }
+
+    /// The workspace shows requesters no assets: no asset record reaches a
+    /// member, even one on their own ticket or addressed to them; staff keep
+    /// every one.
+    #[test]
+    fn hidden_assets_reach_no_member() {
+        let me = Uuid::nil();
+        let records = || {
+            let asset = view(SyncAggregate::Asset, false);
+            let mut link = view(SyncAggregate::TicketAsset, false);
+            link.ticket_id = Some(1);
+            let mut usage = view(SyncAggregate::AssetUsage, false);
+            usage.ticket_id = Some(1);
+            let mut loan = view(SyncAggregate::AssetLoan, false);
+            loan.addressees = vec![me];
+            [asset, link, usage, loan]
+        };
+        for v in records() {
+            assert!(check(&v, &member()), "{:?} shown", v.aggregate);
+        }
+        for viewer in [member(), staff()] {
+            let mut r = resolved(&viewer);
+            r.assets_hidden = !viewer.sees_all();
+            for v in records() {
+                assert_eq!(
+                    action_is_visible(&v, &viewer, &r),
+                    viewer.sees_all(),
+                    "{:?}",
+                    v.aggregate
+                );
+            }
+        }
+        // The stream can't skip the lookup for a member's asset row.
+        assert!(wire_aggregate_is_gated("asset", &member()));
+        assert!(!wire_aggregate_is_gated("asset", &staff()));
+        // Unable to ask, a member gets no asset.
+        let failed = Resolved::failed(&member());
+        assert!(!action_is_visible(
+            &view(SyncAggregate::Asset, false),
+            &member(),
+            &failed
+        ));
     }
 
     fn check_with_comments(v: &ActionView, viewer: &SyncViewer, comments: &[i32]) -> bool {
@@ -861,16 +1115,89 @@ mod tests {
         hidden.aggregate_id = Some(5);
         let mut visible = view(SyncAggregate::DocumentationPage, false);
         visible.aggregate_id = Some(6);
-        // Even a staff viewer is gated on docs.
+        // Even a staff viewer is gated on docs. A record they can't open is
+        // sent as a delete, so one they held goes away.
         let mut r = resolved(&staff());
         r.hidden_pages = HashSet::from([5]);
-        assert!(
-            !action_is_visible(&hidden, &staff(), &r),
-            "hidden doc dropped even for staff"
+        assert_eq!(
+            action_delivery(&hidden, &staff(), &r),
+            Delivery::Retract,
+            "hidden doc retracted even for staff"
         );
-        assert!(
-            action_is_visible(&visible, &staff(), &r),
+        assert_eq!(
+            action_delivery(&visible, &staff(), &r),
+            Delivery::Send,
             "non-hidden doc kept"
+        );
+        // A failed lookup neither sends nor drops: the reader fails the batch.
+        r.doc_fail = true;
+        assert_eq!(
+            action_delivery(&hidden, &staff(), &r),
+            Delivery::Unclassified
+        );
+        assert_eq!(
+            action_delivery(&visible, &staff(), &r),
+            Delivery::Unclassified
+        );
+    }
+
+    #[test]
+    fn a_documentation_row_addressed_to_someone_is_for_them_alone() {
+        let mut page = view(SyncAggregate::DocumentationPage, false);
+        page.aggregate_id = Some(5);
+        page.addressees = vec![Uuid::new_v4()];
+        let mut r = resolved(&staff());
+        r.hidden_pages = HashSet::from([5]);
+        assert_eq!(
+            action_delivery(&page, &staff(), &r),
+            Delivery::Drop,
+            "someone else's"
+        );
+        page.addressees = vec![Uuid::nil()];
+        assert_eq!(
+            action_delivery(&page, &staff(), &r),
+            Delivery::Retract,
+            "the viewer's own"
+        );
+    }
+
+    #[test]
+    fn a_retraction_names_only_the_record() {
+        let row = serde_json::json!({
+            "sync_id": 9,
+            "aggregate": "documentation_page",
+            "aggregate_id": "5",
+            "op": "U",
+            "event_type": "documentation_page.visibility_changed",
+            "schema_version": 1,
+            "data": { "id": 5, "title": "Salaries" },
+            "groups": ["workspace:1"],
+            "actor_uuid": Uuid::new_v4(),
+            "actor_kind": "user",
+            "actor_ref": null,
+            "correlation_id": Uuid::new_v4(),
+            "causation_id": null,
+            "occurred_at": "2026-10-11T00:00:00Z",
+        });
+        let retraction =
+            serde_json::to_value(Retraction::of_wire_row(&row).expect("a retraction")).unwrap();
+        assert_eq!(
+            retraction,
+            serde_json::json!({
+                "sync_id": 9,
+                "aggregate": "documentation_page",
+                "aggregate_id": "5",
+                "op": "D",
+                "event_type": "documentation_page.deleted",
+                "schema_version": 1,
+                "data": { "id": 5 },
+                "groups": ["workspace:1"],
+            })
+        );
+        let ticket = serde_json::json!({ "aggregate": "ticket", "aggregate_id": "5" });
+        assert!(
+            Retraction::of_wire_row(&ticket).is_none(),
+            "only documentation retracts"
         );
     }
 

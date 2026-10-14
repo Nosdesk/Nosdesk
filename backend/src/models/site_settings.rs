@@ -85,6 +85,37 @@ pub struct SiteSettings {
     /// under their own name (offboarding, incident follow-ups) stays out of the
     /// shared view.
     pub portal_share_staff_requests: bool,
+    /// What requester-role members see of the workspace's assets:
+    /// [`RequesterAssetVisibility`] as its stored name.
+    pub requester_asset_visibility: String,
+}
+
+/// What requester-role members (role `user`) may see of the workspace's
+/// assets. Staff always see every asset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequesterAssetVisibility {
+    /// Every asset, as staff do.
+    All,
+    /// No asset: not in their sync pool, not on any asset route, not embedded
+    /// in a ticket, group or profile.
+    None,
+}
+
+impl RequesterAssetVisibility {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::None => "none",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "all" => Some(Self::All),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -123,6 +154,7 @@ pub struct UpdateSiteSettings {
     pub approval_waiting_display: Option<String>,
     pub approval_skip_by: Option<String>,
     pub approval_auto_approve_days: Option<Option<i32>>,
+    pub requester_asset_visibility: Option<String>,
 }
 
 // API response for site settings (without internal fields)

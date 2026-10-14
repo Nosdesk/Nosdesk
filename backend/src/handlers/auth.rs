@@ -2477,11 +2477,61 @@ pub async fn revoke_session(
     }
 }
 
+/// Step-up re-authentication for high-blast-radius actions: require a full
+/// (non-MFA-pending) session plus a fresh credential from `user`, the caller.
+/// A local password is checked first (the mfa_disable precedent), then a
+/// TOTP or backup code. An empty credential passes only when the account has
+/// nothing to step up with (no local password and no MFA, e.g. SSO-only).
+/// `refused` is the 400 message when the credential is missing or wrong.
+pub(crate) async fn verify_step_up(
+    conn: &mut DbConnection,
+    claims: &crate::models::Claims,
+    user: &crate::models::User,
+    credential: &crate::models::StepUpCredential,
+    refused: &str,
+) -> Result<(), ApiError> {
+    if claims.scope != "full" {
+        return Err(ApiError::Forbidden(
+            "This action requires a full session".into(),
+        ));
+    }
+
+    // Err for accounts without a local password (e.g. OAuth-only).
+    let local_hash = get_local_password_hash(&user.uuid, conn).ok();
+
+    let reauthenticated = if let Some(pw) = credential.password.as_deref().filter(|p| !p.is_empty())
+    {
+        local_hash
+            .as_deref()
+            .map(|hash| verify(pw, hash).unwrap_or(false))
+            .unwrap_or(false)
+    } else if let Some(code) = credential
+        .mfa_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        user.mfa_enabled
+            && mfa::verify_mfa_token(&user.uuid, code, conn)
+                .await
+                .map(|r| r.is_valid)
+                .unwrap_or(false)
+    } else {
+        local_hash.is_none() && !user.mfa_enabled
+    };
+
+    if reauthenticated {
+        Ok(())
+    } else {
+        Err(ApiError::BadRequest(refused.into()))
+    }
+}
+
 /// Revoke all other sessions (keep current session active)
 pub async fn revoke_all_other_sessions(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
-    body: web::Json<crate::models::RevokeOtherSessionsRequest>,
+    body: web::Json<crate::models::StepUpCredential>,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
@@ -2494,51 +2544,19 @@ pub async fn revoke_all_other_sessions(
     };
 
     // Step-up re-auth. Signing out every other device is a high-blast-
-    // radius, classic post-compromise action, so require a full (non-MFA-
-    // pending) session plus a fresh credential, mirroring mfa_disable.
-    if claims.scope != "full" {
-        return Err(ApiError::Forbidden(
-            "This action requires a full session".into(),
-        ));
-    }
-
+    // radius, classic post-compromise action.
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(u) => u,
         Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
-    // Fetch the local password hash once (Err for OAuth-only accounts).
-    let local_hash = get_local_password_hash(&user.uuid, &mut conn).ok();
-
-    let reauthenticated = if let Some(pw) = body.password.as_deref().filter(|p| !p.is_empty()) {
-        // Verify the local password (the mfa_disable precedent).
-        local_hash
-            .as_deref()
-            .map(|hash| verify(pw, hash).unwrap_or(false))
-            .unwrap_or(false)
-    } else if let Some(code) = body
-        .mfa_code
-        .as_deref()
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-    {
-        // Verify a TOTP or backup code against the stored secret.
-        user.mfa_enabled
-            && mfa::verify_mfa_token(&user.uuid, code, &mut conn)
-                .await
-                .map(|r| r.is_valid)
-                .unwrap_or(false)
-    } else {
-        // No credential supplied: only acceptable when the account has
-        // nothing to step up with (no local password and no MFA, e.g. an
-        // OAuth-only account without MFA). Otherwise it's required.
-        local_hash.is_none() && !user.mfa_enabled
-    };
-
-    if !reauthenticated {
-        return Err(ApiError::BadRequest(
-            "Re-authentication required to sign out all other sessions".into(),
-        ));
-    }
+    verify_step_up(
+        &mut conn,
+        &claims,
+        &user,
+        &body,
+        "Re-authentication required to sign out all other sessions",
+    )
+    .await?;
 
     // Revoke all other sessions (if we can't identify current session, revoke everything)
     let revoke_result = match claims.session_uuid() {

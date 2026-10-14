@@ -483,7 +483,10 @@ pub fn set_plugin_data(
             plugin_data::key,
         ))
         .do_update()
-        .set(plugin_data::value.eq(diesel::upsert::excluded(plugin_data::value)))
+        .set((
+            plugin_data::value.eq(diesel::upsert::excluded(plugin_data::value)),
+            plugin_data::version.eq(plugin_data::version + 1),
+        ))
         .get_result(conn)
 }
 
@@ -572,6 +575,51 @@ pub fn set_plugin_storage(
     value: Option<serde_json::Value>,
 ) -> Result<PluginData, diesel::result::Error> {
     set_plugin_data(conn, plugin_id, "storage", key, value, false)
+}
+
+// sync-audit-only: Plugin local storage / activity log, covered by the audit_log trigger on plugin_data and plugin_collection_rows
+/// Compare-and-set a plugin storage entry: write only while the entry is at
+/// `expected_version` (0 = the key must not exist). `None` means the entry
+/// moved on (or appeared) since the plugin read it.
+pub fn compare_and_set_plugin_storage(
+    conn: &mut DbConnection,
+    plugin_id: i32,
+    key: String,
+    value: serde_json::Value,
+    expected_version: i64,
+) -> Result<Option<PluginData>, diesel::result::Error> {
+    use diesel::OptionalExtension;
+    if expected_version == 0 {
+        return diesel::insert_into(plugin_data::table)
+            .values(&NewPluginData {
+                plugin_id,
+                data_type: "storage".to_string(),
+                key,
+                value: Some(value),
+                is_secret: false,
+            })
+            .on_conflict((
+                plugin_data::plugin_id,
+                plugin_data::data_type,
+                plugin_data::key,
+            ))
+            .do_nothing()
+            .get_result(conn)
+            .optional();
+    }
+    diesel::update(
+        plugin_data::table
+            .filter(plugin_data::plugin_id.eq(plugin_id))
+            .filter(plugin_data::data_type.eq("storage"))
+            .filter(plugin_data::key.eq(key))
+            .filter(plugin_data::version.eq(expected_version)),
+    )
+    .set((
+        plugin_data::value.eq(Some(value)),
+        plugin_data::version.eq(plugin_data::version + 1),
+    ))
+    .get_result(conn)
+    .optional()
 }
 
 // sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows

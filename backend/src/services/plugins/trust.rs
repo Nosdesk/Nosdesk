@@ -52,7 +52,7 @@ impl PluginSignerFields {
 /// configured roots.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedTier {
-    /// Matches the compiled-in `NOSDESK_ROOT_PUBKEY`.
+    /// Matches the compiled-in `signing::ROOT_PUBKEY`.
     Official,
     /// Matches a non-revoked entry in `plugin_trusted_publishers` with
     /// `tier = 'verified'`.

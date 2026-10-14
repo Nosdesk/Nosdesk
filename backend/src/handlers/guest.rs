@@ -944,6 +944,7 @@ pub async fn list_public_docs(
                 Option<String>,
                 chrono::NaiveDateTime,
             )>(conn)?;
+        let rows = open_to_guests(conn, rows, |r| r.0)?;
         Ok::<_, diesel::result::Error>(Ok(rows))
     });
 
@@ -973,6 +974,22 @@ pub async fn list_public_docs(
             Err(ApiError::Internal("Internal server error".into()))
         }
     }
+}
+
+/// The rows (pages, named by `page_id`) the guest portal may show: published
+/// to guests, out of the trash, and covered by no restriction. A page marked
+/// public inside a restricted collection stays restricted.
+fn open_to_guests<T>(
+    conn: &mut crate::db::DbConnection,
+    rows: Vec<T>,
+    page_id: impl Fn(&T) -> i32,
+) -> diesel::QueryResult<Vec<T>> {
+    let ids: Vec<i32> = rows.iter().map(&page_id).collect();
+    let hidden = crate::repository::PageAudience::Guest.hidden_pages(conn, &ids)?;
+    Ok(rows
+        .into_iter()
+        .filter(|r| !hidden.contains(&page_id(r)))
+        .collect())
 }
 
 /// GET /api/public/docs/{slug}
@@ -1010,6 +1027,7 @@ pub async fn get_public_doc(
                 chrono::NaiveDateTime,
             )>(conn)
             .optional()?;
+        let page = open_to_guests(conn, page.into_iter().collect(), |r| r.0)?.pop();
         Ok::<_, diesel::result::Error>(Ok(page))
     });
 
@@ -1122,6 +1140,7 @@ pub async fn search_public_docs(
                 .limit(GUEST_DOC_SEARCH_RESULT_LIMIT)
                 .load(conn)?,
         };
+        let rows = open_to_guests(conn, rows, |r| r.0)?;
         Ok::<_, diesel::result::Error>(Ok(rows))
     });
 

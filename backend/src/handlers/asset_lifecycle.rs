@@ -13,19 +13,11 @@ use tracing::error;
 
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::models::{AssetLifecycleEvent, AssetStatus};
+use crate::models::{AssetStatus, SANITIZATION_METHODS};
 use crate::repository::{
-    asset_lifecycle::{self as repo, DisposalInput, TransitionInput},
-    asset_loans as asset_loans_repo, assets as assets_repo,
+    asset_lifecycle::{self as repo, DisposalInput, TransitionError, TransitionInput},
+    assets as assets_repo,
 };
-
-/// Outcome of a transition attempt: success carries the new event; the two
-/// client-error cases each map to a distinct 400.
-enum TransitionResult {
-    Done(AssetLifecycleEvent),
-    NoOp,
-    OnLoanNeedsActiveLoan,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct TransitionBody {
@@ -38,8 +30,9 @@ pub struct TransitionBody {
     /// recipient / due-back). Stored verbatim; defaults to `{}`.
     #[serde(default)]
     pub metadata: serde_json::Value,
-    /// Disposal record, sent only when `to_status` is `disposed`. Captured
-    /// atomically with the transition for the compliance / export trail.
+    /// Disposal record: required when `to_status` is `disposed`, refused
+    /// otherwise. Captured atomically with the transition for the
+    /// compliance / export trail.
     pub disposal: Option<DisposalBody>,
 }
 
@@ -57,11 +50,12 @@ pub struct DisposalBody {
 
 pub async fn list_for_asset(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
     match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::list_for_asset(conn, asset_id)
     }) {
@@ -102,30 +96,17 @@ pub async fn create_transition(
     };
     let actor_uuid = Some(auth.user_uuid);
 
-    // `None` signals a no-op (already in the target status); the
-    // whole check + transition share one connection so they're
-    // atomic.
-    let result = tc.run(|conn| {
-        let current = assets_repo::get_device_by_id(conn, asset_id)?;
-        if current.status == body.to_status {
-            return Ok(TransitionResult::NoOp);
-        }
-        // `on_loan` is owned by the loan ledger. Allow it as a manual target
-        // only to restore an asset that still has an active loan (e.g. undoing
-        // a mistaken `lost`); otherwise it must come from issuing a loan.
-        if body.to_status == "on_loan"
-            && asset_loans_repo::active_for_asset(conn, asset_id)?.is_none()
-        {
-            return Ok(TransitionResult::OnLoanNeedsActiveLoan);
-        }
-        let (_asset, event) = repo::transition(
+    // The status rules (terminal `disposed`, loan-owned `on_loan`, the
+    // disposal record) are checked by the repository inside the transaction.
+    let result = tc.run_result(|conn| {
+        repo::transition(
             conn,
             TransitionInput {
                 asset_id,
                 to_status: body.to_status.clone(),
                 reason: body.reason.clone(),
                 ticket_id: body.ticket_id,
-                metadata: metadata.clone(),
+                metadata,
                 actor_uuid,
                 disposal: body.disposal.as_ref().map(|d| DisposalInput {
                     sanitization_method: d.sanitization_method.clone(),
@@ -135,23 +116,42 @@ pub async fn create_transition(
                     notes: d.notes.clone(),
                 }),
             },
-        )?;
-        Ok(TransitionResult::Done(event))
+        )
     });
 
     match result {
-        Ok(TransitionResult::Done(event)) => HttpResponse::Created().json(event),
-        Ok(TransitionResult::NoOp) => {
-            errors::bad_request("Asset is already in the requested status")
-        }
-        Ok(TransitionResult::OnLoanNeedsActiveLoan) => errors::bad_request(
-            "On-loan status is set by issuing a loan; there is no active loan to restore",
-        ),
-        Err(diesel::result::Error::NotFound) => {
+        Ok((_asset, event)) => HttpResponse::Created().json(event),
+        Err(e) => map_transition_err(asset_id, e),
+    }
+}
+
+fn map_transition_err(asset_id: i32, e: TransitionError) -> HttpResponse {
+    match e {
+        TransitionError::AssetNotFound => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))
         }
-        Err(e) => {
-            error!(asset_id, error = ?e, "failed to record asset lifecycle transition");
+        TransitionError::NoOp => errors::bad_request("Asset is already in the requested status"),
+        TransitionError::FromDisposed => {
+            errors::conflict("Disposed assets can't change status; disposal is final")
+        }
+        TransitionError::OnLoanReturnViaLoan => {
+            errors::conflict("Asset is out on loan; return the loan to change its status")
+        }
+        TransitionError::OnLoanNeedsActiveLoan => errors::conflict(
+            "On-loan status is set by issuing a loan; there is no active loan to restore",
+        ),
+        TransitionError::DisposalRequired => {
+            errors::bad_request("Disposing an asset requires a disposal record")
+        }
+        TransitionError::DisposalNotAllowed => {
+            errors::bad_request("A disposal record is only accepted when disposing an asset")
+        }
+        TransitionError::InvalidSanitizationMethod(method) => errors::bad_request(format!(
+            "Unknown sanitization method '{method}'; expected one of: {}",
+            SANITIZATION_METHODS.join(", ")
+        )),
+        TransitionError::Db(err) => {
+            error!(asset_id, error = ?err, "failed to record asset lifecycle transition");
             errors::internal("Failed to change asset status")
         }
     }
@@ -161,11 +161,12 @@ pub async fn create_transition(
 /// asset detail + the record-card export; disposal detail is not synced.
 pub async fn get_disposal(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
     match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::disposal_for_asset(conn, asset_id)
     }) {
@@ -183,8 +184,13 @@ pub async fn get_disposal(
 
 /// GET distinct ITAD vendors previously entered, for the disposal-form
 /// suggestions. Any authenticated workspace member.
-pub async fn list_itad_vendors(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
-    match tc.run(repo::list_itad_vendors) {
+pub async fn list_itad_vendors(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    match tc.run(|conn| {
+        if crate::handlers::assets::assets_hidden_from(conn, &auth) {
+            return Ok(Vec::new());
+        }
+        repo::list_itad_vendors(conn)
+    }) {
         Ok(vendors) => HttpResponse::Ok().json(vendors),
         Err(e) => {
             error!(error = ?e, "failed to list ITAD vendors");

@@ -14,8 +14,10 @@ import { docUrl } from '@nosdesk/core/utils/docUrl';
 import { listDocsForTicket, createPageFromTicket, type TicketDocLink } from '@nosdesk/core/services/documentationService';
 import { useCollabDocId } from '@/composables/useCollabDocId';
 import { useSyncTicketsStore } from '@/sync/stores/tickets';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 
 const fluent = useFluent();
+const toast = useToastStore();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Define props
@@ -154,18 +156,29 @@ const confirmPromote = async () => {
     // Idempotent: returns the existing linked page or creates a new
     // draft, cloning the note's content and filing it under the
     // system "Tickets" collection.
-    const doc = await createPageFromTicket(props.ticketId, {
+    const result = await createPageFromTicket(props.ticketId, {
       title: t('tickets-collaborative-article-doc-title', { id: props.ticketNumber }),
       icon: '📋',
       parent_id: null,
     });
+    const doc = result?.page;
 
-    if (doc?.uuid) {
-      // Replace the note body with a transclusion of the new doc, then
-      // let the editor commit it to the collab doc before we navigate
-      // away and unmount it. No content is lost: the doc already holds
-      // the cloned content server-side.
-      editorRef.value?.replaceAllWithEmbeddedDocument({ uuid: doc.uuid, title: doc.title });
+    if (result && doc?.uuid) {
+      // Replace the note body with a transclusion of the new doc only when
+      // this call copied the note and the copy holds every change this
+      // editor has. A page the ticket already had, or a copy missing an
+      // edit still on its way to the server, leaves the note as it is.
+      const copied =
+        result.created &&
+        result.stateVector !== null &&
+        editorRef.value?.isHeldBy(result.stateVector) === true;
+      if (copied) {
+        // Let the editor commit it to the collab doc before we navigate
+        // away and unmount it.
+        editorRef.value?.replaceAllWithEmbeddedDocument({ uuid: doc.uuid, title: doc.title });
+      } else if (result.created) {
+        toast.warning(t('tickets-collaborative-article-promote-note-kept'));
+      }
       await refreshPromotedDoc();
       await nextTick();
       showPromoteConfirm.value = false;

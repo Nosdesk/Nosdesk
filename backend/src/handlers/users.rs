@@ -536,7 +536,12 @@ pub struct PaginationParams {
     #[serde(rename = "sortDirection")]
     sort_direction: Option<String>,
     search: Option<String>,
+    /// One role or a comma list (`admin`, `technician` or `agent`, `user`,
+    /// `audit_reviewer`); the repository parses it.
     role: Option<String>,
+    /// Only the people who can be assigned tickets here
+    /// (`assignees::assignable_in`). The assignee pickers ask for this.
+    assignable: Option<bool>,
     /// People population: `"team"` (staff) or `"requesters"` (end-users).
     /// Absent shows the combined directory.
     population: Option<String>,
@@ -673,16 +678,13 @@ pub async fn get_paginated_users(
         .as_ref()
         .map(|s| crate::utils::utf8_trunc::char_prefix(s, 100));
 
-    // Validate role filter
-    let allowed_roles = ["admin", "agent", "user"];
-    let role = query.role.as_ref().and_then(|r| {
-        let r_lower = r.to_lowercase();
-        if allowed_roles.contains(&r_lower.as_str()) {
-            Some(r_lower)
-        } else {
-            None
-        }
-    });
+    // Role filter: the repository parses the comma list and drops unknown
+    // roles. Capped like the search.
+    let role = query
+        .role
+        .as_ref()
+        .map(|r| crate::utils::utf8_trunc::char_prefix(r, 100));
+    let assignable = query.assignable.unwrap_or(false);
 
     // Soft-deleted users (and the "all" view) are a platform-admin-only
     // recovery surface, matching who can restore/purge them. A non-admin
@@ -705,12 +707,13 @@ pub async fn get_paginated_users(
 
     // A caller who isn't shown others' addresses or roles can't search, sort
     // or filter by them either: by name only.
-    let (search_by, sort_field, role, population) = if auth.can_handle_tickets() {
+    let (search_by, sort_field, role, population, assignable) = if auth.can_handle_tickets() {
         (
             repository::users::SearchBy::NameOrEmail,
             sort_field,
             role,
             population,
+            assignable,
         )
     } else {
         (
@@ -718,6 +721,7 @@ pub async fn get_paginated_users(
             sort_field.filter(|f| matches!(f.as_str(), "name" | "first_name" | "last_name")),
             None,
             None,
+            false,
         )
     };
 
@@ -731,6 +735,7 @@ pub async fn get_paginated_users(
         search_by,
         role,
         population,
+        assignable,
         deleted,
         ws.workspace_id,
     ) {
@@ -1294,10 +1299,15 @@ fn require_admin_target(
 /// schedules the destructive cascade via the
 /// `user_purge_worker` after the configured retention window.
 /// Restorable via `POST /admin/users/{uuid}/restore` until purge.
+///
+/// The caller steps up with their own password or 2FA code (body
+/// `{ password }` or `{ mfa_code }`), the same check as signing out all other
+/// sessions.
 pub async fn delete_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
+    body: Option<web::Json<crate::models::StepUpCredential>>,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
     // Pin the request's workspace so the admin-protection guard below
@@ -1314,6 +1324,19 @@ pub async fn delete_user(
             "You cannot delete your own account while logged in".into(),
         ));
     }
+    let caller_uuid = utils::parse_uuid(&claims.sub)
+        .map_err(|_| ApiError::BadRequest("Invalid user UUID in token".into()))?;
+    let caller = repository::get_user_by_uuid(&caller_uuid, &mut conn)
+        .map_err(|_| ApiError::Unauthorized("Authentication required".into()))?;
+    let credential = body.map(web::Json::into_inner).unwrap_or_default();
+    crate::handlers::auth::verify_step_up(
+        &mut conn,
+        &claims,
+        &caller,
+        &credential,
+        "Confirm with your password or 2FA code to delete this user",
+    )
+    .await?;
     if crate::repository::user_helpers::user_is_admin(&mut conn, &target_user) {
         return Err(ApiError::BadRequest(
             "Administrator accounts cannot be deleted for security reasons".into(),
@@ -3223,7 +3246,28 @@ pub async fn get_user_profile_bundle(
     }
 
     match crate::repository::user_profile::compute(&mut conn, &user_uuid_parsed, &groups) {
-        Ok(Some(bundle)) => Ok(HttpResponse::Ok().json(bundle)),
+        Ok(Some(mut bundle)) => {
+            // A requester shown no assets gets no devices or loans, as if
+            // they had none.
+            if crate::handlers::assets::assets_hidden_from(&mut conn, &auth) {
+                bundle.devices = bundle.devices.map(|_| Vec::new());
+                bundle.loans = bundle.loans.map(|_| Vec::new());
+            }
+            // Asset and loan notes are staff only, here as on the asset routes.
+            crate::handlers::assets::strip_staff_asset_fields(
+                bundle.devices.iter_mut().flatten(),
+                &auth,
+            );
+            crate::handlers::assets::strip_staff_asset_fields(
+                bundle.loans.iter_mut().flatten().map(|l| &mut l.asset),
+                &auth,
+            );
+            crate::handlers::asset_loans::strip_staff_loan_fields(
+                bundle.loans.iter_mut().flatten().map(|l| &mut l.loan),
+                &auth,
+            );
+            Ok(HttpResponse::Ok().json(bundle))
+        }
         Ok(None) => Err(ApiError::NotFoundMsg("User not found".into())),
         Err(e) => {
             error!(user_uuid = %user_uuid_parsed, error = ?e, "Failed to compute profile bundle");
@@ -3270,6 +3314,9 @@ pub struct BulkUserActionRequest {
     action: String,
     ids: Vec<String>, // UUIDs as strings
     value: Option<String>,
+    /// Step-up credential (`password` or `mfa_code`), checked for `delete`.
+    #[serde(flatten)]
+    credential: crate::models::StepUpCredential,
 }
 
 /// Perform bulk operations on users (admin only)
@@ -3320,20 +3367,42 @@ pub async fn bulk_users(
 
     match action {
         "delete" => {
+            // Same step-up as `DELETE /users/{uuid}`: the caller's own
+            // password or 2FA code, checked once for the batch.
+            let caller_uuid = utils::parse_uuid(&claims.sub)
+                .map_err(|_| ApiError::BadRequest("Invalid user UUID in token".into()))?;
+            let caller = repository::get_user_by_uuid(&caller_uuid, &mut conn)
+                .map_err(|_| ApiError::Unauthorized("Authentication required".into()))?;
+            crate::handlers::auth::verify_step_up(
+                &mut conn,
+                &claims,
+                &caller,
+                &body.credential,
+                "Confirm with your password or 2FA code to delete these users",
+            )
+            .await?;
+
             // Bulk soft-delete shares the same primitive as the
             // single-delete handler so the two flows can't drift.
             let actor = helpers::actor_for(&req, "users_admin");
             let mut deleted = 0;
             let mut skipped_admin = 0;
             let mut skipped_staff = 0;
+            let mut failed = 0;
             for id in ids {
                 let uuid = match Uuid::parse_str(id) {
                     Ok(u) => u,
-                    Err(_) => continue,
+                    Err(_) => {
+                        failed += 1;
+                        continue;
+                    }
                 };
                 let target = match repository::get_user_by_uuid(&uuid, &mut conn) {
                     Ok(u) => u,
-                    Err(_) => continue,
+                    Err(_) => {
+                        failed += 1;
+                        continue;
+                    }
                 };
                 if crate::repository::user_helpers::user_is_admin(&mut conn, &target) {
                     skipped_admin += 1;
@@ -3361,6 +3430,7 @@ pub async fn bulk_users(
                     }
                     Err(e) => {
                         error!(user_id = %id, error = ?e, "Error soft-deleting user");
+                        failed += 1;
                     }
                 }
             }
@@ -3369,6 +3439,7 @@ pub async fn bulk_users(
                 "affected": deleted,
                 "skipped_admin": skipped_admin,
                 "skipped_staff": skipped_staff,
+                "failed": failed,
             })))
         }
 

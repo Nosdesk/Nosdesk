@@ -180,8 +180,7 @@ connect-server-label = Adresse du serveur
 connect-server-placeholder = aide.votreentreprise.com
 connect-submit = Se connecter
 connect-back = Retour
-connect-no-account = Nouveau sur Nosdesk ?
-connect-no-account-cta = Commencer un essai gratuit
+connect-no-account = Il vous faut un espace de travail Nosdesk pour vous connecter. En savoir plus sur nosdesk.com.
 connect-switch-server = Changer de serveur
 login-email-label = E-mail
 login-email-placeholder = Saisissez votre e-mail
@@ -206,6 +205,9 @@ login-error-no-seat = Ce compte n'a pas encore accès à un espace de travail. D
 login-error-no-email = Votre fournisseur d'identité n'a pas communiqué d'adresse e-mail pour ce compte. Demandez à votre administrateur de vérifier la configuration de connexion.
 login-error-email-unverified = Votre fournisseur d'identité n'a pas vérifié votre adresse e-mail, elle ne peut donc pas être utilisée pour se connecter ici. Vérifiez-la auprès du fournisseur, puis réessayez.
 login-error-generic = Échec de la connexion. Veuillez réessayer.
+login-error-state-expired = Votre connexion a pris trop de temps. Veuillez vous reconnecter.
+login-error-provider-denied = La connexion a été annulée.
+login-error-signin-failed = La connexion n'a pas pu aboutir. Veuillez réessayer.
 login-mfa-title = Authentification à deux facteurs
 login-mfa-subtitle = Veuillez saisir votre code d'authentification
 login-mfa-code-label = Code d'authentification
@@ -427,6 +429,56 @@ ticket-list-bulk-priority = Priorité
 ticket-list-bulk-assign = Assigner
 ticket-list-bulk-clear-title = Effacer la sélection (Échap)
 ticket-list-bulk-clear = Effacer
+
+# Modification refusée par le serveur et annulée (machine, à relire par un locuteur natif).
+sync-rejected-assign = { $count ->
+    [one] Impossible d'assigner 1 ticket
+   *[other] Impossible d'assigner { $count } tickets
+}
+sync-rejected-status = { $count ->
+    [one] Impossible de changer le statut de 1 ticket
+   *[other] Impossible de changer le statut de { $count } tickets
+}
+sync-rejected-priority = { $count ->
+    [one] Impossible de changer la priorité de 1 ticket
+   *[other] Impossible de changer la priorité de { $count } tickets
+}
+sync-rejected-rename = { $count ->
+    [one] Impossible de renommer 1 ticket
+   *[other] Impossible de renommer { $count } tickets
+}
+sync-rejected-tags = { $count ->
+    [one] Impossible de modifier les étiquettes de 1 ticket
+   *[other] Impossible de modifier les étiquettes de { $count } tickets
+}
+sync-rejected-dates = { $count ->
+    [one] Impossible de modifier les dates de 1 ticket
+   *[other] Impossible de modifier les dates de { $count } tickets
+}
+sync-rejected-ticket = { $count ->
+    [one] Impossible de mettre à jour 1 ticket
+   *[other] Impossible de mettre à jour { $count } tickets
+}
+sync-rejected-project = { $count ->
+    [one] Impossible de mettre à jour 1 projet
+   *[other] Impossible de mettre à jour { $count } projets
+}
+sync-rejected-other = { $count ->
+    [one] Impossible d'enregistrer 1 modification
+   *[other] Impossible d'enregistrer { $count } modifications
+}
+sync-rejected-reason-invalid-assignee = Seuls les agents et les administrateurs peuvent se voir assigner des tickets.
+sync-rejected-reason-forbidden = Vous n'avez pas l'autorisation d'effectuer cette modification.
+sync-rejected-reason-ticket-merged = Les tickets fusionnés ne peuvent pas être modifiés.
+sync-rejected-reason-approval-pending = Les demandes en attente d'approbation restent ouvertes. Approuvez ou passez outre l'approbation d'abord.
+sync-rejected-reason-invalid-reference = La modification fait référence à un élément qui n'existe plus.
+sync-rejected-reason-not-found = { $count ->
+    [one] Il a été supprimé, ou vous ne pouvez plus le voir.
+   *[other] Ils ont été supprimés, ou vous ne pouvez plus les voir.
+}
+sync-rejected-reason-internal = Une erreur s'est produite sur le serveur. Veuillez réessayer.
+sync-rejected-reason-unsupported = Cette modification ne peut pas être enregistrée ici. Rechargez la page et réessayez.
+sync-rejected-reason-generic = Le serveur n'a pas accepté la modification.
 # MACHINE TRANSLATION, pending native review
 ticket-list-context-copy-number = Copier le numéro du ticket
 ticket-list-context-assign-to-me = Me l'attribuer
@@ -434,10 +486,8 @@ ticket-list-context-actions-heading = Actions
 ticket-list-context-selection-heading = Sélection
 ticket-list-context-select = Sélectionner
 ticket-list-context-deselect = Désélectionner
-ticket-list-context-merge = { $count ->
-    [one] Fusionner le ticket…
-   *[other] Fusionner { $count } tickets…
-}
+# Machine translation, pending native review.
+ticket-list-context-merge-into = Fusionner dans #{ $number }…
 ticket-list-context-merge-hint = Sélectionnez au moins 2 tickets à fusionner
 ticket-list-context-flagged-toast = Signalé pour la documentation
 ticket-flag-already-documented = Déjà documenté dans « { $title } »
@@ -959,6 +1009,22 @@ admin-asset-kinds-field-icon-hint = Nom d'icône optionnel (par ex. « monitor �
 admin-asset-kinds-field-attribute-schema-hint = Sous-ensemble JSON Schema. Le constructeur est la vue par défaut ; passez en mode JSON pour éditer à la main.
 admin-asset-kinds-view-builder = Voir le constructeur
 admin-asset-kinds-view-json = Voir le JSON
+# MT: pending native review (fr-FR)
+asset-access-title = Accès des demandeurs
+# MT: pending native review (fr-FR)
+asset-access-description = Ce que les personnes ayant le rôle de demandeur voient des actifs de cet espace de travail. Le personnel voit toujours tous les actifs.
+# MT: pending native review (fr-FR)
+asset-access-all = Tous les actifs
+# MT: pending native review (fr-FR)
+asset-access-none = Aucun
+# MT: pending native review (fr-FR)
+asset-access-all-hint = Les demandeurs voient tous les actifs, y compris ceux qu'ils n'ont pas, dans leur application et sur les pages des actifs.
+# MT: pending native review (fr-FR)
+asset-access-none-hint = Les demandeurs ne voient aucun actif : ni la liste des actifs, ni les actifs liés à leurs tickets, ni les appareils ou prêts de leur propre profil.
+# MT: pending native review (fr-FR)
+asset-access-saved = Accès des demandeurs enregistré
+# MT: pending native review (fr-FR)
+asset-access-save-failed = Impossible d'enregistrer l'accès des demandeurs
 
 # Constructeur d'attributs typé.
 asset-kind-attribute-editor-add = Ajouter un attribut
@@ -1052,7 +1118,8 @@ admin-nav-plugins-description = Gérez les plugins installés et les intégratio
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Synchroniser les utilisateurs et les groupes depuis un serveur LDAP ou Active Directory
 admin-nav-data-import-title = Import de données
-admin-nav-data-import-description = Importez des données depuis Intune, des fichiers CSV et d'autres sources
+# TODO native-review fr-FR for the key below.
+admin-nav-data-import-description = Importez des données depuis Microsoft Entra ID, des fichiers CSV et d'autres sources
 admin-nav-audit-log-title = Journal d'audit
 admin-nav-audit-log-description = Trace forensique des modifications, issue des triggers par table
 admin-nav-branding-title = Marque
@@ -1567,13 +1634,15 @@ admin-data-import-status-available = Disponible
 admin-data-import-status-coming-soon = Bientôt disponible
 admin-data-import-status-beta = Bêta
 admin-data-import-microsoft-title = Microsoft Graph
-admin-data-import-microsoft-description = Importez des données depuis Microsoft 365, y compris Azure AD, Intune et d'autres services Microsoft
+# TODO native-review fr-FR for the key below.
+admin-data-import-microsoft-description = Importez des utilisateurs, des groupes et des appareils depuis Microsoft Entra ID
 admin-data-import-csv-title = Import CSV
 admin-data-import-csv-description = Importer des données depuis des fichiers CSV, y compris des actifs, des utilisateurs et d'autres ressources
 admin-data-import-api-title = Intégrations API
 admin-data-import-api-description = Connectez-vous à des API tierces pour importer et synchroniser des données
-admin-data-import-ad-title = Active Directory
-admin-data-import-ad-description = Importez des données depuis des serveurs Active Directory locaux
+admin-data-import-ad-title = LDAP / Active Directory
+# MT: pending native review (fr-FR)
+admin-data-import-ad-description = Synchronisez les utilisateurs et les groupes depuis Active Directory ou un autre annuaire LDAP
 
 # Admin : Fournisseurs d'authentification.
 admin-auth-providers-title = Fournisseurs d'authentification
@@ -2271,7 +2340,8 @@ admin-msgraph-modal-description = Sélectionnez les données à importer depuis 
 admin-msgraph-entity-users-name = Utilisateurs
 admin-msgraph-entity-users-description = Importer les comptes utilisateurs et profils depuis Microsoft Entra ID
 admin-msgraph-entity-devices-name = Appareils
-admin-msgraph-entity-devices-description = Importer les appareils gérés depuis Microsoft Intune avec les affectations utilisateurs
+# TODO native-review fr-FR for the key below.
+admin-msgraph-entity-devices-description = Importer les appareils enregistrés dans Microsoft Entra ID
 admin-msgraph-entity-groups-name = Groupes
 admin-msgraph-entity-groups-description = Importer les groupes de sécurité et de distribution depuis Microsoft Entra ID
 admin-msgraph-modal-info = La synchronisation importe les données les plus récentes depuis les services Microsoft. Cela peut prendre plusieurs minutes selon le volume.
@@ -2483,6 +2553,11 @@ admin-webhooks-event-documentation-updated = Documentation mise à jour
 admin-webhooks-event-user-created = Utilisateur créé
 admin-webhooks-event-user-updated = Utilisateur mis à jour
 admin-webhooks-event-user-deleted = Utilisateur supprimé
+# TODO native-review fr-FR for the webhook event keys below.
+admin-webhooks-event-ticket-sla-breached = SLA du ticket dépassé
+admin-webhooks-event-asset-created = Appareil créé
+admin-webhooks-event-asset-deleted = Appareil supprimé
+admin-webhooks-event-documentation-created = Documentation créée
 
 # Users list (UsersListView): people directory with role filter,
 # bulk role change, and bulk delete.
@@ -2559,6 +2634,23 @@ user-mgmt-bulk-delete-message = { $count ->
    *[other] Supprimer { $count } utilisateurs ? Ils seront restaurables pendant 30 jours, puis définitivement supprimés.
 }
 user-mgmt-bulk-action-error = Échec de l'action groupée. Veuillez réessayer.
+# TODO native-review fr-FR for the bulk delete outcome keys below.
+user-mgmt-bulk-deleted = { $count ->
+    [one] Un utilisateur supprimé. Vous pouvez le restaurer depuis Supprimés pendant 30 jours.
+   *[other] { $count } utilisateurs supprimés. Vous pouvez les restaurer depuis Supprimés pendant 30 jours.
+}
+user-mgmt-bulk-skipped-admin = { $count ->
+    [one] Un administrateur n'a pas été supprimé. Modifiez d'abord son rôle, puis supprimez-le.
+   *[other] { $count } administrateurs n'ont pas été supprimés. Modifiez d'abord leur rôle, puis supprimez-les.
+}
+user-mgmt-bulk-skipped-staff = { $count ->
+    [one] Un membre du personnel est géré dans votre compte Nosdesk et n'a donc pas été supprimé ici.
+   *[other] { $count } membres du personnel sont gérés dans votre compte Nosdesk et n'ont donc pas été supprimés ici.
+}
+user-mgmt-bulk-delete-failed = { $count ->
+    [one] Un utilisateur n'a pas pu être supprimé. Veuillez réessayer.
+   *[other] { $count } utilisateurs n'ont pas pu être supprimés. Veuillez réessayer.
+}
 # TODO native-review fr-FR for the soft-delete keys below.
 user-mgmt-deleted-off = Afficher les supprimés
 user-mgmt-deleted-on = Masquer les supprimés
@@ -2750,6 +2842,10 @@ assets-list-column-location = Emplacement
 assets-list-column-user = Utilisateur
 assets-list-column-status = Statut
 assets-list-column-warranty = Garantie
+# MACHINE TRANSLATION, pending native review
+assets-list-columns-attributes = Attributs
+assets-list-attribute-yes = Oui
+assets-list-attribute-no = Non
 
 assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock
@@ -2797,6 +2893,8 @@ asset-detail-error-create = Échec de la création de l'actif. Veuillez réessay
 asset-detail-error-delete = Échec de la suppression de l'actif. Veuillez réessayer.
 asset-detail-error-unmanage = Échec de la désinscription de l'appareil. Veuillez réessayer.
 asset-detail-section-details = Détails de l'actif
+asset-detail-section-notes = Notes
+asset-detail-notes-placeholder = Ajouter des notes sur cet actif
 asset-detail-section-kind = Type d'actif
 asset-detail-field-kind = Type
 # Machine, à relire par un locuteur natif.
@@ -3319,6 +3417,10 @@ doc-detail-copied = Copié
 doc-detail-untitled = Sans titre
 doc-detail-status-draft = Brouillon
 doc-detail-status-archived = Archivé
+# Machine translation, pending native review
+doc-detail-status-published = Publié
+doc-detail-draft-strip-title = Brouillon
+doc-detail-draft-strip-body = Réservé à l'équipe jusqu'à publication.
 doc-detail-needs-verification = Vérification requise
 doc-detail-needs-verification-title = Vérifier cette page
 doc-detail-verification-stale = Vérification expirée
@@ -3372,7 +3474,6 @@ collection-page-count = { $count ->
    }
 collection-delete-title = Supprimer { $name } ?
 collection-delete-title-fallback = Supprimer la collection ?
-collection-delete-message = Les pages de cette collection ne seront pas supprimées.
 collection-delete-confirm = Supprimer
 
 # CSV import (CsvImportView): admin page for importing users,
@@ -3408,7 +3509,10 @@ csv-import-summary-rows = Rows in file
 csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
 csv-import-summary-create = Will create
 csv-import-summary-update = Will update
-csv-import-errors-heading = { $count } row(s) have errors
+csv-import-errors-heading = { $count ->
+    [one] 1 ligne contient des erreurs et sera ignorée
+   *[other] { $count } lignes contiennent des erreurs et seront ignorées
+}
 csv-import-errors-truncated = showing first 100
 csv-import-errors-row = Row
 csv-import-errors-column = Column
@@ -3420,7 +3524,14 @@ csv-import-action-view-assets = View assets
 csv-import-action-view-users = View users
 csv-import-action-view-tickets = View tickets
 csv-import-done-heading = Import complete
-csv-import-done-body = { $count } row(s) committed.
+csv-import-done-body = { $count ->
+    [one] 1 ligne importée.
+   *[other] { $count } lignes importées.
+}
+csv-import-done-skipped = { $count ->
+    [one] 1 ligne a été ignorée car elle contenait des erreurs.
+   *[other] { $count } lignes ont été ignorées car elles contenaient des erreurs.
+}
 csv-import-error-generic = Import failed. Check the file and try again.
 csv-import-error-commit-failed = Apply failed; rows were not committed.
 csv-import-action-import = Importer des données
@@ -3592,6 +3703,9 @@ editor-toolbar-numbered-list = Liste numérotée
 editor-toolbar-insert = Insérer
 editor-toolbar-undo = Annuler
 editor-toolbar-redo = Rétablir
+# Machine translation, pending native review
+editor-toolbar-done = Terminé
+editor-toolbar-label = Mise en forme
 editor-toolbar-revision-history = Historique des révisions
 editor-toolbar-editing-with = Modification avec :
 editor-toolbar-connection-connecting = Connexion...
@@ -4136,7 +4250,6 @@ docs-collection-browser-new = Nouveau
 docs-collection-browser-name-placeholder = Nom de la collection...
 docs-collection-browser-cancel = Annuler
 docs-collection-browser-create = Créer
-docs-collection-browser-loading-label = Chargement des collections
 docs-collection-browser-pages = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -4164,12 +4277,16 @@ docs-collection-tree-list-empty = Aucune page dans cette collection pour le mome
 
 # Docs : visibilité de la collection (CollectionVisibilityModal)
 docs-collection-visibility-title = Accès à la collection
-docs-collection-visibility-description = Sélectionnez les groupes et utilisateurs autorisés à accéder à cette collection. Sans sélection, la collection est publique (visible par tous).
+docs-collection-visibility-description = Choisissez qui peut ouvrir cette collection.
 docs-collection-visibility-public = Publique, visible par tous les utilisateurs
 docs-collection-visibility-picker-placeholder = Rechercher des utilisateurs et groupes...
 docs-collection-visibility-cancel = Annuler
 docs-collection-visibility-save = Enregistrer
 docs-collection-visibility-saving = Enregistrement...
+docs-access-label = Qui peut l'ouvrir
+docs-access-everyone = Tout l'espace de travail
+docs-access-chosen = Seulement les personnes et groupes choisis
+docs-access-admins-only = Seuls les administrateurs peuvent l'ouvrir tant que vous n'ajoutez ni personne ni groupe.
 
 # Sélecteur d'affectation partagé (AssignmentPicker)
 assignment-picker-loading = Recherche…
@@ -4328,9 +4445,6 @@ docs-collection-appearance-open-aria = Modifier l'icône et la couleur de la col
 docs-edit-collection-description = Description courte
 docs-edit-collection-description-placeholder = Slogan facultatif affiché au-dessus de l'aperçu de la collection
 docs-edit-collection-description-help = L'aperçu complet se modifie directement sur la page d'accueil de la collection.
-docs-edit-collection-hide-titles-aria = Masquer les titres de page aux non-membres
-docs-edit-collection-hide-titles-label = Masquer les titres de page aux non-membres
-docs-edit-collection-hide-titles-help = Les wikilinks inter-collections affichent « Page restreinte » pour les lecteurs sans accès, au lieu de divulguer le titre. Recommandé pour les collections sensibles.
 docs-edit-collection-require-verification-aria = Exiger la vérification des pages de cette collection
 docs-edit-collection-require-verification-label = Exiger la vérification
 docs-edit-collection-require-verification-help = Les pages non vérifiées affichent une invite « vérification requise ». À utiliser pour le contenu de conformité comme les politiques et les procédures. Désactivé par défaut, une page non vérifiée reste neutre.
@@ -4733,16 +4847,18 @@ asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (t
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
 # MACHINE TRANSLATION, pending native review
-asset-media-heading = Photos
+asset-media-heading = Photos et fichiers
 asset-media-description = Les photos sont rattachées à cet actif et visibles par les membres de l'espace de travail.
-asset-media-add = Ajouter des photos
+asset-media-add = Ajouter des photos ou des fichiers
 asset-media-loading = Chargement des photos…
-asset-media-empty-title = Aucune photo jointe
-asset-media-empty-description = Ajoutez des photos de référence pour les matériaux, équipements, véhicules, étiquettes ou lieux de stockage.
+asset-media-empty-title = Aucune photo ni aucun fichier joint
+asset-media-empty-description = Ajoutez des photos de référence, ou des documents comme des rapports d'intervention, des factures et des manuels (PDF, Office, texte).
 asset-media-load-failed = Échec du chargement des photos de l'actif
-asset-media-upload-failed = Échec de l'envoi des photos de l'actif
-asset-media-delete-failed = Échec de la suppression de la photo de l'actif
+asset-media-upload-failed = Échec de l'envoi des fichiers de l'actif
+asset-media-delete-failed = Échec de la suppression du fichier de l'actif
 asset-media-delete-aria = Supprimer { $name }
+asset-media-download-aria = Télécharger { $name }
+asset-media-files-heading = Fichiers
 
 # Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
 asset-status-in-service = En service
@@ -4760,7 +4876,8 @@ asset-lifecycle-heading = Cycle de vie
 asset-lifecycle-description = Suivez les changements de statut opérationnel tels que les réparations, les prêts et la mise hors service.
 asset-lifecycle-current-label = Statut actuel
 asset-lifecycle-change-status = Changer le statut
-asset-lifecycle-correct-status = Corriger le statut
+# MT: pending native review
+asset-lifecycle-disposed-final = La mise au rebut est définitive
 # MT: pending native review
 asset-lifecycle-managed-by-loan = Géré par le prêt en cours
 # MT: pending native review
@@ -4822,6 +4939,8 @@ asset-loan-loaned-relative = Prêté { $when }
 asset-loan-ticket = Ticket n°{ $id }
 # MT: pending native review
 asset-loan-unknown-borrower = Emprunteur inconnu
+# MT: pending native review
+asset-loan-deleted-borrower = Utilisateur supprimé
 # MT: pending native review
 asset-loan-due-overdue = En retard
 # MT: pending native review
@@ -5052,7 +5171,8 @@ admin-groups-config-no-users-found = Aucun utilisateur trouvé
 admin-groups-config-no-devices-found = Aucun actif trouvé
 admin-groups-config-no-groups-found = Aucun groupe trouvé
 admin-groups-config-synced-badge = Synchronisé
-admin-groups-config-synced-intune-tooltip = Synchronisé depuis Microsoft Intune
+# TODO native-review fr-FR for the key below.
+admin-groups-config-synced-intune-tooltip = Synchronisé depuis Microsoft Entra ID
 admin-groups-config-selected-count = { $count } sélectionné(s)
 admin-groups-config-member-count = { $count ->
     [one] { $count } membre
@@ -5929,6 +6049,8 @@ tickets-collaborative-article-open-doc = Ouvrir le document lié
 tickets-collaborative-article-promote-confirm-title = Promouvoir la note en document ?
 tickets-collaborative-article-promote-confirm-message = Le contenu de la note est déplacé dans un nouveau document, et la note est remplacée par une intégration de celui-ci. Le document s'ouvre en plein écran, et le ticket continue de l'afficher en ligne.
 tickets-collaborative-article-promote-confirm-label = Promouvoir
+# Note conservée (machine, à relire par un locuteur natif).
+tickets-collaborative-article-promote-note-kept = Votre note est restée sur le ticket, car il manquait au document ses dernières modifications.
 tickets-project-info-remove = Retirer du projet
 tickets-project-info-description = Description
 tickets-project-info-project-id = ID projet
@@ -6180,6 +6302,9 @@ admin-ldap-saving = Enregistrement…
 admin-ldap-saved = Paramètres LDAP enregistrés
 admin-ldap-error-load = Échec du chargement des paramètres LDAP
 admin-ldap-error-save = Échec de l'enregistrement des paramètres LDAP
+admin-ldap-save-needs-numbers = Renseignez le port, le délai d'expiration et la taille de page pour enregistrer.
+admin-ldap-save-needs-host = Ajoutez un hôte pour enregistrer tant que l'intégration est activée.
+admin-ldap-save-needs-base-dn = Ajoutez un DN de base des utilisateurs pour enregistrer tant que l'intégration est activée.
 admin-ldap-error-sync = Échec de la synchronisation ; consultez les journaux du serveur
 admin-ldap-section-status = Synchronisation et état
 admin-ldap-mode-incremental = Synchronisation incrémentielle active
@@ -6600,13 +6725,24 @@ user-settings-account-setup-pending = En attente
 user-settings-invitation-pending = Invitation en attente
 user-settings-resend-invitation-title = Renvoyer l'invitation par e-mail
 user-settings-danger-zone-title = Zone dangereuse
-user-settings-danger-zone-subtitle = Actions irréversibles et destructrices
+# TODO native-review fr-FR for the account-deletion keys below.
+user-settings-danger-zone-subtitle = Actions qui retirent un accès ou des données
 user-settings-delete-modal-title = Confirmer la suppression du compte
 user-settings-delete-item-profile = Informations et paramètres du profil
 user-settings-delete-item-tickets = Tous les tickets créés ou attribués à cet utilisateur
 user-settings-delete-item-comments = Commentaires et historique d'activité
 user-settings-delete-item-access = Accès à tous les systèmes et ressources
-user-settings-password-placeholder = Saisissez votre mot de passe
+user-settings-delete-user-title = Supprimer le compte utilisateur
+user-settings-delete-user-description = Déconnecte { $name } et bloque son accès immédiatement. Le compte est définitivement supprimé après 30 jours, sauf si un administrateur le restaure.
+user-settings-delete-button = Supprimer le compte
+user-settings-delete-self-hint = Pour supprimer votre compte, contactez l'administrateur de votre espace de travail.
+user-settings-delete-modal-warning = { $name } perd l'accès immédiatement. Le compte est définitivement supprimé après 30 jours, et un administrateur peut le restaurer d'ici là.
+user-settings-delete-modal-removes = Après 30 jours, ceci supprime définitivement :
+user-settings-delete-stepup-password = Saisissez votre mot de passe pour confirmer
+user-settings-delete-stepup-mfa = Saisissez un code de votre application d'authentification, ou un code de secours, pour confirmer
+user-settings-delete-cancel = Annuler
+user-settings-delete-confirm = Supprimer le compte
+user-settings-delete-error = Impossible de supprimer le compte. Réessayez.
 admin-plugins-list-title = Plugins
 admin-plugins-list-aria-filter = Filtrer les plugins
 admin-plugins-list-search-placeholder = Rechercher des plugins

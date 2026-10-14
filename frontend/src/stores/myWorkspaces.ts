@@ -11,8 +11,9 @@ import { resolveActiveWorkspaceId } from '@/utils/workspaceNavigation';
 import { useAuthStore } from '@/stores/auth';
 import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
 import { activeWorkspaceSlugRef } from '@/services/activeWorkspace';
+import { MY_WORKSPACES_KEY } from '@/stores/accountQueryKeys';
 
-export const MY_WORKSPACES_KEY = ['my-workspaces'] as const;
+export { MY_WORKSPACES_KEY };
 
 export const useMyWorkspacesStore = defineStore('myWorkspaces', () => {
   const auth = useAuthStore();
@@ -38,12 +39,17 @@ export const useMyWorkspacesStore = defineStore('myWorkspaces', () => {
   // the router keeps in `activeWorkspace` and the carrier header read from), and
   // in host mode the subdomain. Both feed one `activeWorkspace`, so the switcher
   // and the carrier never disagree.
+  //
+  // In path mode a slug the list doesn't have yet (mid-switch, or a workspace
+  // just joined before the list refetches) resolves to no workspace rather
+  // than another one: a collab doc id built from the wrong workspace's uuid
+  // would open a doc that doesn't exist.
   const activeWorkspace = computed<MyWorkspaceEntry | null>(() => {
     const fallback = () => workspaces.value[0] ?? null;
     if (getWorkspaceRouting() === 'path') {
       const slug = activeWorkspaceSlugRef.value;
-      if (!slug) return fallback();
-      return workspaces.value.find((w) => w.slug === slug) ?? fallback();
+      if (!slug) return null;
+      return workspaces.value.find((w) => w.slug === slug) ?? null;
     }
     const id = resolveActiveWorkspaceId(workspaces.value);
     if (id == null) return fallback();

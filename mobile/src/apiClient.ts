@@ -19,10 +19,28 @@ import {
 } from '@nosdesk/core/transport'
 import { refreshSession } from '@nosdesk/core/services/session'
 import axios, { CanceledError } from 'axios'
-import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
+import type { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { tauriHttpAdapter } from './tauriHttpAdapter'
+import { setSession } from './transport'
 
 type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean }
+
+/**
+ * A sign-in (password, second factor, passkey, recovery code) answers in bearer
+ * mode with the session's tokens in its body and no cookie. Hold them before
+ * the caller continues, whichever sign-in screen sent the request.
+ */
+async function holdIssuedSession(response: AxiosResponse): Promise<AxiosResponse> {
+  const body = response.data as { access_token?: unknown; refresh_token?: unknown } | null
+  if (
+    response.config.url?.startsWith('/auth/') &&
+    typeof body?.access_token === 'string' &&
+    typeof body.refresh_token === 'string'
+  ) {
+    await setSession(body.access_token, body.refresh_token)
+  }
+  return response
+}
 
 let registered = false
 
@@ -67,7 +85,7 @@ export function setupApiClient(): void {
     (response) => {
       // A response to a request sent under a previous workspace must not land.
       const refused = refuseResponse(response.config)
-      return refused ? Promise.reject(new CanceledError(refused)) : response
+      return refused ? Promise.reject(new CanceledError(refused)) : holdIssuedSession(response)
     },
     async (error: AxiosError) => {
       if (axios.isCancel(error)) return Promise.reject(error)

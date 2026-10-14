@@ -100,6 +100,29 @@ pub struct RowError {
     pub message: String,
 }
 
+/// Why a commit stopped. `Row` is a write the database refused for one
+/// row, which the admin can fix in the file; `Db` is anything else.
+#[derive(Debug)]
+pub enum CommitError {
+    Row { row: usize, message: String },
+    Db(diesel::result::Error),
+}
+
+impl From<diesel::result::Error> for CommitError {
+    fn from(e: diesel::result::Error) -> Self {
+        Self::Db(e)
+    }
+}
+
+impl std::fmt::Display for CommitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Row { row, message } => write!(f, "row {row}: {message}"),
+            Self::Db(e) => write!(f, "{e}"),
+        }
+    }
+}
+
 /// Cap on the number of per-row errors a dry-run carries back.
 /// Trades completeness for round-trip size + UI readability.
 pub const MAX_ERRORS: usize = 100;
@@ -129,5 +152,5 @@ pub trait Importer: Send + Sync {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-    ) -> Result<ImportedRecords, diesel::result::Error>;
+    ) -> Result<ImportedRecords, CommitError>;
 }

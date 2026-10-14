@@ -198,7 +198,7 @@ fn stream_bootstrap_inner(
     // for this workspace" vs "available everywhere" — eg. SLA
     // chrome should hide entirely until an admin sets up at least
     // one policy.
-    let capabilities = super::capability_flags(conn);
+    let capabilities = super::capability_flags(conn, &viewer);
 
     // Header: schema hash, cursor, granted groups, and capability
     // flags. Clients read this once at the start of every
@@ -214,6 +214,7 @@ fn stream_bootstrap_inner(
                 "sla_enabled": capabilities.sla_enabled,
                 "approvals_enabled": capabilities.approvals_enabled,
                 "approvals_held": capabilities.approvals_held,
+                "assets_visible": capabilities.assets_visible,
             }
         }),
     )?;
@@ -311,31 +312,18 @@ fn stream_bootstrap_inner(
     // users and workflow_states: every ticket linked-asset chip,
     // device picker, and asset list view needs an id -> name
     // lookup, and the count is bounded (~hundreds in the wild),
-    // not unbounded like tickets. Shape mirrors
-    // `repository::assets::asset_sync_payload` so frontend pool
-    // deserialisation handles bootstrap and incremental updates
-    // through one path.
-    let asset_rows: Vec<Asset> = assets::table.order(assets::name.asc()).load(conn)?;
+    // not unbounded like tickets. The row is the live event payload,
+    // so bootstrap and incremental updates carry the same fields. A
+    // requester gets none when the workspace shows requesters no assets.
+    let asset_rows: Vec<Asset> = if capabilities.assets_visible {
+        assets::table.order(assets::name.asc()).load(conn)?
+    } else {
+        Vec::new()
+    };
     for asset in asset_rows {
-        send(
-            tx,
-            json!({
-                "__model__": "asset",
-                "id": asset.id,
-                "name": asset.name,
-                "kind": asset.kind,
-                "serial_number": asset.serial_number,
-                "manufacturer": asset.manufacturer,
-                "model": asset.model,
-                "asset_tag": asset.asset_tag,
-                "location": asset.location,
-                "primary_user_uuid": asset.primary_user_uuid,
-                "attributes": asset.attributes,
-                "quantity": asset.quantity,
-                "unit": asset.unit,
-                "external_sync_source": asset.external_sync_source,
-            }),
-        )?;
+        let mut row = crate::repository::assets::asset_sync_payload(&asset);
+        row["__model__"] = json!("asset");
+        send(tx, row)?;
     }
 
     // Two project-loading paths:
@@ -363,45 +351,25 @@ fn stream_bootstrap_inner(
     // them. This mirrors the read-side filter on /api/sync/delta;
     // both reuse the canonical access logic so they cannot drift.
     if want_all {
-        let is_admin = viewer.is_admin;
+        let audience = viewer.pages();
 
         let collections: Vec<crate::models::DocumentationCollection> =
             crate::schema::documentation_collections::table.load(conn)?;
-        for c in collections {
-            if !is_admin
-                && !crate::repository::documentation_collections::can_user_access_collection(
-                    conn, c.id, &user.uuid, false,
-                )?
-            {
-                continue;
+        let visible = audience.filter_collections(conn, collections, |c| c.id)?;
+        // The same row the feed sends, grants included.
+        for mut row in
+            crate::repository::documentation_collections::collection_sync_rows(conn, &visible)?
+        {
+            if let Some(fields) = row.as_object_mut() {
+                fields.insert("__model__".into(), json!("documentation_collection"));
             }
-            send(
-                tx,
-                json!({
-                    "__model__": "documentation_collection",
-                    "id": c.id,
-                    "uuid": c.uuid,
-                    "name": c.name,
-                    "slug": c.slug,
-                    "description": c.description,
-                    "icon": c.icon,
-                    "color": c.color,
-                    "is_system": c.is_system,
-                    "created_by": c.created_by,
-                    "display_order": c.display_order,
-                    "description_text": c.description_text,
-                    "hide_titles_from_non_members": c.hide_titles_from_non_members,
-                    "created_at": c.created_at,
-                    "updated_at": c.updated_at,
-                }),
-            )?;
+            send(tx, row)?;
         }
 
         let all_pages: Vec<crate::models::DocumentationPage> =
             crate::schema::documentation_pages::table.load(conn)?;
-        let visible_pages = crate::repository::documentation::filter_pages_for_user(
-            conn, all_pages, &user.uuid, is_admin,
-        )?;
+        // Every status: the trash view is built from the pool too.
+        let visible_pages = audience.filter_pages_with_trash(conn, all_pages)?;
         // Denormalised collection membership (one collection per page,
         // UNIQUE(page_id)) so the page row is self-contained for the
         // pool — mirrors `page_sync_payload`'s collection_id field.
@@ -436,6 +404,7 @@ fn stream_bootstrap_inner(
                     "display_order": p.display_order,
                     "is_public": p.is_public,
                     "is_template": p.is_template,
+                    "restricted": p.restricted,
                     "archived_at": p.archived_at,
                     "deleted_at": p.deleted_at,
                     "created_by": p.created_by,
@@ -711,7 +680,13 @@ fn stream_bootstrap_inner(
     // memberships). The global / project bootstraps deliberately omit
     // these, so they only ship for an explicit `ticket:<id>` group.
     if !detail_ticket_ids.is_empty() {
-        stream_ticket_detail_extras(conn, &detail_ticket_ids, viewer.ctx.sees_all(), tx)?;
+        stream_ticket_detail_extras(
+            conn,
+            &detail_ticket_ids,
+            viewer.ctx.sees_all(),
+            capabilities.assets_visible,
+            tx,
+        )?;
     }
 
     finish(tx, last_xid8, last_sync_id)
@@ -729,6 +704,7 @@ fn stream_ticket_detail_extras(
     conn: &mut crate::db::DbConnection,
     ticket_ids: &[i32],
     sees_all: bool,
+    assets_visible: bool,
     tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Restricted viewers see only public comments on their visible
@@ -789,9 +765,13 @@ fn stream_ticket_detail_extras(
         }
     }
 
-    let asset_links: Vec<TicketAsset> = ticket_assets::table
-        .filter(ticket_assets::ticket_id.eq_any(ticket_ids))
-        .load(conn)?;
+    let asset_links: Vec<TicketAsset> = if assets_visible {
+        ticket_assets::table
+            .filter(ticket_assets::ticket_id.eq_any(ticket_ids))
+            .load(conn)?
+    } else {
+        Vec::new()
+    };
     for ta in asset_links {
         send(
             tx,

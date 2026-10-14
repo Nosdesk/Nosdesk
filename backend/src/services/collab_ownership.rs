@@ -208,6 +208,14 @@ impl CollabOwnership {
         conn.get::<_, Option<String>>(&key).await.ok().flatten()
     }
 
+    /// The machine that owns `doc_id`, without claiming it. `None` when it
+    /// is unowned or Redis can't be reached.
+    pub async fn current_owner(&self, doc_id: &str) -> Option<String> {
+        let key = Self::owner_key(doc_id);
+        let mut conn = self.client.get_multiplexed_async_connection().await.ok()?;
+        conn.get::<_, Option<String>>(&key).await.ok().flatten()
+    }
+
     /// Resolve the owner of `doc_id`, claiming it for this machine if it
     /// is currently unowned.
     ///

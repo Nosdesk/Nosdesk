@@ -230,7 +230,7 @@ diesel::table! {
     asset_loans (id) {
         id -> Int4,
         asset_id -> Int4,
-        borrower_user_uuid -> Uuid,
+        borrower_user_uuid -> Nullable<Uuid>,
         loaned_at -> Timestamptz,
         due_back -> Nullable<Date>,
         returned_at -> Nullable<Timestamptz>,
@@ -729,6 +729,7 @@ diesel::table! {
         workspace_id -> Int4,
         fence_token -> Nullable<Int8>,
         require_verification -> Bool,
+        restricted -> Bool,
     }
 }
 
@@ -800,6 +801,7 @@ diesel::table! {
         verify_interval_days -> Nullable<Int4>,
         workspace_id -> Int4,
         fence_token -> Nullable<Int8>,
+        restricted -> Bool,
     }
 }
 
@@ -1243,6 +1245,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         workspace_id -> Int4,
+        version -> Int8,
     }
 }
 
@@ -1586,6 +1589,7 @@ diesel::table! {
         email_logo -> Nullable<Jsonb>,
         email_logo_light -> Nullable<Jsonb>,
         portal_share_staff_requests -> Bool,
+        requester_asset_visibility -> Text,
     }
 }
 
