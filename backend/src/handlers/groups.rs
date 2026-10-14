@@ -92,6 +92,7 @@ pub async fn get_group_details(
         if crate::handlers::assets::assets_hidden_from(conn, &auth) {
             details.devices.clear();
         }
+        crate::handlers::assets::strip_staff_asset_fields(&mut details.devices, &auth);
         Ok(details)
     }) {
         Ok(details) => HttpResponse::Ok().json(details),

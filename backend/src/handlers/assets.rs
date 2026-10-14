@@ -41,6 +41,21 @@ pub(crate) fn require_assets_visible(
     }
 }
 
+/// Blank the staff-only fields (notes) of raw asset rows for anyone but
+/// staff, by the same rule as `assets_for_viewer`. For responses that embed
+/// [`Asset`] rows: a ticket, a group, a profile, the export.
+pub(crate) fn strip_staff_asset_fields<'a>(
+    assets: impl IntoIterator<Item = &'a mut Asset>,
+    auth: &AuthContext,
+) {
+    if auth.can_handle_tickets() {
+        return;
+    }
+    for asset in assets {
+        asset.notes = None;
+    }
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/assets", web::get().to(crate::handlers::get_all_devices))
         .route(
@@ -898,8 +913,9 @@ pub async fn get_all_devices(mut tc: TenantConn, auth: AuthContext) -> impl Resp
 /// Access: any authenticated workspace member, not technician-
 /// gated. Deliberate product choice: assets are workspace-readable
 /// (same gate as the list/detail views), and export is a bulk read
-/// of data the caller can already page through. Tighten here only
-/// if assets later become role-restricted at the list layer.
+/// of data the caller can already page through, so notes are staff
+/// only here too. Tighten here only if assets later become
+/// role-restricted at the list layer.
 pub async fn export_assets(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -945,13 +961,15 @@ pub async fn export_assets(
         Ok((rows, events, slug))
     });
 
-    let (rows, events, slug) = match export_result {
+    let (mut rows, events, slug) = match export_result {
         Ok(v) => v,
         Err(e) => {
             error!(error = ?e, "Database error exporting assets");
             return errors::internal("Failed to export assets");
         }
     };
+    // The CSV keeps its `notes` column, blank, so a re-import still parses.
+    strip_staff_asset_fields(&mut rows, &auth);
 
     let kind = if events.is_some() {
         "asset-history"

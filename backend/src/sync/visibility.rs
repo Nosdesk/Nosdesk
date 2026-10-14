@@ -702,15 +702,25 @@ pub fn deliveries<T>(
 }
 
 /// A kept row as `viewer` may see it: a `user` row loses the fields they may
-/// not see ([`user_projection`]); every other kind is sent whole. A bare-id
-/// prune names no one and is left as it is.
+/// not see ([`user_projection`]), and a usage or loan row reaches anyone but
+/// staff with its notes blanked, as the REST lists give it. The ticket id
+/// stays: the ticket panels key live updates on it. Every other kind is sent
+/// whole. A bare-id prune names no one and is left as it is.
 pub fn project_row(
     viewer: &SyncViewer,
     aggregate: Option<SyncAggregate>,
     data: &mut serde_json::Value,
 ) {
-    if aggregate == Some(SyncAggregate::User) && !names_only_the_row(data) {
-        user_projection::value_for_viewer(data, viewer.projection());
+    match aggregate {
+        Some(SyncAggregate::User) if !names_only_the_row(data) => {
+            user_projection::value_for_viewer(data, viewer.projection());
+        }
+        Some(SyncAggregate::AssetUsage | SyncAggregate::AssetLoan) if !viewer.sees_all() => {
+            if let Some(notes) = data.get_mut("notes") {
+                *notes = serde_json::Value::Null;
+            }
+        }
+        _ => {}
     }
 }
 
