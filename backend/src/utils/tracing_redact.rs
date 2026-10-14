@@ -28,10 +28,11 @@
 //!   emails, names, ticket titles / descriptions / comment bodies,
 //!   IPs, user-agent strings, tokens, secrets, request bodies.
 //!
-//! The local-dev pretty formatter is unaffected — developer laptops
-//! aren't sub-processors of anyone's data. The redaction layer is
-//! gated on `LOG_FORMAT=json`, which is the production-Docker
-//! configuration; `cargo run` against localhost stays pretty.
+//! The local-dev pretty formatter is unaffected, since developer laptops
+//! aren't sub-processors of anyone's data. This layer is used unless
+//! `ENVIRONMENT` is explicitly `development` or `dev` (an unset value
+//! included) or `LOG_FORMAT` says otherwise; see `telemetry::init`. The
+//! dev stack and `cargo run` set `ENVIRONMENT=development` and stay pretty.
 //!
 //! ## Adding a field
 //!
