@@ -8,7 +8,7 @@
 //!
 //! Public and unauthenticated, like `/api/csp-report`: sign-in pages fail too,
 //! and `sendBeacon` carries no CSRF header. It only logs, so there is nothing
-//! to forge. Its own rate-limit bucket (`clienterr:{ip}`) keeps a looping page
+//! to forge. Its own rate-limit bucket (`clienterr:{client}`) keeps a looping page
 //! away from the public and auth quotas. Always 204, so a client never retries.
 //!
 //! Every field is reduced to a bounded shape before it is logged, which keeps
@@ -521,8 +521,9 @@ impl LineBudget {
 
 static LINE_BUDGET: Mutex<LineBudget> = Mutex::new(LineBudget::new());
 
-/// The rate-limit bucket: `clienterr:` and the client address the other
-/// limits use (`X-Forwarded-For` only from a trusted proxy, IPv6 by its /64).
+/// The rate-limit bucket: `clienterr:` and the client the other limits count
+/// (`X-Forwarded-For` only from a trusted proxy, IPv6 by its /64), as the
+/// pseudonym [`crate::utils::client_ip::limit_bucket`] gives it.
 pub fn rate_limit_key(req: &actix_web::dev::ServiceRequest) -> Option<String> {
     crate::utils::client_ip::from_service_request(req)
         .map(|ip| format!("clienterr:{}", crate::utils::client_ip::limit_bucket(ip)))
@@ -1063,21 +1064,21 @@ mod tests {
 
     #[test]
     fn the_rate_limit_bucket_is_the_peer_not_a_forwarded_header() {
+        use crate::utils::client_ip::limit_bucket;
         use actix_web::test::TestRequest;
         let req = TestRequest::post()
             .peer_addr("203.0.113.7:5000".parse().unwrap())
             .insert_header(("X-Forwarded-For", "198.51.100.1"))
             .to_srv_request();
-        assert_eq!(
-            rate_limit_key(&req).as_deref(),
-            Some("clienterr:203.0.113.7")
-        );
+        let peer = format!("clienterr:{}", limit_bucket("203.0.113.7".parse().unwrap()));
+        assert_eq!(rate_limit_key(&req).as_deref(), Some(peer.as_str()));
         let v6 = TestRequest::post()
             .peer_addr("[2001:db8:1:2:3:4:5:6]:5000".parse().unwrap())
             .to_srv_request();
-        assert_eq!(
-            rate_limit_key(&v6).as_deref(),
-            Some("clienterr:2001:db8:1:2::/64")
+        let same_64 = format!(
+            "clienterr:{}",
+            limit_bucket("2001:db8:1:2::9".parse().unwrap())
         );
+        assert_eq!(rate_limit_key(&v6).as_deref(), Some(same_64.as_str()));
     }
 }
