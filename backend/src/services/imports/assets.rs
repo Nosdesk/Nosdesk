@@ -9,9 +9,10 @@
 //! of the CSV, so a kind's required attributes aren't enforced on
 //! import. The admin fills them in on the asset afterwards.
 //!
-//! An update that changes the kind must not leave the asset holding
-//! attributes the new kind doesn't define. Such a row is an error; the
-//! asset page, which shows what a kind change drops, is where to do it.
+//! An update may change the kind only where the asset page allows it:
+//! not on an asset linked to a model (the model sets the kind) or synced
+//! from Microsoft, and never so the asset keeps attributes the new kind
+//! doesn't define. Such a row is an error, sent to the asset page.
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -22,6 +23,7 @@ use diesel::prelude::*;
 use crate::db::DbConnection;
 use crate::models::{Asset, AssetLifecycleEvent, AssetUpdate, NewAsset};
 use crate::repository::asset_kinds as kind_repo;
+use crate::repository::asset_models as model_repo;
 use crate::repository::assets as asset_repo;
 
 use super::csv_parser::ParsedCsv;
@@ -150,12 +152,23 @@ struct PlannedRow {
 struct Lookups {
     tags: HashMap<String, i32>,
     serials: HashMap<String, i32>,
-    /// Kind and attributes of each tagged asset, the rows an update can hit.
-    existing: HashMap<i32, (String, serde_json::Value)>,
+    /// Each tagged asset, the rows an update can hit.
+    existing: HashMap<i32, ExistingAsset>,
+    /// Asset model names by id.
+    models: HashMap<i32, String>,
     /// Lowercased slug and lowercased label, each to the kind's slug.
     kinds: HashMap<String, String>,
     kind_labels: Vec<String>,
     by_slug: HashMap<String, KindInfo>,
+}
+
+/// What a kind change on an existing asset is checked against.
+struct ExistingAsset {
+    name: String,
+    kind: String,
+    attributes: serde_json::Value,
+    model_id: Option<i32>,
+    external_sync_source: Option<String>,
 }
 
 struct KindInfo {
@@ -172,7 +185,10 @@ impl Lookups {
             Option<String>,
             Option<String>,
             String,
+            String,
             serde_json::Value,
+            Option<i32>,
+            Option<String>,
         );
         let rows: Vec<Row> = assets::table
             .filter(
@@ -184,22 +200,39 @@ impl Lookups {
                 assets::id,
                 assets::asset_tag,
                 assets::serial_number,
+                assets::name,
                 assets::kind,
                 assets::attributes,
+                assets::model_id,
+                assets::external_sync_source,
             ))
             .load(conn)?;
         let mut tags = HashMap::new();
         let mut serials = HashMap::new();
         let mut existing = HashMap::new();
-        for (id, tag, serial, kind, attributes) in rows {
+        for (id, tag, serial, name, kind, attributes, model_id, external_sync_source) in rows {
             if let Some(tag) = tag {
                 tags.insert(tag, id);
-                existing.insert(id, (kind, attributes));
+                existing.insert(
+                    id,
+                    ExistingAsset {
+                        name,
+                        kind,
+                        attributes,
+                        model_id,
+                        external_sync_source,
+                    },
+                );
             }
             if let Some(serial) = serial {
                 serials.insert(serial, id);
             }
         }
+
+        let models = model_repo::list(conn)?
+            .into_iter()
+            .map(|m| (m.id, m.name))
+            .collect();
 
         let registry = kind_repo::list_kinds(conn)?;
         let mut kinds = HashMap::new();
@@ -234,6 +267,7 @@ impl Lookups {
             tags,
             serials,
             existing,
+            models,
             kinds,
             kind_labels,
             by_slug,
@@ -371,8 +405,8 @@ fn plan_row(
         }
     }
 
-    // A kind change must not strand attributes the new kind doesn't
-    // define. Required attributes stay unchecked, as for new rows.
+    // A kind change follows the asset page's rules. Required attributes
+    // stay unchecked, as for new rows.
     if let (Some(new_kind), Some(id)) = (&kind, target) {
         if let Some(message) = kind_change_error(lookups, id, new_kind) {
             error("kind", message);
@@ -397,13 +431,37 @@ fn plan_row(
     }
 }
 
-/// The error for an update that moves asset `id` to `new_kind` while it
-/// holds attributes the new kind doesn't define, if it does.
+/// The error for an update that moves asset `id` to `new_kind`, if the
+/// asset page wouldn't allow it: the asset is synced from Microsoft, its
+/// model sets its kind, or it holds attributes the new kind doesn't define.
 fn kind_change_error(lookups: &Lookups, id: i32, new_kind: &str) -> Option<String> {
-    let (old_kind, attributes) = lookups.existing.get(&id)?;
+    let existing = lookups.existing.get(&id)?;
+    let old_kind = &existing.kind;
     if old_kind == new_kind {
         return None;
     }
+    if let Some(source) = &existing.external_sync_source {
+        let source = match source.as_str() {
+            "entra" => "Microsoft Entra",
+            "intune" => "Microsoft Intune",
+            _ => "an external source",
+        };
+        return Some(format!(
+            "{} is synced from {source}, which sets its kind; unmanage it on the asset page to change its kind",
+            existing.name
+        ));
+    }
+    if let Some(model_id) = existing.model_id {
+        let model = lookups.models.get(&model_id).map_or_else(
+            || "its model".to_string(),
+            |name| format!("its model {name}"),
+        );
+        return Some(format!(
+            "{} takes its kind from {model}; change the model on the asset page instead",
+            existing.name
+        ));
+    }
+    let attributes = &existing.attributes;
     let defined = lookups.by_slug.get(new_kind).map(|k| &k.properties);
     let mut dropped: Vec<&str> = attributes
         .as_object()?

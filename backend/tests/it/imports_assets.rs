@@ -351,6 +351,99 @@ fn a_kind_change_that_keeps_every_attribute_imports() {
     assert_eq!(kind_of(&mut conn, "KC-012").as_deref(), Some("laptop"));
 }
 
+#[derive(diesel::QueryableByName)]
+struct NameKindRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    name: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    kind: String,
+}
+
+fn name_and_kind(conn: &mut diesel::PgConnection, tag: &str) -> (String, String) {
+    let row: NameKindRow = diesel::sql_query("SELECT name, kind FROM assets WHERE asset_tag = $1")
+        .bind::<diesel::sql_types::Text, _>(tag)
+        .get_result(conn)
+        .expect("read asset");
+    (row.name, row.kind)
+}
+
+/// The asset page doesn't offer a kind change on an asset linked to a
+/// model (the model sets the kind) or synced from Microsoft, so the import
+/// refuses one too. A row that keeps the kind still updates the asset.
+#[test]
+fn a_kind_change_on_a_model_linked_or_synced_asset_is_a_row_error() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    diesel::sql_query(
+        "WITH m AS (INSERT INTO manufacturers (name) VALUES ('Lenovo') RETURNING id),
+              am AS (INSERT INTO asset_models (manufacturer_id, name, kind)
+                     SELECT id, 'ThinkPad T14', 'laptop' FROM m RETURNING id)
+         INSERT INTO assets (name, kind, asset_tag, model_id)
+         SELECT v.name, 'laptop', v.tag, am.id
+         FROM am, (VALUES ('Laptop-01', 'KC-020'), ('Laptop-03', 'KC-022')) AS v(name, tag)",
+    )
+    .execute(&mut *conn)
+    .expect("seed model-linked assets");
+    diesel::sql_query(
+        "INSERT INTO assets (name, kind, asset_tag, external_sync_source)
+         VALUES ('PC-02', 'device', 'KC-021', 'entra'), ('PC-04', 'device', 'KC-023', 'entra')",
+    )
+    .execute(&mut *conn)
+    .expect("seed synced assets");
+
+    let parsed = parse_text(
+        "Model Change,desktop,KC-020,,,,,,,,\n\
+         Synced Change,laptop,KC-021,,,,,,,,\n\
+         Model Same Kind,laptop,KC-022,,,,,,,,\n\
+         Synced Same Kind,device,KC-023,,,,,,,,\n",
+    );
+
+    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let errors: Vec<(usize, Option<&str>, &str)> = summary
+        .errors
+        .iter()
+        .map(|e| (e.row, e.column.as_deref(), e.message.as_str()))
+        .collect();
+    assert_eq!(
+        errors,
+        vec![
+            (
+                2,
+                Some("kind"),
+                "Laptop-01 takes its kind from its model ThinkPad T14; \
+                 change the model on the asset page instead"
+            ),
+            (
+                3,
+                Some("kind"),
+                "PC-02 is synced from Microsoft Entra, which sets its kind; \
+                 unmanage it on the asset page to change its kind"
+            ),
+        ]
+    );
+    assert_eq!(summary.would_update, 2);
+    assert_eq!(summary.would_create, 0);
+
+    let records = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit");
+    assert_eq!(records.len(), 2);
+    assert_eq!(
+        name_and_kind(&mut conn, "KC-020"),
+        ("Laptop-01".to_string(), "laptop".to_string())
+    );
+    assert_eq!(
+        name_and_kind(&mut conn, "KC-021"),
+        ("PC-02".to_string(), "device".to_string())
+    );
+    assert_eq!(
+        name_and_kind(&mut conn, "KC-022"),
+        ("Model Same Kind".to_string(), "laptop".to_string())
+    );
+    assert_eq!(
+        name_and_kind(&mut conn, "KC-023"),
+        ("Synced Same Kind".to_string(), "device".to_string())
+    );
+}
+
 /// A row the database refuses at commit, for a reason the dry-run can't
 /// foresee (a test-only constraint stands in), stops the commit with
 /// that row's number.
