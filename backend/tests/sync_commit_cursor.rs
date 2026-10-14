@@ -141,9 +141,19 @@ fn out_of_order_commit_is_not_skipped() {
         .expect("commit a");
 
     // 3a. The commit-safe query now delivers BOTH, in (xid8, sync_id)
-    //     order — A first (lower xid8), neither skipped.
+    //     order — A first (lower xid8), neither skipped. The horizon is
+    //     cluster-wide, so another test's open transaction can still hold
+    //     both back for a while; wait for them, then check the order.
+    let wait = common::FeedWait::new(sync_b);
+    let settled = loop {
+        let settled = settled_sync_ids(&mut conn_b, floor);
+        if settled.len() >= 2 {
+            break settled;
+        }
+        wait.pause_blocking();
+    };
     assert_eq!(
-        settled_sync_ids(&mut conn_b, floor),
+        settled,
         vec![sync_a, sync_b],
         "both rows delivered once settled, in commit-safe order, none skipped"
     );

@@ -415,20 +415,21 @@ async fn get_as(f: &Fixture, viewer: Uuid, uri: &str) -> String {
 /// The delta from the start of the feed, as `viewer` asks for it, once it
 /// covers the newest action. The delta serves only settled rows (below the
 /// commit horizon, which is cluster-wide), so another test's open
-/// transaction can hold the newest rows back for a moment.
+/// transaction can hold the newest rows back; [`common::FeedWait`] says for
+/// how long.
 async fn delta_rows(f: &Fixture, viewer: Uuid, newest: i64) -> Vec<Value> {
     let uri = format!(
         "/api/sync/delta?from=0&limit=5000&groups=workspace:{},user:{viewer}",
         f.ws.workspace_id
     );
-    for _ in 0..200 {
+    let wait = common::FeedWait::new(newest);
+    loop {
         let body: Value = serde_json::from_str(&get_as(f, viewer, &uri).await).expect("delta json");
         if body["last_sync_id"].as_i64().is_some_and(|id| id >= newest) {
             return body["actions"].as_array().expect("actions").clone();
         }
-        actix_web::rt::time::sleep(std::time::Duration::from_millis(50)).await;
+        wait.pause().await;
     }
-    panic!("the delta never reached the newest action ({newest})");
 }
 
 /// The bootstrap snapshot's records, as `viewer` asks for it.
