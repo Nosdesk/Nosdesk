@@ -20,6 +20,7 @@ import { useAuthStore } from '@/stores/auth';
 import { logger } from '@nosdesk/core/utils/logger';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
+import { useAssetGroupsStore } from '@/stores/assetGroups';
 import { PluginApiError } from '@nosdesk/plugin-sdk';
 import { effectivePermissions } from './permissions';
 import { createDialogOwner, openPluginDialog, releaseDialogOwner } from './usePluginDialogs';
@@ -34,6 +35,7 @@ import type {
   PluginAssetQuery,
   PluginAssetPage,
   PluginAssetKind,
+  PluginAssetGroup,
   PluginStorageEntry,
   PluginUser,
   PluginUiApi,
@@ -89,6 +91,32 @@ function isIsoDate(value: string): boolean {
   if (!ISO_DATE.test(value)) return false;
   const d = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+// The fields a plugin may write, matching `PluginTicketPatch` /
+// `PluginAssetPatch`. The endpoints behind `update` take far more (kind,
+// attributes, notes, requester...), so the request is built from these alone.
+const TICKET_PATCH_FIELDS = ['title', 'priority', 'workflow_state_id', 'assignee'] as const;
+const ASSET_PATCH_FIELDS = ['name', 'location'] as const;
+
+/** Copy the allowed fields of a plugin's patch, refusing any other key. */
+function allowedPatch(
+  patch: unknown,
+  fields: readonly string[],
+  record: 'ticket' | 'asset',
+): Record<string, unknown> {
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new PluginApiError('invalid', `${record} patch must be an object`);
+  }
+  const body: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (!fields.includes(key)) {
+      throw new PluginApiError('invalid', `plugins cannot write the ${record} field "${key}"`);
+    }
+    body[key] = value;
+  }
+  return body;
 }
 
 function optionalTitle(opts: { title?: unknown } | undefined): string | undefined {
@@ -194,7 +222,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
   };
 
   const api: PluginAPI = {
-    version: '1.1.0',
+    version: '1.2.0',
 
     // === Plugin Info ===
     plugin: {
@@ -239,12 +267,13 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         }
       },
       // Acts as the current user: the write hits the same endpoint the app uses,
-      // bounded by the user's own perms + RLS. Restrict to the patch's safe field
-      // subset (never a full ticket).
+      // bounded by the user's own perms + RLS. Only the `PluginTicketPatch`
+      // fields go through; any other key is refused.
       async update(id: number, patch: PluginTicketPatch): Promise<Ticket | null> {
         if (!hasPermission('ticket:write')) denied('ticket:write');
+        const body = allowedPatch(patch, TICKET_PATCH_FIELDS, 'ticket');
         try {
-          return await updateTicket(id, patch as Partial<Ticket>, pluginAttribution);
+          return await updateTicket(id, body as Partial<Ticket>, pluginAttribution);
         } catch (error) {
           throw upstream('failed to update ticket', error);
         }
@@ -351,6 +380,16 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           throw upstream('failed to list asset kinds', error);
         }
       },
+      // The app's cached group list (active groups only), narrowed to what a
+      // plugin needs to label or filter by group.
+      async groups(): Promise<PluginAssetGroup[]> {
+        if (!hasPermission('asset:read')) denied('asset:read');
+        const store = useAssetGroupsStore();
+        const groups = await store.load();
+        // The store swallows a failed load and keeps its last list.
+        if (store.error) throw upstream('failed to list asset groups', store.error);
+        return groups.map((g) => ({ id: g.id, name: g.name, color: g.color ?? null }));
+      },
       async update(id: number, patch: PluginAssetPatch): Promise<Asset | null> {
         if (!hasPermission('asset:write')) denied('asset:write');
         // PUT /assets/{id} ignores `status`, so it would be dropped silently.
@@ -362,8 +401,10 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
             'asset status changes go through the asset lifecycle, which is not available to plugins yet',
           );
         }
+        // Only the `PluginAssetPatch` fields go through; any other key is refused.
+        const body = allowedPatch(patch, ASSET_PATCH_FIELDS, 'asset');
         try {
-          return await updateAsset(id, patch as Partial<Asset>, pluginAttribution);
+          return await updateAsset(id, body as Partial<Asset>, pluginAttribution);
         } catch (error) {
           throw upstream('failed to update asset', error);
         }
@@ -810,6 +851,7 @@ export interface PluginAPI {
     list(): Promise<Asset[]>;
     query(params?: PluginAssetQuery): Promise<PluginAssetPage>;
     kinds(): Promise<PluginAssetKind[]>;
+    groups(): Promise<PluginAssetGroup[]>;
     update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;
   };
 

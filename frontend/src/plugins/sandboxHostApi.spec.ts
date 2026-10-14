@@ -1,6 +1,7 @@
 /**
- * The sandbox host API forwards `ui.*` to the in-process impl, and the dialog
- * calls run on the governor's interactive lane (no 15s timeout).
+ * The sandbox host API forwards `ui.*` and `assets.groups` to the in-process
+ * impl, and the dialog calls run on the governor's interactive lane (no 15s
+ * timeout).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Plugin } from '@nosdesk/core/types/plugin'
@@ -15,10 +16,14 @@ const inprocUi = {
   openRecord: vi.fn(async () => undefined),
   openPage: vi.fn(async () => undefined),
 }
+const inprocAssets = {
+  groups: vi.fn(),
+}
 vi.mock('./api', () => ({
   createPluginAPI: () => ({
-    version: '1.1.0',
+    version: '1.2.0',
     plugin: { uuid: 'u', name: 'n', displayName: 'N', version: '1' },
+    assets: inprocAssets,
     ui: inprocUi,
   }),
 }))
@@ -72,5 +77,17 @@ describe('sandbox host api ui forwarding', () => {
     answer(true)
     await vi.advanceTimersByTimeAsync(0)
     expect(result).toBe(true)
+  })
+})
+
+describe('sandbox host api asset forwarding', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  it('forwards assets.groups and its result', async () => {
+    const groups = [{ id: 4, name: 'Lab', color: '#3b82f6' }]
+    inprocAssets.groups.mockResolvedValue(groups)
+    const { hostApi } = createHostApiImpl({} as Plugin)
+    await expect(hostApi.assets.groups()).resolves.toEqual(groups)
+    expect(inprocAssets.groups).toHaveBeenCalledOnce()
   })
 })

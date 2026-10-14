@@ -39,6 +39,7 @@ export type {
   PluginAssetQuery,
   PluginAssetPage,
   PluginAssetKind,
+  PluginAssetGroup,
   PluginStorageEntry,
   PluginUser,
   PluginUserQuery,

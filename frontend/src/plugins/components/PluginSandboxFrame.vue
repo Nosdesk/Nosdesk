@@ -82,6 +82,10 @@ let unregisterInstance: (() => void) | null = null;
 let inprocApi: PluginAPI | null = null;
 let stopHeight: (() => void) | null = null;
 let connected = false;
+// The context last sent to the guest, serialised. A push that would send the
+// same context is dropped: a guest whose `mount` returns no `update` is
+// re-mounted on every push, losing its DOM and any pending host call.
+let lastPostedContext: string | null = null;
 
 // The bundle token lives ~60s; an iframe reload after expiry (bfcache / crash)
 // re-fetches the bundle with a stale token and 403s. The runtime signals us, and
@@ -142,7 +146,9 @@ function onFrameLoad(): void {
   // sandboxed plugin's `on` handlers (they land on `inproc`, over the bridge).
   unregisterInstance = registerPluginInstance(props.plugin.uuid, inproc);
   bridge = createRemoteHostApi(hostApi);
-  postInit(win, bridge, snapshot(), themeSnapshot());
+  const context = snapshot();
+  lastPostedContext = JSON.stringify(context);
+  postInit(win, bridge, context, themeSnapshot());
   connected = true;
 
   // Size the iframe to the plugin's reported content height.
@@ -197,16 +203,26 @@ onMounted(() => {
 // watching the ref would re-post the whole context (a full JSON clone of the
 // ticket / asset / user bag, per frame) every 150ms for the length of a drag.
 // Watching the bucket means one push per breakpoint crossing.
+// The component is watched by value too: callers pass it as an inline
+// `{ name, slot }` literal, so every parent re-render hands over a new object
+// with the same content. Inside a Modal's slot that happens whenever another
+// dialog opens or closes over it.
 watch(
   [
     () => props.context,
-    () => props.component,
+    () => props.component.name,
+    () => props.component.slot,
     () => props.actionActivated,
     () => layout.value.breakpoint,
   ],
   () => {
     const win = frameRef.value?.contentWindow;
-    if (connected && win) postContext(win, snapshot());
+    if (!connected || !win) return;
+    const context = snapshot();
+    const serialised = JSON.stringify(context);
+    if (serialised === lastPostedContext) return;
+    lastPostedContext = serialised;
+    postContext(win, context);
   },
   { deep: true },
 );
@@ -238,6 +254,7 @@ onBeforeUnmount(() => {
   stopHeight?.();
   stopHeight = null;
   connected = false;
+  lastPostedContext = null;
 });
 </script>
 

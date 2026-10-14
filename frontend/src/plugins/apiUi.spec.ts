@@ -50,8 +50,8 @@ afterEach(() => {
 })
 
 describe('plugin ui dialogs', () => {
-  it('reports runtime API 1.1', () => {
-    expect(api().version).toBe('1.1.0')
+  it('reports runtime API 1.2', () => {
+    expect(api().version).toBe('1.2.0')
   })
 
   it('confirm opens an attributed request and resolves true on confirm', async () => {
@@ -100,12 +100,28 @@ describe('plugin ui dialogs', () => {
   })
 
   it('every picker resolves null on cancel', async () => {
-    const a = api()
-    for (const pick of [() => a.ui.pickUser(), () => a.ui.pickAsset(), () => a.ui.pickTicket(), () => a.ui.pickDate()]) {
-      const p = pick()
+    // A fresh instance each: four dismissals in a row on one would trip the
+    // dismissal-loop guard.
+    const picks = ['pickUser', 'pickAsset', 'pickTicket', 'pickDate'] as const
+    for (const pick of picks) {
+      const p = api().ui[pick]()
       settlePluginDialog((await opened()).id)
       await expect(p).resolves.toBeNull()
     }
+  })
+
+  it('refuses dialogs after the user dismisses three in a row', async () => {
+    const a = api()
+    for (let i = 0; i < 3; i++) {
+      const p = a.ui.pickUser()
+      settlePluginDialog((await opened()).id)
+      await expect(p).resolves.toBeNull()
+    }
+    await expect(a.ui.confirm({ title: 'Again?' })).rejects.toMatchObject({ code: 'denied' })
+    // A remounted instance starts clean.
+    const p = api().ui.pickUser()
+    settlePluginDialog((await opened()).id, { uuid: 'u', name: 'Sam' })
+    await expect(p).resolves.toEqual({ uuid: 'u', name: 'Sam' })
   })
 
   it('pickDate takes a date-only initial and resolves YYYY-MM-DD', async () => {

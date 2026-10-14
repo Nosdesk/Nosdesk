@@ -15,6 +15,11 @@
  * instance goes away (its frame unmounts or reloads) `releaseDialogOwner`
  * closes its dialogs and settles them as cancelled; a released owner can't open
  * new ones.
+ *
+ * An owner that keeps reopening dialogs the user dismisses would trap them, so
+ * three dismissals in a row within 30 seconds block its dialogs for 60 seconds
+ * (or until the plugin remounts, which brings a new owner). A completed pick or
+ * a confirmed dialog resets the count; dialogs closed by an unmount don't count.
  */
 import { shallowRef, computed, type ComputedRef } from 'vue';
 import { PluginApiError } from '@nosdesk/plugin-sdk';
@@ -63,7 +68,18 @@ export interface PluginDialogOwner {
 
 interface OwnerState extends PluginDialogOwner {
   released: boolean;
+  /** When the user dismissed this owner's latest dialogs, in a row. */
+  dismissals: number[];
+  /** Dialogs are refused until this time (ms since epoch), 0 when not blocked. */
+  blockedUntil: number;
 }
+
+/** Consecutive dismissals that block an owner's dialogs. */
+const DISMISSAL_LIMIT = 3;
+/** The dismissals must fall within this window to count as a loop. */
+const DISMISSAL_WINDOW_MS = 30_000;
+/** How long a blocked owner's dialogs are refused. */
+const DISMISSAL_BLOCK_MS = 60_000;
 
 interface Entry {
   request: PluginDialogRequest;
@@ -89,12 +105,14 @@ export const pluginDialogs: ComputedRef<PluginDialogRequest[]> = computed(() =>
 
 /** A fresh owner for one plugin API instance. */
 export function createDialogOwner(): PluginDialogOwner {
-  return { released: false } as OwnerState;
+  const state: OwnerState = { released: false, dismissals: [], blockedUntil: 0 };
+  return state;
 }
 
 /**
  * Open a dialog for `owner` and wait for the user's answer. Throws `invalid`
- * when the owner was released (the plugin instance is no longer mounted).
+ * when the owner was released (the plugin instance is no longer mounted), and
+ * `denied` while the owner is blocked for repeated dismissals.
  */
 export function openPluginDialog<K extends PluginDialogKind>(
   owner: PluginDialogOwner,
@@ -106,6 +124,11 @@ export function openPluginDialog<K extends PluginDialogKind>(
   if (state.released) {
     return Promise.reject(
       new PluginApiError('invalid', 'this plugin instance is no longer mounted, so it cannot open a dialog'),
+    );
+  }
+  if (Date.now() < state.blockedUntil) {
+    return Promise.reject(
+      new PluginApiError('denied', "the user dismissed this plugin's dialogs repeatedly"),
     );
   }
   return new Promise<PluginDialogResults[K]>((resolve) => {
@@ -128,7 +151,23 @@ export function settlePluginDialog(id: number, value?: unknown): void {
   const entry = entries.value.find((e) => e.request.id === id);
   if (!entry) return;
   entries.value = entries.value.filter((e) => e !== entry);
-  entry.settle(value === undefined ? CANCELLED[entry.request.kind] : value);
+  const result = value === undefined ? CANCELLED[entry.request.kind] : value;
+  recordAnswer(entry.owner, result === CANCELLED[entry.request.kind]);
+  entry.settle(result);
+}
+
+/** Count a user dismissal toward the owner's block, or reset on an answer. */
+function recordAnswer(owner: OwnerState, dismissed: boolean): void {
+  if (!dismissed) {
+    owner.dismissals = [];
+    return;
+  }
+  const now = Date.now();
+  owner.dismissals = [...owner.dismissals.filter((t) => now - t < DISMISSAL_WINDOW_MS), now];
+  if (owner.dismissals.length >= DISMISSAL_LIMIT) {
+    owner.blockedUntil = now + DISMISSAL_BLOCK_MS;
+    owner.dismissals = [];
+  }
 }
 
 /**

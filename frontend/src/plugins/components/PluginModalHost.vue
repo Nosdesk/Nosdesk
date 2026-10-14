@@ -25,6 +25,15 @@ const loaded = computed(() => {
 });
 const open = computed(() => !!pluginModal.value && !!loaded.value);
 
+// A computed, not an inline literal in the template: the literal sits in the
+// Modal's slot, which re-renders whenever another dialog stacks over it, and a
+// new object each time would read to the frame as a new component.
+const component = computed(() =>
+  pluginModal.value
+    ? { name: pluginModal.value.componentName, slot: pluginModal.value.slot }
+    : null,
+);
+
 const title = computed(
   () => pluginModal.value?.title ?? loaded.value?.plugin.name ?? t('plugin-modal-title'),
 );
@@ -33,10 +42,10 @@ const title = computed(
 <template>
   <Modal :show="open" :title="title" size="lg" @close="closePluginModal">
     <PluginSandboxFrame
-      v-if="open && pluginModal && loaded"
+      v-if="open && pluginModal && loaded && component"
       :key="`${pluginModal.pluginUuid}:${pluginModal.componentName}`"
       :plugin="loaded.plugin"
-      :component="{ name: pluginModal.componentName, slot: pluginModal.slot }"
+      :component="component"
       :context="pluginModal.context"
     />
   </Modal>
