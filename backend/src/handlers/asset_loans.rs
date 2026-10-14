@@ -110,7 +110,8 @@ pub async fn list_for_asset(
 
 /// Loans issued against a ticket. Visibility-gated by `TicketAccess`, so a
 /// caller who can't read the ticket can't read its loans; a requester shown
-/// no assets gets none.
+/// no assets gets none, and anyone but staff gets them as the asset's ledger
+/// shows them.
 pub async fn list_for_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
     let ticket_id = access.ticket_id;
     let auth = access.auth;
@@ -120,7 +121,10 @@ pub async fn list_for_ticket(mut tc: TenantConn, access: TicketAccess) -> impl R
         }
         repo::list_for_ticket(conn, ticket_id)
     }) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(mut rows) => {
+            strip_staff_loan_fields(&mut rows, &auth);
+            HttpResponse::Ok().json(rows)
+        }
         Err(e) => {
             error!(ticket_id, error = ?e, "failed to list ticket loans");
             errors::internal("Failed to load ticket loans")

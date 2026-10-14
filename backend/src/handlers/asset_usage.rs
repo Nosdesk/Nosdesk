@@ -17,7 +17,7 @@ use tracing::error;
 
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
-use crate::models::NewAssetUsage;
+use crate::models::{AssetUsage, NewAssetUsage};
 use crate::repository::asset_usage as repo;
 use crate::services::notifications::types::{
     NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
@@ -243,6 +243,24 @@ pub async fn record(
     }
 }
 
+/// Usage rows as anyone but staff may see them: the quantities and times,
+/// without the ticket, the notes or who recorded it (unless they did).
+pub(crate) fn strip_staff_usage_fields<'a>(
+    rows: impl IntoIterator<Item = &'a mut AssetUsage>,
+    auth: &AuthContext,
+) {
+    if auth.can_handle_tickets() {
+        return;
+    }
+    for row in rows {
+        row.ticket_id = None;
+        row.notes = None;
+        if row.recorded_by != Some(auth.user_uuid) {
+            row.recorded_by = None;
+        }
+    }
+}
+
 /// An asset's usage history. Staff get every row whole. Anyone else gets the
 /// quantities and times without the ticket, the notes or who recorded it
 /// (unless they did): those belong to tickets the caller may not be able to
@@ -262,15 +280,7 @@ pub async fn list_for_asset(
         repo::list_for_asset(conn, asset_id, limit, offset)
     }) {
         Ok(mut rows) => {
-            if !auth.can_handle_tickets() {
-                for row in &mut rows {
-                    row.ticket_id = None;
-                    row.notes = None;
-                    if row.recorded_by != Some(auth.user_uuid) {
-                        row.recorded_by = None;
-                    }
-                }
-            }
+            strip_staff_usage_fields(&mut rows, &auth);
             HttpResponse::Ok().json(rows)
         }
         Err(diesel::result::Error::NotFound) => {
@@ -284,7 +294,8 @@ pub async fn list_for_asset(
 }
 
 /// Usage recorded against a ticket. Visibility-gated by `TicketAccess`; a
-/// requester shown no assets gets none.
+/// requester shown no assets gets none, and anyone but staff gets the rows
+/// as the asset's history shows them.
 pub async fn list_for_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
     let ticket_id = access.ticket_id;
     let auth = access.auth;
@@ -294,7 +305,10 @@ pub async fn list_for_ticket(mut tc: TenantConn, access: TicketAccess) -> impl R
         }
         repo::list_for_ticket(conn, ticket_id)
     }) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(mut rows) => {
+            strip_staff_usage_fields(&mut rows, &auth);
+            HttpResponse::Ok().json(rows)
+        }
         Err(e) => {
             error!(ticket_id, error = ?e, "failed to list ticket usage");
             errors::internal("Failed to load usage history")
