@@ -353,6 +353,8 @@ pub struct AssetResponse {
     pub model: String,
     pub manufacturer: Option<String>,
     pub location: Option<String>,
+    /// Staff only: left out for anyone else (see `assets_for_viewer`).
+    pub notes: Option<String>,
     pub status: String,
     pub primary_user_uuid: Option<String>,
     pub managed_by_user_uuid: Option<String>,
@@ -430,6 +432,7 @@ impl AssetResponse {
             model: device.model.unwrap_or_default(),
             manufacturer: device.manufacturer,
             location: device.location,
+            notes: device.notes,
             status: device.status,
             primary_user_uuid: device
                 .primary_user_uuid
@@ -501,10 +504,10 @@ fn resolve_asset_user(u: &User, conn: &mut crate::db::DbConnection) -> UserInfo 
     asset_user_info(u, role, email)
 }
 
-/// Assets as `auth` may see them. Staff get them whole. For anyone else the
-/// embedded primary user goes through `sync::user_projection`, as the user
-/// routes do: of someone else, the name and avatar. `body` is one asset, a
-/// list of them, or a page (`data`).
+/// Assets as `auth` may see them. Staff get them whole. Anyone else gets no
+/// notes, and the embedded primary user goes through `sync::user_projection`,
+/// as the user routes do: of someone else, the name and avatar. `body` is one
+/// asset, a list of them, or a page (`data`).
 fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Value {
     let mut body = serde_json::to_value(body).unwrap_or(serde_json::Value::Null);
     if auth.can_handle_tickets() {
@@ -523,6 +526,9 @@ fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Va
             vec![&mut body]
         };
     for asset in assets {
+        if let Some(fields) = asset.as_object_mut() {
+            fields.remove("notes");
+        }
         if let Some(user) = asset.get_mut("primary_user") {
             crate::sync::user_projection::value_for_viewer(user, viewer);
         }
