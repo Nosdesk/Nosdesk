@@ -169,6 +169,10 @@ async fn call(
                         web::get().to(backend::handlers::asset_usage::list_for_ticket),
                     )
                     .route(
+                        "/tickets/{id}/loans",
+                        web::get().to(backend::handlers::asset_loans::list_for_ticket),
+                    )
+                    .route(
                         "/users/{uuid}/profile",
                         web::get().to(backend::handlers::users::get_user_profile_bundle),
                     ),
@@ -704,5 +708,131 @@ async fn asset_notes_stay_with_staff_where_an_asset_is_embedded() {
             sees.then_some("Loan note for staff"),
             "{who}: profile loan's own notes"
         );
+    }
+}
+
+/// Loan, usage and stock count notes reach staff only: on the ticket's loan
+/// and usage lists, the asset's stock counts, and the loan and usage records
+/// the sync delta and live stream carry. The ticket id stays on the synced
+/// records, since the ticket panels key live updates on it.
+#[actix_web::test]
+async fn loan_usage_and_stock_count_notes_stay_with_staff() {
+    use bigdecimal::BigDecimal;
+    use std::str::FromStr;
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    const LOAN_NOTE: &str = "Loan note: charger missing";
+    const USAGE_NOTE: &str = "Usage note: two cables for the boardroom";
+    const AUDIT_NOTE: &str = "Count note: shelf B miscounted";
+    let stock = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        let stock = backend::repository::assets::create_device(
+            c,
+            NewAsset {
+                name: "HDMI cables".to_string(),
+                serial_number: None,
+                manufacturer: None,
+                model: None,
+                location: None,
+                notes: None,
+                primary_user_uuid: None,
+                purchase_date: None,
+                asset_tag: Some("TAG-REQ-STOCK".to_string()),
+                kind: "material".to_string(),
+                attributes: json!({}),
+                quantity: Some(BigDecimal::from(20)),
+                unit: Some("pcs".to_string()),
+                external_sync_source: None,
+                low_stock_threshold: None,
+            },
+        )?
+        .id;
+        backend::repository::asset_usage::record_event(
+            c,
+            backend::models::NewAssetUsage {
+                asset_id: stock,
+                ticket_id: Some(f.ticket),
+                quantity_used: BigDecimal::from(2),
+                unit: "pcs".to_string(),
+                recorded_by: Some(f.agent),
+                notes: Some(USAGE_NOTE.to_string()),
+                event_kind: "usage".to_string(),
+            },
+        )?;
+        backend::repository::asset_audits::record_audit(
+            c,
+            stock,
+            BigDecimal::from_str("17").expect("decimal"),
+            Some(AUDIT_NOTE.to_string()),
+            Some(f.agent),
+        )?;
+        Ok::<_, diesel::result::Error>(stock)
+    })
+    .expect("seed stock, usage and a count");
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::asset_loans::issue(
+            c,
+            backend::repository::asset_loans::IssueLoan {
+                asset_id: f.asset,
+                borrower_user_uuid: f.member,
+                loaned_at: None,
+                due_back: None,
+                ticket_id: Some(f.ticket),
+                notes: Some(LOAN_NOTE.to_string()),
+                actor_uuid: Some(f.agent),
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .expect("loan the asset to the member");
+
+    for (viewer, who, sees) in [(f.member, "member", false), (f.agent, "agent", true)] {
+        let loans = get_json(&f, viewer, &format!("/api/tickets/{}/loans", f.ticket)).await;
+        assert_eq!(
+            notes_of(&loans[0]),
+            sees.then_some(LOAN_NOTE),
+            "{who}: ticket loans: {loans}"
+        );
+
+        let usage = get_json(
+            &f,
+            viewer,
+            &format!("/api/tickets/{}/asset-usage", f.ticket),
+        )
+        .await;
+        assert_eq!(
+            notes_of(&usage[0]),
+            sees.then_some(USAGE_NOTE),
+            "{who}: ticket usage: {usage}"
+        );
+
+        let audits = get_json(&f, viewer, &format!("/api/assets/{stock}/audits")).await;
+        assert_eq!(
+            notes_of(&audits[0]),
+            sees.then_some(AUDIT_NOTE),
+            "{who}: stock counts: {audits}"
+        );
+
+        let (actions, _) = delta(&f, viewer).await;
+        let streamed = stream_rows(&f, viewer).await;
+        for (path, rows) in [("delta", &actions), ("live stream", &streamed)] {
+            for (aggregate, note) in [("asset_loan", LOAN_NOTE), ("asset_usage", USAGE_NOTE)] {
+                let row = rows
+                    .iter()
+                    .find(|r| r["aggregate"] == json!(aggregate))
+                    .unwrap_or_else(|| panic!("{who}: no {aggregate} in the {path}"));
+                assert_eq!(
+                    notes_of(&row["data"]),
+                    sees.then_some(note),
+                    "{who}: {aggregate} in the {path}"
+                );
+                assert_eq!(
+                    row["data"]["ticket_id"],
+                    json!(f.ticket),
+                    "{who}: {aggregate} in the {path} keeps its ticket"
+                );
+            }
+        }
     }
 }
