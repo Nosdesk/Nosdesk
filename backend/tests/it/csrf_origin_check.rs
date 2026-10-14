@@ -23,6 +23,10 @@ fn app() -> App<
             .route("/auth/login", web::post().to(ok))
             .route("/auth/recovery-login", web::post().to(ok))
             .route("/csp-report", web::post().to(ok))
+            .route("/client-errors", web::post().to(ok))
+            .route("/client-errors/", web::post().to(ok))
+            .route("/client-errors/extra", web::post().to(ok))
+            .route("/Client-Errors", web::post().to(ok))
             .route("/tickets", web::post().to(ok))
             .route("/portal/tickets", web::post().to(ok)),
     )
@@ -323,4 +327,59 @@ async fn a_bearer_alongside_a_portal_session_cookie_still_needs_a_csrf_token() {
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(body["code"], "csrf_missing");
+}
+
+/// Browser error reports come from any page (the mobile app has its own
+/// origin) with whatever cookies the browser holds, and carry no CSRF header.
+#[actix_web::test]
+async fn client_error_reports_skip_the_origin_and_csrf_checks() {
+    let session = agent_session();
+    let (status, _) = post(
+        "/api/client-errors",
+        &[
+            ("Host", "app.test"),
+            ("Origin", "tauri://localhost"),
+            ("Cookie", &session),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = post(
+        "/api/client%2Derrors",
+        &[("Host", "app.test"), ("Origin", "https://evil.example")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the decoded path is the exempt one");
+}
+
+/// The exemption is that exact path: a trailing slash, a longer path or
+/// another case is checked like any other write.
+#[actix_web::test]
+async fn the_client_error_exemption_is_exactly_one_path() {
+    let session = agent_session();
+    for path in [
+        "/api/client-errors/",
+        "/api/client-errors/extra",
+        "/api/Client-Errors",
+    ] {
+        let (status, body) = post(
+            path,
+            &[("Host", "app.test"), ("Origin", "https://evil.example")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+        assert_eq!(body["code"], "origin_not_allowed", "{path}");
+
+        let (status, body) = post(
+            path,
+            &[
+                ("Host", "app.test"),
+                ("Origin", "https://app.test"),
+                ("Cookie", &session),
+            ],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+        assert_eq!(body["code"], "csrf_missing", "{path}");
+    }
 }
