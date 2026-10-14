@@ -11,6 +11,7 @@ vi.mock('./pluginNavigation', () => ({ navigateForPlugin }))
 // The real store pulls in the router and every view.
 vi.mock('@/stores/auth', () => ({ useAuthStore: vi.fn() }))
 
+const { useAuthStore } = await import('@/stores/auth')
 const { createPluginAPI } = await import('./api')
 const { pluginDialogs, settlePluginDialog } = await import('./usePluginDialogs')
 
@@ -26,6 +27,8 @@ const plugin = {
       page: { slot: 'nav.item' },
       assetsPage: { slot: 'nav.assets.item' },
       panel: { slot: 'asset.info.panel' },
+      staffPage: { slot: 'nav.item', audience: 'staff' },
+      adminPage: { slot: 'nav.item', audience: 'admin' },
     },
   },
 } as unknown as Plugin
@@ -191,5 +194,21 @@ describe('plugin ui navigation', () => {
       await expect(a.ui.openPage(name)).rejects.toMatchObject({ name: 'PluginApiError:invalid' })
     }
     expect(navigateForPlugin).not.toHaveBeenCalled()
+  })
+
+  it('refuses a page above the viewer\'s audience exactly like a missing one', async () => {
+    vi.mocked(useAuthStore).mockReturnValue({ isTechnician: true, isAdmin: false } as never)
+    const a = api()
+    const hidden = await a.ui.openPage('adminPage').catch((e: unknown) => e)
+    const missing = await a.ui.openPage('nope').catch((e: unknown) => e)
+    expect(hidden).toMatchObject({ name: 'PluginApiError:invalid' })
+    expect((hidden as Error).message).toBe((missing as Error).message)
+    expect(navigateForPlugin).not.toHaveBeenCalled()
+
+    await a.ui.openPage('staffPage')
+    vi.mocked(useAuthStore).mockReturnValue({ isTechnician: true, isAdmin: true } as never)
+    await a.ui.openPage('adminPage')
+    expect(navigateForPlugin.mock.calls.map((c) => c[0].componentName)).toEqual(['staffPage', 'adminPage'])
+    vi.mocked(useAuthStore).mockReset()
   })
 })

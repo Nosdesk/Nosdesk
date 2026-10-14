@@ -13,15 +13,18 @@ import { useFluent } from 'fluent-vue';
 import Modal from '@/components/Modal.vue';
 import PluginSandboxFrame from './PluginSandboxFrame.vue';
 import { pluginModal, closePluginModal } from '../usePluginModal';
-import { getLoadedPlugin } from '../loader';
+import { getLoadedPlugin, isComponentVisible } from '../loader';
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
 
-// Only open for a plugin that's actually loaded (enabled).
+// Only open for a plugin that's actually loaded (enabled), and for a component
+// the viewer may see: one whose `audience` they don't meet never opens, however
+// the request was made.
 const loaded = computed(() => {
   const req = pluginModal.value;
-  return req ? getLoadedPlugin(req.pluginUuid) : undefined;
+  if (!req || !isComponentVisible(req.pluginUuid, req.componentName, req.slot)) return undefined;
+  return getLoadedPlugin(req.pluginUuid);
 });
 const open = computed(() => !!pluginModal.value && !!loaded.value);
 

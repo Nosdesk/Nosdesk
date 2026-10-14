@@ -23,6 +23,7 @@ import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import { useAssetGroupsStore } from '@/stores/assetGroups';
 import { PluginApiError } from '@nosdesk/plugin-sdk';
 import { effectivePermissions } from './permissions';
+import { viewerMeetsAudience } from './audience';
 import { createDialogOwner, openPluginDialog, releaseDialogOwner } from './usePluginDialogs';
 import type {
   PluginUserQuery,
@@ -786,7 +787,13 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
               ? plugin.manifest.components[componentName]
               : undefined
             : undefined;
-        if (!component || !PAGE_SLOTS.has(component.slot)) {
+        // A page above the viewer's `audience` is refused with the same error
+        // as a missing one, so the plugin can't tell hidden from absent.
+        if (
+          !component ||
+          !PAGE_SLOTS.has(component.slot) ||
+          !viewerMeetsAudience(component.audience)
+        ) {
           throw new PluginApiError(
             'invalid',
             'openPage opens only this plugin\'s own nav.item or nav.assets.item components',

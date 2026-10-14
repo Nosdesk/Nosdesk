@@ -13,8 +13,15 @@ import { onSyncActions } from '@nosdesk/core/sync/observers';
 import type { SyncAction } from '@nosdesk/core/sync/types';
 import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
-import type { Plugin, PluginSlot, PluginManifest, SlotChrome } from '@nosdesk/core/types/plugin';
+import type {
+  Plugin,
+  PluginAudience,
+  PluginSlot,
+  PluginManifest,
+  SlotChrome,
+} from '@nosdesk/core/types/plugin';
 import { canonicalSlotName, getSlot } from '@nosdesk/core/types/plugin';
+import { currentViewerTier, meetsAudience } from './audience';
 
 // =============================================================================
 // Types
@@ -34,6 +41,8 @@ export interface PluginSlotRegistration {
   context: string[];
   /** Resolved host chrome: the component's override, else the slot default. */
   chrome: SlotChrome;
+  /** Viewer tier the component is shown to (manifest default `all`). */
+  audience: PluginAudience;
 }
 
 export interface PluginActionRegistration {
@@ -44,6 +53,7 @@ export interface PluginActionRegistration {
   label: string;
   icon?: string;
   componentLabel?: string;
+  audience: PluginAudience;
 }
 
 // =============================================================================
@@ -114,11 +124,11 @@ export async function loadPlugins(): Promise<void> {
 async function loadPlugin(plugin: Plugin): Promise<void> {
   const manifest = plugin.manifest;
 
-  // Store the loaded plugin
-  loadedPlugins.value.set(plugin.uuid, {
-    plugin,
-    manifest,
-  });
+  // Store the loaded plugin. A new Map, not an in-place `set`: this is a
+  // shallowRef, so mutating the Map would not re-run a `getLoadedPlugin`
+  // computed that already read it (a plugin page opened by URL before the
+  // plugins loaded stayed on its not-available state).
+  loadedPlugins.value = new Map(loadedPlugins.value).set(plugin.uuid, { plugin, manifest });
 
   // Register components in slots. v1 only honors `kind === "slot"`
   // (default when omitted); reserved kinds like `admin_page` /
@@ -168,6 +178,7 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
       icon: config.icon,
       context: config.context || [],
       chrome,
+      audience: config.audience ?? 'all',
     };
 
     const existing = slotRegistrations.get(slot) || [];
@@ -187,6 +198,7 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
         // referenced separately by the plugin list views.
         icon: config.icon,
         componentLabel: l10n(config.label),
+        audience: registration.audience,
       };
 
       const existingActions = actionRegistrations.get(slot) || [];
@@ -316,18 +328,45 @@ export function startPluginLifecycleSync(): () => void {
   return lifecycleUnsub;
 }
 
-/**
- * Get all registrations for a slot
- */
-export function getSlotRegistrations(slot: PluginSlot): PluginSlotRegistration[] {
-  return slotRegistrations.get(slot) || [];
+/** Drop contributions whose `audience` the signed-in viewer doesn't meet. The
+ *  auth store is only read when there is something to filter. */
+function visibleToViewer<T extends { audience: PluginAudience }>(regs: readonly T[]): T[] {
+  if (regs.length === 0) return [];
+  if (regs.every((r) => r.audience === 'all')) return [...regs];
+  const viewer = currentViewerTier();
+  return regs.filter((r) => meetsAudience(r.audience, viewer));
 }
 
 /**
- * Get all action registrations for a slot (for the unified "+ Add" menu)
+ * Registrations for a slot that the signed-in viewer may see. Every host
+ * surface reads contributions through this (or `getActionRegistrations`), so
+ * `audience` is applied in one place; the raw `slotRegistrations` map is
+ * unfiltered. Reactive to both the registrations and the viewer's role.
+ */
+export function getSlotRegistrations(slot: PluginSlot): PluginSlotRegistration[] {
+  return visibleToViewer(slotRegistrations.get(slot) ?? []);
+}
+
+/**
+ * Action registrations for a slot (for the unified "+ Add" menu), filtered by
+ * `audience` like `getSlotRegistrations`.
  */
 export function getActionRegistrations(slot: PluginSlot): PluginActionRegistration[] {
-  return actionRegistrations.get(slot) || [];
+  return visibleToViewer(actionRegistrations.get(slot) ?? []);
+}
+
+/** True when the viewer may see this plugin component in `slot`. For surfaces
+ *  opened by name rather than from a listed contribution (the plugin modal). */
+export function isComponentVisible(
+  pluginUuid: string,
+  componentName: string,
+  slot: string,
+): boolean {
+  const canonical = canonicalSlotName(slot);
+  if (!canonical) return false;
+  return getSlotRegistrations(canonical).some(
+    (r) => r.pluginUuid === pluginUuid && r.componentName === componentName,
+  );
 }
 
 /**

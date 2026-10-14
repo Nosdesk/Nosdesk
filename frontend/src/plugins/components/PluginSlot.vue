@@ -7,7 +7,7 @@
  * a typed `context` bag, and provides the resolved slot name to descendants.
  */
 import { computed, provide } from 'vue';
-import { slotRegistrations } from '../loader';
+import { getSlotRegistrations } from '../loader';
 import type { PluginSlotContext } from '../context';
 import { canonicalSlotName } from '@nosdesk/core/types/plugin';
 import type { PluginSlot, AnySlotName } from '@nosdesk/core/types/plugin';
@@ -27,9 +27,10 @@ const props = defineProps<{
 }>();
 
 // Registrations are keyed by canonical name; normalize an alias-passed target.
+// The getter already drops components whose `audience` the viewer doesn't meet.
 const canonical = computed(() => canonicalSlotName(props.target) ?? props.target);
 const registrations = computed(() => {
-  const all = slotRegistrations.get(canonical.value as PluginSlot) ?? [];
+  const all = getSlotRegistrations(canonical.value as PluginSlot);
   return props.pluginUuid ? all.filter((r) => r.pluginUuid === props.pluginUuid) : all;
 });
 

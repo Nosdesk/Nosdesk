@@ -310,6 +310,28 @@ pub struct PluginComponentConfig {
     /// full-bleed content (a map, a media surface) that a card would frame
     /// wrongly. Rejected on `action` slots, which have no iframe to wrap.
     pub chrome: Option<PluginComponentChrome>,
+
+    /// Who the host shows this component to. Omitted means `all`. A viewer
+    /// below the audience gets no slot panel, nav link, action or plugin page
+    /// for it. This is a visibility setting, not a security boundary: the
+    /// plugin's permissions are enforced on the client bridge and the
+    /// viewer's own API permissions still apply to every call it makes.
+    #[serde(default)]
+    pub audience: PluginComponentAudience,
+}
+
+/// Viewer tier a component is shown to. Mirrors the TS `PluginAudience`.
+/// An unknown value fails manifest parsing, naming the accepted values.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginComponentAudience {
+    /// Everyone who can reach the surface, requesters included.
+    #[default]
+    All,
+    /// Workspace agents and up (the backend `can_handle_tickets` tier).
+    Staff,
+    /// Workspace admins and owners.
+    Admin,
 }
 
 /// Host chrome around a panel contribution. Mirrors the TS `SlotChrome`.

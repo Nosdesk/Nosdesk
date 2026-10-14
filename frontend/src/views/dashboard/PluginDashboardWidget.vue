@@ -24,12 +24,16 @@ const props = defineProps<{
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
 
-const loaded = computed(() => getLoadedPlugin(props.pluginUuid));
-
 const registration = computed(() =>
   getSlotRegistrations('dashboard.widget').find(
     (r) => r.pluginUuid === props.pluginUuid && r.componentName === props.componentName,
   ),
+);
+
+// A widget pinned before its component was limited to a higher `audience`
+// has no registration for this viewer; treat it like an unloaded plugin.
+const loaded = computed(() =>
+  registration.value ? getLoadedPlugin(props.pluginUuid) : undefined,
 );
 
 const title = computed(

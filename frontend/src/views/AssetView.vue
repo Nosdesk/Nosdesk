@@ -1066,7 +1066,7 @@ useSyncActions(
             <PluginSlot target="asset.info.panel" :context="{ asset: device }" />
           </div>
 
-          <!-- Rail: groups + record metadata (small, secondary facts). -->
+          <!-- Rail: groups, plugin cards (asset.rail.panel) and record metadata (small, secondary facts). -->
           <aside class="asset-rail">
             <AssetGroupEditor
               :asset-id="device.id"
@@ -1074,6 +1074,8 @@ useSyncActions(
               :editable="isEditable"
               @update:groups="(groups) => { if (device) device.asset_groups = groups }"
             />
+
+            <PluginSlot target="asset.rail.panel" :context="{ asset: device }" />
 
             <!-- Directory (Intune/Entra) memberships, read-only. -->
             <DeviceGroups v-if="device.groups?.length" :groups="device.groups" />
