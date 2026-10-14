@@ -25,13 +25,14 @@ import type { ChipFacetDef } from '@/composables/useChipFiltersFromControls'
 import type { GroupAxisDef } from '@/composables/useListGrouping'
 import { useAuthStore } from '@/stores/auth'
 
-import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
+import { TextCell, StatusBadgeCell } from '@/components/common/cells'
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
 import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
 import CreateRolloutModal from '@/components/assets/CreateRolloutModal.vue'
 import AssetMobileRow from '@/components/assets/AssetMobileRow.vue'
 import AssetPlanningMobile from '@/components/assets/AssetPlanningMobile.vue'
 import AssetAttributeCell from '@/components/assets/AssetAttributeCell.vue'
+import AssetUsedByCell from '@/components/assets/AssetUsedByCell.vue'
 import AssetBorrowerCell from '@/components/assets/AssetBorrowerCell.vue'
 import AssetLastStatusChangeCell from '@/components/assets/AssetLastStatusChangeCell.vue'
 import { attributeColumnDefs, isAttributeColumn } from '@/utils/assetAttributeColumns'
@@ -775,18 +776,7 @@ async function exportAssetsCsv(scope?: 'history') {
         </template>
 
         <template #cell-primary_user="{ item }">
-          <!-- `xs` (20px), not the default `sm` (24px): a compact row's
-               content box is exactly 24px, so `sm` sits flush with no
-               margin for error. -->
-          <UserAvatarCell
-            v-if="item.primary_user"
-            :user-id="item.primary_user.uuid"
-            :user-name="item.primary_user.name"
-            :avatar="item.primary_user.avatar_thumb || item.primary_user.avatar_url"
-            size="xs"
-            :show-name="true"
-          />
-          <span v-else class="text-xs text-tertiary">{{ $t('assets-list-unassigned') }}</span>
+          <AssetUsedByCell :primary-user="item.primary_user" :loan="item.current_loan" />
         </template>
 
         <template #cell-quantity="{ item }">

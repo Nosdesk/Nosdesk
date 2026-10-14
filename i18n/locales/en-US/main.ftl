@@ -2908,6 +2908,8 @@ assets-list-borrower-unknown = Loaned
 assets-list-borrower-unknown-title = On loan to an account that no longer exists
 assets-list-borrower-title = Loaned { $loaned }
 assets-list-borrower-title-due = Loaned { $loaned }, due back { $due }
+assets-list-user-on-loan-title = On loan to { $name }
+assets-list-user-assigned-title = Assigned to { $name }
 assets-list-status-changed-by = { $when } by { $name }
 assets-list-status-changed-reason = Reason: { $reason }
 
@@ -4911,16 +4913,16 @@ asset-status-disposed = Disposed
 asset-status-unknown = Unknown
 
 # Asset lifecycle panel.
-asset-lifecycle-heading = Lifecycle
+asset-lifecycle-heading = Status history
 asset-lifecycle-description = Track operational status changes such as repairs, loans, and retirement.
 asset-lifecycle-current-label = Current status
 asset-lifecycle-change-status = Change status
 asset-lifecycle-disposed-final = Disposal is final
-asset-lifecycle-managed-by-loan = Managed by the active loan
+asset-state-label = Current state
+asset-state-since = Since { $date }
 
 # Asset loans
 asset-loan-heading = Loans
-asset-loan-description = Loan this device to someone temporarily and track its return.
 asset-loan-loan-out = Loan out
 asset-loan-return = Return
 asset-loan-borrower = Borrower
@@ -4947,9 +4949,6 @@ asset-loan-return-title = Return device
 asset-loan-return-body = Return this device from { $name }?
 asset-loan-return-notes = Return notes (optional)
 asset-loan-cancel = Cancel
-asset-loan-not-loanable = This device can only be loaned out while it's in service or in stock.
-asset-loan-empty-title = No loans yet
-asset-loan-empty-description = Loan this device out to track who has it and when it's due back.
 asset-loan-history = Loan history
 asset-loan-loaned-relative = Loaned { $when }
 asset-loan-ticket = Ticket #{ $id }

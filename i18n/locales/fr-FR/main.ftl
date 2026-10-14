@@ -2855,6 +2855,10 @@ assets-list-borrower-unknown = Prêté
 assets-list-borrower-unknown-title = Prêté à un compte qui n'existe plus
 assets-list-borrower-title = Prêté le { $loaned }
 assets-list-borrower-title-due = Prêté le { $loaned }, retour prévu le { $due }
+# MT: pending native review
+assets-list-user-on-loan-title = Prêté à { $name }
+# MT: pending native review
+assets-list-user-assigned-title = Attribué à { $name }
 assets-list-status-changed-by = { $when } par { $name }
 assets-list-status-changed-reason = Motif : { $reason }
 
@@ -4883,18 +4887,18 @@ asset-status-lost = Perdu
 asset-status-disposed = Éliminé
 asset-status-unknown = Inconnu
 
-asset-lifecycle-heading = Cycle de vie
+asset-lifecycle-heading = Historique des statuts
 asset-lifecycle-description = Suivez les changements de statut opérationnel tels que les réparations, les prêts et la mise hors service.
 asset-lifecycle-current-label = Statut actuel
 asset-lifecycle-change-status = Changer le statut
 # MT: pending native review
 asset-lifecycle-disposed-final = La mise au rebut est définitive
 # MT: pending native review
-asset-lifecycle-managed-by-loan = Géré par le prêt en cours
+asset-state-label = État actuel
+# MT: pending native review
+asset-state-since = Depuis le { $date }
 # MT: pending native review
 asset-loan-heading = Prêts
-# MT: pending native review
-asset-loan-description = Prêtez temporairement cet appareil à quelqu'un et suivez son retour.
 # MT: pending native review
 asset-loan-loan-out = Prêter
 # MT: pending native review
@@ -4936,12 +4940,6 @@ asset-loan-return-body = Retourner cet appareil de { $name } ?
 asset-loan-return-notes = Notes de retour (facultatif)
 # MT: pending native review
 asset-loan-cancel = Annuler
-# MT: pending native review
-asset-loan-not-loanable = Cet appareil ne peut être prêté que lorsqu'il est en service ou en stock.
-# MT: pending native review
-asset-loan-empty-title = Aucun prêt pour l'instant
-# MT: pending native review
-asset-loan-empty-description = Prêtez cet appareil pour suivre qui le détient et quand il doit être rendu.
 # MT: pending native review
 asset-loan-history = Historique des prêts
 # MT: pending native review

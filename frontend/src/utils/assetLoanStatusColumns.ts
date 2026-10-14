@@ -6,6 +6,7 @@
 import type { AssetCurrentLoan, AssetLatestLifecycle } from '@nosdesk/core/types/asset'
 import { formatCompactDate, formatDate, formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import { assetStatusLabel, lifecycleTransitionLabel } from '@/utils/assetStatusMeta'
+import { loanDaysLeft } from '@/components/assets/loanDue'
 
 type Translate = (key: string, args?: Record<string, string>) => string
 
@@ -23,17 +24,57 @@ export function borrowerCell(
   loan: AssetCurrentLoan | null | undefined,
 ): BorrowerCell {
   if (!loan) return { kind: 'none' }
-  const loaned = formatDate(loan.loaned_at)
-  // A due date is a calendar day; format it in UTC so it can't shift.
-  const title = loan.due_back
-    ? t('assets-list-borrower-title-due', { loaned, due: formatDate(loan.due_back, 'date', 'UTC') })
-    : t('assets-list-borrower-title', { loaned })
+  const title = loanDates(t, loan)
   if (loan.borrower_user_uuid && loan.borrower_name) {
     // The name leads the title: a narrow column truncates it.
     const named = `${loan.borrower_name}\n${title}`
     return { kind: 'user', uuid: loan.borrower_user_uuid, name: loan.borrower_name, title: named }
   }
   return { kind: 'unknown', title: `${t('assets-list-borrower-unknown-title')}\n${title}` }
+}
+
+/** "Loaned 1 Oct 2026, due back 1 Dec 2026", or without the due date. */
+function loanDates(t: Translate, loan: AssetCurrentLoan): string {
+  const loaned = formatDate(loan.loaned_at)
+  // A due date is a calendar day; format it in UTC so it can't shift.
+  return loan.due_back
+    ? t('assets-list-borrower-title-due', { loaned, due: formatDate(loan.due_back, 'date', 'UTC') })
+    : t('assets-list-borrower-title', { loaned })
+}
+
+export type UsedByCell =
+  | { kind: 'unassigned' }
+  | { kind: 'user'; uuid: string; name: string }
+  /** Out on loan: the borrower has it, whoever it's assigned to. A null
+   *  uuid is a borrower whose account is gone. */
+  | { kind: 'loan'; uuid: string | null; name: string | null; overdue: boolean; title: string }
+
+/** What the Used by cell shows: while an asset is on loan, the borrower,
+ *  since they're the one using it; otherwise the assigned user. The title
+ *  gives the loan dates and, during a loan, who the asset is assigned to. */
+export function usedByCell(
+  t: Translate,
+  primaryUser: { uuid: string; name: string } | null | undefined,
+  loan: AssetCurrentLoan | null | undefined,
+): UsedByCell {
+  if (!loan) {
+    return primaryUser ? { kind: 'user', uuid: primaryUser.uuid, name: primaryUser.name } : { kind: 'unassigned' }
+  }
+  const named = !!(loan.borrower_user_uuid && loan.borrower_name)
+  const lines = [
+    named
+      ? t('assets-list-user-on-loan-title', { name: loan.borrower_name! })
+      : t('assets-list-borrower-unknown-title'),
+    loanDates(t, loan),
+  ]
+  if (primaryUser) lines.push(t('assets-list-user-assigned-title', { name: primaryUser.name }))
+  return {
+    kind: 'loan',
+    uuid: named ? loan.borrower_user_uuid : null,
+    name: named ? loan.borrower_name : null,
+    overdue: (loanDaysLeft(loan) ?? 0) < 0,
+    title: lines.join('\n'),
+  }
 }
 
 export interface LastStatusChangeCell {
