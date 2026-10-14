@@ -57,16 +57,19 @@ const hasActiveLoan = computed(() =>
   (loansQuery.data.value ?? []).some((l) => !l.returned_at),
 );
 // Prior ITAD vendors for the disposal-form suggestions datalist (cached
-// workspace-wide; a new vendor can still be typed).
+// workspace-wide; a new vendor can still be typed). Staff only, as the form is.
 const itadVendorsQuery = useQuery({
   key: () => assetLifecycleKeys.itadVendors,
   query: () => assetLifecycleService.listItadVendors(),
+  enabled: () => !!props.canEdit,
 });
 const itadVendors = computed<string[]>(() =>
   Array.isArray(itadVendorsQuery.data.value) ? itadVendorsQuery.data.value : [],
 );
 // The disposal record (method, vendor, notes), fetched once the asset is
-// disposed so its details are visible in the asset view.
+// disposed so its details are visible in the asset view. Anyone but staff
+// gets the method and data-bearing flag, without vendor, notes or
+// certificate.
 const disposalQuery = useQuery({
   key: () => assetLifecycleKeys.disposal(props.assetId),
   query: () => assetLifecycleService.getDisposal(props.assetId),

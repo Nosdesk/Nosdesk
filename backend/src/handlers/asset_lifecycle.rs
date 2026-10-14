@@ -13,7 +13,7 @@ use tracing::error;
 
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::models::{AssetLifecycleEvent, AssetStatus, SANITIZATION_METHODS};
+use crate::models::{AssetDisposal, AssetLifecycleEvent, AssetStatus, SANITIZATION_METHODS};
 use crate::repository::{
     asset_lifecycle::{self as repo, DisposalInput, TransitionError, TransitionInput},
     assets as assets_repo,
@@ -65,6 +65,20 @@ pub(crate) fn strip_staff_lifecycle_fields<'a>(
         event.ticket_id = None;
         event.metadata = json!({});
     }
+}
+
+/// A disposal record as anyone but staff may see it: that the asset was
+/// disposed, when, how it was sanitised and whether it held data, as the
+/// asset page shows them. The notes, the ITAD vendor, the certificate and who
+/// recorded it stay with staff.
+pub(crate) fn strip_staff_disposal_fields(disposal: &mut AssetDisposal, auth: &AuthContext) {
+    if auth.can_handle_tickets() {
+        return;
+    }
+    disposal.notes = None;
+    disposal.itad_vendor = None;
+    disposal.certificate_file_id = None;
+    disposal.actor_uuid = None;
 }
 
 /// An asset's lifecycle timeline. Staff get every event whole; anyone else
@@ -182,7 +196,8 @@ fn map_transition_err(asset_id: i32, e: TransitionError) -> HttpResponse {
 }
 
 /// GET the disposal record for an asset (`None` -> 404). Read on demand for the
-/// asset detail + the record-card export; disposal detail is not synced.
+/// asset detail; disposal detail is not synced. Anyone but staff gets it
+/// through [`strip_staff_disposal_fields`].
 pub async fn get_disposal(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -194,7 +209,10 @@ pub async fn get_disposal(
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::disposal_for_asset(conn, asset_id)
     }) {
-        Ok(Some(d)) => HttpResponse::Ok().json(d),
+        Ok(Some(mut d)) => {
+            strip_staff_disposal_fields(&mut d, &auth);
+            HttpResponse::Ok().json(d)
+        }
         Ok(None) => errors::not_found_msg(format!("Asset {asset_id} has no disposal record")),
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))
@@ -207,10 +225,11 @@ pub async fn get_disposal(
 }
 
 /// GET distinct ITAD vendors previously entered, for the disposal-form
-/// suggestions. Any authenticated workspace member.
+/// suggestions. Staff only, as the disposal form and a record's vendor are:
+/// anyone else gets an empty list.
 pub async fn list_itad_vendors(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     match tc.run(|conn| {
-        if crate::handlers::assets::assets_hidden_from(conn, &auth) {
+        if !auth.can_handle_tickets() {
             return Ok(Vec::new());
         }
         repo::list_itad_vendors(conn)

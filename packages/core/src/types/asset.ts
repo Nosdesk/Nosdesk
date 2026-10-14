@@ -152,8 +152,8 @@ export interface AssetLifecycleEvent {
   occurred_at: string;
 }
 
-/** A device loan: an asset in a borrower's custody for a span. Active while
- * `returned_at` is null; overdue while active and `due_back` is in the past. */
+/** An asset's disposal record. `itad_vendor`, `notes`, `certificate_file_id`
+ *  and `actor_uuid` are staff only: null for anyone else. */
 export interface AssetDisposal {
   id: number;
   asset_id: number;
@@ -168,6 +168,8 @@ export interface AssetDisposal {
   occurred_at: string;
 }
 
+/** A device loan: an asset in a borrower's custody for a span. Active while
+ * `returned_at` is null; overdue while active and `due_back` is in the past. */
 export interface AssetLoan {
   id: number;
   asset_id: number;
