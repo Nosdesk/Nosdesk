@@ -25,6 +25,9 @@ import { EditorView } from "prosemirror-view";
 import { EditorState, Selection, type Command } from "prosemirror-state";
 import { schema } from "@/components/editor/schema";
 import { useAuthStore } from "@/stores/auth";
+import { useMobileDetection } from "@/composables/useMobileDetection";
+import { useToolbarDock } from "@/composables/useToolbarDock";
+import { useVisualViewport } from "@/composables/useVisualViewport";
 import UserAvatar from "./UserAvatar.vue";
 import LinkTooltip from "./editor/LinkTooltip.vue";
 import RevisionHistory from "./editor/RevisionHistory.vue";
@@ -123,10 +126,17 @@ interface Props {
     hideRevisionHistory?: boolean;
     /** Show the document without offering to edit it (a merged ticket's notes). */
     readonly?: boolean;
+    /**
+     * On a phone, hide the inline toolbar and dock it on the on-screen
+     * keyboard while the editor has focus (the documentation page). Off by
+     * default so ticket notes keep their inline toolbar.
+     */
+    dockToolbarOnMobile?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
-    hideRevisionHistory: false
+    hideRevisionHistory: false,
+    dockToolbarOnMobile: false,
 });
 
 // Get auth store for user info
@@ -383,6 +393,52 @@ const typeButtonRef = ref<HTMLElement | null>(null);
 const insertButtonRef = ref<HTMLElement | null>(null);
 const showTypeMenu = ref(false);
 const showInsertMenu = ref(false);
+
+// Keyboard-docked toolbar (phones, hosts that opt in). While docked the
+// toolbar is teleported to #overlays: `.collaborative-editor` is a size
+// container with overflow hidden, so a fixed child would pin to the editor
+// box and clip. The keyboard height comes from the visual viewport, the same
+// mechanism the global search input uses.
+const { isMobile } = useMobileDetection('sm');
+const editorFocused = ref(false);
+// A menu choice closes a modal sheet, which hands focus back to its trigger
+// before the command refocuses the editor; hold the dock through that gap.
+const refocusPending = ref(false);
+const toolbarDocked = useToolbarDock({
+    enabled: () => props.dockToolbarOnMobile,
+    mobile: isMobile,
+    canEdit,
+    focused: editorFocused,
+    menuOpen: () => showTypeMenu.value || showInsertMenu.value || refocusPending.value,
+});
+const { keyboardHeight } = useVisualViewport(toolbarDocked);
+const DOCKED_TOOLBAR_HEIGHT = 48;
+
+// ProseMirror scrolls the selection into view itself and ignores CSS
+// scroll-padding, so the dock plus keyboard are handed to it as a margin.
+watch([toolbarDocked, keyboardHeight], ([docked, kb]) => {
+    editorView?.setProps({
+        scrollMargin: docked ? { top: 5, right: 5, left: 5, bottom: DOCKED_TOOLBAR_HEIGHT + kb + 8 } : 5,
+    });
+});
+
+// A docked toolbar tap must not take focus from the contenteditable, or iOS
+// drops the keyboard and reopens it after the command refocuses.
+const onToolbarMousedown = (event: MouseEvent) => {
+    if (toolbarDocked.value) event.preventDefault();
+};
+const dismissKeyboard = () => {
+    editorView?.dom.blur();
+};
+const refocusAfterMenu = () => {
+    if (!toolbarDocked.value) return;
+    refocusPending.value = true;
+    // After the sheet has closed and restored focus to its trigger.
+    setTimeout(() => {
+        editorView?.focus();
+        refocusPending.value = false;
+    }, 50);
+};
 const typeMenuAnchor = computed(() => ({ type: 'element' as const, element: () => typeButtonRef.value }));
 const insertMenuAnchor = computed(() => ({ type: 'element' as const, element: () => insertButtonRef.value }));
 
@@ -989,6 +1045,16 @@ const initEditor = async () => {
                 image: (node, view, getPos) =>
                     new ImageNodeView(node, view, getPos, { t }),
             },
+            handleDOMEvents: {
+                focus: () => {
+                    editorFocused.value = true;
+                    return false;
+                },
+                blur: () => {
+                    editorFocused.value = false;
+                    return false;
+                },
+            },
         });
 
         // Initial mention users pre-warm via the composable's
@@ -1345,6 +1411,7 @@ const typeMenuItems = computed<MenuItem[]>(() => [
 ]);
 
 const onTypeMenuSelect = (id: string) => {
+    refocusAfterMenu();
     showTypeMenu.value = false;
     if (id === 'paragraph') setParagraph();
     else if (id.startsWith('heading-')) setHeading(Number(id.slice('heading-'.length)));
@@ -1364,6 +1431,8 @@ const insertMenuItems = computed<MenuItem[]>(() => [
 ]);
 
 const onInsertMenuSelect = (id: string) => {
+    // The pickers and the link prompt take focus on purpose.
+    if (['bullet-list', 'ordered-list', 'blockquote', 'code-block'].includes(id)) refocusAfterMenu();
     showInsertMenu.value = false;
     if (id === 'bullet-list') toggleBulletList();
     else if (id === 'ordered-list') toggleOrderedList();
@@ -1982,14 +2051,26 @@ defineExpose({
     getTextContent,
     replaceAllWithEmbeddedDocument,
     isHeldBy,
+    // The host hides its own bottom chrome while the toolbar is on the keyboard.
+    toolbarDocked,
 });
 </script>
 
 <template>
     <div class="collaborative-editor">
         <!-- Toolbar. Inert while a revision is on screen: its commands dispatch
-             straight to the live view, which is hidden under the overlay. -->
-        <div v-if="canEdit" class="toolbar" :inert="isViewingRevision" :class="{ 'toolbar-inert': isViewingRevision }">
+             straight to the live view, which is hidden under the overlay.
+             Docked on the keyboard it lives in #overlays (see toolbarDocked). -->
+        <Teleport to="#overlays" :disabled="!toolbarDocked" defer>
+        <div
+            v-if="canEdit"
+            class="toolbar"
+            role="toolbar"
+            :aria-label="$t('editor-toolbar-label')"
+            :inert="isViewingRevision"
+            :class="{ 'toolbar-inert': isViewingRevision, 'toolbar-dockable': dockToolbarOnMobile, 'toolbar-docked': toolbarDocked }"
+            @mousedown="onToolbarMousedown"
+        >
             <!-- Type Dropdown -->
             <div class="relative">
                 <button
@@ -2259,9 +2340,10 @@ defineExpose({
             <!-- Spacer to push connection controls to right -->
             <div class="flex-grow"></div>
 
-            <!-- Connected users -->
+            <!-- Connected users. Not on the docked bar: the host's meta line
+                 carries the live indicator there. -->
             <div
-                v-if="connectedUsers.length > 0"
+                v-if="connectedUsers.length > 0 && !toolbarDocked"
                 class="flex items-center gap-1 mr-2"
             >
                 <div class="text-xs text-tertiary mr-1">{{ $t('editor-toolbar-editing-with') }}</div>
@@ -2290,16 +2372,23 @@ defineExpose({
             </div>
 
             <!-- Connection status indicator - v-show prevents layout shift on initial load -->
-            <div v-show="connectionBadge === 'connecting'" class="connection-status-connecting">
+            <div v-show="!toolbarDocked && connectionBadge === 'connecting'" class="connection-status-connecting">
                 {{ $t('editor-toolbar-connection-connecting') }}
             </div>
-            <div v-show="connectionBadge === 'reconnecting'" class="connection-status-connecting">
+            <div v-show="!toolbarDocked && connectionBadge === 'reconnecting'" class="connection-status-connecting">
                 {{ $t('editor-toolbar-connection-reconnecting') }}
             </div>
-            <div v-show="connectionBadge === 'disconnected'" class="connection-status-disconnected">
+            <div v-show="!toolbarDocked && connectionBadge === 'disconnected'" class="connection-status-disconnected">
                 {{ disconnectedLabel }}
             </div>
+
+            <!-- Docked only: dismiss the keyboard. Sticky at the right edge
+                 so it stays put while the row scrolls. -->
+            <button v-if="toolbarDocked" type="button" class="toolbar-done" @click="dismissKeyboard">
+                {{ $t('editor-toolbar-done') }}
+            </button>
         </div>
+        </Teleport>
 
         <!-- Editor content with click handler -->
         <div ref="editorWrapper" class="editor-wrapper">
@@ -2502,6 +2591,67 @@ defineExpose({
     flex-shrink: 0;
     background-color: var(--color-default);
     margin: 0 0.5rem;
+}
+
+/* Keyboard-docked toolbar (phones, hosts that opt in via
+   dockToolbarOnMobile). Inline it is hidden; docked it is a fixed bar at
+   the bottom of the layout viewport, translated up by the keyboard height
+   the visual viewport reports (no transition: the var tracks the keyboard
+   animation frame by frame). The safe-area inset only applies while no
+   keyboard is up (a hardware keyboard); with one up the max() collapses
+   to the base padding. */
+@media (max-width: 639px) {
+    .toolbar-dockable:not(.toolbar-docked) {
+        display: none;
+    }
+}
+
+.toolbar-docked {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-header);
+    transform: translateY(calc(-1 * var(--keyboard-height, 0px)));
+    will-change: transform;
+    min-height: 48px;
+    gap: 0.25rem;
+    padding: 2px 0.5rem;
+    padding-bottom: max(2px, calc(env(safe-area-inset-bottom) - var(--keyboard-height, 0px)));
+    border-bottom: 0;
+    border-top: 1px solid var(--color-default);
+}
+
+.toolbar-docked .toolbar-button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+}
+
+.toolbar-docked .toolbar-button svg {
+    width: 20px;
+    height: 20px;
+}
+
+.toolbar-docked .toolbar-divider {
+    margin: 0 0.125rem;
+}
+
+.toolbar-done {
+    position: sticky;
+    right: 0;
+    margin-left: auto;
+    flex-shrink: 0;
+    min-height: 44px;
+    padding: 0 0.75rem;
+    background-color: var(--color-surface);
+    border: 0;
+    border-left: 1px solid var(--color-default);
+    color: var(--color-accent);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
 }
 
 /* Density tiers: as the editor narrows, tighten the toolbar's gaps,

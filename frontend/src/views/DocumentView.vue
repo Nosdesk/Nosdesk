@@ -34,6 +34,10 @@ import apiClient from '@nosdesk/core/apiClient'
 import { useAuthStore } from '@/stores/auth'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { useCollabSessionStore, type ConnectionStatus } from '@/stores/collabSession'
+import { useMobileDetection } from '@/composables/useMobileDetection'
+import { HEADER_ACTION_SLOT_ID, useHeaderActionSlot } from '@/composables/useHeaderActionSlot'
+import { useViewBackFallback } from '@/router/navigation'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 
 const route = useRoute()
 const router = useRouter()
@@ -49,6 +53,13 @@ const scrollEl = ref<HTMLElement | null>(null)
 const authStore = useAuthStore()
 const docNavStore = useDocumentationNavStore()
 const { copied: copiedLink, copy: copyToClipboard } = useClipboard()
+const toast = useToastStore()
+
+// Below `sm` the page has one pinned bar (the app bar): its own toolbar
+// goes, the actions menu moves into the app bar's trailing slot, the title
+// is edited in the app bar only, and a draft gets a publish strip above the
+// tab bar. Desktop is untouched.
+const { isMobile } = useMobileDetection('sm')
 
 // Use shared documentation composable
 const {
@@ -132,6 +143,15 @@ const handleCopyLink = () => {
   copyToClipboard(url)
 }
 
+// From the menu the sheet closes on select, so the toolbar button's icon
+// swap is not there to confirm it.
+const handleCopyLinkFromMenu = () => {
+  handleCopyLink()
+  toast.success(t('doc-detail-copied'))
+}
+
+const canEditPage = computed(() => authStore.isTechnician || authStore.isAdmin)
+
 // Emits
 const emit = defineEmits<{
   (e: 'update:title', title: string): void
@@ -183,8 +203,53 @@ const docId = computed(() => {
 
 // Navigation helpers
 const fallbackRoute = computed(() => '/documentation')
+// The app bar's back chevron on a cold start or deep link, where there is
+// no in-app history to pop.
+useViewBackFallback(fallbackRoute)
+// Mobile: the actions menu takes the app bar's trailing slot (the avatar
+// steps aside on this page).
+useHeaderActionSlot(() => isMobile.value && isDocumentPage.value)
 
 const backButtonLabel = computed(() => t('doc-detail-back-to-documentation'))
+
+// Everything the actions menu needs, in one place: the desktop toolbar and
+// the app-bar teleport render the same component from it.
+const actionsMenuBindings = computed(() => ({
+  pageId: document.value?.id || '',
+  pageTitle: editTitle.value || document.value?.title || '',
+  pageSlug: document.value?.slug || '',
+  pageStatus: document.value?.status || 'draft',
+  showPermissions: authStore.isAdmin,
+  isSubscribed: isSubscribed.value,
+  onDelete: handleDeletePage,
+  onDuplicate: handleDuplicatePage,
+  onArchive: handleArchivePage,
+  onRestore: handleRestorePage,
+  onPublish: handlePublishPage,
+  onUnpublish: handleUnpublishPage,
+  onMove: () => { showMoveModal.value = true },
+  onExport: exportAsMarkdown,
+  onCollections: () => { showCollectionManager.value = true },
+  onPermissions: () => { showPermissionsModal.value = true },
+  onSubscribe: handleSubscribe,
+  onUnsubscribe: handleUnsubscribe,
+  onInsights: () => docPanel.open('insights'),
+  onHistory: () => docPanel.open('history'),
+  onVerify: () => { verificationOpen.value = true },
+}))
+
+// Draft strip: the one place to publish on a phone. Outside the scroller,
+// above the tab bar, drafts only, and only while the keyboard-docked
+// toolbar is not using that edge.
+const pendingStatus = ref<string | null>(null)
+const isPublishing = computed(() => pendingStatus.value === 'published')
+const editorToolbarDocked = computed(() => !!editorRef.value?.toolbarDocked)
+// Whether the strip is this reader's draft indicator at all (a reader who
+// cannot publish keeps the chip in the meta line instead).
+const draftStripOwned = computed(
+  () => isMobile.value && document.value?.status === 'draft' && canEditPage.value,
+)
+const showDraftStrip = computed(() => draftStripOwned.value && !editorToolbarDocked.value)
 
 // Content update handler
 const updateContent = (newContent: string) => {
@@ -347,6 +412,7 @@ const exportAsMarkdown = async () => {
 // Consolidated status update handler
 async function updatePageStatus(status: string, opts?: { redirect?: string; apiSuffix?: string }) {
   if (!currentPageId.value) return
+  pendingStatus.value = status
   try {
     if (opts?.apiSuffix) {
       await documentationService.restorePage(currentPageId.value)
@@ -362,6 +428,8 @@ async function updatePageStatus(status: string, opts?: { redirect?: string; apiS
     }
   } catch (error) {
     console.error(`Failed to update page status to ${status}:`, error)
+  } finally {
+    pendingStatus.value = null
   }
 }
 
@@ -601,8 +669,9 @@ watch(documentObj, (newDocument) => {
 <template>
   <div class="bg-app flex flex-col h-full">
     <PullToRefresh :target="scrollEl" />
-    <!-- Header bar -->
-    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
+    <!-- Header bar (desktop). On a phone the app bar is the only pinned
+         bar; the actions menu is teleported into it below. -->
+    <div v-if="!isMobile" class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <!--
         Row sizes itself to its children; every toolbar button in this
         view (BackButton, publish, star, copy, menu) is `h-8`, so the
@@ -662,35 +731,27 @@ watch(documentObj, (newDocument) => {
         </button>
 
         <!-- Document actions menu -->
-        <DocumentActionsMenu
-          v-if="isDocumentPage"
-          :page-id="document?.id || ''"
-          :page-title="editTitle || document?.title || ''"
-          :page-slug="document?.slug || ''"
-          :page-status="document?.status || 'draft'"
-          @delete="handleDeletePage"
-          @duplicate="handleDuplicatePage"
-          @archive="handleArchivePage"
-          @restore="handleRestorePage"
-          @publish="handlePublishPage"
-          @unpublish="handleUnpublishPage"
-          @move="showMoveModal = true"
-          @export="exportAsMarkdown"
-          @collections="showCollectionManager = true"
-          :show-permissions="authStore.isAdmin"
-          :is-subscribed="isSubscribed"
-          @permissions="showPermissionsModal = true"
-          @subscribe="handleSubscribe"
-          @unsubscribe="handleUnsubscribe"
-          @insights="docPanel.open('insights')"
-          @history="docPanel.open('history')"
-          @verify="verificationOpen = true"
-        />
+        <DocumentActionsMenu v-if="isDocumentPage" v-bind="actionsMenuBindings" />
       </div>
     </div>
 
-    <!-- Main content -->
-    <div ref="scrollEl" class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
+    <!-- Mobile: the actions menu sits in the app bar's trailing slot, with
+         Star and Copy link as its first rows (their toolbar buttons are
+         gone with the bar). -->
+    <Teleport v-else-if="isDocumentPage" :to="`#${HEADER_ACTION_SLOT_ID}`" defer>
+      <DocumentActionsMenu
+        v-bind="actionsMenuBindings"
+        show-quick-actions
+        :is-starred="isStarred"
+        @star="handleStar"
+        @unstar="handleUnstar"
+        @copy-link="handleCopyLinkFromMenu"
+      />
+    </Teleport>
+
+    <!-- Main content. A phone reads the page on the surface colour with the
+         editor edge to edge; the card on a gradient is a desktop treatment. -->
+    <div ref="scrollEl" class="flex flex-col flex-1 overflow-auto bg-surface sm:bg-gradient-to-b sm:from-bg-app sm:to-bg-surface items-center">
       <!--
         Loading fallback. Document pages are preloaded by the route
         guard and typical fetches land well under Nielsen's 1 s flow
@@ -704,18 +765,19 @@ watch(documentObj, (newDocument) => {
       <div v-else-if="document" class="w-full min-w-0 flex">
         <!-- Main Content Area -->
         <div class="flex-1 min-w-0 flex justify-center">
-          <div class="w-full min-w-0 max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
+          <div class="w-full min-w-0 max-w-3xl px-4 sm:px-6 lg:px-8 py-4 sm:py-8 flex flex-col">
             <!-- Breadcrumb -->
             <DocumentationBreadcrumb
               :page-id="document.id || ''"
               :parent-id="document.parent_id || null"
-              class="mb-4"
+              class="mb-3 sm:mb-4"
             />
 
             <!-- Document Header -->
-            <div class="mb-6">
-              <!-- Title -->
-              <div class="mb-4">
+            <div class="mb-4 sm:mb-6">
+              <!-- Title. On a phone the app bar's editable title is the only
+                   one, so this stays desktop. -->
+              <div class="mb-4 hidden sm:block">
                 <h1
                   ref="titleElementRef"
                   contenteditable="true"
@@ -728,11 +790,16 @@ watch(documentObj, (newDocument) => {
               </div>
 
               <!-- Metadata bar -->
-              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 pb-2 border-t border-subtle">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 sm:pt-4 sm:border-t border-subtle">
                 <!-- Metadata -->
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-tertiary">
-                  <!-- Status Badge -->
-                  <span v-if="document.status === 'draft'" class="text-3xs px-1.5 py-0.5 rounded bg-status-warning-muted text-status-warning font-medium">{{ $t('doc-detail-status-draft') }}</span>
+                  <!-- Status Badge. The draft chip yields to the draft strip
+                       for a reader who has one (the strip stays theirs while
+                       the keyboard borrows its edge); a published page only
+                       says so on a phone, where there is no toolbar to read
+                       it from. -->
+                  <span v-if="document.status === 'draft' && !draftStripOwned" class="text-3xs px-1.5 py-0.5 rounded bg-status-warning-muted text-status-warning font-medium">{{ $t('doc-detail-status-draft') }}</span>
+                  <span v-else-if="document.status === 'published' && isMobile" class="text-3xs px-1.5 py-0.5 rounded bg-status-success-muted text-status-success font-medium">{{ $t('doc-detail-status-published') }}</span>
                   <span v-else-if="document.status === 'archived'" class="text-3xs px-1.5 py-0.5 rounded bg-surface-alt text-secondary font-medium">{{ $t('doc-detail-status-archived') }}</span>
 
                   <!--
@@ -798,8 +865,8 @@ watch(documentObj, (newDocument) => {
                   </div>
                 </div>
 
-                <!-- Action Buttons -->
-                <div class="flex items-center gap-2">
+                <!-- Action Buttons (desktop; the menu carries History on a phone) -->
+                <div class="hidden sm:flex items-center gap-2">
                   <!-- Revision History Toggle -->
                   <button
                     type="button"
@@ -818,17 +885,22 @@ watch(documentObj, (newDocument) => {
             <!-- Editor + linked tickets share a column gap so the
                  footer doesn't sit flush against the prose surface. -->
             <div class="flex flex-col gap-3">
-              <CollaborativeEditor
-                v-if="docId"
-                ref="editorRef"
-                v-model="editContent"
-                :doc-id="docId"
-                :resource-id="pageId"
-                :hide-revision-history="true"
-                :placeholder="$t('doc-detail-editor-placeholder')"
-                @update:modelValue="updateContent"
-                class="w-full flex flex-col"
-              />
+              <!-- Edge to edge on a phone: the editor's own 1rem padding is
+                   the gutter. -->
+              <div class="-mx-4 sm:mx-0 flex flex-col">
+                <CollaborativeEditor
+                  v-if="docId"
+                  ref="editorRef"
+                  v-model="editContent"
+                  :doc-id="docId"
+                  :resource-id="pageId"
+                  :hide-revision-history="true"
+                  :dock-toolbar-on-mobile="true"
+                  :placeholder="$t('doc-detail-editor-placeholder')"
+                  @update:modelValue="updateContent"
+                  class="w-full flex flex-col"
+                />
+              </div>
 
               <PageTicketLinksPanel
                 v-if="document.id"
@@ -883,6 +955,33 @@ watch(documentObj, (newDocument) => {
           {{ $t('doc-detail-not-found-link') }}
         </RouterLink>
       </div>
+    </div>
+
+    <!-- Draft strip (phone). The last flex child, so it sits above the tab
+         bar without fixed positioning or safe-area maths: main already pads
+         for the bar. The copy is true once drafts are staff-only. -->
+    <div
+      v-if="showDraftStrip"
+      role="region"
+      :aria-label="$t('doc-detail-draft-strip-title')"
+      data-test="draft-strip"
+      class="shrink-0 h-14 flex items-center gap-3 pl-4 pr-3 bg-surface border-t border-default"
+    >
+      <div class="flex-1 min-w-0 flex flex-col">
+        <span class="text-sm font-semibold text-primary leading-tight">{{ $t('doc-detail-draft-strip-title') }}</span>
+        <span class="text-xs text-tertiary truncate">{{ $t('doc-detail-draft-strip-body') }}</span>
+      </div>
+      <!-- 36px visual, 44px hit area from the pseudo-element. -->
+      <Button
+        variant="success"
+        size="sm"
+        icon="check"
+        :loading="isPublishing"
+        class="relative shrink-0 after:absolute after:-inset-1 after:content-['']"
+        @click="handlePublishPage"
+      >
+        {{ $t('doc-detail-publish') }}
+      </Button>
     </div>
 
     <!-- Move Document Modal -->
@@ -945,5 +1044,12 @@ watch(documentObj, (newDocument) => {
 :deep(.collaborative-editor .ProseMirror) {
   min-height: max(200px, calc(100vh - 20rem));
   padding-bottom: 25vh;
+}
+
+/* Phone: no card corners on an edge-to-edge editor. */
+@media (max-width: 639px) {
+  :deep(.collaborative-editor) {
+    border-radius: 0;
+  }
 }
 </style>

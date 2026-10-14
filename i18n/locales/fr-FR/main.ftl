@@ -3415,6 +3415,10 @@ doc-detail-copied = Copié
 doc-detail-untitled = Sans titre
 doc-detail-status-draft = Brouillon
 doc-detail-status-archived = Archivé
+# Machine translation, pending native review
+doc-detail-status-published = Publié
+doc-detail-draft-strip-title = Brouillon
+doc-detail-draft-strip-body = Réservé à l'équipe jusqu'à publication.
 doc-detail-needs-verification = Vérification requise
 doc-detail-needs-verification-title = Vérifier cette page
 doc-detail-verification-stale = Vérification expirée
@@ -3687,6 +3691,9 @@ editor-toolbar-numbered-list = Liste numérotée
 editor-toolbar-insert = Insérer
 editor-toolbar-undo = Annuler
 editor-toolbar-redo = Rétablir
+# Machine translation, pending native review
+editor-toolbar-done = Terminé
+editor-toolbar-label = Mise en forme
 editor-toolbar-revision-history = Historique des révisions
 editor-toolbar-editing-with = Modification avec :
 editor-toolbar-connection-connecting = Connexion...
