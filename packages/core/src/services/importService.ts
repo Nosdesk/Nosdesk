@@ -28,7 +28,6 @@ export interface ImportJob {
   job_type: ImportJobType
   status: ImportJobStatus
   filename: string
-  file_path: string
   created_by: string | null
   created_at: string
   updated_at: string

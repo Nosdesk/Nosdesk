@@ -3,7 +3,9 @@
 //! Natural key: `asset_tag`. Rows with a tag matching an
 //! existing asset upsert (UPDATE); rows with no tag, or with a
 //! tag that doesn't match, INSERT. The empty-tag case is the
-//! "first day, importing from a spreadsheet" path.
+//! "first day, importing from a spreadsheet" path. A tag more
+//! than one asset holds is a row error. A blank cell never
+//! clears a column on update.
 //!
 //! Columns are universal-only: kind-specific attributes stay out
 //! of the CSV, so a kind's required attributes aren't enforced on
@@ -29,7 +31,10 @@ use crate::repository::asset_models as model_repo;
 use crate::repository::assets as asset_repo;
 
 use super::csv_parser::ParsedCsv;
-use super::types::{CommitError, ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS};
+use super::safe_cells::csv_formula_safe;
+use super::types::{
+    CommitError, ImportContext, ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS,
+};
 
 /// Universal CSV columns the importer accepts. Export writes
 /// these first (same order/names) so a round-trip upserts on
@@ -81,9 +86,9 @@ impl Importer for AssetImporter {
         let lookups = Lookups::load(conn)?;
         let mut claims = FileClaims::default();
 
-        for (i, row) in parsed.rows.iter().enumerate() {
-            let row_num = i + 2; // header is row 1
-            match plan_row(row, &lookups, &mut claims) {
+        for record in parsed.records() {
+            let row_num = record.source_row;
+            match plan_row(&record.values, &lookups, &mut claims) {
                 Ok(planned) => match planned.action {
                     RowAction::Create => summary.would_create += 1,
                     RowAction::Update(_) | RowAction::Unchanged(_) => summary.would_update += 1,
@@ -105,6 +110,7 @@ impl Importer for AssetImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
+        ctx: &ImportContext,
     ) -> Result<ImportedRecords, CommitError> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
@@ -116,14 +122,14 @@ impl Importer for AssetImporter {
         let mut claims = FileClaims::default();
 
         let mut assets = Vec::new();
-        for (i, row) in parsed.rows.iter().enumerate() {
-            let row_num = i + 2;
+        for record in parsed.records() {
+            let (row_num, row) = (record.source_row, &record.values);
             let Ok(planned) = plan_row(row, &lookups, &mut claims) else {
                 continue;
             };
             let written = match planned.action {
                 RowAction::Create => {
-                    asset_repo::create_device(conn, build_new_asset(row, planned.kind))
+                    asset_repo::create_device(conn, build_new_asset(row, planned.kind, ctx.actor))
                 }
                 // Routed through update_device so the asset.updated sync
                 // event fires, matching the create path.
@@ -159,7 +165,9 @@ struct PlannedRow {
 
 /// Workspace state every row is checked against, loaded once per run.
 struct Lookups {
-    tags: HashMap<String, i32>,
+    /// Every asset holding each tag. Tags aren't unique, and a tag held by
+    /// more than one asset can't say which to update.
+    tags: HashMap<String, Vec<i32>>,
     serials: HashMap<String, i32>,
     /// Each tagged asset, the rows an update can hit.
     existing: HashMap<i32, Asset>,
@@ -195,7 +203,9 @@ impl Lookups {
                 serials.insert(serial.clone(), asset.id);
             }
             if let Some(tag) = &asset.asset_tag {
-                tags.insert(tag.clone(), asset.id);
+                tags.entry(tag.clone())
+                    .or_insert_with(Vec::new)
+                    .push(asset.id);
                 existing.insert(asset.id, asset);
             }
         }
@@ -346,10 +356,14 @@ fn plan_row(
     }
 
     let tag = trimmed(row, "asset_tag");
-    let target = if tag.is_empty() {
-        None
-    } else {
-        lookups.tags.get(&tag).copied()
+    let matches = (!tag.is_empty()).then(|| lookups.tags.get(&tag)).flatten();
+    let target = match matches.map(Vec::as_slice) {
+        None | Some([]) => None,
+        Some([id]) => Some(*id),
+        Some(ids) => {
+            error("asset_tag", shared_tag_error(lookups, &tag, ids));
+            None
+        }
     };
     if !tag.is_empty() && claims.tags.contains(&tag) {
         error(
@@ -418,6 +432,21 @@ fn plan_row(
     }
 }
 
+/// A tag more than one existing asset holds, naming them.
+fn shared_tag_error(lookups: &Lookups, tag: &str, ids: &[i32]) -> String {
+    let mut names: Vec<&str> = ids
+        .iter()
+        .filter_map(|id| lookups.existing.get(id))
+        .map(|asset| asset.name.as_str())
+        .collect();
+    names.sort_unstable();
+    format!(
+        "tag '{tag}' is held by {} assets ({}); give each its own tag on the asset page, then import again",
+        ids.len(),
+        names.join(", ")
+    )
+}
+
 /// Display name of an `external_sync_source`, worded as on the asset page.
 fn sync_source_name(source: &str) -> &'static str {
     match source {
@@ -429,9 +458,8 @@ fn sync_source_name(source: &str) -> &'static str {
 
 /// The first column, in file order, where the row would change a synced
 /// asset. PUT takes none of these on a synced asset. Values compare as the
-/// update would write them, so a blank cell that leaves a column as it is
-/// never differs, and stored values compare trimmed, so a re-imported
-/// export matches.
+/// update would write them, so a blank cell never differs, and stored
+/// values compare trimmed, so a re-imported export matches.
 fn synced_column_change(
     row: &HashMap<String, String>,
     asset: &Asset,
@@ -440,13 +468,12 @@ fn synced_column_change(
     fn stored(value: &Option<String>) -> Option<&str> {
         value.as_deref().map(str::trim).filter(|v| !v.is_empty())
     }
-    // Columns a blank cell leaves as they are.
+    // A blank cell leaves any column as it is.
     let kept = |column: &str, current: &Option<String>| {
         opt_string(row, column).is_some_and(|v| Some(v.as_str()) != stored(current))
     };
-    // Columns a blank cell clears.
-    let cleared = |column: &str, current: &Option<BigDecimal>| {
-        check_decimal(row, column).is_ok_and(|v| v != *current)
+    let kept_decimal = |column: &str, current: &Option<BigDecimal>| {
+        check_decimal(row, column).is_ok_and(|v| v.is_some_and(|v| Some(v) != *current))
     };
     let changed: [(&'static str, bool); 10] = [
         ("name", trimmed(row, "name") != asset.name.trim()),
@@ -456,14 +483,11 @@ fn synced_column_change(
         ("model", kept("model", &asset.model)),
         ("location", kept("location", &asset.location)),
         ("notes", kept("notes", &asset.notes)),
-        ("quantity", cleared("quantity", &asset.quantity)),
-        (
-            "unit",
-            opt_string(row, "unit").as_deref() != stored(&asset.unit),
-        ),
+        ("quantity", kept_decimal("quantity", &asset.quantity)),
+        ("unit", kept("unit", &asset.unit)),
         (
             "low_stock_threshold",
-            cleared("low_stock_threshold", &asset.low_stock_threshold),
+            kept_decimal("low_stock_threshold", &asset.low_stock_threshold),
         ),
     ];
     changed
@@ -575,7 +599,11 @@ fn opt_decimal(row: &HashMap<String, String>, key: &str) -> Option<BigDecimal> {
     }
 }
 
-fn build_new_asset(row: &HashMap<String, String>, kind: String) -> NewAsset {
+fn build_new_asset(
+    row: &HashMap<String, String>,
+    kind: String,
+    created_by: Option<uuid::Uuid>,
+) -> NewAsset {
     NewAsset {
         name: trimmed(row, "name"),
         serial_number: opt_string(row, "serial_number"),
@@ -592,6 +620,7 @@ fn build_new_asset(row: &HashMap<String, String>, kind: String) -> NewAsset {
         unit: opt_string(row, "unit"),
         external_sync_source: None,
         low_stock_threshold: opt_decimal(row, "low_stock_threshold"),
+        created_by,
     }
 }
 
@@ -611,10 +640,10 @@ fn build_asset_update(row: &HashMap<String, String>, kind: String) -> AssetUpdat
         updated_at: Some(chrono::Utc::now().naive_utc()),
         kind: Some(kind),
         attributes: None,
-        quantity: Some(opt_decimal(row, "quantity")),
-        unit: Some(opt_string(row, "unit")),
+        quantity: opt_decimal(row, "quantity").map(Some),
+        unit: opt_string(row, "unit").map(Some),
         external_sync_source: None,
-        low_stock_threshold: Some(opt_decimal(row, "low_stock_threshold")),
+        low_stock_threshold: opt_decimal(row, "low_stock_threshold").map(Some),
         // CSV import doesn't link the model catalog (yet); leave the
         // existing model link untouched.
         model_id: None,
@@ -627,22 +656,6 @@ fn opt_decimal_string(value: &Option<bigdecimal::BigDecimal>) -> String {
 
 fn opt_string_field(value: &Option<String>) -> String {
     value.as_deref().unwrap_or("").to_string()
-}
-
-/// Neutralize spreadsheet formula injection. Excel and Sheets treat a
-/// cell as a formula when its first non-whitespace character is `=`,
-/// `+`, `-`, or `@`. Some importers strip leading whitespace (space,
-/// tab, CR, LF, NUL) before evaluating, so a payload like "\t=cmd"
-/// would slip past a first-byte-only check; look past the leading
-/// whitespace before deciding. Prefix with `'` so the value opens as
-/// plain text. The `csv` crate already quotes commas and newlines;
-/// this is separate hardening. See security-audit-2026-06.
-fn csv_formula_safe(value: String) -> String {
-    let leading = value.trim_start_matches(|c: char| c.is_whitespace() || c == '\u{0}');
-    match leading.chars().next() {
-        Some('=' | '+' | '-' | '@') => format!("'{value}"),
-        _ => value,
-    }
 }
 
 /// One CSV data row for an asset. Column order matches
@@ -867,21 +880,5 @@ mod export_tests {
         let row = text.lines().nth(1).unwrap();
         assert!(row.starts_with("'=SUM(A1)"));
         assert!(row.contains(",'+cmd,"));
-    }
-
-    #[test]
-    fn formula_guard_handles_leading_whitespace_and_controls() {
-        // Direct triggers.
-        assert_eq!(csv_formula_safe("=cmd".into()), "'=cmd");
-        assert_eq!(csv_formula_safe("@SUM".into()), "'@SUM");
-        // Leading whitespace / control chars before the trigger must
-        // still be neutralised (some importers strip them first).
-        assert_eq!(csv_formula_safe(" =cmd".into()), "' =cmd");
-        assert_eq!(csv_formula_safe("\t=cmd".into()), "'\t=cmd");
-        assert_eq!(csv_formula_safe("\r-cmd".into()), "'\r-cmd");
-        // Benign values are untouched.
-        assert_eq!(csv_formula_safe("Laptop".into()), "Laptop");
-        assert_eq!(csv_formula_safe("  hello".into()), "  hello");
-        assert_eq!(csv_formula_safe(String::new()), "");
     }
 }

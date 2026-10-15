@@ -1,6 +1,7 @@
 //! Shared types for the import pipeline.
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models;
@@ -91,8 +92,8 @@ pub struct ImportSummary {
 /// admin to fix the row in their source CSV and re-upload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RowError {
-    /// 1-indexed CSV row number (header row is row 1, so data
-    /// rows start at 2). Matches what spreadsheet editors show.
+    /// The row's line in the file (`SourceRow::source_row`; the header
+    /// is line 1).
     pub row: usize,
     /// Column name from the header, or `None` for whole-row
     /// errors (e.g. natural-key uniqueness within the file).
@@ -127,6 +128,15 @@ impl std::fmt::Display for CommitError {
 /// Trades completeness for round-trip size + UI readability.
 pub const MAX_ERRORS: usize = 100;
 
+/// Who is committing, and which job. Built by the commit handler.
+#[derive(Debug, Clone, Copy)]
+pub struct ImportContext {
+    /// The admin applying the import; `None` only for callers with no
+    /// signed-in user (tests).
+    pub actor: Option<Uuid>,
+    pub job_id: Uuid,
+}
+
 /// One importer per record type. Stateless: each call gets a
 /// fresh borrow of the DB connection so it can be used inside
 /// the commit transaction.
@@ -152,5 +162,6 @@ pub trait Importer: Send + Sync {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
+        ctx: &ImportContext,
     ) -> Result<ImportedRecords, CommitError>;
 }

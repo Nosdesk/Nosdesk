@@ -30,7 +30,9 @@ use crate::models::{NewTicket, TicketPriority};
 use crate::repository::tickets as ticket_repo;
 
 use super::csv_parser::ParsedCsv;
-use super::types::{CommitError, ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS};
+use super::types::{
+    CommitError, ImportContext, ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS,
+};
 
 const HEADERS: &[&str] = &[
     "title",
@@ -67,11 +69,11 @@ impl Importer for TicketImporter {
             return Ok(summary);
         }
 
-        let ctx = ImportContext::load(conn)?;
+        let lookups = Lookups::load(conn)?;
 
-        for (i, row) in parsed.rows.iter().enumerate() {
-            let row_num = i + 2;
-            match validate_row(row, &ctx) {
+        for record in parsed.records() {
+            let row_num = record.source_row;
+            match validate_row(&record.values, &lookups) {
                 Ok(_) => summary.would_create += 1,
                 Err(errs) => {
                     for (col, msg) in errs {
@@ -87,6 +89,7 @@ impl Importer for TicketImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
+        _ctx: &ImportContext,
     ) -> Result<ImportedRecords, CommitError> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
@@ -94,11 +97,12 @@ impl Importer for TicketImporter {
             )
             .into());
         }
-        let ctx = ImportContext::load(conn)?;
+        let lookups = Lookups::load(conn)?;
 
         let mut tickets = Vec::new();
-        for row in &parsed.rows {
-            let resolved = match validate_row(row, &ctx) {
+        for record in parsed.records() {
+            let row = &record.values;
+            let resolved = match validate_row(row, &lookups) {
                 Ok(r) => r,
                 Err(_) => continue,
             };
@@ -133,7 +137,7 @@ impl Importer for TicketImporter {
 }
 
 #[derive(Debug)]
-struct ImportContext {
+struct Lookups {
     /// workflow_states.name (case-insensitive key) -> id
     workflow_states: HashMap<String, i32>,
     /// ticket_categories.name (case-insensitive key) -> id
@@ -144,7 +148,7 @@ struct ImportContext {
     assignable: HashSet<Uuid>,
 }
 
-impl ImportContext {
+impl Lookups {
     fn load(conn: &mut DbConnection) -> Result<Self, diesel::result::Error> {
         use crate::schema::{ticket_categories, user_emails, workflow_states};
 
@@ -215,7 +219,7 @@ fn push_error(summary: &mut ImportSummary, row: usize, column: Option<String>, m
 
 fn validate_row(
     row: &HashMap<String, String>,
-    ctx: &ImportContext,
+    lookups: &Lookups,
 ) -> Result<ResolvedRow, Vec<(Option<String>, String)>> {
     let mut errors: Vec<(Option<String>, String)> = Vec::new();
 
@@ -232,7 +236,7 @@ fn validate_row(
         ));
         0
     } else {
-        match ctx.workflow_states.get(&workflow_state) {
+        match lookups.workflow_states.get(&workflow_state) {
             Some(id) => *id,
             None => {
                 errors.push((
@@ -260,9 +264,9 @@ fn validate_row(
         }
     });
 
-    let requester_uuid = resolve_email(row, "requester_email", ctx, &mut errors);
-    let assignee_uuid = resolve_email(row, "assignee_email", ctx, &mut errors);
-    if assignee_uuid.is_some_and(|u| !ctx.assignable.contains(&u)) {
+    let requester_uuid = resolve_email(row, "requester_email", lookups, &mut errors);
+    let assignee_uuid = resolve_email(row, "assignee_email", lookups, &mut errors);
+    if assignee_uuid.is_some_and(|u| !lookups.assignable.contains(&u)) {
         errors.push((
             Some("assignee_email".into()),
             format!(
@@ -277,7 +281,7 @@ fn validate_row(
         if raw.is_empty() {
             None
         } else {
-            match ctx.categories.get(&raw.to_lowercase()) {
+            match lookups.categories.get(&raw.to_lowercase()) {
                 Some(id) => Some(*id),
                 None => {
                     errors.push((
@@ -330,14 +334,14 @@ fn validate_row(
 fn resolve_email(
     row: &HashMap<String, String>,
     key: &str,
-    ctx: &ImportContext,
+    lookups: &Lookups,
     errors: &mut Vec<(Option<String>, String)>,
 ) -> Option<Uuid> {
     let raw = trimmed(row, key);
     if raw.is_empty() {
         return None;
     }
-    match ctx.emails.get(&raw.to_lowercase()) {
+    match lookups.emails.get(&raw.to_lowercase()) {
         Some(uuid) => Some(*uuid),
         None => {
             errors.push((

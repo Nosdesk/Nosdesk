@@ -31,6 +31,7 @@ fn seed_stock_asset(
         unit: Some("pcs".to_string()),
         external_sync_source: None,
         low_stock_threshold: threshold.map(|t| BigDecimal::from_str(t).unwrap()),
+        created_by: None,
     };
     asset_repo::create_device(conn, new)
         .expect("insert asset")

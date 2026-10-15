@@ -29,7 +29,8 @@ use crate::repository::workspaces::{
 
 use super::csv_parser::ParsedCsv;
 use super::types::{
-    CommitError, ImportSummary, ImportedRecords, ImportedUser, Importer, RowError, MAX_ERRORS,
+    CommitError, ImportContext, ImportSummary, ImportedRecords, ImportedUser, Importer, RowError,
+    MAX_ERRORS,
 };
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
@@ -62,9 +63,9 @@ impl Importer for UserImporter {
         let existing_emails = load_existing_primary_emails(conn)?;
         let mut emails_in_file: HashSet<String> = HashSet::new();
 
-        for (i, row) in parsed.rows.iter().enumerate() {
-            let row_num = i + 2;
-            match validate_row(row, &existing_emails, &mut emails_in_file) {
+        for record in parsed.records() {
+            let row_num = record.source_row;
+            match validate_row(&record.values, &existing_emails, &mut emails_in_file) {
                 Ok(RowAction::Create) => summary.would_create += 1,
                 Ok(RowAction::Update(_)) => summary.would_update += 1,
                 Err(errs) => {
@@ -81,6 +82,7 @@ impl Importer for UserImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
+        _ctx: &ImportContext,
     ) -> Result<ImportedRecords, CommitError> {
         use crate::schema::users;
         if check_headers(&parsed.headers).is_some() {
@@ -97,7 +99,8 @@ impl Importer for UserImporter {
         let ws_id = crate::sync::session::current_workspace_id(conn)?.unwrap_or_default();
 
         let mut imported: Vec<ImportedUser> = Vec::new();
-        for row in &parsed.rows {
+        for record in parsed.records() {
+            let row = &record.values;
             let mut local = emails_in_file.clone();
             let action = match validate_row(row, &existing_emails, &mut local) {
                 Ok(a) => a,

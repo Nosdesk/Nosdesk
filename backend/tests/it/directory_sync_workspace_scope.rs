@@ -60,6 +60,7 @@ fn device(name: &str, entra_id: &str, azure_id: &str) -> NewAsset {
         unit: None,
         external_sync_source: Some("microsoft".to_string()),
         low_stock_threshold: None,
+        created_by: None,
     }
 }
 

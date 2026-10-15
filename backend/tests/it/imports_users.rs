@@ -4,7 +4,7 @@ use diesel::prelude::*;
 
 use backend::services::imports::{self, csv_parser, ImportType};
 
-use crate::common::{count_table, fixture_path, TestDb};
+use crate::common::{count_table, fixture_path, import_ctx, TestDb};
 
 #[test]
 fn happy_path_creates_users_and_primary_emails() {
@@ -19,7 +19,8 @@ fn happy_path_creates_users_and_primary_emails() {
     assert_eq!(summary.would_update, 0);
     assert!(summary.errors.is_empty(), "errors: {:?}", summary.errors);
 
-    let records = imports::commit(&mut conn, ImportType::Users, &parsed).expect("commit");
+    let records =
+        imports::commit(&mut conn, ImportType::Users, &parsed, &import_ctx()).expect("commit");
     assert_eq!(records.len(), 3);
     assert_eq!(count_table(&mut conn, "users"), users_before + 3);
 
@@ -107,7 +108,8 @@ fn second_commit_upserts_by_email() {
 
     let parsed = csv_parser::parse_file(&fixture_path("imports/users_valid.csv")).expect("parse");
 
-    let first = imports::commit(&mut conn, ImportType::Users, &parsed).expect("commit 1");
+    let first =
+        imports::commit(&mut conn, ImportType::Users, &parsed, &import_ctx()).expect("commit 1");
     assert_eq!(first.len(), 3);
 
     // Second pass: every primary email matches → 3 updates.
@@ -116,7 +118,8 @@ fn second_commit_upserts_by_email() {
     assert_eq!(summary.would_update, 3);
     assert!(summary.errors.is_empty());
 
-    let second = imports::commit(&mut conn, ImportType::Users, &parsed).expect("commit 2");
+    let second =
+        imports::commit(&mut conn, ImportType::Users, &parsed, &import_ctx()).expect("commit 2");
     assert_eq!(second.len(), 3);
 
     // No duplicate user_emails rows.
@@ -133,4 +136,29 @@ fn second_commit_upserts_by_email() {
     .map(|r| r.count)
     .expect("count emails");
     assert_eq!(n, 1);
+}
+
+/// Errors name the line a row starts on, past a multi-line quoted field.
+#[test]
+fn row_errors_name_the_line_the_row_starts_on() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    let file = tempfile::NamedTempFile::new().expect("temp csv");
+    std::fs::write(
+        file.path(),
+        "email,name,role,pronouns\n\
+         lines@example.com,\"Two\nLines\",user,\n\
+         \n\
+         bad-email,Bad Email,user,\n",
+    )
+    .expect("write csv");
+    let parsed = csv_parser::parse_file(file.path()).expect("parse");
+
+    let summary = imports::dry_run(&mut conn, ImportType::Users, &parsed).expect("dry-run");
+    let errors: Vec<(usize, Option<&str>)> = summary
+        .errors
+        .iter()
+        .map(|e| (e.row, e.column.as_deref()))
+        .collect();
+    assert_eq!(errors, vec![(5, Some("email"))], "{:?}", summary.errors);
 }

@@ -330,6 +330,7 @@ fn asset_payload_fields_match_the_manifest() {
                 unit: None,
                 external_sync_source: None,
                 low_stock_threshold: None,
+                created_by: None,
             },
         )
     })

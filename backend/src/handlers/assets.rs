@@ -1343,6 +1343,7 @@ pub async fn create_empty_device(
         unit: None,
         external_sync_source: None,
         low_stock_threshold: None,
+        created_by: None,
     };
 
     let result = tc.run(|conn| {

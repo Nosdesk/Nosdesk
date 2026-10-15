@@ -78,6 +78,7 @@ fn seed(db: &common::TestDb) -> Fixture {
                 unit: None,
                 external_sync_source: None,
                 low_stock_threshold: None,
+                created_by: None,
             },
         )?
         .id;
@@ -745,6 +746,7 @@ async fn loan_usage_and_stock_count_notes_stay_with_staff() {
                 unit: Some("pcs".to_string()),
                 external_sync_source: None,
                 low_stock_threshold: None,
+                created_by: None,
             },
         )?
         .id;
