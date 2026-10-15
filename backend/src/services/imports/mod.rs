@@ -41,8 +41,9 @@ pub fn dry_run(
     conn: &mut DbConnection,
     t: ImportType,
     parsed: &csv_parser::ParsedCsv,
+    ctx: &ImportContext,
 ) -> Result<ImportSummary, DieselError> {
-    importer_for(t).dry_run(conn, parsed)
+    importer_for(t).dry_run(conn, parsed, ctx)
 }
 
 /// Apply the rows in a single transaction. Caller is

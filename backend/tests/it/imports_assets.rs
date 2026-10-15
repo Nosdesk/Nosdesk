@@ -32,7 +32,8 @@ fn happy_path_creates_every_row() {
 
     let parsed = csv_parser::parse_file(&fixture_path("imports/assets_valid.csv")).expect("parse");
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert_eq!(summary.row_count, 4);
     assert_eq!(summary.would_create, 4);
     assert_eq!(summary.would_update, 0);
@@ -69,7 +70,8 @@ fn errors_csv_classifies_each_failure() {
     let mut conn = db.conn();
 
     let parsed = csv_parser::parse_file(&fixture_path("imports/assets_errors.csv")).expect("parse");
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
 
     assert_eq!(summary.row_count, 7);
     // VALID-001 and the first DUP-001 are creatable; the second
@@ -111,7 +113,8 @@ fn second_commit_upserts_by_tag() {
     assert_eq!(first.len(), 4);
 
     // Re-run the same CSV: every tag matches → 4 updates, 0 creates.
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run 2");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run 2");
     assert_eq!(summary.would_create, 0);
     assert_eq!(summary.would_update, 4);
     assert!(summary.errors.is_empty());
@@ -181,7 +184,8 @@ fn dry_run_catches_what_the_database_refuses_and_commit_agrees() {
          Taken Serial,generic,SER-003,SN-TAKEN,,,,,,,\n"
     ));
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     let errors: Vec<(usize, Option<&str>)> = summary
         .errors
         .iter()
@@ -218,7 +222,8 @@ fn an_invalid_row_does_not_block_a_later_row_with_its_tag() {
          Repeat Valid,generic,REPEAT-001,,,,,,,,\n",
     );
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert_eq!(summary.would_create, 1, "{:?}", summary.errors);
     assert!(
         summary.errors.iter().all(|e| e.row == 2),
@@ -242,7 +247,8 @@ fn kind_matches_label_or_slug_ignoring_case() {
          Notebook,LAPTOP,KIND-002,,,,,,,,\n",
     );
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert!(summary.errors.is_empty(), "{:?}", summary.errors);
 
     imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit");
@@ -269,7 +275,8 @@ fn a_kind_with_required_attributes_imports() {
     .expect("seed kind");
     let parsed = parse_text("Front door badge,badge,BADGE-001,,,,,,,,\n");
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert!(summary.errors.is_empty(), "{:?}", summary.errors);
     imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit");
     assert_eq!(kind_of(&mut conn, "BADGE-001").as_deref(), Some("badge"));
@@ -301,7 +308,8 @@ fn a_kind_change_that_would_drop_attributes_is_a_row_error() {
 ",
     );
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert_eq!(summary.errors.len(), 1, "{:?}", summary.errors);
     let err = &summary.errors[0];
     assert_eq!((err.row, err.column.as_deref()), (2, Some("kind")));
@@ -346,7 +354,8 @@ fn a_kind_change_that_keeps_every_attribute_imports() {
 ",
     );
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert!(summary.errors.is_empty(), "{:?}", summary.errors);
     assert_eq!(summary.would_update, 3);
 
@@ -397,7 +406,8 @@ fn a_kind_change_on_a_model_linked_asset_is_a_row_error() {
          Model Same Kind,laptop,KC-022,,,,,,,,\n",
     );
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     let errors: Vec<(usize, Option<&str>, &str)> = summary
         .errors
         .iter()
@@ -466,7 +476,8 @@ fn a_synced_asset_takes_no_column_from_the_file() {
          PC-35,device,KC-035,,,,,,,pcs,\n",
     );
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     let errors: Vec<(usize, Option<&str>, &str)> = summary
         .errors
         .iter()
@@ -517,7 +528,8 @@ fn a_synced_asset_takes_no_column_from_the_file() {
     let file = tempfile::NamedTempFile::new().expect("temp csv");
     std::fs::write(file.path(), csv).expect("write csv");
     let reimport = csv_parser::parse_file(file.path()).expect("parse");
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &reimport).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &reimport, &import_ctx()).expect("dry-run");
     assert!(summary.errors.is_empty(), "{:?}", summary.errors);
     assert_eq!(summary.would_update, 5);
 }
@@ -569,7 +581,8 @@ fn row_errors_name_the_line_the_row_starts_on() {
          Bad Threshold,generic,ML-003,,,,,,,,x\n",
     );
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     let errors: Vec<(usize, Option<&str>)> = summary
         .errors
         .iter()
@@ -595,7 +608,8 @@ fn a_semicolon_separated_file_imports() {
     ));
     assert_eq!(parsed.delimiter, b';');
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert!(summary.errors.is_empty(), "{:?}", summary.errors);
     imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit");
 
@@ -635,7 +649,8 @@ fn an_export_imports_back_through_the_formula_guard() {
     assert!(text.contains("'=SUM(A1)"), "{text}");
 
     let parsed = parse_file_text(&text);
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert!(summary.errors.is_empty(), "{:?}", summary.errors);
     assert_eq!(summary.would_update, 1);
     imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit");
@@ -672,7 +687,8 @@ fn a_tag_more_than_one_asset_holds_is_a_row_error() {
          Tripod,generic,TRIPOD-1,,,,,,,,\n",
     );
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     let errors: Vec<(usize, Option<&str>, &str)> = summary
         .errors
         .iter()
@@ -718,7 +734,8 @@ fn a_blank_cell_never_clears_on_update() {
     .expect("seed asset");
     let parsed = parse_text("Toner Black,generic,KEEP-001,,,,,,,,\n");
 
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert!(summary.errors.is_empty(), "{:?}", summary.errors);
     assert_eq!(summary.would_update, 1);
     imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit");

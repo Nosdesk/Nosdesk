@@ -123,6 +123,76 @@ pub fn get_user_by_email(
         .first::<User>(conn)
 }
 
+/// Who holds a primary email, as [`primary_email_holders`] reports it.
+pub enum PrimaryEmailHolder {
+    /// An active member of the workspace, with their account and their
+    /// membership role there.
+    Member { user: User, role: String },
+    /// An account that isn't an active member. Nothing about it is returned.
+    NotMember,
+}
+
+// sync-audit-only: read-only (resolves import rows to this workspace's members)
+/// For each of `emails`, keyed lower-case, who holds it as a primary email:
+/// an active member of `workspace_id`, or an account outside it. Emails no
+/// account holds are absent. The membership filter names `workspace_id`
+/// explicitly rather than relying on the pinned workspace.
+pub fn primary_email_holders(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    emails: &[String],
+) -> QueryResult<std::collections::HashMap<String, PrimaryEmailHolder>> {
+    use crate::schema::users;
+    use std::collections::HashMap;
+
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        email: String,
+        #[diesel(sql_type = diesel::sql_types::Uuid)]
+        user_uuid: Uuid,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+        member_role: Option<String>,
+    }
+
+    if emails.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let keys: Vec<String> = emails.iter().map(|e| e.to_lowercase()).collect();
+    let rows: Vec<Row> = diesel::sql_query(
+        "SELECT lower(ue.email) AS email, ue.user_uuid, wm.role AS member_role \
+         FROM user_emails ue \
+         LEFT JOIN workspace_members wm \
+           ON wm.user_uuid = ue.user_uuid AND wm.workspace_id = $1 AND wm.removed_at IS NULL \
+         WHERE ue.is_primary AND lower(ue.email) = ANY($2)",
+    )
+    .bind::<diesel::sql_types::Integer, _>(workspace_id)
+    .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(&keys)
+    .load(conn)?;
+
+    let member_uuids: Vec<Uuid> = rows
+        .iter()
+        .filter(|r| r.member_role.is_some())
+        .map(|r| r.user_uuid)
+        .collect();
+    let mut members: HashMap<Uuid, User> = users::table
+        .filter(users::uuid.eq_any(&member_uuids))
+        .load::<User>(conn)?
+        .into_iter()
+        .map(|u| (u.uuid, u))
+        .collect();
+
+    let mut out = HashMap::new();
+    for row in rows {
+        let holder = match (row.member_role, members.remove(&row.user_uuid)) {
+            (Some(role), Some(user)) => PrimaryEmailHolder::Member { user, role },
+            _ => PrimaryEmailHolder::NotMember,
+        };
+        out.insert(row.email, holder);
+    }
+    Ok(out)
+}
+
 /// Outcome of [`create_user_with_email`].
 pub enum CreateUserWithEmailOutcome {
     Created(User, UserEmail),

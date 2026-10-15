@@ -1,29 +1,42 @@
 //! User CSV importer.
 //!
-//! Natural key: `email` (looked up against `user_emails`). Rows
-//! whose email matches a primary email upsert the user row;
-//! rows with a new email INSERT a fresh user plus a primary
-//! `user_emails` entry. Auth identities are out of scope for
-//! the import path. Bulk-imported users get a passwordless row
-//! that admins later associate with an identity provider, send
-//! a reset link to, or invite to set up MFA.
+//! Natural key: `email`, matched against primary emails. The import
+//! only ever touches this workspace's members: a row whose email
+//! belongs to a member updates them, a row with a new email creates an
+//! account and its membership, and a row whose email belongs to an
+//! account outside the workspace is refused with the add-user API's
+//! "already exists" error. Auth identities are out of scope for the
+//! import path. Bulk-imported users get a passwordless row that admins
+//! later associate with an identity provider, send a reset link to, or
+//! invite to set up MFA.
+//!
+//! The import mirrors the API's gates. An update changes the member's
+//! workspace role, never their platform role. Their name and pronouns
+//! change only where the edit-user API would let the importing admin
+//! change them (their own row, or anyone's as a platform admin), and a
+//! name owned by a Nosdesk account stays put. `audit_reviewer` creates
+//! as the add-user API does (self-hosted only) and can't be granted to
+//! an existing member.
 //!
 //! Columns:
 //!   - email   (required, the natural key)
 //!   - name    (required)
-//!   - role    (required: admin | technician | user)
+//!   - role    (required: admin | technician | user | audit_reviewer)
 //!   - pronouns (optional)
 
 use std::collections::{HashMap, HashSet};
 
-use diesel::prelude::*;
+use diesel::OptionalExtension;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{NewUser, UserUpdate};
-use crate::repository::user_helpers::{create_user_with_email, CreateUserWithEmailOutcome};
+use crate::models::{NewUser, PlatformRole, User, UserUpdate, WorkspaceRole};
+use crate::repository::user_helpers::{
+    create_user_with_email, primary_email_holders, CreateUserWithEmailOutcome, PrimaryEmailHolder,
+};
 use crate::repository::users::update_user;
 use crate::repository::workspaces::{
+    nosdesk_account_managed, staff_change_externally_managed, staff_identity_externally_managed,
     update_membership_role, SeatWriteAuthority, UpdateMembershipRoleResult,
 };
 
@@ -34,6 +47,10 @@ use super::types::{
 };
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
+
+const STAFF_MANAGED: &str = "team members (admin, technician) are managed in the Nosdesk control plane; import requesters (user) only";
+const AUDIT_REVIEWER_REFUSED: &str =
+    "audit_reviewer can't be set by import; set it from the user's page";
 
 pub struct UserImporter;
 
@@ -46,6 +63,7 @@ impl Importer for UserImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
+        ctx: &ImportContext,
     ) -> Result<ImportSummary, diesel::result::Error> {
         let mut summary = ImportSummary {
             row_count: parsed.rows.len(),
@@ -60,14 +78,14 @@ impl Importer for UserImporter {
             return Ok(summary);
         }
 
-        let existing_emails = load_existing_primary_emails(conn)?;
+        let lookup = Lookup::load(conn, parsed, ctx)?;
         let mut emails_in_file: HashSet<String> = HashSet::new();
 
         for record in parsed.records() {
             let row_num = record.source_row;
-            match validate_row(&record.values, &existing_emails, &mut emails_in_file) {
-                Ok(RowAction::Create) => summary.would_create += 1,
-                Ok(RowAction::Update(_)) => summary.would_update += 1,
+            match validate_row(&record.values, &lookup, &mut emails_in_file) {
+                Ok(RowAction::Create { .. }) => summary.would_create += 1,
+                Ok(RowAction::UpdateMember { .. }) => summary.would_update += 1,
                 Err(errs) => {
                     for (col, msg) in errs {
                         push_error(&mut summary, row_num, col, msg);
@@ -82,47 +100,37 @@ impl Importer for UserImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-        _ctx: &ImportContext,
+        ctx: &ImportContext,
     ) -> Result<ImportedRecords, CommitError> {
-        use crate::schema::users;
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
             )
             .into());
         }
-        let existing_emails = load_existing_primary_emails(conn)?;
+        let lookup = Lookup::load(conn, parsed, ctx)?;
         let mut emails_in_file: HashSet<String> = HashSet::new();
-
-        // The pinned workspace (TenantConn GUC), so role changes route through
-        // the gated update_membership_role.
-        let ws_id = crate::sync::session::current_workspace_id(conn)?.unwrap_or_default();
 
         let mut imported: Vec<ImportedUser> = Vec::new();
         for record in parsed.records() {
             let row = &record.values;
             let mut local = emails_in_file.clone();
-            let action = match validate_row(row, &existing_emails, &mut local) {
+            let action = match validate_row(row, &lookup, &mut local) {
                 Ok(a) => a,
                 Err(_) => continue,
             };
             emails_in_file = local;
 
-            let name = trimmed(row, "name");
-            // Map the CSV "role" column onto the W2 split
-            // (platform_role + workspace_members.role) via the shared
-            // parser, so import and the create-user API agree on what
-            // each role string means.
-            let (platform_role_enum, workspace_role_enum) =
-                crate::utils::parse_roles(trimmed(row, "role").as_str()).expect("validated above");
-            let pronouns = opt_string(row, "pronouns");
             let email = trimmed(row, "email");
             match action {
-                RowAction::Create => {
+                RowAction::Create {
+                    platform_role,
+                    workspace_role,
+                } => {
                     let new_user = NewUser {
                         uuid: Uuid::new_v4(),
-                        name,
-                        pronouns,
+                        name: trimmed(row, "name"),
+                        pronouns: opt_string(row, "pronouns"),
                         avatar_url: None,
                         banner_url: None,
                         avatar_thumb: None,
@@ -130,7 +138,7 @@ impl Importer for UserImporter {
                         mfa_secret: None,
                         mfa_secret_kek_id: None,
                         mfa_enabled: false,
-                        platform_role: Some(platform_role_enum.as_str().to_string()),
+                        platform_role: Some(platform_role.as_str().to_string()),
                     };
                     // create_user_with_email writes the user, the primary
                     // email, and the workspace_members row (workspace from
@@ -141,7 +149,7 @@ impl Importer for UserImporter {
                     // index uniformly without per-importer observer wiring.
                     match create_user_with_email(
                         new_user,
-                        workspace_role_enum,
+                        workspace_role,
                         email,
                         false, // email starts unverified; admin / IdP verifies later
                         Some("csv_import".to_string()),
@@ -161,7 +169,12 @@ impl Importer for UserImporter {
                         CreateUserWithEmailOutcome::ExternallyManaged => continue,
                     }
                 }
-                RowAction::Update(uuid) => {
+                RowAction::UpdateMember {
+                    user_uuid,
+                    workspace_role,
+                    name,
+                    pronouns,
+                } => {
                     // The membership role change routes through the gated
                     // update_membership_role (Product authority): a staff seat
                     // in hosted is control-plane-owned, so it's refused and the
@@ -170,41 +183,30 @@ impl Importer for UserImporter {
                     // intentionally not sync-emitted.
                     match update_membership_role(
                         conn,
-                        ws_id,
-                        uuid,
-                        workspace_role_enum.as_str(),
+                        lookup.workspace_id,
+                        user_uuid,
+                        workspace_role.as_str(),
                         SeatWriteAuthority::Product,
                     )? {
-                        UpdateMembershipRoleResult::ExternallyManaged => continue,
-                        // Updated / NotFound (not a member of this workspace) /
-                        // LastOwner: proceed with the profile + platform_role.
-                        _ => {}
+                        UpdateMembershipRoleResult::Updated(_)
+                        | UpdateMembershipRoleResult::LastOwner => {}
+                        UpdateMembershipRoleResult::NotFound
+                        | UpdateMembershipRoleResult::ExternallyManaged => continue,
                     }
-                    // The platform role holds in every workspace they belong to.
-                    let access =
-                        crate::repository::documentation::doc_access_everywhere(conn, uuid)?;
-                    diesel::update(users::table.find(uuid))
-                        .set((
-                            users::platform_role.eq(platform_role_enum.as_str()),
-                            users::updated_at.eq(chrono::Utc::now().naive_utc()),
-                        ))
-                        .execute(conn)?;
-                    crate::repository::documentation::emit_if_access_changed_everywhere(
-                        conn, uuid, &access,
-                    )?;
-                    // The profile-field change goes through update_user, which
-                    // emits user.updated and returns the refreshed model for
-                    // indexing.
+                    // update_user emits user.updated (carrying the new
+                    // workspace role) and returns the refreshed model for
+                    // indexing. Name and pronouns are set only when the
+                    // validation above allowed the change.
                     let user = update_user(
-                        &uuid,
+                        &user_uuid,
                         UserUpdate {
-                            name: Some(name),
+                            name,
                             pronouns,
                             avatar_url: None,
                             banner_url: None,
                             avatar_thumb: None,
                             microsoft_uuid: None,
-                            updated_at: None,
+                            updated_at: Some(chrono::Utc::now().naive_utc()),
                         },
                         conn,
                         None,
@@ -222,8 +224,76 @@ impl Importer for UserImporter {
 
 #[derive(Debug, Clone)]
 enum RowAction {
-    Create,
-    Update(Uuid),
+    Create {
+        platform_role: PlatformRole,
+        workspace_role: WorkspaceRole,
+    },
+    /// `name` / `pronouns` are `Some` only when they change.
+    UpdateMember {
+        user_uuid: Uuid,
+        workspace_role: WorkspaceRole,
+        name: Option<String>,
+        pronouns: Option<String>,
+    },
+}
+
+/// What the rows are checked against: who holds each email in the file,
+/// and what the importing admin may change.
+struct Lookup {
+    workspace_id: i32,
+    holders: HashMap<String, PrimaryEmailHolder>,
+    /// The importing admin.
+    actor: Option<Uuid>,
+    /// Whether the importing admin is a platform admin, who may edit
+    /// anyone's profile through the edit-user API.
+    actor_is_platform_admin: bool,
+    /// Members whose name is owned by their Nosdesk account (hosted staff).
+    name_managed: HashSet<Uuid>,
+}
+
+impl Lookup {
+    fn load(
+        conn: &mut DbConnection,
+        parsed: &ParsedCsv,
+        ctx: &ImportContext,
+    ) -> Result<Self, diesel::result::Error> {
+        let workspace_id = crate::sync::session::current_workspace_id(conn)?.ok_or_else(|| {
+            diesel::result::Error::QueryBuilderError("user import needs a pinned workspace".into())
+        })?;
+        let emails: Vec<String> = parsed
+            .records()
+            .map(|r| trimmed(&r.values, "email"))
+            .filter(|e| !e.is_empty())
+            .collect();
+        let holders = primary_email_holders(conn, workspace_id, &emails)?;
+        let actor_is_platform_admin = match ctx.actor {
+            Some(actor) => crate::repository::users::get_user_by_uuid(&actor, conn)
+                .optional()?
+                .is_some_and(|u| PlatformRole::from_db(&u.platform_role).is_platform_admin()),
+            None => false,
+        };
+        let member_uuids: Vec<Uuid> = holders
+            .values()
+            .filter_map(|h| match h {
+                PrimaryEmailHolder::Member { user, .. } => Some(user.uuid),
+                PrimaryEmailHolder::NotMember => None,
+            })
+            .collect();
+        let name_managed = nosdesk_account_managed(conn, &member_uuids);
+        Ok(Self {
+            workspace_id,
+            holders,
+            actor: ctx.actor,
+            actor_is_platform_admin,
+            name_managed,
+        })
+    }
+
+    /// The edit-user API's rule for another person's profile: your own,
+    /// or anyone's as a platform admin.
+    fn may_edit_profile(&self, user: &User) -> bool {
+        self.actor == Some(user.uuid) || self.actor_is_platform_admin
+    }
 }
 
 fn check_headers(headers: &[String]) -> Option<String> {
@@ -235,22 +305,6 @@ fn check_headers(headers: &[String]) -> Option<String> {
         return Some(format!("missing required columns: {}", names.join(", ")));
     }
     None
-}
-
-fn load_existing_primary_emails(
-    conn: &mut DbConnection,
-) -> Result<HashMap<String, Uuid>, diesel::result::Error> {
-    use crate::schema::user_emails;
-    let rows: Vec<(String, Uuid)> = user_emails::table
-        .filter(user_emails::is_primary.eq(true))
-        .select((user_emails::email, user_emails::user_uuid))
-        .load(conn)?;
-    // Lower-case the key for case-insensitive matching at upsert
-    // time; the original casing stays in the DB.
-    Ok(rows
-        .into_iter()
-        .map(|(e, u)| (e.to_lowercase(), u))
-        .collect())
 }
 
 fn push_error(summary: &mut ImportSummary, row: usize, column: Option<String>, message: String) {
@@ -267,7 +321,7 @@ fn push_error(summary: &mut ImportSummary, row: usize, column: Option<String>, m
 
 fn validate_row(
     row: &HashMap<String, String>,
-    existing_emails: &HashMap<String, Uuid>,
+    lookup: &Lookup,
     emails_in_file: &mut HashSet<String>,
 ) -> Result<RowAction, Vec<(Option<String>, String)>> {
     let mut errors: Vec<(Option<String>, String)> = Vec::new();
@@ -288,30 +342,31 @@ fn validate_row(
     }
 
     let role_raw = trimmed(row, "role");
-    if role_raw.is_empty() {
+    let roles = if role_raw.is_empty() {
         errors.push((Some("role".into()), "role is required".into()));
-    } else if crate::utils::parse_roles(&role_raw).is_err() {
-        errors.push((
-            Some("role".into()),
-            format!("'{role_raw}' is not a valid role; use admin, technician, or user"),
-        ));
-    } else if crate::utils::parse_roles(&role_raw)
-        .ok()
-        .is_some_and(|(_, ws_role)| {
-            crate::repository::workspaces::staff_identity_externally_managed(ws_role.as_str())
-        })
-    {
-        // In hosted, staff seats are provisioned in the control plane; the
-        // import can only create/update requesters.
-        errors.push((
-            Some("role".into()),
-            "team members (admin, technician) are managed in the Nosdesk control plane; import requesters (user) only".into(),
-        ));
-    }
+        None
+    } else {
+        match crate::utils::parse_roles(&role_raw) {
+            Err(_) => {
+                errors.push((
+                    Some("role".into()),
+                    format!("'{role_raw}' is not a valid role; use admin, technician, or user"),
+                ));
+                None
+            }
+            Ok((_, ws_role)) if staff_identity_externally_managed(ws_role.as_str()) => {
+                // In hosted, staff seats are provisioned in the control plane;
+                // the import can only create/update requesters.
+                errors.push((Some("role".into()), STAFF_MANAGED.into()));
+                None
+            }
+            Ok(roles) => Some(roles),
+        }
+    };
 
-    if !errors.is_empty() {
+    let Some((platform_role, workspace_role)) = roles.filter(|_| errors.is_empty()) else {
         return Err(errors);
-    }
+    };
 
     let email_key = email.to_lowercase();
     if !emails_in_file.insert(email_key.clone()) {
@@ -321,11 +376,73 @@ fn validate_row(
         )]);
     }
 
-    let action = match existing_emails.get(&email_key) {
-        Some(uuid) => RowAction::Update(*uuid),
-        None => RowAction::Create,
-    };
-    Ok(action)
+    match lookup.holders.get(&email_key) {
+        None => {
+            // The add-user API creates an audit reviewer only where local
+            // credentials are allowed (self-hosted), for a workspace admin,
+            // which the import already requires.
+            if platform_role != PlatformRole::User
+                && !crate::middleware::workspace_context::local_credentials_permitted()
+            {
+                return Err(vec![(Some("role".into()), AUDIT_REVIEWER_REFUSED.into())]);
+            }
+            Ok(RowAction::Create {
+                platform_role,
+                workspace_role,
+            })
+        }
+        // An account outside this workspace: refused as the add-user API
+        // refuses it, with the same message whatever the account is.
+        Some(PrimaryEmailHolder::NotMember) => Err(vec![(
+            Some("email".into()),
+            "User with this email already exists".into(),
+        )]),
+        Some(PrimaryEmailHolder::Member { user, role }) => {
+            if staff_change_externally_managed(role, workspace_role.as_str()) {
+                errors.push((Some("role".into()), STAFF_MANAGED.into()));
+            }
+            // The platform role is never written on update; a row may only
+            // name one the member already holds.
+            if platform_role != PlatformRole::User
+                && PlatformRole::from_db(&user.platform_role) != platform_role
+            {
+                errors.push((Some("role".into()), AUDIT_REVIEWER_REFUSED.into()));
+            }
+
+            let name_change = (name != user.name).then_some(name);
+            if name_change.is_some() {
+                if lookup.name_managed.contains(&user.uuid) {
+                    errors.push((
+                        Some("name".into()),
+                        "this person's name is managed in their Nosdesk account".into(),
+                    ));
+                } else if !lookup.may_edit_profile(user) {
+                    errors.push((
+                        Some("name".into()),
+                        "only the person or a platform admin can change their name".into(),
+                    ));
+                }
+            }
+            let pronouns_change =
+                opt_string(row, "pronouns").filter(|p| user.pronouns.as_deref() != Some(p));
+            if pronouns_change.is_some() && !lookup.may_edit_profile(user) {
+                errors.push((
+                    Some("pronouns".into()),
+                    "only the person or a platform admin can change their pronouns".into(),
+                ));
+            }
+
+            if !errors.is_empty() {
+                return Err(errors);
+            }
+            Ok(RowAction::UpdateMember {
+                user_uuid: user.uuid,
+                workspace_role,
+                name: name_change,
+                pronouns: pronouns_change,
+            })
+        }
+    }
 }
 
 /// Pragmatic email shape check. Same constraints as the
