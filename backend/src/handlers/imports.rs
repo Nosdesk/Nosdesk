@@ -6,6 +6,8 @@
 //!   suggested mapping (and, for a workbook, its sheets).
 //! - `PUT  /admin/import/{id}/source` reads a workbook again from
 //!   another sheet or header row, back to `parsed`.
+//! - `PUT  /admin/import/{id}/type` imports the same file as another
+//!   type, back to `parsed` with fresh suggestions.
 //! - `PUT  /admin/import/{id}/mapping` stores the admin's column
 //!   mapping and options, runs the dry run, and moves the job to
 //!   `dry_run_done`. Re-runnable until the commit.
@@ -13,6 +15,8 @@
 //!   rows in a single transaction and flips status to `done`.
 //! - `GET  /admin/import/{id}` returns the job row + summary so
 //!   the admin can resume.
+//! - `DELETE /admin/import/{id}` discards a job nothing was imported
+//!   from, with its files.
 //! - `GET  /admin/import/{id}/rows?filter=&offset=&limit=` pages
 //!   through every row's result, from the dry run or the commit.
 //! - `GET  /admin/import/{id}/error-report` downloads the skipped
@@ -65,6 +69,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::put().to(crate::handlers::imports::put_source),
     )
     .route(
+        "/admin/import/{id}/type",
+        web::put().to(crate::handlers::imports::put_type),
+    )
+    .route(
         "/admin/import/{id}/mapping",
         web::put().to(crate::handlers::imports::put_mapping),
     )
@@ -80,9 +88,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/admin/import/{id}/error-report",
         web::get().to(crate::handlers::imports::error_report),
     )
-    .route(
-        "/admin/import/{id}",
-        web::get().to(crate::handlers::imports::get_job),
+    .service(
+        web::resource("/admin/import/{id}")
+            .route(web::get().to(crate::handlers::imports::get_job))
+            .route(web::delete().to(crate::handlers::imports::delete_job)),
     );
 }
 
@@ -178,7 +187,7 @@ pub async fn upload(
                 };
                 if parsed.rows.is_empty() {
                     return Ok(ReadOutcome::Refused(
-                        "the file has a header row and no data".to_string(),
+                        "The file has a header row and no data.".to_string(),
                     ));
                 }
                 mapping::write_grid(job_id, &parsed)?;
@@ -493,6 +502,103 @@ fn source_precondition(job: &ImportJob) -> Option<String> {
         "parsed" | "dry_run_done" => None,
         status => Some(format!(
             "job is in status '{status}'; the sheet and header row can change only before the import is committed"
+        )),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TypeRequest {
+    #[serde(rename = "type")]
+    pub job_type: String,
+}
+
+/// Result variants for the type flow.
+enum TypeOutcome {
+    Ok(ImportJob),
+    NotFound,
+    BadRequest(String),
+    Conflict(String),
+}
+
+/// Import the job's file as another type. Allowed while nothing has been
+/// committed (`parsed` or `dry_run_done`). The file's columns stay; the
+/// suggestions are made again for the new type, and the mapping, options,
+/// answers and check are cleared, since they named the old type's fields.
+/// The same type answers with the job unchanged.
+pub async fn put_type(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+    body: web::Json<TypeRequest>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let job_type = match parse_type(body.job_type.as_str()) {
+        Ok(t) => t,
+        Err(message) => return errors::bad_request(message),
+    };
+
+    let result = tc.run(|conn| {
+        if !repo::try_lock_job(conn, id)? {
+            return Ok(TypeOutcome::Conflict(COMMIT_RUNNING.to_string()));
+        }
+        let job = match repo::get(conn, id) {
+            Ok(j) => j,
+            Err(diesel::result::Error::NotFound) => return Ok(TypeOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        if let Some(message) = type_precondition(&job) {
+            return Ok(TypeOutcome::Conflict(message));
+        }
+        if job.job_type == job_type.as_str() {
+            return Ok(TypeOutcome::Ok(job));
+        }
+        let Some(stored) = stored_source(&job) else {
+            return Ok(TypeOutcome::BadRequest(
+                "this import has no file to read; upload the file again".to_string(),
+            ));
+        };
+        let stored = suggest_for(conn, job_type, stored.source)?;
+        let updated = repo::update(
+            conn,
+            id,
+            ImportJobUpdate {
+                job_type: Some(job_type.as_str().to_string()),
+                status: Some("parsed".to_string()),
+                source: Some(serde_json::to_value(&stored).ok()),
+                mapping: Some(None),
+                options: Some(None),
+                answers: Some(None),
+                summary: Some(None),
+                row_results: Some(None),
+                ..Default::default()
+            },
+        )?;
+        info!(job_id = %id, kind = job_type.as_str(), "import type changed");
+        Ok(TypeOutcome::Ok(updated))
+    });
+
+    match result {
+        Ok(TypeOutcome::Ok(job)) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
+        Ok(TypeOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
+        Ok(TypeOutcome::BadRequest(message)) => errors::bad_request(message),
+        Ok(TypeOutcome::Conflict(message)) => errors::conflict(message),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to change import type");
+            errors::internal("failed to change the import type")
+        }
+    }
+}
+
+/// Why a job's type can't change now, if it can't.
+fn type_precondition(job: &ImportJob) -> Option<String> {
+    match job.status.as_str() {
+        "parsed" | "dry_run_done" => None,
+        status => Some(format!(
+            "job is in status '{status}'; the type can change only before the import is committed"
         )),
     }
 }
@@ -1131,6 +1237,64 @@ pub async fn get_job(
         Err(e) => {
             error!(error = ?e, "failed to load import job");
             errors::internal("failed to load import job")
+        }
+    }
+}
+
+/// Result variants for the delete flow.
+enum DeleteOutcome {
+    Deleted,
+    NotFound,
+    Conflict(String),
+}
+
+/// Discard a job nothing was imported from, and its files: "Change file"
+/// on the Map step. A committed job is the record of what it wrote and
+/// stays; so does a job whose commit is running.
+pub async fn delete_job(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let result = tc.run(|conn| {
+        if !repo::try_lock_job(conn, id)? {
+            return Ok(DeleteOutcome::Conflict(COMMIT_RUNNING.to_string()));
+        }
+        let job = match repo::get(conn, id) {
+            Ok(j) => j,
+            Err(diesel::result::Error::NotFound) => return Ok(DeleteOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        if job.status == "done" || job.records_committed.is_some() || job.record_ids.is_some() {
+            return Ok(DeleteOutcome::Conflict(
+                "this import has been committed; only an import nothing was imported from can be deleted"
+                    .to_string(),
+            ));
+        }
+        repo::delete(conn, id)?;
+        Ok(DeleteOutcome::Deleted)
+    });
+
+    match result {
+        Ok(DeleteOutcome::Deleted) => {
+            // The row is gone, so nothing reads the files again; one left
+            // behind is only disk.
+            match web::block(move || mapping::remove_job_files(id)).await {
+                Ok(Ok(removed)) => info!(job_id = %id, count = removed, "import discarded"),
+                Ok(Err(e)) => error!(job_id = %id, error = ?e, "failed to remove import files"),
+                Err(e) => error!(job_id = %id, error = ?e, "import file removal task failed"),
+            }
+            HttpResponse::NoContent().finish()
+        }
+        Ok(DeleteOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
+        Ok(DeleteOutcome::Conflict(message)) => errors::conflict(message),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to delete import job");
+            errors::internal("failed to delete the import")
         }
     }
 }

@@ -50,6 +50,13 @@ pub fn update(
         .get_result(conn)
 }
 
+/// Remove a job row. The caller decides whether the job may go.
+// sync-audit-only: workspace config row, see create
+pub fn delete(conn: &mut DbConnection, id: Uuid) -> QueryResult<usize> {
+    use crate::schema::import_jobs;
+    diesel::delete(import_jobs::table.find(id)).execute(conn)
+}
+
 // sync-audit-only: workspace config row, see create
 pub fn list_recent(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<ImportJob>> {
     use crate::schema::import_jobs;

@@ -1,14 +1,17 @@
 <script setup lang="ts">
 /**
- * Bulk import wizard: Start, Upload, Map, Review, Done.
+ * Bulk import wizard: Start, Map, Review, Done.
  *
- *  - Start  : pick the type, download the template.
- *  - Upload : the server parses the .csv or .xlsx and answers with the
- *             job in `parsed`: the file's columns and a suggested mapping.
+ *  - Start  : pick the type and drop or pick a file, which uploads at
+ *             once. The server parses the .csv or .xlsx and answers with
+ *             the job in `parsed`: the file's columns and a suggested
+ *             mapping. A refused file stays on Start with the reason.
  *  - Map    : for a workbook, the sheet panel picks the sheet and header
- *             row (`PUT source`, back to `parsed`); then the admin checks
- *             the mapping and options, and "Check" stores them and runs
- *             the dry run (`dry_run_done`).
+ *             row (`PUT source`, back to `parsed`); the detection line can
+ *             switch the type (`PUT type`); then the admin checks the
+ *             mapping and options, and "Check" stores them and runs the
+ *             dry run (`dry_run_done`). "Change file" deletes the job and
+ *             returns to Start.
  *  - Review : what the dry run found, row by row, and the error report;
  *             Import commits.
  *  - Done   : the committed counts and the report of skipped rows.
@@ -16,7 +19,7 @@
  * The job id rides in `?job=` so a reload or a link resumes at the step
  * the job's status implies.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@pinia/colada'
@@ -29,6 +32,7 @@ import Icon from '@/components/common/Icon.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import Spinner from '@/components/common/Spinner.vue'
+import { formatFileSize } from '@nosdesk/core/utils/formatFileSize'
 import ImportMapStep from '@/components/import/ImportMapStep.vue'
 import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
 import ImportSheetPanel from '@/components/import/ImportSheetPanel.vue'
@@ -48,24 +52,50 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const route = useRoute()
 const router = useRouter()
 
-type Step = 'start' | 'upload' | 'map' | 'review' | 'done'
-const STEPS: Step[] = ['start', 'upload', 'map', 'review', 'done']
+type Step = 'start' | 'map' | 'review' | 'done'
+const STEPS: Step[] = ['start', 'map', 'review', 'done']
 const STEP_KEYS: Record<Step, string> = {
   start: 'import-step-start',
-  upload: 'import-step-upload',
   map: 'import-step-map',
   review: 'import-step-review',
   done: 'import-step-done',
 }
 
+// The type Start opens on: the last one this browser imported or
+// switched to.
+const LAST_TYPE_KEY = 'nosdesk.import.lastType'
+const JOB_TYPES: ImportJobType[] = ['assets', 'users', 'tickets']
+
+function readLastType(): ImportJobType {
+  try {
+    const stored = localStorage.getItem(LAST_TYPE_KEY)
+    return JOB_TYPES.find((t) => t === stored) ?? 'assets'
+  } catch {
+    return 'assets'
+  }
+}
+
+function rememberType(type: ImportJobType) {
+  try {
+    localStorage.setItem(LAST_TYPE_KEY, type)
+  } catch {
+    // Storage blocked: Start opens on Assets next time.
+  }
+}
+
 const step = ref<Step>('start')
-const selectedType = ref<ImportJobType>('assets')
-const selectedFile = ref<File | null>(null)
+const selectedType = ref<ImportJobType>(readLastType())
 const fileInput = ref<HTMLInputElement | null>(null)
 const isDragOver = ref(false)
+/** The file being read, named on the drop zone while it uploads. */
+const reading = ref<{ name: string; size: string } | null>(null)
+/** Why the last file was refused, with its name and size. */
+const uploadError = ref<{ message: string; detail: string } | null>(null)
 
 const job = ref<ImportJob | null>(null)
-const busy = ref<'upload' | 'source' | 'check' | 'commit' | 'resume' | null>(null)
+const busy = ref<
+  'upload' | 'source' | 'type' | 'discard' | 'check' | 'commit' | 'resume' | null
+>(null)
 const downloadingReport = ref(false)
 const errorMessage = ref('')
 /** Something about the commit worth reading that isn't an error: the plan
@@ -113,7 +143,7 @@ function stepForStatus(status: ImportJob['status']): Step {
     case 'done':
       return 'done'
     default:
-      return 'upload'
+      return 'start'
   }
 }
 
@@ -155,21 +185,30 @@ function apiError(e: unknown, fallbackKey: string): string {
   return err?.response?.data?.error ?? (e instanceof Error ? e.message : t(fallbackKey))
 }
 
-// ---- start + upload ----
+// ---- start ----
 
 function downloadTemplate() {
   window.location.href = importService.templateUrl(selectedType.value)
 }
 
+function chooseFile() {
+  if (busy.value) return
+  fileInput.value?.click()
+}
+
 function pickFile(event: Event) {
   const input = event.target as HTMLInputElement
-  if (!input.files || input.files.length === 0) return
-  acceptFile(input.files[0])
+  const file = input.files?.[0]
+  // Cleared so picking the same file again after an error reads it again.
+  input.value = ''
+  if (file) acceptFile(file)
 }
 
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-function acceptFile(file: File) {
+/** Upload a dropped or picked file at once; a refusal stays on Start. */
+async function acceptFile(file: File) {
+  if (busy.value) return
   const name = file.name.toLowerCase()
   const looksImportable =
     name.endsWith('.csv') ||
@@ -178,18 +217,34 @@ function acceptFile(file: File) {
     file.type === XLSX_TYPE ||
     file.type === 'application/vnd.ms-excel' ||
     file.type === ''
+  const described = { name: file.name, size: formatFileSize(file.size) }
+  const detail = `${described.name} · ${described.size}`
+  errorMessage.value = ''
   if (!looksImportable) {
-    errorMessage.value = t('import-error-not-csv', { name: file.name })
+    uploadError.value = { message: t('import-error-not-csv', { name: file.name }), detail }
     return
   }
-  selectedFile.value = file
-  errorMessage.value = ''
+  uploadError.value = null
+  busy.value = 'upload'
+  reading.value = described
+  try {
+    const uploaded = await importService.upload(selectedType.value, file)
+    job.value = uploaded
+    rememberType(uploaded.job_type)
+    setJobQuery(uploaded.id)
+    step.value = 'map'
+  } catch (e) {
+    uploadError.value = { message: apiError(e, 'import-error-generic'), detail }
+  } finally {
+    busy.value = null
+    reading.value = null
+  }
 }
 
 function onDragOver(event: DragEvent) {
   event.preventDefault()
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
-  isDragOver.value = true
+  if (event.dataTransfer) event.dataTransfer.dropEffect = busy.value ? 'none' : 'copy'
+  isDragOver.value = !busy.value
 }
 
 function onDrop(event: DragEvent) {
@@ -199,21 +254,10 @@ function onDrop(event: DragEvent) {
   if (file) acceptFile(file)
 }
 
-async function upload() {
-  if (!selectedFile.value) return
-  busy.value = 'upload'
-  errorMessage.value = ''
-  try {
-    const uploaded = await importService.upload(selectedType.value, selectedFile.value)
-    job.value = uploaded
-    setJobQuery(uploaded.id)
-    step.value = 'map'
-  } catch (e) {
-    errorMessage.value = apiError(e, 'import-error-generic')
-  } finally {
-    busy.value = null
-  }
-}
+// A new type clears a refusal that may have been about the old one.
+watch(selectedType, () => {
+  if (step.value === 'start') uploadError.value = null
+})
 
 // ---- map + review ----
 
@@ -232,11 +276,28 @@ async function chooseSource(sheet: string, headerRow: number | null) {
   }
 }
 
-/** Remounts the Map step when the columns change under it. */
+/** Remounts the Map step when the columns or the type change under it. */
 const mapKey = computed(() => {
   const source = job.value?.source
-  return `${job.value?.id}:${source?.sheet ?? ''}:${source?.header_row ?? 1}`
+  return `${job.value?.id}:${job.value?.job_type}:${source?.sheet ?? ''}:${source?.header_row ?? 1}`
 })
+
+/** Import the same file as another type: the detection line on Map. */
+async function switchType(type: ImportJobType) {
+  if (!job.value || busy.value) return
+  busy.value = 'type'
+  errorMessage.value = ''
+  try {
+    job.value = await importService.putType(job.value.id, type)
+    selectedType.value = type
+    rememberType(type)
+    step.value = 'map'
+  } catch (e) {
+    errorMessage.value = apiError(e, 'import-error-generic')
+  } finally {
+    busy.value = null
+  }
+}
 
 async function check(mapping: ColumnMapping, options: ImportOptions) {
   if (!job.value) return
@@ -341,24 +402,44 @@ async function downloadReport() {
   }
 }
 
-function changeFile() {
+/** Back to an empty Start, keeping the type. */
+function resetToStart() {
+  if (job.value) selectedType.value = job.value.job_type
   job.value = null
   setJobQuery(null)
-  selectedFile.value = null
-  if (fileInput.value) fileInput.value.value = ''
+  uploadError.value = null
   errorMessage.value = ''
-  step.value = 'upload'
+  commitNotice.value = ''
+  step.value = 'start'
 }
 
+/** "Change file" on Map: delete the draft and its file, then Start. */
+async function changeFile() {
+  if (!job.value || busy.value) return
+  busy.value = 'discard'
+  errorMessage.value = ''
+  try {
+    await importService.remove(job.value.id)
+  } catch (e) {
+    // Already gone is as good as deleted.
+    if ((e as { response?: { status?: number } })?.response?.status !== 404) {
+      errorMessage.value = apiError(e, 'import-error-generic')
+      return
+    }
+  } finally {
+    busy.value = null
+  }
+  resetToStart()
+}
+
+/** Done's "Import another file": the imported job stays. */
 function startOver() {
-  changeFile()
-  step.value = 'start'
+  resetToStart()
 }
 
 /** Completed steps the job lets the admin go back to. */
 function canGoTo(target: Step): boolean {
   if (busy.value) return false
-  if (target === 'start') return step.value === 'upload'
   if (target === 'map') return step.value === 'review'
   return false
 }
@@ -473,13 +554,83 @@ const viewImportedLabelKey = computed(() => {
       <!-- Start ---------------------------------------------------------- -->
       <section v-else-if="step === 'start'" class="flex flex-col gap-6">
         <SectionCard content-padding="p-4">
-          <template #title>{{ $t('import-start-type-heading') }}</template>
-          <SegmentedControl
-            v-model="selectedType"
-            :options="typeOptions"
-            :aria-label="$t('import-start-type-label')"
-          />
+          <template #title>{{ $t('import-start-heading') }}</template>
+          <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-2">
+              <span class="text-sm font-medium text-primary">{{ $t('import-start-type-heading') }}</span>
+              <div>
+                <SegmentedControl
+                  v-model="selectedType"
+                  :options="typeOptions"
+                  :aria-label="$t('import-start-type-label')"
+                />
+              </div>
+            </div>
+
+            <ErrorBanner
+              v-if="uploadError"
+              :message="uploadError.message"
+              :detail="uploadError.detail"
+              role="alert"
+              data-test="import-upload-error"
+            />
+
+            <!-- Reading: the file is uploading and being parsed. -->
+            <div
+              v-if="reading"
+              class="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-default rounded-xl px-4 py-10 min-h-[176px] text-center bg-surface-alt/60"
+              aria-busy="true"
+              aria-live="polite"
+              data-test="import-reading"
+            >
+              <Spinner size="md" />
+              <div class="flex flex-col items-center gap-1 min-w-0 max-w-full">
+                <p class="text-sm text-primary font-medium">{{ $t('import-start-reading') }}</p>
+                <p class="text-xs text-tertiary break-all">{{ reading.name }} · {{ reading.size }}</p>
+              </div>
+            </div>
+
+            <!-- Drop zone: a button, so a keyboard or a tap opens the
+                 file picker; dropping a file uploads it at once. -->
+            <button
+              v-else
+              type="button"
+              class="w-full flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl px-4 py-10 min-h-[176px] text-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              :class="isDragOver
+                ? 'border-accent bg-accent/10'
+                : 'border-default bg-surface-alt/60 hover:border-strong hover:bg-surface-alt'"
+              data-test="import-drop"
+              @click="chooseFile"
+              @dragover="onDragOver"
+              @dragleave="isDragOver = false"
+              @drop="onDrop"
+            >
+              <span
+                class="w-12 h-12 rounded-full flex items-center justify-center"
+                :class="isDragOver ? 'bg-accent/20 text-accent' : 'bg-surface text-tertiary'"
+              >
+                <Icon name="document" size="md" />
+              </span>
+              <span class="flex flex-col items-center gap-1">
+                <span class="text-sm text-primary font-medium">
+                  {{ isDragOver ? $t('import-drop-release') : $t('import-drop-idle') }}
+                </span>
+                <span class="text-xs text-tertiary">{{ $t('import-drop-hint') }}</span>
+              </span>
+            </button>
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              class="hidden"
+              tabindex="-1"
+              aria-hidden="true"
+              data-test="import-file"
+              @change="pickFile"
+            />
+          </div>
         </SectionCard>
+
         <SectionCard content-padding="p-4">
           <template #title>{{ $t('import-template-heading') }}</template>
           <div class="flex flex-col gap-3">
@@ -491,71 +642,6 @@ const viewImportedLabelKey = computed(() => {
             </div>
           </div>
         </SectionCard>
-        <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
-          <Button class="ml-auto" data-test="import-continue" @click="step = 'upload'">
-            {{ $t('import-action-continue') }}
-          </Button>
-        </div>
-      </section>
-
-      <!-- Upload --------------------------------------------------------- -->
-      <section v-else-if="step === 'upload'" class="flex flex-col gap-6">
-        <SectionCard content-padding="p-4">
-          <template #title>{{ $t('import-upload-heading') }}</template>
-          <div
-            class="flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl px-6 py-12 min-h-[200px] text-center cursor-pointer transition-colors"
-            :class="isDragOver
-              ? 'border-accent bg-accent/10'
-              : 'border-default bg-surface-alt/60 hover:border-strong hover:bg-surface-alt'"
-            role="button"
-            tabindex="0"
-            @click="fileInput?.click()"
-            @keydown.enter.prevent="fileInput?.click()"
-            @keydown.space.prevent="fileInput?.click()"
-            @dragover="onDragOver"
-            @dragleave="isDragOver = false"
-            @drop="onDrop"
-          >
-            <div
-              class="w-12 h-12 rounded-full flex items-center justify-center"
-              :class="isDragOver ? 'bg-accent/20 text-accent' : 'bg-surface text-tertiary'"
-            >
-              <Icon name="document" size="md" />
-            </div>
-            <div class="flex flex-col items-center gap-1">
-              <p v-if="!selectedFile" class="text-sm text-primary font-medium">
-                {{ isDragOver ? $t('import-drop-release') : $t('import-drop-idle') }}
-              </p>
-              <p v-else class="text-sm text-primary">
-                <span class="font-medium">{{ selectedFile.name }}</span>
-                <span class="text-tertiary"> · {{ Math.max(1, Math.round(selectedFile.size / 1024)) }} KB</span>
-              </p>
-              <p class="text-xs text-tertiary">
-                {{ selectedFile ? $t('import-drop-replace') : $t('import-drop-hint') }}
-              </p>
-            </div>
-          </div>
-          <input
-            ref="fileInput"
-            type="file"
-            accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            class="hidden"
-            data-test="import-file"
-            @change="pickFile"
-          />
-        </SectionCard>
-        <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
-          <Button variant="ghost" @click="step = 'start'">{{ $t('import-action-back') }}</Button>
-          <Button
-            class="ml-auto"
-            :disabled="!selectedFile"
-            :loading="busy === 'upload'"
-            data-test="import-upload"
-            @click="upload"
-          >
-            {{ busy === 'upload' ? $t('import-action-uploading') : $t('import-action-upload') }}
-          </Button>
-        </div>
       </section>
 
       <!-- Map ------------------------------------------------------------ -->
@@ -574,7 +660,10 @@ const viewImportedLabelKey = computed(() => {
           :fields="fields"
           :kinds="kindOptions"
           :checking="busy === 'check'"
+          :switching="busy === 'type'"
+          :discarding="busy === 'discard'"
           @check="check"
+          @switch-type="switchType"
           @change-file="changeFile"
         />
         <p v-else class="flex items-center gap-2 text-sm text-secondary">

@@ -235,6 +235,22 @@ export const importService = {
     return data
   },
 
+  /** Import the same file as another type, while nothing is committed.
+   *  Returns the job back in `parsed` with suggestions for the new type;
+   *  its mapping, options and check are cleared. */
+  async putType(jobId: string, jobType: ImportJobType): Promise<ImportJob> {
+    const { data } = await apiClient.put<ImportJob>(`/admin/import/${jobId}/type`, {
+      type: jobType,
+    })
+    return data
+  },
+
+  /** Discard a job nothing was imported from, with its files. A
+   *  committed job answers 409. */
+  async remove(jobId: string): Promise<void> {
+    await apiClient.delete(`/admin/import/${jobId}`)
+  },
+
   /** Store the mapping and options and run the dry run. Returns the job
    *  in status `dry_run_done` with its summary. */
   async putMapping(

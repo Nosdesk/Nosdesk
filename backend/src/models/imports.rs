@@ -53,6 +53,7 @@ pub struct NewImportJob {
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::import_jobs)]
 pub struct ImportJobUpdate {
+    pub job_type: Option<String>,
     pub status: Option<String>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
     pub completed_at: Option<Option<chrono::DateTime<chrono::Utc>>>,

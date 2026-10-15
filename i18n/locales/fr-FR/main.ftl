@@ -3616,8 +3616,6 @@ import-stepper-label = Étapes de l'import
 # MT: pending native review (fr-FR)
 import-step-start = Début
 # MT: pending native review (fr-FR)
-import-step-upload = Fichier
-# MT: pending native review (fr-FR)
 import-step-map = Colonnes
 # MT: pending native review (fr-FR)
 import-step-review = Vérification
@@ -3648,25 +3646,21 @@ import-start-type-heading = Que souhaitez-vous importer ?
 # MT: pending native review (fr-FR)
 import-start-type-label = Données à importer
 # MT: pending native review (fr-FR)
+import-start-heading = Importer depuis un tableur
+# MT: pending native review (fr-FR)
+import-start-reading = Lecture du fichier
+# MT: pending native review (fr-FR)
 import-template-heading = Partir d'un modèle
 # MT: pending native review (fr-FR)
-import-template-help = Les en-têtes du modèle sont des identifiants de champ comme asset_tag. Conservez-les et la correspondance est automatique. Vos propres en-têtes fonctionnent aussi ; vous les associez à l'étape des colonnes.
+import-template-help = Les en-têtes du modèle sont des noms de champ comme asset_tag. Conservez-les et la correspondance est automatique. Vos propres en-têtes fonctionnent aussi.
 # MT: pending native review (fr-FR)
 import-template-download = Télécharger le modèle
 # MT: pending native review (fr-FR)
-import-action-continue = Continuer
-# MT: pending native review (fr-FR)
-import-action-back = Retour
-# MT: pending native review (fr-FR)
-import-upload-heading = Envoyer votre fichier
-# MT: pending native review (fr-FR)
-import-drop-idle = Déposez un fichier .csv ou .xlsx ici, ou cliquez pour parcourir
+import-drop-idle = Déposez un fichier .csv ou .xlsx ici, ou touchez pour en choisir un
 # MT: pending native review (fr-FR)
 import-drop-release = Relâchez pour envoyer
 # MT: pending native review (fr-FR)
 import-drop-hint = .csv ou .xlsx, jusqu'à 10 Mo et 5 000 lignes
-# MT: pending native review (fr-FR)
-import-drop-replace = Cliquez ou déposez un autre fichier pour le remplacer
 # MT: pending native review (fr-FR)
 import-sheet-heading = Feuille et ligne d'en-tête
 # MT: pending native review (fr-FR)
@@ -3710,10 +3704,6 @@ import-sheet-help-hidden = Les lignes et colonnes masquées sont importées comm
 import-sheet-help-zeros = Excel supprime les zéros en tête des nombres avant que le fichier n'arrive dans Nosdesk. Pour garder une étiquette comme 00123, mettez la colonne au format texte dans Excel.
 # MT: pending native review (fr-FR)
 import-sheet-help-formulas = Les formules sont importées avec la dernière valeur calculée par Excel.
-# MT: pending native review (fr-FR)
-import-action-upload = Envoyer
-# MT: pending native review (fr-FR)
-import-action-uploading = Lecture du fichier
 # MT: pending native review (fr-FR)
 import-loading-fields = Chargement des champs
 # MT: pending native review (fr-FR)
@@ -3807,6 +3797,18 @@ import-map-change-file-title = Abandonner ce fichier ?
 import-map-change-file-message = Les colonnes aux mêmes en-têtes seront de nouveau associées automatiquement.
 # MT: pending native review (fr-FR)
 import-map-change-file-confirm = Abandonner le fichier
+# MT: pending native review (fr-FR)
+import-map-detect-users = Ce fichier contient les colonnes { $headers } et aucune étiquette ni numéro de série. Vous importez des utilisateurs ?
+# MT: pending native review (fr-FR)
+import-map-detect-assets = Ce fichier contient les colonnes { $headers }. Vous importez des actifs ?
+# MT: pending native review (fr-FR)
+import-map-switch-users = Passer aux utilisateurs
+# MT: pending native review (fr-FR)
+import-map-switch-assets = Passer aux actifs
+# MT: pending native review (fr-FR)
+import-map-switch-users-help = Les colonnes sont de nouveau associées pour les utilisateurs.
+# MT: pending native review (fr-FR)
+import-map-switch-assets-help = Les colonnes sont de nouveau associées pour les actifs.
 # MT: pending native review (fr-FR)
 import-map-check = { $count ->
     [one] Vérifier 1 ligne
