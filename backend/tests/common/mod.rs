@@ -1005,3 +1005,23 @@ pub fn import_ctx() -> backend::services::imports::ImportContext {
         job_id: Uuid::new_v4(),
     }
 }
+
+/// An [`import_ctx`] whose actor is a new admin of the bootstrap workspace,
+/// for imports whose rows are gated on the importer's role (users).
+pub fn workspace_admin_import_ctx(
+    conn: &mut TestPooledConn,
+) -> backend::services::imports::ImportContext {
+    use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
+    use backend::sync::actor::ActorContext;
+    use backend::sync::session::with_actor_context;
+    let admin = insert_plain_user(conn, "Import Admin");
+    let pin = ActorContext::user(admin, None).with_workspace(1);
+    with_actor_context::<_, diesel::result::Error>(conn, &pin, |c| {
+        add_membership(c, 1, admin, "admin", SeatWriteAuthority::ControlPlane)
+    })
+    .expect("import admin membership");
+    backend::services::imports::ImportContext {
+        actor: Some(admin),
+        job_id: Uuid::new_v4(),
+    }
+}

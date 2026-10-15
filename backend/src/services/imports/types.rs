@@ -128,7 +128,7 @@ impl std::fmt::Display for CommitError {
 /// Trades completeness for round-trip size + UI readability.
 pub const MAX_ERRORS: usize = 100;
 
-/// Who is committing, and which job. Built by the commit handler.
+/// Who is importing, and which job. Built by the upload and commit handlers.
 #[derive(Debug, Clone, Copy)]
 pub struct ImportContext {
     /// The admin applying the import; `None` only for callers with no
@@ -147,11 +147,13 @@ pub trait Importer: Send + Sync {
 
     /// Run validation across every row, build the summary, but
     /// don't write. Internal lookups (natural-key collisions
-    /// against existing rows, FK targets, etc.) hit the DB.
+    /// against existing rows, FK targets, etc.) hit the DB. `ctx` is
+    /// the admin who will commit, for checks that depend on who acts.
     fn dry_run(
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
+        ctx: &ImportContext,
     ) -> Result<ImportSummary, diesel::result::Error>;
 
     /// Apply the rows through the canonical repository writers (which

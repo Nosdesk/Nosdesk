@@ -69,6 +69,7 @@ impl Importer for AssetImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
+        _ctx: &ImportContext,
     ) -> Result<ImportSummary, diesel::result::Error> {
         let mut summary = ImportSummary {
             row_count: parsed.rows.len(),

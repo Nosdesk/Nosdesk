@@ -142,7 +142,11 @@ pub async fn upload(
             }
         };
 
-        let summary = match imports::dry_run(conn, job_type, &parsed) {
+        let ctx = ImportContext {
+            actor: Some(user_uuid),
+            job_id: job.id,
+        };
+        let summary = match imports::dry_run(conn, job_type, &parsed, &ctx) {
             Ok(s) => s,
             Err(e) => {
                 error!(job_id = %job.id, error = ?e, "dry-run failed");

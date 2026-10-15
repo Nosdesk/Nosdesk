@@ -10,12 +10,13 @@ use diesel::prelude::*;
 
 use backend::services::imports::{self, csv_parser, ImportType};
 
-use crate::common::{count_table, fixture_path, import_ctx, TestDb};
+use crate::common::{self, count_table, fixture_path, import_ctx, TestDb};
 
 fn seed_user_prerequisites(conn: &mut backend::db::DbConnection) {
     let parsed =
         csv_parser::parse_file(&fixture_path("imports/users_valid.csv")).expect("parse users");
-    imports::commit(conn, ImportType::Users, &parsed, &import_ctx()).expect("commit users");
+    let ctx = common::workspace_admin_import_ctx(conn);
+    imports::commit(conn, ImportType::Users, &parsed, &ctx).expect("commit users");
 }
 
 #[test]
@@ -26,7 +27,8 @@ fn happy_path_creates_tickets_with_resolved_refs() {
 
     let tickets_before = count_table(&mut conn, "tickets");
     let parsed = csv_parser::parse_file(&fixture_path("imports/tickets_valid.csv")).expect("parse");
-    let summary = imports::dry_run(&mut conn, ImportType::Tickets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Tickets, &parsed, &import_ctx()).expect("dry-run");
     assert_eq!(summary.row_count, 3);
     assert_eq!(summary.would_create, 3);
     assert!(summary.errors.is_empty(), "errors: {:?}", summary.errors);
@@ -73,7 +75,8 @@ fn errors_csv_classifies_each_failure() {
 
     let parsed =
         csv_parser::parse_file(&fixture_path("imports/tickets_errors.csv")).expect("parse");
-    let summary = imports::dry_run(&mut conn, ImportType::Tickets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Tickets, &parsed, &import_ctx()).expect("dry-run");
 
     assert_eq!(summary.row_count, 8);
     // Only "Valid Ticket" survives validation.
@@ -134,7 +137,8 @@ fn row_errors_name_the_line_the_row_starts_on() {
     .expect("write csv");
     let parsed = csv_parser::parse_file(file.path()).expect("parse");
 
-    let summary = imports::dry_run(&mut conn, ImportType::Tickets, &parsed).expect("dry-run");
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Tickets, &parsed, &import_ctx()).expect("dry-run");
     let errors: Vec<(usize, Option<&str>)> = summary
         .errors
         .iter()
