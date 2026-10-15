@@ -40,6 +40,7 @@ fn asset(conn: &mut PgConnection, name: &str, attributes: Value) {
             unit: None,
             external_sync_source: None,
             low_stock_threshold: None,
+            created_by: None,
         })
         .execute(conn)
         .expect("insert asset");

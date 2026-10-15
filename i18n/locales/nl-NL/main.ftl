@@ -3508,7 +3508,8 @@ csv-import-template-button = Download template
 csv-import-file-label = Choose your file
 csv-import-drop-zone-idle = Drop a CSV here, or click to browse
 csv-import-drop-here = Release to upload
-csv-import-drop-zone-hint = .csv up to 10 MB
+# MT: pending native review (nl-NL)
+csv-import-drop-zone-hint = .csv tot 10 MB en 5.000 rijen
 csv-import-drop-zone-replace = Click or drop another file to replace
 csv-import-error-not-csv = "{ $name }" is not a CSV file
 csv-import-action-validate = Validate

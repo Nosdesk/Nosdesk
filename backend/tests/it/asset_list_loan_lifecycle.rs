@@ -45,6 +45,7 @@ fn new_asset(name: &str) -> NewAsset {
         unit: None,
         external_sync_source: None,
         low_stock_threshold: None,
+        created_by: None,
     }
 }
 

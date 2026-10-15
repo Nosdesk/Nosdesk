@@ -10,6 +10,9 @@
 //!   the admin can resume.
 //! - `GET  /admin/import/template/{type}` returns a CSV header
 //!   row the admin can fill in.
+//!
+//! Every route is workspace-admin only, and files are parsed before any
+//! transaction opens.
 
 use actix_multipart::Multipart;
 use actix_web::{http::header, web, HttpResponse, Responder};
@@ -22,9 +25,11 @@ use std::sync::Arc;
 
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::models::{ImportJob, ImportJobUpdate, NewImportJob};
+use crate::models::{ImportJob, ImportJobResponse, ImportJobUpdate, NewImportJob};
 use crate::repository::imports as repo;
-use crate::services::imports::{self, csv_parser, CommitError, ImportType, ImportedRecords};
+use crate::services::imports::{
+    self, csv_parser, CommitError, ImportContext, ImportType, ImportedRecords,
+};
 use crate::services::search::{indexing_tasks, SearchService};
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -106,6 +111,15 @@ pub async fn upload(
         }
     };
 
+    // Parse off the async worker and before any transaction opens.
+    let parsed = match web::block(move || csv_parser::parse_bytes(&file_bytes)).await {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            error!(error = ?e, "import parse task failed");
+            return errors::internal("failed to read uploaded file");
+        }
+    };
+
     let job_type_str = job_type.as_str().to_string();
     let stored_path_str = stored_path.to_string_lossy().to_string();
     let result = tc.run(|conn| {
@@ -113,14 +127,13 @@ pub async fn upload(
             conn,
             NewImportJob {
                 job_type: job_type_str,
-                filename: filename.clone(),
+                filename: stored_filename(&filename),
                 file_path: stored_path_str,
                 created_by: Some(user_uuid),
             },
         )?;
 
-        // Parse + dry-run.
-        let parsed = match csv_parser::parse_file(&stored_path) {
+        let parsed = match parsed {
             Ok(p) => p,
             Err(e) => {
                 let message = e.to_string();
@@ -158,7 +171,7 @@ pub async fn upload(
     });
 
     match result {
-        Ok(UploadOutcome::Ok(job)) => HttpResponse::Ok().json(job),
+        Ok(UploadOutcome::Ok(job)) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
         Ok(UploadOutcome::BadRequest(msg)) => errors::bad_request(msg),
         Err(e) => {
             error!(error = ?e, "import upload failed");
@@ -189,32 +202,56 @@ pub async fn commit(
         return errors::forbidden("Import requires workspace admin");
     }
     let id = path.into_inner();
+    let ctx = ImportContext {
+        actor: Some(auth.user_uuid),
+        job_id: id,
+    };
+
+    // Read the job and parse its file before the commit transaction opens.
+    let job = match tc.run(|conn| repo::get(conn, id)) {
+        Ok(j) => j,
+        Err(diesel::result::Error::NotFound) => {
+            return errors::not_found_msg(format!("import job {id} not found"));
+        }
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to load import job");
+            return errors::internal("failed to load import job");
+        }
+    };
+    if let Some(outcome) = commit_precondition(&job) {
+        return commit_response(&search_service, outcome);
+    }
+    let file_path = std::path::PathBuf::from(&job.file_path);
+    let parsed = match web::block(move || csv_parser::parse_file(&file_path)).await {
+        Ok(Ok(p)) => p,
+        Ok(Err(e)) => {
+            let msg = e.to_string();
+            if let Err(mark_err) = tc.run(|conn| {
+                mark_failed(conn, id, &msg);
+                Ok(())
+            }) {
+                error!(job_id = %id, error = ?mark_err, "failed to record import failure");
+            }
+            return errors::bad_request(msg);
+        }
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "import parse task failed");
+            return errors::internal("failed to read import file");
+        }
+    };
 
     let result = tc.run_result(|conn| -> Result<CommitOutcome, CommitError> {
+        // Checked again under the transaction: a parallel commit may have
+        // started since the read above.
         let job = match repo::get(conn, id) {
             Ok(j) => j,
             Err(diesel::result::Error::NotFound) => return Ok(CommitOutcome::NotFound),
             Err(e) => return Err(e.into()),
         };
-        if job.status == "done" {
-            return Ok(CommitOutcome::AlreadyDone(job));
+        if let Some(outcome) = commit_precondition(&job) {
+            return Ok(outcome);
         }
-        if job.status != "dry_run_done" {
-            return Ok(CommitOutcome::BadRequest(format!(
-                "job is in status '{}'; commit requires 'dry_run_done'",
-                job.status
-            )));
-        }
-
-        let job_type = match ImportType::from_str(&job.job_type) {
-            Some(t) => t,
-            None => {
-                return Ok(CommitOutcome::BadRequest(format!(
-                    "import job has unknown type '{}'",
-                    job.job_type
-                )));
-            }
-        };
+        let job_type = ImportType::from_str(&job.job_type).expect("checked by commit_precondition");
 
         // Mark committing first so a parallel commit attempt fails
         // the precondition above instead of double-applying.
@@ -227,19 +264,10 @@ pub async fn commit(
             },
         )?;
 
-        let parsed = match csv_parser::parse_file(std::path::Path::new(&job.file_path)) {
-            Ok(p) => p,
-            Err(e) => {
-                let msg = e.to_string();
-                mark_failed(conn, job.id, &msg);
-                return Ok(CommitOutcome::BadRequest(msg));
-            }
-        };
-
         // The repo + commit imports run inside this transaction.
         // Postgres `SET LOCAL` propagates into the nested savepoint
         // so the workspace GUC is still active for the commit path.
-        let records = imports::commit(conn, job_type, &parsed)?;
+        let records = imports::commit(conn, job_type, &parsed, &ctx)?;
 
         let updated = repo::update(
             conn,
@@ -255,17 +283,7 @@ pub async fn commit(
     });
 
     match result {
-        Ok(CommitOutcome::Ok(job, records)) => {
-            // Index the committed entities the same way the create
-            // handlers do (spawn_index_*). Run post-commit, off the
-            // response path; the repository writers already emitted the
-            // per-row sync events inside the transaction.
-            index_imported_records(search_service.get_ref(), records);
-            HttpResponse::Ok().json(job)
-        }
-        Ok(CommitOutcome::AlreadyDone(job)) => HttpResponse::Ok().json(job),
-        Ok(CommitOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
-        Ok(CommitOutcome::BadRequest(msg)) => errors::bad_request(msg),
+        Ok(outcome) => commit_response(&search_service, outcome),
         Err(e) => {
             // The commit rolled back every row, and the job's status with
             // it; record the failure on the job in a transaction of its own.
@@ -287,6 +305,46 @@ pub async fn commit(
                 CommitError::Db(_) => errors::internal(message),
             }
         }
+    }
+}
+
+/// Why a job can't be committed now, if it can't. A job already `done`
+/// answers with the job unchanged.
+fn commit_precondition(job: &ImportJob) -> Option<CommitOutcome> {
+    if job.status == "done" {
+        return Some(CommitOutcome::AlreadyDone(job.clone()));
+    }
+    if job.status != "dry_run_done" {
+        return Some(CommitOutcome::BadRequest(format!(
+            "job is in status '{}'; commit requires 'dry_run_done'",
+            job.status
+        )));
+    }
+    if ImportType::from_str(&job.job_type).is_none() {
+        return Some(CommitOutcome::BadRequest(format!(
+            "import job has unknown type '{}'",
+            job.job_type
+        )));
+    }
+    None
+}
+
+fn commit_response(
+    search_service: &web::Data<Arc<SearchService>>,
+    outcome: CommitOutcome,
+) -> HttpResponse {
+    match outcome {
+        CommitOutcome::Ok(job, records) => {
+            // Index the committed entities the same way the create
+            // handlers do (spawn_index_*). Run post-commit, off the
+            // response path; the repository writers already emitted the
+            // per-row sync events inside the transaction.
+            index_imported_records(search_service.get_ref(), records);
+            HttpResponse::Ok().json(ImportJobResponse::from(job))
+        }
+        CommitOutcome::AlreadyDone(job) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
+        CommitOutcome::NotFound => errors::not_found_msg("import job not found"),
+        CommitOutcome::BadRequest(msg) => errors::bad_request(msg),
     }
 }
 
@@ -331,7 +389,7 @@ pub async fn get_job(
     }
     let id = path.into_inner();
     match tc.run(|conn| repo::get(conn, id)) {
-        Ok(j) => HttpResponse::Ok().json(j),
+        Ok(j) => HttpResponse::Ok().json(ImportJobResponse::from(j)),
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("import job {id} not found"))
         }
@@ -344,7 +402,10 @@ pub async fn get_job(
 
 /// Plain-text CSV template for the requested import type. Just
 /// the header row; the admin fills in the data rows.
-pub async fn template(path: web::Path<String>) -> impl Responder {
+pub async fn template(auth: AuthContext, path: web::Path<String>) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
     let job_type = match ImportType::from_str(&path) {
         Some(t) => t,
         None => return errors::bad_request("unknown import type"),
@@ -391,6 +452,12 @@ async fn read_first_file_field(payload: &mut Multipart) -> Result<(String, Vec<u
         }
     }
     Ok((filename, bytes))
+}
+
+/// The upload's name as stored: `import_jobs.filename` holds 255
+/// characters.
+fn stored_filename(name: &str) -> String {
+    name.chars().take(255).collect()
 }
 
 fn persist_upload(

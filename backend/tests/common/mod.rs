@@ -591,6 +591,7 @@ pub fn insert_stock_asset(conn: &mut PgConnection, name: &str) -> i32 {
         unit: Some("m".to_string()),
         external_sync_source: None,
         low_stock_threshold: Some(BigDecimal::from_str("10.000").unwrap()),
+        created_by: None,
     };
     diesel::insert_into(assets::table)
         .values(&new)
@@ -995,4 +996,12 @@ pub fn horizon_holders() -> String {
             .collect::<Vec<_>>()
             .join("\n")
     )
+}
+
+/// An import commit's context with no signed-in actor.
+pub fn import_ctx() -> backend::services::imports::ImportContext {
+    backend::services::imports::ImportContext {
+        actor: None,
+        job_id: Uuid::new_v4(),
+    }
 }

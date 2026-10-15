@@ -10,12 +10,12 @@ use diesel::prelude::*;
 
 use backend::services::imports::{self, csv_parser, ImportType};
 
-use crate::common::{count_table, fixture_path, TestDb};
+use crate::common::{count_table, fixture_path, import_ctx, TestDb};
 
 fn seed_user_prerequisites(conn: &mut backend::db::DbConnection) {
     let parsed =
         csv_parser::parse_file(&fixture_path("imports/users_valid.csv")).expect("parse users");
-    imports::commit(conn, ImportType::Users, &parsed).expect("commit users");
+    imports::commit(conn, ImportType::Users, &parsed, &import_ctx()).expect("commit users");
 }
 
 #[test]
@@ -31,7 +31,8 @@ fn happy_path_creates_tickets_with_resolved_refs() {
     assert_eq!(summary.would_create, 3);
     assert!(summary.errors.is_empty(), "errors: {:?}", summary.errors);
 
-    let records = imports::commit(&mut conn, ImportType::Tickets, &parsed).expect("commit");
+    let records =
+        imports::commit(&mut conn, ImportType::Tickets, &parsed, &import_ctx()).expect("commit");
     assert_eq!(records.len(), 3);
     assert_eq!(count_table(&mut conn, "tickets"), tickets_before + 3);
 
@@ -109,10 +110,36 @@ fn tickets_are_insert_only_running_twice_doubles_the_count() {
     let tickets_before = count_table(&mut conn, "tickets");
     let parsed = csv_parser::parse_file(&fixture_path("imports/tickets_valid.csv")).expect("parse");
 
-    imports::commit(&mut conn, ImportType::Tickets, &parsed).expect("commit 1");
-    imports::commit(&mut conn, ImportType::Tickets, &parsed).expect("commit 2");
+    imports::commit(&mut conn, ImportType::Tickets, &parsed, &import_ctx()).expect("commit 1");
+    imports::commit(&mut conn, ImportType::Tickets, &parsed, &import_ctx()).expect("commit 2");
 
     // Insert-only: no natural key, so the same file twice
     // means twice the rows. This is the documented behaviour.
     assert_eq!(count_table(&mut conn, "tickets"), tickets_before + 6);
+}
+
+/// Errors name the line a row starts on, past a multi-line quoted field.
+#[test]
+fn row_errors_name_the_line_the_row_starts_on() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    seed_user_prerequisites(&mut conn);
+    let file = tempfile::NamedTempFile::new().expect("temp csv");
+    std::fs::write(
+        file.path(),
+        "title,workflow_state,priority,requester_email,assignee_email,category,due_date\n\
+         \"Printer jam\non floor 2\",Backlog,medium,,,,\n\
+         Bad Date,Backlog,medium,,,,soon\n",
+    )
+    .expect("write csv");
+    let parsed = csv_parser::parse_file(file.path()).expect("parse");
+
+    let summary = imports::dry_run(&mut conn, ImportType::Tickets, &parsed).expect("dry-run");
+    let errors: Vec<(usize, Option<&str>)> = summary
+        .errors
+        .iter()
+        .map(|e| (e.row, e.column.as_deref()))
+        .collect();
+    assert_eq!(errors, vec![(4, Some("due_date"))], "{:?}", summary.errors);
+    assert_eq!(summary.would_create, 1);
 }

@@ -253,6 +253,7 @@ fn seed(db: &common::TestDb) -> Fixture {
                     unit: None,
                     external_sync_source: None,
                     low_stock_threshold: None,
+                    created_by: None,
                 })
                 .returning(backend::schema::assets::id)
                 .get_result(c)?;
@@ -329,6 +330,7 @@ fn seed(db: &common::TestDb) -> Fixture {
                 unit: None,
                 external_sync_source: None,
                 low_stock_threshold: None,
+                created_by: None,
             })
             .returning(backend::schema::assets::id)
             .get_result(c)?;

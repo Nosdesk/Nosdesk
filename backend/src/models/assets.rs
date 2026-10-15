@@ -173,6 +173,9 @@ pub struct NewAsset {
     pub external_sync_source: Option<String>,
     #[serde(default)]
     pub low_stock_threshold: Option<bigdecimal::BigDecimal>,
+    /// Set by the server from the signed-in user, never from a request body.
+    #[serde(skip)]
+    pub created_by: Option<Uuid>,
 }
 
 /// Partial update for an asset. Outer `Option` = "leave unchanged"; for the

@@ -48,6 +48,7 @@ fn disposed_asset(pool: &TestPool, workspace_id: i32, actor: Option<Uuid>) -> (i
                 unit: None,
                 external_sync_source: None,
                 low_stock_threshold: None,
+                created_by: None,
             },
         )?;
         asset_lifecycle::transition(
