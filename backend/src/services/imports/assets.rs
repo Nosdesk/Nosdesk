@@ -26,11 +26,9 @@
 //! attributes the new kind doesn't define. Any other row is an error that
 //! points to the asset page.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::str::FromStr;
-
 use bigdecimal::BigDecimal;
 use diesel::prelude::*;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::db::DbConnection;
 use crate::models::{Asset, AssetLifecycleEvent, AssetUpdate, NewAsset};
@@ -46,6 +44,7 @@ use super::types::{
     ImportContext, ImportMode, ImportOptions, ImportType, ImportedRecords, Importer, MatchBy,
     Notice, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
 };
+use super::values::{self, Choice};
 
 /// Universal CSV columns the importer accepts. Export writes
 /// these first (same order/names) so a round-trip upserts on
@@ -131,6 +130,50 @@ impl Importer for AssetImporter {
             ("note", "notes"),
             ("qty", "quantity"),
         ]
+    }
+
+    fn value_choices(
+        &self,
+        conn: &mut DbConnection,
+        field: &FieldSpec,
+    ) -> Result<Option<Vec<Choice>>, diesel::result::Error> {
+        if field.id != "kind" {
+            return Ok(None);
+        }
+        Ok(Some(
+            kind_repo::list_kinds(conn)?
+                .into_iter()
+                .map(|k| Choice::new(k.slug, k.label))
+                .collect(),
+        ))
+    }
+
+    fn value_synonyms(&self, field: &str) -> &'static [(&'static str, &'static str)] {
+        match field {
+            "kind" => &[
+                ("cam", "camera"),
+                ("notebook", "laptop"),
+                ("macbook", "laptop"),
+                ("pc", "desktop"),
+                ("workstation", "desktop"),
+                ("display", "monitor"),
+                ("screen", "monitor"),
+                ("mobile", "phone"),
+                ("mobile phone", "phone"),
+                ("cell phone", "phone"),
+                ("smartphone", "phone"),
+                ("switch", "network_device"),
+                ("router", "network_device"),
+                ("access point", "network_device"),
+                ("car", "vehicle"),
+                ("van", "vehicle"),
+                ("truck", "vehicle"),
+                ("ute", "vehicle"),
+                ("licence", "license"),
+                ("software", "license"),
+            ],
+            _ => &[],
+        }
     }
 
     fn dry_run(
@@ -542,9 +585,6 @@ const MAX_LENGTHS: &[(&str, usize)] = &[
     ("unit", 32),
 ];
 
-/// Largest magnitude `numeric(12,3)` holds once rounded to 3 places.
-const MAX_DECIMAL: &str = "999999999.9995";
-
 /// Why a row is skipped under [`ImportMode::CreateOnly`]: its key names an
 /// asset that already exists.
 pub const ALREADY_EXISTS: &str = "already exists";
@@ -891,39 +931,13 @@ fn trimmed(row: &HashMap<String, String>, key: &str) -> String {
     row.get(key).cloned().unwrap_or_default().trim().to_string()
 }
 
-/// A decimal cell: `Ok(None)` when blank, the value when it parses and
-/// fits `numeric(12,3)`, otherwise the message for the admin. `mark` is
-/// the decimal mark the admin chose; with `,` a `.` in the cell is an
-/// error, since it may be a thousands separator.
+/// A decimal cell, read as [`values::parse_decimal`] reads it.
 fn check_decimal(
     row: &HashMap<String, String>,
     key: &str,
     mark: DecimalMark,
 ) -> Result<Option<BigDecimal>, String> {
-    let raw = trimmed(row, key);
-    if raw.is_empty() {
-        return Ok(None);
-    }
-    let text = match mark {
-        DecimalMark::Dot => raw.clone(),
-        DecimalMark::Comma if raw.contains('.') => {
-            return Err(format!(
-                "'{raw}' has a '.', but the decimal mark is ','; remove thousands separators"
-            ));
-        }
-        DecimalMark::Comma => raw.replace(',', "."),
-    };
-    let value = BigDecimal::from_str(&text).map_err(|_| match mark {
-        DecimalMark::Dot if raw.contains(',') && !raw.contains('.') => format!(
-            "'{raw}' is not a valid decimal; if ',' is the decimal mark, choose ',' at the Map step"
-        ),
-        _ => format!("'{raw}' is not a valid decimal"),
-    })?;
-    let max = BigDecimal::from_str(MAX_DECIMAL).expect("constant parses");
-    if value.abs() >= max {
-        return Err(format!("'{raw}' is too large (at most 999999999.999)"));
-    }
-    Ok(Some(value))
+    values::parse_decimal(&trimmed(row, key), mark)
 }
 
 fn opt_string(row: &HashMap<String, String>, key: &str) -> Option<String> {

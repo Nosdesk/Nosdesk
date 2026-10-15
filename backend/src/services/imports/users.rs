@@ -53,6 +53,7 @@ use super::types::{
     ImportType, ImportedRecords, ImportedUser, Importer, RecordId, RowOutcome, RowPlan, RowResult,
     ValueType,
 };
+use super::values::Choice;
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
 
@@ -89,6 +90,37 @@ impl Importer for UserImporter {
                 false,
             ),
         ])
+    }
+
+    fn value_choices(
+        &self,
+        _conn: &mut DbConnection,
+        field: &FieldSpec,
+    ) -> Result<Option<Vec<Choice>>, diesel::result::Error> {
+        Ok((field.id == "role").then(|| {
+            vec![
+                Choice::new("admin", "Admin"),
+                Choice::new("technician", "Technician"),
+                Choice::new("user", "User"),
+                Choice::new("audit_reviewer", "Audit reviewer"),
+            ]
+        }))
+    }
+
+    fn value_synonyms(&self, field: &str) -> &'static [(&'static str, &'static str)] {
+        match field {
+            "role" => &[
+                ("administrator", "admin"),
+                ("agent", "technician"),
+                ("tech", "technician"),
+                ("support", "technician"),
+                ("member", "user"),
+                ("requester", "user"),
+                ("end user", "user"),
+                ("staff", "user"),
+            ],
+            _ => &[],
+        }
     }
 
     fn synonyms(&self) -> &'static [(&'static str, &'static str)] {

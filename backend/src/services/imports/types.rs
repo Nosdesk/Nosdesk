@@ -789,6 +789,31 @@ pub trait Importer: Send + Sync {
         &[]
     }
 
+    /// What a value of `field` can link to on the Match values step, or
+    /// `None` when its values aren't a closed set. By default an enum
+    /// field's options, each its own label.
+    fn value_choices(
+        &self,
+        _conn: &mut DbConnection,
+        field: &FieldSpec,
+    ) -> Result<Option<Vec<super::values::Choice>>, diesel::result::Error> {
+        Ok(match (&field.value_type, &field.enum_values) {
+            (ValueType::Enum, Some(values)) => Some(
+                values
+                    .iter()
+                    .map(|v| super::values::Choice::new(v.clone(), v.clone()))
+                    .collect(),
+            ),
+            _ => None,
+        })
+    }
+
+    /// Other names for a field's choices, as `(name, choice value)`: a
+    /// value spelled this way is Guessed as the choice.
+    fn value_synonyms(&self, _field: &str) -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
+
     /// Validate every row and say what the commit would do with it, but
     /// don't write. Internal lookups (natural-key collisions
     /// against existing rows, FK targets, etc.) hit the DB. `ctx` is

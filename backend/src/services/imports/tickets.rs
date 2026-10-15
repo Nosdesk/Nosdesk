@@ -21,7 +21,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{NaiveDateTime, NaiveTime};
 use diesel::prelude::*;
 use uuid::Uuid;
 
@@ -34,6 +34,7 @@ use super::types::{
     CommitError, Committed, FieldGroup, FieldSpec, ImportContext, ImportType, ImportedRecords,
     Importer, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
 };
+use super::values::{self, Choice};
 
 const HEADERS: &[&str] = &[
     "title",
@@ -58,8 +59,12 @@ impl Importer for TicketImporter {
         Ok(vec![
             FieldSpec::fixed(t, "title", "Title", Core, ValueType::Text, true),
             FieldSpec::fixed(t, "workflow_state", "Status", Core, ValueType::Text, true),
-            FieldSpec::fixed(t, "priority", "Priority", Core, ValueType::Enum, false)
-                .with_enum(["low", "medium", "high"].map(String::from).to_vec()),
+            FieldSpec::fixed(t, "priority", "Priority", Core, ValueType::Enum, false).with_enum(
+                TicketPriority::ALL
+                    .iter()
+                    .map(|p| p.as_str().to_string())
+                    .collect(),
+            ),
             FieldSpec::fixed(t, "due_date", "Due date", Core, ValueType::Date, false)
                 .with_format("YYYY-MM-DD"),
             FieldSpec::fixed(
@@ -95,6 +100,49 @@ impl Importer for TicketImporter {
             ("assignedto", "assignee_email"),
             ("due", "due_date"),
         ]
+    }
+
+    fn value_choices(
+        &self,
+        conn: &mut DbConnection,
+        field: &FieldSpec,
+    ) -> Result<Option<Vec<Choice>>, diesel::result::Error> {
+        use crate::schema::workflow_states;
+        match field.id.as_str() {
+            "workflow_state" => {
+                let names: Vec<String> = workflow_states::table
+                    .filter(workflow_states::archived_at.is_null())
+                    .order(workflow_states::name.asc())
+                    .select(workflow_states::name)
+                    .load(conn)?;
+                Ok(Some(
+                    names
+                        .into_iter()
+                        .map(|n| Choice::new(n.clone(), n))
+                        .collect(),
+                ))
+            }
+            "priority" => Ok(Some(
+                TicketPriority::ALL
+                    .iter()
+                    .map(|p| Choice::new(p.as_str(), priority_label(*p)))
+                    .collect(),
+            )),
+            _ => Ok(None),
+        }
+    }
+
+    fn value_synonyms(&self, field: &str) -> &'static [(&'static str, &'static str)] {
+        match field {
+            "priority" => &[
+                ("normal", "medium"),
+                ("med", "medium"),
+                ("critical", "urgent"),
+                ("highest", "urgent"),
+                ("lowest", "low"),
+            ],
+            _ => &[],
+        }
     }
 
     fn dry_run(
@@ -342,12 +390,12 @@ fn validate_row(
         if raw.is_empty() {
             None
         } else {
-            match NaiveDate::parse_from_str(&raw, "%Y-%m-%d") {
-                Ok(d) => Some(NaiveDateTime::new(
+            match values::parse_date(&raw) {
+                Some(d) => Some(NaiveDateTime::new(
                     d,
                     NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
                 )),
-                Err(_) => {
+                None => {
                     errors.push((
                         Some("due_date".into()),
                         format!("'{raw}' is not a valid date; use YYYY-MM-DD"),
@@ -391,6 +439,17 @@ fn resolve_email(
             ));
             None
         }
+    }
+}
+
+/// A priority as the ticket page names it.
+fn priority_label(p: TicketPriority) -> &'static str {
+    match p {
+        TicketPriority::None => "None",
+        TicketPriority::Low => "Low",
+        TicketPriority::Medium => "Medium",
+        TicketPriority::High => "High",
+        TicketPriority::Urgent => "Urgent",
     }
 }
 
