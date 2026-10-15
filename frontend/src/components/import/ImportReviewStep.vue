@@ -146,7 +146,7 @@ function confirm() {
     </Callout>
 
     <div
-      class="sticky bottom-0 bg-app/80 backdrop-blur border-t border-default py-3 flex flex-wrap items-center gap-3"
+      class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3"
     >
       <Button variant="ghost" :disabled="committing" @click="emit('back')">
         {{ $t('import-review-back') }}

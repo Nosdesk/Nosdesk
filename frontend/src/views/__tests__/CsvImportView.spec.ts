@@ -319,19 +319,33 @@ describe('CsvImportView Map step', () => {
   })
 
   it('filters rows without reordering them', async () => {
-    await openMap()
+    const base = parsedJob()
+    const extra = ['Room', 'Dept', 'Supplier', 'PO #'].map((name, i) => ({
+      index: 5 + i,
+      name,
+      samples: [],
+    }))
+    await openMap(
+      parsedJob({ source: { ...base.source!, headers: [...base.source!.headers, ...extra] } }),
+    )
     const names = () => wrapper!.findAll('tbody th').map((th) => th.find('span').text())
-    expect(names()).toEqual(['Device', 'Type', 'Asset #', 'S/N', 'Owner'])
+    expect(names()).toEqual(['Device', 'Type', 'Asset #', 'S/N', 'Owner', 'Room', 'Dept', 'Supplier', 'PO #'])
 
-    // Needs attention: guesses and the unchosen column.
+    // Needs attention: guesses and the unchosen columns.
     await setFilter('attention')
-    expect(names()).toEqual(['Type', 'Asset #', 'S/N', 'Owner'])
+    expect(names()).toEqual(['Type', 'Asset #', 'S/N', 'Owner', 'Room', 'Dept', 'Supplier', 'PO #'])
 
     await setFilter('ignored')
-    expect(names()).toEqual(['Owner'])
+    expect(names()).toEqual(['Owner', 'Room', 'Dept', 'Supplier', 'PO #'])
 
     await setFilter('all')
-    expect(names()).toHaveLength(5)
+    expect(names()).toHaveLength(9)
+  })
+
+  it('leaves the summary strip off a file of 8 columns or fewer', async () => {
+    await openMap()
+    expect(wrapper!.find('[data-test="import-map-strip"]').exists()).toBe(false)
+    expect(wrapper!.findAll('tbody th')).toHaveLength(5)
   })
 })
 

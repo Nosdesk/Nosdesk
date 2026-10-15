@@ -370,7 +370,7 @@ const viewImportedLabelKey = computed(() => {
             </div>
           </div>
         </SectionCard>
-        <div class="sticky bottom-0 bg-app/80 backdrop-blur border-t border-default py-3 flex flex-wrap items-center gap-3">
+        <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
           <Button class="ml-auto" data-test="import-continue" @click="step = 'upload'">
             {{ $t('import-action-continue') }}
           </Button>
@@ -423,7 +423,7 @@ const viewImportedLabelKey = computed(() => {
             @change="pickFile"
           />
         </SectionCard>
-        <div class="sticky bottom-0 bg-app/80 backdrop-blur border-t border-default py-3 flex flex-wrap items-center gap-3">
+        <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
           <Button variant="ghost" @click="step = 'start'">{{ $t('import-action-back') }}</Button>
           <Button
             class="ml-auto"
@@ -478,7 +478,7 @@ const viewImportedLabelKey = computed(() => {
             </template>
           </p>
         </Callout>
-        <div class="sticky bottom-0 bg-app/80 backdrop-blur border-t border-default py-3 flex flex-wrap items-center gap-3">
+        <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
           <Button variant="ghost" @click="startOver">{{ $t('import-done-new') }}</Button>
           <Button class="ml-auto" @click="viewImported">{{ $t(viewImportedLabelKey) }}</Button>
         </div>

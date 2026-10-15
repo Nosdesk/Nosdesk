@@ -169,6 +169,10 @@ function problemText(p: Problem): string {
   }
 }
 
+/** Columns above which the summary strip and its filter earn their place. */
+const STRIP_MIN_COLUMNS = 9
+const showsStrip = computed(() => rows.value.length >= STRIP_MIN_COLUMNS)
+
 const visibleRows = computed(() =>
   rows.value.filter((r) => matchesFilter(r, filter.value, found.value)),
 )
@@ -283,9 +287,13 @@ const messageId = (row: MapRow) => `import-map-message-${row.index}`
 
 <template>
   <section class="flex flex-col gap-6">
-    <!-- Summary strip: counts, filter, next problem. -->
+    <!-- Summary strip: counts, filter, next problem. A short file reads at
+         a glance without it. Opaque, so cards scrolled under it don't show
+         through. -->
     <div
-      class="sticky top-0 z-10 bg-app/80 backdrop-blur border-b border-default py-3 flex flex-wrap items-center gap-3"
+      v-if="showsStrip"
+      data-test="import-map-strip"
+      class="sticky top-0 z-10 bg-app border-b border-default py-2 sm:py-3 flex flex-wrap items-center gap-x-3 gap-y-2"
     >
       <p class="text-sm text-secondary flex flex-wrap items-center gap-x-2" aria-live="polite">
         <span>{{ $t('import-map-summary-mapped', { mapped: tally.mapped, total: tally.total }) }}</span>
@@ -534,7 +542,7 @@ const messageId = (row: MapRow) => `import-map-message-${row.index}`
 
     <!-- Action bar. -->
     <div
-      class="sticky bottom-0 bg-app/80 backdrop-blur border-t border-default py-3 flex flex-wrap items-center gap-3"
+      class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3"
     >
       <Button variant="ghost" @click="showChangeFile = true">
         {{ $t('import-map-change-file') }}
