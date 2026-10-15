@@ -270,7 +270,7 @@ mockall = "0.13.0"
 tempfile = "3"
 # Certificates for the stand-in TLS Postgres server in the LISTEN connection
 # tests. aws_lc_rs because aws-lc-rs is already in the tree.
-rcgen = { version = "0.13", default-features = false, features = ["aws_lc_rs", "pem"] }
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
 # Builds .xlsx fixtures for the import tests (MIT OR Apache-2.0).
 rust_xlsxwriter = "0.99"
 
