@@ -1129,3 +1129,62 @@ struct CountRow {
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     count: i64,
 }
+
+/// Purging a user who ran an import clears them from the job and the
+/// assets it created; the audit triggers on both run in the purge's
+/// workspace context.
+#[test]
+fn purging_an_importer_clears_them_from_the_job_and_its_assets() {
+    use backend::models::NewImportJob;
+    use backend::sync::actor::ActorContext;
+    use backend::sync::session::{pin_workspace, run_in_workspace, with_actor_bypass_context};
+
+    const REF: &str = "test:imports_purge_importer";
+    let db = TestDb::new();
+    let pool = db.pool_with_size(2);
+    let ws = import_workspace(&pool);
+    let importer = ws.member_uuid;
+    let parsed = parse_text("Purged Import,generic,PURGE-001,,,,,,,,\n");
+
+    let job_id = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        let job = backend::repository::imports::create(
+            c,
+            NewImportJob {
+                job_type: "assets".to_string(),
+                filename: "assets.csv".to_string(),
+                file_path: "/dev/null".to_string(),
+                created_by: Some(importer),
+            },
+        )?;
+        let ctx = imports::ImportContext {
+            actor: Some(importer),
+            job_id: job.id,
+        };
+        imports::commit(c, ImportType::Assets, &parsed, &ctx)
+            .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e}").into()))?;
+        Ok(job.id)
+    })
+    .expect("import as the member");
+
+    let mut conn = pool.get().expect("conn");
+    with_actor_bypass_context(&mut conn, &ActorContext::system(REF), |c| {
+        pin_workspace(c, ws.workspace_id)?;
+        backend::repository::users::purge_user(&importer, c, None)
+    })
+    .expect("purge the importer");
+
+    #[derive(diesel::QueryableByName)]
+    struct CreatedBy {
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Uuid>)]
+        created_by: Option<uuid::Uuid>,
+    }
+    let job: CreatedBy = diesel::sql_query("SELECT created_by FROM import_jobs WHERE id = $1")
+        .bind::<diesel::sql_types::Uuid, _>(job_id)
+        .get_result(&mut conn)
+        .expect("read job");
+    let asset: CreatedBy =
+        diesel::sql_query("SELECT created_by FROM assets WHERE asset_tag = 'PURGE-001'")
+            .get_result(&mut conn)
+            .expect("read asset");
+    assert_eq!((job.created_by, asset.created_by), (None, None));
+}
