@@ -645,11 +645,14 @@ fn kind_change_error(lookups: &Lookups, existing: &Asset, new_kind: &str) -> Opt
 /// that isn't about the row's values stays a database error.
 fn row_write_error(row: usize, e: diesel::result::Error) -> CommitError {
     use diesel::result::{DatabaseErrorKind, Error};
-    let message = match &e {
+    let (column, message) = match &e {
         Error::DatabaseError(DatabaseErrorKind::UniqueViolation, info)
             if info.constraint_name() == Some("idx_asset_serial_unique") =>
         {
-            "its serial number is already used by another asset".to_string()
+            (
+                Some("serial_number".to_string()),
+                "its serial number is already used by another asset".to_string(),
+            )
         }
         Error::DatabaseError(
             DatabaseErrorKind::UniqueViolation
@@ -657,10 +660,14 @@ fn row_write_error(row: usize, e: diesel::result::Error) -> CommitError {
             | DatabaseErrorKind::NotNullViolation
             | DatabaseErrorKind::Unknown,
             info,
-        ) => info.message().to_string(),
+        ) => (None, info.message().to_string()),
         _ => return CommitError::Db(e),
     };
-    CommitError::Row { row, message }
+    CommitError::Row {
+        row,
+        column,
+        message,
+    }
 }
 
 fn trimmed(row: &HashMap<String, String>, key: &str) -> String {

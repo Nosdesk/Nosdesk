@@ -188,7 +188,12 @@ pub struct RowError {
 /// row, which the admin can fix in the file; `Db` is anything else.
 #[derive(Debug)]
 pub enum CommitError {
-    Row { row: usize, message: String },
+    Row {
+        row: usize,
+        /// Field id the refusal is about, when it is about one.
+        column: Option<String>,
+        message: String,
+    },
     Db(diesel::result::Error),
 }
 
@@ -201,7 +206,7 @@ impl From<diesel::result::Error> for CommitError {
 impl std::fmt::Display for CommitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Row { row, message } => write!(f, "row {row}: {message}"),
+            Self::Row { row, message, .. } => write!(f, "row {row}: {message}"),
             Self::Db(e) => write!(f, "{e}"),
         }
     }

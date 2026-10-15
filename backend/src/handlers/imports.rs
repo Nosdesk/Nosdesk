@@ -607,8 +607,26 @@ pub async fn commit(
             // it; record the failure on the job in a transaction of its own.
             error!(job_id = %id, error = %e, "commit failed");
             let message = match &e {
-                CommitError::Row { row, message } => {
-                    format!("Nothing was imported. Row {row} could not be saved: {message}")
+                CommitError::Row {
+                    row,
+                    column,
+                    message,
+                } => {
+                    let header = stored_source(&job).and_then(|s| {
+                        mapping::source_header(
+                            &column_mapping,
+                            &s.source.headers,
+                            column.as_deref(),
+                        )
+                    });
+                    match header {
+                        Some(header) => format!(
+                            "Nothing was imported. Row {row} could not be saved: {message} (column '{header}')."
+                        ),
+                        None => {
+                            format!("Nothing was imported. Row {row} could not be saved: {message}")
+                        }
+                    }
                 }
                 CommitError::Db(_) => "The import failed and nothing was imported.".to_string(),
             };

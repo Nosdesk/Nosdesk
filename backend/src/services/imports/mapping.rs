@@ -326,12 +326,19 @@ pub fn apply_mapping(grid: &ParsedCsv, mapping: &ColumnMapping, fields: &[FieldS
     }
 }
 
+/// The file's header a field was mapped from.
+pub fn source_header(
+    mapping: &ColumnMapping,
+    headers: &[SourceHeader],
+    field: Option<&str>,
+) -> Option<String> {
+    let index = mapping.get(field?)?;
+    headers.get(*index).map(|h| h.name.clone())
+}
+
 /// Name each error's field by the header it was mapped from.
 pub fn annotate(summary: &mut ImportSummary, mapping: &ColumnMapping, headers: &[SourceHeader]) {
-    let source_of = |column: &Option<String>| {
-        let index = mapping.get(column.as_deref()?)?;
-        headers.get(*index).map(|h| h.name.clone())
-    };
+    let source_of = |column: &Option<String>| source_header(mapping, headers, column.as_deref());
     for e in &mut summary.errors {
         e.source_column = source_of(&e.column);
     }

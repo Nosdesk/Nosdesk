@@ -167,6 +167,7 @@ impl Importer for UserImporter {
                 if is_seat_limit_violation(&e) {
                     CommitError::Row {
                         row: record.source_row,
+                        column: Some("role".to_string()),
                         message: SEAT_LIMIT_MESSAGE.to_string(),
                     }
                 } else {

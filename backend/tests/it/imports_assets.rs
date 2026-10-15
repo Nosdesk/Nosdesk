@@ -552,8 +552,13 @@ fn a_refused_row_names_its_row() {
     );
 
     match imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()) {
-        Err(imports::CommitError::Row { row, message }) => {
+        Err(imports::CommitError::Row {
+            row,
+            column,
+            message,
+        }) => {
             assert_eq!(row, 3);
+            assert_eq!(column, None);
             assert!(message.contains("test_refuse_name"), "{message}");
         }
         Ok(_) => panic!("commit should stop at the refused row"),
