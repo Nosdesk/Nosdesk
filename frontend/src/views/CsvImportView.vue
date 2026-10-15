@@ -3,10 +3,12 @@
  * Bulk import wizard: Start, Upload, Map, Review, Done.
  *
  *  - Start  : pick the type, download the template.
- *  - Upload : the server parses the file and answers with the job in
- *             `parsed`: the file's columns and a suggested mapping.
- *  - Map    : the admin checks the mapping and options; "Check" stores
- *             them and runs the dry run (`dry_run_done`).
+ *  - Upload : the server parses the .csv or .xlsx and answers with the
+ *             job in `parsed`: the file's columns and a suggested mapping.
+ *  - Map    : for a workbook, the sheet panel picks the sheet and header
+ *             row (`PUT source`, back to `parsed`); then the admin checks
+ *             the mapping and options, and "Check" stores them and runs
+ *             the dry run (`dry_run_done`).
  *  - Review : what the dry run found, row by row, and the error report;
  *             Import commits.
  *  - Done   : the committed counts and the report of skipped rows.
@@ -29,6 +31,7 @@ import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import ImportMapStep from '@/components/import/ImportMapStep.vue'
 import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
+import ImportSheetPanel from '@/components/import/ImportSheetPanel.vue'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import {
   importFieldsQueryKey,
@@ -62,7 +65,7 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const isDragOver = ref(false)
 
 const job = ref<ImportJob | null>(null)
-const busy = ref<'upload' | 'check' | 'commit' | 'resume' | null>(null)
+const busy = ref<'upload' | 'source' | 'check' | 'commit' | 'resume' | null>(null)
 const downloadingReport = ref(false)
 const errorMessage = ref('')
 
@@ -157,13 +160,18 @@ function pickFile(event: Event) {
   acceptFile(input.files[0])
 }
 
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
 function acceptFile(file: File) {
-  const looksLikeCsv =
-    file.name.toLowerCase().endsWith('.csv') ||
+  const name = file.name.toLowerCase()
+  const looksImportable =
+    name.endsWith('.csv') ||
+    name.endsWith('.xlsx') ||
     file.type === 'text/csv' ||
+    file.type === XLSX_TYPE ||
     file.type === 'application/vnd.ms-excel' ||
     file.type === ''
-  if (!looksLikeCsv) {
+  if (!looksImportable) {
     errorMessage.value = t('import-error-not-csv', { name: file.name })
     return
   }
@@ -201,6 +209,27 @@ async function upload() {
 }
 
 // ---- map + review ----
+
+/** Read the workbook again from another sheet or header row. */
+async function chooseSource(sheet: string, headerRow: number | null) {
+  if (!job.value) return
+  busy.value = 'source'
+  errorMessage.value = ''
+  try {
+    job.value = await importService.putSource(job.value.id, sheet, headerRow)
+    step.value = 'map'
+  } catch (e) {
+    errorMessage.value = apiError(e, 'import-error-generic')
+  } finally {
+    busy.value = null
+  }
+}
+
+/** Remounts the Map step when the columns change under it. */
+const mapKey = computed(() => {
+  const source = job.value?.source
+  return `${job.value?.id}:${source?.sheet ?? ''}:${source?.header_row ?? 1}`
+})
 
 async function check(mapping: ColumnMapping, options: ImportOptions) {
   if (!job.value) return
@@ -443,7 +472,7 @@ const viewImportedLabelKey = computed(() => {
           <input
             ref="fileInput"
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             class="hidden"
             data-test="import-file"
             @change="pickFile"
@@ -465,9 +494,16 @@ const viewImportedLabelKey = computed(() => {
 
       <!-- Map ------------------------------------------------------------ -->
       <template v-else-if="step === 'map' && job?.source">
+        <ImportSheetPanel
+          v-if="job.source.format === 'xlsx'"
+          :key="job.id"
+          :source="job.source"
+          :busy="busy === 'source'"
+          @choose="chooseSource"
+        />
         <ImportMapStep
           v-if="fields.length > 0"
-          :key="job.id"
+          :key="mapKey"
           :job="job"
           :fields="fields"
           :kinds="kindOptions"

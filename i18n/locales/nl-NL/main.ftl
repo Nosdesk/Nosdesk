@@ -1633,7 +1633,8 @@ admin-data-import-microsoft-title = Microsoft Graph
 # TODO native-review nl-NL for the key below.
 admin-data-import-microsoft-description = Importeer gebruikers, groepen en apparaten uit Microsoft Entra ID
 admin-data-import-csv-title = CSV-import
-admin-data-import-csv-description = Importeer gegevens uit CSV-bestanden, waaronder activa, gebruikers en andere bronnen
+# MT: pending native review (nl-NL)
+admin-data-import-csv-description = Importeer activa, gebruikers en tickets uit een .csv- of .xlsx-bestand
 admin-data-import-api-title = API-integraties
 admin-data-import-api-description = Maak verbinding met API's van derden om gegevens te importeren en synchroniseren
 admin-data-import-ad-title = LDAP / Active Directory
@@ -3623,7 +3624,7 @@ import-error-generic = De import is mislukt. Controleer het bestand en probeer h
 # MT: pending native review (nl-NL)
 import-error-commit = Er is niets geïmporteerd. Controleer de rijen en probeer het opnieuw.
 # MT: pending native review (nl-NL)
-import-error-not-csv = { $name } is geen .csv-bestand.
+import-error-not-csv = { $name } is geen .csv- of .xlsx-bestand.
 # MT: pending native review (nl-NL)
 import-start-type-heading = Wat wilt u importeren?
 # MT: pending native review (nl-NL)
@@ -3641,13 +3642,56 @@ import-action-back = Terug
 # MT: pending native review (nl-NL)
 import-upload-heading = Uw bestand uploaden
 # MT: pending native review (nl-NL)
-import-drop-idle = Sleep een .csv hierheen, of klik om te bladeren
+import-drop-idle = Sleep een .csv- of .xlsx-bestand hierheen, of klik om te bladeren
 # MT: pending native review (nl-NL)
 import-drop-release = Loslaten om te uploaden
 # MT: pending native review (nl-NL)
-import-drop-hint = .csv, tot 10 MB en 5.000 rijen
+import-drop-hint = .csv of .xlsx, tot 10 MB en 5.000 rijen
 # MT: pending native review (nl-NL)
 import-drop-replace = Klik of sleep een ander bestand om het te vervangen
+# MT: pending native review (nl-NL)
+import-sheet-heading = Werkblad en kopregel
+# MT: pending native review (nl-NL)
+import-sheet-summary = Werkblad: { $sheet } · kopregel { $row }
+# MT: pending native review (nl-NL)
+import-sheet-change = Wijzigen
+# MT: pending native review (nl-NL)
+import-sheet-done = Klaar
+# MT: pending native review (nl-NL)
+import-sheet-legend = Werkblad om te importeren
+# MT: pending native review (nl-NL)
+import-sheet-rows = { $count ->
+    [one] 1 rij
+   *[other] { $count } rijen
+   }
+# MT: pending native review (nl-NL)
+import-sheet-rows-over = Meer dan 5.000 rijen
+# MT: pending native review (nl-NL)
+import-sheet-hidden = Verborgen
+# MT: pending native review (nl-NL)
+import-sheet-header-label = Kopregel
+# MT: pending native review (nl-NL)
+import-sheet-header-help = De rij met de kolomnamen. Rijen erboven worden overgeslagen.
+# MT: pending native review (nl-NL)
+import-sheet-use-row = Rij { $row } gebruiken
+# MT: pending native review (nl-NL)
+import-sheet-preview-caption = Het begin van { $sheet }, met de kopregel gemarkeerd. Kies een rijnummer om die rij te gebruiken.
+# MT: pending native review (nl-NL)
+import-sheet-preview-row = Rij
+# MT: pending native review (nl-NL)
+import-sheet-preview-use = Rij { $row } als kopregel gebruiken
+# MT: pending native review (nl-NL)
+import-sheet-reading = Het werkblad wordt gelezen
+# MT: pending native review (nl-NL)
+import-sheet-help-heading = Hoe een werkmap wordt gelezen
+# MT: pending native review (nl-NL)
+import-sheet-help-merged = Een samengevoegde cel wordt geïmporteerd als de cel linksboven. De andere cellen die ze beslaat, zijn leeg.
+# MT: pending native review (nl-NL)
+import-sheet-help-hidden = Verborgen rijen en kolommen worden net als de andere geïmporteerd.
+# MT: pending native review (nl-NL)
+import-sheet-help-zeros = Excel verwijdert voorloopnullen uit getallen voordat het bestand Nosdesk bereikt. Wil je een tag als 00123 behouden, maak de kolom dan in Excel op als tekst.
+# MT: pending native review (nl-NL)
+import-sheet-help-formulas = Formules worden geïmporteerd als de waarde die Excel het laatst heeft berekend.
 # MT: pending native review (nl-NL)
 import-action-upload = Uploaden
 # MT: pending native review (nl-NL)

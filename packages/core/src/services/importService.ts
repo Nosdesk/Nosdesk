@@ -53,14 +53,33 @@ export interface SourceHeader {
   samples: string[]
 }
 
+export interface ImportSheet {
+  name: string
+  /** False for a hidden sheet. */
+  visible: boolean
+  /** Data rows under the sheet's header row; one more than the cap
+   *  (5,001) when it has more than an import takes. */
+  rows: number
+}
+
+/** One row of the chosen sheet's top, blank rows included. */
+export interface SheetPreviewRow {
+  /** The sheet row number, 1-based. */
+  row: number
+  cells: string[]
+}
+
 export interface ImportSource {
   format: 'csv' | 'xlsx'
-  sheets: { name: string; visible: boolean; rows: number }[]
+  sheets: ImportSheet[]
   sheet: string | null
+  /** The header's line (CSV) or sheet row (xlsx), 1-based. */
   header_row: number
   headers: SourceHeader[]
   row_count: number
   delimiter?: string | null
+  /** Workbooks only: the sheet's top, to confirm the header row. */
+  preview?: SheetPreviewRow[]
 }
 
 export type SuggestionReason = 'previous' | 'exact' | 'label' | 'synonym' | 'report'
@@ -169,6 +188,16 @@ export const importService = {
       params: { type: jobType },
       headers: { 'Content-Type': 'multipart/form-data' },
     })
+    return data
+  },
+
+  /** Read a workbook again from another sheet or header row (guessed
+   *  when null). Returns the job back in `parsed` with the new columns
+   *  and suggestions; any earlier mapping and check are cleared. */
+  async putSource(jobId: string, sheet: string, headerRow: number | null): Promise<ImportJob> {
+    const body: { sheet: string; header_row?: number } = { sheet }
+    if (headerRow !== null) body.header_row = headerRow
+    const { data } = await apiClient.put<ImportJob>(`/admin/import/${jobId}/source`, body)
     return data
   },
 

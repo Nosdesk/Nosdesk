@@ -1,7 +1,8 @@
-//! CSV bulk-import. Three steps:
+//! Bulk import from CSV or .xlsx. Three steps:
 //!
-//! 1. Upload parses the file, keeps its grid, and suggests which
-//!    field each column feeds (`mapping`).
+//! 1. Upload parses the file (`csv_parser`, or `xlsx` for a workbook,
+//!    whose sheet and header row can be chosen again), keeps its grid,
+//!    and suggests which field each column feeds (`mapping`).
 //! 2. The admin's mapping runs the dry-run: every row is validated
 //!    against the type's schema and the projected effect (would-
 //!    create / would-update / errors) is reported without writing.
@@ -19,6 +20,7 @@ pub mod safe_cells;
 pub mod tickets;
 pub mod types;
 pub mod users;
+pub mod xlsx;
 
 pub use types::{
     CellError, CommitError, Committed, DateOrder, DecimalMark, ErrorGroup, FieldGroup, FieldSpec,
@@ -85,4 +87,40 @@ pub fn apply(
     ctx: &ImportContext,
 ) -> Result<Committed, CommitError> {
     importer_for(t).commit(conn, parsed, ctx)
+}
+
+/// The dry run over a mapped grid, with the rows the mapping held back
+/// (`mapping::map_grid`) merged in as skipped, in file order.
+pub fn check_mapped(
+    conn: &mut DbConnection,
+    t: ImportType,
+    mapped: &mapping::MappedGrid,
+    ctx: &ImportContext,
+) -> Result<(ImportSummary, Vec<RowResult>), DieselError> {
+    let mut plan = importer_for(t).dry_run(conn, &mapped.grid, ctx)?;
+    merge_blocked(&mut plan.rows, &mapped.blocked);
+    let summary = ImportSummary::from_plan(mapped.row_count(), &plan);
+    Ok((summary, plan.rows))
+}
+
+/// The commit over a mapped grid. Held-back rows were never handed to the
+/// importer, so nothing is written for them; they join the row results
+/// as skipped.
+pub fn apply_mapped(
+    conn: &mut DbConnection,
+    t: ImportType,
+    mapped: &mapping::MappedGrid,
+    ctx: &ImportContext,
+) -> Result<Committed, CommitError> {
+    let mut committed = importer_for(t).commit(conn, &mapped.grid, ctx)?;
+    merge_blocked(&mut committed.rows, &mapped.blocked);
+    Ok(committed)
+}
+
+fn merge_blocked(rows: &mut Vec<RowResult>, blocked: &[RowResult]) {
+    if blocked.is_empty() {
+        return;
+    }
+    rows.extend(blocked.iter().cloned());
+    rows.sort_by_key(|r| r.row);
 }

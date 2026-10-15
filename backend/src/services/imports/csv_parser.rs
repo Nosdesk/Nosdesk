@@ -39,6 +39,10 @@ pub struct SourceRow {
     pub source_row: usize,
     /// One cell per header, in header order.
     pub cells: Vec<String>,
+    /// Indexes of cells holding a spreadsheet error (`#N/A`, `#REF!`); the
+    /// cell's text is the error. Only workbooks have them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cell_errors: Vec<usize>,
 }
 
 /// A data row keyed by header, for the importers' by-name lookups.
@@ -93,7 +97,7 @@ impl std::fmt::Display for ParseError {
             Self::Csv(e) => write!(f, "CSV parse error: {e}"),
             Self::NotUtf8 => write!(
                 f,
-                "file is not valid UTF-8; re-save as UTF-8 (with or without BOM) and retry"
+                "file is not valid UTF-8; save it as a UTF-8 CSV, or upload the .xlsx instead"
             ),
             Self::MissingHeader => write!(f, "file has no header row"),
             Self::DuplicateHeader(name) => write!(
@@ -221,7 +225,11 @@ fn parse_str(text: &str) -> Result<ParsedCsv, ParseError> {
             }
             cells.push(strip_formula_guard(raw.trim()).trim().to_string());
         }
-        rows.push(SourceRow { source_row, cells });
+        rows.push(SourceRow {
+            source_row,
+            cells,
+            cell_errors: Vec::new(),
+        });
     }
 
     // A blank header over an empty column (a trailing delimiter from a

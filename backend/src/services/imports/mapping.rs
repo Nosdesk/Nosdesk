@@ -38,26 +38,44 @@ pub type ColumnMapping = BTreeMap<String, usize>;
 /// The uploaded file as the Map step shows it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportSource {
-    /// `csv` (xlsx arrives in a later slice).
+    /// `csv` or `xlsx`.
     pub format: String,
-    /// Workbook sheets; empty for CSV.
+    /// Workbook sheets in workbook order; empty for CSV.
     #[serde(default)]
     pub sheets: Vec<SheetInfo>,
+    /// The workbook sheet the grid was read from.
     pub sheet: Option<String>,
-    /// 1-based line of the header row.
+    /// 1-based line (CSV) or sheet row (xlsx) of the header row.
     pub header_row: usize,
     pub headers: Vec<SourceHeader>,
     pub row_count: usize,
     /// The CSV field separator, so the client can default the decimal mark.
     #[serde(default)]
     pub delimiter: Option<String>,
+    /// The top of the chosen sheet as it reads, title rows included, so the
+    /// admin can confirm the header row. Empty for CSV.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preview: Vec<PreviewRow>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SheetInfo {
     pub name: String,
+    /// False for a hidden or very hidden sheet.
     pub visible: bool,
+    /// Data rows under the sheet's header row (its guessed one, or the
+    /// chosen one for the chosen sheet). A sheet with more rows than an
+    /// import takes reports one more than the cap.
     pub rows: usize,
+}
+
+/// One row of a sheet preview.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewRow {
+    /// The sheet row number, 1-based.
+    pub row: usize,
+    /// The row's cells from the grid's first column, shortened.
+    pub cells: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,9 +134,10 @@ pub fn normalize(header: &str) -> String {
     out
 }
 
-/// Describe a parsed CSV for the Map step.
-pub fn csv_source(parsed: &ParsedCsv) -> ImportSource {
-    let headers = parsed
+/// A grid's headers, each with its first non-blank values. A cell holding
+/// a spreadsheet error is no sample.
+pub fn source_headers(parsed: &ParsedCsv) -> Vec<SourceHeader> {
+    parsed
         .headers
         .iter()
         .enumerate()
@@ -128,13 +147,24 @@ pub fn csv_source(parsed: &ParsedCsv) -> ImportSource {
             samples: parsed
                 .rows
                 .iter()
-                .map(|r| r.cells[index].as_str())
+                .filter(|r| !r.cell_errors.contains(&index))
+                .filter_map(|r| r.cells.get(index).map(String::as_str))
                 .filter(|v| !v.is_empty())
                 .take(SAMPLES)
-                .map(|v| v.chars().take(SAMPLE_CHARS).collect())
+                .map(shorten)
                 .collect(),
         })
-        .collect();
+        .collect()
+}
+
+/// A value cut to [`SAMPLE_CHARS`] characters.
+pub fn shorten(value: &str) -> String {
+    value.chars().take(SAMPLE_CHARS).collect()
+}
+
+/// Describe a parsed CSV for the Map step.
+pub fn csv_source(parsed: &ParsedCsv) -> ImportSource {
+    let headers = source_headers(parsed);
     let delimiter = match parsed.delimiter {
         b';' => ";",
         b'\t' => "\t",
@@ -148,6 +178,7 @@ pub fn csv_source(parsed: &ParsedCsv) -> ImportSource {
         headers,
         row_count: parsed.rows.len(),
         delimiter: Some(delimiter.to_string()),
+        preview: Vec::new(),
     }
 }
 
@@ -327,10 +358,68 @@ pub fn apply_mapping(grid: &ParsedCsv, mapping: &ColumnMapping, fields: &[FieldS
                             .unwrap_or_default()
                     })
                     .collect(),
+                cell_errors: Vec::new(),
             })
             .collect(),
         delimiter: grid.delimiter,
     }
+}
+
+/// A mapped grid ready for an importer, and the rows held back from it.
+pub struct MappedGrid {
+    /// The rows the importer checks or writes ([`apply_mapping`]).
+    pub grid: ParsedCsv,
+    /// Rows with a spreadsheet error in a mapped column, skipped before
+    /// the importer sees them so a commit can't write them.
+    pub blocked: Vec<RowResult>,
+}
+
+impl MappedGrid {
+    /// Every data row of the file, held back or not.
+    pub fn row_count(&self) -> usize {
+        self.grid.rows.len() + self.blocked.len()
+    }
+}
+
+/// [`apply_mapping`], holding back each row whose mapped cells include a
+/// spreadsheet error (`#N/A`). A cell error in a column nobody imports
+/// doesn't matter.
+pub fn map_grid(grid: &ParsedCsv, mapping: &ColumnMapping, fields: &[FieldSpec]) -> MappedGrid {
+    let field_of: HashMap<usize, &str> = mapping
+        .iter()
+        .map(|(field, &index)| (index, field.as_str()))
+        .collect();
+    let mut kept = ParsedCsv {
+        headers: grid.headers.clone(),
+        rows: Vec::with_capacity(grid.rows.len()),
+        delimiter: grid.delimiter,
+    };
+    let mut blocked = Vec::new();
+    for row in &grid.rows {
+        let errors: Vec<(Option<String>, String)> = row
+            .cell_errors
+            .iter()
+            .filter_map(|&index| {
+                let field = field_of.get(&index)?;
+                let code = row.cells.get(index).map_or("", String::as_str);
+                Some((Some(field.to_string()), cell_error_message(code)))
+            })
+            .collect();
+        if errors.is_empty() {
+            kept.rows.push(row.clone());
+        } else {
+            blocked.push(RowResult::skipped(row.source_row, errors));
+        }
+    }
+    MappedGrid {
+        grid: apply_mapping(&kept, mapping, fields),
+        blocked,
+    }
+}
+
+/// Why a cell holding a spreadsheet error can't import.
+pub fn cell_error_message(code: &str) -> String {
+    format!("holds the spreadsheet error {code} instead of a value")
 }
 
 /// The file's header a field was mapped from.
@@ -404,6 +493,43 @@ pub fn write_grid(job_id: Uuid, grid: &ParsedCsv) -> std::io::Result<()> {
     }
     let bytes = serde_json::to_vec(grid).map_err(std::io::Error::other)?;
     std::fs::write(path, bytes)
+}
+
+/// A grid written beside the job's current one, put in its place by
+/// [`StagedGrid::install`] once the job row agrees, or removed on drop.
+pub struct StagedGrid {
+    job_id: Uuid,
+    path: Option<PathBuf>,
+}
+
+impl StagedGrid {
+    pub fn write(job_id: Uuid, grid: &ParsedCsv) -> std::io::Result<Self> {
+        let dir = imports_dir();
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join(format!("{job_id}.grid.{}.json", Uuid::new_v4()));
+        let bytes = serde_json::to_vec(grid).map_err(std::io::Error::other)?;
+        std::fs::write(&path, bytes)?;
+        Ok(Self {
+            job_id,
+            path: Some(path),
+        })
+    }
+
+    /// Replace the job's grid with this one.
+    pub fn install(mut self) -> std::io::Result<()> {
+        match self.path.take() {
+            Some(path) => std::fs::rename(path, grid_path(self.job_id)),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for StagedGrid {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 pub fn read_grid(job_id: Uuid) -> std::io::Result<ParsedCsv> {
@@ -585,6 +711,7 @@ mod tests {
             rows: vec![SourceRow {
                 source_row: 4,
                 cells: vec!["T-1".into(), "Camera".into(), "x".into()],
+                cell_errors: Vec::new(),
             }],
             delimiter: b',',
         };
@@ -596,5 +723,36 @@ mod tests {
         );
         assert_eq!(mapped.rows[0].source_row, 4);
         assert_eq!(mapped.rows[0].cells, vec!["Camera", "", "T-1", ""]);
+    }
+
+    #[test]
+    fn map_grid_holds_back_rows_with_a_mapped_cell_error() {
+        let grid = ParsedCsv {
+            headers: vec!["Tag".into(), "Title".into(), "Lookup".into()],
+            rows: vec![
+                SourceRow {
+                    source_row: 4,
+                    cells: vec!["T-1".into(), "Camera".into(), "#REF!".into()],
+                    cell_errors: vec![2],
+                },
+                SourceRow {
+                    source_row: 6,
+                    cells: vec!["T-2".into(), "#N/A".into(), "".into()],
+                    cell_errors: vec![1],
+                },
+            ],
+            delimiter: b',',
+        };
+        let mapping = ColumnMapping::from([("asset_tag".into(), 0), ("name".into(), 1)]);
+        let mapped = map_grid(&grid, &mapping, &fields());
+        assert_eq!(mapped.row_count(), 2);
+        // The error in the unmapped Lookup column doesn't hold row 4 back.
+        assert_eq!(mapped.grid.rows.len(), 1);
+        assert_eq!(mapped.grid.rows[0].source_row, 4);
+        assert_eq!(mapped.blocked.len(), 1);
+        let blocked = &mapped.blocked[0];
+        assert_eq!((blocked.row, blocked.outcome), (6, RowOutcome::Skipped));
+        assert_eq!(blocked.errors[0].column.as_deref(), Some("name"));
+        assert!(blocked.errors[0].message.contains("#N/A"), "{blocked:?}");
     }
 }
