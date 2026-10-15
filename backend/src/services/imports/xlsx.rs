@@ -587,14 +587,14 @@ fn build_grid(sheet: &ScannedSheet, header_row: u32) -> Result<BuiltGrid, Refuse
             sheet.name
         )));
     }
-    let too_wide = |width: usize| {
+    let too_wide = |width: String| {
         refused(format!(
             "The sheet '{}' has {width} columns from the header row down; an import takes at most {MAX_COLUMNS}.",
             sheet.name
         ))
     };
     if header.overflow || data.iter().any(|(_, r)| r.overflow) {
-        return Err(too_wide(MAX_SCAN_COLUMN as usize));
+        return Err(too_wide(format!("more than {MAX_SCAN_COLUMN}")));
     }
 
     let cells = || {
@@ -607,7 +607,7 @@ fn build_grid(sheet: &ScannedSheet, header_row: u32) -> Result<BuiltGrid, Refuse
     let last = cells().map(|c| c.col).max().unwrap_or(first);
     let width = (last - first) as usize + 1;
     if width > MAX_COLUMNS {
-        return Err(too_wide(width));
+        return Err(too_wide(width.to_string()));
     }
 
     let mut header_text = vec![String::new(); width];
