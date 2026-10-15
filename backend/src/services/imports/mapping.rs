@@ -14,16 +14,23 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::csv_parser::{ParsedCsv, SourceRow};
-use super::types::{DecimalMark, FieldSpec, ImportOptions, ImportSummary, ImportType};
+use super::types::{
+    DecimalMark, FieldSpec, ImportOptions, ImportSummary, ImportType, RowOutcome, RowResult,
+};
 
 /// Sample values carried per header.
 pub const SAMPLES: usize = 3;
 /// Longest sample value, in characters.
 const SAMPLE_CHARS: usize = 100;
 
-/// Headers of the error report's own columns. A re-uploaded report maps
-/// them to nothing.
+/// Headers of the error report's own columns, normalized. A re-uploaded
+/// report maps them to nothing.
 const REPORT_HEADERS: &[&str] = &["row", "errors"];
+
+/// Whether `header` is one of the error report's own columns.
+pub fn is_report_header(header: &str) -> bool {
+    REPORT_HEADERS.contains(&normalize(header).as_str())
+}
 
 /// Field id to the 0-based index of the column that feeds it.
 pub type ColumnMapping = BTreeMap<String, usize>;
@@ -344,6 +351,29 @@ pub fn annotate(summary: &mut ImportSummary, mapping: &ColumnMapping, headers: &
     }
     for g in &mut summary.error_groups {
         g.source_column = source_of(&g.column);
+    }
+}
+
+/// Finish row results for storing: name each error's field by the header
+/// it was mapped from, and keep a skipped row's cells from the file, in
+/// source column order, for the error report.
+pub fn complete_rows(
+    rows: &mut [RowResult],
+    mapping: &ColumnMapping,
+    headers: &[SourceHeader],
+    grid: &ParsedCsv,
+) {
+    let cells: HashMap<usize, &Vec<String>> =
+        grid.rows.iter().map(|r| (r.source_row, &r.cells)).collect();
+    for result in rows {
+        for e in &mut result.errors {
+            e.source_column = source_header(mapping, headers, e.column.as_deref());
+        }
+        if result.outcome == RowOutcome::Skipped {
+            if let Some(row_cells) = cells.get(&result.row) {
+                result.cells = (*row_cells).clone();
+            }
+        }
     }
 }
 

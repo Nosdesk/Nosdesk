@@ -11,13 +11,27 @@ pub fn create(conn: &mut DbConnection, new: NewImportJob) -> QueryResult<ImportJ
     use crate::schema::import_jobs;
     diesel::insert_into(import_jobs::table)
         .values(&new)
+        .returning(ImportJob::as_returning())
         .get_result(conn)
 }
 
 // sync-audit-only: workspace config row, see create
 pub fn get(conn: &mut DbConnection, id: Uuid) -> QueryResult<ImportJob> {
     use crate::schema::import_jobs;
-    import_jobs::table.find(id).first(conn)
+    import_jobs::table
+        .find(id)
+        .select(ImportJob::as_select())
+        .first(conn)
+}
+
+/// A job's stored row results, `None` until its first dry run.
+// sync-audit-only: workspace config row, see create
+pub fn row_results(conn: &mut DbConnection, id: Uuid) -> QueryResult<Option<serde_json::Value>> {
+    use crate::schema::import_jobs;
+    import_jobs::table
+        .find(id)
+        .select(import_jobs::row_results)
+        .first(conn)
 }
 
 // sync-audit-only: workspace config row, see create
@@ -30,6 +44,7 @@ pub fn update(
     patch.updated_at = Some(chrono::Utc::now());
     diesel::update(import_jobs::table.find(id))
         .set(&patch)
+        .returning(ImportJob::as_returning())
         .get_result(conn)
 }
 
@@ -39,6 +54,7 @@ pub fn list_recent(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<Impor
     import_jobs::table
         .order(import_jobs::created_at.desc())
         .limit(limit)
+        .select(ImportJob::as_select())
         .load(conn)
 }
 
@@ -50,6 +66,7 @@ pub fn latest_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<
     import_jobs::table
         .filter(import_jobs::created_by.eq(user_uuid))
         .order(import_jobs::created_at.desc())
+        .select(ImportJob::as_select())
         .first(conn)
         .optional()
 }
@@ -67,6 +84,7 @@ pub fn latest_with_mapping(
         .filter(import_jobs::job_type.eq(job_type))
         .filter(import_jobs::mapping.is_not_null())
         .order(import_jobs::updated_at.desc())
+        .select(ImportJob::as_select())
         .first(conn)
         .optional()
 }

@@ -31,8 +31,8 @@ use crate::repository::tickets as ticket_repo;
 
 use super::csv_parser::ParsedCsv;
 use super::types::{
-    CommitError, FieldGroup, FieldSpec, ImportContext, ImportSummary, ImportType, ImportedRecords,
-    Importer, ValueType,
+    CommitError, Committed, FieldGroup, FieldSpec, ImportContext, ImportType, ImportedRecords,
+    Importer, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
 };
 
 const HEADERS: &[&str] = &[
@@ -102,28 +102,27 @@ impl Importer for TicketImporter {
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
         _ctx: &ImportContext,
-    ) -> Result<ImportSummary, diesel::result::Error> {
-        let mut summary = ImportSummary::new(parsed.rows.len());
-
+    ) -> Result<RowPlan, diesel::result::Error> {
         if let Some(err) = check_headers(&parsed.headers) {
-            summary.push_error(1, None, err);
-            return Ok(summary);
+            return Ok(RowPlan {
+                file_error: Some(err),
+                ..Default::default()
+            });
         }
 
         let lookups = Lookups::load(conn)?;
+        let mut plan = RowPlan::default();
 
         for record in parsed.records() {
             let row_num = record.source_row;
-            match validate_row(&record.values, &lookups) {
-                Ok(_) => summary.would_create += 1,
-                Err(errs) => {
-                    for (col, msg) in errs {
-                        summary.push_error(row_num, col, msg);
-                    }
-                }
-            }
+            let result = match validate_row(&record.values, &lookups) {
+                Ok(_) => RowResult::planned(row_num, RowOutcome::Create),
+                Err(errs) => RowResult::skipped(row_num, errs),
+            };
+            plan.rows
+                .push(result.with_label(trimmed(&record.values, "title")));
         }
-        Ok(summary)
+        Ok(plan)
     }
 
     fn commit(
@@ -131,7 +130,7 @@ impl Importer for TicketImporter {
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
         _ctx: &ImportContext,
-    ) -> Result<ImportedRecords, CommitError> {
+    ) -> Result<Committed, CommitError> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
@@ -141,11 +140,16 @@ impl Importer for TicketImporter {
         let lookups = Lookups::load(conn)?;
 
         let mut tickets = Vec::new();
+        let mut rows = Vec::with_capacity(parsed.rows.len());
         for record in parsed.records() {
             let row = &record.values;
+            let title = trimmed(row, "title");
             let resolved = match validate_row(row, &lookups) {
                 Ok(r) => r,
-                Err(_) => continue,
+                Err(errs) => {
+                    rows.push(RowResult::skipped(record.source_row, errs).with_label(title));
+                    continue;
+                }
             };
 
             let new = NewTicket {
@@ -171,9 +175,17 @@ impl Importer for TicketImporter {
             // transaction, so imported tickets reach the activity feed,
             // webhooks, and plugins exactly like API-created ones.
             let ticket = ticket_repo::create_ticket(conn, new)?;
+            rows.push(
+                RowResult::planned(record.source_row, RowOutcome::Create)
+                    .with_label(title)
+                    .with_record(RecordId::Int(ticket.id)),
+            );
             tickets.push(ticket);
         }
-        Ok(ImportedRecords::Tickets(tickets))
+        Ok(Committed {
+            records: ImportedRecords::Tickets(tickets),
+            rows,
+        })
     }
 }
 

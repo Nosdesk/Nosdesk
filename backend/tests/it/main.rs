@@ -75,6 +75,7 @@ mod handler_tenant_read_lint;
 mod idempotency_middleware;
 mod imports_assets;
 mod imports_mapping;
+mod imports_rows;
 mod imports_tickets;
 mod imports_users;
 mod integration_routes_require_admin;

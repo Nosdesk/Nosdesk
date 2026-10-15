@@ -14,15 +14,17 @@
 pub mod assets;
 pub mod csv_parser;
 pub mod mapping;
+pub mod report;
 pub mod safe_cells;
 pub mod tickets;
 pub mod types;
 pub mod users;
 
 pub use types::{
-    CommitError, DateOrder, DecimalMark, ErrorGroup, FieldGroup, FieldSpec, ImportContext,
-    ImportOptions, ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer, MatchBy,
-    RowError, ValueType,
+    CellError, CommitError, Committed, DateOrder, DecimalMark, ErrorGroup, FieldGroup, FieldSpec,
+    ImportContext, ImportOptions, ImportSummary, ImportType, ImportedRecords, ImportedUser,
+    Importer, MatchBy, Notice, RecordId, RowError, RowOutcome, RowPhase, RowPlan, RowResult,
+    StoredRowResults, ValueType,
 };
 
 use diesel::result::Error as DieselError;
@@ -47,7 +49,19 @@ pub fn dry_run(
     parsed: &csv_parser::ParsedCsv,
     ctx: &ImportContext,
 ) -> Result<ImportSummary, DieselError> {
-    Ok(importer_for(t).dry_run(conn, parsed, ctx)?.finish())
+    Ok(check(conn, t, parsed, ctx)?.0)
+}
+
+/// The dry run with every row's result as well as the summary.
+pub fn check(
+    conn: &mut DbConnection,
+    t: ImportType,
+    parsed: &csv_parser::ParsedCsv,
+    ctx: &ImportContext,
+) -> Result<(ImportSummary, Vec<RowResult>), DieselError> {
+    let plan = importer_for(t).dry_run(conn, parsed, ctx)?;
+    let summary = ImportSummary::from_plan(parsed.rows.len(), &plan);
+    Ok((summary, plan.rows))
 }
 
 /// Apply the rows in a single transaction. Caller is
@@ -60,5 +74,15 @@ pub fn commit(
     parsed: &csv_parser::ParsedCsv,
     ctx: &ImportContext,
 ) -> Result<ImportedRecords, CommitError> {
+    Ok(apply(conn, t, parsed, ctx)?.records)
+}
+
+/// The commit with every row's result as well as the written records.
+pub fn apply(
+    conn: &mut DbConnection,
+    t: ImportType,
+    parsed: &csv_parser::ParsedCsv,
+    ctx: &ImportContext,
+) -> Result<Committed, CommitError> {
     importer_for(t).commit(conn, parsed, ctx)
 }

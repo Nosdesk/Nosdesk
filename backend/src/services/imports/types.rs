@@ -77,12 +77,16 @@ impl ImportType {
 /// Dry-run output the admin reviews before committing. The stored
 /// `errors` list is capped at MAX_ERRORS so a million-row file with every
 /// row broken doesn't ship a million-entry array; the totals and the
-/// error groups count every error.
+/// error groups count every error, and the job's row results keep every
+/// row.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ImportSummary {
     pub row_count: usize,
     pub would_create: usize,
     pub would_update: usize,
+    /// Rows that match a record and would write nothing to it.
+    #[serde(default)]
+    pub unchanged: usize,
     pub errors: Vec<RowError>,
     /// True iff there were more errors than fit in the cap;
     /// the admin sees the count + a "showing first N" notice.
@@ -97,6 +101,9 @@ pub struct ImportSummary {
     /// most rows first.
     #[serde(default)]
     pub error_groups: Vec<ErrorGroup>,
+    /// Things worth knowing that aren't errors.
+    #[serde(default)]
+    pub notices: Vec<Notice>,
 }
 
 impl ImportSummary {
@@ -118,6 +125,34 @@ impl ImportSummary {
         });
     }
 
+    /// The summary of a checked plan: the counts and errors of its rows,
+    /// a file-level error if the file couldn't be checked at all, and its
+    /// notices.
+    pub fn from_plan(row_count: usize, plan: &RowPlan) -> Self {
+        let mut summary = Self::new(row_count);
+        if let Some(message) = &plan.file_error {
+            summary.push_error(1, None, message.clone());
+        }
+        for result in &plan.rows {
+            match result.outcome {
+                RowOutcome::Create => summary.would_create += 1,
+                RowOutcome::Update => summary.would_update += 1,
+                RowOutcome::Unchanged => summary.unchanged += 1,
+                RowOutcome::Skipped => {}
+            }
+            for e in &result.errors {
+                summary.errors.push(RowError {
+                    row: result.row,
+                    column: e.column.clone(),
+                    source_column: e.source_column.clone(),
+                    message: e.message.clone(),
+                });
+            }
+        }
+        summary.notices = plan.notices.clone();
+        summary.finish()
+    }
+
     /// Count the errors, group them, and cap the stored list.
     pub fn finish(mut self) -> Self {
         self.errors_total = self.errors.len();
@@ -135,7 +170,7 @@ impl ImportSummary {
                     index.insert(key, groups.len());
                     groups.push(ErrorGroup {
                         column: e.column.clone(),
-                        source_column: None,
+                        source_column: e.source_column.clone(),
                         message: e.message.clone(),
                         count: 1,
                     });
@@ -153,6 +188,154 @@ impl ImportSummary {
         }
         self
     }
+}
+
+/// Something about the plan that isn't an error, counted. The client
+/// words it from `code`; `message` is the English fallback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Notice {
+    pub code: String,
+    pub count: usize,
+    pub message: String,
+}
+
+/// What one row of the file comes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RowOutcome {
+    Create,
+    Update,
+    /// Matches a record and writes nothing to it.
+    Unchanged,
+    /// Has an error, so nothing is written for it.
+    Skipped,
+}
+
+/// A problem with one row, on one field or the whole row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CellError {
+    /// Field id, or `None` for a whole-row error.
+    pub column: Option<String>,
+    /// The file's header the field was mapped from.
+    #[serde(default)]
+    pub source_column: Option<String>,
+    pub message: String,
+}
+
+/// The record a row matched or wrote: an integer id (assets, tickets) or
+/// a uuid (users).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RecordId {
+    Int(i32),
+    Uuid(Uuid),
+}
+
+/// One row's result, kept for every row in `import_jobs.row_results`.
+///
+/// Every member is named and optional beyond `row` and `outcome`, so the
+/// record grows (what a write changed, when it was written) without
+/// rewriting stored jobs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RowResult {
+    /// The row's line in the file (`SourceRow::source_row`).
+    pub row: usize,
+    pub outcome: RowOutcome,
+    /// The value the row is matched on (asset tag or serial number,
+    /// email), when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// What the row is called (asset name, person, ticket title).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Before the commit, the record an update or unchanged row matches;
+    /// after it, the record the row created or updated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<RecordId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<CellError>,
+    /// The row's cells as the file has them, in source column order, kept
+    /// for skipped rows so the error report can give them back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cells: Vec<String>,
+}
+
+impl RowResult {
+    pub fn planned(row: usize, outcome: RowOutcome) -> Self {
+        Self {
+            row,
+            outcome,
+            key: None,
+            label: None,
+            record_id: None,
+            errors: Vec::new(),
+            cells: Vec::new(),
+        }
+    }
+
+    /// A row skipped for `errors`, each `(field id, message)`.
+    pub fn skipped(row: usize, errors: Vec<(Option<String>, String)>) -> Self {
+        let mut result = Self::planned(row, RowOutcome::Skipped);
+        result.errors = errors
+            .into_iter()
+            .map(|(column, message)| CellError {
+                column,
+                source_column: None,
+                message,
+            })
+            .collect();
+        result
+    }
+
+    pub fn with_key(mut self, key: Option<String>) -> Self {
+        self.key = key.filter(|k| !k.is_empty());
+        self
+    }
+
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        let label = label.into();
+        self.label = (!label.is_empty()).then_some(label);
+        self
+    }
+
+    pub fn with_record(mut self, id: RecordId) -> Self {
+        self.record_id = Some(id);
+        self
+    }
+}
+
+/// Which run wrote the stored row results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RowPhase {
+    /// The dry run: what the commit would do.
+    Checked,
+    /// The commit: what it did.
+    Committed,
+}
+
+/// What `import_jobs.row_results` holds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredRowResults {
+    pub phase: RowPhase,
+    pub rows: Vec<RowResult>,
+}
+
+/// An importer's verdict on every row, before or after writing.
+#[derive(Debug, Clone, Default)]
+pub struct RowPlan {
+    /// Set when the file can't be checked at all; no row has a result.
+    pub file_error: Option<String>,
+    /// One per data row, in file order.
+    pub rows: Vec<RowResult>,
+    pub notices: Vec<Notice>,
+}
+
+/// What a commit wrote: the records for search indexing and every row's
+/// result.
+pub struct Committed {
+    pub records: ImportedRecords,
+    pub rows: Vec<RowResult>,
 }
 
 /// One problem shared by several rows.
@@ -210,6 +393,30 @@ impl std::fmt::Display for CommitError {
             Self::Db(e) => write!(f, "{e}"),
         }
     }
+}
+
+/// The error for a key (`what` names it: "tag", "email") that several
+/// rows of the file hold: each of them is skipped, and the message names
+/// the rows so the admin finds them together.
+pub fn duplicate_in_file(what: &str, value: &str, rows: &[usize]) -> String {
+    const LISTED: usize = 5;
+    let times = match rows.len() {
+        2 => "twice".to_string(),
+        n => format!("{n} times"),
+    };
+    let mut listed: Vec<String> = rows.iter().take(LISTED).map(ToString::to_string).collect();
+    let rest = rows.len().saturating_sub(LISTED);
+    let rows_text = if rest > 0 {
+        format!("{} and {rest} more", listed.join(", "))
+    } else {
+        let last = listed.pop().unwrap_or_default();
+        if listed.is_empty() {
+            last
+        } else {
+            format!("{} and {last}", listed.join(", "))
+        }
+    };
+    format!("{what} '{value}' appears {times} in this file (rows {rows_text})")
 }
 
 /// Cap on the number of per-row errors a dry-run carries back.
@@ -390,7 +597,7 @@ pub trait Importer: Send + Sync {
         &[]
     }
 
-    /// Run validation across every row, build the summary, but
+    /// Validate every row and say what the commit would do with it, but
     /// don't write. Internal lookups (natural-key collisions
     /// against existing rows, FK targets, etc.) hit the DB. `ctx` is
     /// the admin who will commit, for checks that depend on who acts.
@@ -399,16 +606,90 @@ pub trait Importer: Send + Sync {
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
         ctx: &ImportContext,
-    ) -> Result<ImportSummary, diesel::result::Error>;
+    ) -> Result<RowPlan, diesel::result::Error>;
 
     /// Apply the rows through the canonical repository writers (which
     /// emit the per-row sync events + enforce entity invariants in the
     /// transaction), returning the written models so the caller can
-    /// index them into search. Caller wraps in a transaction.
+    /// index them into search, and every row's result. Caller wraps in a
+    /// transaction.
     fn commit(
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
         ctx: &ImportContext,
-    ) -> Result<ImportedRecords, CommitError>;
+    ) -> Result<Committed, CommitError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_message_names_the_rows() {
+        assert_eq!(
+            duplicate_in_file("tag", "T-1", &[31, 212]),
+            "tag 'T-1' appears twice in this file (rows 31 and 212)"
+        );
+        assert_eq!(
+            duplicate_in_file("email", "a@b.co", &[2, 5, 9]),
+            "email 'a@b.co' appears 3 times in this file (rows 2, 5 and 9)"
+        );
+        assert_eq!(
+            duplicate_in_file("tag", "T", &[1, 2, 3, 4, 5, 6, 7]),
+            "tag 'T' appears 7 times in this file (rows 1, 2, 3, 4, 5 and 2 more)"
+        );
+    }
+
+    #[test]
+    fn summary_counts_come_from_the_rows() {
+        let plan = RowPlan {
+            file_error: None,
+            rows: vec![
+                RowResult::planned(2, RowOutcome::Create),
+                RowResult::planned(3, RowOutcome::Update),
+                RowResult::planned(4, RowOutcome::Unchanged),
+                RowResult::skipped(
+                    5,
+                    vec![
+                        (Some("name".into()), "name is required".into()),
+                        (None, "whole row".into()),
+                    ],
+                ),
+            ],
+            notices: vec![],
+        };
+        let summary = ImportSummary::from_plan(4, &plan);
+        assert_eq!(
+            (
+                summary.would_create,
+                summary.would_update,
+                summary.unchanged,
+                summary.rows_with_errors,
+                summary.errors_total
+            ),
+            (1, 1, 1, 1, 2)
+        );
+        assert_eq!(summary.errors[0].row, 5);
+    }
+
+    #[test]
+    fn row_results_keep_their_shape() {
+        let row = RowResult::planned(7, RowOutcome::Update)
+            .with_key(Some("T-1".into()))
+            .with_label("Camera")
+            .with_record(RecordId::Int(12));
+        let json = serde_json::to_value(&row).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"row": 7, "outcome": "update", "key": "T-1", "label": "Camera", "record_id": 12})
+        );
+        let back: RowResult = serde_json::from_value(json).unwrap();
+        assert_eq!(back, row);
+        let user: RowResult = serde_json::from_value(serde_json::json!({
+            "row": 2, "outcome": "create", "record_id": "6f1c2a52-7c1e-4b1b-9a43-6c1f8c1e2d10"
+        }))
+        .unwrap();
+        assert!(matches!(user.record_id, Some(RecordId::Uuid(_))));
+    }
 }

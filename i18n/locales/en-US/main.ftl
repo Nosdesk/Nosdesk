@@ -3772,11 +3772,36 @@ import-review-problem-rows = { $count ->
    *[other] { $count } rows
    }
 import-review-whole-row = Whole row
-import-review-errors-heading = Rows with errors
-import-review-errors-truncated = Showing the first { $shown } of { $total } errors.
 import-review-col-row = Row
-import-review-col-column = Column
-import-review-col-message = Problem
+import-review-unchanged = { $count ->
+    [one] 1 row already matches and won't change.
+   *[other] { $count } rows already match and won't change.
+   }
+import-review-tile-unchanged = Unchanged
+import-review-notice-no-key = { $count ->
+    [one] 1 row has no asset tag or serial number. Importing this file again would create it again.
+   *[other] { $count } rows have no asset tag or serial number. Importing this file again would create them again.
+   }
+import-review-rows-heading = Rows
+import-review-download-report = Download error report (.csv)
+import-review-filter-label = Show rows
+import-review-filter-all = All ({ $count })
+import-review-filter-skipped = Skipped ({ $count })
+import-review-filter-create = New ({ $count })
+import-review-filter-update = Updated ({ $count })
+import-review-filter-unchanged = Unchanged ({ $count })
+import-review-col-name = Name
+import-review-col-result = Result
+import-review-outcome-create = New
+import-review-outcome-update = Updated
+import-review-outcome-unchanged = Unchanged
+import-review-outcome-skipped = Skipped
+import-review-rows-range = Rows { $from } to { $to } of { $total }
+import-review-rows-previous = Previous
+import-review-rows-next = Next
+import-review-rows-loading = Loading rows
+import-review-rows-none = No rows to show.
+import-error-report-failed = The error report couldn't be downloaded. Try again.
 import-review-back = Back to mapping
 import-review-skip-reason = { $count ->
     [one] 1 row will be skipped

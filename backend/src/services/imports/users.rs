@@ -49,8 +49,8 @@ use crate::repository::workspaces::{
 
 use super::csv_parser::ParsedCsv;
 use super::types::{
-    CommitError, FieldGroup, FieldSpec, ImportContext, ImportSummary, ImportType, ImportedRecords,
-    ImportedUser, Importer, ValueType,
+    duplicate_in_file, CommitError, Committed, FieldGroup, FieldSpec, ImportContext, ImportType,
+    ImportedRecords, ImportedUser, Importer, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
 };
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
@@ -105,36 +105,37 @@ impl Importer for UserImporter {
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
         ctx: &ImportContext,
-    ) -> Result<ImportSummary, diesel::result::Error> {
-        let mut summary = ImportSummary::new(parsed.rows.len());
-
+    ) -> Result<RowPlan, diesel::result::Error> {
         if let Some(err) = check_headers(&parsed.headers) {
-            summary.push_error(1, None, err);
-            return Ok(summary);
+            return Ok(RowPlan {
+                file_error: Some(err),
+                ..Default::default()
+            });
         }
 
         let lookup = Lookup::load(conn, parsed, ctx)?;
-        let mut state = FileState::new(&lookup);
+        let mut state = FileState::new(&lookup, parsed);
+        let mut plan = RowPlan::default();
 
         for record in parsed.records() {
             let row_num = record.source_row;
             let mut local = state.clone();
-            match validate_row(&record.values, &lookup, &mut local) {
+            let result = match validate_row(&record.values, &lookup, &mut local) {
                 Ok(action) => {
                     state = local;
                     match action {
-                        RowAction::Create { .. } => summary.would_create += 1,
-                        RowAction::UpdateMember { .. } => summary.would_update += 1,
+                        RowAction::Create { .. } => RowResult::planned(row_num, RowOutcome::Create),
+                        RowAction::UpdateMember { user_uuid, .. } => {
+                            RowResult::planned(row_num, RowOutcome::Update)
+                                .with_record(RecordId::Uuid(user_uuid))
+                        }
                     }
                 }
-                Err(errs) => {
-                    for (col, msg) in errs {
-                        summary.push_error(row_num, col, msg);
-                    }
-                }
-            }
+                Err(errs) => RowResult::skipped(row_num, errs),
+            };
+            plan.rows.push(identify(result, &record.values));
         }
-        Ok(summary)
+        Ok(plan)
     }
 
     fn commit(
@@ -142,7 +143,7 @@ impl Importer for UserImporter {
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
         ctx: &ImportContext,
-    ) -> Result<ImportedRecords, CommitError> {
+    ) -> Result<Committed, CommitError> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
@@ -150,15 +151,28 @@ impl Importer for UserImporter {
             .into());
         }
         let lookup = Lookup::load(conn, parsed, ctx)?;
-        let mut state = FileState::new(&lookup);
+        let mut state = FileState::new(&lookup, parsed);
 
         let mut imported: Vec<ImportedUser> = Vec::new();
+        let mut rows = Vec::with_capacity(parsed.rows.len());
         for record in parsed.records() {
             let row = &record.values;
+            let row_num = record.source_row;
+            // A write refused below, for a reason validation can't see,
+            // skips the row with the member-role endpoint's words.
+            let refused = |message: &str| {
+                identify(
+                    RowResult::skipped(row_num, vec![(Some("role".into()), message.to_string())]),
+                    row,
+                )
+            };
             let mut local = state.clone();
             let action = match validate_row(row, &lookup, &mut local) {
                 Ok(a) => a,
-                Err(_) => continue,
+                Err(errs) => {
+                    rows.push(identify(RowResult::skipped(row_num, errs), row));
+                    continue;
+                }
             };
             state = local;
             // A seat-limit refusal from the database aborts the transaction;
@@ -214,6 +228,11 @@ impl Importer for UserImporter {
                     .map_err(seat_limit)?
                     {
                         CreateUserWithEmailOutcome::Created(user, user_email) => {
+                            rows.push(identify(
+                                RowResult::planned(row_num, RowOutcome::Create)
+                                    .with_record(RecordId::Uuid(user.uuid)),
+                                row,
+                            ));
                             imported.push(ImportedUser {
                                 user,
                                 primary_email: Some(user_email.email),
@@ -222,7 +241,10 @@ impl Importer for UserImporter {
                         // Refused: a staff seat in hosted is control-plane-owned.
                         // Validation blocks this upstream, so this is a defensive
                         // skip rather than an import.
-                        CreateUserWithEmailOutcome::ExternallyManaged => continue,
+                        CreateUserWithEmailOutcome::ExternallyManaged => {
+                            rows.push(refused(EXTERNALLY_MANAGED_MESSAGE));
+                            continue;
+                        }
                     }
                 }
                 RowAction::UpdateMember {
@@ -247,9 +269,18 @@ impl Importer for UserImporter {
                         .map_err(seat_limit)?
                         {
                             UpdateMembershipRoleResult::Updated(_) => {}
-                            UpdateMembershipRoleResult::NotFound
-                            | UpdateMembershipRoleResult::LastOwner
-                            | UpdateMembershipRoleResult::ExternallyManaged => continue,
+                            UpdateMembershipRoleResult::NotFound => {
+                                rows.push(refused("this person is no longer a member"));
+                                continue;
+                            }
+                            UpdateMembershipRoleResult::LastOwner => {
+                                rows.push(refused(LAST_OWNER_MESSAGE));
+                                continue;
+                            }
+                            UpdateMembershipRoleResult::ExternallyManaged => {
+                                rows.push(refused(EXTERNALLY_MANAGED_MESSAGE));
+                                continue;
+                            }
                         }
                     }
                     // update_user emits user.updated (carrying the new
@@ -270,6 +301,11 @@ impl Importer for UserImporter {
                         conn,
                         None,
                     )?;
+                    rows.push(identify(
+                        RowResult::planned(row_num, RowOutcome::Update)
+                            .with_record(RecordId::Uuid(user.uuid)),
+                        row,
+                    ));
                     imported.push(ImportedUser {
                         user,
                         primary_email: Some(email),
@@ -277,7 +313,10 @@ impl Importer for UserImporter {
                 }
             }
         }
-        Ok(ImportedRecords::Users(imported))
+        Ok(Committed {
+            records: ImportedRecords::Users(imported),
+            rows,
+        })
     }
 }
 
@@ -315,22 +354,40 @@ struct Lookup {
     owners: i64,
 }
 
-/// What earlier rows of the file have claimed. Cloned per row and kept only
-/// when the row validates, so a refused row claims nothing.
+/// What the file as a whole holds and earlier rows have claimed. Cloned per
+/// row and kept only when the row validates, so a refused row claims
+/// nothing.
 #[derive(Clone)]
 struct FileState {
-    emails: HashSet<String>,
+    /// Emails (lowercased) more than one row holds, each with its rows.
+    /// Every one of those rows is skipped.
+    duplicate_emails: std::rc::Rc<HashMap<String, Vec<usize>>>,
     /// Owners left after the owner demotions accepted so far.
     owners: i64,
 }
 
 impl FileState {
-    fn new(lookup: &Lookup) -> Self {
+    fn new(lookup: &Lookup, parsed: &ParsedCsv) -> Self {
+        let mut emails: HashMap<String, Vec<usize>> = HashMap::new();
+        for record in parsed.records() {
+            let email = trimmed(&record.values, "email").to_lowercase();
+            if !email.is_empty() {
+                emails.entry(email).or_default().push(record.source_row);
+            }
+        }
+        emails.retain(|_, rows| rows.len() > 1);
         Self {
-            emails: HashSet::new(),
+            duplicate_emails: std::rc::Rc::new(emails),
             owners: lookup.owners,
         }
     }
+}
+
+/// The row's email and name on its result.
+fn identify(result: RowResult, row: &HashMap<String, String>) -> RowResult {
+    result
+        .with_key(Some(trimmed(row, "email")))
+        .with_label(trimmed(row, "name"))
 }
 
 impl Lookup {
@@ -456,6 +513,11 @@ fn validate_row(
             Some("email".into()),
             format!("'{email}' is not a valid email address"),
         ));
+    } else if let Some(rows) = state.duplicate_emails.get(&email.to_lowercase()) {
+        errors.push((
+            Some("email".into()),
+            duplicate_in_file("email", &email, rows),
+        ));
     }
 
     let name = trimmed(row, "name");
@@ -485,12 +547,6 @@ fn validate_row(
     };
 
     let email_key = email.to_lowercase();
-    if !state.emails.insert(email_key.clone()) {
-        return Err(vec![(
-            Some("email".into()),
-            format!("email '{email}' appears more than once in this file"),
-        )]);
-    }
 
     match lookup.holders.get(&email_key) {
         None => {

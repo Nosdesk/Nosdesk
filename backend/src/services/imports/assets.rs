@@ -5,10 +5,13 @@
 //! key matches an existing asset upsert (UPDATE); rows with no key, or a
 //! key that doesn't match, INSERT. The empty-key case is the "first day,
 //! importing from a spreadsheet" path. A tag more than one asset holds is
-//! a row error. With matching off, every row creates and a row whose tag
-//! or serial exists is an error. A blank cell never clears a column on
-//! update; a blank kind keeps the asset's kind, and on a new asset takes
-//! the default kind when one is set.
+//! a row error, and so is a tag or serial that more than one row of the
+//! file holds: every such row is skipped, so the admin picks the right
+//! one. Matched by serial, a tag another asset holds is an error, so an
+//! import never leaves two assets sharing a tag. With matching off, every
+//! row creates and a row whose tag or serial exists is an error. A blank cell never clears a column on update; a
+//! blank kind keeps the asset's kind, and on a new asset takes the default
+//! kind when one is set.
 //!
 //! Columns are universal-only: kind-specific attributes stay out
 //! of the CSV, so a kind's required attributes aren't enforced on
@@ -36,8 +39,9 @@ use crate::repository::assets as asset_repo;
 use super::csv_parser::ParsedCsv;
 use super::safe_cells::csv_formula_safe;
 use super::types::{
-    CommitError, DecimalMark, FieldGroup, FieldSpec, ImportContext, ImportOptions, ImportSummary,
-    ImportType, ImportedRecords, Importer, MatchBy, ValueType,
+    duplicate_in_file, CommitError, Committed, DecimalMark, FieldGroup, FieldSpec, ImportContext,
+    ImportOptions, ImportType, ImportedRecords, Importer, MatchBy, Notice, RecordId, RowOutcome,
+    RowPlan, RowResult, ValueType,
 };
 
 /// Universal CSV columns the importer accepts. Export writes
@@ -131,33 +135,47 @@ impl Importer for AssetImporter {
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
         ctx: &ImportContext,
-    ) -> Result<ImportSummary, diesel::result::Error> {
-        let mut summary = ImportSummary::new(parsed.rows.len());
-
+    ) -> Result<RowPlan, diesel::result::Error> {
         if let Some(err) = check_headers(&parsed.headers) {
-            summary.push_error(1, None, err);
-            return Ok(summary);
+            return Ok(RowPlan {
+                file_error: Some(err),
+                ..Default::default()
+            });
         }
 
         let lookups = Lookups::load(conn)?;
-        let mut claims = FileClaims::default();
+        let file_keys = FileKeys::scan(parsed);
+        let mut plan = RowPlan::default();
+        let mut keyless = 0;
 
         for record in parsed.records() {
-            let row_num = record.source_row;
-            match plan_row(&record.values, &lookups, &mut claims, &ctx.options) {
+            let row = &record.values;
+            let result = match plan_row(row, &lookups, &file_keys, &ctx.options) {
                 Ok(planned) => match planned.action {
-                    RowAction::Create => summary.would_create += 1,
-                    RowAction::Update(_) | RowAction::Unchanged(_) => summary.would_update += 1,
-                },
-                Err(field_errors) => {
-                    for (column, message) in field_errors {
-                        summary.push_error(row_num, column, message);
+                    RowAction::Create => {
+                        if is_keyless(row) {
+                            keyless += 1;
+                        }
+                        RowResult::planned(record.source_row, RowOutcome::Create)
                     }
-                }
-            }
+                    RowAction::Update(id) => {
+                        RowResult::planned(record.source_row, RowOutcome::Update)
+                            .with_record(RecordId::Int(id))
+                    }
+                    RowAction::Unchanged(id) => {
+                        RowResult::planned(record.source_row, RowOutcome::Unchanged)
+                            .with_record(RecordId::Int(id))
+                    }
+                },
+                Err(field_errors) => RowResult::skipped(record.source_row, field_errors),
+            };
+            plan.rows.push(identify(result, row, &ctx.options));
+        }
+        if keyless > 0 {
+            plan.notices.push(keyless_notice(keyless));
         }
 
-        Ok(summary)
+        Ok(plan)
     }
 
     /// Writes exactly the rows the dry-run counted: the same plan runs
@@ -167,7 +185,7 @@ impl Importer for AssetImporter {
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
         ctx: &ImportContext,
-    ) -> Result<ImportedRecords, CommitError> {
+    ) -> Result<Committed, CommitError> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
@@ -175,37 +193,104 @@ impl Importer for AssetImporter {
             .into());
         }
         let lookups = Lookups::load(conn)?;
-        let mut claims = FileClaims::default();
+        let file_keys = FileKeys::scan(parsed);
 
         let mut assets = Vec::new();
+        let mut rows = Vec::with_capacity(parsed.rows.len());
         for record in parsed.records() {
             let (row_num, row) = (record.source_row, &record.values);
             let options = &ctx.options;
-            let Ok(planned) = plan_row(row, &lookups, &mut claims, options) else {
-                continue;
+            let planned = match plan_row(row, &lookups, &file_keys, options) {
+                Ok(planned) => planned,
+                Err(field_errors) => {
+                    rows.push(identify(
+                        RowResult::skipped(row_num, field_errors),
+                        row,
+                        options,
+                    ));
+                    continue;
+                }
             };
             let mark = options.decimal_mark();
-            let written = match planned.action {
-                RowAction::Create => asset_repo::create_device(
-                    conn,
-                    build_new_asset(row, planned.kind, ctx.actor, mark),
+            let (outcome, written) = match planned.action {
+                RowAction::Create => (
+                    RowOutcome::Create,
+                    asset_repo::create_device(
+                        conn,
+                        build_new_asset(row, planned.kind, ctx.actor, mark),
+                    ),
                 ),
                 // Routed through update_device so the asset.updated sync
                 // event fires, matching the create path.
-                RowAction::Update(asset_id) => asset_repo::update_device(
-                    conn,
-                    asset_id,
-                    build_asset_update(row, planned.kind, mark),
+                RowAction::Update(asset_id) => (
+                    RowOutcome::Update,
+                    asset_repo::update_device(
+                        conn,
+                        asset_id,
+                        build_asset_update(row, planned.kind, mark),
+                    ),
                 ),
                 // A synced asset's row matched it, so there is nothing to write.
-                RowAction::Unchanged(asset_id) => match lookups.existing.get(&asset_id) {
-                    Some(asset) => Ok(asset.clone()),
-                    None => continue,
-                },
+                RowAction::Unchanged(asset_id) => {
+                    rows.push(identify(
+                        RowResult::planned(row_num, RowOutcome::Unchanged)
+                            .with_record(RecordId::Int(asset_id)),
+                        row,
+                        options,
+                    ));
+                    continue;
+                }
             };
-            assets.push(written.map_err(|e| row_write_error(row_num, e))?);
+            let asset = written.map_err(|e| row_write_error(row_num, e))?;
+            rows.push(identify(
+                RowResult::planned(row_num, outcome).with_record(RecordId::Int(asset.id)),
+                row,
+                options,
+            ));
+            assets.push(asset);
         }
-        Ok(ImportedRecords::Assets(assets))
+        Ok(Committed {
+            records: ImportedRecords::Assets(assets),
+            rows,
+        })
+    }
+}
+
+/// The row's match key and name on its result.
+fn identify(
+    result: RowResult,
+    row: &HashMap<String, String>,
+    options: &ImportOptions,
+) -> RowResult {
+    let key = match options.match_by {
+        MatchBy::AssetTag => trimmed(row, "asset_tag"),
+        MatchBy::SerialNumber => trimmed(row, "serial_number"),
+        MatchBy::None => opt_string(row, "asset_tag")
+            .or_else(|| opt_string(row, "serial_number"))
+            .unwrap_or_default(),
+    };
+    result.with_key(Some(key)).with_label(trimmed(row, "name"))
+}
+
+/// A row with neither a tag nor a serial: nothing can match it later, so
+/// importing the file again creates it again.
+fn is_keyless(row: &HashMap<String, String>) -> bool {
+    trimmed(row, "asset_tag").is_empty() && trimmed(row, "serial_number").is_empty()
+}
+
+fn keyless_notice(count: usize) -> Notice {
+    let message = if count == 1 {
+        "1 row has no asset tag or serial number. Importing this file again would create it again."
+            .to_string()
+    } else {
+        format!(
+            "{count} rows have no asset tag or serial number. Importing this file again would create them again."
+        )
+    };
+    Notice {
+        code: "no_key".to_string(),
+        count,
+        message,
     }
 }
 
@@ -317,13 +402,29 @@ impl Lookups {
     }
 }
 
-/// Tags and serials claimed by earlier valid rows of the same file. Only
-/// a row that passes every check claims its values, so an invalid row
-/// never blocks a later valid one.
-#[derive(Default)]
-struct FileClaims {
-    tags: HashSet<String>,
-    serials: HashSet<String>,
+/// Tags and serials more than one row of the file holds, each with the
+/// rows holding it. Every one of those rows is skipped.
+struct FileKeys {
+    tags: HashMap<String, Vec<usize>>,
+    serials: HashMap<String, Vec<usize>>,
+}
+
+impl FileKeys {
+    fn scan(parsed: &ParsedCsv) -> Self {
+        let mut tags: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut serials: HashMap<String, Vec<usize>> = HashMap::new();
+        for record in parsed.records() {
+            for (column, map) in [("asset_tag", &mut tags), ("serial_number", &mut serials)] {
+                let value = trimmed(&record.values, column);
+                if !value.is_empty() {
+                    map.entry(value).or_default().push(record.source_row);
+                }
+            }
+        }
+        tags.retain(|_, rows| rows.len() > 1);
+        serials.retain(|_, rows| rows.len() > 1);
+        Self { tags, serials }
+    }
 }
 
 fn check_headers(headers: &[String]) -> Option<String> {
@@ -357,7 +458,7 @@ const MAX_DECIMAL: &str = "999999999.9995";
 fn plan_row(
     row: &HashMap<String, String>,
     lookups: &Lookups,
-    claims: &mut FileClaims,
+    file_keys: &FileKeys,
     options: &ImportOptions,
 ) -> Result<PlannedRow, Vec<(Option<String>, String)>> {
     let mut errors: Vec<(Option<String>, String)> = Vec::new();
@@ -419,18 +520,33 @@ fn plan_row(
             None
         }
     };
-    if !tag.is_empty() && claims.tags.contains(&tag) {
-        error(
-            "asset_tag",
-            format!("tag '{tag}' appears more than once in this file"),
-        );
+    if let Some(rows) = file_keys.tags.get(&tag) {
+        error("asset_tag", duplicate_in_file("tag", &tag, rows));
+    } else if options.match_by == MatchBy::SerialNumber
+        && !target.is_some_and(|id| tag_holders.contains(&id))
+    {
+        // Matched by serial, the row's tag must not be another asset's.
+        let others: Vec<i32> = tag_holders
+            .iter()
+            .copied()
+            .filter(|id| Some(*id) != target)
+            .collect();
+        if !others.is_empty() {
+            error(
+                "asset_tag",
+                format!(
+                    "tag '{tag}' is already used by {}",
+                    asset_names(lookups, &others)
+                ),
+            );
+        }
     }
 
     if !serial.is_empty() {
-        if claims.serials.contains(&serial) {
+        if let Some(rows) = file_keys.serials.get(&serial) {
             error(
                 "serial_number",
-                format!("serial number '{serial}' appears more than once in this file"),
+                duplicate_in_file("serial number", &serial, rows),
             );
         } else if let Some(holder) = serial_holder {
             if options.match_by == MatchBy::None {
@@ -504,12 +620,6 @@ fn plan_row(
 
     match kind {
         Some(kind) if errors.is_empty() => {
-            if !tag.is_empty() {
-                claims.tags.insert(tag);
-            }
-            if !serial.is_empty() {
-                claims.serials.insert(serial);
-            }
             let action = match target {
                 Some(id) if synced => RowAction::Unchanged(id),
                 Some(id) => RowAction::Update(id),

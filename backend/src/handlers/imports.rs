@@ -11,6 +11,10 @@
 //!   rows in a single transaction and flips status to `done`.
 //! - `GET  /admin/import/{id}` returns the job row + summary so
 //!   the admin can resume.
+//! - `GET  /admin/import/{id}/rows?filter=&offset=&limit=` pages
+//!   through every row's result, from the dry run or the commit.
+//! - `GET  /admin/import/{id}/error-report` downloads the skipped
+//!   rows as CSV in the file's own layout, with the reasons.
 //! - `GET  /admin/import/fields?type=` lists the fields a column
 //!   can map to.
 //! - `GET  /admin/import/template/{type}` returns a CSV header
@@ -34,8 +38,8 @@ use crate::models::{ImportJob, ImportJobResponse, ImportJobUpdate, NewImportJob}
 use crate::repository::imports as repo;
 use crate::services::imports::mapping::{self, ColumnMapping, ImportSource, StoredSource};
 use crate::services::imports::{
-    self, csv_parser, CommitError, FieldSpec, ImportContext, ImportOptions, ImportType,
-    ImportedRecords,
+    self, csv_parser, report, CommitError, FieldSpec, ImportContext, ImportOptions, ImportType,
+    ImportedRecords, RowOutcome, RowPhase, RowResult, StoredRowResults,
 };
 use crate::services::search::{indexing_tasks, SearchService};
 
@@ -60,6 +64,14 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/import/{id}/commit",
         web::post().to(crate::handlers::imports::commit),
+    )
+    .route(
+        "/admin/import/{id}/rows",
+        web::get().to(crate::handlers::imports::rows),
+    )
+    .route(
+        "/admin/import/{id}/error-report",
+        web::get().to(crate::handlers::imports::error_report),
     )
     .route(
         "/admin/import/{id}",
@@ -391,8 +403,9 @@ pub async fn put_mapping(
         if let Some(message) = mapping_precondition(&job) {
             return Ok(MappingOutcome::Conflict(message));
         }
-        let mut summary = imports::dry_run(conn, job_type, &mapped, &ctx)?;
+        let (mut summary, mut rows) = imports::check(conn, job_type, &mapped, &ctx)?;
         mapping::annotate(&mut summary, &column_mapping, &stored.source.headers);
+        mapping::complete_rows(&mut rows, &column_mapping, &stored.source.headers, &grid);
         let updated = repo::update(
             conn,
             id,
@@ -401,6 +414,7 @@ pub async fn put_mapping(
                 summary: Some(serde_json::to_value(&summary).ok()),
                 mapping: Some(serde_json::to_value(&column_mapping).ok()),
                 options: Some(options_json.clone()),
+                row_results: Some(stored_rows(RowPhase::Checked, rows)),
                 ..Default::default()
             },
         )?;
@@ -585,19 +599,24 @@ pub async fn commit(
         // The repo + commit imports run inside this transaction.
         // Postgres `SET LOCAL` propagates into the nested savepoint
         // so the workspace GUC is still active for the commit path.
-        let records = imports::commit(conn, job_type, &parsed, &ctx)?;
+        let committed = imports::apply(conn, job_type, &parsed, &ctx)?;
+        let mut rows = committed.rows;
+        if let Some(stored) = stored_source(&current) {
+            mapping::complete_rows(&mut rows, &column_mapping, &stored.source.headers, &grid);
+        }
 
         let updated = repo::update(
             conn,
             current.id,
             ImportJobUpdate {
                 status: Some("done".to_string()),
-                records_committed: Some(Some(records.len() as i32)),
+                records_committed: Some(Some(committed.records.len() as i32)),
                 completed_at: Some(Some(chrono::Utc::now())),
+                row_results: Some(stored_rows(RowPhase::Committed, rows)),
                 ..Default::default()
             },
         )?;
-        Ok(CommitOutcome::Ok(updated, records))
+        Ok(CommitOutcome::Ok(updated, committed.records))
     });
 
     match result {
@@ -642,6 +661,11 @@ pub async fn commit(
             }
         }
     }
+}
+
+/// Row results as `import_jobs.row_results` stores them.
+fn stored_rows(phase: RowPhase, rows: Vec<RowResult>) -> Option<serde_json::Value> {
+    serde_json::to_value(StoredRowResults { phase, rows }).ok()
 }
 
 /// The mapping and options stored at the Map step; `None` for a job
@@ -744,6 +768,208 @@ pub async fn get_job(
             error!(error = ?e, "failed to load import job");
             errors::internal("failed to load import job")
         }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RowsQuery {
+    /// `all` (default), `create`, `update`, `unchanged` or `skipped`
+    /// (`error` reads as `skipped`).
+    pub filter: Option<String>,
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+/// Rows a page carries unless the client asks for fewer.
+const ROWS_PAGE: usize = 50;
+/// Most rows one page carries.
+const ROWS_PAGE_MAX: usize = 200;
+
+/// What reading a job's row results came to.
+enum RowResultsRead {
+    Ok(ImportJob, StoredRowResults),
+    NotFound,
+    /// The job hasn't been checked, so it has no row results yet.
+    NotChecked,
+}
+
+fn read_row_results(
+    conn: &mut crate::db::DbConnection,
+    id: Uuid,
+) -> Result<RowResultsRead, diesel::result::Error> {
+    let job = match repo::get(conn, id) {
+        Ok(j) => j,
+        Err(diesel::result::Error::NotFound) => return Ok(RowResultsRead::NotFound),
+        Err(e) => return Err(e),
+    };
+    let Some(value) = repo::row_results(conn, id)? else {
+        return Ok(RowResultsRead::NotChecked);
+    };
+    match serde_json::from_value(value) {
+        Ok(stored) => Ok(RowResultsRead::Ok(job, stored)),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "unreadable import row results");
+            Ok(RowResultsRead::NotChecked)
+        }
+    }
+}
+
+const NOT_CHECKED: &str = "this import hasn't been checked yet; map its columns first";
+
+/// One page of a job's row results, filtered by outcome, with the count of
+/// each outcome. A skipped row's cells stay out; the error report has them.
+pub async fn rows(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+    query: web::Query<RowsQuery>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let filter = match query.filter.as_deref().unwrap_or("all") {
+        "all" => None,
+        "create" => Some(RowOutcome::Create),
+        "update" => Some(RowOutcome::Update),
+        "unchanged" => Some(RowOutcome::Unchanged),
+        "skipped" | "error" => Some(RowOutcome::Skipped),
+        other => {
+            return errors::bad_request(format!(
+                "unknown filter '{other}'; use all, create, update, unchanged or skipped"
+            ))
+        }
+    };
+    let offset = query.offset.unwrap_or(0);
+    let limit = query.limit.unwrap_or(ROWS_PAGE).clamp(1, ROWS_PAGE_MAX);
+
+    let stored = match tc.run(|conn| read_row_results(conn, id)) {
+        Ok(RowResultsRead::Ok(_, stored)) => stored,
+        Ok(RowResultsRead::NotFound) => {
+            return errors::not_found_msg(format!("import job {id} not found"))
+        }
+        Ok(RowResultsRead::NotChecked) => return errors::conflict(NOT_CHECKED),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to load import rows");
+            return errors::internal("failed to load import rows");
+        }
+    };
+
+    let count = |outcome: RowOutcome| stored.rows.iter().filter(|r| r.outcome == outcome).count();
+    let counts = serde_json::json!({
+        "all": stored.rows.len(),
+        "create": count(RowOutcome::Create),
+        "update": count(RowOutcome::Update),
+        "unchanged": count(RowOutcome::Unchanged),
+        "skipped": count(RowOutcome::Skipped),
+    });
+    let matching: Vec<&RowResult> = stored
+        .rows
+        .iter()
+        .filter(|r| filter.is_none_or(|f| r.outcome == f))
+        .collect();
+    let page: Vec<RowResult> = matching
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .map(|r| RowResult {
+            cells: Vec::new(),
+            ..(*r).clone()
+        })
+        .collect();
+    HttpResponse::Ok().json(serde_json::json!({
+        "phase": stored.phase,
+        "total": matching.len(),
+        "offset": offset,
+        "limit": limit,
+        "counts": counts,
+        "rows": page,
+    }))
+}
+
+/// The skipped rows as CSV, in the file's layout with a `Row` and an
+/// `Errors` column first (`services::imports::report`). Before the commit
+/// these are the rows it would skip; after, the rows it skipped.
+pub async fn error_report(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let loaded = tc.run(|conn| {
+        let read = read_row_results(conn, id)?;
+        let fields = match &read {
+            RowResultsRead::Ok(job, _) => match ImportType::from_str(&job.job_type) {
+                Some(t) => imports::importer_for(t).fields(conn)?,
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
+        };
+        Ok((read, fields))
+    });
+    let (job, stored, fields) = match loaded {
+        Ok((RowResultsRead::Ok(job, stored), fields)) => (job, stored, fields),
+        Ok((RowResultsRead::NotFound, _)) => {
+            return errors::not_found_msg(format!("import job {id} not found"))
+        }
+        Ok((RowResultsRead::NotChecked, _)) => return errors::conflict(NOT_CHECKED),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to load import rows");
+            return errors::internal("failed to load import rows");
+        }
+    };
+    let Some(source) = stored_source(&job).map(|s| s.source) else {
+        return errors::conflict(NOT_CHECKED);
+    };
+    let delimiter = match source.delimiter.as_deref() {
+        Some(";") => b';',
+        Some("\t") => b'\t',
+        _ => b',',
+    };
+    match report::error_report_csv(&source.headers, delimiter, &stored.rows, &fields) {
+        Ok(body) => HttpResponse::Ok()
+            .insert_header((header::CONTENT_TYPE, "text/csv; charset=utf-8"))
+            .insert_header((
+                header::CONTENT_DISPOSITION,
+                format!(
+                    "attachment; filename=\"{}-errors.csv\"",
+                    download_stem(&job.filename)
+                ),
+            ))
+            .body(body),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to write import error report");
+            errors::internal("failed to write the error report")
+        }
+    }
+}
+
+/// The uploaded file's name without its extension, reduced to characters
+/// safe in a `Content-Disposition` filename.
+fn download_stem(filename: &str) -> String {
+    let stem = std::path::Path::new(filename)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let safe: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' ') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(100)
+        .collect();
+    let safe = safe.trim().to_string();
+    if safe.is_empty() {
+        "import".to_string()
+    } else {
+        safe
     }
 }
 
