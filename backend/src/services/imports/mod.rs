@@ -39,24 +39,15 @@ pub fn importer_for(t: ImportType) -> Box<dyn Importer> {
 }
 
 /// Run the dry-run validation against an already-parsed CSV with the
-/// default options. The summary is the structured result the admin
+/// options in `ctx`. The summary is the structured result the admin
 /// reviews before committing.
 pub fn dry_run(
     conn: &mut DbConnection,
     t: ImportType,
     parsed: &csv_parser::ParsedCsv,
+    ctx: &ImportContext,
 ) -> Result<ImportSummary, DieselError> {
-    dry_run_with(conn, t, parsed, &ImportOptions::default())
-}
-
-/// [`dry_run`] with the admin's options.
-pub fn dry_run_with(
-    conn: &mut DbConnection,
-    t: ImportType,
-    parsed: &csv_parser::ParsedCsv,
-    options: &ImportOptions,
-) -> Result<ImportSummary, DieselError> {
-    Ok(importer_for(t).dry_run(conn, parsed, options)?.finish())
+    Ok(importer_for(t).dry_run(conn, parsed, ctx)?.finish())
 }
 
 /// Apply the rows in a single transaction. Caller is

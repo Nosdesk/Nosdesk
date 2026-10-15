@@ -21,7 +21,7 @@ use backend::sync::actor::ActorContext;
 
 use crate::common;
 
-async fn post_user(
+pub(crate) async fn post_user(
     pool: &common::TestPool,
     ws: &common::WorkspaceSeed,
     body: Value,

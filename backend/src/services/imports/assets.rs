@@ -130,7 +130,7 @@ impl Importer for AssetImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-        options: &ImportOptions,
+        ctx: &ImportContext,
     ) -> Result<ImportSummary, diesel::result::Error> {
         let mut summary = ImportSummary::new(parsed.rows.len());
 
@@ -144,7 +144,7 @@ impl Importer for AssetImporter {
 
         for record in parsed.records() {
             let row_num = record.source_row;
-            match plan_row(&record.values, &lookups, &mut claims, options) {
+            match plan_row(&record.values, &lookups, &mut claims, &ctx.options) {
                 Ok(planned) => match planned.action {
                     RowAction::Create => summary.would_create += 1,
                     RowAction::Update(_) | RowAction::Unchanged(_) => summary.would_update += 1,

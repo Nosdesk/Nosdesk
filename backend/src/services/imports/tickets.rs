@@ -31,8 +31,8 @@ use crate::repository::tickets as ticket_repo;
 
 use super::csv_parser::ParsedCsv;
 use super::types::{
-    CommitError, FieldGroup, FieldSpec, ImportContext, ImportOptions, ImportSummary, ImportType,
-    ImportedRecords, Importer, ValueType,
+    CommitError, FieldGroup, FieldSpec, ImportContext, ImportSummary, ImportType, ImportedRecords,
+    Importer, ValueType,
 };
 
 const HEADERS: &[&str] = &[
@@ -101,7 +101,7 @@ impl Importer for TicketImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-        _options: &ImportOptions,
+        _ctx: &ImportContext,
     ) -> Result<ImportSummary, diesel::result::Error> {
         let mut summary = ImportSummary::new(parsed.rows.len());
 

@@ -214,8 +214,8 @@ pub const MAX_ERRORS: usize = 100;
 /// Most error groups a summary carries.
 pub const MAX_ERROR_GROUPS: usize = 10;
 
-/// Who is committing, which job, and the options the admin chose at the
-/// Map step. Built by the commit handler.
+/// Who is importing, which job, and the options the admin chose at the
+/// Map step. Built by the mapping and commit handlers.
 #[derive(Debug, Clone)]
 pub struct ImportContext {
     /// The admin applying the import; `None` only for callers with no
@@ -387,12 +387,13 @@ pub trait Importer: Send + Sync {
 
     /// Run validation across every row, build the summary, but
     /// don't write. Internal lookups (natural-key collisions
-    /// against existing rows, FK targets, etc.) hit the DB.
+    /// against existing rows, FK targets, etc.) hit the DB. `ctx` is
+    /// the admin who will commit, for checks that depend on who acts.
     fn dry_run(
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-        options: &ImportOptions,
+        ctx: &ImportContext,
     ) -> Result<ImportSummary, diesel::result::Error>;
 
     /// Apply the rows through the canonical repository writers (which

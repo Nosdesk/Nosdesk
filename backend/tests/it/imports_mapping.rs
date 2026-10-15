@@ -109,7 +109,13 @@ fn an_unmapped_field_leaves_the_stored_value() {
             ("notes", "Remarks"),
         ],
     );
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary = imports::dry_run(
+        &mut conn,
+        ImportType::Assets,
+        &parsed,
+        &ctx(ImportOptions::default()),
+    )
+    .expect("dry-run");
     assert_eq!(
         (summary.would_update, summary.errors_total),
         (1, 0),
@@ -148,7 +154,13 @@ fn match_by_serial_number_updates_the_serial_holder() {
         ],
     );
 
-    let by_tag = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let by_tag = imports::dry_run(
+        &mut conn,
+        ImportType::Assets,
+        &parsed,
+        &ctx(ImportOptions::default()),
+    )
+    .expect("dry-run");
     assert_eq!(by_tag.would_create + by_tag.would_update, 0);
     assert!(by_tag.errors[0]
         .message
@@ -158,8 +170,13 @@ fn match_by_serial_number_updates_the_serial_holder() {
         match_by: MatchBy::SerialNumber,
         ..Default::default()
     };
-    let by_serial =
-        imports::dry_run_with(&mut conn, ImportType::Assets, &parsed, &options).expect("dry-run");
+    let by_serial = imports::dry_run(
+        &mut conn,
+        ImportType::Assets,
+        &parsed,
+        &ctx(options.clone()),
+    )
+    .expect("dry-run");
     assert_eq!(
         (
             by_serial.would_create,
@@ -221,8 +238,13 @@ fn match_by_none_refuses_rows_that_already_exist() {
         match_by: MatchBy::None,
         ..Default::default()
     };
-    let summary =
-        imports::dry_run_with(&mut conn, ImportType::Assets, &parsed, &options).expect("dry-run");
+    let summary = imports::dry_run(
+        &mut conn,
+        ImportType::Assets,
+        &parsed,
+        &ctx(options.clone()),
+    )
+    .expect("dry-run");
     assert_eq!((summary.would_create, summary.would_update), (1, 0));
     let errors: Vec<(usize, Option<&str>, &str)> = summary
         .errors
@@ -268,8 +290,8 @@ fn the_decimal_mark_reads_number_cells() {
         decimal: Some(DecimalMark::Comma),
         ..Default::default()
     };
-    let summary =
-        imports::dry_run_with(&mut conn, ImportType::Assets, &parsed, &comma).expect("dry-run");
+    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed, &ctx(comma.clone()))
+        .expect("dry-run");
     assert_eq!(summary.would_create, 1);
     assert_eq!(summary.errors.len(), 1, "{:?}", summary.errors);
     assert_eq!(summary.errors[0].row, 3);
@@ -282,7 +304,13 @@ fn the_decimal_mark_reads_number_cells() {
         Some("12.500")
     );
 
-    let dot = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let dot = imports::dry_run(
+        &mut conn,
+        ImportType::Assets,
+        &parsed,
+        &ctx(ImportOptions::default()),
+    )
+    .expect("dry-run");
     assert!(
         dot.errors[0].message.contains("choose ',' at the Map step"),
         "{:?}",
@@ -304,7 +332,13 @@ fn the_default_kind_fills_blank_kinds_on_new_assets() {
         &[("name", "name"), ("asset_tag", "asset_tag")],
     );
 
-    let without = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let without = imports::dry_run(
+        &mut conn,
+        ImportType::Assets,
+        &parsed,
+        &ctx(ImportOptions::default()),
+    )
+    .expect("dry-run");
     assert_eq!((without.would_update, without.errors_total), (1, 1));
     assert_eq!(without.errors[0].column.as_deref(), Some("kind"));
 
@@ -334,7 +368,13 @@ fn errors_are_counted_and_grouped_past_the_cap() {
         &grid,
         &[("name", "name"), ("kind", "kind"), ("quantity", "quantity")],
     );
-    let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run");
+    let summary = imports::dry_run(
+        &mut conn,
+        ImportType::Assets,
+        &parsed,
+        &ctx(ImportOptions::default()),
+    )
+    .expect("dry-run");
     assert_eq!(summary.errors.len(), 100);
     assert!(summary.errors_truncated);
     assert_eq!(summary.errors_total, 121);

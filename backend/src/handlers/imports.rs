@@ -373,6 +373,12 @@ pub async fn put_mapping(
         Err(resp) => return resp,
     };
     let mapped = mapping::apply_mapping(&grid, &column_mapping, &fields);
+    let options_json = serde_json::to_value(&options).ok();
+    let ctx = ImportContext {
+        actor: Some(auth.user_uuid),
+        job_id: id,
+        options,
+    };
 
     let result = tc.run(|conn| {
         // Checked again under the transaction: a commit may have started
@@ -385,7 +391,7 @@ pub async fn put_mapping(
         if let Some(message) = mapping_precondition(&job) {
             return Ok(MappingOutcome::Conflict(message));
         }
-        let mut summary = imports::dry_run_with(conn, job_type, &mapped, &options)?;
+        let mut summary = imports::dry_run(conn, job_type, &mapped, &ctx)?;
         mapping::annotate(&mut summary, &column_mapping, &stored.source.headers);
         let updated = repo::update(
             conn,
@@ -394,7 +400,7 @@ pub async fn put_mapping(
                 status: Some("dry_run_done".to_string()),
                 summary: Some(serde_json::to_value(&summary).ok()),
                 mapping: Some(serde_json::to_value(&column_mapping).ok()),
-                options: Some(serde_json::to_value(&options).ok()),
+                options: Some(options_json.clone()),
                 ..Default::default()
             },
         )?;
