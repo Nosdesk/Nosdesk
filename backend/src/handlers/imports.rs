@@ -12,6 +12,11 @@
 //!   mapping, the columns set to Don't import, and the options, runs the
 //!   dry run, and moves the job to `dry_run_done`. Re-runnable until the
 //!   commit.
+//! - `GET  /admin/import/{id}/values` lists the distinct values of each
+//!   mapped column whose values link to a closed set or must read as a
+//!   number or date, each with how it matched and its answer.
+//! - `PUT  /admin/import/{id}/values` stores the admin's answers to those
+//!   values and runs the dry run again.
 //! - `POST /admin/import/{id}/commit` applies the validated
 //!   rows in a single transaction and flips status to `done`.
 //! - `GET  /admin/import/{id}` returns the job row + summary so
@@ -44,10 +49,11 @@ use crate::extractors::{AuthContext, TenantConn};
 use crate::models::{ImportJob, ImportJobResponse, ImportJobUpdate, NewImportJob};
 use crate::repository::imports as repo;
 use crate::services::imports::mapping::{self, ColumnMapping, ImportSource, StoredSource};
+use crate::services::imports::values;
 use crate::services::imports::xlsx::{self, FileFormat, SheetChoice};
 use crate::services::imports::{
     self, csv_parser, report, CommitError, FieldSpec, ImportContext, ImportOptions, ImportType,
-    ImportedRecords, RowOutcome, RowPhase, RowResult, StoredRowResults,
+    ImportedRecords, RowOutcome, RowPhase, RowResult, StoredRowResults, ValueAnswers,
 };
 use crate::services::search::{indexing_tasks, SearchService};
 
@@ -80,6 +86,11 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/import/{id}/commit",
         web::post().to(crate::handlers::imports::commit),
+    )
+    .service(
+        web::resource("/admin/import/{id}/values")
+            .route(web::get().to(crate::handlers::imports::get_values))
+            .route(web::put().to(crate::handlers::imports::put_values)),
     )
     .route(
         "/admin/import/{id}/rows",
@@ -490,6 +501,7 @@ pub async fn put_source(
                 status: Some("parsed".to_string()),
                 source: Some(serde_json::to_value(&stored).ok()),
                 mapping: Some(None),
+                answers: Some(None),
                 summary: Some(None),
                 row_results: Some(None),
                 ..Default::default()
@@ -781,7 +793,7 @@ pub async fn put_mapping(
         Ok(grid) => grid,
         Err(resp) => return resp,
     };
-    let mapped = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
+    let mut mapped = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
     let options_json = serde_json::to_value(&options).ok();
     let mut ignored = ignored;
     ignored.sort_unstable();
@@ -815,6 +827,18 @@ pub async fn put_mapping(
             ));
         };
         current.ignored = ignored.clone();
+        // Answers given at Match values stand; those for a field no longer
+        // mapped, or that no longer fit, are passed over.
+        let mut ctx = ctx;
+        values::settle(
+            conn,
+            job_type,
+            &fields,
+            &column_mapping,
+            &mut ctx.options,
+            &stored_answers(&job),
+            &mut mapped,
+        )?;
         let (summary, rows) = plan(
             conn,
             job_type,
@@ -1042,8 +1066,8 @@ pub async fn commit(
         Ok(grid) => grid,
         Err(resp) => return resp,
     };
-    let parsed = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
-    let ctx = ImportContext {
+    let mut parsed = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
+    let mut ctx = ImportContext {
         actor: Some(auth.user_uuid),
         job_id: id,
         options,
@@ -1074,6 +1098,7 @@ pub async fn commit(
         if current.mapping != job.mapping
             || current.options != job.options
             || current.source != job.source
+            || current.answers != job.answers
         {
             return Ok(CommitOutcome::BadRequest(
                 "the mapping changed while importing; check the rows again".to_string(),
@@ -1081,6 +1106,15 @@ pub async fn commit(
         }
         let job_type =
             ImportType::from_str(&current.job_type).expect("checked by commit_precondition");
+        values::settle(
+            conn,
+            job_type,
+            &fields,
+            &column_mapping,
+            &mut ctx.options,
+            &stored_answers(&current),
+            &mut parsed,
+        )?;
 
         // Plan again against the workspace as it is now and hold it up
         // against what the admin reviewed.
@@ -1190,6 +1224,15 @@ fn stored_choices(job: &ImportJob) -> Option<(ColumnMapping, ImportOptions)> {
     // A job stored with the legacy `match_by: none` commits as create only.
     options.normalize().ok()?;
     Some((column_mapping, options))
+}
+
+/// The answers stored at Match values; none when there are none or they
+/// don't read.
+fn stored_answers(job: &ImportJob) -> ValueAnswers {
+    job.answers
+        .clone()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
 }
 
 /// Why a job can't be committed now, if it can't. A job already `done`
@@ -1362,6 +1405,258 @@ pub async fn delete_job(
         Err(e) => {
             error!(job_id = %id, error = ?e, "failed to delete import job");
             errors::internal("failed to delete the import")
+        }
+    }
+}
+
+/// A checked job with what Match values reads: its type, the fields, the
+/// stored mapping, options and source, and the file's grid mapped.
+struct ValuesJob {
+    job: ImportJob,
+    job_type: ImportType,
+    fields: Vec<FieldSpec>,
+    column_mapping: ColumnMapping,
+    options: ImportOptions,
+    stored: StoredSource,
+    grid: csv_parser::ParsedCsv,
+    mapped: mapping::MappedGrid,
+}
+
+/// Why a job's values can't be read or answered now, if they can't.
+fn values_precondition(job: &ImportJob) -> Option<String> {
+    match job.status.as_str() {
+        "dry_run_done" => None,
+        "parsed" => Some(NOT_CHECKED.to_string()),
+        status => Some(format!(
+            "job is in status '{status}'; values can be answered only before the import is committed"
+        )),
+    }
+}
+
+/// Load a checked job for Match values, or the response that refuses it.
+async fn load_values_job(tc: &mut TenantConn, id: Uuid) -> Result<ValuesJob, HttpResponse> {
+    let loaded = tc.run(|conn| {
+        let job = repo::get(conn, id)?;
+        let fields = match ImportType::from_str(&job.job_type) {
+            Some(t) => imports::importer_for(t).fields(conn)?,
+            None => Vec::new(),
+        };
+        Ok((job, fields))
+    });
+    let (job, fields) = match loaded {
+        Ok(v) => v,
+        Err(diesel::result::Error::NotFound) => {
+            return Err(errors::not_found_msg(format!("import job {id} not found")));
+        }
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to load import job");
+            return Err(errors::internal("failed to load import job"));
+        }
+    };
+    if let Some(message) = values_precondition(&job) {
+        return Err(errors::conflict(message));
+    }
+    let Some(job_type) = ImportType::from_str(&job.job_type) else {
+        return Err(errors::bad_request(format!(
+            "import job has unknown type '{}'",
+            job.job_type
+        )));
+    };
+    let (Some((column_mapping, options)), Some(stored)) =
+        (stored_choices(&job), stored_source(&job))
+    else {
+        return Err(errors::bad_request(
+            "This import was checked before column mapping. Upload the file again.",
+        ));
+    };
+    let grid = read_job_grid(id).await?;
+    let mapped = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
+    Ok(ValuesJob {
+        job,
+        job_type,
+        fields,
+        column_mapping,
+        options,
+        stored,
+        grid,
+        mapped,
+    })
+}
+
+/// The distinct values of each mapped column Match values asks about, with
+/// how each matched, the answer it takes, and the rows the last check
+/// skipped.
+pub async fn get_values(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let loaded = match load_values_job(&mut tc, id).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let answers = stored_answers(&loaded.job);
+    let read = tc.run(|conn| {
+        let resolution = values::prepare(
+            conn,
+            loaded.job_type,
+            &loaded.fields,
+            &loaded.column_mapping,
+            &loaded.options,
+            &loaded.mapped.grid,
+            &answers,
+        )?;
+        let checked: Vec<RowResult> = repo::row_results(conn, id)?
+            .and_then(|v| serde_json::from_value::<StoredRowResults>(v).ok())
+            .filter(|r| r.phase == RowPhase::Checked)
+            .map(|r| r.rows)
+            .unwrap_or_default();
+        Ok(values::view(
+            &resolution,
+            &loaded.fields,
+            &loaded.stored.source.headers,
+            &checked,
+        ))
+    });
+    match read {
+        Ok(view) => HttpResponse::Ok().json(view),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to read import values");
+            errors::internal("failed to read the file's values")
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ValuesRequest {
+    pub answers: ValueAnswers,
+}
+
+/// Result variants for answering values.
+enum ValuesOutcome {
+    Ok(ImportJob),
+    NotFound,
+    Conflict(String),
+}
+
+/// Store the admin's answers to the file's values, replacing any before,
+/// and run the dry run again with them.
+pub async fn put_values(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+    body: web::Json<ValuesRequest>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let ValuesRequest { answers } = body.into_inner();
+    let ValuesJob {
+        job,
+        job_type,
+        fields,
+        column_mapping,
+        options,
+        stored,
+        grid,
+        mut mapped,
+    } = match load_values_job(&mut tc, id).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    if let Err(e) = mapping::validate_answers(&answers, &fields) {
+        return errors::bad_request(e.0);
+    }
+    let checked = tc.run(|conn| {
+        let columns = values::matchers(conn, job_type, &fields, &column_mapping, &options)?;
+        let blanks = values::blank_fields(job_type, &columns, &options);
+        Ok(values::validate(answers, &columns, &blanks))
+    });
+    let answers = match checked {
+        Ok(Ok(answers)) => answers,
+        Ok(Err(e)) => return errors::bad_request(e.0),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to check import answers");
+            return errors::internal("failed to check the answers");
+        }
+    };
+    let answers_json = serde_json::to_value(&answers).ok();
+
+    let result = tc.run(|conn| {
+        if !repo::try_lock_job(conn, id)? {
+            return Ok(ValuesOutcome::Conflict(COMMIT_RUNNING.to_string()));
+        }
+        let current = match repo::get(conn, id) {
+            Ok(j) => j,
+            Err(diesel::result::Error::NotFound) => return Ok(ValuesOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        if let Some(message) = values_precondition(&current) {
+            return Ok(ValuesOutcome::Conflict(message));
+        }
+        if current.mapping != job.mapping
+            || current.options != job.options
+            || current.source != job.source
+        {
+            return Ok(ValuesOutcome::Conflict(
+                "the columns were mapped again while answering; check the values again".to_string(),
+            ));
+        }
+        let mut ctx = ImportContext {
+            actor: Some(auth.user_uuid),
+            job_id: id,
+            options,
+        };
+        values::settle(
+            conn,
+            job_type,
+            &fields,
+            &column_mapping,
+            &mut ctx.options,
+            &answers,
+            &mut mapped,
+        )?;
+        let (summary, rows) = plan(
+            conn,
+            job_type,
+            &mapped,
+            &ctx,
+            &column_mapping,
+            &stored,
+            &grid,
+        )?;
+        let updated = repo::update(
+            conn,
+            id,
+            ImportJobUpdate {
+                answers: Some(answers_json),
+                summary: Some(serde_json::to_value(&summary).ok()),
+                row_results: Some(stored_rows(RowPhase::Checked, rows)),
+                ..Default::default()
+            },
+        )?;
+        info!(
+            job_id = %id,
+            rows = summary.row_count,
+            errors = summary.errors_total,
+            "import values answered"
+        );
+        Ok(ValuesOutcome::Ok(updated))
+    });
+
+    match result {
+        Ok(ValuesOutcome::Ok(job)) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
+        Ok(ValuesOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
+        Ok(ValuesOutcome::Conflict(message)) => errors::conflict(message),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "import values check failed");
+            errors::internal("failed to check the import")
         }
     }
 }

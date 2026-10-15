@@ -20,6 +20,7 @@ pub mod safe_cells;
 pub mod tickets;
 pub mod types;
 pub mod users;
+pub mod values;
 pub mod xlsx;
 
 pub use types::{
