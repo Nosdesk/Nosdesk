@@ -243,6 +243,7 @@ fn ctx_for(actor: Uuid) -> ImportContext {
     ImportContext {
         actor: Some(actor),
         job_id: Uuid::new_v4(),
+        options: Default::default(),
     }
 }
 

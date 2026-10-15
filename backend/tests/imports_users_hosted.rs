@@ -67,6 +67,7 @@ fn staff_seats_and_audit_reviewers_are_refused_on_hosted() {
     let ctx = ImportContext {
         actor: Some(owner),
         job_id: Uuid::new_v4(),
+        options: Default::default(),
     };
     let summary = with_actor_context::<_, diesel::result::Error>(&mut conn, &pin, |c| {
         imports::dry_run(c, ImportType::Users, &parsed, &ctx)

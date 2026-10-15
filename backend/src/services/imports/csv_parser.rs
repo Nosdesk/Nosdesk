@@ -21,8 +21,9 @@ pub const MAX_CELL_CHARS: usize = 32_767;
 pub const MAX_HEADER_CHARS: usize = 255;
 
 /// Parsed CSV ready for per-type validation: the header row and each
-/// data row's cells in column order, trimmed.
-#[derive(Debug, Clone)]
+/// data row's cells in column order, trimmed. Serialized as the job's
+/// normalized grid (`mapping::grid_path`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParsedCsv {
     pub headers: Vec<String>,
     pub rows: Vec<SourceRow>,
@@ -31,7 +32,7 @@ pub struct ParsedCsv {
 }
 
 /// One data row of the file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SourceRow {
     /// 1-based line of the file the row starts on; the header is line 1.
     /// A quoted field spanning lines doesn't shift the rows after it.

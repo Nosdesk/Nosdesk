@@ -912,7 +912,9 @@ async fn imports_config_routes_registered() {
         crate::handlers::imports::config,
         &[
             ("POST", "/admin/import"),
+            ("GET", "/admin/import/fields"),
             ("GET", "/admin/import/template/1"),
+            ("PUT", "/admin/import/1/mapping"),
             ("POST", "/admin/import/1/commit"),
             ("GET", "/admin/import/1"),
         ],

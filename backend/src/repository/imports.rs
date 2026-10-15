@@ -53,3 +53,20 @@ pub fn latest_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<
         .first(conn)
         .optional()
 }
+
+/// The workspace's most recently touched job of `job_type` with a stored
+/// mapping, whatever its status, so a file fixed and uploaded again keeps
+/// the admin's mapping.
+// sync-audit-only: workspace config row, see create
+pub fn latest_with_mapping(
+    conn: &mut DbConnection,
+    job_type: &str,
+) -> QueryResult<Option<ImportJob>> {
+    use crate::schema::import_jobs;
+    import_jobs::table
+        .filter(import_jobs::job_type.eq(job_type))
+        .filter(import_jobs::mapping.is_not_null())
+        .order(import_jobs::updated_at.desc())
+        .first(conn)
+        .optional()
+}

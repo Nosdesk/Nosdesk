@@ -1,11 +1,14 @@
 //! Asset CSV importer.
 //!
-//! Natural key: `asset_tag`. Rows with a tag matching an
-//! existing asset upsert (UPDATE); rows with no tag, or with a
-//! tag that doesn't match, INSERT. The empty-tag case is the
-//! "first day, importing from a spreadsheet" path. A tag more
-//! than one asset holds is a row error. A blank cell never
-//! clears a column on update.
+//! Natural key: `asset_tag` by default, or `serial_number`, as the
+//! admin picks at the Map step (`ImportOptions::match_by`). Rows whose
+//! key matches an existing asset upsert (UPDATE); rows with no key, or a
+//! key that doesn't match, INSERT. The empty-key case is the "first day,
+//! importing from a spreadsheet" path. A tag more than one asset holds is
+//! a row error. With matching off, every row creates and a row whose tag
+//! or serial exists is an error. A blank cell never clears a column on
+//! update; a blank kind keeps the asset's kind, and on a new asset takes
+//! the default kind when one is set.
 //!
 //! Columns are universal-only: kind-specific attributes stay out
 //! of the CSV, so a kind's required attributes aren't enforced on
@@ -33,7 +36,8 @@ use crate::repository::assets as asset_repo;
 use super::csv_parser::ParsedCsv;
 use super::safe_cells::csv_formula_safe;
 use super::types::{
-    CommitError, ImportContext, ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS,
+    CommitError, DecimalMark, FieldGroup, FieldSpec, ImportContext, ImportOptions, ImportSummary,
+    ImportType, ImportedRecords, Importer, MatchBy, ValueType,
 };
 
 /// Universal CSV columns the importer accepts. Export writes
@@ -65,22 +69,73 @@ impl Importer for AssetImporter {
         IMPORT_HEADERS
     }
 
+    fn fields(&self, conn: &mut DbConnection) -> Result<Vec<FieldSpec>, diesel::result::Error> {
+        use FieldGroup::{Core, Links};
+        use ValueType::{Enum, Number, Text};
+        let t = ImportType::Assets;
+        let kinds = kind_repo::list_kinds(conn)?
+            .into_iter()
+            .map(|k| k.slug)
+            .collect();
+        Ok(vec![
+            FieldSpec::fixed(t, "name", "Name", Core, Text, true),
+            FieldSpec::fixed(t, "kind", "Kind", Core, Enum, true).with_enum(kinds),
+            FieldSpec::fixed(t, "asset_tag", "Asset tag", Core, Text, false),
+            FieldSpec::fixed(t, "serial_number", "Serial number", Core, Text, false),
+            FieldSpec::fixed(t, "location", "Location", Core, Text, false),
+            FieldSpec::fixed(t, "notes", "Notes", Core, Text, false),
+            FieldSpec::fixed(t, "quantity", "Quantity", Core, Number, false),
+            FieldSpec::fixed(t, "unit", "Unit", Core, Text, false),
+            FieldSpec::fixed(
+                t,
+                "low_stock_threshold",
+                "Low stock threshold",
+                Core,
+                Number,
+                false,
+            ),
+            FieldSpec::fixed(t, "manufacturer", "Manufacturer", Links, Text, false),
+            FieldSpec::fixed(t, "model", "Model", Links, Text, false),
+        ])
+    }
+
+    fn synonyms(&self) -> &'static [(&'static str, &'static str)] {
+        &[
+            ("assetname", "name"),
+            ("devicename", "name"),
+            ("itemname", "name"),
+            ("type", "kind"),
+            ("assettype", "kind"),
+            ("tag", "asset_tag"),
+            ("tagno", "asset_tag"),
+            ("assetno", "asset_tag"),
+            ("assetnumber", "asset_tag"),
+            ("serial", "serial_number"),
+            ("sn", "serial_number"),
+            ("serialno", "serial_number"),
+            ("make", "manufacturer"),
+            ("brand", "manufacturer"),
+            ("modelno", "model"),
+            ("modelnumber", "model"),
+            ("room", "location"),
+            ("site", "location"),
+            ("comments", "notes"),
+            ("comment", "notes"),
+            ("note", "notes"),
+            ("qty", "quantity"),
+        ]
+    }
+
     fn dry_run(
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-        _ctx: &ImportContext,
+        ctx: &ImportContext,
     ) -> Result<ImportSummary, diesel::result::Error> {
-        let mut summary = ImportSummary {
-            row_count: parsed.rows.len(),
-            would_create: 0,
-            would_update: 0,
-            errors: Vec::new(),
-            errors_truncated: false,
-        };
+        let mut summary = ImportSummary::new(parsed.rows.len());
 
         if let Some(err) = check_headers(&parsed.headers) {
-            push_error(&mut summary, 1, None, err);
+            summary.push_error(1, None, err);
             return Ok(summary);
         }
 
@@ -89,14 +144,14 @@ impl Importer for AssetImporter {
 
         for record in parsed.records() {
             let row_num = record.source_row;
-            match plan_row(&record.values, &lookups, &mut claims) {
+            match plan_row(&record.values, &lookups, &mut claims, &ctx.options) {
                 Ok(planned) => match planned.action {
                     RowAction::Create => summary.would_create += 1,
                     RowAction::Update(_) | RowAction::Unchanged(_) => summary.would_update += 1,
                 },
                 Err(field_errors) => {
                     for (column, message) in field_errors {
-                        push_error(&mut summary, row_num, column, message);
+                        summary.push_error(row_num, column, message);
                     }
                 }
             }
@@ -125,18 +180,23 @@ impl Importer for AssetImporter {
         let mut assets = Vec::new();
         for record in parsed.records() {
             let (row_num, row) = (record.source_row, &record.values);
-            let Ok(planned) = plan_row(row, &lookups, &mut claims) else {
+            let options = &ctx.options;
+            let Ok(planned) = plan_row(row, &lookups, &mut claims, options) else {
                 continue;
             };
+            let mark = options.decimal_mark();
             let written = match planned.action {
-                RowAction::Create => {
-                    asset_repo::create_device(conn, build_new_asset(row, planned.kind, ctx.actor))
-                }
+                RowAction::Create => asset_repo::create_device(
+                    conn,
+                    build_new_asset(row, planned.kind, ctx.actor, mark),
+                ),
                 // Routed through update_device so the asset.updated sync
                 // event fires, matching the create path.
-                RowAction::Update(asset_id) => {
-                    asset_repo::update_device(conn, asset_id, build_asset_update(row, planned.kind))
-                }
+                RowAction::Update(asset_id) => asset_repo::update_device(
+                    conn,
+                    asset_id,
+                    build_asset_update(row, planned.kind, mark),
+                ),
                 // A synced asset's row matched it, so there is nothing to write.
                 RowAction::Unchanged(asset_id) => match lookups.existing.get(&asset_id) {
                     Some(asset) => Ok(asset.clone()),
@@ -152,7 +212,7 @@ impl Importer for AssetImporter {
 #[derive(Debug, Clone, Copy)]
 enum RowAction {
     Create,
-    /// Update the existing asset with this id (matched on `asset_tag`).
+    /// Update the existing asset with this id (matched on the match key).
     Update(i32),
     /// A synced asset whose row matches what's stored: nothing to write.
     Unchanged(i32),
@@ -170,7 +230,7 @@ struct Lookups {
     /// more than one asset can't say which to update.
     tags: HashMap<String, Vec<i32>>,
     serials: HashMap<String, i32>,
-    /// Each tagged asset, the rows an update can hit.
+    /// Each asset with a tag or a serial, the rows an update can hit.
     existing: HashMap<i32, Asset>,
     /// Asset model names by id.
     models: HashMap<i32, String>,
@@ -207,8 +267,8 @@ impl Lookups {
                 tags.entry(tag.clone())
                     .or_insert_with(Vec::new)
                     .push(asset.id);
-                existing.insert(asset.id, asset);
             }
+            existing.insert(asset.id, asset);
         }
 
         let models = model_repo::list(conn)?
@@ -277,18 +337,6 @@ fn check_headers(headers: &[String]) -> Option<String> {
     None
 }
 
-fn push_error(summary: &mut ImportSummary, row: usize, column: Option<String>, message: String) {
-    if summary.errors.len() >= MAX_ERRORS {
-        summary.errors_truncated = true;
-        return;
-    }
-    summary.errors.push(RowError {
-        row,
-        column,
-        message,
-    });
-}
-
 /// Column widths of the `assets` table (varchar limits).
 const MAX_LENGTHS: &[(&str, usize)] = &[
     ("name", 255),
@@ -310,10 +358,12 @@ fn plan_row(
     row: &HashMap<String, String>,
     lookups: &Lookups,
     claims: &mut FileClaims,
+    options: &ImportOptions,
 ) -> Result<PlannedRow, Vec<(Option<String>, String)>> {
     let mut errors: Vec<(Option<String>, String)> = Vec::new();
     let mut error =
         |column: &str, message: String| errors.push((Some(column.to_string()), message));
+    let mark = options.decimal_mark();
 
     if trimmed(row, "name").is_empty() {
         error("name", "name is required".to_string());
@@ -326,43 +376,46 @@ fn plan_row(
         }
     }
 
-    // Matched on slug or label, ignoring case. Kind attributes aren't
-    // CSV columns, so the kind's required attributes aren't checked
-    // here: the asset is created without them and filled in on its page.
-    let kind_cell = trimmed(row, "kind");
-    let kind = if kind_cell.is_empty() {
-        error("kind", "kind is required".to_string());
-        None
-    } else {
-        let found = lookups.kinds.get(&kind_cell.to_lowercase()).cloned();
-        if found.is_none() {
-            error(
-                "kind",
-                format!(
-                    "unknown kind '{kind_cell}'. Use one of: {}, or add it under Admin → Asset Kinds",
-                    lookups.kind_labels.join(", ")
-                ),
-            );
-        }
-        found
-    };
-
-    if let Err(message) = check_decimal(row, "quantity") {
+    if let Err(message) = check_decimal(row, "quantity", mark) {
         error("quantity", message);
     }
-    match check_decimal(row, "low_stock_threshold") {
+    match check_decimal(row, "low_stock_threshold", mark) {
         Err(message) => error("low_stock_threshold", message),
         Ok(Some(v)) if v < 0 => error("low_stock_threshold", "must be 0 or more".to_string()),
         Ok(_) => {}
     }
 
     let tag = trimmed(row, "asset_tag");
-    let matches = (!tag.is_empty()).then(|| lookups.tags.get(&tag)).flatten();
-    let target = match matches.map(Vec::as_slice) {
-        None | Some([]) => None,
-        Some([id]) => Some(*id),
-        Some(ids) => {
-            error("asset_tag", shared_tag_error(lookups, &tag, ids));
+    // Same canonical form the repository stores (trimmed, blank is none).
+    let serial = trimmed(row, "serial_number");
+    let tag_holders = (!tag.is_empty())
+        .then(|| lookups.tags.get(&tag))
+        .flatten()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let serial_holder = (!serial.is_empty())
+        .then(|| lookups.serials.get(&serial).copied())
+        .flatten();
+    let target = match options.match_by {
+        MatchBy::AssetTag => match tag_holders {
+            [] => None,
+            [id] => Some(*id),
+            ids => {
+                error("asset_tag", shared_tag_error(lookups, &tag, ids));
+                None
+            }
+        },
+        MatchBy::SerialNumber => serial_holder,
+        MatchBy::None => {
+            if !tag_holders.is_empty() {
+                error(
+                    "asset_tag",
+                    format!(
+                        "tag '{tag}' already exists as {}; this import creates new assets only",
+                        asset_names(lookups, tag_holders)
+                    ),
+                );
+            }
             None
         }
     };
@@ -373,16 +426,22 @@ fn plan_row(
         );
     }
 
-    // Same canonical form the repository stores (trimmed, blank is none).
-    let serial = trimmed(row, "serial_number");
     if !serial.is_empty() {
         if claims.serials.contains(&serial) {
             error(
                 "serial_number",
                 format!("serial number '{serial}' appears more than once in this file"),
             );
-        } else if let Some(holder) = lookups.serials.get(&serial) {
-            if Some(*holder) != target {
+        } else if let Some(holder) = serial_holder {
+            if options.match_by == MatchBy::None {
+                error(
+                    "serial_number",
+                    format!(
+                        "serial number '{serial}' already exists as {}; this import creates new assets only",
+                        asset_names(lookups, &[holder])
+                    ),
+                );
+            } else if Some(holder) != target {
                 error(
                     "serial_number",
                     format!("serial number '{serial}' is already used by another asset"),
@@ -391,14 +450,43 @@ fn plan_row(
         }
     }
 
+    // Matched on slug or label, ignoring case. Kind attributes aren't
+    // CSV columns, so the kind's required attributes aren't checked
+    // here: the asset is created without them and filled in on its page.
+    // A blank cell keeps an existing asset's kind and gives a new one the
+    // default kind.
+    let existing = target.and_then(|id| lookups.existing.get(&id));
+    let kind_cell = trimmed(row, "kind");
+    let kind = if kind_cell.is_empty() {
+        match (existing, &options.default_kind) {
+            (Some(asset), _) => Some(asset.kind.clone()),
+            (None, Some(default)) => {
+                let found = lookups.kinds.get(&default.to_lowercase()).cloned();
+                if found.is_none() {
+                    error("kind", unknown_kind_error(lookups, default));
+                }
+                found
+            }
+            (None, None) => {
+                error("kind", "kind is required".to_string());
+                None
+            }
+        }
+    } else {
+        let found = lookups.kinds.get(&kind_cell.to_lowercase()).cloned();
+        if found.is_none() {
+            error("kind", unknown_kind_error(lookups, &kind_cell));
+        }
+        found
+    };
+
     // An update follows what PUT and the asset page allow. Required
     // attributes stay unchecked, as for new rows.
     let mut synced = false;
-    if let (Some(new_kind), Some(asset)) = (&kind, target.and_then(|id| lookups.existing.get(&id)))
-    {
+    if let (Some(new_kind), Some(asset)) = (&kind, existing) {
         if let Some(source) = &asset.external_sync_source {
             synced = true;
-            if let Some(column) = synced_column_change(row, asset, new_kind) {
+            if let Some(column) = synced_column_change(row, asset, new_kind, mark) {
                 error(
                     column,
                     format!(
@@ -433,18 +521,30 @@ fn plan_row(
     }
 }
 
-/// A tag more than one existing asset holds, naming them.
-fn shared_tag_error(lookups: &Lookups, tag: &str, ids: &[i32]) -> String {
+fn unknown_kind_error(lookups: &Lookups, kind: &str) -> String {
+    format!(
+        "unknown kind '{kind}'. Use one of: {}, or add it under Admin → Asset Kinds",
+        lookups.kind_labels.join(", ")
+    )
+}
+
+/// The names of existing assets, sorted, for an error message.
+fn asset_names(lookups: &Lookups, ids: &[i32]) -> String {
     let mut names: Vec<&str> = ids
         .iter()
         .filter_map(|id| lookups.existing.get(id))
         .map(|asset| asset.name.as_str())
         .collect();
     names.sort_unstable();
+    names.join(", ")
+}
+
+/// A tag more than one existing asset holds, naming them.
+fn shared_tag_error(lookups: &Lookups, tag: &str, ids: &[i32]) -> String {
     format!(
         "tag '{tag}' is held by {} assets ({}); give each its own tag on the asset page, then import again",
         ids.len(),
-        names.join(", ")
+        asset_names(lookups, ids)
     )
 }
 
@@ -465,6 +565,7 @@ fn synced_column_change(
     row: &HashMap<String, String>,
     asset: &Asset,
     new_kind: &str,
+    mark: DecimalMark,
 ) -> Option<&'static str> {
     fn stored(value: &Option<String>) -> Option<&str> {
         value.as_deref().map(str::trim).filter(|v| !v.is_empty())
@@ -474,7 +575,7 @@ fn synced_column_change(
         opt_string(row, column).is_some_and(|v| Some(v.as_str()) != stored(current))
     };
     let kept_decimal = |column: &str, current: &Option<BigDecimal>| {
-        check_decimal(row, column).is_ok_and(|v| v.is_some_and(|v| Some(v) != *current))
+        check_decimal(row, column, mark).is_ok_and(|v| v.is_some_and(|v| Some(v) != *current))
     };
     let changed: [(&'static str, bool); 10] = [
         ("name", trimmed(row, "name") != asset.name.trim()),
@@ -544,11 +645,14 @@ fn kind_change_error(lookups: &Lookups, existing: &Asset, new_kind: &str) -> Opt
 /// that isn't about the row's values stays a database error.
 fn row_write_error(row: usize, e: diesel::result::Error) -> CommitError {
     use diesel::result::{DatabaseErrorKind, Error};
-    let message = match &e {
+    let (column, message) = match &e {
         Error::DatabaseError(DatabaseErrorKind::UniqueViolation, info)
             if info.constraint_name() == Some("idx_asset_serial_unique") =>
         {
-            "its serial number is already used by another asset".to_string()
+            (
+                Some("serial_number".to_string()),
+                "its serial number is already used by another asset".to_string(),
+            )
         }
         Error::DatabaseError(
             DatabaseErrorKind::UniqueViolation
@@ -556,10 +660,14 @@ fn row_write_error(row: usize, e: diesel::result::Error) -> CommitError {
             | DatabaseErrorKind::NotNullViolation
             | DatabaseErrorKind::Unknown,
             info,
-        ) => info.message().to_string(),
+        ) => (None, info.message().to_string()),
         _ => return CommitError::Db(e),
     };
-    CommitError::Row { row, message }
+    CommitError::Row {
+        row,
+        column,
+        message,
+    }
 }
 
 fn trimmed(row: &HashMap<String, String>, key: &str) -> String {
@@ -567,14 +675,33 @@ fn trimmed(row: &HashMap<String, String>, key: &str) -> String {
 }
 
 /// A decimal cell: `Ok(None)` when blank, the value when it parses and
-/// fits `numeric(12,3)`, otherwise the message for the admin.
-fn check_decimal(row: &HashMap<String, String>, key: &str) -> Result<Option<BigDecimal>, String> {
+/// fits `numeric(12,3)`, otherwise the message for the admin. `mark` is
+/// the decimal mark the admin chose; with `,` a `.` in the cell is an
+/// error, since it may be a thousands separator.
+fn check_decimal(
+    row: &HashMap<String, String>,
+    key: &str,
+    mark: DecimalMark,
+) -> Result<Option<BigDecimal>, String> {
     let raw = trimmed(row, key);
     if raw.is_empty() {
         return Ok(None);
     }
-    let value =
-        BigDecimal::from_str(&raw).map_err(|_| format!("'{raw}' is not a valid decimal"))?;
+    let text = match mark {
+        DecimalMark::Dot => raw.clone(),
+        DecimalMark::Comma if raw.contains('.') => {
+            return Err(format!(
+                "'{raw}' has a '.', but the decimal mark is ','; remove thousands separators"
+            ));
+        }
+        DecimalMark::Comma => raw.replace(',', "."),
+    };
+    let value = BigDecimal::from_str(&text).map_err(|_| match mark {
+        DecimalMark::Dot if raw.contains(',') && !raw.contains('.') => format!(
+            "'{raw}' is not a valid decimal; if ',' is the decimal mark, choose ',' at the Map step"
+        ),
+        _ => format!("'{raw}' is not a valid decimal"),
+    })?;
     let max = BigDecimal::from_str(MAX_DECIMAL).expect("constant parses");
     if value.abs() >= max {
         return Err(format!("'{raw}' is too large (at most 999999999.999)"));
@@ -591,19 +718,15 @@ fn opt_string(row: &HashMap<String, String>, key: &str) -> Option<String> {
     }
 }
 
-fn opt_decimal(row: &HashMap<String, String>, key: &str) -> Option<BigDecimal> {
-    let v = trimmed(row, key);
-    if v.is_empty() {
-        None
-    } else {
-        BigDecimal::from_str(&v).ok()
-    }
+fn opt_decimal(row: &HashMap<String, String>, key: &str, mark: DecimalMark) -> Option<BigDecimal> {
+    check_decimal(row, key, mark).ok().flatten()
 }
 
 fn build_new_asset(
     row: &HashMap<String, String>,
     kind: String,
     created_by: Option<uuid::Uuid>,
+    mark: DecimalMark,
 ) -> NewAsset {
     NewAsset {
         name: trimmed(row, "name"),
@@ -617,15 +740,19 @@ fn build_new_asset(
         asset_tag: opt_string(row, "asset_tag"),
         kind,
         attributes: serde_json::json!({}),
-        quantity: opt_decimal(row, "quantity"),
+        quantity: opt_decimal(row, "quantity", mark),
         unit: opt_string(row, "unit"),
         external_sync_source: None,
-        low_stock_threshold: opt_decimal(row, "low_stock_threshold"),
+        low_stock_threshold: opt_decimal(row, "low_stock_threshold", mark),
         created_by,
     }
 }
 
-fn build_asset_update(row: &HashMap<String, String>, kind: String) -> AssetUpdate {
+fn build_asset_update(
+    row: &HashMap<String, String>,
+    kind: String,
+    mark: DecimalMark,
+) -> AssetUpdate {
     // A blank cell leaves the column as it is (outer `None`); it never clears.
     AssetUpdate {
         name: Some(trimmed(row, "name")),
@@ -641,10 +768,10 @@ fn build_asset_update(row: &HashMap<String, String>, kind: String) -> AssetUpdat
         updated_at: Some(chrono::Utc::now().naive_utc()),
         kind: Some(kind),
         attributes: None,
-        quantity: opt_decimal(row, "quantity").map(Some),
+        quantity: opt_decimal(row, "quantity", mark).map(Some),
         unit: opt_string(row, "unit").map(Some),
         external_sync_source: None,
-        low_stock_threshold: opt_decimal(row, "low_stock_threshold").map(Some),
+        low_stock_threshold: opt_decimal(row, "low_stock_threshold", mark).map(Some),
         // CSV import doesn't link the model catalog (yet); leave the
         // existing model link untouched.
         model_id: None,

@@ -1003,6 +1003,7 @@ pub fn import_ctx() -> backend::services::imports::ImportContext {
     backend::services::imports::ImportContext {
         actor: None,
         job_id: Uuid::new_v4(),
+        options: Default::default(),
     }
 }
 
@@ -1023,5 +1024,6 @@ pub fn workspace_admin_import_ctx(
     backend::services::imports::ImportContext {
         actor: Some(admin),
         job_id: Uuid::new_v4(),
+        options: Default::default(),
     }
 }

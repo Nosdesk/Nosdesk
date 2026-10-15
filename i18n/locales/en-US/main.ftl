@@ -3636,6 +3636,200 @@ csv-import-modal-fields-count = { $count ->
    *[other] { $count } fields
    }
 csv-import-modal-close = Close
+
+# Import wizard (Start, Upload, Map, Review, Done). Field labels
+# (import-field-<type>-<id>) name the targets a column maps to; the
+# backend sends the key with each field.
+import-title = Import data
+import-subtitle = Bring assets, users or tickets in from a spreadsheet.
+import-stepper-label = Import steps
+import-step-start = Start
+import-step-upload = Upload
+import-step-map = Map columns
+import-step-review = Review
+import-step-done = Done
+import-step-progress = Step { $current } of { $total }: { $name }
+import-resuming = Opening the import
+import-resume-failed = This import can't be resumed. Start a new one.
+import-error-generic = The import failed. Check the file and try again.
+import-error-commit = Nothing was imported. Check the rows and try again.
+import-error-not-csv = { $name } isn't a .csv file.
+import-start-type-heading = What are you importing?
+import-start-type-label = What to import
+import-template-heading = Start from a template
+import-template-help = Headers in the template are field ids like asset_tag. Keep them and mapping is automatic. Your own headers work too; you match them at the Map step.
+import-template-download = Download template
+import-action-continue = Continue
+import-action-back = Back
+import-upload-heading = Upload your file
+import-drop-idle = Drop a .csv here, or click to browse
+import-drop-release = Release to upload
+import-drop-hint = .csv, up to 10 MB and 5,000 rows
+import-drop-replace = Click or drop another file to replace
+import-action-upload = Upload
+import-action-uploading = Reading the file
+import-loading-fields = Loading fields
+import-map-caption = Column mapping: { $count } columns from { $file }
+import-map-col-source = Source column
+import-map-col-target = Imports as
+import-map-samples-label = Samples:
+import-map-blank-sample = (blank)
+import-map-placeholder = Choose a field
+import-map-select-label = Imports '{ $header }' as
+import-map-group-core = Core
+import-map-group-links = Links
+import-map-group-lifecycle = Lifecycle
+import-map-group-attribute = Attributes
+import-map-group-ignore = Don't import
+import-map-ignore = Don't import
+import-map-ignore-description = Keep the column out of the import
+import-map-required = Required
+import-map-kind-required = Required on create, or set a default below
+import-map-mapped-from = Mapped from '{ $header }'
+import-map-pill-previous = From last import
+import-map-pill-exact = Exact match
+import-map-pill-label = Matched label
+import-map-pill-synonym = Guessed
+import-map-clash = Also mapped from { $headers }. Pick one.
+import-map-summary-mapped = { $mapped } of { $total } columns mapped
+import-map-summary-ignored = { $count } not imported
+import-map-summary-problems = { $count ->
+    [one] 1 problem
+   *[other] { $count } problems
+   }
+import-map-filter-label = Show columns
+import-map-filter-all = All
+import-map-filter-attention = Needs attention
+import-map-filter-ignored = Not imported
+import-map-next-problem = Next problem
+import-map-problems-heading = { $count ->
+    [one] 1 problem stops the import
+   *[other] { $count } problems stop the import
+   }
+import-map-problem-duplicate = { $count } columns map to { $field }: { $headers }.
+import-map-problem-required = No column maps to { $field }.
+import-map-problem-kind = Nothing gives the kind. Map a Kind column or choose a kind for every row.
+import-map-warnings-heading = Some columns are left out
+import-map-warning-ignored = { $count ->
+    [one] 1 column won't be imported.
+   *[other] { $count } columns won't be imported.
+   }
+import-map-empty-filter = No columns match this filter.
+import-map-change-file = Change file
+import-map-change-file-title = Discard this file?
+import-map-change-file-message = Columns with the same headers are matched again automatically.
+import-map-change-file-confirm = Discard file
+import-map-check = { $count ->
+    [one] Check 1 row
+   *[other] Check { $count } rows
+   }
+import-map-checking = Checking rows
+import-map-blocked = { $count ->
+    [one] Fix 1 problem to continue
+   *[other] Fix { $count } problems to continue
+   }
+import-options-heading = How to import
+import-options-match-label = Match existing assets by
+import-options-match-asset-tag = Asset tag
+import-options-match-serial = Serial number
+import-options-match-none = Don't match
+import-options-match-asset-tag-help = Rows with a tag that exists update that asset.
+import-options-match-serial-help = Rows with a serial that exists update that asset.
+import-options-match-none-help = Every row creates a new asset. A row whose tag or serial already exists is skipped as an error.
+import-options-match-users = Rows match existing people by email address.
+import-options-match-tickets = Every row creates a new ticket.
+import-options-default-kind-label = Kind for every row
+import-options-default-kind-placeholder = Choose a kind
+import-options-default-kind-none = No default
+import-options-default-kind-help = New assets with a blank kind get this kind. Existing assets keep theirs.
+import-options-date-label = Dates in the file
+import-options-date-iso = ISO 2026-03-14
+import-options-date-dmy = Day first 14/03/2026
+import-options-date-mdy = Month first 03/14/2026
+import-options-decimal-label = Decimal mark
+import-options-decimal-dot = Point (12.5)
+import-options-decimal-comma = Comma (12,5)
+import-review-checked = { $count ->
+    [one] 1 row checked.
+   *[other] { $count } rows checked.
+   }
+import-review-created = { $count } created
+import-review-updated = { $count } updated
+import-review-will-import = { $count } will be imported: { $parts }.
+import-review-all-import = All { $count } will be imported: { $parts }.
+import-review-nothing = Nothing will be imported.
+import-review-skipped = { $count } skipped for errors.
+import-review-tile-create = Create
+import-review-tile-update = Update
+import-review-tile-errors = Errors
+import-review-tile-errors-sub = { $count ->
+    [one] 1 error
+   *[other] { $count } errors
+   }
+import-review-top-problems = Top problems
+import-review-problem-rows = { $count ->
+    [one] 1 row
+   *[other] { $count } rows
+   }
+import-review-whole-row = Whole row
+import-review-errors-heading = Rows with errors
+import-review-errors-truncated = Showing the first { $shown } of { $total } errors.
+import-review-col-row = Row
+import-review-col-column = Column
+import-review-col-message = Problem
+import-review-back = Back to mapping
+import-review-skip-reason = { $count ->
+    [one] 1 row will be skipped
+   *[other] { $count } rows will be skipped
+   }
+import-review-nothing-to-import = Nothing to import
+import-review-import = { $count ->
+    [one] Import 1 row
+   *[other] Import { $count } rows
+   }
+import-review-importing = Importing
+import-review-confirm-title = { $count ->
+    [one] Import 1 row?
+   *[other] Import { $count } rows?
+   }
+import-review-confirm-changes = { $type ->
+    [users] { $created } people will be added and { $updated } updated.
+    [tickets] { $created } tickets will be created.
+   *[other] { $created } assets will be created and { $updated } updated.
+   }
+import-review-confirm-skipped = { $count ->
+    [one] 1 row with errors will be skipped.
+   *[other] { $count } rows with errors will be skipped.
+   }
+import-done-heading = Import complete
+import-done-body = { $count ->
+    [one] 1 row imported.
+   *[other] { $count } rows imported.
+   }
+import-done-skipped = { $count } skipped for errors.
+import-done-new = Import another file
+import-field-assets-name = Name
+import-field-assets-kind = Kind
+import-field-assets-asset-tag = Asset tag
+import-field-assets-serial-number = Serial number
+import-field-assets-location = Location
+import-field-assets-notes = Notes
+import-field-assets-quantity = Quantity
+import-field-assets-unit = Unit
+import-field-assets-low-stock-threshold = Low stock threshold
+import-field-assets-manufacturer = Manufacturer
+import-field-assets-model = Model
+import-field-users-email = Email
+import-field-users-name = Name
+import-field-users-role = Role
+import-field-users-pronouns = Pronouns
+import-field-tickets-title = Title
+import-field-tickets-workflow-state = Status
+import-field-tickets-priority = Priority
+import-field-tickets-due-date = Due date
+import-field-tickets-requester-email = Requester email
+import-field-tickets-assignee-email = Assignee email
+import-field-tickets-category = Category
 csv-import-error-no-file = Please select a file to import
 csv-import-error-failed = Import failed
 csv-import-success-completed = Import completed successfully

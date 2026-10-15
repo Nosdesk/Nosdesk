@@ -1,72 +1,153 @@
 <script setup lang="ts">
 /**
- * Three-step CSV bulk import wizard.
+ * Bulk import wizard: Start, Upload, Map, Review, Done.
  *
- *  - Upload    : pick a type, download the template, upload the
- *                file. The backend parses + validates and the
- *                response is a job row with status=dry_run_done
- *                and a populated `summary`.
- *  - Review    : render the summary cards (will-create /
- *                will-update / error count) and per-row errors.
- *                Admin clicks Apply to commit or Discard to
- *                start over.
- *  - Done      : final card with records_committed and a New
- *                Import button to reset.
+ *  - Start  : pick the type, download the template.
+ *  - Upload : the server parses the file and answers with the job in
+ *             `parsed`: the file's columns and a suggested mapping.
+ *  - Map    : the admin checks the mapping and options; "Check" stores
+ *             them and runs the dry run (`dry_run_done`).
+ *  - Review : what the dry run found; Import commits.
+ *  - Done   : the committed counts.
  *
- * Assets is the only type that has a working backend in Phase 1.
- * Users and tickets render as disabled "coming soon" choices so
- * the UI surface is in place when their parsers ship.
+ * The job id rides in `?job=` so a reload or a link resumes at the step
+ * the job's status implies.
  */
-import Button from '@/components/common/Button.vue'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useQuery } from '@pinia/colada'
 
 import BackButton from '@/components/common/BackButton.vue'
+import Button from '@/components/common/Button.vue'
 import Callout from '@/components/common/Callout.vue'
+import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import Icon from '@/components/common/Icon.vue'
-
+import SectionCard from '@/components/common/SectionCard.vue'
+import SegmentedControl from '@/components/common/SegmentedControl.vue'
+import Spinner from '@/components/common/Spinner.vue'
+import ImportMapStep from '@/components/import/ImportMapStep.vue'
+import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
+import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import {
+  importFieldsQueryKey,
   importService,
+  type ColumnMapping,
   type ImportJob,
   type ImportJobType,
+  type ImportOptions,
 } from '@nosdesk/core/services/importService'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
+const route = useRoute()
 const router = useRouter()
 
-type Step = 'upload' | 'review' | 'done'
-const step = ref<Step>('upload')
+type Step = 'start' | 'upload' | 'map' | 'review' | 'done'
+const STEPS: Step[] = ['start', 'upload', 'map', 'review', 'done']
+const STEP_KEYS: Record<Step, string> = {
+  start: 'import-step-start',
+  upload: 'import-step-upload',
+  map: 'import-step-map',
+  review: 'import-step-review',
+  done: 'import-step-done',
+}
 
-const supportedTypes: { value: ImportJobType; available: boolean }[] = [
-  { value: 'assets', available: true },
-  { value: 'users', available: true },
-  { value: 'tickets', available: true },
-]
-
+const step = ref<Step>('start')
 const selectedType = ref<ImportJobType>('assets')
 const selectedFile = ref<File | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const isDragOver = ref(false)
 
-const isWorking = ref(false)
+const job = ref<ImportJob | null>(null)
+const busy = ref<'upload' | 'check' | 'commit' | 'resume' | null>(null)
 const errorMessage = ref('')
 
-const job = ref<ImportJob | null>(null)
-const summary = computed(() => job.value?.summary ?? null)
+const jobType = computed<ImportJobType>(() => job.value?.job_type ?? selectedType.value)
 
-// Every row is created, updated, or skipped for errors. Counted from the
-// totals because the error list stops at 100 and a row can carry several.
-const rowsWithErrors = computed(() => {
-  const s = summary.value
-  return s ? s.row_count - s.would_create - s.would_update : 0
+const fieldsQuery = useQuery({
+  key: () => importFieldsQueryKey(jobType.value),
+  query: () => importService.fields(jobType.value),
+  enabled: () => step.value === 'map' || step.value === 'review',
 })
-const rowsSkipped = computed(() => {
-  const s = summary.value
-  return s ? Math.max(s.row_count - (job.value?.records_committed ?? 0), 0) : 0
+const fields = computed(() => fieldsQuery.data.value ?? [])
+
+const { kinds: assetKinds } = useAssetKindsQuery()
+const kindOptions = computed(() =>
+  assetKinds.value.map((k) => ({ value: k.slug, label: k.label })),
+)
+
+const typeOptions = computed(() => [
+  { value: 'assets' as ImportJobType, label: t('csv-import-type-assets') },
+  { value: 'users' as ImportJobType, label: t('csv-import-type-users') },
+  { value: 'tickets' as ImportJobType, label: t('csv-import-type-tickets') },
+])
+
+const stepIndex = computed(() => STEPS.indexOf(step.value))
+
+// ---- job + route ----
+
+function setJobQuery(id: string | null) {
+  const query = { ...route.query }
+  if (id) query.job = id
+  else delete query.job
+  router.replace({ query })
+}
+
+function stepForStatus(status: ImportJob['status']): Step {
+  switch (status) {
+    case 'parsed':
+      return 'map'
+    case 'dry_run_done':
+    case 'committing':
+      return 'review'
+    case 'done':
+      return 'done'
+    default:
+      return 'upload'
+  }
+}
+
+async function resume(id: string) {
+  busy.value = 'resume'
+  try {
+    const found = await importService.get(id)
+    // A job checked before column mapping existed can't go on.
+    if (stepForStatus(found.status) === 'map' || stepForStatus(found.status) === 'review') {
+      if (!found.source) throw new Error('job predates column mapping')
+    }
+    job.value = found
+    selectedType.value = found.job_type
+    step.value = stepForStatus(found.status)
+    if (found.status === 'failed') {
+      errorMessage.value = found.error_message ?? t('import-error-generic')
+    }
+  } catch {
+    job.value = null
+    step.value = 'start'
+    errorMessage.value = t('import-resume-failed')
+    setJobQuery(null)
+  } finally {
+    busy.value = null
+  }
+}
+
+onMounted(() => {
+  const id = route.query.job
+  if (typeof id === 'string' && id) resume(id)
 })
+
+function apiError(e: unknown, fallbackKey: string): string {
+  const err = e as { response?: { data?: { error?: string } } }
+  return err?.response?.data?.error ?? (e instanceof Error ? e.message : t(fallbackKey))
+}
+
+// ---- start + upload ----
+
+function downloadTemplate() {
+  window.location.href = importService.templateUrl(selectedType.value)
+}
 
 function pickFile(event: Event) {
   const input = event.target as HTMLInputElement
@@ -75,34 +156,23 @@ function pickFile(event: Event) {
 }
 
 function acceptFile(file: File) {
-  // Lightly gate on extension/type so the user finds out
-  // immediately rather than at validate-time. The backend
-  // re-checks anyway.
   const looksLikeCsv =
     file.name.toLowerCase().endsWith('.csv') ||
     file.type === 'text/csv' ||
     file.type === 'application/vnd.ms-excel' ||
     file.type === ''
   if (!looksLikeCsv) {
-    errorMessage.value = t('csv-import-error-not-csv', { name: file.name })
+    errorMessage.value = t('import-error-not-csv', { name: file.name })
     return
   }
   selectedFile.value = file
   errorMessage.value = ''
 }
 
-function triggerFilePicker() {
-  fileInput.value?.click()
-}
-
 function onDragOver(event: DragEvent) {
   event.preventDefault()
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
   isDragOver.value = true
-}
-
-function onDragLeave() {
-  isDragOver.value = false
 }
 
 function onDrop(event: DragEvent) {
@@ -112,70 +182,98 @@ function onDrop(event: DragEvent) {
   if (file) acceptFile(file)
 }
 
-function downloadTemplate() {
-  // Trigger a browser download via an anchor; apiClient would
-  // buffer the response which means we'd have to decode + save
-  // manually. The /api prefix makes this go through the same
-  // cookie auth as the API.
-  const url = importService.templateUrl(selectedType.value)
-  window.location.href = url
-}
-
-async function uploadAndDryRun() {
+async function upload() {
   if (!selectedFile.value) return
-  isWorking.value = true
+  busy.value = 'upload'
   errorMessage.value = ''
   try {
-    const result = await importService.upload(selectedType.value, selectedFile.value)
-    job.value = result
+    const uploaded = await importService.upload(selectedType.value, selectedFile.value)
+    job.value = uploaded
+    setJobQuery(uploaded.id)
+    step.value = 'map'
+  } catch (e) {
+    errorMessage.value = apiError(e, 'import-error-generic')
+  } finally {
+    busy.value = null
+  }
+}
+
+// ---- map + review ----
+
+async function check(mapping: ColumnMapping, options: ImportOptions) {
+  if (!job.value) return
+  busy.value = 'check'
+  errorMessage.value = ''
+  try {
+    job.value = await importService.putMapping(job.value.id, mapping, options)
     step.value = 'review'
   } catch (e) {
-    const err = e as { response?: { data?: { error?: string } } }
-    errorMessage.value =
-      err?.response?.data?.error ?? (e instanceof Error ? e.message : t('csv-import-error-generic'))
+    errorMessage.value = apiError(e, 'import-error-generic')
   } finally {
-    isWorking.value = false
+    busy.value = null
   }
 }
 
-async function applyImport() {
+async function commit() {
   if (!job.value) return
-  isWorking.value = true
+  busy.value = 'commit'
   errorMessage.value = ''
   try {
-    const result = await importService.commit(job.value.id)
-    job.value = result
+    job.value = await importService.commit(job.value.id)
     step.value = 'done'
   } catch (e) {
-    const err = e as { response?: { data?: { error?: string } } }
-    errorMessage.value =
-      err?.response?.data?.error ??
-      (e instanceof Error ? e.message : t('csv-import-error-commit-failed'))
+    errorMessage.value = apiError(e, 'import-error-commit')
   } finally {
-    isWorking.value = false
+    busy.value = null
   }
+}
+
+function changeFile() {
+  job.value = null
+  setJobQuery(null)
+  selectedFile.value = null
+  if (fileInput.value) fileInput.value.value = ''
+  errorMessage.value = ''
+  step.value = 'upload'
 }
 
 function startOver() {
-  step.value = 'upload'
-  selectedFile.value = null
-  if (fileInput.value) fileInput.value.value = ''
-  job.value = null
-  errorMessage.value = ''
+  changeFile()
+  step.value = 'start'
 }
 
+/** Completed steps the job lets the admin go back to. */
+function canGoTo(target: Step): boolean {
+  if (busy.value) return false
+  if (target === 'start') return step.value === 'upload'
+  if (target === 'map') return step.value === 'review'
+  return false
+}
+
+function goTo(target: Step) {
+  if (!canGoTo(target)) return
+  errorMessage.value = ''
+  step.value = target
+}
+
+// ---- done ----
+
+const skippedOnDone = computed(() => {
+  const s = job.value?.summary
+  if (!s) return 0
+  return s.rows_with_errors ?? Math.max(s.row_count - (job.value?.records_committed ?? 0), 0)
+})
+
 function viewImported() {
-  if (!job.value) return
-  switch (job.value.job_type) {
-    case 'assets':
-      router.push('/assets')
-      return
+  switch (job.value?.job_type) {
     case 'users':
       router.push('/admin/users')
       return
     case 'tickets':
       router.push('/tickets')
       return
+    default:
+      router.push('/assets')
   }
 }
 
@@ -193,260 +291,196 @@ const viewImportedLabelKey = computed(() => {
 
 <template>
   <div class="flex-1">
-    <div class="pt-4 px-6 flex justify-between items-center">
+    <div class="pt-4 px-4 sm:px-6 flex justify-between items-center">
       <BackButton fallbackRoute="/admin/data-import" :label="$t('csv-import-back')" />
     </div>
 
-    <div class="flex flex-col gap-6 px-6 py-4 mx-auto w-full max-w-4xl">
-      <div>
-        <h1 class="text-2xl font-bold text-primary">{{ $t('csv-import-title') }}</h1>
-        <p class="text-secondary mt-2">{{ $t('csv-import-subtitle') }}</p>
+    <div class="flex flex-col gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-4xl">
+      <div class="flex flex-col gap-2">
+        <h1 class="text-2xl font-bold text-primary">{{ $t('import-title') }}</h1>
+        <p class="text-secondary">{{ $t('import-subtitle') }}</p>
       </div>
 
-      <!-- Step indicator -->
-      <ol class="flex items-center gap-3 text-sm">
-        <li
-          v-for="(s, i) in (['upload', 'review', 'done'] as Step[])"
-          :key="s"
-          class="flex items-center gap-2"
-        >
-          <span
-            class="w-7 h-7 rounded-full flex items-center justify-center font-medium border"
-            :class="step === s
-              ? 'bg-accent text-on-accent border-accent'
-              : i < (['upload', 'review', 'done'] as Step[]).indexOf(step)
-                ? 'bg-status-success text-on-accent border-status-success'
-                : 'bg-surface-alt text-secondary border-default'"
-          >
-            {{ i + 1 }}
-          </span>
-          <span :class="step === s ? 'text-primary font-medium' : 'text-secondary'">
-            {{ $t(`csv-import-step-${s}`) }}
-          </span>
-          <span v-if="i < 2" class="w-6 h-px bg-default mx-1" />
-        </li>
-      </ol>
+      <!-- Stepper. Completed steps are buttons when the job allows going back. -->
+      <nav :aria-label="$t('import-stepper-label')" class="flex flex-col gap-2">
+        <ol class="flex items-center gap-2 sm:gap-3 text-sm">
+          <li v-for="(s, i) in STEPS" :key="s" class="flex items-center gap-2">
+            <component
+              :is="canGoTo(s) ? 'button' : 'span'"
+              :type="canGoTo(s) ? 'button' : undefined"
+              class="flex items-center gap-2"
+              :aria-current="step === s ? 'step' : undefined"
+              :data-step="s"
+              @click="goTo(s)"
+            >
+              <span
+                class="w-7 h-7 rounded-full flex items-center justify-center font-medium border"
+                :class="step === s
+                  ? 'bg-accent text-on-accent border-accent'
+                  : i < stepIndex
+                    ? 'bg-status-success text-on-accent border-status-success'
+                    : 'bg-surface-alt text-secondary border-default'"
+              >
+                <Icon v-if="i < stepIndex" name="check" size="sm" />
+                <template v-else>{{ i + 1 }}</template>
+              </span>
+              <span
+                class="hidden sm:inline"
+                :class="[
+                  step === s ? 'text-primary font-medium' : 'text-secondary',
+                  canGoTo(s) ? 'hover:underline' : '',
+                ]"
+              >
+                {{ $t(STEP_KEYS[s]) }}
+              </span>
+            </component>
+            <span v-if="i < STEPS.length - 1" class="w-3 sm:w-6 h-px bg-default" />
+          </li>
+        </ol>
+        <p class="sm:hidden text-xs text-secondary">
+          {{ $t('import-step-progress', { current: stepIndex + 1, total: STEPS.length, name: $t(STEP_KEYS[step]) }) }}
+        </p>
+      </nav>
 
-      <p v-if="errorMessage" class="px-4 py-3 bg-status-error/10 border border-status-error/40 text-status-error rounded-lg text-sm">
-        {{ errorMessage }}
+      <ErrorBanner v-if="errorMessage" :message="errorMessage" />
+
+      <p v-if="busy === 'resume'" class="flex items-center gap-2 text-sm text-secondary">
+        <Spinner size="sm" />
+        {{ $t('import-resuming') }}
       </p>
 
-      <!-- Step 1: Upload ----------------------------------------------- -->
-      <section v-if="step === 'upload'" class="flex flex-col gap-6">
-        <div class="bg-surface border border-default rounded-lg p-6 flex flex-col gap-4">
-          <h2 class="text-lg font-semibold text-primary">{{ $t('csv-import-step-upload-heading') }}</h2>
-
-          <div class="flex flex-col gap-2">
-            <label class="text-xs font-medium text-secondary uppercase tracking-wide">
-              {{ $t('csv-import-type-label') }}
-            </label>
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="opt in supportedTypes"
-                :key="opt.value"
-                type="button"
-                :disabled="!opt.available"
-                class="px-4 py-2 rounded-lg text-sm border transition-colors"
-                :class="selectedType === opt.value && opt.available
-                  ? 'bg-accent text-on-accent border-accent'
-                  : opt.available
-                    ? 'bg-surface-alt text-primary border-default hover:border-strong'
-                    : 'bg-surface-alt text-tertiary border-default opacity-50 cursor-not-allowed'"
-                @click="opt.available && (selectedType = opt.value)"
-              >
-                {{ $t(`csv-import-type-${opt.value}`) }}
-                <span v-if="!opt.available" class="ml-1 text-xs">
-                  ({{ $t('csv-import-type-coming-soon') }})
-                </span>
-              </button>
+      <!-- Start ---------------------------------------------------------- -->
+      <section v-else-if="step === 'start'" class="flex flex-col gap-6">
+        <SectionCard content-padding="p-4">
+          <template #title>{{ $t('import-start-type-heading') }}</template>
+          <SegmentedControl
+            v-model="selectedType"
+            :options="typeOptions"
+            :aria-label="$t('import-start-type-label')"
+          />
+        </SectionCard>
+        <SectionCard content-padding="p-4">
+          <template #title>{{ $t('import-template-heading') }}</template>
+          <div class="flex flex-col gap-3">
+            <p class="text-sm text-secondary">{{ $t('import-template-help') }}</p>
+            <div>
+              <Button variant="secondary" icon="download" @click="downloadTemplate">
+                {{ $t('import-template-download') }}
+              </Button>
             </div>
           </div>
+        </SectionCard>
+        <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
+          <Button class="ml-auto" data-test="import-continue" @click="step = 'upload'">
+            {{ $t('import-action-continue') }}
+          </Button>
+        </div>
+      </section>
 
-          <div class="flex flex-col gap-2">
-            <label class="text-xs font-medium text-secondary uppercase tracking-wide">
-              {{ $t('csv-import-template-label') }}
-            </label>
-            <p class="text-sm text-secondary">{{ $t('csv-import-template-help') }}</p>
-            <button
-              type="button"
-              class="self-start inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg border border-default hover:border-strong text-primary"
-              @click="downloadTemplate"
-            >
-              <Icon name="download" />
-              {{ $t('csv-import-template-button') }}
-            </button>
-          </div>
-
-          <div class="flex flex-col gap-2">
-            <label class="text-xs font-medium text-secondary uppercase tracking-wide">
-              {{ $t('csv-import-file-label') }}
-            </label>
-            <!--
-              Drop zone. Clicking anywhere on the card opens the
-              file picker; dragging a file over highlights the
-              border and dropping accepts the first file in the
-              data transfer. The hidden <input> below is what
-              the click handler triggers — keeping the input in
-              the DOM (rather than synthesising one) means the
-              native file dialog opens with the right `accept`
-              filter.
-            -->
+      <!-- Upload --------------------------------------------------------- -->
+      <section v-else-if="step === 'upload'" class="flex flex-col gap-6">
+        <SectionCard content-padding="p-4">
+          <template #title>{{ $t('import-upload-heading') }}</template>
+          <div
+            class="flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl px-6 py-12 min-h-[200px] text-center cursor-pointer transition-colors"
+            :class="isDragOver
+              ? 'border-accent bg-accent/10'
+              : 'border-default bg-surface-alt/60 hover:border-strong hover:bg-surface-alt'"
+            role="button"
+            tabindex="0"
+            @click="fileInput?.click()"
+            @keydown.enter.prevent="fileInput?.click()"
+            @keydown.space.prevent="fileInput?.click()"
+            @dragover="onDragOver"
+            @dragleave="isDragOver = false"
+            @drop="onDrop"
+          >
             <div
-              class="flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl px-6 py-12 min-h-[200px] text-center cursor-pointer transition-colors"
-              :class="isDragOver
-                ? 'border-accent bg-accent/10'
-                : 'border-default bg-surface-alt/60 hover:border-strong hover:bg-surface-alt'"
-              role="button"
-              tabindex="0"
-              @click="triggerFilePicker"
-              @keydown.enter.prevent="triggerFilePicker"
-              @keydown.space.prevent="triggerFilePicker"
-              @dragover="onDragOver"
-              @dragleave="onDragLeave"
-              @drop="onDrop"
+              class="w-12 h-12 rounded-full flex items-center justify-center"
+              :class="isDragOver ? 'bg-accent/20 text-accent' : 'bg-surface text-tertiary'"
             >
-              <div
-                class="w-12 h-12 rounded-full flex items-center justify-center"
-                :class="isDragOver
-                  ? 'bg-accent/20 text-accent'
-                  : 'bg-surface text-tertiary'"
-              >
-                <Icon name="document" size="md" />
-              </div>
-              <div class="flex flex-col items-center gap-1">
-                <p v-if="!selectedFile" class="text-sm text-primary font-medium">
-                  {{ isDragOver ? $t('csv-import-drop-here') : $t('csv-import-drop-zone-idle') }}
-                </p>
-                <p v-else class="text-sm text-primary">
-                  <span class="font-medium">{{ selectedFile.name }}</span>
-                  <span class="text-tertiary"> · {{ Math.round(selectedFile.size / 1024) }} KB</span>
-                </p>
-                <p v-if="!selectedFile" class="text-xs text-tertiary">
-                  {{ $t('csv-import-drop-zone-hint') }}
-                </p>
-                <p v-else class="text-xs text-tertiary">
-                  {{ $t('csv-import-drop-zone-replace') }}
-                </p>
-              </div>
+              <Icon name="document" size="md" />
             </div>
-            <input
-              ref="fileInput"
-              type="file"
-              accept=".csv,text/csv"
-              class="hidden"
-              @change="pickFile"
-            />
+            <div class="flex flex-col items-center gap-1">
+              <p v-if="!selectedFile" class="text-sm text-primary font-medium">
+                {{ isDragOver ? $t('import-drop-release') : $t('import-drop-idle') }}
+              </p>
+              <p v-else class="text-sm text-primary">
+                <span class="font-medium">{{ selectedFile.name }}</span>
+                <span class="text-tertiary"> · {{ Math.max(1, Math.round(selectedFile.size / 1024)) }} KB</span>
+              </p>
+              <p class="text-xs text-tertiary">
+                {{ selectedFile ? $t('import-drop-replace') : $t('import-drop-hint') }}
+              </p>
+            </div>
           </div>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <Button
-              :disabled="!selectedFile"
-              @click="uploadAndDryRun"
-              :loading="isWorking"
-            >
-              {{ $t('csv-import-action-validate') }}
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      <!-- Step 2: Review ----------------------------------------------- -->
-      <section v-if="step === 'review' && summary" class="flex flex-col gap-6">
-        <Callout v-if="summary.row_count === 0" severity="warning">
-          <template #header>
-            <span class="text-primary">{{ $t('csv-import-empty-file') }}</span>
-          </template>
-        </Callout>
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div class="bg-surface border border-default rounded-lg p-4">
-            <p class="text-xs text-tertiary uppercase tracking-wide">{{ $t('csv-import-summary-rows') }}</p>
-            <p class="text-2xl font-semibold text-primary mt-1">{{ summary.row_count }}</p>
-          </div>
-          <div class="bg-surface border border-default rounded-lg p-4">
-            <p class="text-xs text-tertiary uppercase tracking-wide">{{ $t('csv-import-summary-create') }}</p>
-            <p class="text-2xl font-semibold text-status-success mt-1">{{ summary.would_create }}</p>
-          </div>
-          <div class="bg-surface border border-default rounded-lg p-4">
-            <p class="text-xs text-tertiary uppercase tracking-wide">{{ $t('csv-import-summary-update') }}</p>
-            <p class="text-2xl font-semibold text-accent mt-1">{{ summary.would_update }}</p>
-          </div>
-        </div>
-
-        <Callout v-if="summary.errors.length > 0" severity="error">
-          <template #header>
-            <span class="font-medium text-primary">
-              {{ $t('csv-import-errors-heading', { count: rowsWithErrors }) }}
-            </span>
-            <span v-if="summary.errors_truncated" class="text-tertiary ml-1">
-              ({{ $t('csv-import-errors-truncated') }})
-            </span>
-          </template>
-          <table class="w-full text-sm">
-            <thead class="bg-surface-alt">
-              <tr class="text-left text-tertiary text-xs uppercase tracking-wide">
-                <th class="px-4 py-2 w-20">{{ $t('csv-import-errors-row') }}</th>
-                <th class="px-4 py-2 w-40">{{ $t('csv-import-errors-column') }}</th>
-                <th class="px-4 py-2">{{ $t('csv-import-errors-message') }}</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-default">
-              <tr v-for="(e, i) in summary.errors" :key="i" class="text-primary">
-                <td class="px-4 py-2 font-mono text-tertiary">{{ e.row }}</td>
-                <td class="px-4 py-2 font-mono text-secondary">{{ e.column ?? '-' }}</td>
-                <td class="px-4 py-2">{{ e.message }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </Callout>
-
-        <div class="flex justify-end gap-2">
-          <button
-            type="button"
-            class="px-4 py-2 rounded-lg border border-default text-secondary hover:text-primary"
-            @click="startOver"
-          >
-            {{ $t('csv-import-action-discard') }}
-          </button>
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".csv,text/csv"
+            class="hidden"
+            data-test="import-file"
+            @change="pickFile"
+          />
+        </SectionCard>
+        <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
+          <Button variant="ghost" @click="step = 'start'">{{ $t('import-action-back') }}</Button>
           <Button
-            :disabled="summary.would_create + summary.would_update === 0"
-            @click="applyImport"
-            :loading="isWorking"
+            class="ml-auto"
+            :disabled="!selectedFile"
+            :loading="busy === 'upload'"
+            data-test="import-upload"
+            @click="upload"
           >
-            {{ $t('csv-import-action-apply', {
-              count: summary.would_create + summary.would_update,
-            }) }}
+            {{ busy === 'upload' ? $t('import-action-uploading') : $t('import-action-upload') }}
           </Button>
         </div>
       </section>
 
-      <!-- Step 3: Done ------------------------------------------------- -->
-      <section v-if="step === 'done' && job" class="flex flex-col gap-6">
-        <div class="bg-status-success/10 border border-status-success/40 rounded-lg p-6 flex items-start gap-4">
-          <Icon name="check" class="text-status-success mt-1" size="md" />
-          <div class="flex-1">
-            <h2 class="text-lg font-semibold text-status-success">{{ $t('csv-import-done-heading') }}</h2>
-            <p class="text-sm text-secondary mt-1">
-              {{ $t('csv-import-done-body', { count: job.records_committed ?? 0 }) }}
-              <template v-if="rowsSkipped > 0">
-                {{ $t('csv-import-done-skipped', { count: rowsSkipped }) }}
-              </template>
-            </p>
-          </div>
-        </div>
-        <div class="flex justify-end gap-2">
-          <button
-            type="button"
-            class="px-4 py-2 rounded-lg border border-default text-secondary hover:text-primary"
-            @click="startOver"
-          >
-            {{ $t('csv-import-action-new') }}
-          </button>
-          <Button
-            @click="viewImported"
-          >
-            {{ $t(viewImportedLabelKey) }}
-          </Button>
+      <!-- Map ------------------------------------------------------------ -->
+      <template v-else-if="step === 'map' && job?.source">
+        <ImportMapStep
+          v-if="fields.length > 0"
+          :key="job.id"
+          :job="job"
+          :fields="fields"
+          :kinds="kindOptions"
+          :checking="busy === 'check'"
+          @check="check"
+          @change-file="changeFile"
+        />
+        <p v-else class="flex items-center gap-2 text-sm text-secondary">
+          <Spinner size="sm" />
+          {{ $t('import-loading-fields') }}
+        </p>
+      </template>
+
+      <!-- Review --------------------------------------------------------- -->
+      <ImportReviewStep
+        v-else-if="step === 'review' && job?.summary"
+        :job="job"
+        :fields="fields"
+        :committing="busy === 'commit'"
+        @back="goTo('map')"
+        @commit="commit"
+      />
+
+      <!-- Done ----------------------------------------------------------- -->
+      <section v-else-if="step === 'done' && job" class="flex flex-col gap-6">
+        <Callout severity="success">
+          <template #header>
+            <span class="font-medium text-primary">{{ $t('import-done-heading') }}</span>
+          </template>
+          <p class="px-4 py-3 text-sm text-secondary">
+            {{ $t('import-done-body', { count: job.records_committed ?? 0 }) }}
+            <template v-if="skippedOnDone > 0">
+              {{ $t('import-done-skipped', { count: skippedOnDone }) }}
+            </template>
+          </p>
+        </Callout>
+        <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
+          <Button variant="ghost" @click="startOver">{{ $t('import-done-new') }}</Button>
+          <Button class="ml-auto" @click="viewImported">{{ $t(viewImportedLabelKey) }}</Button>
         </div>
       </section>
     </div>

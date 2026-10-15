@@ -31,7 +31,8 @@ use crate::repository::tickets as ticket_repo;
 
 use super::csv_parser::ParsedCsv;
 use super::types::{
-    CommitError, ImportContext, ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS,
+    CommitError, FieldGroup, FieldSpec, ImportContext, ImportSummary, ImportType, ImportedRecords,
+    Importer, ValueType,
 };
 
 const HEADERS: &[&str] = &[
@@ -51,22 +52,61 @@ impl Importer for TicketImporter {
         HEADERS
     }
 
+    fn fields(&self, _conn: &mut DbConnection) -> Result<Vec<FieldSpec>, diesel::result::Error> {
+        use FieldGroup::{Core, Links};
+        let t = ImportType::Tickets;
+        Ok(vec![
+            FieldSpec::fixed(t, "title", "Title", Core, ValueType::Text, true),
+            FieldSpec::fixed(t, "workflow_state", "Status", Core, ValueType::Text, true),
+            FieldSpec::fixed(t, "priority", "Priority", Core, ValueType::Enum, false)
+                .with_enum(["low", "medium", "high"].map(String::from).to_vec()),
+            FieldSpec::fixed(t, "due_date", "Due date", Core, ValueType::Date, false)
+                .with_format("YYYY-MM-DD"),
+            FieldSpec::fixed(
+                t,
+                "requester_email",
+                "Requester email",
+                Links,
+                ValueType::User,
+                false,
+            ),
+            FieldSpec::fixed(
+                t,
+                "assignee_email",
+                "Assignee email",
+                Links,
+                ValueType::User,
+                false,
+            ),
+            FieldSpec::fixed(t, "category", "Category", Links, ValueType::Text, false),
+        ])
+    }
+
+    fn synonyms(&self) -> &'static [(&'static str, &'static str)] {
+        &[
+            ("subject", "title"),
+            ("summary", "title"),
+            ("state", "workflow_state"),
+            ("workflowstate", "workflow_state"),
+            ("requester", "requester_email"),
+            ("requestedby", "requester_email"),
+            ("reporter", "requester_email"),
+            ("assignee", "assignee_email"),
+            ("assignedto", "assignee_email"),
+            ("due", "due_date"),
+        ]
+    }
+
     fn dry_run(
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
         _ctx: &ImportContext,
     ) -> Result<ImportSummary, diesel::result::Error> {
-        let mut summary = ImportSummary {
-            row_count: parsed.rows.len(),
-            would_create: 0,
-            would_update: 0,
-            errors: Vec::new(),
-            errors_truncated: false,
-        };
+        let mut summary = ImportSummary::new(parsed.rows.len());
 
         if let Some(err) = check_headers(&parsed.headers) {
-            push_error(&mut summary, 1, None, err);
+            summary.push_error(1, None, err);
             return Ok(summary);
         }
 
@@ -78,7 +118,7 @@ impl Importer for TicketImporter {
                 Ok(_) => summary.would_create += 1,
                 Err(errs) => {
                     for (col, msg) in errs {
-                        push_error(&mut summary, row_num, col, msg);
+                        summary.push_error(row_num, col, msg);
                     }
                 }
             }
@@ -204,18 +244,6 @@ fn check_headers(headers: &[String]) -> Option<String> {
         return Some(format!("missing required columns: {}", names.join(", ")));
     }
     None
-}
-
-fn push_error(summary: &mut ImportSummary, row: usize, column: Option<String>, message: String) {
-    if summary.errors.len() >= MAX_ERRORS {
-        summary.errors_truncated = true;
-        return;
-    }
-    summary.errors.push(RowError {
-        row,
-        column,
-        message,
-    });
 }
 
 fn validate_row(

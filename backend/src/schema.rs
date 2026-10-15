@@ -917,6 +917,10 @@ diesel::table! {
         records_committed -> Nullable<Int4>,
         error_message -> Nullable<Text>,
         workspace_id -> Int4,
+        source -> Nullable<Jsonb>,
+        mapping -> Nullable<Jsonb>,
+        options -> Nullable<Jsonb>,
+        row_results -> Nullable<Jsonb>,
     }
 }
 
