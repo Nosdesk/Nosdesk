@@ -24,7 +24,7 @@
 //! attributes the new kind doesn't define. Any other row is an error that
 //! points to the asset page.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
@@ -33,15 +33,16 @@ use diesel::prelude::*;
 use crate::db::DbConnection;
 use crate::models::{Asset, AssetLifecycleEvent, AssetUpdate, NewAsset};
 use crate::repository::asset_kinds as kind_repo;
+use crate::repository::asset_lifecycle as asset_lifecycle_repo;
 use crate::repository::asset_models as model_repo;
 use crate::repository::assets as asset_repo;
 
 use super::csv_parser::ParsedCsv;
 use super::safe_cells::csv_formula_safe;
 use super::types::{
-    duplicate_in_file, CommitError, Committed, DecimalMark, FieldGroup, FieldSpec, ImportContext,
-    ImportOptions, ImportType, ImportedRecords, Importer, MatchBy, Notice, RecordId, RowOutcome,
-    RowPlan, RowResult, ValueType,
+    duplicate_in_file, CommitError, Committed, DecimalMark, FieldChange, FieldGroup, FieldSpec,
+    ImportContext, ImportOptions, ImportType, ImportedRecords, Importer, MatchBy, Notice, RecordId,
+    RowOutcome, RowPlan, RowResult, ValueType,
 };
 
 /// Universal CSV columns the importer accepts. Export writes
@@ -149,7 +150,8 @@ impl Importer for AssetImporter {
         let mut keyless = 0;
 
         for record in parsed.records() {
-            let row = &record.values;
+            let values = with_constants(record.values, &lookups, &ctx.options);
+            let row = &values;
             let result = match plan_row(row, &lookups, &file_keys, &ctx.options) {
                 Ok(planned) => match planned.action {
                     RowAction::Create => {
@@ -198,8 +200,10 @@ impl Importer for AssetImporter {
         let mut assets = Vec::new();
         let mut rows = Vec::with_capacity(parsed.rows.len());
         for record in parsed.records() {
-            let (row_num, row) = (record.source_row, &record.values);
+            let row_num = record.source_row;
             let options = &ctx.options;
+            let values = with_constants(record.values, &lookups, options);
+            let row = &values;
             let planned = match plan_row(row, &lookups, &file_keys, options) {
                 Ok(planned) => planned,
                 Err(field_errors) => {
@@ -242,11 +246,21 @@ impl Importer for AssetImporter {
                 }
             };
             let asset = written.map_err(|e| row_write_error(row_num, e))?;
-            rows.push(identify(
-                RowResult::planned(row_num, outcome).with_record(RecordId::Int(asset.id)),
-                row,
-                options,
-            ));
+            let before = match planned.action {
+                RowAction::Update(id) => lookups.existing.get(&id),
+                _ => None,
+            };
+            let mut result =
+                RowResult::planned(row_num, outcome).with_record(RecordId::Int(asset.id));
+            result.fields_written = fields_written(before, &asset);
+            if outcome == RowOutcome::Create {
+                let event =
+                    asset_lifecycle_repo::record_imported(conn, &asset, ctx.actor, ctx.job_id)?;
+                result.transition_id = Some(event.id);
+            }
+            // Read back from the row's last write to the asset.
+            result.observed_updated_at = Some(observed_timestamp(asset.updated_at));
+            rows.push(identify(result, row, options));
             assets.push(asset);
         }
         Ok(Committed {
@@ -254,6 +268,87 @@ impl Importer for AssetImporter {
             rows,
         })
     }
+}
+
+/// The row with the job's constants as the record takes them: a row that
+/// matches an existing asset drops the ones only new assets take.
+fn with_constants(
+    mut row: HashMap<String, String>,
+    lookups: &Lookups,
+    options: &ImportOptions,
+) -> HashMap<String, String> {
+    if !options.constants.is_empty() && matches_existing(&row, lookups, options) {
+        options.drop_new_only_constants(&mut row);
+    }
+    row
+}
+
+/// Whether the row's key names an existing asset (one or several).
+fn matches_existing(
+    row: &HashMap<String, String>,
+    lookups: &Lookups,
+    options: &ImportOptions,
+) -> bool {
+    match options.match_by {
+        MatchBy::AssetTag => {
+            let tag = trimmed(row, "asset_tag");
+            !tag.is_empty() && lookups.tags.contains_key(&tag)
+        }
+        MatchBy::SerialNumber => {
+            let serial = trimmed(row, "serial_number");
+            !serial.is_empty() && lookups.serials.contains_key(&serial)
+        }
+        MatchBy::None => false,
+    }
+}
+
+/// An asset's importable fields as text, blank as `None`, in the order
+/// the template lists them.
+fn field_values(asset: &Asset) -> [(&'static str, Option<String>); 11] {
+    let text = |v: &Option<String>| v.clone().filter(|v| !v.is_empty());
+    let decimal = |v: &Option<BigDecimal>| v.as_ref().map(ToString::to_string);
+    [
+        ("name", Some(asset.name.clone())),
+        ("kind", Some(asset.kind.clone())),
+        ("asset_tag", text(&asset.asset_tag)),
+        ("serial_number", text(&asset.serial_number)),
+        ("manufacturer", text(&asset.manufacturer)),
+        ("model", text(&asset.model)),
+        ("location", text(&asset.location)),
+        ("notes", text(&asset.notes)),
+        ("quantity", decimal(&asset.quantity)),
+        ("unit", text(&asset.unit)),
+        ("low_stock_threshold", decimal(&asset.low_stock_threshold)),
+    ]
+}
+
+/// What a write changed on an asset, field by field: every field it holds
+/// for a new asset (`before` is `None`), only the changed ones for an
+/// existing one.
+fn fields_written(before: Option<&Asset>, after: &Asset) -> BTreeMap<String, FieldChange> {
+    let old = before.map(field_values);
+    field_values(after)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, (field, value))| {
+            let was = old.as_ref().and_then(|o| o[i].1.clone());
+            (value != was).then(|| {
+                (
+                    field.to_string(),
+                    FieldChange {
+                        before: was,
+                        after: value,
+                    },
+                )
+            })
+        })
+        .collect()
+}
+
+/// `assets.updated_at` as row results keep it: microseconds, as Postgres
+/// stores it, so it compares equal to the column.
+fn observed_timestamp(at: chrono::NaiveDateTime) -> String {
+    at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string()
 }
 
 /// The row's match key and name on its result.

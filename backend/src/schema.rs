@@ -921,6 +921,24 @@ diesel::table! {
         mapping -> Nullable<Jsonb>,
         options -> Nullable<Jsonb>,
         row_results -> Nullable<Jsonb>,
+        answers -> Nullable<Jsonb>,
+        record_ids -> Nullable<Jsonb>,
+    }
+}
+
+diesel::table! {
+    import_value_answers (id) {
+        id -> Uuid,
+        workspace_id -> Int4,
+        #[max_length = 16]
+        job_type -> Varchar,
+        field -> Text,
+        context -> Text,
+        normalized_value -> Text,
+        answer -> Jsonb,
+        answered_by -> Nullable<Uuid>,
+        job_id -> Nullable<Uuid>,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -2496,6 +2514,8 @@ diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(groups -> workspaces (workspace_id));
 diesel::joinable!(import_jobs -> users (created_by));
 diesel::joinable!(import_jobs -> workspaces (workspace_id));
+diesel::joinable!(import_value_answers -> users (answered_by));
+diesel::joinable!(import_value_answers -> workspaces (workspace_id));
 diesel::joinable!(inbound_addresses -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gap_signals -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gaps -> workspaces (workspace_id));
@@ -2646,6 +2666,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     groups,
     idempotency_keys,
     import_jobs,
+    import_value_answers,
     inbound_addresses,
     inbound_dead_letters,
     instance_settings,

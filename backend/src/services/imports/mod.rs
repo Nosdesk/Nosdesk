@@ -23,10 +23,11 @@ pub mod users;
 pub mod xlsx;
 
 pub use types::{
-    CellError, CommitError, Committed, DateOrder, DecimalMark, ErrorGroup, FieldGroup, FieldSpec,
-    ImportContext, ImportOptions, ImportSummary, ImportType, ImportedRecords, ImportedUser,
-    Importer, MatchBy, Notice, RecordId, RowError, RowOutcome, RowPhase, RowPlan, RowResult,
-    StoredRowResults, ValueType,
+    ApplyTo, CatalogKind, CatalogRef, CellError, CommitError, Committed, Constant, DateOrder,
+    DecimalMark, ErrorGroup, FieldChange, FieldGroup, FieldSpec, ImportContext, ImportOptions,
+    ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer, MatchBy, Notice, RecordId,
+    RecordIds, RowError, RowOutcome, RowPhase, RowPlan, RowResult, StoredRowResults, ValueAnswer,
+    ValueAnswers, ValueType,
 };
 
 use diesel::result::Error as DieselError;
@@ -86,7 +87,19 @@ pub fn apply(
     parsed: &csv_parser::ParsedCsv,
     ctx: &ImportContext,
 ) -> Result<Committed, CommitError> {
-    importer_for(t).commit(conn, parsed, ctx)
+    let mut committed = importer_for(t).commit(conn, parsed, ctx)?;
+    stamp_written(&mut committed.rows);
+    Ok(committed)
+}
+
+/// Mark every row the commit wrote with one commit time.
+fn stamp_written(rows: &mut [RowResult]) {
+    let now = chrono::Utc::now();
+    for row in rows {
+        if matches!(row.outcome, RowOutcome::Create | RowOutcome::Update) {
+            row.written_at = Some(now);
+        }
+    }
 }
 
 /// The dry run over a mapped grid, with the rows the mapping held back
@@ -113,6 +126,7 @@ pub fn apply_mapped(
     ctx: &ImportContext,
 ) -> Result<Committed, CommitError> {
     let mut committed = importer_for(t).commit(conn, &mapped.grid, ctx)?;
+    stamp_written(&mut committed.rows);
     merge_blocked(&mut committed.rows, &mapped.blocked);
     Ok(committed)
 }

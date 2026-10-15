@@ -98,13 +98,38 @@ export type MatchBy = 'asset_tag' | 'serial_number' | 'none'
 export type DateOrder = 'iso' | 'dmy' | 'mdy'
 export type DecimalMark = '.' | ','
 
+/** Which rows a constant writes to: rows that create a record, or those
+ *  and rows that update one. */
+export type ApplyTo = 'new' | 'all'
+
+/** A value for one field on every row, typed like a cell. */
+export interface ImportConstant {
+  field: string
+  value: string
+  apply_to?: ApplyTo
+}
+
 export interface ImportOptions {
   match_by?: MatchBy
   create_missing?: boolean
   default_kind?: string | null
   date_order?: DateOrder
   decimal?: DecimalMark | null
+  constants?: ImportConstant[]
 }
+
+/** What happens to the rows holding one source value of a field. */
+export type ValueAnswer =
+  | { action: 'match'; target: string | number }
+  | { action: 'create' }
+  | { action: 'keep_text' }
+  | { action: 'leave_blank' }
+  | { action: 'skip' }
+  | { action: 'replace'; value: string }
+
+/** Field id, then context (empty when the field has none), then the source
+ *  value, to the admin's answer. */
+export type ValueAnswers = Record<string, Record<string, Record<string, ValueAnswer>>>
 
 export type FieldGroup = 'core' | 'links' | 'lifecycle' | 'attribute'
 export type FieldValueType =
@@ -147,6 +172,7 @@ export interface ImportJob {
   suggested_mapping: Suggestion[]
   mapping: ColumnMapping | null
   options: ImportOptions | null
+  answers?: ValueAnswers | null
 }
 
 export type RowOutcome = 'create' | 'update' | 'unchanged' | 'skipped'
@@ -165,6 +191,14 @@ export interface ImportRowResult {
   /** The record the row matches (before the commit) or wrote (after). */
   record_id?: number | string
   errors?: { column: string | null; source_column?: string | null; message: string }[]
+  /** After the commit: each field the row changed, before and after. */
+  fields_written?: Record<string, { before: string | null; after: string | null }>
+  groups_added?: number[]
+  catalog_created?: { kind: 'manufacturer' | 'model' | 'group'; id: number; observed_updated_at?: string }[]
+  /** The lifecycle event the commit wrote (an Imported event). */
+  transition_id?: number
+  written_at?: string
+  observed_updated_at?: string
 }
 
 export interface ImportRowsPage {
@@ -216,7 +250,9 @@ export const importService = {
   },
 
   /** Apply the checked job. Returns the final job row with
-   *  `records_committed` populated. */
+   *  `records_committed` populated. A 409 with code
+   *  `import_plan_changed` carries the job with the fresh plan under
+   *  `job`; `import_commit_running` means the commit is already running. */
   async commit(jobId: string): Promise<ImportJob> {
     const { data } = await apiClient.post<ImportJob>(`/admin/import/${jobId}/commit`)
     return data

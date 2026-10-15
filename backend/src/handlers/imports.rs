@@ -429,7 +429,10 @@ pub async fn put_source(
     };
 
     let result = tc.run(|conn| {
-        // Checked again under the transaction: a commit may have started
+        if !repo::try_lock_job(conn, id)? {
+            return Ok(SourceOutcome::Conflict(COMMIT_RUNNING.to_string()));
+        }
+        // Checked again under the transaction: a commit may have finished
         // since the read above.
         let job = match repo::get(conn, id) {
             Ok(j) => j,
@@ -632,7 +635,7 @@ pub async fn put_mapping(
         Ok(grid) => grid,
         Err(resp) => return resp,
     };
-    let mapped = mapping::map_grid(&grid, &column_mapping, &fields);
+    let mapped = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
     let options_json = serde_json::to_value(&options).ok();
     let ctx = ImportContext {
         actor: Some(auth.user_uuid),
@@ -641,7 +644,10 @@ pub async fn put_mapping(
     };
 
     let result = tc.run(|conn| {
-        // Checked again under the transaction: a commit may have started
+        if !repo::try_lock_job(conn, id)? {
+            return Ok(MappingOutcome::Conflict(COMMIT_RUNNING.to_string()));
+        }
+        // Checked again under the transaction: a commit may have finished
         // since the read above.
         let job = match repo::get(conn, id) {
             Ok(j) => j,
@@ -651,9 +657,15 @@ pub async fn put_mapping(
         if let Some(message) = mapping_precondition(&job) {
             return Ok(MappingOutcome::Conflict(message));
         }
-        let (mut summary, mut rows) = imports::check_mapped(conn, job_type, &mapped, &ctx)?;
-        mapping::annotate(&mut summary, &column_mapping, &stored.source.headers);
-        mapping::complete_rows(&mut rows, &column_mapping, &stored.source.headers, &grid);
+        let (summary, rows) = plan(
+            conn,
+            job_type,
+            &mapped,
+            &ctx,
+            &column_mapping,
+            &stored,
+            &grid,
+        )?;
         let updated = repo::update(
             conn,
             id,
@@ -684,6 +696,37 @@ pub async fn put_mapping(
             errors::internal("failed to check the import")
         }
     }
+}
+
+/// Why a change to a job is refused while its commit runs.
+const COMMIT_RUNNING: &str = "this import is being committed; wait for it to finish";
+
+/// The dry run of a mapped grid as the job stores it: the summary and
+/// every row's result, errors named by the file's headers and skipped rows
+/// with their cells.
+fn plan(
+    conn: &mut crate::db::DbConnection,
+    job_type: ImportType,
+    mapped: &mapping::MappedGrid,
+    ctx: &ImportContext,
+    column_mapping: &ColumnMapping,
+    stored: &StoredSource,
+    grid: &csv_parser::ParsedCsv,
+) -> Result<(imports::ImportSummary, Vec<RowResult>), diesel::result::Error> {
+    let (mut summary, mut rows) = imports::check_mapped(conn, job_type, mapped, ctx)?;
+    mapping::annotate(&mut summary, column_mapping, &stored.source.headers);
+    mapping::complete_rows(&mut rows, column_mapping, &stored.source.headers, grid);
+    Ok((summary, rows))
+}
+
+/// Whether a fresh plan does what the reviewed one said, row for row: the
+/// same outcome on the same record. Wording of errors may differ.
+fn same_plan(reviewed: &[RowResult], fresh: &[RowResult]) -> bool {
+    reviewed.len() == fresh.len()
+        && reviewed
+            .iter()
+            .zip(fresh)
+            .all(|(a, b)| a.row == b.row && a.outcome == b.outcome && a.record_id == b.record_id)
 }
 
 /// Why a job's mapping can't change now, if it can't.
@@ -758,11 +801,29 @@ enum CommitOutcome {
     AlreadyDone(ImportJob),
     NotFound,
     BadRequest(String),
+    /// This job's commit is already running.
+    Running,
+    /// The job is being changed (its file or mapping).
+    Busy(String),
+    /// Another import of the same type is committing into the workspace.
+    TypeBusy,
+    /// The plan differs from the one the admin reviewed; the job now holds
+    /// the fresh one.
+    PlanChanged(ImportJob),
 }
 
 /// Apply a previously dry-run'd job with its stored mapping and options.
 /// Idempotent on status: a job already in `done` returns the existing row
 /// unchanged.
+///
+/// The commit takes the job's commit mark, the job's lock (which a change
+/// to its file or mapping also takes) and the lock on its type in the
+/// workspace, all advisory and transaction-scoped, refusing with 409 rather
+/// than waiting when any is held.
+/// Under them it plans every row again against the workspace as it is now;
+/// when any row would come to something other than what the admin reviewed,
+/// nothing is written, the job keeps the fresh plan, and the answer is 409
+/// with the job.
 pub async fn commit(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -803,20 +864,34 @@ pub async fn commit(
             "This import was checked before column mapping and can't be committed. Upload the file again.",
         );
     };
-    let ctx = ImportContext {
-        actor: Some(auth.user_uuid),
-        job_id: id,
-        options,
+    let Some(stored) = stored_source(&job) else {
+        return errors::bad_request("this import has no file to commit; upload the file again");
     };
     let grid = match read_job_grid(id).await {
         Ok(grid) => grid,
         Err(resp) => return resp,
     };
-    let parsed = mapping::map_grid(&grid, &column_mapping, &fields);
+    let parsed = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
+    let ctx = ImportContext {
+        actor: Some(auth.user_uuid),
+        job_id: id,
+        options,
+    };
 
     let result = tc.run_result(|conn| -> Result<CommitOutcome, CommitError> {
-        // Checked again under the transaction: a parallel commit or a new
-        // mapping may have landed since the read above.
+        if !repo::try_mark_commit(conn, id)? {
+            return Ok(CommitOutcome::Running);
+        }
+        if !repo::try_lock_job(conn, id)? {
+            return Ok(CommitOutcome::Busy(
+                "the mapping is being changed; check the rows again".to_string(),
+            ));
+        }
+        if !repo::try_lock_type(conn, job.workspace_id, &job.job_type)? {
+            return Ok(CommitOutcome::TypeBusy);
+        }
+        // Read again under the locks: a parallel commit or a new mapping
+        // may have landed since the read above.
         let current = match repo::get(conn, id) {
             Ok(j) => j,
             Err(diesel::result::Error::NotFound) => return Ok(CommitOutcome::NotFound),
@@ -825,7 +900,10 @@ pub async fn commit(
         if let Some(outcome) = commit_precondition(&current) {
             return Ok(outcome);
         }
-        if current.mapping != job.mapping || current.options != job.options {
+        if current.mapping != job.mapping
+            || current.options != job.options
+            || current.source != job.source
+        {
             return Ok(CommitOutcome::BadRequest(
                 "the mapping changed while importing; check the rows again".to_string(),
             ));
@@ -833,25 +911,38 @@ pub async fn commit(
         let job_type =
             ImportType::from_str(&current.job_type).expect("checked by commit_precondition");
 
-        // Mark committing first so a parallel commit attempt fails
-        // the precondition above instead of double-applying.
-        repo::update(
+        // Plan again against the workspace as it is now and hold it up
+        // against what the admin reviewed.
+        let reviewed: Option<StoredRowResults> = repo::row_results(conn, id)?
+            .and_then(|v| serde_json::from_value(v).ok())
+            .filter(|r: &StoredRowResults| r.phase == RowPhase::Checked);
+        let (summary, fresh) = plan(
             conn,
-            current.id,
-            ImportJobUpdate {
-                status: Some("committing".to_string()),
-                ..Default::default()
-            },
+            job_type,
+            &parsed,
+            &ctx,
+            &column_mapping,
+            &stored,
+            &grid,
         )?;
+        if !reviewed.is_some_and(|r| same_plan(&r.rows, &fresh)) {
+            let updated = repo::update(
+                conn,
+                id,
+                ImportJobUpdate {
+                    summary: Some(serde_json::to_value(&summary).ok()),
+                    row_results: Some(stored_rows(RowPhase::Checked, fresh)),
+                    ..Default::default()
+                },
+            )?;
+            info!(job_id = %id, "import plan changed since the check; nothing written");
+            return Ok(CommitOutcome::PlanChanged(updated));
+        }
 
-        // The repo + commit imports run inside this transaction.
-        // Postgres `SET LOCAL` propagates into the nested savepoint
-        // so the workspace GUC is still active for the commit path.
         let committed = imports::apply_mapped(conn, job_type, &parsed, &ctx)?;
         let mut rows = committed.rows;
-        if let Some(stored) = stored_source(&current) {
-            mapping::complete_rows(&mut rows, &column_mapping, &stored.source.headers, &grid);
-        }
+        mapping::complete_rows(&mut rows, &column_mapping, &stored.source.headers, &grid);
+        let record_ids = imports::RecordIds::from_rows(&rows);
 
         let updated = repo::update(
             conn,
@@ -861,6 +952,7 @@ pub async fn commit(
                 records_committed: Some(Some(committed.records.len() as i32)),
                 completed_at: Some(Some(chrono::Utc::now())),
                 row_results: Some(stored_rows(RowPhase::Committed, rows)),
+                record_ids: Some(serde_json::to_value(&record_ids).ok()),
                 ..Default::default()
             },
         )?;
@@ -964,6 +1056,21 @@ fn commit_response(
         CommitOutcome::AlreadyDone(job) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
         CommitOutcome::NotFound => errors::not_found_msg("import job not found"),
         CommitOutcome::BadRequest(msg) => errors::bad_request(msg),
+        CommitOutcome::Busy(msg) => errors::conflict(msg),
+        CommitOutcome::Running => errors::conflict_with_code(
+            "This import is already being committed.",
+            "import_commit_running",
+        ),
+        CommitOutcome::TypeBusy => errors::conflict_with_code(
+            "Another import of this type is being committed. Try again when it finishes.",
+            "import_type_busy",
+        ),
+        CommitOutcome::PlanChanged(job) => errors::with_fields(
+            actix_web::http::StatusCode::CONFLICT,
+            "import_plan_changed",
+            "Something changed since you checked. Nothing was imported; review the new plan.",
+            serde_json::json!({ "job": ImportJobResponse::from(job) }),
+        ),
     }
 }
 
@@ -1007,7 +1114,16 @@ pub async fn get_job(
         return errors::forbidden("Import requires workspace admin");
     }
     let id = path.into_inner();
-    match tc.run(|conn| repo::get(conn, id)) {
+    let read = tc.run(|conn| {
+        let mut job = repo::get(conn, id)?;
+        // A running commit hasn't written the job yet; say so, so a client
+        // whose commit request timed out knows to wait.
+        if job.status == "dry_run_done" && repo::commit_running(conn, id)? {
+            job.status = "committing".to_string();
+        }
+        Ok(job)
+    });
+    match read {
         Ok(j) => HttpResponse::Ok().json(ImportJobResponse::from(j)),
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("import job {id} not found"))

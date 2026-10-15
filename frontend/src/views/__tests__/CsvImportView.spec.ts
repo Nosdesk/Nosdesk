@@ -270,6 +270,86 @@ describe('CsvImportView step machine', () => {
   })
 })
 
+describe('CsvImportView commit guards', () => {
+  async function importFromReview() {
+    api.get.mockResolvedValueOnce(checkedJob())
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('review')
+    await wrapper!.find('[data-test="import-commit"]').trigger('click')
+    await wrapper!.find('[data-test="confirm-ok"]').trigger('click')
+  }
+
+  it('swaps in the fresh plan when it changed since the check', async () => {
+    const fresh = checkedJob({
+      updated_at: '2026-10-15T01:00:00Z',
+      summary: { ...checkedJob().summary!, would_create: 7, would_update: 3 },
+    })
+    api.commit.mockRejectedValue({
+      response: { status: 409, data: { code: 'import_plan_changed', error: 'server words', job: fresh } },
+    })
+    await importFromReview()
+    await flushPromises()
+    expect(currentStep()).toBe('review')
+    expect(wrapper!.find('[data-test="import-commit-notice"]').text()).toBe(
+      'import-review-plan-changed',
+    )
+    expect(wrapper!.text()).not.toContain('server words')
+    expect(wrapper!.text()).toContain('import-review-tile-create7')
+    // The rows are read again for the fresh plan.
+    expect(api.rows.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  describe('when the request ends before the commit does', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('checks the job until it is imported', async () => {
+      api.commit.mockRejectedValue(new Error('timeout of 0ms exceeded'))
+      await importFromReview()
+      await flushPromises()
+      expect(wrapper!.find('[data-test="import-commit-notice"]').text()).toBe(
+        'import-commit-still-running',
+      )
+      api.get.mockResolvedValueOnce(checkedJob({ status: 'committing' }))
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(currentStep()).toBe('review')
+      api.get.mockResolvedValueOnce(checkedJob({ status: 'done', records_committed: 10 }))
+      await vi.advanceTimersByTimeAsync(2000)
+      await flushPromises()
+      expect(currentStep()).toBe('done')
+      expect(wrapper!.find('[data-test="import-commit-notice"]').exists()).toBe(false)
+    })
+
+    it('waits on a 504 and reports a commit that never finished', async () => {
+      api.commit.mockRejectedValue({ response: { status: 504, data: {} } })
+      await importFromReview()
+      await flushPromises()
+      api.get.mockResolvedValueOnce(checkedJob())
+      await vi.advanceTimersByTimeAsync(2000)
+      await flushPromises()
+      expect(currentStep()).toBe('review')
+      expect(wrapper!.text()).toContain('import-commit-not-finished')
+    })
+
+    it('resumes waiting on a job that is committing', async () => {
+      api.get.mockResolvedValueOnce(checkedJob({ status: 'committing' }))
+      await mountAt('/admin/data-import/csv?job=job-1')
+      expect(currentStep()).toBe('review')
+      expect(wrapper!.find('[data-test="import-commit-notice"]').text()).toBe(
+        'import-commit-still-running',
+      )
+      api.get.mockResolvedValueOnce(checkedJob({ status: 'done', records_committed: 10 }))
+      await vi.advanceTimersByTimeAsync(2000)
+      await flushPromises()
+      expect(currentStep()).toBe('done')
+    })
+  })
+})
+
 describe('CsvImportView resume', () => {
   it.each([
     ['parsed', parsedJob(), 'map'],
