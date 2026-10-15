@@ -7,8 +7,9 @@
  *             `parsed`: the file's columns and a suggested mapping.
  *  - Map    : the admin checks the mapping and options; "Check" stores
  *             them and runs the dry run (`dry_run_done`).
- *  - Review : what the dry run found; Import commits.
- *  - Done   : the committed counts.
+ *  - Review : what the dry run found, row by row, and the error report;
+ *             Import commits.
+ *  - Done   : the committed counts and the report of skipped rows.
  *
  * The job id rides in `?job=` so a reload or a link resumes at the step
  * the job's status implies.
@@ -62,6 +63,7 @@ const isDragOver = ref(false)
 
 const job = ref<ImportJob | null>(null)
 const busy = ref<'upload' | 'check' | 'commit' | 'resume' | null>(null)
+const downloadingReport = ref(false)
 const errorMessage = ref('')
 
 const jobType = computed<ImportJobType>(() => job.value?.job_type ?? selectedType.value)
@@ -228,6 +230,27 @@ async function commit() {
   }
 }
 
+/** Save the error report: the skipped rows in the file's own layout. */
+async function downloadReport() {
+  if (!job.value || downloadingReport.value) return
+  downloadingReport.value = true
+  errorMessage.value = ''
+  try {
+    const { blob, filename } = await importService.errorReport(job.value.id)
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(link.href)
+  } catch (e) {
+    errorMessage.value = apiError(e, 'import-error-report-failed')
+  } finally {
+    downloadingReport.value = false
+  }
+}
+
 function changeFile() {
   job.value = null
   setJobQuery(null)
@@ -261,7 +284,10 @@ function goTo(target: Step) {
 const skippedOnDone = computed(() => {
   const s = job.value?.summary
   if (!s) return 0
-  return s.rows_with_errors ?? Math.max(s.row_count - (job.value?.records_committed ?? 0), 0)
+  return (
+    s.rows_with_errors ??
+    Math.max(s.row_count - (job.value?.records_committed ?? 0) - (s.unchanged ?? 0), 0)
+  )
 })
 
 function viewImported() {
@@ -461,8 +487,10 @@ const viewImportedLabelKey = computed(() => {
         :job="job"
         :fields="fields"
         :committing="busy === 'commit'"
+        :downloading="downloadingReport"
         @back="goTo('map')"
         @commit="commit"
+        @download-report="downloadReport"
       />
 
       <!-- Done ----------------------------------------------------------- -->
@@ -480,7 +508,18 @@ const viewImportedLabelKey = computed(() => {
         </Callout>
         <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
           <Button variant="ghost" @click="startOver">{{ $t('import-done-new') }}</Button>
-          <Button class="ml-auto" @click="viewImported">{{ $t(viewImportedLabelKey) }}</Button>
+          <Button
+            v-if="skippedOnDone > 0"
+            class="ml-auto"
+            variant="secondary"
+            icon="download"
+            :loading="downloadingReport"
+            data-test="import-done-report"
+            @click="downloadReport"
+          >
+            {{ $t('import-review-download-report') }}
+          </Button>
+          <Button :class="skippedOnDone > 0 ? '' : 'ml-auto'" @click="viewImported">{{ $t(viewImportedLabelKey) }}</Button>
         </div>
       </section>
     </div>

@@ -6,7 +6,7 @@
 
 use diesel::prelude::*;
 
-use backend::services::imports::{self, csv_parser, ImportType};
+use backend::services::imports::{self, csv_parser, ImportType, RowOutcome};
 
 use crate::common::{count_table, fixture_path, import_ctx, TestDb};
 
@@ -74,9 +74,9 @@ fn errors_csv_classifies_each_failure() {
         imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
 
     assert_eq!(summary.row_count, 7);
-    // VALID-001 and the first DUP-001 are creatable; the second
-    // DUP-001 fails on the in-file duplicate check.
-    assert_eq!(summary.would_create, 2);
+    // Only VALID-001 is creatable: both DUP-001 rows hold the same tag,
+    // so both are skipped.
+    assert_eq!(summary.would_create, 1);
     assert_eq!(summary.would_update, 0);
 
     // Errors we expect (column, partial message substring):
@@ -85,7 +85,7 @@ fn errors_csv_classifies_each_failure() {
         ("kind", "required"),
         ("kind", "unknown kind"),
         ("low_stock_threshold", "valid decimal"),
-        ("asset_tag", "appears more than once"),
+        ("asset_tag", "appears twice in this file (rows 7 and 8)"),
     ];
     for (col, snippet) in expected {
         let hit = summary
@@ -197,44 +197,59 @@ fn dry_run_catches_what_the_database_refuses_and_commit_agrees() {
             (2, Some("name")),
             (3, Some("low_stock_threshold")),
             (4, Some("quantity")),
+            (5, Some("serial_number")),
             (6, Some("serial_number")),
             (7, Some("serial_number")),
         ],
         "{:?}",
         summary.errors
     );
-    assert_eq!(summary.would_create, 1);
+    assert_eq!(summary.would_create, 0);
 
     let records =
         imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit");
     assert_eq!(records.len(), summary.would_create + summary.would_update);
-    assert_eq!(kind_of(&mut conn, "SER-001").as_deref(), Some("generic"));
+    assert_eq!(kind_of(&mut conn, "SER-001"), None);
 }
 
-/// An invalid row doesn't claim its tag, so a later valid row with the
-/// same tag imports, in the dry-run and the commit alike.
+/// A tag two rows of the file hold skips both rows, valid or not, each
+/// naming the other, so the admin picks which one is right. The commit
+/// writes neither.
 #[test]
-fn an_invalid_row_does_not_block_a_later_row_with_its_tag() {
+fn a_tag_twice_in_the_file_skips_both_rows() {
     let db = TestDb::new();
     let mut conn = db.conn();
     let parsed = parse_text(
         ",generic,REPEAT-001,,,,,,,,\n\
-         Repeat Valid,generic,REPEAT-001,,,,,,,,\n",
+         Repeat Valid,generic,REPEAT-001,,,,,,,,\n\
+         Other,generic,OTHER-001,,,,,,,,\n",
     );
 
-    let summary =
-        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
+    let (summary, rows) =
+        imports::check(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert_eq!(summary.would_create, 1, "{:?}", summary.errors);
-    assert!(
-        summary.errors.iter().all(|e| e.row == 2),
-        "{:?}",
-        summary.errors
-    );
+    assert_eq!(summary.rows_with_errors, 2);
+    let duplicate = "tag 'REPEAT-001' appears twice in this file (rows 2 and 3)";
+    for row in &rows[..2] {
+        assert_eq!(row.outcome, RowOutcome::Skipped);
+        assert!(
+            row.errors
+                .iter()
+                .any(|e| e.column.as_deref() == Some("asset_tag") && e.message == duplicate),
+            "{row:?}"
+        );
+    }
+    assert_eq!(rows[2].outcome, RowOutcome::Create);
 
-    let records =
-        imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit");
-    assert_eq!(records.len(), 1);
-    assert_eq!(kind_of(&mut conn, "REPEAT-001").as_deref(), Some("generic"));
+    let committed =
+        imports::apply(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit");
+    assert_eq!(committed.records.len(), 1);
+    let outcomes: Vec<RowOutcome> = committed.rows.iter().map(|r| r.outcome).collect();
+    assert_eq!(
+        outcomes,
+        vec![RowOutcome::Skipped, RowOutcome::Skipped, RowOutcome::Create]
+    );
+    assert_eq!(kind_of(&mut conn, "REPEAT-001"), None);
 }
 
 /// A kind matches its label or slug in any case and is stored as the slug.
@@ -498,12 +513,19 @@ fn a_synced_asset_takes_no_column_from_the_file() {
             (6, Some("unit"), synced("PC-35", "unit").as_str()),
         ]
     );
-    assert_eq!(summary.would_update, 1);
-    assert_eq!(summary.would_create, 0);
+    // The matching row writes nothing: unchanged, not updated.
+    assert_eq!(
+        (
+            summary.would_update,
+            summary.unchanged,
+            summary.would_create
+        ),
+        (0, 1, 0)
+    );
 
     let records =
         imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit");
-    assert_eq!(records.len(), 1);
+    assert_eq!(records.len(), 0);
     let unchanged = chrono::NaiveDate::from_ymd_opt(2026, 1, 1)
         .and_then(|d| d.and_hms_opt(0, 0, 0))
         .expect("date");
@@ -531,7 +553,7 @@ fn a_synced_asset_takes_no_column_from_the_file() {
     let summary =
         imports::dry_run(&mut conn, ImportType::Assets, &reimport, &import_ctx()).expect("dry-run");
     assert!(summary.errors.is_empty(), "{:?}", summary.errors);
-    assert_eq!(summary.would_update, 5);
+    assert_eq!((summary.would_update, summary.unchanged), (0, 5));
 }
 
 /// A row the database refuses at commit, for a reason the dry-run can't
@@ -835,7 +857,7 @@ pub(crate) async fn call_import_route(
 }
 
 /// A multipart upload of `body` as `filename` to `POST /admin/import`.
-fn upload_request(filename: &str, body: &[u8]) -> actix_web::test::TestRequest {
+pub(crate) fn upload_request(filename: &str, body: &[u8]) -> actix_web::test::TestRequest {
     upload_request_for("assets", filename, body)
 }
 
@@ -863,9 +885,15 @@ pub(crate) fn json(body: &[u8]) -> serde_json::Value {
 
 /// The fixture workspace, with the generic kind the asset tests import.
 pub(crate) fn import_workspace(pool: &crate::common::TestPool) -> crate::common::WorkspaceSeed {
+    import_workspaces(pool).a
+}
+
+/// Both fixture workspaces; `a` has the generic kind the asset tests import.
+pub(crate) fn import_workspaces(pool: &crate::common::TestPool) -> crate::common::TwoWorkspaces {
     crate::common::ensure_test_keyring();
     crate::common::with_upload_dir();
-    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let seeded = crate::common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let ws = &seeded.a;
     diesel::sql_query(
         "INSERT INTO asset_kinds (slug, label, attribute_schema, sort_order, is_builtin, category, workspace_id)
          VALUES ('generic', 'Generic asset', '{\"type\":\"object\",\"properties\":{}}', 5, true, 'generic', $1)
@@ -874,7 +902,7 @@ pub(crate) fn import_workspace(pool: &crate::common::TestPool) -> crate::common:
     .bind::<diesel::sql_types::Integer, _>(ws.workspace_id)
     .execute(&mut pool.get().expect("conn"))
     .expect("seed kind");
-    ws
+    seeded
 }
 
 /// Over HTTP: a refused row rolls the whole commit back, answers 422
@@ -1090,6 +1118,8 @@ async fn import_routes_refuse_a_non_admin() {
         TestRequest::get().uri(&format!("/api/admin/import/{job}")),
         mapping_request(&job.to_string(), template_mapping()),
         TestRequest::post().uri(&format!("/api/admin/import/{job}/commit")),
+        TestRequest::get().uri(&format!("/api/admin/import/{job}/rows")),
+        TestRequest::get().uri(&format!("/api/admin/import/{job}/error-report")),
     ];
     for req in requests {
         let (status, _) = call_import_route(&pool, &ws, ws.member_uuid, req).await;
@@ -1192,7 +1222,7 @@ pub(crate) fn template_mapping() -> serde_json::Value {
 }
 
 /// Upload `file` and map it as a template: the job, checked.
-async fn upload_and_check(
+pub(crate) async fn upload_and_check(
     pool: &crate::common::TestPool,
     ws: &crate::common::WorkspaceSeed,
     file: &str,

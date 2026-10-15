@@ -3847,15 +3847,59 @@ import-review-problem-rows = { $count ->
 # MT: pending native review (fr-FR)
 import-review-whole-row = Ligne entière
 # MT: pending native review (fr-FR)
-import-review-errors-heading = Lignes en erreur
-# MT: pending native review (fr-FR)
-import-review-errors-truncated = Affichage des { $shown } premières erreurs sur { $total }.
-# MT: pending native review (fr-FR)
 import-review-col-row = Ligne
 # MT: pending native review (fr-FR)
-import-review-col-column = Colonne
+import-review-unchanged = { $count ->
+    [one] 1 ligne correspond déjà et ne changera pas.
+   *[other] { $count } lignes correspondent déjà et ne changeront pas.
+   }
 # MT: pending native review (fr-FR)
-import-review-col-message = Problème
+import-review-tile-unchanged = Inchangées
+# MT: pending native review (fr-FR)
+import-review-notice-no-key = { $count ->
+    [one] 1 ligne n'a ni étiquette d'actif ni numéro de série. Importer ce fichier à nouveau la créerait une seconde fois.
+   *[other] { $count } lignes n'ont ni étiquette d'actif ni numéro de série. Importer ce fichier à nouveau les créerait une seconde fois.
+   }
+# MT: pending native review (fr-FR)
+import-review-rows-heading = Lignes
+# MT: pending native review (fr-FR)
+import-review-download-report = Télécharger le rapport d'erreurs (.csv)
+# MT: pending native review (fr-FR)
+import-review-filter-label = Afficher les lignes
+# MT: pending native review (fr-FR)
+import-review-filter-all = Toutes ({ $count })
+# MT: pending native review (fr-FR)
+import-review-filter-skipped = Ignorées ({ $count })
+# MT: pending native review (fr-FR)
+import-review-filter-create = Nouvelles ({ $count })
+# MT: pending native review (fr-FR)
+import-review-filter-update = Mises à jour ({ $count })
+# MT: pending native review (fr-FR)
+import-review-filter-unchanged = Inchangées ({ $count })
+# MT: pending native review (fr-FR)
+import-review-col-name = Nom
+# MT: pending native review (fr-FR)
+import-review-col-result = Résultat
+# MT: pending native review (fr-FR)
+import-review-outcome-create = Nouvelle
+# MT: pending native review (fr-FR)
+import-review-outcome-update = Mise à jour
+# MT: pending native review (fr-FR)
+import-review-outcome-unchanged = Inchangée
+# MT: pending native review (fr-FR)
+import-review-outcome-skipped = Ignorée
+# MT: pending native review (fr-FR)
+import-review-rows-range = Lignes { $from } à { $to } sur { $total }
+# MT: pending native review (fr-FR)
+import-review-rows-previous = Précédent
+# MT: pending native review (fr-FR)
+import-review-rows-next = Suivant
+# MT: pending native review (fr-FR)
+import-review-rows-loading = Chargement des lignes
+# MT: pending native review (fr-FR)
+import-review-rows-none = Aucune ligne à afficher.
+# MT: pending native review (fr-FR)
+import-error-report-failed = Le rapport d'erreurs n'a pas pu être téléchargé. Veuillez réessayer.
 # MT: pending native review (fr-FR)
 import-review-back = Retour aux colonnes
 # MT: pending native review (fr-FR)

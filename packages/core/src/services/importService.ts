@@ -25,10 +25,21 @@ export interface ErrorGroup {
   count: number
 }
 
+/** Something about the plan that isn't an error. `message` is the
+ *  English fallback for a code the client doesn't know. */
+export interface ImportNotice {
+  code: string
+  count: number
+  message: string
+}
+
 export interface ImportSummary {
   row_count: number
   would_create: number
   would_update: number
+  /** Rows that match a record and would write nothing to it. */
+  unchanged?: number
+  notices?: ImportNotice[]
   errors: RowError[]
   errors_truncated: boolean
   errors_total?: number
@@ -119,6 +130,33 @@ export interface ImportJob {
   options: ImportOptions | null
 }
 
+export type RowOutcome = 'create' | 'update' | 'unchanged' | 'skipped'
+export type RowFilter = 'all' | RowOutcome
+
+/** One row's result: before the commit what it would do, after it what
+ *  it did. */
+export interface ImportRowResult {
+  /** The row's line in the file; the header is line 1. */
+  row: number
+  outcome: RowOutcome
+  /** The value the row is matched on (asset tag, serial, email). */
+  key?: string
+  /** What the row is called (asset name, person, ticket title). */
+  label?: string
+  /** The record the row matches (before the commit) or wrote (after). */
+  record_id?: number | string
+  errors?: { column: string | null; source_column?: string | null; message: string }[]
+}
+
+export interface ImportRowsPage {
+  phase: 'checked' | 'committed'
+  total: number
+  offset: number
+  limit: number
+  counts: Record<RowFilter, number>
+  rows: ImportRowResult[]
+}
+
 export const importFieldsQueryKey = (jobType: ImportJobType) => ['import-fields', jobType] as const
 
 export const importService = {
@@ -166,6 +204,27 @@ export const importService = {
       params: { type: jobType },
     })
     return data.fields
+  },
+
+  /** One page of the job's row results, filtered by outcome. */
+  async rows(
+    jobId: string,
+    params: { filter?: RowFilter; offset?: number; limit?: number } = {},
+  ): Promise<ImportRowsPage> {
+    const { data } = await apiClient.get<ImportRowsPage>(`/admin/import/${jobId}/rows`, {
+      params,
+    })
+    return data
+  },
+
+  /** The skipped rows as CSV, in the file's layout with the reasons. */
+  async errorReport(jobId: string): Promise<{ blob: Blob; filename: string }> {
+    const response = await apiClient.get<Blob>(`/admin/import/${jobId}/error-report`, {
+      responseType: 'blob',
+    })
+    const disposition = String(response.headers['content-disposition'] ?? '')
+    const match = /filename="([^"]+)"/.exec(disposition)
+    return { blob: response.data, filename: match?.[1] ?? 'import-errors.csv' }
   },
 
   /** Build a URL for the CSV template; trigger via anchor

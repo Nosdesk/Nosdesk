@@ -3837,15 +3837,59 @@ import-review-problem-rows = { $count ->
 # MT: pending native review (nl-NL)
 import-review-whole-row = Hele rij
 # MT: pending native review (nl-NL)
-import-review-errors-heading = Rijen met fouten
-# MT: pending native review (nl-NL)
-import-review-errors-truncated = De eerste { $shown } van { $total } fouten worden getoond.
-# MT: pending native review (nl-NL)
 import-review-col-row = Rij
 # MT: pending native review (nl-NL)
-import-review-col-column = Kolom
+import-review-unchanged = { $count ->
+    [one] 1 rij komt al overeen en verandert niet.
+   *[other] { $count } rijen komen al overeen en veranderen niet.
+   }
 # MT: pending native review (nl-NL)
-import-review-col-message = Probleem
+import-review-tile-unchanged = Ongewijzigd
+# MT: pending native review (nl-NL)
+import-review-notice-no-key = { $count ->
+    [one] 1 rij heeft geen activalabel of serienummer. Als u dit bestand opnieuw importeert, wordt deze opnieuw aangemaakt.
+   *[other] { $count } rijen hebben geen activalabel of serienummer. Als u dit bestand opnieuw importeert, worden ze opnieuw aangemaakt.
+   }
+# MT: pending native review (nl-NL)
+import-review-rows-heading = Rijen
+# MT: pending native review (nl-NL)
+import-review-download-report = Foutrapport downloaden (.csv)
+# MT: pending native review (nl-NL)
+import-review-filter-label = Rijen tonen
+# MT: pending native review (nl-NL)
+import-review-filter-all = Alle ({ $count })
+# MT: pending native review (nl-NL)
+import-review-filter-skipped = Overgeslagen ({ $count })
+# MT: pending native review (nl-NL)
+import-review-filter-create = Nieuw ({ $count })
+# MT: pending native review (nl-NL)
+import-review-filter-update = Bijgewerkt ({ $count })
+# MT: pending native review (nl-NL)
+import-review-filter-unchanged = Ongewijzigd ({ $count })
+# MT: pending native review (nl-NL)
+import-review-col-name = Naam
+# MT: pending native review (nl-NL)
+import-review-col-result = Resultaat
+# MT: pending native review (nl-NL)
+import-review-outcome-create = Nieuw
+# MT: pending native review (nl-NL)
+import-review-outcome-update = Bijgewerkt
+# MT: pending native review (nl-NL)
+import-review-outcome-unchanged = Ongewijzigd
+# MT: pending native review (nl-NL)
+import-review-outcome-skipped = Overgeslagen
+# MT: pending native review (nl-NL)
+import-review-rows-range = Rijen { $from } tot { $to } van { $total }
+# MT: pending native review (nl-NL)
+import-review-rows-previous = Vorige
+# MT: pending native review (nl-NL)
+import-review-rows-next = Volgende
+# MT: pending native review (nl-NL)
+import-review-rows-loading = Rijen laden
+# MT: pending native review (nl-NL)
+import-review-rows-none = Geen rijen om te tonen.
+# MT: pending native review (nl-NL)
+import-error-report-failed = Het foutrapport kon niet worden gedownload. Probeer het opnieuw.
 # MT: pending native review (nl-NL)
 import-review-back = Terug naar kolommen
 # MT: pending native review (nl-NL)

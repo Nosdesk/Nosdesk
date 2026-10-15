@@ -6,7 +6,10 @@ use uuid::Uuid;
 /// validate, write `summary`) before the admin commits. The
 /// audit row outlives the request that triggered the upload so
 /// the admin UI can resume a job they navigated away from.
-#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+///
+/// Selected without `row_results`, which holds every row and is read on
+/// its own (`repository::imports::row_results`).
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::import_jobs)]
 pub struct ImportJob {
     pub id: Uuid,
@@ -29,8 +32,6 @@ pub struct ImportJob {
     pub mapping: Option<serde_json::Value>,
     /// `services::imports::ImportOptions`, set with the mapping.
     pub options: Option<serde_json::Value>,
-    /// Every row's outcome; unused until the preview lands.
-    pub row_results: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -56,6 +57,9 @@ pub struct ImportJobUpdate {
     pub source: Option<Option<serde_json::Value>>,
     pub mapping: Option<Option<serde_json::Value>>,
     pub options: Option<Option<serde_json::Value>>,
+    /// `services::imports::StoredRowResults`, written by the dry run and
+    /// again by the commit.
+    pub row_results: Option<Option<serde_json::Value>>,
 }
 
 /// An import job as the API returns it: the job row without the server's

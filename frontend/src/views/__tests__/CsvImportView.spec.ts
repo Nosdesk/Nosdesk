@@ -3,7 +3,11 @@ import { PiniaColada } from '@pinia/colada'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { mountWithProviders } from '@/test/mountWithProviders'
-import type { ImportField, ImportJob } from '@nosdesk/core/services/importService'
+import type {
+  ImportField,
+  ImportJob,
+  ImportRowsPage,
+} from '@nosdesk/core/services/importService'
 
 const api = vi.hoisted(() => ({
   upload: vi.fn(),
@@ -11,6 +15,8 @@ const api = vi.hoisted(() => ({
   commit: vi.fn(),
   get: vi.fn(),
   fields: vi.fn(),
+  rows: vi.fn(),
+  errorReport: vi.fn(),
 }))
 
 vi.mock('@nosdesk/core/services/importService', () => ({
@@ -21,6 +27,8 @@ vi.mock('@nosdesk/core/services/importService', () => ({
     commit: (...a: unknown[]) => api.commit(...a),
     get: (...a: unknown[]) => api.get(...a),
     fields: (...a: unknown[]) => api.fields(...a),
+    rows: (...a: unknown[]) => api.rows(...a),
+    errorReport: (...a: unknown[]) => api.errorReport(...a),
     templateUrl: (type: string) => `/api/admin/import/template/${type}`,
   },
 }))
@@ -133,12 +141,34 @@ function checkedJob(overrides: Partial<ImportJob> = {}): ImportJob {
   })
 }
 
+function rowsPage(overrides: Partial<ImportRowsPage> = {}): ImportRowsPage {
+  return {
+    phase: 'checked',
+    total: 2,
+    offset: 0,
+    limit: 50,
+    counts: { all: 12, create: 8, update: 2, unchanged: 0, skipped: 2 },
+    rows: [
+      {
+        row: 5,
+        outcome: 'skipped',
+        key: 'T-5',
+        label: 'Cam 5',
+        errors: [{ column: 'quantity', source_column: 'Qty', message: "'lots' is not a valid decimal" }],
+      },
+      { row: 9, outcome: 'skipped', key: 'T-9', errors: [{ column: null, message: 'whole row' }] },
+    ],
+    ...overrides,
+  }
+}
+
 let wrapper: VueWrapper | null = null
 let router: Router
 
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset()
   api.fields.mockResolvedValue(FIELDS)
+  api.rows.mockResolvedValue(rowsPage())
   router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/:any(.*)*', component: { template: '<div />' } }],
@@ -358,3 +388,76 @@ async function setFilter(value: string) {
   await radio!.trigger('click')
   await flushPromises()
 }
+
+describe('CsvImportView Review rows', () => {
+  async function openReview(job = checkedJob()) {
+    api.get.mockResolvedValue(job)
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('review')
+  }
+
+  it('lists skipped rows first, with their problems under the file headers', async () => {
+    await openReview()
+    expect(api.rows).toHaveBeenCalledWith('job-1', { filter: 'skipped', offset: 0, limit: 50 })
+    const rows = wrapper!.findAll('[data-test="import-row"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('Cam 5')
+    expect(rows[0].text()).toContain("Qty: 'lots' is not a valid decimal")
+    expect(rows[1].text()).toContain('T-9')
+    expect(rows[1].text()).toContain('whole row')
+  })
+
+  it('switches the list by outcome', async () => {
+    await openReview()
+    const radio = wrapper!
+      .findAll('[role="radio"]')
+      .find((r) => r.text() === 'import-review-filter-create')
+    expect(radio).toBeTruthy()
+    await radio!.trigger('click')
+    await flushPromises()
+    expect(api.rows).toHaveBeenLastCalledWith('job-1', { filter: 'create', offset: 0, limit: 50 })
+  })
+
+  it('pages through a long list', async () => {
+    api.rows.mockResolvedValue(rowsPage({ total: 120 }))
+    await openReview()
+    await wrapper!.find('[data-test="import-rows-next"]').trigger('click')
+    await flushPromises()
+    expect(api.rows).toHaveBeenLastCalledWith('job-1', { filter: 'skipped', offset: 50, limit: 50 })
+  })
+
+  it('shows notices and downloads the error report', async () => {
+    const base = checkedJob()
+    await openReview(
+      checkedJob({
+        summary: {
+          ...base.summary!,
+          notices: [{ code: 'no_key', count: 3, message: 'fallback' }],
+        },
+      }),
+    )
+    expect(wrapper!.text()).toContain('import-review-notice-no-key')
+
+    api.errorReport.mockResolvedValue({ blob: new Blob(['Row,Errors\n']), filename: 'x-errors.csv' })
+    const createObjectURL = vi.fn(() => 'blob:report')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    try {
+      await wrapper!.find('[data-test="import-error-report"]').trigger('click')
+      await flushPromises()
+      expect(api.errorReport).toHaveBeenCalledWith('job-1')
+      expect(click).toHaveBeenCalled()
+    } finally {
+      click.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('offers the report on Done when rows were skipped', async () => {
+    api.get.mockResolvedValue(checkedJob({ status: 'done', records_committed: 10 }))
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('done')
+    expect(wrapper!.find('[data-test="import-done-report"]').exists()).toBe(true)
+  })
+})

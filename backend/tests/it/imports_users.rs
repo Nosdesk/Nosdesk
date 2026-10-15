@@ -82,16 +82,15 @@ fn errors_csv_classifies_each_failure() {
         .expect("dry-run");
 
     assert_eq!(summary.row_count, 9);
-    // valid + the first occurrence of duplicate@example.com →
-    // 2 would-creates. nopronouns@example.com fails because
-    // name is required.
-    assert_eq!(summary.would_create, 2);
+    // Only valid@example.com creates: both duplicate@example.com rows
+    // are skipped, and nopronouns@example.com has no name.
+    assert_eq!(summary.would_create, 1);
     assert_eq!(summary.would_update, 0);
 
     let expected: &[(&str, &str)] = &[
         ("email", "required"),
         ("email", "not a valid email"),
-        ("email", "appears more than once"),
+        ("email", "appears twice in this file"),
         ("role", "not a valid role"),
         ("name", "required"),
     ];
@@ -224,7 +223,7 @@ fn member_role(conn: &mut TestPooledConn, ws: i32, user: Uuid) -> Option<String>
 }
 
 /// A new account holding `role` in workspace `ws`.
-fn new_member(conn: &mut TestPooledConn, ws: i32, role: &str) -> Uuid {
+pub(crate) fn new_member(conn: &mut TestPooledConn, ws: i32, role: &str) -> Uuid {
     let user = common::insert_plain_user(conn, &format!("{role} of {ws}"));
     grant(conn, ws, user, role);
     user
