@@ -32,6 +32,11 @@ pub struct ImportJob {
     pub mapping: Option<serde_json::Value>,
     /// `services::imports::ImportOptions`, set with the mapping.
     pub options: Option<serde_json::Value>,
+    /// `services::imports::ValueAnswers`: the admin's answer per distinct
+    /// source value.
+    pub answers: Option<serde_json::Value>,
+    /// `services::imports::RecordIds`, written by the commit.
+    pub record_ids: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -60,6 +65,38 @@ pub struct ImportJobUpdate {
     /// `services::imports::StoredRowResults`, written by the dry run and
     /// again by the commit.
     pub row_results: Option<Option<serde_json::Value>>,
+    pub answers: Option<Option<serde_json::Value>>,
+    pub record_ids: Option<Option<serde_json::Value>>,
+}
+
+/// A saved match: the answer an admin gave for one source value, which the
+/// next import of the type fills in. `context` is empty when the field has
+/// none; `answer` is a `services::imports::ValueAnswer`.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Selectable)]
+#[diesel(table_name = crate::schema::import_value_answers)]
+pub struct ImportValueAnswer {
+    pub id: Uuid,
+    pub workspace_id: i32,
+    pub job_type: String,
+    pub field: String,
+    pub context: String,
+    pub normalized_value: String,
+    pub answer: serde_json::Value,
+    pub answered_by: Option<Uuid>,
+    pub job_id: Option<Uuid>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = crate::schema::import_value_answers)]
+pub struct NewImportValueAnswer {
+    pub job_type: String,
+    pub field: String,
+    pub context: String,
+    pub normalized_value: String,
+    pub answer: serde_json::Value,
+    pub answered_by: Option<Uuid>,
+    pub job_id: Option<Uuid>,
 }
 
 /// An import job as the API returns it: the job row without the server's
@@ -82,6 +119,7 @@ pub struct ImportJobResponse {
     pub suggested_mapping: serde_json::Value,
     pub mapping: Option<serde_json::Value>,
     pub options: Option<serde_json::Value>,
+    pub answers: Option<serde_json::Value>,
 }
 
 impl From<ImportJob> for ImportJobResponse {
@@ -108,6 +146,7 @@ impl From<ImportJob> for ImportJobResponse {
             suggested_mapping,
             mapping: job.mapping,
             options: job.options,
+            answers: job.answers,
         }
     }
 }

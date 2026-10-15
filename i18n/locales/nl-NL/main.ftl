@@ -3624,6 +3624,14 @@ import-error-generic = De import is mislukt. Controleer het bestand en probeer h
 # MT: pending native review (nl-NL)
 import-error-commit = Er is niets geïmporteerd. Controleer de rijen en probeer het opnieuw.
 # MT: pending native review (nl-NL)
+import-review-plan-changed = Er is iets veranderd sinds de controle, dus er is niets geïmporteerd. Hieronder staat het nieuwe plan; controleer het en importeer opnieuw.
+# MT: pending native review (nl-NL)
+import-commit-still-running = Bezig met importeren. Deze pagina wordt bijgewerkt zodra de import klaar is.
+# MT: pending native review (nl-NL)
+import-commit-not-finished = De import is niet voltooid en er is niets geïmporteerd. Controleer het plan en importeer opnieuw.
+# MT: pending native review (nl-NL)
+import-commit-still-running-later = De import duurt langer dan verwacht. Kom later terug naar deze pagina om te zien hoe hij is afgelopen.
+# MT: pending native review (nl-NL)
 import-error-not-csv = { $name } is geen .csv- of .xlsx-bestand.
 # MT: pending native review (nl-NL)
 import-start-type-heading = Wat wilt u importeren?
@@ -5440,6 +5448,8 @@ asset-lifecycle-meta-due-back = Terug verwacht
 
 asset-lifecycle-timeline-transition = { $from } naar { $to }
 asset-lifecycle-timeline-initial = Ingesteld op { $to }
+# MT: pending native review (nl-NL)
+asset-lifecycle-timeline-imported = Geïmporteerd als { $to }
 asset-lifecycle-timeline-actor = door { $name }
 asset-lifecycle-timeline-unknown-actor = Onbekend
 asset-lifecycle-timeline-ticket = Ticket #{ $id }

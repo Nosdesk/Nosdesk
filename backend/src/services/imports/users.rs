@@ -49,8 +49,9 @@ use crate::repository::workspaces::{
 
 use super::csv_parser::ParsedCsv;
 use super::types::{
-    duplicate_in_file, CommitError, Committed, FieldGroup, FieldSpec, ImportContext, ImportType,
-    ImportedRecords, ImportedUser, Importer, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
+    duplicate_in_file, CommitError, Committed, FieldGroup, FieldSpec, ImportContext, ImportOptions,
+    ImportType, ImportedRecords, ImportedUser, Importer, RecordId, RowOutcome, RowPlan, RowResult,
+    ValueType,
 };
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
@@ -119,8 +120,9 @@ impl Importer for UserImporter {
 
         for record in parsed.records() {
             let row_num = record.source_row;
+            let values = lookup.with_constants(record.values, &ctx.options);
             let mut local = state.clone();
-            let result = match validate_row(&record.values, &lookup, &mut local) {
+            let result = match validate_row(&values, &lookup, &mut local) {
                 Ok(action) => {
                     state = local;
                     match action {
@@ -133,7 +135,7 @@ impl Importer for UserImporter {
                 }
                 Err(errs) => RowResult::skipped(row_num, errs),
             };
-            plan.rows.push(identify(result, &record.values));
+            plan.rows.push(identify(result, &values));
         }
         Ok(plan)
     }
@@ -156,8 +158,9 @@ impl Importer for UserImporter {
         let mut imported: Vec<ImportedUser> = Vec::new();
         let mut rows = Vec::with_capacity(parsed.rows.len());
         for record in parsed.records() {
-            let row = &record.values;
             let row_num = record.source_row;
+            let values = lookup.with_constants(record.values, &ctx.options);
+            let row = &values;
             // A write refused below, for a reason validation can't see,
             // skips the row with the member-role endpoint's words.
             let refused = |message: &str| {
@@ -391,6 +394,27 @@ fn identify(result: RowResult, row: &HashMap<String, String>) -> RowResult {
 }
 
 impl Lookup {
+    /// The row with the job's constants as the person takes them: a
+    /// constant never touches an existing member, so their row drops them.
+    fn with_constants(
+        &self,
+        mut row: HashMap<String, String>,
+        options: &ImportOptions,
+    ) -> HashMap<String, String> {
+        if options.constants.is_empty() {
+            return row;
+        }
+        let email = trimmed(&row, "email").to_lowercase();
+        if let Some(PrimaryEmailHolder::Member { .. }) = self.holders.get(&email) {
+            for constant in &options.constants {
+                if let Some(cell) = row.get_mut(&constant.field) {
+                    cell.clear();
+                }
+            }
+        }
+        row
+    }
+
     fn load(
         conn: &mut DbConnection,
         parsed: &ParsedCsv,

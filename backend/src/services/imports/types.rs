@@ -1,5 +1,7 @@
 //! Shared types for the import pipeline.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -258,6 +260,55 @@ pub struct RowResult {
     /// for skipped rows so the error report can give them back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cells: Vec<String>,
+    /// After the commit, each field the row wrote with its value before and
+    /// after, as text. Only fields whose value changed; a blank cell never
+    /// writes, so it is never here.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields_written: BTreeMap<String, FieldChange>,
+    /// Groups the row added the record to (ids).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups_added: Vec<i32>,
+    /// Catalog entries the row created.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub catalog_created: Vec<CatalogRef>,
+    /// The lifecycle event the commit wrote for the record: the Imported
+    /// event of a created asset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition_id: Option<i32>,
+    /// When the commit wrote the row; one time for the whole job.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub written_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The record's `updated_at` as read back after the commit's last write
+    /// to it, in the record's own form. A later edit moves it, which is how
+    /// an import tells whether its record has been touched since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_updated_at: Option<String>,
+}
+
+/// One field's value before and after a write, as text; `None` is blank.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldChange {
+    pub before: Option<String>,
+    pub after: Option<String>,
+}
+
+/// A catalog entry an import created.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CatalogRef {
+    pub kind: CatalogKind,
+    pub id: i32,
+    /// Its `updated_at` as read back in the commit, like
+    /// [`RowResult::observed_updated_at`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogKind {
+    Manufacturer,
+    Model,
+    Group,
 }
 
 impl RowResult {
@@ -270,6 +321,12 @@ impl RowResult {
             record_id: None,
             errors: Vec::new(),
             cells: Vec::new(),
+            fields_written: BTreeMap::new(),
+            groups_added: Vec::new(),
+            catalog_created: Vec::new(),
+            transition_id: None,
+            written_at: None,
+            observed_updated_at: None,
         }
     }
 
@@ -301,6 +358,29 @@ impl RowResult {
     pub fn with_record(mut self, id: RecordId) -> Self {
         self.record_id = Some(id);
         self
+    }
+}
+
+/// The records a commit created and updated, as `import_jobs.record_ids`
+/// keeps them once the row results are gone.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordIds {
+    pub created: Vec<RecordId>,
+    pub updated: Vec<RecordId>,
+}
+
+impl RecordIds {
+    pub fn from_rows(rows: &[RowResult]) -> Self {
+        let ids = |outcome: RowOutcome| {
+            rows.iter()
+                .filter(|r| r.outcome == outcome)
+                .filter_map(|r| r.record_id)
+                .collect()
+        };
+        Self {
+            created: ids(RowOutcome::Create),
+            updated: ids(RowOutcome::Update),
+        }
     }
 }
 
@@ -483,12 +563,72 @@ pub struct ImportOptions {
     pub date_order: DateOrder,
     /// `None` until the Map step resolves it from the file's delimiter.
     pub decimal: Option<DecimalMark>,
+    /// Values set for every row on fields no column feeds.
+    pub constants: Vec<Constant>,
 }
 
 impl ImportOptions {
     pub fn decimal_mark(&self) -> DecimalMark {
         self.decimal.unwrap_or_default()
     }
+
+    /// Clear, on a row that matches an existing record, the fields only
+    /// new records take a constant for, so the row leaves them as they are.
+    pub fn drop_new_only_constants(&self, row: &mut std::collections::HashMap<String, String>) {
+        for constant in &self.constants {
+            if constant.apply_to == ApplyTo::New {
+                if let Some(cell) = row.get_mut(&constant.field) {
+                    cell.clear();
+                }
+            }
+        }
+    }
+}
+
+/// A value for one field on every row, typed like a cell.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Constant {
+    /// Field id.
+    pub field: String,
+    pub value: String,
+    #[serde(default)]
+    pub apply_to: ApplyTo,
+}
+
+/// Which rows a constant writes to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyTo {
+    /// Rows that create a record.
+    #[default]
+    New,
+    /// Rows that create a record and rows that update one.
+    All,
+}
+
+/// The admin's answer for each distinct source value, by field id, then
+/// context (the manufacturer answer for models, the kind for enum
+/// attributes, else empty), then the source value.
+pub type ValueAnswers = BTreeMap<String, BTreeMap<String, BTreeMap<String, ValueAnswer>>>;
+
+/// What happens to the rows holding one source value of a field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ValueAnswer {
+    /// Link to an existing entry: an id, a slug or an option key.
+    Match { target: serde_json::Value },
+    /// Create the entry, named by the source value.
+    Create,
+    /// Keep the value as text, unlinked.
+    KeepText,
+    /// Write nothing for the field: leave it blank on a new record and as it
+    /// is on an existing one.
+    LeaveBlank,
+    /// Skip the rows holding the value.
+    Skip,
+    /// Write this text instead of the source value.
+    Replace { value: String },
 }
 
 /// Which part of the target picker a field sits in.

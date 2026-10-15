@@ -3634,6 +3634,14 @@ import-error-generic = L'import a échoué. Vérifiez le fichier et réessayez.
 # MT: pending native review (fr-FR)
 import-error-commit = Rien n'a été importé. Vérifiez les lignes et réessayez.
 # MT: pending native review (fr-FR)
+import-review-plan-changed = Quelque chose a changé depuis la vérification, donc rien n'a été importé. Le plan ci-dessous est le nouveau ; vérifiez-le et importez à nouveau.
+# MT: pending native review (fr-FR)
+import-commit-still-running = Import en cours. Cette page se met à jour à la fin de l'import.
+# MT: pending native review (fr-FR)
+import-commit-not-finished = L'import ne s'est pas terminé et rien n'a été importé. Vérifiez le plan et importez à nouveau.
+# MT: pending native review (fr-FR)
+import-commit-still-running-later = L'import prend plus de temps que prévu. Revenez sur cette page plus tard pour voir le résultat.
+# MT: pending native review (fr-FR)
 import-error-not-csv = { $name } n'est pas un fichier .csv ou .xlsx.
 # MT: pending native review (fr-FR)
 import-start-type-heading = Que souhaitez-vous importer ?
@@ -5450,6 +5458,8 @@ asset-lifecycle-meta-due-back = Date de retour
 
 asset-lifecycle-timeline-transition = { $from } vers { $to }
 asset-lifecycle-timeline-initial = Défini sur { $to }
+# MT: pending native review (fr-FR)
+asset-lifecycle-timeline-imported = Importé avec le statut { $to }
 asset-lifecycle-timeline-actor = par { $name }
 asset-lifecycle-timeline-unknown-actor = Inconnu
 asset-lifecycle-timeline-ticket = Ticket n°{ $id }

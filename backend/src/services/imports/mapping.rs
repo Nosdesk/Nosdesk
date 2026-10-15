@@ -13,9 +13,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::csv_parser::{ParsedCsv, SourceRow};
+use super::csv_parser::{ParsedCsv, SourceRow, MAX_CELL_CHARS, MAX_ROWS};
 use super::types::{
-    DecimalMark, FieldSpec, ImportOptions, ImportSummary, ImportType, RowOutcome, RowResult,
+    ApplyTo, DecimalMark, FieldSpec, ImportOptions, ImportSummary, ImportType, RowOutcome,
+    RowResult, ValueAnswer, ValueAnswers,
 };
 
 /// Sample values carried per header.
@@ -317,8 +318,9 @@ pub fn validate(
             )));
         }
     }
+    validate_constants(import_type, mapping, options, fields)?;
     for spec in fields.iter().filter(|f| f.required) {
-        if mapping.contains_key(&spec.id) {
+        if mapping.contains_key(&spec.id) || options.constants.iter().any(|c| c.field == spec.id) {
             continue;
         }
         let defaulted = import_type == ImportType::Assets
@@ -333,6 +335,117 @@ pub fn validate(
             } else {
                 format!("no column maps to {}", spec.label)
             }));
+        }
+    }
+    Ok(())
+}
+
+/// Fields a constant can't set: the keys rows are matched on, where one
+/// value on every row would make every row the same record.
+fn key_fields(import_type: ImportType) -> &'static [&'static str] {
+    match import_type {
+        ImportType::Assets => &["asset_tag", "serial_number"],
+        ImportType::Users => &["email"],
+        ImportType::Tickets => &[],
+    }
+}
+
+/// Check the constants: each sets a known field once, one no column feeds
+/// and no other option sets, to a value that isn't blank.
+fn validate_constants(
+    import_type: ImportType,
+    mapping: &ColumnMapping,
+    options: &ImportOptions,
+    fields: &[FieldSpec],
+) -> Result<(), MappingError> {
+    let mut seen: HashSet<&str> = HashSet::new();
+    for constant in &options.constants {
+        let field = constant.field.as_str();
+        let Some(spec) = fields.iter().find(|f| f.id == field) else {
+            return Err(MappingError(format!("unknown field '{field}'")));
+        };
+        if !seen.insert(field) {
+            return Err(MappingError(format!(
+                "{} is set for every row twice; set it once",
+                spec.label
+            )));
+        }
+        if import_type == ImportType::Users && constant.apply_to == ApplyTo::All {
+            return Err(MappingError(format!(
+                "{} can be set for new people only: a value set for every row never changes an existing member",
+                spec.label
+            )));
+        }
+        if key_fields(import_type).contains(&field) {
+            return Err(MappingError(format!(
+                "{} can't be set for every row: rows are matched on it",
+                spec.label
+            )));
+        }
+        if mapping.contains_key(field) {
+            return Err(MappingError(format!(
+                "{} comes from a column and is also set for every row; choose one",
+                spec.label
+            )));
+        }
+        if field == "kind" && options.default_kind.is_some() {
+            return Err(MappingError(
+                "Kind is set for every row and also has a default kind; choose one".to_string(),
+            ));
+        }
+        if constant.value.trim().is_empty() {
+            return Err(MappingError(format!(
+                "the value set for {} is blank",
+                spec.label
+            )));
+        }
+        if constant.value.chars().count() > MAX_CELL_CHARS {
+            return Err(MappingError(format!(
+                "the value set for {} is longer than {MAX_CELL_CHARS} characters",
+                spec.label
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Check the answers to a file's values: each names a known field, and a
+/// replacement or link says what it is.
+pub fn validate_answers(answers: &ValueAnswers, fields: &[FieldSpec]) -> Result<(), MappingError> {
+    for (field, contexts) in answers {
+        let Some(spec) = fields.iter().find(|f| &f.id == field) else {
+            return Err(MappingError(format!("unknown field '{field}'")));
+        };
+        for values in contexts.values() {
+            if values.len() > MAX_ROWS {
+                return Err(MappingError(format!(
+                    "{} has more answers than a file has rows",
+                    spec.label
+                )));
+            }
+            for (value, answer) in values {
+                if value.chars().count() > MAX_CELL_CHARS {
+                    return Err(MappingError(format!(
+                        "a value answered for {} is longer than a cell",
+                        spec.label
+                    )));
+                }
+                match answer {
+                    ValueAnswer::Replace { value: with } if with.trim().is_empty() => {
+                        return Err(MappingError(format!(
+                            "'{value}' in {} is replaced with a blank; choose Leave blank instead",
+                            spec.label
+                        )));
+                    }
+                    ValueAnswer::Match { target } if target.is_null() => {
+                        return Err(MappingError(format!(
+                            "'{value}' in {} is matched to nothing",
+                            spec.label
+                        )));
+                    }
+                    _ => {}
+                }
+            }
         }
     }
     Ok(())
@@ -415,6 +528,37 @@ pub fn map_grid(grid: &ParsedCsv, mapping: &ColumnMapping, fields: &[FieldSpec])
         grid: apply_mapping(&kept, mapping, fields),
         blocked,
     }
+}
+
+/// [`map_grid`] with the job's constants written into their columns on
+/// every row. A constant only new records take is cleared again by the
+/// importer on a row that matches an existing record
+/// ([`ImportOptions::drop_new_only_constants`]).
+pub fn map_job_grid(
+    grid: &ParsedCsv,
+    mapping: &ColumnMapping,
+    options: &ImportOptions,
+    fields: &[FieldSpec],
+) -> MappedGrid {
+    let mut mapped = map_grid(grid, mapping, fields);
+    let columns: Vec<(usize, &str)> = options
+        .constants
+        .iter()
+        .filter_map(|c| {
+            let index = mapped.grid.headers.iter().position(|h| h == &c.field)?;
+            Some((index, c.value.trim()))
+        })
+        .collect();
+    if !columns.is_empty() {
+        for row in &mut mapped.grid.rows {
+            for &(index, value) in &columns {
+                if let Some(cell) = row.cells.get_mut(index) {
+                    *cell = value.to_string();
+                }
+            }
+        }
+    }
+    mapped
 }
 
 /// Why a cell holding a spreadsheet error can't import.
@@ -570,6 +714,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::imports::types::Constant;
     use crate::services::imports::types::{FieldGroup, ValueType};
 
     fn field(id: &str, label: &str, required: bool) -> FieldSpec {
@@ -687,6 +832,201 @@ mod tests {
             validate(ImportType::Assets, &no_name, &opts, &fields(), &h).unwrap_err(),
             MappingError("no column maps to Name".into())
         );
+    }
+
+    fn constant(field: &str, value: &str, apply_to: ApplyTo) -> Constant {
+        Constant {
+            field: field.to_string(),
+            value: value.to_string(),
+            apply_to,
+        }
+    }
+
+    #[test]
+    fn constants_cover_fields_and_are_refused_where_they_cannot_apply() {
+        let h = headers(&["Name", "Tag"]);
+        let mapping = ColumnMapping::from([("name".into(), 0), ("asset_tag".into(), 1)]);
+        let with = |constants: Vec<Constant>| ImportOptions {
+            constants,
+            ..Default::default()
+        };
+        let check = |options: &ImportOptions| {
+            validate(ImportType::Assets, &mapping, options, &fields(), &h).map_err(|e| e.0)
+        };
+
+        // A constant covers a required field no column feeds.
+        assert!(check(&with(vec![constant("kind", "camera", ApplyTo::New)])).is_ok());
+
+        let refused = [
+            (vec![constant("x", "1", ApplyTo::New)], "unknown field 'x'"),
+            (
+                vec![
+                    constant("name", "Cam", ApplyTo::New),
+                    constant("kind", "c", ApplyTo::New),
+                ],
+                "Name comes from a column",
+            ),
+            (
+                vec![
+                    constant("kind", "a", ApplyTo::New),
+                    constant("kind", "b", ApplyTo::All),
+                ],
+                "Kind is set for every row twice",
+            ),
+            (
+                vec![
+                    constant("kind", "c", ApplyTo::New),
+                    constant("serial_number", "S", ApplyTo::New),
+                ],
+                "rows are matched on it",
+            ),
+            (vec![constant("kind", " ", ApplyTo::New)], "is blank"),
+            (
+                vec![constant(
+                    "kind",
+                    &"x".repeat(MAX_CELL_CHARS + 1),
+                    ApplyTo::New,
+                )],
+                "longer than",
+            ),
+        ];
+        for (constants, expected) in refused {
+            let err = check(&with(constants)).unwrap_err();
+            assert!(err.contains(expected), "{expected}: {err}");
+        }
+
+        let both = ImportOptions {
+            default_kind: Some("generic".into()),
+            constants: vec![constant("kind", "camera", ApplyTo::New)],
+            ..Default::default()
+        };
+        assert!(check(&both).unwrap_err().contains("default kind"));
+
+        // A constant never changes an existing member.
+        let user_fields = vec![field("email", "Email", true), field("role", "Role", true)];
+        let user_mapping = ColumnMapping::from([("email".into(), 0)]);
+        let role = |apply_to| ImportOptions {
+            constants: vec![constant("role", "user", apply_to)],
+            ..Default::default()
+        };
+        assert!(validate(
+            ImportType::Users,
+            &user_mapping,
+            &role(ApplyTo::New),
+            &user_fields,
+            &h
+        )
+        .is_ok());
+        assert!(validate(
+            ImportType::Users,
+            &user_mapping,
+            &role(ApplyTo::All),
+            &user_fields,
+            &h
+        )
+        .unwrap_err()
+        .0
+        .contains("new people only"));
+    }
+
+    #[test]
+    fn constants_fill_their_column_on_every_row() {
+        let grid = ParsedCsv {
+            headers: vec!["Name".into()],
+            rows: vec![
+                SourceRow {
+                    source_row: 2,
+                    cells: vec!["A".into()],
+                    cell_errors: Vec::new(),
+                },
+                SourceRow {
+                    source_row: 3,
+                    cells: vec!["B".into()],
+                    cell_errors: Vec::new(),
+                },
+            ],
+            delimiter: b',',
+        };
+        let mapping = ColumnMapping::from([("name".into(), 0)]);
+        let options = ImportOptions {
+            constants: vec![constant("kind", " camera ", ApplyTo::New)],
+            ..Default::default()
+        };
+        let mapped = map_job_grid(&grid, &mapping, &options, &fields());
+        let kinds: Vec<String> = mapped
+            .grid
+            .records()
+            .map(|r| r.values["kind"].clone())
+            .collect();
+        assert_eq!(kinds, vec!["camera", "camera"]);
+
+        let mut row = mapped.grid.records().next().unwrap().values;
+        options.drop_new_only_constants(&mut row);
+        assert_eq!(row["kind"], "");
+        assert_eq!(row["name"], "A");
+    }
+
+    #[test]
+    fn options_and_answers_keep_their_shape() {
+        let options: ImportOptions = serde_json::from_value(serde_json::json!({
+            "constants": [
+                { "field": "location", "value": "Studio B" },
+                { "field": "kind", "value": "camera", "apply_to": "all" },
+            ]
+        }))
+        .unwrap();
+        assert_eq!(options.constants[0].apply_to, ApplyTo::New);
+        assert_eq!(options.constants[1].apply_to, ApplyTo::All);
+        assert!(serde_json::from_value::<ImportOptions>(serde_json::json!({
+            "constants": [{ "field": "kind", "value": "c", "apply_to": "some" }]
+        }))
+        .is_err());
+
+        let answers: ValueAnswers = serde_json::from_value(serde_json::json!({
+            "kind": { "": {
+                "cam": { "action": "match", "target": "camera" },
+                "spare": { "action": "skip" },
+            }},
+            "serial_number": { "": { "n/a": { "action": "leave_blank" } } },
+            "name": { "": { "Cam1": { "action": "replace", "value": "Cam 1" } } },
+        }))
+        .unwrap();
+        assert_eq!(
+            answers["kind"][""]["cam"],
+            ValueAnswer::Match {
+                target: serde_json::json!("camera")
+            }
+        );
+        assert!(validate_answers(&answers, &fields()).is_ok());
+        let back = serde_json::to_value(&answers).unwrap();
+        assert_eq!(
+            back["kind"][""]["spare"],
+            serde_json::json!({ "action": "skip" })
+        );
+
+        let refused = [
+            (
+                serde_json::json!({ "x": { "": { "a": { "action": "skip" } } } }),
+                "unknown field",
+            ),
+            (
+                serde_json::json!({ "name": { "": { "a": { "action": "replace", "value": " " } } } }),
+                "replaced with a blank",
+            ),
+            (
+                serde_json::json!({ "kind": { "": { "a": { "action": "match", "target": null } } } }),
+                "matched to nothing",
+            ),
+        ];
+        for (raw, expected) in refused {
+            let answers: ValueAnswers = serde_json::from_value(raw).unwrap();
+            let err = validate_answers(&answers, &fields()).unwrap_err().0;
+            assert!(err.contains(expected), "{expected}: {err}");
+        }
+        assert!(serde_json::from_value::<ValueAnswers>(serde_json::json!({
+            "kind": { "": { "a": { "action": "guess" } } }
+        }))
+        .is_err());
     }
 
     #[test]

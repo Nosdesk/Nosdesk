@@ -68,6 +68,9 @@ const job = ref<ImportJob | null>(null)
 const busy = ref<'upload' | 'source' | 'check' | 'commit' | 'resume' | null>(null)
 const downloadingReport = ref(false)
 const errorMessage = ref('')
+/** Something about the commit worth reading that isn't an error: the plan
+ *  changed under it, or it is still running. */
+const commitNotice = ref('')
 
 const jobType = computed<ImportJobType>(() => job.value?.job_type ?? selectedType.value)
 
@@ -127,6 +130,10 @@ async function resume(id: string) {
     step.value = stepForStatus(found.status)
     if (found.status === 'failed') {
       errorMessage.value = found.error_message ?? t('import-error-generic')
+    }
+    if (found.status === 'committing') {
+      busy.value = 'commit'
+      await waitForCommit(found.id)
     }
   } catch {
     job.value = null
@@ -235,6 +242,7 @@ async function check(mapping: ColumnMapping, options: ImportOptions) {
   if (!job.value) return
   busy.value = 'check'
   errorMessage.value = ''
+  commitNotice.value = ''
   try {
     job.value = await importService.putMapping(job.value.id, mapping, options)
     step.value = 'review'
@@ -245,15 +253,68 @@ async function check(mapping: ColumnMapping, options: ImportOptions) {
   }
 }
 
+/** How often, and for how long, a commit that outlived its request is
+ *  checked on. */
+const COMMIT_POLL_MS = 2000
+const COMMIT_POLL_LIMIT = 300
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** A commit request that ended without an answer from the server (a
+ *  timeout, a dropped connection, a proxy giving up) may still be running. */
+function mayStillRun(e: unknown): boolean {
+  const status = (e as { response?: { status?: number } })?.response?.status
+  return status === undefined || status === 502 || status === 503 || status === 504
+}
+
+/** Wait for a commit the server is still running: check the job every two
+ *  seconds until it leaves `committing`, then show where it ended. */
+async function waitForCommit(id: string) {
+  commitNotice.value = t('import-commit-still-running')
+  for (let i = 0; i < COMMIT_POLL_LIMIT; i++) {
+    await sleep(COMMIT_POLL_MS)
+    let found: ImportJob
+    try {
+      found = await importService.get(id)
+    } catch {
+      continue
+    }
+    if (found.status === 'committing') continue
+    commitNotice.value = ''
+    job.value = found
+    step.value = stepForStatus(found.status)
+    if (found.status === 'failed') {
+      errorMessage.value = found.error_message ?? t('import-error-commit')
+    } else if (found.status === 'dry_run_done') {
+      errorMessage.value = t('import-commit-not-finished')
+    }
+    return
+  }
+  commitNotice.value = ''
+  errorMessage.value = t('import-commit-still-running-later')
+}
+
 async function commit() {
   if (!job.value) return
   busy.value = 'commit'
   errorMessage.value = ''
+  commitNotice.value = ''
+  const id = job.value.id
   try {
-    job.value = await importService.commit(job.value.id)
+    job.value = await importService.commit(id)
     step.value = 'done'
   } catch (e) {
-    errorMessage.value = apiError(e, 'import-error-commit')
+    const data = (e as { response?: { data?: { code?: string; job?: ImportJob } } })?.response
+      ?.data
+    if (data?.code === 'import_plan_changed' && data.job) {
+      // Nothing was imported; the job now holds the plan as it stands.
+      job.value = data.job
+      commitNotice.value = t('import-review-plan-changed')
+    } else if (data?.code === 'import_commit_running' || mayStillRun(e)) {
+      await waitForCommit(id)
+    } else {
+      errorMessage.value = apiError(e, 'import-error-commit')
+    }
   } finally {
     busy.value = null
   }
@@ -305,6 +366,7 @@ function canGoTo(target: Step): boolean {
 function goTo(target: Step) {
   if (!canGoTo(target)) return
   errorMessage.value = ''
+  commitNotice.value = ''
   step.value = target
 }
 
@@ -398,6 +460,10 @@ const viewImportedLabelKey = computed(() => {
       </nav>
 
       <ErrorBanner v-if="errorMessage" :message="errorMessage" />
+
+      <Callout v-if="commitNotice" severity="warning" data-test="import-commit-notice">
+        <p class="px-4 py-3 text-sm text-secondary">{{ commitNotice }}</p>
+      </Callout>
 
       <p v-if="busy === 'resume'" class="flex items-center gap-2 text-sm text-secondary">
         <Spinner size="sm" />
