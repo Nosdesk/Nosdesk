@@ -3602,6 +3602,347 @@ csv-import-modal-fields-count = { $count ->
    *[other] { $count } champs
    }
 csv-import-modal-close = Fermer
+
+# Import wizard (Start, Upload, Map, Review, Done). Field labels
+# (import-field-<type>-<id>) name the targets a column maps to; the
+# backend sends the key with each field.
+# MT: pending native review (fr-FR)
+import-title = Importer des données
+# MT: pending native review (fr-FR)
+import-subtitle = Importez des actifs, des utilisateurs ou des tickets depuis un tableur.
+# MT: pending native review (fr-FR)
+import-stepper-label = Étapes de l'import
+# MT: pending native review (fr-FR)
+import-step-start = Début
+# MT: pending native review (fr-FR)
+import-step-upload = Fichier
+# MT: pending native review (fr-FR)
+import-step-map = Colonnes
+# MT: pending native review (fr-FR)
+import-step-review = Vérification
+# MT: pending native review (fr-FR)
+import-step-done = Terminé
+# MT: pending native review (fr-FR)
+import-step-progress = Étape { $current } sur { $total } : { $name }
+# MT: pending native review (fr-FR)
+import-resuming = Ouverture de l'import
+# MT: pending native review (fr-FR)
+import-resume-failed = Cet import ne peut pas être repris. Commencez-en un nouveau.
+# MT: pending native review (fr-FR)
+import-error-generic = L'import a échoué. Vérifiez le fichier et réessayez.
+# MT: pending native review (fr-FR)
+import-error-commit = Rien n'a été importé. Vérifiez les lignes et réessayez.
+# MT: pending native review (fr-FR)
+import-error-not-csv = { $name } n'est pas un fichier .csv.
+# MT: pending native review (fr-FR)
+import-start-type-heading = Que souhaitez-vous importer ?
+# MT: pending native review (fr-FR)
+import-start-type-label = Données à importer
+# MT: pending native review (fr-FR)
+import-template-heading = Partir d'un modèle
+# MT: pending native review (fr-FR)
+import-template-help = Les en-têtes du modèle sont des identifiants de champ comme asset_tag. Conservez-les et la correspondance est automatique. Vos propres en-têtes fonctionnent aussi ; vous les associez à l'étape des colonnes.
+# MT: pending native review (fr-FR)
+import-template-download = Télécharger le modèle
+# MT: pending native review (fr-FR)
+import-action-continue = Continuer
+# MT: pending native review (fr-FR)
+import-action-back = Retour
+# MT: pending native review (fr-FR)
+import-upload-heading = Envoyer votre fichier
+# MT: pending native review (fr-FR)
+import-drop-idle = Déposez un fichier .csv ici, ou cliquez pour parcourir
+# MT: pending native review (fr-FR)
+import-drop-release = Relâchez pour envoyer
+# MT: pending native review (fr-FR)
+import-drop-hint = .csv, jusqu'à 10 Mo et 5 000 lignes
+# MT: pending native review (fr-FR)
+import-drop-replace = Cliquez ou déposez un autre fichier pour le remplacer
+# MT: pending native review (fr-FR)
+import-action-upload = Envoyer
+# MT: pending native review (fr-FR)
+import-action-uploading = Lecture du fichier
+# MT: pending native review (fr-FR)
+import-loading-fields = Chargement des champs
+# MT: pending native review (fr-FR)
+import-map-caption = Correspondance des colonnes : { $count } colonnes de { $file }
+# MT: pending native review (fr-FR)
+import-map-col-source = Colonne source
+# MT: pending native review (fr-FR)
+import-map-col-target = Importée comme
+# MT: pending native review (fr-FR)
+import-map-samples-label = Exemples :
+# MT: pending native review (fr-FR)
+import-map-blank-sample = (vide)
+# MT: pending native review (fr-FR)
+import-map-placeholder = Choisir un champ
+# MT: pending native review (fr-FR)
+import-map-select-label = Importer « { $header } » comme
+# MT: pending native review (fr-FR)
+import-map-group-core = Principal
+# MT: pending native review (fr-FR)
+import-map-group-links = Liens
+# MT: pending native review (fr-FR)
+import-map-group-lifecycle = Cycle de vie
+# MT: pending native review (fr-FR)
+import-map-group-attribute = Attributs
+# MT: pending native review (fr-FR)
+import-map-group-ignore = Ne pas importer
+# MT: pending native review (fr-FR)
+import-map-ignore = Ne pas importer
+# MT: pending native review (fr-FR)
+import-map-ignore-description = Laisser la colonne hors de l'import
+# MT: pending native review (fr-FR)
+import-map-required = Obligatoire
+# MT: pending native review (fr-FR)
+import-map-kind-required = Obligatoire à la création, ou définissez une valeur par défaut ci-dessous
+# MT: pending native review (fr-FR)
+import-map-mapped-from = Associé à « { $header } »
+# MT: pending native review (fr-FR)
+import-map-pill-previous = Dernier import
+# MT: pending native review (fr-FR)
+import-map-pill-exact = Correspondance exacte
+# MT: pending native review (fr-FR)
+import-map-pill-label = Libellé reconnu
+# MT: pending native review (fr-FR)
+import-map-pill-synonym = Deviné
+# MT: pending native review (fr-FR)
+import-map-clash = Également associé à { $headers }. Choisissez-en un.
+# MT: pending native review (fr-FR)
+import-map-summary-mapped = { $mapped } colonnes sur { $total } associées
+# MT: pending native review (fr-FR)
+import-map-summary-ignored = { $count } non importées
+# MT: pending native review (fr-FR)
+import-map-summary-problems = { $count ->
+    [one] 1 problème
+   *[other] { $count } problèmes
+   }
+# MT: pending native review (fr-FR)
+import-map-filter-label = Afficher les colonnes
+# MT: pending native review (fr-FR)
+import-map-filter-all = Toutes
+# MT: pending native review (fr-FR)
+import-map-filter-attention = À vérifier
+# MT: pending native review (fr-FR)
+import-map-filter-ignored = Non importées
+# MT: pending native review (fr-FR)
+import-map-next-problem = Problème suivant
+# MT: pending native review (fr-FR)
+import-map-problems-heading = { $count ->
+    [one] 1 problème bloque l'import
+   *[other] { $count } problèmes bloquent l'import
+   }
+# MT: pending native review (fr-FR)
+import-map-problem-duplicate = { $count } colonnes sont associées à { $field } : { $headers }.
+# MT: pending native review (fr-FR)
+import-map-problem-required = Aucune colonne n'est associée à { $field }.
+# MT: pending native review (fr-FR)
+import-map-problem-kind = Rien n'indique le type. Associez une colonne Type ou choisissez un type pour toutes les lignes.
+# MT: pending native review (fr-FR)
+import-map-warnings-heading = Certaines colonnes sont laissées de côté
+# MT: pending native review (fr-FR)
+import-map-warning-ignored = { $count ->
+    [one] 1 colonne ne sera pas importée.
+   *[other] { $count } colonnes ne seront pas importées.
+   }
+# MT: pending native review (fr-FR)
+import-map-empty-filter = Aucune colonne ne correspond à ce filtre.
+# MT: pending native review (fr-FR)
+import-map-change-file = Changer de fichier
+# MT: pending native review (fr-FR)
+import-map-change-file-title = Abandonner ce fichier ?
+# MT: pending native review (fr-FR)
+import-map-change-file-message = Les colonnes aux mêmes en-têtes seront de nouveau associées automatiquement.
+# MT: pending native review (fr-FR)
+import-map-change-file-confirm = Abandonner le fichier
+# MT: pending native review (fr-FR)
+import-map-check = { $count ->
+    [one] Vérifier 1 ligne
+   *[other] Vérifier { $count } lignes
+   }
+# MT: pending native review (fr-FR)
+import-map-checking = Vérification des lignes
+# MT: pending native review (fr-FR)
+import-map-blocked = { $count ->
+    [one] Corrigez 1 problème pour continuer
+   *[other] Corrigez { $count } problèmes pour continuer
+   }
+# MT: pending native review (fr-FR)
+import-options-heading = Options d'import
+# MT: pending native review (fr-FR)
+import-options-match-label = Retrouver les actifs existants par
+# MT: pending native review (fr-FR)
+import-options-match-asset-tag = Étiquette d'actif
+# MT: pending native review (fr-FR)
+import-options-match-serial = Numéro de série
+# MT: pending native review (fr-FR)
+import-options-match-none = Ne pas rapprocher
+# MT: pending native review (fr-FR)
+import-options-match-asset-tag-help = Les lignes dont l'étiquette existe mettent à jour cet actif.
+# MT: pending native review (fr-FR)
+import-options-match-serial-help = Les lignes dont le numéro de série existe mettent à jour cet actif.
+# MT: pending native review (fr-FR)
+import-options-match-none-help = Chaque ligne crée un nouvel actif. Une ligne dont l'étiquette ou le numéro de série existe déjà est ignorée comme erreur.
+# MT: pending native review (fr-FR)
+import-options-match-users = Les lignes sont rapprochées des personnes existantes par adresse e-mail.
+# MT: pending native review (fr-FR)
+import-options-match-tickets = Chaque ligne crée un nouveau ticket.
+# MT: pending native review (fr-FR)
+import-options-default-kind-label = Type pour toutes les lignes
+# MT: pending native review (fr-FR)
+import-options-default-kind-placeholder = Choisir un type
+# MT: pending native review (fr-FR)
+import-options-default-kind-none = Aucun type par défaut
+# MT: pending native review (fr-FR)
+import-options-default-kind-help = Les nouveaux actifs sans type reçoivent celui-ci. Les actifs existants gardent le leur.
+# MT: pending native review (fr-FR)
+import-options-date-label = Dates dans le fichier
+# MT: pending native review (fr-FR)
+import-options-date-iso = ISO 2026-03-14
+# MT: pending native review (fr-FR)
+import-options-date-dmy = Jour en premier 14/03/2026
+# MT: pending native review (fr-FR)
+import-options-date-mdy = Mois en premier 03/14/2026
+# MT: pending native review (fr-FR)
+import-options-decimal-label = Séparateur décimal
+# MT: pending native review (fr-FR)
+import-options-decimal-dot = Point (12.5)
+# MT: pending native review (fr-FR)
+import-options-decimal-comma = Virgule (12,5)
+# MT: pending native review (fr-FR)
+import-review-checked = { $count ->
+    [one] 1 ligne vérifiée.
+   *[other] { $count } lignes vérifiées.
+   }
+# MT: pending native review (fr-FR)
+import-review-created = { $count } créées
+# MT: pending native review (fr-FR)
+import-review-updated = { $count } mises à jour
+# MT: pending native review (fr-FR)
+import-review-will-import = { $count } seront importées : { $parts }.
+# MT: pending native review (fr-FR)
+import-review-all-import = Les { $count } seront importées : { $parts }.
+# MT: pending native review (fr-FR)
+import-review-nothing = Rien ne sera importé.
+# MT: pending native review (fr-FR)
+import-review-skipped = { $count } ignorées pour erreurs.
+# MT: pending native review (fr-FR)
+import-review-tile-create = Création
+# MT: pending native review (fr-FR)
+import-review-tile-update = Mise à jour
+# MT: pending native review (fr-FR)
+import-review-tile-errors = Erreurs
+# MT: pending native review (fr-FR)
+import-review-tile-errors-sub = { $count ->
+    [one] 1 erreur
+   *[other] { $count } erreurs
+   }
+# MT: pending native review (fr-FR)
+import-review-top-problems = Problèmes principaux
+# MT: pending native review (fr-FR)
+import-review-problem-rows = { $count ->
+    [one] 1 ligne
+   *[other] { $count } lignes
+   }
+# MT: pending native review (fr-FR)
+import-review-whole-row = Ligne entière
+# MT: pending native review (fr-FR)
+import-review-errors-heading = Lignes en erreur
+# MT: pending native review (fr-FR)
+import-review-errors-truncated = Affichage des { $shown } premières erreurs sur { $total }.
+# MT: pending native review (fr-FR)
+import-review-col-row = Ligne
+# MT: pending native review (fr-FR)
+import-review-col-column = Colonne
+# MT: pending native review (fr-FR)
+import-review-col-message = Problème
+# MT: pending native review (fr-FR)
+import-review-back = Retour aux colonnes
+# MT: pending native review (fr-FR)
+import-review-skip-reason = { $count ->
+    [one] 1 ligne sera ignorée
+   *[other] { $count } lignes seront ignorées
+   }
+# MT: pending native review (fr-FR)
+import-review-nothing-to-import = Rien à importer
+# MT: pending native review (fr-FR)
+import-review-import = { $count ->
+    [one] Importer 1 ligne
+   *[other] Importer { $count } lignes
+   }
+# MT: pending native review (fr-FR)
+import-review-importing = Import en cours
+# MT: pending native review (fr-FR)
+import-review-confirm-title = { $count ->
+    [one] Importer 1 ligne ?
+   *[other] Importer { $count } lignes ?
+   }
+# MT: pending native review (fr-FR)
+import-review-confirm-changes = { $type ->
+    [users] { $created } personnes seront ajoutées et { $updated } mises à jour.
+    [tickets] { $created } tickets seront créés.
+   *[other] { $created } actifs seront créés et { $updated } mis à jour.
+   }
+# MT: pending native review (fr-FR)
+import-review-confirm-skipped = { $count ->
+    [one] 1 ligne en erreur sera ignorée.
+   *[other] { $count } lignes en erreur seront ignorées.
+   }
+# MT: pending native review (fr-FR)
+import-done-heading = Import terminé
+# MT: pending native review (fr-FR)
+import-done-body = { $count ->
+    [one] 1 ligne importée.
+   *[other] { $count } lignes importées.
+   }
+# MT: pending native review (fr-FR)
+import-done-skipped = { $count } ignorées pour erreurs.
+# MT: pending native review (fr-FR)
+import-done-new = Importer un autre fichier
+# MT: pending native review (fr-FR)
+import-field-assets-name = Nom
+# MT: pending native review (fr-FR)
+import-field-assets-kind = Type
+# MT: pending native review (fr-FR)
+import-field-assets-asset-tag = Étiquette d'actif
+# MT: pending native review (fr-FR)
+import-field-assets-serial-number = Numéro de série
+# MT: pending native review (fr-FR)
+import-field-assets-location = Emplacement
+# MT: pending native review (fr-FR)
+import-field-assets-notes = Notes
+# MT: pending native review (fr-FR)
+import-field-assets-quantity = Quantité
+# MT: pending native review (fr-FR)
+import-field-assets-unit = Unité
+# MT: pending native review (fr-FR)
+import-field-assets-low-stock-threshold = Seuil de stock bas
+# MT: pending native review (fr-FR)
+import-field-assets-manufacturer = Fabricant
+# MT: pending native review (fr-FR)
+import-field-assets-model = Modèle
+# MT: pending native review (fr-FR)
+import-field-users-email = E-mail
+# MT: pending native review (fr-FR)
+import-field-users-name = Nom
+# MT: pending native review (fr-FR)
+import-field-users-role = Rôle
+# MT: pending native review (fr-FR)
+import-field-users-pronouns = Pronoms
+# MT: pending native review (fr-FR)
+import-field-tickets-title = Titre
+# MT: pending native review (fr-FR)
+import-field-tickets-workflow-state = Statut
+# MT: pending native review (fr-FR)
+import-field-tickets-priority = Priorité
+# MT: pending native review (fr-FR)
+import-field-tickets-due-date = Date d'échéance
+# MT: pending native review (fr-FR)
+import-field-tickets-requester-email = E-mail du demandeur
+# MT: pending native review (fr-FR)
+import-field-tickets-assignee-email = E-mail de l'assigné
+# MT: pending native review (fr-FR)
+import-field-tickets-category = Catégorie
 csv-import-error-no-file = Veuillez sélectionner un fichier à importer
 csv-import-error-failed = Échec de l'import
 csv-import-success-completed = Import terminé avec succès

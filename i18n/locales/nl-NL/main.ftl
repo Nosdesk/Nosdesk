@@ -3592,6 +3592,347 @@ csv-import-modal-fields-count = { $count ->
    *[other] { $count } velden
    }
 csv-import-modal-close = Sluiten
+
+# Import wizard (Start, Upload, Map, Review, Done). Field labels
+# (import-field-<type>-<id>) name the targets a column maps to; the
+# backend sends the key with each field.
+# MT: pending native review (nl-NL)
+import-title = Gegevens importeren
+# MT: pending native review (nl-NL)
+import-subtitle = Haal activa, gebruikers of tickets binnen vanuit een spreadsheet.
+# MT: pending native review (nl-NL)
+import-stepper-label = Importstappen
+# MT: pending native review (nl-NL)
+import-step-start = Start
+# MT: pending native review (nl-NL)
+import-step-upload = Bestand
+# MT: pending native review (nl-NL)
+import-step-map = Kolommen
+# MT: pending native review (nl-NL)
+import-step-review = Controle
+# MT: pending native review (nl-NL)
+import-step-done = Klaar
+# MT: pending native review (nl-NL)
+import-step-progress = Stap { $current } van { $total }: { $name }
+# MT: pending native review (nl-NL)
+import-resuming = Import openen
+# MT: pending native review (nl-NL)
+import-resume-failed = Deze import kan niet worden hervat. Begin een nieuwe.
+# MT: pending native review (nl-NL)
+import-error-generic = De import is mislukt. Controleer het bestand en probeer het opnieuw.
+# MT: pending native review (nl-NL)
+import-error-commit = Er is niets geïmporteerd. Controleer de rijen en probeer het opnieuw.
+# MT: pending native review (nl-NL)
+import-error-not-csv = { $name } is geen .csv-bestand.
+# MT: pending native review (nl-NL)
+import-start-type-heading = Wat wilt u importeren?
+# MT: pending native review (nl-NL)
+import-start-type-label = Te importeren gegevens
+# MT: pending native review (nl-NL)
+import-template-heading = Begin met een sjabloon
+# MT: pending native review (nl-NL)
+import-template-help = De kopteksten in het sjabloon zijn veld-id's zoals asset_tag. Laat ze staan en de koppeling gaat vanzelf. Eigen kopteksten werken ook; die koppelt u bij de stap Kolommen.
+# MT: pending native review (nl-NL)
+import-template-download = Sjabloon downloaden
+# MT: pending native review (nl-NL)
+import-action-continue = Doorgaan
+# MT: pending native review (nl-NL)
+import-action-back = Terug
+# MT: pending native review (nl-NL)
+import-upload-heading = Uw bestand uploaden
+# MT: pending native review (nl-NL)
+import-drop-idle = Sleep een .csv hierheen, of klik om te bladeren
+# MT: pending native review (nl-NL)
+import-drop-release = Loslaten om te uploaden
+# MT: pending native review (nl-NL)
+import-drop-hint = .csv, tot 10 MB en 5.000 rijen
+# MT: pending native review (nl-NL)
+import-drop-replace = Klik of sleep een ander bestand om het te vervangen
+# MT: pending native review (nl-NL)
+import-action-upload = Uploaden
+# MT: pending native review (nl-NL)
+import-action-uploading = Bestand lezen
+# MT: pending native review (nl-NL)
+import-loading-fields = Velden laden
+# MT: pending native review (nl-NL)
+import-map-caption = Kolomkoppeling: { $count } kolommen uit { $file }
+# MT: pending native review (nl-NL)
+import-map-col-source = Bronkolom
+# MT: pending native review (nl-NL)
+import-map-col-target = Importeren als
+# MT: pending native review (nl-NL)
+import-map-samples-label = Voorbeelden:
+# MT: pending native review (nl-NL)
+import-map-blank-sample = (leeg)
+# MT: pending native review (nl-NL)
+import-map-placeholder = Kies een veld
+# MT: pending native review (nl-NL)
+import-map-select-label = '{ $header }' importeren als
+# MT: pending native review (nl-NL)
+import-map-group-core = Basis
+# MT: pending native review (nl-NL)
+import-map-group-links = Koppelingen
+# MT: pending native review (nl-NL)
+import-map-group-lifecycle = Levenscyclus
+# MT: pending native review (nl-NL)
+import-map-group-attribute = Kenmerken
+# MT: pending native review (nl-NL)
+import-map-group-ignore = Niet importeren
+# MT: pending native review (nl-NL)
+import-map-ignore = Niet importeren
+# MT: pending native review (nl-NL)
+import-map-ignore-description = De kolom buiten de import houden
+# MT: pending native review (nl-NL)
+import-map-required = Verplicht
+# MT: pending native review (nl-NL)
+import-map-kind-required = Verplicht bij aanmaken, of stel hieronder een standaard in
+# MT: pending native review (nl-NL)
+import-map-mapped-from = Gekoppeld aan '{ $header }'
+# MT: pending native review (nl-NL)
+import-map-pill-previous = Vorige import
+# MT: pending native review (nl-NL)
+import-map-pill-exact = Exacte match
+# MT: pending native review (nl-NL)
+import-map-pill-label = Label herkend
+# MT: pending native review (nl-NL)
+import-map-pill-synonym = Geraden
+# MT: pending native review (nl-NL)
+import-map-clash = Ook gekoppeld aan { $headers }. Kies er één.
+# MT: pending native review (nl-NL)
+import-map-summary-mapped = { $mapped } van { $total } kolommen gekoppeld
+# MT: pending native review (nl-NL)
+import-map-summary-ignored = { $count } niet geïmporteerd
+# MT: pending native review (nl-NL)
+import-map-summary-problems = { $count ->
+    [one] 1 probleem
+   *[other] { $count } problemen
+   }
+# MT: pending native review (nl-NL)
+import-map-filter-label = Kolommen tonen
+# MT: pending native review (nl-NL)
+import-map-filter-all = Alle
+# MT: pending native review (nl-NL)
+import-map-filter-attention = Aandacht nodig
+# MT: pending native review (nl-NL)
+import-map-filter-ignored = Niet geïmporteerd
+# MT: pending native review (nl-NL)
+import-map-next-problem = Volgend probleem
+# MT: pending native review (nl-NL)
+import-map-problems-heading = { $count ->
+    [one] 1 probleem houdt de import tegen
+   *[other] { $count } problemen houden de import tegen
+   }
+# MT: pending native review (nl-NL)
+import-map-problem-duplicate = { $count } kolommen zijn gekoppeld aan { $field }: { $headers }.
+# MT: pending native review (nl-NL)
+import-map-problem-required = Geen kolom is gekoppeld aan { $field }.
+# MT: pending native review (nl-NL)
+import-map-problem-kind = Niets bepaalt het soort. Koppel een kolom Soort of kies een soort voor alle rijen.
+# MT: pending native review (nl-NL)
+import-map-warnings-heading = Sommige kolommen blijven buiten beschouwing
+# MT: pending native review (nl-NL)
+import-map-warning-ignored = { $count ->
+    [one] 1 kolom wordt niet geïmporteerd.
+   *[other] { $count } kolommen worden niet geïmporteerd.
+   }
+# MT: pending native review (nl-NL)
+import-map-empty-filter = Geen kolommen voldoen aan dit filter.
+# MT: pending native review (nl-NL)
+import-map-change-file = Ander bestand
+# MT: pending native review (nl-NL)
+import-map-change-file-title = Dit bestand verwerpen?
+# MT: pending native review (nl-NL)
+import-map-change-file-message = Kolommen met dezelfde kopteksten worden opnieuw automatisch gekoppeld.
+# MT: pending native review (nl-NL)
+import-map-change-file-confirm = Bestand verwerpen
+# MT: pending native review (nl-NL)
+import-map-check = { $count ->
+    [one] 1 rij controleren
+   *[other] { $count } rijen controleren
+   }
+# MT: pending native review (nl-NL)
+import-map-checking = Rijen controleren
+# MT: pending native review (nl-NL)
+import-map-blocked = { $count ->
+    [one] Los 1 probleem op om door te gaan
+   *[other] Los { $count } problemen op om door te gaan
+   }
+# MT: pending native review (nl-NL)
+import-options-heading = Importinstellingen
+# MT: pending native review (nl-NL)
+import-options-match-label = Bestaande activa zoeken op
+# MT: pending native review (nl-NL)
+import-options-match-asset-tag = Activalabel
+# MT: pending native review (nl-NL)
+import-options-match-serial = Serienummer
+# MT: pending native review (nl-NL)
+import-options-match-none = Niet koppelen
+# MT: pending native review (nl-NL)
+import-options-match-asset-tag-help = Rijen met een bestaand label werken dat activum bij.
+# MT: pending native review (nl-NL)
+import-options-match-serial-help = Rijen met een bestaand serienummer werken dat activum bij.
+# MT: pending native review (nl-NL)
+import-options-match-none-help = Elke rij maakt een nieuw activum. Een rij waarvan het label of serienummer al bestaat, wordt als fout overgeslagen.
+# MT: pending native review (nl-NL)
+import-options-match-users = Rijen worden aan bestaande personen gekoppeld op e-mailadres.
+# MT: pending native review (nl-NL)
+import-options-match-tickets = Elke rij maakt een nieuw ticket.
+# MT: pending native review (nl-NL)
+import-options-default-kind-label = Soort voor alle rijen
+# MT: pending native review (nl-NL)
+import-options-default-kind-placeholder = Kies een soort
+# MT: pending native review (nl-NL)
+import-options-default-kind-none = Geen standaard
+# MT: pending native review (nl-NL)
+import-options-default-kind-help = Nieuwe activa zonder soort krijgen deze soort. Bestaande activa houden de hunne.
+# MT: pending native review (nl-NL)
+import-options-date-label = Datums in het bestand
+# MT: pending native review (nl-NL)
+import-options-date-iso = ISO 2026-03-14
+# MT: pending native review (nl-NL)
+import-options-date-dmy = Dag eerst 14/03/2026
+# MT: pending native review (nl-NL)
+import-options-date-mdy = Maand eerst 03/14/2026
+# MT: pending native review (nl-NL)
+import-options-decimal-label = Decimaalteken
+# MT: pending native review (nl-NL)
+import-options-decimal-dot = Punt (12.5)
+# MT: pending native review (nl-NL)
+import-options-decimal-comma = Komma (12,5)
+# MT: pending native review (nl-NL)
+import-review-checked = { $count ->
+    [one] 1 rij gecontroleerd.
+   *[other] { $count } rijen gecontroleerd.
+   }
+# MT: pending native review (nl-NL)
+import-review-created = { $count } nieuw
+# MT: pending native review (nl-NL)
+import-review-updated = { $count } bijgewerkt
+# MT: pending native review (nl-NL)
+import-review-will-import = { $count } worden geïmporteerd: { $parts }.
+# MT: pending native review (nl-NL)
+import-review-all-import = Alle { $count } worden geïmporteerd: { $parts }.
+# MT: pending native review (nl-NL)
+import-review-nothing = Er wordt niets geïmporteerd.
+# MT: pending native review (nl-NL)
+import-review-skipped = { $count } overgeslagen wegens fouten.
+# MT: pending native review (nl-NL)
+import-review-tile-create = Nieuw
+# MT: pending native review (nl-NL)
+import-review-tile-update = Bijwerken
+# MT: pending native review (nl-NL)
+import-review-tile-errors = Fouten
+# MT: pending native review (nl-NL)
+import-review-tile-errors-sub = { $count ->
+    [one] 1 fout
+   *[other] { $count } fouten
+   }
+# MT: pending native review (nl-NL)
+import-review-top-problems = Meest voorkomende problemen
+# MT: pending native review (nl-NL)
+import-review-problem-rows = { $count ->
+    [one] 1 rij
+   *[other] { $count } rijen
+   }
+# MT: pending native review (nl-NL)
+import-review-whole-row = Hele rij
+# MT: pending native review (nl-NL)
+import-review-errors-heading = Rijen met fouten
+# MT: pending native review (nl-NL)
+import-review-errors-truncated = De eerste { $shown } van { $total } fouten worden getoond.
+# MT: pending native review (nl-NL)
+import-review-col-row = Rij
+# MT: pending native review (nl-NL)
+import-review-col-column = Kolom
+# MT: pending native review (nl-NL)
+import-review-col-message = Probleem
+# MT: pending native review (nl-NL)
+import-review-back = Terug naar kolommen
+# MT: pending native review (nl-NL)
+import-review-skip-reason = { $count ->
+    [one] 1 rij wordt overgeslagen
+   *[other] { $count } rijen worden overgeslagen
+   }
+# MT: pending native review (nl-NL)
+import-review-nothing-to-import = Niets te importeren
+# MT: pending native review (nl-NL)
+import-review-import = { $count ->
+    [one] 1 rij importeren
+   *[other] { $count } rijen importeren
+   }
+# MT: pending native review (nl-NL)
+import-review-importing = Bezig met importeren
+# MT: pending native review (nl-NL)
+import-review-confirm-title = { $count ->
+    [one] 1 rij importeren?
+   *[other] { $count } rijen importeren?
+   }
+# MT: pending native review (nl-NL)
+import-review-confirm-changes = { $type ->
+    [users] { $created } personen worden toegevoegd en { $updated } bijgewerkt.
+    [tickets] { $created } tickets worden aangemaakt.
+   *[other] { $created } activa worden aangemaakt en { $updated } bijgewerkt.
+   }
+# MT: pending native review (nl-NL)
+import-review-confirm-skipped = { $count ->
+    [one] 1 rij met fouten wordt overgeslagen.
+   *[other] { $count } rijen met fouten worden overgeslagen.
+   }
+# MT: pending native review (nl-NL)
+import-done-heading = Import voltooid
+# MT: pending native review (nl-NL)
+import-done-body = { $count ->
+    [one] 1 rij geïmporteerd.
+   *[other] { $count } rijen geïmporteerd.
+   }
+# MT: pending native review (nl-NL)
+import-done-skipped = { $count } overgeslagen wegens fouten.
+# MT: pending native review (nl-NL)
+import-done-new = Nog een bestand importeren
+# MT: pending native review (nl-NL)
+import-field-assets-name = Naam
+# MT: pending native review (nl-NL)
+import-field-assets-kind = Soort
+# MT: pending native review (nl-NL)
+import-field-assets-asset-tag = Activalabel
+# MT: pending native review (nl-NL)
+import-field-assets-serial-number = Serienummer
+# MT: pending native review (nl-NL)
+import-field-assets-location = Locatie
+# MT: pending native review (nl-NL)
+import-field-assets-notes = Notities
+# MT: pending native review (nl-NL)
+import-field-assets-quantity = Aantal
+# MT: pending native review (nl-NL)
+import-field-assets-unit = Eenheid
+# MT: pending native review (nl-NL)
+import-field-assets-low-stock-threshold = Drempel lage voorraad
+# MT: pending native review (nl-NL)
+import-field-assets-manufacturer = Fabrikant
+# MT: pending native review (nl-NL)
+import-field-assets-model = Model
+# MT: pending native review (nl-NL)
+import-field-users-email = E-mail
+# MT: pending native review (nl-NL)
+import-field-users-name = Naam
+# MT: pending native review (nl-NL)
+import-field-users-role = Rol
+# MT: pending native review (nl-NL)
+import-field-users-pronouns = Voornaamwoorden
+# MT: pending native review (nl-NL)
+import-field-tickets-title = Titel
+# MT: pending native review (nl-NL)
+import-field-tickets-workflow-state = Status
+# MT: pending native review (nl-NL)
+import-field-tickets-priority = Prioriteit
+# MT: pending native review (nl-NL)
+import-field-tickets-due-date = Vervaldatum
+# MT: pending native review (nl-NL)
+import-field-tickets-requester-email = E-mail aanvrager
+# MT: pending native review (nl-NL)
+import-field-tickets-assignee-email = E-mail toegewezene
+# MT: pending native review (nl-NL)
+import-field-tickets-category = Categorie
 csv-import-error-no-file = Selecteer een bestand om te importeren
 csv-import-error-failed = Import mislukt
 csv-import-success-completed = Import succesvol voltooid

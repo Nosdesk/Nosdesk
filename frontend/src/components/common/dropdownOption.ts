@@ -22,4 +22,8 @@ export interface DropdownOption<T extends string | number = string> {
    * skip it). Use for choices the current actor isn't allowed to
    * pick while still showing them in context. */
   disabled?: boolean
+  /** Heading the option sits under. SearchableDropdown gathers each
+   * group's options under one non-selectable heading row, groups in the
+   * order they first appear. */
+  group?: string
 }
