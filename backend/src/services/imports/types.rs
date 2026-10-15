@@ -525,8 +525,24 @@ pub enum MatchBy {
     #[default]
     AssetTag,
     SerialNumber,
-    /// Every row creates; a row matching an existing asset is an error.
+    /// Read only, from jobs and clients before [`ImportMode`]: create new
+    /// assets only, matched by tag. [`ImportOptions::normalize`] rewrites
+    /// it to `asset_tag` with [`ImportMode::CreateOnly`].
     None,
+}
+
+/// Which rows of the file write: rows that match an existing record
+/// update it, the others create one. Assets only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportMode {
+    /// Matched rows update, the others create.
+    #[default]
+    CreateUpdate,
+    /// Unmatched rows create; a matched row is skipped as already there.
+    CreateOnly,
+    /// Matched rows update; an unmatched row is skipped as not found.
+    UpdateOnly,
 }
 
 /// How dates typed as text are read.
@@ -555,6 +571,7 @@ pub enum DecimalMark {
 #[serde(default, deny_unknown_fields)]
 pub struct ImportOptions {
     pub match_by: MatchBy,
+    pub mode: ImportMode,
     /// Create manufacturers, models and groups that don't exist. Stored
     /// now; read once the catalog columns land.
     pub create_missing: bool,
@@ -570,6 +587,41 @@ pub struct ImportOptions {
 impl ImportOptions {
     pub fn decimal_mark(&self) -> DecimalMark {
         self.decimal.unwrap_or_default()
+    }
+
+    /// Rewrite the legacy `match_by: none` as what it meant: match by tag
+    /// and create new assets only. Refused alongside a mode that updates.
+    pub fn normalize(&mut self) -> Result<(), String> {
+        if self.match_by != MatchBy::None {
+            return Ok(());
+        }
+        if self.mode == ImportMode::UpdateOnly {
+            return Err(
+                "match_by 'none' creates new assets only and can't be combined with mode 'update_only'; use match_by 'asset_tag' or 'serial_number'"
+                    .to_string(),
+            );
+        }
+        self.match_by = MatchBy::AssetTag;
+        self.mode = ImportMode::CreateOnly;
+        Ok(())
+    }
+
+    /// The key rows are matched on: `match_by`, with the legacy `none` read
+    /// as the tag.
+    pub fn key(&self) -> MatchBy {
+        match self.match_by {
+            MatchBy::None => MatchBy::AssetTag,
+            key => key,
+        }
+    }
+
+    /// Which rows write, with the legacy `match_by: none` read as create
+    /// only.
+    pub fn row_mode(&self) -> ImportMode {
+        match self.match_by {
+            MatchBy::None => ImportMode::CreateOnly,
+            _ => self.mode,
+        }
     }
 
     /// Clear, on a row that matches an existing record, the fields only

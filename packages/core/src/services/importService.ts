@@ -84,17 +84,32 @@ export interface ImportSource {
 
 export type SuggestionReason = 'previous' | 'exact' | 'label' | 'synonym' | 'report'
 
+/** The import a saved column match came from. */
+export interface SuggestionProvenance {
+  job_id: string
+  /** The admin who started that import. */
+  by: string | null
+  by_name: string | null
+  at: string
+}
+
 export interface Suggestion {
   index: number
-  /** null for a column that shouldn't be imported (an error report's own columns). */
+  /** null for a column that shouldn't be imported: an error report's own
+   *  columns, or one the last import set to Don't import. */
   field: string | null
+  /** `previous` is a saved match from the type's last mapped import. */
   reason: SuggestionReason
+  provenance?: SuggestionProvenance
 }
 
 /** Field id to the 0-based column index that feeds it. */
 export type ColumnMapping = Record<string, number>
 
-export type MatchBy = 'asset_tag' | 'serial_number' | 'none'
+export type MatchBy = 'asset_tag' | 'serial_number'
+/** Which rows write: matched rows update and the others create, or only
+ *  one of the two (the other is skipped). Assets only. */
+export type ImportMode = 'create_update' | 'create_only' | 'update_only'
 export type DateOrder = 'iso' | 'dmy' | 'mdy'
 export type DecimalMark = '.' | ','
 
@@ -111,6 +126,7 @@ export interface ImportConstant {
 
 export interface ImportOptions {
   match_by?: MatchBy
+  mode?: ImportMode
   create_missing?: boolean
   default_kind?: string | null
   date_order?: DateOrder
@@ -171,6 +187,8 @@ export interface ImportJob {
   source: ImportSource | null
   suggested_mapping: Suggestion[]
   mapping: ColumnMapping | null
+  /** Columns the stored mapping sets to Don't import. */
+  ignored?: number[]
   options: ImportOptions | null
   answers?: ValueAnswers | null
 }
@@ -251,15 +269,18 @@ export const importService = {
     await apiClient.delete(`/admin/import/${jobId}`)
   },
 
-  /** Store the mapping and options and run the dry run. Returns the job
-   *  in status `dry_run_done` with its summary. */
+  /** Store the mapping, the columns set to Don't import and the options,
+   *  and run the dry run. Returns the job in status `dry_run_done` with its
+   *  summary. */
   async putMapping(
     jobId: string,
     mapping: ColumnMapping,
     options: ImportOptions,
+    ignored: number[] = [],
   ): Promise<ImportJob> {
     const { data } = await apiClient.put<ImportJob>(`/admin/import/${jobId}/mapping`, {
       mapping,
+      ignored,
       options,
     })
     return data

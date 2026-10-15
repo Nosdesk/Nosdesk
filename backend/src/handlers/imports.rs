@@ -9,8 +9,9 @@
 //! - `PUT  /admin/import/{id}/type` imports the same file as another
 //!   type, back to `parsed` with fresh suggestions.
 //! - `PUT  /admin/import/{id}/mapping` stores the admin's column
-//!   mapping and options, runs the dry run, and moves the job to
-//!   `dry_run_done`. Re-runnable until the commit.
+//!   mapping, the columns set to Don't import, and the options, runs the
+//!   dry run, and moves the job to `dry_run_done`. Re-runnable until the
+//!   commit.
 //! - `POST /admin/import/{id}/commit` applies the validated
 //!   rows in a single transaction and flips status to `done`.
 //! - `GET  /admin/import/{id}` returns the job row + summary so
@@ -287,7 +288,8 @@ where
 }
 
 /// The source with the mapping suggested for it: from the type's last
-/// mapped import, then ids, labels and synonyms.
+/// mapped import in the workspace, whatever its status, then ids, labels
+/// and synonyms.
 fn suggest_for(
     conn: &mut crate::db::DbConnection,
     job_type: ImportType,
@@ -295,22 +297,51 @@ fn suggest_for(
 ) -> Result<StoredSource, diesel::result::Error> {
     let importer = imports::importer_for(job_type);
     let fields = importer.fields(conn)?;
-    let previous = repo::latest_with_mapping(conn, job_type.as_str())?
-        .and_then(|prev| previous_choices(&prev))
-        .unwrap_or_default();
+    let memory = match repo::latest_with_mapping(conn, job_type.as_str())? {
+        Some(prev) => header_memory(conn, &prev)?,
+        None => mapping::HeaderMemory::default(),
+    };
     let suggested_mapping =
-        mapping::suggest(&source.headers, &fields, importer.synonyms(), &previous);
+        mapping::suggest(&source.headers, &fields, importer.synonyms(), &memory);
     Ok(StoredSource {
         source,
         suggested_mapping,
+        ignored: Vec::new(),
     })
 }
 
-/// A previous job's mapping as normalized header to field id.
-fn previous_choices(job: &ImportJob) -> Option<std::collections::HashMap<String, String>> {
-    let stored: StoredSource = serde_json::from_value(job.source.clone()?).ok()?;
-    let mapping: ColumnMapping = serde_json::from_value(job.mapping.clone()?).ok()?;
-    Some(mapping::previous_choices(&stored.source, &mapping))
+/// What a previous job chose for each header, and who chose it when.
+fn header_memory(
+    conn: &mut crate::db::DbConnection,
+    job: &ImportJob,
+) -> Result<mapping::HeaderMemory, diesel::result::Error> {
+    let Some(stored) = stored_source(job) else {
+        return Ok(mapping::HeaderMemory::default());
+    };
+    let Some(column_mapping) = job
+        .mapping
+        .clone()
+        .and_then(|m| serde_json::from_value::<ColumnMapping>(m).ok())
+    else {
+        return Ok(mapping::HeaderMemory::default());
+    };
+    let by_name = match job.created_by {
+        Some(uuid) => match crate::repository::users::get_user_by_uuid(&uuid, conn) {
+            Ok(user) => Some(user.name),
+            Err(diesel::result::Error::NotFound) => None,
+            Err(e) => return Err(e),
+        },
+        None => None,
+    };
+    Ok(mapping::HeaderMemory {
+        choices: mapping::previous_choices(&stored.source, &column_mapping, &stored.ignored),
+        provenance: Some(mapping::Provenance {
+            job_id: job.id,
+            by: job.created_by,
+            by_name,
+            at: job.updated_at,
+        }),
+    })
 }
 
 /// The job's stored source, if it has one that reads.
@@ -636,6 +667,10 @@ pub async fn fields(
 pub struct MappingRequest {
     #[serde(deserialize_with = "mapping::deserialize_mapping")]
     pub mapping: ColumnMapping,
+    /// Column indexes set to Don't import. A column neither mapped nor
+    /// here is left without a choice; neither imports.
+    #[serde(default)]
+    pub ignored: Vec<usize>,
     #[serde(default)]
     pub options: ImportOptions,
 }
@@ -675,6 +710,7 @@ pub async fn put_mapping(
     let id = path.into_inner();
     let MappingRequest {
         mapping: column_mapping,
+        ignored,
         options,
     } = body.into_inner();
 
@@ -712,6 +748,10 @@ pub async fn put_mapping(
         ) {
             return Ok(MappingCheck::BadRequest(e.0));
         }
+        if let Err(e) = mapping::validate_ignored(&ignored, &column_mapping, &stored.source.headers)
+        {
+            return Ok(MappingCheck::BadRequest(e.0));
+        }
         Ok(MappingCheck::Ok {
             job_type,
             fields,
@@ -743,6 +783,8 @@ pub async fn put_mapping(
     };
     let mapped = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
     let options_json = serde_json::to_value(&options).ok();
+    let mut ignored = ignored;
+    ignored.sort_unstable();
     let ctx = ImportContext {
         actor: Some(auth.user_uuid),
         job_id: id,
@@ -763,6 +805,16 @@ pub async fn put_mapping(
         if let Some(message) = mapping_precondition(&job) {
             return Ok(MappingOutcome::Conflict(message));
         }
+        // The sheet may have been read again since the check above, and the
+        // mapping names the columns that were checked.
+        let Some(mut current) = stored_source(&job).filter(|s| {
+            serde_json::to_value(&s.source).ok() == serde_json::to_value(&stored.source).ok()
+        }) else {
+            return Ok(MappingOutcome::Conflict(
+                "the file was read again while checking; map its columns again".to_string(),
+            ));
+        };
+        current.ignored = ignored.clone();
         let (summary, rows) = plan(
             conn,
             job_type,
@@ -779,6 +831,7 @@ pub async fn put_mapping(
                 status: Some("dry_run_done".to_string()),
                 summary: Some(serde_json::to_value(&summary).ok()),
                 mapping: Some(serde_json::to_value(&column_mapping).ok()),
+                source: Some(serde_json::to_value(&current).ok()),
                 options: Some(options_json.clone()),
                 row_results: Some(stored_rows(RowPhase::Checked, rows)),
                 ..Default::default()
@@ -845,15 +898,27 @@ fn mapping_precondition(job: &ImportJob) -> Option<String> {
     }
 }
 
-/// Settle the options against the workspace and the file: the default
-/// kind must be a kind (stored as its slug), and the decimal mark
-/// defaults from the file's delimiter.
+/// Settle the options against the workspace and the file: the legacy
+/// `match_by: none` becomes create-only by tag, a mode other than create
+/// and update is for assets, the default kind must be a kind (stored as its
+/// slug), and the decimal mark defaults from the file's delimiter.
 fn resolve_options(
     conn: &mut crate::db::DbConnection,
     job_type: ImportType,
     options: &mut ImportOptions,
     source: &ImportSource,
 ) -> Result<(), String> {
+    options.normalize()?;
+    if job_type != ImportType::Assets && options.mode != imports::ImportMode::CreateUpdate {
+        return Err(format!(
+            "mode applies to asset imports only; {} imports {}",
+            job_type.as_str(),
+            match job_type {
+                ImportType::Users => "match people by email",
+                _ => "always create",
+            }
+        ));
+    }
     if options.decimal.is_none() {
         options.decimal = Some(mapping::default_decimal(source));
     }
@@ -1118,10 +1183,12 @@ fn stored_rows(phase: RowPhase, rows: Vec<RowResult>) -> Option<serde_json::Valu
 /// checked before mapping existed.
 fn stored_choices(job: &ImportJob) -> Option<(ColumnMapping, ImportOptions)> {
     let column_mapping = serde_json::from_value(job.mapping.clone()?).ok()?;
-    let options = match &job.options {
+    let mut options: ImportOptions = match &job.options {
         Some(v) => serde_json::from_value(v.clone()).ok()?,
         None => ImportOptions::default(),
     };
+    // A job stored with the legacy `match_by: none` commits as create only.
+    options.normalize().ok()?;
     Some((column_mapping, options))
 }
 

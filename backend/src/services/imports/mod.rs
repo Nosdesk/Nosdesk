@@ -24,10 +24,10 @@ pub mod xlsx;
 
 pub use types::{
     ApplyTo, CatalogKind, CatalogRef, CellError, CommitError, Committed, Constant, DateOrder,
-    DecimalMark, ErrorGroup, FieldChange, FieldGroup, FieldSpec, ImportContext, ImportOptions,
-    ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer, MatchBy, Notice, RecordId,
-    RecordIds, RowError, RowOutcome, RowPhase, RowPlan, RowResult, StoredRowResults, ValueAnswer,
-    ValueAnswers, ValueType,
+    DecimalMark, ErrorGroup, FieldChange, FieldGroup, FieldSpec, ImportContext, ImportMode,
+    ImportOptions, ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer, MatchBy,
+    Notice, RecordId, RecordIds, RowError, RowOutcome, RowPhase, RowPlan, RowResult,
+    StoredRowResults, ValueAnswer, ValueAnswers, ValueType,
 };
 
 use diesel::result::Error as DieselError;

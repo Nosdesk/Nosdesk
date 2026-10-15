@@ -8,8 +8,10 @@
 //! a row error, and so is a tag or serial that more than one row of the
 //! file holds: every such row is skipped, so the admin picks the right
 //! one. Matched by serial, a tag another asset holds is an error, so an
-//! import never leaves two assets sharing a tag. With matching off, every
-//! row creates and a row whose tag or serial exists is an error. A blank cell never clears a column on update; a
+//! import never leaves two assets sharing a tag. The mode
+//! (`ImportOptions::mode`) narrows which rows write: only new ones skip a
+//! matched row as already there, only existing ones skip an unmatched row
+//! as not found. A blank cell never clears a column on update; a
 //! blank kind keeps the asset's kind, and on a new asset takes the default
 //! kind when one is set.
 //!
@@ -41,8 +43,8 @@ use super::csv_parser::ParsedCsv;
 use super::safe_cells::csv_formula_safe;
 use super::types::{
     duplicate_in_file, CommitError, Committed, DecimalMark, FieldChange, FieldGroup, FieldSpec,
-    ImportContext, ImportOptions, ImportType, ImportedRecords, Importer, MatchBy, Notice, RecordId,
-    RowOutcome, RowPlan, RowResult, ValueType,
+    ImportContext, ImportMode, ImportOptions, ImportType, ImportedRecords, Importer, MatchBy,
+    Notice, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
 };
 
 /// Universal CSV columns the importer accepts. Export writes
@@ -289,8 +291,8 @@ fn matches_existing(
     lookups: &Lookups,
     options: &ImportOptions,
 ) -> bool {
-    match options.match_by {
-        MatchBy::AssetTag => {
+    match options.key() {
+        MatchBy::AssetTag | MatchBy::None => {
             let tag = trimmed(row, "asset_tag");
             !tag.is_empty() && lookups.tags.contains_key(&tag)
         }
@@ -298,7 +300,6 @@ fn matches_existing(
             let serial = trimmed(row, "serial_number");
             !serial.is_empty() && lookups.serials.contains_key(&serial)
         }
-        MatchBy::None => false,
     }
 }
 
@@ -357,12 +358,9 @@ fn identify(
     row: &HashMap<String, String>,
     options: &ImportOptions,
 ) -> RowResult {
-    let key = match options.match_by {
-        MatchBy::AssetTag => trimmed(row, "asset_tag"),
+    let key = match options.key() {
+        MatchBy::AssetTag | MatchBy::None => trimmed(row, "asset_tag"),
         MatchBy::SerialNumber => trimmed(row, "serial_number"),
-        MatchBy::None => opt_string(row, "asset_tag")
-            .or_else(|| opt_string(row, "serial_number"))
-            .unwrap_or_default(),
     };
     result.with_key(Some(key)).with_label(trimmed(row, "name"))
 }
@@ -547,6 +545,10 @@ const MAX_LENGTHS: &[(&str, usize)] = &[
 /// Largest magnitude `numeric(12,3)` holds once rounded to 3 places.
 const MAX_DECIMAL: &str = "999999999.9995";
 
+/// Why a row is skipped under [`ImportMode::CreateOnly`]: its key names an
+/// asset that already exists.
+pub const ALREADY_EXISTS: &str = "already exists";
+
 /// Check one row. On success returns what the commit will do with it; on
 /// failure returns the per-field errors. The dry-run and the commit both
 /// call this, in file order, so they agree on every row.
@@ -592,34 +594,52 @@ fn plan_row(
     let serial_holder = (!serial.is_empty())
         .then(|| lookups.serials.get(&serial).copied())
         .flatten();
-    let target = match options.match_by {
-        MatchBy::AssetTag => match tag_holders {
+    let by_serial = options.key() == MatchBy::SerialNumber;
+    let (key_column, key_value) = if by_serial {
+        ("serial_number", &serial)
+    } else {
+        ("asset_tag", &tag)
+    };
+    // The mode's own verdicts come first and alone: a row the mode leaves
+    // out is skipped for that one reason, whatever else it holds.
+    let matched = if by_serial {
+        serial_holder.is_some()
+    } else {
+        !tag_holders.is_empty()
+    };
+    match options.row_mode() {
+        ImportMode::CreateOnly if matched => {
+            return Err(vec![(
+                Some(key_column.to_string()),
+                ALREADY_EXISTS.to_string(),
+            )]);
+        }
+        ImportMode::UpdateOnly if !matched => {
+            let message = match (by_serial, key_value.is_empty()) {
+                (false, false) => "not found: no asset has this tag",
+                (false, true) => "not found: no asset tag to match an asset by",
+                (true, false) => "not found: no asset has this serial number",
+                (true, true) => "not found: no serial number to match an asset by",
+            };
+            return Err(vec![(Some(key_column.to_string()), message.to_string())]);
+        }
+        _ => {}
+    }
+    let target = if by_serial {
+        serial_holder
+    } else {
+        match tag_holders {
             [] => None,
             [id] => Some(*id),
             ids => {
                 error("asset_tag", shared_tag_error(lookups, &tag, ids));
                 None
             }
-        },
-        MatchBy::SerialNumber => serial_holder,
-        MatchBy::None => {
-            if !tag_holders.is_empty() {
-                error(
-                    "asset_tag",
-                    format!(
-                        "tag '{tag}' already exists as {}; this import creates new assets only",
-                        asset_names(lookups, tag_holders)
-                    ),
-                );
-            }
-            None
         }
     };
     if let Some(rows) = file_keys.tags.get(&tag) {
         error("asset_tag", duplicate_in_file("tag", &tag, rows));
-    } else if options.match_by == MatchBy::SerialNumber
-        && !target.is_some_and(|id| tag_holders.contains(&id))
-    {
+    } else if by_serial && !target.is_some_and(|id| tag_holders.contains(&id)) {
         // Matched by serial, the row's tag must not be another asset's.
         let others: Vec<i32> = tag_holders
             .iter()
@@ -644,15 +664,7 @@ fn plan_row(
                 duplicate_in_file("serial number", &serial, rows),
             );
         } else if let Some(holder) = serial_holder {
-            if options.match_by == MatchBy::None {
-                error(
-                    "serial_number",
-                    format!(
-                        "serial number '{serial}' already exists as {}; this import creates new assets only",
-                        asset_names(lookups, &[holder])
-                    ),
-                );
-            } else if Some(holder) != target {
+            if Some(holder) != target {
                 error(
                     "serial_number",
                     format!("serial number '{serial}' is already used by another asset"),

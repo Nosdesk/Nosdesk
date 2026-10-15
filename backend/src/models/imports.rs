@@ -101,8 +101,8 @@ pub struct NewImportValueAnswer {
 }
 
 /// An import job as the API returns it: the job row without the server's
-/// file path or the per-row results, with the suggested mapping lifted
-/// out of `source`.
+/// file path or the per-row results, with the suggested mapping and the
+/// columns set to Don't import lifted out of `source`.
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportJobResponse {
     pub id: Uuid,
@@ -119,6 +119,8 @@ pub struct ImportJobResponse {
     pub source: Option<serde_json::Value>,
     pub suggested_mapping: serde_json::Value,
     pub mapping: Option<serde_json::Value>,
+    /// Column indexes the stored mapping sets to Don't import.
+    pub ignored: serde_json::Value,
     pub options: Option<serde_json::Value>,
     pub answers: Option<serde_json::Value>,
 }
@@ -126,11 +128,15 @@ pub struct ImportJobResponse {
 impl From<ImportJob> for ImportJobResponse {
     fn from(job: ImportJob) -> Self {
         let mut source = job.source;
-        let suggested_mapping = source
-            .as_mut()
-            .and_then(serde_json::Value::as_object_mut)
-            .and_then(|o| o.remove("suggested_mapping"))
-            .unwrap_or_else(|| serde_json::json!([]));
+        let mut lift = |key: &str| {
+            source
+                .as_mut()
+                .and_then(serde_json::Value::as_object_mut)
+                .and_then(|o| o.remove(key))
+                .unwrap_or_else(|| serde_json::json!([]))
+        };
+        let suggested_mapping = lift("suggested_mapping");
+        let ignored = lift("ignored");
         Self {
             id: job.id,
             job_type: job.job_type,
@@ -146,6 +152,7 @@ impl From<ImportJob> for ImportJobResponse {
             source,
             suggested_mapping,
             mapping: job.mapping,
+            ignored,
             options: job.options,
             answers: job.answers,
         }

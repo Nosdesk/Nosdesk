@@ -299,13 +299,13 @@ async function switchType(type: ImportJobType) {
   }
 }
 
-async function check(mapping: ColumnMapping, options: ImportOptions) {
+async function check(mapping: ColumnMapping, options: ImportOptions, ignored: number[]) {
   if (!job.value) return
   busy.value = 'check'
   errorMessage.value = ''
   commitNotice.value = ''
   try {
-    job.value = await importService.putMapping(job.value.id, mapping, options)
+    job.value = await importService.putMapping(job.value.id, mapping, options, ignored)
     step.value = 'review'
   } catch (e) {
     errorMessage.value = apiError(e, 'import-error-generic')
