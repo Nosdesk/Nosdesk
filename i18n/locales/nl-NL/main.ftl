@@ -3606,8 +3606,6 @@ import-stepper-label = Importstappen
 # MT: pending native review (nl-NL)
 import-step-start = Start
 # MT: pending native review (nl-NL)
-import-step-upload = Bestand
-# MT: pending native review (nl-NL)
 import-step-map = Kolommen
 # MT: pending native review (nl-NL)
 import-step-review = Controle
@@ -3638,25 +3636,21 @@ import-start-type-heading = Wat wilt u importeren?
 # MT: pending native review (nl-NL)
 import-start-type-label = Te importeren gegevens
 # MT: pending native review (nl-NL)
+import-start-heading = Importeren uit een spreadsheet
+# MT: pending native review (nl-NL)
+import-start-reading = Bestand lezen
+# MT: pending native review (nl-NL)
 import-template-heading = Begin met een sjabloon
 # MT: pending native review (nl-NL)
-import-template-help = De kopteksten in het sjabloon zijn veld-id's zoals asset_tag. Laat ze staan en de koppeling gaat vanzelf. Eigen kopteksten werken ook; die koppelt u bij de stap Kolommen.
+import-template-help = De kopteksten in het sjabloon zijn veldnamen zoals asset_tag. Laat ze staan en de koppeling gaat vanzelf. Eigen kopteksten werken ook.
 # MT: pending native review (nl-NL)
 import-template-download = Sjabloon downloaden
 # MT: pending native review (nl-NL)
-import-action-continue = Doorgaan
-# MT: pending native review (nl-NL)
-import-action-back = Terug
-# MT: pending native review (nl-NL)
-import-upload-heading = Uw bestand uploaden
-# MT: pending native review (nl-NL)
-import-drop-idle = Sleep een .csv- of .xlsx-bestand hierheen, of klik om te bladeren
+import-drop-idle = Sleep een .csv- of .xlsx-bestand hierheen, of tik om er een te kiezen
 # MT: pending native review (nl-NL)
 import-drop-release = Loslaten om te uploaden
 # MT: pending native review (nl-NL)
 import-drop-hint = .csv of .xlsx, tot 10 MB en 5.000 rijen
-# MT: pending native review (nl-NL)
-import-drop-replace = Klik of sleep een ander bestand om het te vervangen
 # MT: pending native review (nl-NL)
 import-sheet-heading = Werkblad en kopregel
 # MT: pending native review (nl-NL)
@@ -3700,10 +3694,6 @@ import-sheet-help-hidden = Verborgen rijen en kolommen worden net als de andere 
 import-sheet-help-zeros = Excel verwijdert voorloopnullen uit getallen voordat het bestand Nosdesk bereikt. Wil je een tag als 00123 behouden, maak de kolom dan in Excel op als tekst.
 # MT: pending native review (nl-NL)
 import-sheet-help-formulas = Formules worden geïmporteerd als de waarde die Excel het laatst heeft berekend.
-# MT: pending native review (nl-NL)
-import-action-upload = Uploaden
-# MT: pending native review (nl-NL)
-import-action-uploading = Bestand lezen
 # MT: pending native review (nl-NL)
 import-loading-fields = Velden laden
 # MT: pending native review (nl-NL)
@@ -3797,6 +3787,18 @@ import-map-change-file-title = Dit bestand verwerpen?
 import-map-change-file-message = Kolommen met dezelfde kopteksten worden opnieuw automatisch gekoppeld.
 # MT: pending native review (nl-NL)
 import-map-change-file-confirm = Bestand verwerpen
+# MT: pending native review (nl-NL)
+import-map-detect-users = Dit bestand heeft de kolommen { $headers } en geen tag of serienummer. Importeert u gebruikers?
+# MT: pending native review (nl-NL)
+import-map-detect-assets = Dit bestand heeft de kolommen { $headers }. Importeert u assets?
+# MT: pending native review (nl-NL)
+import-map-switch-users = Overschakelen naar gebruikers
+# MT: pending native review (nl-NL)
+import-map-switch-assets = Overschakelen naar assets
+# MT: pending native review (nl-NL)
+import-map-switch-users-help = De kolommen worden opnieuw gekoppeld voor gebruikers.
+# MT: pending native review (nl-NL)
+import-map-switch-assets-help = De kolommen worden opnieuw gekoppeld voor assets.
 # MT: pending native review (nl-NL)
 import-map-check = { $count ->
     [one] 1 rij controleren

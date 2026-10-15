@@ -5,9 +5,10 @@
  * and how a workbook is read (merged cells, hidden rows, leading zeros,
  * formulas).
  *
- * Open when the workbook has more than one sheet with rows or its header
- * isn't on row 1, so a guess past a title row is always seen once;
- * otherwise one line with Change. A choice emits `choose` and the view
+ * Open when the workbook has more than one visible sheet with rows or its
+ * header isn't on row 1, so a guess past a title row is always seen once;
+ * otherwise one line with Change. Hidden sheets are listed with a Hidden
+ * pill but never open the panel. A choice emits `choose` and the view
  * stores it with `PUT source`; a sheet without a row number takes the
  * server's guess.
  */
@@ -32,8 +33,10 @@ const emit = defineEmits<{
   (e: 'choose', sheet: string, headerRow: number | null): void
 }>()
 
-const sheetsWithRows = computed(() => props.source.sheets.filter((s) => s.rows > 0))
-const open = ref(sheetsWithRows.value.length > 1 || props.source.header_row > 1)
+const visibleSheetsWithRows = computed(() =>
+  props.source.sheets.filter((s) => s.visible && s.rows > 0),
+)
+const open = ref(visibleSheetsWithRows.value.length > 1 || props.source.header_row > 1)
 
 const headerRow = ref<number | null>(props.source.header_row)
 watch(

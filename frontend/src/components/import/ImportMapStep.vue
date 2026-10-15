@@ -4,6 +4,8 @@
  * sample values and a target picker pre-filled from the server's
  * suggestions. Blocking problems disable the check; the options card
  * holds the choices the dry run reads. The rules live in `mapModel.ts`.
+ * When the headers look like another import type, a line above the
+ * columns offers to switch (`detectType.ts`).
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -26,11 +28,13 @@ import type {
   DecimalMark,
   ImportField,
   ImportJob,
+  ImportJobType,
   ImportOptions,
   MatchBy,
   SuggestionReason,
 } from '@nosdesk/core/services/importService'
 
+import { detectOtherType, listHeaders } from './detectType'
 import {
   IGNORE,
   buildMapping,
@@ -53,10 +57,15 @@ const props = defineProps<{
   /** Asset kinds for the default kind picker, as slug and label. */
   kinds: { value: string; label: string }[]
   checking: boolean
+  /** The type is being switched from the detection line. */
+  switching?: boolean
+  /** "Change file" is deleting the job. */
+  discarding?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'check', mapping: ColumnMapping, options: ImportOptions): void
+  (e: 'switch-type', type: ImportJobType): void
   (e: 'change-file'): void
 }>()
 
@@ -80,6 +89,22 @@ const decimal = ref<DecimalMark>(
 )
 
 const filter = ref<MapFilter>('all')
+
+// ---- type detection ----
+
+const typeHint = computed(() =>
+  detectOtherType(
+    props.job.job_type,
+    source.value.headers.map((h) => h.name),
+  ),
+)
+const typeHintText = computed(() => {
+  const hint = typeHint.value
+  if (!hint) return ''
+  const lang = typeof document === 'undefined' ? undefined : document.documentElement.lang
+  return t(`import-map-detect-${hint.type}`, { headers: listHeaders(hint.headers, lang) })
+})
+const busyElsewhere = computed(() => props.checking || !!props.switching || !!props.discarding)
 
 const fieldById = computed(() => new Map(props.fields.map((f) => [f.id, f])))
 
@@ -287,6 +312,26 @@ const messageId = (row: MapRow) => `import-map-message-${row.index}`
 
 <template>
   <section class="flex flex-col gap-6">
+    <!-- Type detection: the headers look like another type. -->
+    <Callout v-if="typeHint" severity="info" data-test="import-type-hint">
+      <div class="px-4 py-3 flex flex-col gap-2">
+        <p class="text-sm text-primary">{{ typeHintText }}</p>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            :loading="switching"
+            :disabled="busyElsewhere"
+            data-test="import-switch-type"
+            @click="emit('switch-type', typeHint.type)"
+          >
+            {{ $t(`import-map-switch-${typeHint.type}`) }}
+          </Button>
+          <span class="text-xs text-tertiary">{{ $t(`import-map-switch-${typeHint.type}-help`) }}</span>
+        </div>
+      </div>
+    </Callout>
+
     <!-- Summary strip: counts, filter, next problem. A short file reads at
          a glance without it. Opaque, so cards scrolled under it don't show
          through. -->
@@ -544,7 +589,13 @@ const messageId = (row: MapRow) => `import-map-message-${row.index}`
     <div
       class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3"
     >
-      <Button variant="ghost" @click="showChangeFile = true">
+      <Button
+        variant="ghost"
+        :loading="discarding"
+        :disabled="busyElsewhere"
+        data-test="import-change-file"
+        @click="showChangeFile = true"
+      >
         {{ $t('import-map-change-file') }}
       </Button>
       <span v-if="blocked" class="ml-auto text-xs text-tertiary">
@@ -552,7 +603,7 @@ const messageId = (row: MapRow) => `import-map-message-${row.index}`
       </span>
       <Button
         :class="blocked ? '' : 'ml-auto'"
-        :disabled="blocked || checking"
+        :disabled="blocked || busyElsewhere"
         :loading="checking"
         data-test="import-check"
         @click="check"

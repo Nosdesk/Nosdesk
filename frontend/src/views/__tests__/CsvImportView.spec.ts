@@ -13,6 +13,8 @@ import type {
 const api = vi.hoisted(() => ({
   upload: vi.fn(),
   putSource: vi.fn(),
+  putType: vi.fn(),
+  remove: vi.fn(),
   putMapping: vi.fn(),
   commit: vi.fn(),
   get: vi.fn(),
@@ -26,6 +28,8 @@ vi.mock('@nosdesk/core/services/importService', () => ({
   importService: {
     upload: (...a: unknown[]) => api.upload(...a),
     putSource: (...a: unknown[]) => api.putSource(...a),
+    putType: (...a: unknown[]) => api.putType(...a),
+    remove: (...a: unknown[]) => api.remove(...a),
     putMapping: (...a: unknown[]) => api.putMapping(...a),
     commit: (...a: unknown[]) => api.commit(...a),
     get: (...a: unknown[]) => api.get(...a),
@@ -172,6 +176,7 @@ beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset()
   api.fields.mockResolvedValue(FIELDS)
   api.rows.mockResolvedValue(rowsPage())
+  localStorage.clear()
   router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/:any(.*)*', component: { template: '<div />' } }],
@@ -207,22 +212,33 @@ function targets() {
 
 const checkButton = () => wrapper!.find('[data-test="import-check"]')
 
+/** Pick `file` with the Start screen's file input. */
+async function pick(file: File) {
+  const input = wrapper!.find('[data-test="import-file"]')
+  Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+  await input.trigger('change')
+}
+
+const csvFile = (name = 'cameras.csv') =>
+  new File(['name\nx\n'], name, { type: 'text/csv' })
+
 describe('CsvImportView step machine', () => {
-  it('walks Start, Upload, Map, Review and Done', async () => {
+  it('walks Start, Map, Review and Done', async () => {
     api.upload.mockResolvedValue(parsedJob())
     api.putMapping.mockResolvedValue(checkedJob())
     api.commit.mockResolvedValue(checkedJob({ status: 'done', records_committed: 10 }))
     await mountAt()
     expect(currentStep()).toBe('start')
+    expect(wrapper!.findAll('[data-step]').map((s) => s.attributes('data-step'))).toEqual([
+      'start',
+      'map',
+      'review',
+      'done',
+    ])
 
-    await wrapper!.find('[data-test="import-continue"]').trigger('click')
-    expect(currentStep()).toBe('upload')
-
-    const input = wrapper!.find('[data-test="import-file"]')
-    const file = new File(['name\nx\n'], 'cameras.csv', { type: 'text/csv' })
-    Object.defineProperty(input.element, 'files', { value: [file] })
-    await input.trigger('change')
-    await wrapper!.find('[data-test="import-upload"]').trigger('click')
+    // Picking the file uploads it; there is no separate Upload step.
+    const file = csvFile()
+    await pick(file)
     await flushPromises()
     expect(api.upload).toHaveBeenCalledWith('assets', file)
     expect(currentStep()).toBe('map')
@@ -362,10 +378,10 @@ describe('CsvImportView resume', () => {
     expect(currentStep()).toBe(expected)
   })
 
-  it('opens a failed job at Upload with its message', async () => {
+  it('opens a failed job at Start with its message', async () => {
     api.get.mockResolvedValue(parsedJob({ status: 'failed', error_message: 'file is not valid UTF-8' }))
     await mountAt('/admin/data-import/csv?job=job-1')
-    expect(currentStep()).toBe('upload')
+    expect(currentStep()).toBe('start')
     expect(wrapper!.text()).toContain('file is not valid UTF-8')
   })
 
@@ -575,15 +591,10 @@ describe('CsvImportView sheet panel', () => {
   it('accepts a workbook and opens on its sheets', async () => {
     api.upload.mockResolvedValue(workbookJob())
     await mountAt()
-    await wrapper!.find('[data-test="import-continue"]').trigger('click')
-    const input = wrapper!.find('[data-test="import-file"]')
     const file = new File(['PK'], 'TVS Assets 2026.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })
-    Object.defineProperty(input.element, 'files', { value: [file] })
-    await input.trigger('change')
-    expect(wrapper!.find('[data-test="import-upload"]').attributes('disabled')).toBeUndefined()
-    await wrapper!.find('[data-test="import-upload"]').trigger('click')
+    await pick(file)
     await flushPromises()
     expect(api.upload).toHaveBeenCalledWith('assets', file)
     expect(currentStep()).toBe('map')
@@ -645,9 +656,258 @@ describe('CsvImportView sheet panel', () => {
     expect(wrapper!.find('[data-test="import-sheet-apply"]').exists()).toBe(true)
   })
 
+  it('stays folded when the only other sheet with rows is hidden', async () => {
+    api.get.mockResolvedValue(
+      workbookJob({
+        sheets: [
+          { name: 'Cameras', visible: true, rows: 412 },
+          { name: 'Empty', visible: true, rows: 0 },
+          { name: 'Lookups', visible: false, rows: 12 },
+        ],
+        header_row: 1,
+      }),
+    )
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(wrapper!.find('[data-test="import-sheet-summary"]').exists()).toBe(true)
+    // Opened by hand, the hidden sheet is still listed and marked.
+    await wrapper!.find('[data-test="import-sheet-change"]').trigger('click')
+    const options = wrapper!.findAll('[data-test="import-sheet-option"]')
+    expect(options).toHaveLength(3)
+    expect(options[2].find('[data-test="import-sheet-hidden"]').exists()).toBe(true)
+  })
+
+  it('opens for a header guessed below row 1 even with one visible sheet', async () => {
+    api.get.mockResolvedValue(
+      workbookJob({
+        sheets: [
+          { name: 'Cameras', visible: true, rows: 412 },
+          { name: 'Lookups', visible: false, rows: 12 },
+        ],
+      }),
+    )
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(wrapper!.find('[data-test="import-sheet-summary"]').exists()).toBe(false)
+    expect(wrapper!.findAll('[data-test="import-sheet-option"]')).toHaveLength(2)
+  })
+
   it('shows no sheet panel for a CSV', async () => {
     api.get.mockResolvedValue(parsedJob())
     await mountAt('/admin/data-import/csv?job=job-1')
     expect(wrapper!.find('[data-test="import-sheet-panel"]').exists()).toBe(false)
+  })
+})
+
+describe('CsvImportView Start', () => {
+  it('opens on the type last used and remembers a new one', async () => {
+    localStorage.setItem('nosdesk.import.lastType', 'users')
+    api.upload.mockResolvedValue(parsedJob({ job_type: 'tickets' }))
+    await mountAt()
+    const checked = wrapper!.find('[role="radio"][data-state="checked"]')
+    expect(checked.text()).toBe('csv-import-type-users')
+
+    const tickets = wrapper!
+      .findAll('[role="radio"]')
+      .find((r) => r.text() === 'csv-import-type-tickets')
+    await tickets!.trigger('click')
+    await flushPromises()
+    const file = csvFile('tickets.csv')
+    await pick(file)
+    await flushPromises()
+    expect(api.upload).toHaveBeenCalledWith('tickets', file)
+    expect(localStorage.getItem('nosdesk.import.lastType')).toBe('tickets')
+  })
+
+  it('shows the file while it is read', async () => {
+    let finish: (job: ImportJob) => void = () => {}
+    api.upload.mockReturnValue(new Promise<ImportJob>((resolve) => (finish = resolve)))
+    await mountAt()
+    await pick(new File(['x'.repeat(2048)], 'cameras.csv', { type: 'text/csv' }))
+    await flushPromises()
+    const reading = wrapper!.find('[data-test="import-reading"]')
+    expect(reading.exists()).toBe(true)
+    expect(reading.text()).toContain('import-start-reading')
+    expect(reading.text()).toContain('cameras.csv · 2 KB')
+    expect(wrapper!.find('[data-test="import-drop"]').exists()).toBe(false)
+
+    finish(parsedJob())
+    await flushPromises()
+    expect(currentStep()).toBe('map')
+  })
+
+  it('uploads a dropped file', async () => {
+    api.upload.mockResolvedValue(parsedJob())
+    await mountAt()
+    const file = csvFile()
+    await wrapper!.find('[data-test="import-drop"]').trigger('drop', { dataTransfer: { files: [file] } })
+    await flushPromises()
+    expect(api.upload).toHaveBeenCalledWith('assets', file)
+    expect(currentStep()).toBe('map')
+  })
+
+  it('opens the file picker from the drop zone', async () => {
+    await mountAt()
+    const input = wrapper!.find('[data-test="import-file"]').element as HTMLInputElement
+    const click = vi.spyOn(input, 'click').mockImplementation(() => {})
+    await wrapper!.find('[data-test="import-drop"]').trigger('click')
+    expect(click).toHaveBeenCalled()
+  })
+
+  it('keeps a refused file on Start with its name and size', async () => {
+    api.upload.mockRejectedValue({
+      response: { status: 400, data: { error: 'The file has a header row and no data.' } },
+    })
+    await mountAt()
+    await pick(new File(['name\n'], 'empty.csv', { type: 'text/csv' }))
+    await flushPromises()
+    expect(currentStep()).toBe('start')
+    const banner = wrapper!.find('[data-test="import-upload-error"]')
+    expect(banner.text()).toContain('The file has a header row and no data.')
+    expect(banner.text()).toContain('empty.csv · 5 B')
+    expect(router.currentRoute.value.query.job).toBeUndefined()
+
+    // Another file takes its place.
+    api.upload.mockResolvedValue(parsedJob())
+    await pick(csvFile())
+    await flushPromises()
+    expect(currentStep()).toBe('map')
+  })
+
+  it('refuses a file that is not a spreadsheet without uploading it', async () => {
+    await mountAt()
+    await pick(new File(['%PDF'], 'scan.pdf', { type: 'application/pdf' }))
+    await flushPromises()
+    expect(api.upload).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-test="import-upload-error"]').text()).toContain(
+      'import-error-not-csv',
+    )
+  })
+})
+
+function usersLookingJob(overrides: Partial<ImportJob> = {}): ImportJob {
+  const base = parsedJob()
+  return parsedJob({
+    filename: 'New starters.csv',
+    source: {
+      ...base.source!,
+      headers: [
+        { index: 0, name: 'First', samples: ['Alex'] },
+        { index: 1, name: 'Last', samples: ['Smith'] },
+        { index: 2, name: 'Email', samples: ['alex@example.com'] },
+        { index: 3, name: 'Dept', samples: ['HR'] },
+      ],
+      row_count: 8,
+    },
+    suggested_mapping: [],
+    ...overrides,
+  })
+}
+
+describe('CsvImportView type switch', () => {
+  it('offers the type the headers look like and switches to it', async () => {
+    api.get.mockResolvedValue(usersLookingJob())
+    api.putType.mockResolvedValue(
+      usersLookingJob({
+        job_type: 'users',
+        suggested_mapping: [{ index: 2, field: 'email', reason: 'exact' }],
+      }),
+    )
+    api.fields.mockImplementation(async (type: string) =>
+      type === 'users'
+        ? [
+            { id: 'email', label: 'Email', group: 'core', value_type: 'email', required: true },
+            { id: 'name', label: 'Name', group: 'core', value_type: 'text', required: true },
+          ]
+        : FIELDS,
+    )
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('map')
+    const hint = wrapper!.find('[data-test="import-type-hint"]')
+    expect(hint.text()).toContain('import-map-detect-users')
+    expect(hint.text()).toContain('import-map-switch-users-help')
+
+    await wrapper!.find('[data-test="import-switch-type"]').trigger('click')
+    await flushPromises()
+    expect(api.putType).toHaveBeenCalledWith('job-1', 'users')
+    expect(api.fields).toHaveBeenCalledWith('users')
+    expect(currentStep()).toBe('map')
+    // The Map step is rebuilt for users: no hint, the new suggestion.
+    expect(wrapper!.find('[data-test="import-type-hint"]').exists()).toBe(false)
+    expect(targets().map((s) => (s.element as HTMLSelectElement).value)).toEqual([
+      '',
+      '',
+      'email',
+      '',
+    ])
+    expect(localStorage.getItem('nosdesk.import.lastType')).toBe('users')
+  })
+
+  it('says nothing when the headers fit the type', async () => {
+    api.get.mockResolvedValue(parsedJob())
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(wrapper!.find('[data-test="import-type-hint"]').exists()).toBe(false)
+  })
+
+  it('stays on Map with the reason when the switch is refused', async () => {
+    api.get.mockResolvedValue(usersLookingJob())
+    api.putType.mockRejectedValue({ response: { status: 409, data: { error: 'committed' } } })
+    await mountAt('/admin/data-import/csv?job=job-1')
+    await wrapper!.find('[data-test="import-switch-type"]').trigger('click')
+    await flushPromises()
+    expect(currentStep()).toBe('map')
+    expect(wrapper!.text()).toContain('committed')
+  })
+})
+
+describe('CsvImportView Change file', () => {
+  async function changeFile() {
+    await wrapper!.find('[data-test="import-change-file"]').trigger('click')
+    expect(wrapper!.find('[data-test="confirm-message"]').text()).toBe(
+      'import-map-change-file-message',
+    )
+    await wrapper!.find('[data-test="confirm-ok"]').trigger('click')
+    await flushPromises()
+  }
+
+  it('deletes the draft and returns to Start on its type', async () => {
+    api.get.mockResolvedValue(parsedJob({ job_type: 'users' }))
+    api.remove.mockResolvedValue(undefined)
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('map')
+    await changeFile()
+    expect(api.remove).toHaveBeenCalledWith('job-1')
+    expect(currentStep()).toBe('start')
+    expect(router.currentRoute.value.query.job).toBeUndefined()
+    expect(wrapper!.find('[role="radio"][data-state="checked"]').text()).toBe(
+      'csv-import-type-users',
+    )
+    expect(wrapper!.find('[data-test="import-drop"]').exists()).toBe(true)
+  })
+
+  it('treats a draft already gone as deleted', async () => {
+    api.get.mockResolvedValue(parsedJob())
+    api.remove.mockRejectedValue({ response: { status: 404, data: {} } })
+    await mountAt('/admin/data-import/csv?job=job-1')
+    await changeFile()
+    expect(currentStep()).toBe('start')
+  })
+
+  it('stays on Map when the delete is refused', async () => {
+    api.get.mockResolvedValue(parsedJob())
+    api.remove.mockRejectedValue({ response: { status: 409, data: { error: 'already imported' } } })
+    await mountAt('/admin/data-import/csv?job=job-1')
+    await changeFile()
+    expect(currentStep()).toBe('map')
+    expect(wrapper!.text()).toContain('already imported')
+    expect(router.currentRoute.value.query.job).toBe('job-1')
+  })
+
+  it('leaves an imported job alone when starting another from Done', async () => {
+    api.get.mockResolvedValue(checkedJob({ status: 'done', records_committed: 10 }))
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('done')
+    await button('import-done-new').trigger('click')
+    await flushPromises()
+    expect(api.remove).not.toHaveBeenCalled()
+    expect(currentStep()).toBe('start')
   })
 })

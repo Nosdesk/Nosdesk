@@ -676,6 +676,30 @@ impl Drop for StagedGrid {
     }
 }
 
+/// Remove every file kept for a job: the upload, its grid and any staged
+/// grid. A file already gone is not an error. Returns how many were removed.
+pub fn remove_job_files(job_id: Uuid) -> std::io::Result<usize> {
+    let entries = match std::fs::read_dir(imports_dir()) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e),
+    };
+    let prefix = format!("{job_id}.");
+    let mut removed = 0;
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_name().to_string_lossy().starts_with(&prefix) {
+            continue;
+        }
+        match std::fs::remove_file(entry.path()) {
+            Ok(()) => removed += 1,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(removed)
+}
+
 pub fn read_grid(job_id: Uuid) -> std::io::Result<ParsedCsv> {
     let bytes = std::fs::read(grid_path(job_id))?;
     serde_json::from_slice(&bytes).map_err(std::io::Error::other)
