@@ -3622,6 +3622,8 @@ import-step-review = Vérification
 # MT: pending native review (fr-FR)
 import-step-done = Terminé
 # MT: pending native review (fr-FR)
+import-step-values = Valeurs
+# MT: pending native review (fr-FR)
 import-step-progress = Étape { $current } sur { $total } : { $name }
 # MT: pending native review (fr-FR)
 import-resuming = Ouverture de l'import
@@ -3951,6 +3953,122 @@ import-constants-kind-label = Type pour toutes les lignes
 # MT: pending native review (fr-FR)
 import-constants-kind-placeholder = Choisir un type
 # MT: pending native review (fr-FR)
+# MT: pending native review (fr-FR)
+import-values-load-failed = Les valeurs du fichier n'ont pas pu être lues. Revenez aux colonnes et vérifiez à nouveau.
+# MT: pending native review (fr-FR)
+import-values-loading = Lecture des valeurs du fichier
+# MT: pending native review (fr-FR)
+import-values-card-title = { $header } → { $field }
+# MT: pending native review (fr-FR)
+import-values-group-or = Ou
+# MT: pending native review (fr-FR)
+import-values-replace = Remplacer par
+# MT: pending native review (fr-FR)
+import-values-leave-as-is = Laisser tel quel
+# MT: pending native review (fr-FR)
+import-values-leave-as-is-help = Les biens existants gardent leur type. Les nouvelles lignes sans type sont ignorées.
+# MT: pending native review (fr-FR)
+import-values-leave-blank = Laisser vide
+# MT: pending native review (fr-FR)
+import-values-skip = Ignorer ces lignes
+# MT: pending native review (fr-FR)
+import-values-close-to = proche de « { $label } »
+# MT: pending native review (fr-FR)
+import-values-consequence-skipped = seraient ignorées
+# MT: pending native review (fr-FR)
+import-values-consequence-blank = laissé vide
+# MT: pending native review (fr-FR)
+import-values-consequence-as-is = laissé tel quel
+# MT: pending native review (fr-FR)
+import-values-blank = (vide)
+# MT: pending native review (fr-FR)
+import-values-filter-no-match = Sans correspondance { $count }
+# MT: pending native review (fr-FR)
+import-values-filter-guessed = Devinées { $count }
+# MT: pending native review (fr-FR)
+import-values-filter-all = Toutes
+# MT: pending native review (fr-FR)
+import-values-filter-label = Filtrer les valeurs
+# MT: pending native review (fr-FR)
+import-values-bulk-skip = Ignorer les { $count }
+# MT: pending native review (fr-FR)
+import-values-bulk-blank = Laisser les { $count } vides
+# MT: pending native review (fr-FR)
+import-values-scale = { $total } valeurs distinctes. Les correspondances exactes sont liées. Choisissez ce qu'il advient des { $rest } autres.
+# MT: pending native review (fr-FR)
+import-values-scale-label = Ce qu'il advient des autres valeurs
+# MT: pending native review (fr-FR)
+import-values-scale-download = Télécharger ces valeurs
+# MT: pending native review (fr-FR)
+import-values-col-value = Valeur dans le fichier
+# MT: pending native review (fr-FR)
+import-values-col-rows = Lignes
+# MT: pending native review (fr-FR)
+import-values-col-becomes = Devient
+# MT: pending native review (fr-FR)
+import-values-col-status = Correspondance et résultat
+# MT: pending native review (fr-FR)
+import-values-all-matched = { $headers } : toutes les valeurs correspondent.
+# MT: pending native review (fr-FR)
+import-values-strip-checked = { $count ->
+    [one] { $count } ligne vérifiée
+   *[other] { $count } lignes vérifiées
+}
+# MT: pending native review (fr-FR)
+import-values-strip-columns = { $count ->
+    [one] { $count } colonne attend une réponse
+   *[other] { $count } colonnes attendent des réponses
+}
+# MT: pending native review (fr-FR)
+import-values-strip-skipped = { $count ->
+    [one] { $count } ligne serait ignorée en l'état
+   *[other] { $count } lignes seraient ignorées en l'état
+}
+# MT: pending native review (fr-FR)
+import-values-strip-none-skipped = Aucune ligne ne serait ignorée
+# MT: pending native review (fr-FR)
+import-values-picker-label = Ce que devient « { $value } »
+# MT: pending native review (fr-FR)
+import-values-replace-date = Une date, AAAA-MM-JJ
+# MT: pending native review (fr-FR)
+import-values-replace-number = Un nombre
+# MT: pending native review (fr-FR)
+import-values-replace-label = Ce qui remplace « { $value } »
+# MT: pending native review (fr-FR)
+import-values-replace-needed = Saisissez la valeur de remplacement.
+# MT: pending native review (fr-FR)
+import-values-replace-missing = { $count ->
+    [one] { $count } valeur attend son remplacement
+   *[other] { $count } valeurs attendent leur remplacement
+}
+# MT: pending native review (fr-FR)
+import-values-pill-no-match = Sans correspondance
+# MT: pending native review (fr-FR)
+import-values-row-count = { $count ->
+    [one] { $count } ligne
+   *[other] { $count } lignes
+}
+# MT: pending native review (fr-FR)
+import-values-empty-filter = Aucune valeur ne correspond à ce filtre.
+# MT: pending native review (fr-FR)
+import-values-show-more = Afficher { $count } de plus
+# MT: pending native review (fr-FR)
+import-values-matched = { $count ->
+    [one] { $count } valeur correspond
+   *[other] { $count } valeurs correspondent
+}
+# MT: pending native review (fr-FR)
+import-values-show = Afficher
+# MT: pending native review (fr-FR)
+import-values-hide = Masquer
+# MT: pending native review (fr-FR)
+import-values-back = Retour aux colonnes
+# MT: pending native review (fr-FR)
+import-values-check-again = Vérifier à nouveau
+# MT: pending native review (fr-FR)
+import-review-values-matched = Toutes les valeurs correspondent automatiquement
+# MT: pending native review (fr-FR)
+import-review-values-see = Les voir
 import-review-checked = { $count ->
     [one] 1 ligne vérifiée.
    *[other] { $count } lignes vérifiées.

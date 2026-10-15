@@ -26,10 +26,14 @@ const props = defineProps<{
   fields: ImportField[]
   committing: boolean
   downloading?: boolean
+  /** Every value in the mapped columns matched without a question, so
+   *  Match values wasn't needed. */
+  valuesAllMatched?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'back'): void
+  (e: 'see-values'): void
   (e: 'commit'): void
   (e: 'download-report'): void
 }>()
@@ -161,6 +165,23 @@ function confirm() {
   <section class="flex flex-col gap-6">
     <p class="text-base text-primary" aria-live="polite">
       {{ committing ? $t('import-review-importing') : headline }}
+    </p>
+
+    <p
+      v-if="valuesAllMatched && !committing"
+      class="text-sm text-secondary flex flex-wrap items-center gap-x-2"
+      data-test="import-review-values-matched"
+    >
+      <span>{{ $t('import-review-values-matched') }}</span>
+      <span aria-hidden="true" class="text-tertiary">·</span>
+      <button
+        type="button"
+        class="text-accent hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
+        data-test="import-review-see-values"
+        @click="emit('see-values')"
+      >
+        {{ $t('import-review-values-see') }}
+      </button>
     </p>
 
     <div class="grid grid-cols-2 gap-3" :class="unchanged > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'">

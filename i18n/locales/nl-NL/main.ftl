@@ -3612,6 +3612,8 @@ import-step-review = Controle
 # MT: pending native review (nl-NL)
 import-step-done = Klaar
 # MT: pending native review (nl-NL)
+import-step-values = Waarden
+# MT: pending native review (nl-NL)
 import-step-progress = Stap { $current } van { $total }: { $name }
 # MT: pending native review (nl-NL)
 import-resuming = Import openen
@@ -3941,6 +3943,122 @@ import-constants-kind-label = Soort voor alle rijen
 # MT: pending native review (nl-NL)
 import-constants-kind-placeholder = Kies een soort
 # MT: pending native review (nl-NL)
+# MT: pending native review (nl-NL)
+import-values-load-failed = De waarden van het bestand konden niet worden gelezen. Ga terug naar Kolommen en controleer opnieuw.
+# MT: pending native review (nl-NL)
+import-values-loading = Waarden van het bestand lezen
+# MT: pending native review (nl-NL)
+import-values-card-title = { $header } → { $field }
+# MT: pending native review (nl-NL)
+import-values-group-or = Of
+# MT: pending native review (nl-NL)
+import-values-replace = Vervangen door
+# MT: pending native review (nl-NL)
+import-values-leave-as-is = Laten zoals het is
+# MT: pending native review (nl-NL)
+import-values-leave-as-is-help = Bestaande assets houden hun soort. Nieuwe rijen zonder soort worden overgeslagen.
+# MT: pending native review (nl-NL)
+import-values-leave-blank = Leeg laten
+# MT: pending native review (nl-NL)
+import-values-skip = Deze rijen overslaan
+# MT: pending native review (nl-NL)
+import-values-close-to = lijkt op '{ $label }'
+# MT: pending native review (nl-NL)
+import-values-consequence-skipped = worden overgeslagen
+# MT: pending native review (nl-NL)
+import-values-consequence-blank = leeg gelaten
+# MT: pending native review (nl-NL)
+import-values-consequence-as-is = gelaten zoals het is
+# MT: pending native review (nl-NL)
+import-values-blank = (leeg)
+# MT: pending native review (nl-NL)
+import-values-filter-no-match = Geen match { $count }
+# MT: pending native review (nl-NL)
+import-values-filter-guessed = Geraden { $count }
+# MT: pending native review (nl-NL)
+import-values-filter-all = Alle
+# MT: pending native review (nl-NL)
+import-values-filter-label = Waarden filteren
+# MT: pending native review (nl-NL)
+import-values-bulk-skip = Alle { $count } overslaan
+# MT: pending native review (nl-NL)
+import-values-bulk-blank = Alle { $count } leeg laten
+# MT: pending native review (nl-NL)
+import-values-scale = { $total } verschillende waarden. Exacte overeenkomsten zijn gekoppeld. Kies wat er met de andere { $rest } gebeurt.
+# MT: pending native review (nl-NL)
+import-values-scale-label = Wat er met de andere waarden gebeurt
+# MT: pending native review (nl-NL)
+import-values-scale-download = Deze waarden downloaden
+# MT: pending native review (nl-NL)
+import-values-col-value = Waarde in het bestand
+# MT: pending native review (nl-NL)
+import-values-col-rows = Rijen
+# MT: pending native review (nl-NL)
+import-values-col-becomes = Wordt
+# MT: pending native review (nl-NL)
+import-values-col-status = Overeenkomst en gevolg
+# MT: pending native review (nl-NL)
+import-values-all-matched = { $headers }: alle waarden gekoppeld.
+# MT: pending native review (nl-NL)
+import-values-strip-checked = { $count ->
+    [one] { $count } rij gecontroleerd
+   *[other] { $count } rijen gecontroleerd
+}
+# MT: pending native review (nl-NL)
+import-values-strip-columns = { $count ->
+    [one] { $count } kolom wacht op een antwoord
+   *[other] { $count } kolommen wachten op antwoorden
+}
+# MT: pending native review (nl-NL)
+import-values-strip-skipped = { $count ->
+    [one] { $count } rij zou nu worden overgeslagen
+   *[other] { $count } rijen zouden nu worden overgeslagen
+}
+# MT: pending native review (nl-NL)
+import-values-strip-none-skipped = Er worden geen rijen overgeslagen
+# MT: pending native review (nl-NL)
+import-values-picker-label = Wat '{ $value }' wordt
+# MT: pending native review (nl-NL)
+import-values-replace-date = Een datum, JJJJ-MM-DD
+# MT: pending native review (nl-NL)
+import-values-replace-number = Een getal
+# MT: pending native review (nl-NL)
+import-values-replace-label = Wat '{ $value }' vervangt
+# MT: pending native review (nl-NL)
+import-values-replace-needed = Typ wat het vervangt.
+# MT: pending native review (nl-NL)
+import-values-replace-missing = { $count ->
+    [one] { $count } waarde mist een vervanging
+   *[other] { $count } waarden missen een vervanging
+}
+# MT: pending native review (nl-NL)
+import-values-pill-no-match = Geen match
+# MT: pending native review (nl-NL)
+import-values-row-count = { $count ->
+    [one] { $count } rij
+   *[other] { $count } rijen
+}
+# MT: pending native review (nl-NL)
+import-values-empty-filter = Geen waarden passen bij dit filter.
+# MT: pending native review (nl-NL)
+import-values-show-more = Nog { $count } tonen
+# MT: pending native review (nl-NL)
+import-values-matched = { $count ->
+    [one] { $count } waarde gekoppeld
+   *[other] { $count } waarden gekoppeld
+}
+# MT: pending native review (nl-NL)
+import-values-show = Tonen
+# MT: pending native review (nl-NL)
+import-values-hide = Verbergen
+# MT: pending native review (nl-NL)
+import-values-back = Terug naar kolommen
+# MT: pending native review (nl-NL)
+import-values-check-again = Opnieuw controleren
+# MT: pending native review (nl-NL)
+import-review-values-matched = Alle waarden automatisch gekoppeld
+# MT: pending native review (nl-NL)
+import-review-values-see = Bekijken
 import-review-checked = { $count ->
     [one] 1 rij gecontroleerd.
    *[other] { $count } rijen gecontroleerd.

@@ -193,6 +193,75 @@ export interface ImportJob {
   answers?: ValueAnswers | null
 }
 
+/** How a value matched: its entry's key or label (`exact`), the
+ *  workspace's saved answer, a known other name or close spelling
+ *  (`guessed`), or nothing. */
+export type ValueLayer = 'exact' | 'saved' | 'guessed' | 'no_match'
+
+export type ValueReason =
+  | { code: 'synonym' }
+  | { code: 'close_to'; label: string }
+  | { code: 'disabled'; label: string; note: string }
+  | { code: 'unreadable' }
+
+/** An entry a value can link to. */
+export interface ValueChoice {
+  value: string
+  label: string
+  /** Why it can't be picked here, when it can't. */
+  disabled?: string
+}
+
+/** One distinct value of a mapped column. */
+export interface ImportValue {
+  /** The value as answers key it: trimmed, lowercased, spaces collapsed;
+   *  empty for blank cells. */
+  key: string
+  /** Its first spelling in the file. */
+  text: string
+  blank: boolean
+  /** File lines holding it. */
+  rows: number[]
+  match: ValueLayer
+  reason?: ValueReason
+  /** What matching suggests; absent when the cell is kept as it is. */
+  suggested?: ValueAnswer
+  /** The admin's answer stored on the job. */
+  answer?: ValueAnswer
+  /** For a saved match, the import it came from. */
+  saved?: SuggestionProvenance
+  /** Rows holding it that the last check skipped. */
+  skipped_rows: number[]
+}
+
+export interface ImportValueColumn {
+  field: string
+  /** The source column. */
+  index: number
+  /** The file's header. */
+  header: string
+  value_type: FieldValueType
+  required: boolean
+  /** Entries a value can link to; empty for numbers and dates. */
+  choices: ValueChoice[]
+  /** Distinct values in the column. */
+  distinct: number
+  /** Of those, matched exactly. */
+  matched: number
+  /** Every value that isn't an exact match, then exact ones (at most 200). */
+  values: ImportValue[]
+}
+
+/** What Match values reads: each mapped column whose values link to a
+ *  closed set or must read as a number or date. */
+export interface ImportValues {
+  rows_checked: number
+  rows_skipped: number
+  /** Skipped rows no answer explains. */
+  skipped_other: number[]
+  columns: ImportValueColumn[]
+}
+
 export type RowOutcome = 'create' | 'update' | 'unchanged' | 'skipped'
 export type RowFilter = 'all' | RowOutcome
 
@@ -229,6 +298,8 @@ export interface ImportRowsPage {
 }
 
 export const importFieldsQueryKey = (jobType: ImportJobType) => ['import-fields', jobType] as const
+export const importValuesQueryKey = (jobId: string, updatedAt: string) =>
+  ['import-values', jobId, updatedAt] as const
 
 export const importService = {
   /** Upload + parse. Returns the job in status `parsed` with the file's
@@ -283,6 +354,20 @@ export const importService = {
       ignored,
       options,
     })
+    return data
+  },
+
+  /** The distinct values of each mapped column with how they matched and
+   *  their answers. The job must be checked. */
+  async values(jobId: string): Promise<ImportValues> {
+    const { data } = await apiClient.get<ImportValues>(`/admin/import/${jobId}/values`)
+    return data
+  },
+
+  /** Store the answers to the file's values, replacing any before, and
+   *  check the rows again. Returns the job with the fresh summary. */
+  async putValues(jobId: string, answers: ValueAnswers): Promise<ImportJob> {
+    const { data } = await apiClient.put<ImportJob>(`/admin/import/${jobId}/values`, { answers })
     return data
   },
 
