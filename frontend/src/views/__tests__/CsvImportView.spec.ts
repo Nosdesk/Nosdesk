@@ -7,10 +7,12 @@ import type {
   ImportField,
   ImportJob,
   ImportRowsPage,
+  ImportSource,
 } from '@nosdesk/core/services/importService'
 
 const api = vi.hoisted(() => ({
   upload: vi.fn(),
+  putSource: vi.fn(),
   putMapping: vi.fn(),
   commit: vi.fn(),
   get: vi.fn(),
@@ -23,6 +25,7 @@ vi.mock('@nosdesk/core/services/importService', () => ({
   importFieldsQueryKey: (type: string) => ['import-fields', type],
   importService: {
     upload: (...a: unknown[]) => api.upload(...a),
+    putSource: (...a: unknown[]) => api.putSource(...a),
     putMapping: (...a: unknown[]) => api.putMapping(...a),
     commit: (...a: unknown[]) => api.commit(...a),
     get: (...a: unknown[]) => api.get(...a),
@@ -459,5 +462,112 @@ describe('CsvImportView Review rows', () => {
     await mountAt('/admin/data-import/csv?job=job-1')
     expect(currentStep()).toBe('done')
     expect(wrapper!.find('[data-test="import-done-report"]').exists()).toBe(true)
+  })
+})
+
+function workbookJob(overrides: Partial<ImportSource> = {}): ImportJob {
+  const base = parsedJob()
+  return parsedJob({
+    filename: 'TVS Assets 2026.xlsx',
+    source: {
+      ...base.source!,
+      format: 'xlsx',
+      delimiter: null,
+      sheets: [
+        { name: 'Cameras', visible: true, rows: 412 },
+        { name: 'Vehicles', visible: true, rows: 40 },
+        { name: 'Lookups', visible: false, rows: 12 },
+      ],
+      sheet: 'Cameras',
+      header_row: 3,
+      preview: [
+        { row: 1, cells: ['TVS Assets 2026', ''] },
+        { row: 2, cells: ['', ''] },
+        { row: 3, cells: ['Device', 'Type'] },
+        { row: 4, cells: ['Cam 1', 'camera'] },
+      ],
+      ...overrides,
+    },
+  })
+}
+
+describe('CsvImportView sheet panel', () => {
+  it('accepts a workbook and opens on its sheets', async () => {
+    api.upload.mockResolvedValue(workbookJob())
+    await mountAt()
+    await wrapper!.find('[data-test="import-continue"]').trigger('click')
+    const input = wrapper!.find('[data-test="import-file"]')
+    const file = new File(['PK'], 'TVS Assets 2026.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    expect(wrapper!.find('[data-test="import-upload"]').attributes('disabled')).toBeUndefined()
+    await wrapper!.find('[data-test="import-upload"]').trigger('click')
+    await flushPromises()
+    expect(api.upload).toHaveBeenCalledWith('assets', file)
+    expect(currentStep()).toBe('map')
+
+    const panel = wrapper!.find('[data-test="import-sheet-panel"]')
+    expect(panel.exists()).toBe(true)
+    const options = panel.findAll('[data-test="import-sheet-option"]')
+    expect(options.map((o) => o.text().includes('Lookups'))).toEqual([false, false, true])
+    expect(panel.findAll('[data-test="import-sheet-hidden"]')).toHaveLength(1)
+    const current = panel.find('tr[aria-current="true"]')
+    expect(current.text()).toContain('Device')
+  })
+
+  it('switches the sheet and remounts the columns', async () => {
+    api.get.mockResolvedValue(workbookJob())
+    api.putSource.mockResolvedValue(
+      workbookJob({
+        sheet: 'Vehicles',
+        header_row: 1,
+        headers: [
+          { index: 0, name: 'Rego', samples: ['ABC-123'] },
+          { index: 1, name: 'Make', samples: ['Toyota'] },
+        ],
+        preview: [],
+      }),
+    )
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(targets()).toHaveLength(5)
+
+    const radios = wrapper!.findAll('input[name="import-sheet"]')
+    await radios[1].setValue(true)
+    await flushPromises()
+    expect(api.putSource).toHaveBeenCalledWith('job-1', 'Vehicles', null)
+    expect(targets()).toHaveLength(2)
+  })
+
+  it('takes a header row from the preview', async () => {
+    api.get.mockResolvedValue(workbookJob())
+    api.putSource.mockResolvedValue(workbookJob({ header_row: 4 }))
+    await mountAt('/admin/data-import/csv?job=job-1')
+    const rowButtons = wrapper!.findAll('[data-test="import-sheet-preview-row"] th button')
+    await rowButtons[3].trigger('click')
+    await flushPromises()
+    expect(api.putSource).toHaveBeenCalledWith('job-1', 'Cameras', 4)
+  })
+
+  it('folds to one line for a one-sheet workbook with its header on row 1', async () => {
+    api.get.mockResolvedValue(
+      workbookJob({
+        sheets: [{ name: 'Sheet1', visible: true, rows: 12 }],
+        sheet: 'Sheet1',
+        header_row: 1,
+      }),
+    )
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(wrapper!.find('[data-test="import-sheet-summary"]').exists()).toBe(true)
+    expect(wrapper!.find('input[name="import-sheet"]').exists()).toBe(false)
+    await wrapper!.find('[data-test="import-sheet-change"]').trigger('click')
+    expect(wrapper!.find('[data-test="import-sheet-apply"]').exists()).toBe(true)
+  })
+
+  it('shows no sheet panel for a CSV', async () => {
+    api.get.mockResolvedValue(parsedJob())
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(wrapper!.find('[data-test="import-sheet-panel"]').exists()).toBe(false)
   })
 })

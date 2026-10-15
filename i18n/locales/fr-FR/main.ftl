@@ -1637,7 +1637,8 @@ admin-data-import-microsoft-title = Microsoft Graph
 # TODO native-review fr-FR for the key below.
 admin-data-import-microsoft-description = Importez des utilisateurs, des groupes et des appareils depuis Microsoft Entra ID
 admin-data-import-csv-title = Import CSV
-admin-data-import-csv-description = Importer des données depuis des fichiers CSV, y compris des actifs, des utilisateurs et d'autres ressources
+# MT: pending native review (fr-FR)
+admin-data-import-csv-description = Importer des actifs, des utilisateurs et des tickets depuis un fichier .csv ou .xlsx
 admin-data-import-api-title = Intégrations API
 admin-data-import-api-description = Connectez-vous à des API tierces pour importer et synchroniser des données
 admin-data-import-ad-title = LDAP / Active Directory
@@ -3633,7 +3634,7 @@ import-error-generic = L'import a échoué. Vérifiez le fichier et réessayez.
 # MT: pending native review (fr-FR)
 import-error-commit = Rien n'a été importé. Vérifiez les lignes et réessayez.
 # MT: pending native review (fr-FR)
-import-error-not-csv = { $name } n'est pas un fichier .csv.
+import-error-not-csv = { $name } n'est pas un fichier .csv ou .xlsx.
 # MT: pending native review (fr-FR)
 import-start-type-heading = Que souhaitez-vous importer ?
 # MT: pending native review (fr-FR)
@@ -3651,13 +3652,56 @@ import-action-back = Retour
 # MT: pending native review (fr-FR)
 import-upload-heading = Envoyer votre fichier
 # MT: pending native review (fr-FR)
-import-drop-idle = Déposez un fichier .csv ici, ou cliquez pour parcourir
+import-drop-idle = Déposez un fichier .csv ou .xlsx ici, ou cliquez pour parcourir
 # MT: pending native review (fr-FR)
 import-drop-release = Relâchez pour envoyer
 # MT: pending native review (fr-FR)
-import-drop-hint = .csv, jusqu'à 10 Mo et 5 000 lignes
+import-drop-hint = .csv ou .xlsx, jusqu'à 10 Mo et 5 000 lignes
 # MT: pending native review (fr-FR)
 import-drop-replace = Cliquez ou déposez un autre fichier pour le remplacer
+# MT: pending native review (fr-FR)
+import-sheet-heading = Feuille et ligne d'en-tête
+# MT: pending native review (fr-FR)
+import-sheet-summary = Feuille : { $sheet } · ligne d'en-tête { $row }
+# MT: pending native review (fr-FR)
+import-sheet-change = Modifier
+# MT: pending native review (fr-FR)
+import-sheet-done = Terminé
+# MT: pending native review (fr-FR)
+import-sheet-legend = Feuille à importer
+# MT: pending native review (fr-FR)
+import-sheet-rows = { $count ->
+    [one] 1 ligne
+   *[other] { $count } lignes
+   }
+# MT: pending native review (fr-FR)
+import-sheet-rows-over = Plus de 5 000 lignes
+# MT: pending native review (fr-FR)
+import-sheet-hidden = Masquée
+# MT: pending native review (fr-FR)
+import-sheet-header-label = Ligne d'en-tête
+# MT: pending native review (fr-FR)
+import-sheet-header-help = La ligne qui porte les noms des colonnes. Les lignes au-dessus sont ignorées.
+# MT: pending native review (fr-FR)
+import-sheet-use-row = Utiliser la ligne { $row }
+# MT: pending native review (fr-FR)
+import-sheet-preview-caption = Le haut de { $sheet }, avec la ligne d'en-tête en surbrillance. Choisissez un numéro de ligne pour utiliser cette ligne à la place.
+# MT: pending native review (fr-FR)
+import-sheet-preview-row = Ligne
+# MT: pending native review (fr-FR)
+import-sheet-preview-use = Utiliser la ligne { $row } comme ligne d'en-tête
+# MT: pending native review (fr-FR)
+import-sheet-reading = Lecture de la feuille
+# MT: pending native review (fr-FR)
+import-sheet-help-heading = Comment un classeur est lu
+# MT: pending native review (fr-FR)
+import-sheet-help-merged = Une cellule fusionnée est importée comme sa cellule en haut à gauche. Les autres cellules qu'elle couvre sont vides.
+# MT: pending native review (fr-FR)
+import-sheet-help-hidden = Les lignes et colonnes masquées sont importées comme les autres.
+# MT: pending native review (fr-FR)
+import-sheet-help-zeros = Excel supprime les zéros en tête des nombres avant que le fichier n'arrive dans Nosdesk. Pour garder une étiquette comme 00123, mettez la colonne au format texte dans Excel.
+# MT: pending native review (fr-FR)
+import-sheet-help-formulas = Les formules sont importées avec la dernière valeur calculée par Excel.
 # MT: pending native review (fr-FR)
 import-action-upload = Envoyer
 # MT: pending native review (fr-FR)
