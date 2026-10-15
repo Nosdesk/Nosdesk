@@ -91,7 +91,8 @@ pub struct SourceHeader {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SuggestionReason {
-    /// The same header mapped this way in the type's last mapped import.
+    /// The same header went this way, to a field or to Don't import, in the
+    /// type's last mapped import: a saved match.
     Previous,
     /// The header is the field id.
     Exact,
@@ -109,16 +110,44 @@ pub struct Suggestion {
     /// `None` for a column that should not be imported.
     pub field: Option<String>,
     pub reason: SuggestionReason,
+    /// For a saved match, the import it came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<Provenance>,
+}
+
+/// The import a saved column match came from: who mapped it and when.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Provenance {
+    pub job_id: Uuid,
+    /// The admin who started that import.
+    pub by: Option<Uuid>,
+    pub by_name: Option<String>,
+    /// When that import's mapping was last stored or applied.
+    pub at: chrono::DateTime<chrono::Utc>,
+}
+
+/// What the type's last mapped import says about each header: normalized
+/// header to field id, or to `None` for a column set to Don't import. A
+/// header that import left without a choice is absent.
+#[derive(Debug, Clone, Default)]
+pub struct HeaderMemory {
+    pub choices: HashMap<String, Option<String>>,
+    pub provenance: Option<Provenance>,
 }
 
 /// What the `source` column stores: the source plus the suggestions made
-/// at upload, so a resumed job shows the same suggestions.
+/// at upload, so a resumed job shows the same suggestions, and the columns
+/// the admin set to Don't import at the Map step.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredSource {
     #[serde(flatten)]
     pub source: ImportSource,
     #[serde(default)]
     pub suggested_mapping: Vec<Suggestion>,
+    /// Column indexes set to Don't import, stored with the mapping. A
+    /// column neither mapped nor here was left without a choice.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored: Vec<usize>,
 }
 
 /// Lowercase letters and digits only, with `#` read as "no" so `Asset #`
@@ -183,29 +212,36 @@ pub fn csv_source(parsed: &ParsedCsv) -> ImportSource {
     }
 }
 
-/// The mapping a previous job of the same type used, as normalized header
-/// to field id.
-pub fn previous_choices(source: &ImportSource, mapping: &ColumnMapping) -> HashMap<String, String> {
-    mapping
+/// What a previous job of the same type chose for each header: its
+/// mapping, and its columns set to Don't import.
+pub fn previous_choices(
+    source: &ImportSource,
+    mapping: &ColumnMapping,
+    ignored: &[usize],
+) -> HashMap<String, Option<String>> {
+    let header = |index: usize| source.headers.get(index).map(|h| normalize(&h.name));
+    let ignored = ignored
         .iter()
-        .filter_map(|(field, &index)| {
-            let header = source.headers.get(index)?;
-            Some((normalize(&header.name), field.clone()))
-        })
-        .collect()
+        .filter_map(|&index| Some((header(index)?, None)));
+    let mapped = mapping
+        .iter()
+        .filter_map(|(field, &index)| Some((header(index)?, Some(field.clone()))));
+    // A mapped header wins over an ignored one of the same spelling.
+    ignored.chain(mapped).collect()
 }
 
 /// Pre-map each header. Each field goes to one column at most: the
-/// strongest reason wins (previous, exact, label, synonym), then file
-/// order. A blank header gets no suggestion.
+/// strongest reason wins (a saved match, then exact, label, synonym), then
+/// file order. A saved Don't import claims its column like a field would.
+/// A blank header gets no suggestion.
 pub fn suggest(
     headers: &[SourceHeader],
     fields: &[FieldSpec],
     synonyms: &[(&str, &str)],
-    previous: &HashMap<String, String>,
+    memory: &HeaderMemory,
 ) -> Vec<Suggestion> {
     let known: HashSet<&str> = fields.iter().map(|f| f.id.as_str()).collect();
-    let mut candidates: Vec<(SuggestionReason, usize, String)> = Vec::new();
+    let mut candidates: Vec<(SuggestionReason, usize, Option<String>)> = Vec::new();
     let mut report = Vec::new();
     for header in headers {
         let raw = header.name.trim();
@@ -217,23 +253,44 @@ pub fn suggest(
             report.push(header.index);
             continue;
         }
-        if let Some(field) = previous.get(&norm).filter(|f| known.contains(f.as_str())) {
-            candidates.push((SuggestionReason::Previous, header.index, field.clone()));
+        match memory.choices.get(&norm) {
+            Some(None) => candidates.push((SuggestionReason::Previous, header.index, None)),
+            Some(Some(field)) if known.contains(field.as_str()) => {
+                candidates.push((
+                    SuggestionReason::Previous,
+                    header.index,
+                    Some(field.clone()),
+                ));
+            }
+            // Not chosen last time, or a field that's gone: guess afresh.
+            _ => {}
         }
         if let Some(field) = fields.iter().find(|f| f.id == raw) {
-            candidates.push((SuggestionReason::Exact, header.index, field.id.clone()));
+            candidates.push((
+                SuggestionReason::Exact,
+                header.index,
+                Some(field.id.clone()),
+            ));
         }
         if let Some(field) = fields
             .iter()
             .find(|f| normalize(&f.label) == norm || normalize(&f.id) == norm)
         {
-            candidates.push((SuggestionReason::Label, header.index, field.id.clone()));
+            candidates.push((
+                SuggestionReason::Label,
+                header.index,
+                Some(field.id.clone()),
+            ));
         }
         if let Some((_, field)) = synonyms
             .iter()
             .find(|(s, f)| *s == norm && known.contains(f))
         {
-            candidates.push((SuggestionReason::Synonym, header.index, field.to_string()));
+            candidates.push((
+                SuggestionReason::Synonym,
+                header.index,
+                Some(field.to_string()),
+            ));
         }
     }
     candidates.sort_by_key(|(reason, index, _)| (*reason, *index));
@@ -246,22 +303,63 @@ pub fn suggest(
             index,
             field: None,
             reason: SuggestionReason::Report,
+            provenance: None,
         })
         .collect();
     for (reason, index, field) in candidates {
-        if taken_columns.contains(&index) || taken_fields.contains(&field) {
+        if taken_columns.contains(&index)
+            || field.as_ref().is_some_and(|f| taken_fields.contains(f))
+        {
             continue;
         }
         taken_columns.insert(index);
-        taken_fields.insert(field.clone());
+        if let Some(f) = &field {
+            taken_fields.insert(f.clone());
+        }
+        let provenance = (reason == SuggestionReason::Previous)
+            .then(|| memory.provenance.clone())
+            .flatten();
         out.push(Suggestion {
             index,
-            field: Some(field),
+            field,
             reason,
+            provenance,
         });
     }
     out.sort_by_key(|s| s.index);
     out
+}
+
+/// Check the columns set to Don't import: each in the file once, and none
+/// also mapped to a field.
+pub fn validate_ignored(
+    ignored: &[usize],
+    mapping: &ColumnMapping,
+    headers: &[SourceHeader],
+) -> Result<(), MappingError> {
+    let mut seen = HashSet::new();
+    for &index in ignored {
+        let Some(header) = headers.get(index) else {
+            return Err(MappingError(format!(
+                "column {} is set to Don't import, but the file has {} columns",
+                index + 1,
+                headers.len()
+            )));
+        };
+        if !seen.insert(index) {
+            return Err(MappingError(format!(
+                "column '{}' is set to Don't import twice",
+                header.name
+            )));
+        }
+        if mapping.values().any(|&i| i == index) {
+            return Err(MappingError(format!(
+                "column '{}' is mapped to a field and also set to Don't import; choose one",
+                header.name
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Why a mapping can't be used, worded for the admin.
@@ -784,7 +882,10 @@ mod tests {
     #[test]
     fn suggests_by_strongest_reason_then_file_order() {
         let synonyms = [("serial", "serial_number"), ("sn", "serial_number")];
-        let previous = HashMap::from([("device".to_string(), "name".to_string())]);
+        let memory = HeaderMemory {
+            choices: HashMap::from([("device".to_string(), Some("name".to_string()))]),
+            provenance: None,
+        };
         let got = suggest(
             &headers(&[
                 "Device",
@@ -797,7 +898,7 @@ mod tests {
             ]),
             &fields(),
             &synonyms,
-            &previous,
+            &memory,
         );
         let pairs: Vec<(usize, Option<&str>, SuggestionReason)> = got
             .iter()
@@ -815,6 +916,81 @@ mod tests {
                 (5, None, SuggestionReason::Report),
             ]
         );
+    }
+
+    #[test]
+    fn a_saved_choice_beats_a_guess_and_carries_where_it_came_from() {
+        let synonyms = [("serial", "serial_number"), ("comments", "name")];
+        let provenance = Provenance {
+            job_id: Uuid::nil(),
+            by: None,
+            by_name: Some("Sam".into()),
+            at: chrono::DateTime::UNIX_EPOCH,
+        };
+        let previous = previous_choices(
+            &ImportSource {
+                format: "csv".into(),
+                sheets: Vec::new(),
+                sheet: None,
+                header_row: 1,
+                headers: headers(&["Comments", "Serial", "Gone", "Left"]),
+                row_count: 1,
+                delimiter: None,
+                preview: Vec::new(),
+            },
+            &ColumnMapping::from([("serial_number".into(), 1), ("retired".into(), 2)]),
+            &[0],
+        );
+        assert_eq!(previous.get("comments"), Some(&None));
+        assert!(!previous.contains_key("left"), "{previous:?}");
+        let memory = HeaderMemory {
+            choices: previous,
+            provenance: Some(provenance.clone()),
+        };
+        let got = suggest(
+            &headers(&["Comments", "Serial", "Gone", "Left", "kind"]),
+            &fields(),
+            &synonyms,
+            &memory,
+        );
+        let pairs: Vec<(usize, Option<&str>, SuggestionReason, bool)> = got
+            .iter()
+            .map(|s| {
+                (
+                    s.index,
+                    s.field.as_deref(),
+                    s.reason,
+                    s.provenance.as_ref() == Some(&provenance),
+                )
+            })
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![
+                // Saved as Don't import: the synonym to name doesn't apply.
+                (0, None, SuggestionReason::Previous, true),
+                (1, Some("serial_number"), SuggestionReason::Previous, true),
+                // "Gone" was mapped to a field that no longer exists, and
+                // "Left" had no choice: neither is remembered.
+                (4, Some("kind"), SuggestionReason::Exact, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn ignored_columns_are_checked() {
+        let h = headers(&["Name", "Kind", "Notes"]);
+        let mapping = ColumnMapping::from([("name".into(), 0)]);
+        assert!(validate_ignored(&[2, 1], &mapping, &h).is_ok());
+        let refused = [
+            (vec![3], "file has 3 columns"),
+            (vec![2, 2], "twice"),
+            (vec![0], "also set to Don't import"),
+        ];
+        for (ignored, expected) in refused {
+            let err = validate_ignored(&ignored, &mapping, &h).unwrap_err().0;
+            assert!(err.contains(expected), "{expected}: {err}");
+        }
     }
 
     #[test]

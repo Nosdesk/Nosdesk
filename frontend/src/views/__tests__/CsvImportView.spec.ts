@@ -52,6 +52,9 @@ vi.mock('@/composables/useAssetKindsQuery', async () => {
   }
 })
 
+// The signed-in admin, for "your import".
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: { uuid: 'me' } }) }))
+
 // Pickers reduced to plain controls: the target picker is a <select>, the
 // default kind picker one button per option.
 vi.mock('@/components/common/SearchableDropdown.vue', () => ({
@@ -128,6 +131,9 @@ function parsedJob(overrides: Partial<ImportJob> = {}): ImportJob {
     ...overrides,
   }
 }
+
+const SAVED_BY_ME = { job_id: 'job-0', by: 'me', by_name: 'Me', at: '2026-07-12T00:00:00Z' }
+const SAVED_BY_SAM = { job_id: 'job-0', by: 'sam', by_name: 'Sam', at: '2026-07-12T00:00:00Z' }
 
 function checkedJob(overrides: Partial<ImportJob> = {}): ImportJob {
   return parsedJob({
@@ -258,7 +264,8 @@ describe('CsvImportView step machine', () => {
     expect(api.putMapping).toHaveBeenCalledWith(
       'job-1',
       { name: 0, kind: 1, asset_tag: 2, serial_number: 3 },
-      { match_by: 'asset_tag', date_order: 'iso', decimal: '.' },
+      { match_by: 'asset_tag', mode: 'create_update', date_order: 'iso', decimal: '.', constants: [] },
+      [],
     )
     expect(currentStep()).toBe('review')
 
@@ -271,16 +278,19 @@ describe('CsvImportView step machine', () => {
   })
 
   it('goes back from Review to Map keeping the mapping', async () => {
-    api.get.mockResolvedValue(checkedJob({ mapping: { name: 0, kind: 1, serial_number: 4 } }))
+    api.get.mockResolvedValue(
+      checkedJob({ mapping: { name: 0, kind: 1, serial_number: 4 }, ignored: [2] }),
+    )
     await mountAt('/admin/data-import/csv?job=job-1')
     expect(currentStep()).toBe('review')
     await button('import-review-back').trigger('click')
     expect(currentStep()).toBe('map')
+    // Don't import comes back as chosen; a column left unchosen stays so.
     expect(targets().map((s) => (s.element as HTMLSelectElement).value)).toEqual([
       'name',
       'kind',
       '__ignore__',
-      '__ignore__',
+      '',
       'serial_number',
     ])
   })
@@ -426,16 +436,19 @@ describe('CsvImportView Map step', () => {
     expect(wrapper!.text()).toContain('import-map-problem-required')
   })
 
-  it('lets a default kind cover the Kind column', async () => {
+  it('sets the kind for every row when no column gives it', async () => {
     api.putMapping.mockResolvedValue(checkedJob())
     await openMap()
     await targets()[1].setValue('__ignore__')
     expect(checkButton().attributes('disabled')).toBeDefined()
     expect(wrapper!.text()).toContain('import-map-problem-kind')
 
-    // The picker inside the problem callout.
-    await wrapper!.find('[data-test="dropdown"] [data-value="camera"]').trigger('click')
+    // The picker inside the problem callout adds a value for every row.
+    await wrapper!
+      .find('[data-test="import-kind-for-every-row"] [data-value="camera"]')
+      .trigger('click')
     expect(wrapper!.text()).not.toContain('import-map-problem-kind')
+    expect(wrapper!.findAll('[data-test="import-constant"]')).toHaveLength(1)
     expect(checkButton().attributes('disabled')).toBeUndefined()
 
     await checkButton().trigger('click')
@@ -443,8 +456,143 @@ describe('CsvImportView Map step', () => {
     expect(api.putMapping).toHaveBeenCalledWith(
       'job-1',
       { name: 0, asset_tag: 2, serial_number: 3 },
-      expect.objectContaining({ default_kind: 'camera', match_by: 'asset_tag' }),
+      expect.objectContaining({
+        constants: [{ field: 'kind', value: 'camera', apply_to: 'new' }],
+        match_by: 'asset_tag',
+      }),
+      [1],
     )
+    expect(api.putMapping.mock.calls[0][2]).not.toHaveProperty('default_kind')
+  })
+
+  it('pills only guesses, and says where a saved match came from', async () => {
+    await openMap(
+      parsedJob({
+        suggested_mapping: [
+          { index: 0, field: 'name', reason: 'exact' },
+          { index: 1, field: 'kind', reason: 'synonym' },
+          { index: 2, field: 'asset_tag', reason: 'previous', provenance: SAVED_BY_ME },
+          { index: 3, field: null, reason: 'previous', provenance: SAVED_BY_SAM },
+        ],
+      }),
+    )
+    const message = (i: number) => wrapper!.find(`#import-map-message-${i}`)
+    expect(message(0).text()).toBe('')
+    expect(message(1).find('[data-test="pill-guessed"]').exists()).toBe(true)
+    expect(message(2).find('[data-test="pill-saved"]').attributes('data-provenance')).toBe(
+      'import-map-saved-you',
+    )
+    expect(message(3).find('[data-test="pill-saved"]').attributes('data-provenance')).toBe(
+      'import-map-saved-from',
+    )
+    // Reachable by keyboard, so the provenance shows on focus too.
+    expect(message(3).find('[data-test="pill-saved"]').attributes('tabindex')).toBe('0')
+    expect((targets()[3].element as HTMLSelectElement).value).toBe('__ignore__')
+  })
+
+  it('sets a value for every row, on new rows unless ticked', async () => {
+    api.putMapping.mockResolvedValue(checkedJob())
+    await openMap()
+    const add = () => wrapper!.find('[data-test="import-constant-add"]').trigger('click')
+    const row = () => wrapper!.find('[data-test="import-constant"]')
+    await add()
+    await wrapper!.find('[data-test="import-constant-remove"]').trigger('click')
+    expect(row().exists()).toBe(false)
+    await add()
+    // Only fields no column feeds are offered.
+    const offered = row()
+      .find('[data-label="import-constants-field-label"]')
+      .findAll('button')
+      .map((b) => b.attributes('data-value'))
+    expect(offered).toEqual(['quantity'])
+    await row().find('[data-label="import-constants-field-label"] [data-value="quantity"]').trigger('click')
+    await row().find('input[type="number"]').setValue('2')
+    await row().find('[role="checkbox"]').trigger('click')
+    expect(row().text()).toContain('import-constants-apply-assets')
+
+    await checkButton().trigger('click')
+    await flushPromises()
+    expect(api.putMapping.mock.calls[0][2].constants).toEqual([
+      { field: 'quantity', value: '2', apply_to: 'all' },
+    ])
+  })
+
+  it('sends the rows to import, with no Don\'t match choice', async () => {
+    api.putMapping.mockResolvedValue(checkedJob())
+    await openMap()
+    const radios = () => wrapper!.find('[data-test="import-mode"]').findAll('[role="radio"]')
+    expect(radios().map((r) => r.text())).toEqual([
+      'import-options-mode-create-update',
+      'import-options-mode-create-only',
+      'import-options-mode-update-only',
+    ])
+    expect(wrapper!.text()).not.toContain('import-options-match-none')
+    await radios()[2].trigger('click')
+    expect(wrapper!.text()).toContain('import-options-mode-update-only-help')
+    await checkButton().trigger('click')
+    await flushPromises()
+    expect(api.putMapping.mock.calls[0][2]).toMatchObject({
+      match_by: 'asset_tag',
+      mode: 'update_only',
+    })
+  })
+
+  it('reads a stored legacy Don\'t match as only creating new', async () => {
+    await openMap(parsedJob({ options: { match_by: 'none' as never } }))
+    const checked = wrapper!
+      .find('[data-test="import-mode"]')
+      .findAll('[role="radio"]')
+      .find((r) => r.attributes('aria-checked') === 'true')
+    expect(checked?.text()).toBe('import-options-mode-create-only')
+  })
+
+  describe('when every column is settled', () => {
+    const settled = () =>
+      parsedJob({
+        suggested_mapping: [
+          { index: 0, field: 'name', reason: 'previous', provenance: SAVED_BY_SAM },
+          { index: 1, field: 'kind', reason: 'previous', provenance: SAVED_BY_SAM },
+          { index: 2, field: 'asset_tag', reason: 'exact' },
+          { index: 3, field: 'serial_number', reason: 'label' },
+          { index: 4, field: null, reason: 'previous', provenance: SAVED_BY_SAM },
+        ],
+      })
+
+    it('folds to one line with the check focused, so Enter checks', async () => {
+      api.putMapping.mockResolvedValue(checkedJob())
+      await openMap(settled())
+      const folded = wrapper!.find('[data-test="import-map-collapsed"]')
+      expect(folded.exists()).toBe(true)
+      expect(folded.text()).toContain('import-map-collapsed-from')
+      expect(folded.text()).toContain('import-map-summary-match-assets')
+      expect(targets()).toHaveLength(0)
+      expect(document.activeElement).toBe(checkButton().element)
+
+      await checkButton().trigger('click')
+      await flushPromises()
+      expect(api.putMapping).toHaveBeenCalledWith(
+        'job-1',
+        { name: 0, kind: 1, asset_tag: 2, serial_number: 3 },
+        expect.objectContaining({ mode: 'create_update', constants: [] }),
+        [4],
+      )
+    })
+
+    it('opens the columns on Show columns', async () => {
+      await openMap(settled())
+      await wrapper!.find('[data-test="import-map-expand"]').trigger('click')
+      await flushPromises()
+      expect(wrapper!.find('[data-test="import-map-collapsed"]').exists()).toBe(false)
+      expect(targets()).toHaveLength(5)
+    })
+
+    it('stays open coming back from Review', async () => {
+      await openMap(settled())
+      wrapper!.unmount()
+      api.get.mockResolvedValue({ ...settled(), mapping: { name: 0, kind: 1, asset_tag: 2, serial_number: 3 }, ignored: [4] })
+      await mountAt('/admin/data-import/csv?job=job-1')
+      expect(wrapper!.find('[data-test="import-map-collapsed"]').exists()).toBe(false)
+    })
   })
 
   it('filters rows without reordering them', async () => {

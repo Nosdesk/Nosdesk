@@ -206,8 +206,9 @@ fn assets_tag(conn: &mut diesel::PgConnection, serial: &str) -> Option<String> {
         .asset_tag
 }
 
-/// With matching off every row creates, and a row whose tag or serial an
-/// asset already has is an error naming that asset.
+/// The legacy `match_by: none` creates new assets only: a row whose tag
+/// an asset has is skipped as already there, one whose serial an asset has
+/// is skipped as that serial's, and the rest create.
 #[test]
 fn match_by_none_refuses_rows_that_already_exist() {
     let db = TestDb::new();
@@ -251,16 +252,16 @@ fn match_by_none_refuses_rows_that_already_exist() {
         .iter()
         .map(|e| (e.row, e.column.as_deref(), e.message.as_str()))
         .collect();
-    assert_eq!(errors.len(), 2, "{errors:?}");
-    assert_eq!((errors[0].0, errors[0].1), (2, Some("asset_tag")));
-    assert!(
-        errors[0].2.contains("already exists as Existing camera"),
-        "{errors:?}"
-    );
-    assert_eq!((errors[1].0, errors[1].1), (3, Some("serial_number")));
-    assert!(
-        errors[1].2.contains("already exists as Existing camera"),
-        "{errors:?}"
+    assert_eq!(
+        errors,
+        vec![
+            (2, Some("asset_tag"), "already exists"),
+            (
+                3,
+                Some("serial_number"),
+                "serial number 'SN-NONE' is already used by another asset"
+            ),
+        ]
     );
 }
 

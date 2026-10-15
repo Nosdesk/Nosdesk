@@ -3727,17 +3727,9 @@ import-map-ignore-description = De kolom buiten de import houden
 # MT: pending native review (nl-NL)
 import-map-required = Verplicht
 # MT: pending native review (nl-NL)
-import-map-kind-required = Verplicht bij aanmaken, of stel hieronder een standaard in
+import-map-kind-required = Verplicht bij aanmaken, of stel het hieronder in voor alle rijen
 # MT: pending native review (nl-NL)
 import-map-mapped-from = Gekoppeld aan '{ $header }'
-# MT: pending native review (nl-NL)
-import-map-pill-previous = Vorige import
-# MT: pending native review (nl-NL)
-import-map-pill-exact = Exacte match
-# MT: pending native review (nl-NL)
-import-map-pill-label = Label herkend
-# MT: pending native review (nl-NL)
-import-map-pill-synonym = Geraden
 # MT: pending native review (nl-NL)
 import-map-clash = Ook gekoppeld aan { $headers }. Kies er één.
 # MT: pending native review (nl-NL)
@@ -3769,7 +3761,7 @@ import-map-problem-duplicate = { $count } kolommen zijn gekoppeld aan { $field }
 # MT: pending native review (nl-NL)
 import-map-problem-required = Geen kolom is gekoppeld aan { $field }.
 # MT: pending native review (nl-NL)
-import-map-problem-kind = Niets bepaalt het soort. Koppel een kolom Soort of kies een soort voor alle rijen.
+import-map-problem-kind = Niets bepaalt het soort.
 # MT: pending native review (nl-NL)
 import-map-warnings-heading = Sommige kolommen blijven buiten beschouwing
 # MT: pending native review (nl-NL)
@@ -3807,6 +3799,62 @@ import-map-check = { $count ->
 # MT: pending native review (nl-NL)
 import-map-checking = Rijen controleren
 # MT: pending native review (nl-NL)
+import-map-pill-guessed = Geraden
+# MT: pending native review (nl-NL)
+import-map-pill-saved = Opgeslagen koppeling
+# MT: pending native review (nl-NL)
+import-map-saved-you = Uit je import van { $date }
+# MT: pending native review (nl-NL)
+import-map-saved-from = Uit de import van { $name } van { $date }
+# MT: pending native review (nl-NL)
+import-map-saved-unknown = Uit een eerdere import van { $date }
+# MT: pending native review (nl-NL)
+import-map-collapsed-you = { $count ->
+    [one] 1 kolom gekoppeld uit je import van { $date }
+   *[other] Alle { $count } kolommen gekoppeld uit je import van { $date }
+   }
+# MT: pending native review (nl-NL)
+import-map-collapsed-from = { $count ->
+    [one] 1 kolom gekoppeld uit de import van { $name } van { $date }
+   *[other] Alle { $count } kolommen gekoppeld uit de import van { $name } van { $date }
+   }
+# MT: pending native review (nl-NL)
+import-map-collapsed-unknown = { $count ->
+    [one] 1 kolom gekoppeld uit een eerdere import van { $date }
+   *[other] Alle { $count } kolommen gekoppeld uit een eerdere import van { $date }
+   }
+# MT: pending native review (nl-NL)
+import-map-collapsed-names = { $count ->
+    [one] 1 kolom komt overeen met een veldnaam
+   *[other] Alle { $count } kolommen komen overeen met veldnamen
+   }
+# MT: pending native review (nl-NL)
+import-map-show-columns = Kolommen tonen
+# MT: pending native review (nl-NL)
+import-map-change = Wijzigen
+# MT: pending native review (nl-NL)
+import-map-problem-dates = Staat in deze datums de dag of de maand eerst? Elk voorbeeld kan beide zijn.
+# MT: pending native review (nl-NL)
+import-map-summary-match-assets = { $key ->
+    [serial_number] Koppelen op serienummer
+   *[other] Koppelen op activalabel
+   }
+# MT: pending native review (nl-NL)
+import-map-summary-match-users = Koppelen op e-mail
+# MT: pending native review (nl-NL)
+import-map-summary-match-tickets = Elke rij maakt een ticket
+# MT: pending native review (nl-NL)
+import-map-summary-dates = { $order ->
+    [dmy] Datums dag eerst
+    [mdy] Datums maand eerst
+   *[other] Datums jaar eerst
+   }
+# MT: pending native review (nl-NL)
+import-map-summary-decimal = { $mark ->
+    [comma] Decimaal komma
+   *[other] Decimaal punt
+   }
+# MT: pending native review (nl-NL)
 import-map-blocked = { $count ->
     [one] Los 1 probleem op om door te gaan
    *[other] Los { $count } problemen op om door te gaan
@@ -3820,25 +3868,13 @@ import-options-match-asset-tag = Activalabel
 # MT: pending native review (nl-NL)
 import-options-match-serial = Serienummer
 # MT: pending native review (nl-NL)
-import-options-match-none = Niet koppelen
-# MT: pending native review (nl-NL)
 import-options-match-asset-tag-help = Rijen met een bestaand label werken dat activum bij.
 # MT: pending native review (nl-NL)
 import-options-match-serial-help = Rijen met een bestaand serienummer werken dat activum bij.
 # MT: pending native review (nl-NL)
-import-options-match-none-help = Elke rij maakt een nieuw activum. Een rij waarvan het label of serienummer al bestaat, wordt als fout overgeslagen.
-# MT: pending native review (nl-NL)
 import-options-match-users = Rijen worden aan bestaande personen gekoppeld op e-mailadres.
 # MT: pending native review (nl-NL)
 import-options-match-tickets = Elke rij maakt een nieuw ticket.
-# MT: pending native review (nl-NL)
-import-options-default-kind-label = Soort voor alle rijen
-# MT: pending native review (nl-NL)
-import-options-default-kind-placeholder = Kies een soort
-# MT: pending native review (nl-NL)
-import-options-default-kind-none = Geen standaard
-# MT: pending native review (nl-NL)
-import-options-default-kind-help = Nieuwe activa zonder soort krijgen deze soort. Bestaande activa houden de hunne.
 # MT: pending native review (nl-NL)
 import-options-date-label = Datums in het bestand
 # MT: pending native review (nl-NL)
@@ -3853,6 +3889,57 @@ import-options-decimal-label = Decimaalteken
 import-options-decimal-dot = Punt (12.5)
 # MT: pending native review (nl-NL)
 import-options-decimal-comma = Komma (12,5)
+# MT: pending native review (nl-NL)
+import-options-mode-label = Te importeren rijen
+# MT: pending native review (nl-NL)
+import-options-mode-create-update = Aanmaken en bijwerken
+# MT: pending native review (nl-NL)
+import-options-mode-create-only = Alleen nieuwe aanmaken
+# MT: pending native review (nl-NL)
+import-options-mode-update-only = Alleen bestaande bijwerken
+# MT: pending native review (nl-NL)
+import-options-mode-create-update-help = Rijen die bij een activum horen, werken het bij. De andere maken er een aan.
+# MT: pending native review (nl-NL)
+import-options-mode-create-only-help = Rijen waarvan het activum al bestaat, worden overgeslagen. De andere maken er een aan.
+# MT: pending native review (nl-NL)
+import-options-mode-update-only-help = Rijen die bij een activum horen, werken het bij. De andere worden als niet gevonden overgeslagen.
+# MT: pending native review (nl-NL)
+import-options-date-fact = { $order ->
+    [dmy] dag eerst (14/03/2024)
+    [mdy] maand eerst (03/14/2024)
+   *[other] jaar eerst (2024-03-14)
+   }
+# MT: pending native review (nl-NL)
+import-options-decimal-fact = { $mark ->
+    [comma] komma (12,5)
+   *[other] punt (12.5)
+   }
+# MT: pending native review (nl-NL)
+import-constants-heading = Voor alle rijen instellen
+# MT: pending native review (nl-NL)
+import-constants-help = Vult een veld dat in het bestand ontbreekt, op nieuwe rijen. Wordt niet onthouden voor de volgende import.
+# MT: pending native review (nl-NL)
+import-constants-add = Een waarde voor alle rijen toevoegen
+# MT: pending native review (nl-NL)
+import-constants-field-label = Veld
+# MT: pending native review (nl-NL)
+import-constants-field-placeholder = Kies een veld
+# MT: pending native review (nl-NL)
+import-constants-pick-field = Kies eerst een veld.
+# MT: pending native review (nl-NL)
+import-constants-value-label = Waarde
+# MT: pending native review (nl-NL)
+import-constants-value-placeholder = Kies een waarde
+# MT: pending native review (nl-NL)
+import-constants-apply-assets = Ook op bestaande activa toepassen
+# MT: pending native review (nl-NL)
+import-constants-remove = Verwijderen
+# MT: pending native review (nl-NL)
+import-constants-guessed-role = De veiligste rol, vooraf ingevuld.
+# MT: pending native review (nl-NL)
+import-constants-kind-label = Soort voor alle rijen
+# MT: pending native review (nl-NL)
+import-constants-kind-placeholder = Kies een soort
 # MT: pending native review (nl-NL)
 import-review-checked = { $count ->
     [one] 1 rij gecontroleerd.

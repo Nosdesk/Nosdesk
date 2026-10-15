@@ -75,6 +75,7 @@ mod handler_tenant_read_lint;
 mod idempotency_middleware;
 mod imports_assets;
 mod imports_data_shape;
+mod imports_map_memory;
 mod imports_mapping;
 mod imports_rows;
 mod imports_start;

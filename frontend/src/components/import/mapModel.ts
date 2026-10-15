@@ -1,15 +1,20 @@
 /**
  * The Map step's rules, kept free of Vue so they can be tested directly:
- * the starting choice for each source column, what blocks the check, what
- * each filter shows, and the mapping sent to the server.
+ * the starting choice for each source column, its pill, what blocks the
+ * check, what each filter shows, when the step folds to one line, the
+ * date order and decimal mark the samples show, and what is sent to the
+ * server.
  */
 import type {
   ColumnMapping,
+  DateOrder,
+  DecimalMark,
+  ImportConstant,
   ImportField,
   ImportJobType,
   ImportSource,
   Suggestion,
-  SuggestionReason,
+  SuggestionProvenance,
 } from '@nosdesk/core/services/importService'
 
 /** Select value for "Don't import". An empty string is "no choice yet". */
@@ -30,36 +35,68 @@ export type Problem =
   | { kind: 'duplicate'; field: string; columns: number[] }
   | { kind: 'required'; field: string }
   | { kind: 'kind' }
+  | { kind: 'dates' }
+
+/** A value set for every row, as the footer edits it. */
+export interface ConstantRow {
+  /** Field id, or '' until one is picked. */
+  field: string
+  value: string
+  /** "Also apply to existing": rows that update take it too. */
+  applyAll: boolean
+  /** Pre-filled by the step rather than chosen (users' Role). */
+  guessed: boolean
+}
+
+/** Fields a constant can't set: the keys rows are matched on. */
+const KEY_FIELDS: Record<ImportJobType, string[]> = {
+  assets: ['asset_tag', 'serial_number'],
+  users: ['email'],
+  tickets: [],
+}
+
+/** What a suggestion pre-fills: its field, or Don't import. */
+function suggestedTarget(s: Suggestion): string {
+  return s.field ?? IGNORE
+}
 
 /**
  * One row per source column, in source order. A job that already has a
- * mapping (back from Review, or resumed) shows that mapping, with every
- * other column on "Don't import"; a fresh job shows the suggestions.
+ * mapping (back from Review, or resumed) shows that mapping and the
+ * columns it set to Don't import, with every other column unchosen; a
+ * fresh job shows the suggestions.
  */
 export function initialRows(
   source: ImportSource,
   suggestions: Suggestion[],
   stored: ColumnMapping | null,
+  storedIgnored: number[] = [],
 ): MapRow[] {
   const byIndex = new Map(suggestions.map((s) => [s.index, s]))
   const storedByIndex = new Map<number, string>()
   for (const [field, index] of Object.entries(stored ?? {})) storedByIndex.set(index, field)
+  const ignored = new Set(storedIgnored)
   return source.headers.map((h) => {
     const suggestion = byIndex.get(h.index) ?? null
     let target: string
-    if (stored) target = storedByIndex.get(h.index) ?? IGNORE
-    else if (suggestion) target = suggestion.field ?? IGNORE
+    if (stored) target = storedByIndex.get(h.index) ?? (ignored.has(h.index) ? IGNORE : '')
+    else if (suggestion) target = suggestedTarget(suggestion)
     else target = ''
     return { index: h.index, name: h.name, samples: h.samples, target, suggestion }
   })
 }
 
-/** The suggestion pill a row shows: only while the row still holds the
- *  suggested field. */
-export function pillReason(row: MapRow): SuggestionReason | null {
+/** The pill a row shows: Guessed for a synonym, Saved match for a choice
+ *  from the last import, and only while the row still holds it. Exact id
+ *  and label matches carry none. */
+export type Pill = 'guessed' | 'saved'
+
+export function pill(row: MapRow): Pill | null {
   const s = row.suggestion
-  if (!s || s.reason === 'report' || !s.field) return null
-  return row.target === s.field ? s.reason : null
+  if (!s || row.target !== suggestedTarget(s)) return null
+  if (s.reason === 'synonym') return 'guessed'
+  if (s.reason === 'previous') return 'saved'
+  return null
 }
 
 export function isMapped(row: MapRow): boolean {
@@ -73,12 +110,52 @@ export function buildMapping(rows: MapRow[]): ColumnMapping {
   return out
 }
 
-/** What stops the check, in the order the admin should read them. */
+/** The columns set to Don't import, which the next import remembers. */
+export function buildIgnored(rows: MapRow[]): number[] {
+  return rows.filter((r) => r.target === IGNORE).map((r) => r.index)
+}
+
+/** Fields a constant can set: not fed by a column, not a match key, not
+ *  set by another constant (`except` keeps the row's own field). */
+export function freeFields(
+  rows: MapRow[],
+  fields: ImportField[],
+  jobType: ImportJobType,
+  constants: ConstantRow[],
+  except = '',
+): ImportField[] {
+  const mapped = new Set(rows.filter(isMapped).map((r) => r.target))
+  const set = new Set(constants.map((c) => c.field).filter((f) => f && f !== except))
+  return fields.filter(
+    (f) => !mapped.has(f.id) && !set.has(f.id) && !KEY_FIELDS[jobType].includes(f.id),
+  )
+}
+
+/** The constants the server takes: those with a field and a value that no
+ *  column feeds. A constant only ever reaches existing records for assets. */
+export function buildConstants(
+  constants: ConstantRow[],
+  rows: MapRow[],
+  jobType: ImportJobType,
+): ImportConstant[] {
+  const mapped = new Set(rows.filter(isMapped).map((r) => r.target))
+  return constants
+    .filter((c) => c.field && c.value.trim() && !mapped.has(c.field))
+    .map((c) => ({
+      field: c.field,
+      value: c.value.trim(),
+      apply_to: jobType === 'assets' && c.applyAll ? 'all' : 'new',
+    }))
+}
+
+/** What stops the check, in the order the admin should read them. A
+ *  required field is covered by a column or by a constant with a value. */
 export function problems(
   rows: MapRow[],
   fields: ImportField[],
   jobType: ImportJobType,
-  defaultKind: string | null,
+  constants: ConstantRow[] = [],
+  datesUnresolved = false,
 ): Problem[] {
   const out: Problem[] = []
   const byField = new Map<string, number[]>()
@@ -89,14 +166,16 @@ export function problems(
   for (const [field, columns] of byField) {
     if (columns.length > 1) out.push({ kind: 'duplicate', field, columns })
   }
+  const constant = new Set(constants.filter((c) => c.field && c.value.trim()).map((c) => c.field))
   for (const field of fields) {
-    if (!field.required || byField.has(field.id)) continue
-    if (jobType === 'assets' && field.id === 'kind') {
-      if (!defaultKind) out.push({ kind: 'kind' })
-    } else {
-      out.push({ kind: 'required', field: field.id })
-    }
+    if (!field.required || byField.has(field.id) || constant.has(field.id)) continue
+    out.push(
+      jobType === 'assets' && field.id === 'kind'
+        ? { kind: 'kind' }
+        : { kind: 'required', field: field.id },
+    )
   }
+  if (datesUnresolved) out.push({ kind: 'dates' })
   return out
 }
 
@@ -112,9 +191,7 @@ export function clashingColumns(row: MapRow, found: Problem[]): number[] {
 
 /** Rows the admin should look at: clashes, guesses, and unmade choices. */
 export function needsAttention(row: MapRow, found: Problem[]): boolean {
-  return (
-    clashingColumns(row, found).length > 0 || pillReason(row) === 'synonym' || row.target === ''
-  )
+  return clashingColumns(row, found).length > 0 || pill(row) === 'guessed' || row.target === ''
 }
 
 export function isNotImported(row: MapRow): boolean {
@@ -149,6 +226,37 @@ export function counts(rows: MapRow[], found: Problem[]): MapCounts {
   }
 }
 
+/** Whether every column came from a saved match or an exact id or label
+ *  and still holds it, nothing blocks, and no constant is in play: the
+ *  step then folds to one line and one button. */
+export function isSettled(rows: MapRow[], found: Problem[], constants: ConstantRow[]): boolean {
+  if (rows.length === 0 || found.length > 0 || constants.length > 0) return false
+  return rows.every((r) => {
+    const s = r.suggestion
+    return !!s && s.reason !== 'synonym' && r.target === suggestedTarget(s)
+  })
+}
+
+/** The import the saved matches came from, when every saved row names
+ *  the same one. */
+export function savedFrom(rows: MapRow[]): SuggestionProvenance | null {
+  const found = rows
+    .map((r) => r.suggestion?.provenance)
+    .filter((p): p is SuggestionProvenance => !!p)
+  if (found.length === 0) return null
+  return found.every((p) => p.job_id === found[0].job_id) ? found[0] : null
+}
+
+/** The samples of the columns mapped to fields of these value types. */
+export function samplesOf(
+  rows: MapRow[],
+  fields: ImportField[],
+  types: ImportField['value_type'][],
+): string[] {
+  const wanted = new Set(fields.filter((f) => types.includes(f.value_type)).map((f) => f.id))
+  return rows.filter((r) => isMapped(r) && wanted.has(r.target)).flatMap((r) => r.samples)
+}
+
 /** Whether any mapped field reads values of these types, for showing the
  *  options that apply to them. */
 export function mapsValueType(
@@ -158,4 +266,64 @@ export function mapsValueType(
 ): boolean {
   const mapped = new Set(rows.filter(isMapped).map((r) => r.target))
   return fields.some((f) => mapped.has(f.id) && types.includes(f.value_type))
+}
+
+export interface DetectedDates {
+  /** What the samples show; null when they show nothing either way. */
+  order: DateOrder | null
+  /** Every day-and-month sample could be read either way. */
+  ambiguous: boolean
+}
+
+/** The date order the samples are written in: year first, or day or
+ *  month first when a sample's first or second part is above 12. When
+ *  every day-and-month sample could be either, or samples disagree, it is
+ *  ambiguous. */
+export function detectDateOrder(samples: string[]): DetectedDates {
+  const seen = new Set<DateOrder>()
+  let either = false
+  for (const raw of samples) {
+    const sample = raw.trim()
+    if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(sample)) {
+      seen.add('iso')
+      continue
+    }
+    const m = /^(\d{1,2})[-/.](\d{1,2})[-/.]\d{2,4}\b/.exec(sample)
+    if (!m) continue
+    const first = Number(m[1])
+    const second = Number(m[2])
+    if (first > 12 && second <= 12) seen.add('dmy')
+    else if (second > 12 && first <= 12) seen.add('mdy')
+    else either = true
+  }
+  const dmy = seen.has('dmy')
+  const mdy = seen.has('mdy')
+  if (dmy !== mdy) return { order: dmy ? 'dmy' : 'mdy', ambiguous: false }
+  if (dmy || either) return { order: null, ambiguous: true }
+  return { order: seen.has('iso') ? 'iso' : null, ambiguous: false }
+}
+
+/** The decimal mark the samples use: the later of `.` and `,` when both
+ *  appear, else a lone mark not followed by exactly three digits. `1,250`
+ *  and `1.250` say nothing either way, and neither do samples that
+ *  disagree. */
+export function detectDecimal(samples: string[]): DecimalMark | null {
+  let dot = false
+  let comma = false
+  for (const raw of samples) {
+    const sample = raw.replace(/[^\d.,]/g, '')
+    if (!/\d/.test(sample)) continue
+    const lastDot = sample.lastIndexOf('.')
+    const lastComma = sample.lastIndexOf(',')
+    if (lastDot >= 0 && lastComma >= 0) {
+      if (lastDot > lastComma) dot = true
+      else comma = true
+    } else if (lastDot >= 0 && !/\.\d{3}$/.test(sample)) {
+      dot = true
+    } else if (lastComma >= 0 && !/,\d{3}$/.test(sample)) {
+      comma = true
+    }
+  }
+  if (dot === comma) return null
+  return dot ? '.' : ','
 }

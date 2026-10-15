@@ -3737,17 +3737,9 @@ import-map-ignore-description = Laisser la colonne hors de l'import
 # MT: pending native review (fr-FR)
 import-map-required = Obligatoire
 # MT: pending native review (fr-FR)
-import-map-kind-required = Obligatoire à la création, ou définissez une valeur par défaut ci-dessous
+import-map-kind-required = Obligatoire à la création, ou définissez-le pour toutes les lignes ci-dessous
 # MT: pending native review (fr-FR)
 import-map-mapped-from = Associé à « { $header } »
-# MT: pending native review (fr-FR)
-import-map-pill-previous = Dernier import
-# MT: pending native review (fr-FR)
-import-map-pill-exact = Correspondance exacte
-# MT: pending native review (fr-FR)
-import-map-pill-label = Libellé reconnu
-# MT: pending native review (fr-FR)
-import-map-pill-synonym = Deviné
 # MT: pending native review (fr-FR)
 import-map-clash = Également associé à { $headers }. Choisissez-en un.
 # MT: pending native review (fr-FR)
@@ -3779,7 +3771,7 @@ import-map-problem-duplicate = { $count } colonnes sont associées à { $field }
 # MT: pending native review (fr-FR)
 import-map-problem-required = Aucune colonne n'est associée à { $field }.
 # MT: pending native review (fr-FR)
-import-map-problem-kind = Rien n'indique le type. Associez une colonne Type ou choisissez un type pour toutes les lignes.
+import-map-problem-kind = Rien n'indique le type.
 # MT: pending native review (fr-FR)
 import-map-warnings-heading = Certaines colonnes sont laissées de côté
 # MT: pending native review (fr-FR)
@@ -3817,6 +3809,62 @@ import-map-check = { $count ->
 # MT: pending native review (fr-FR)
 import-map-checking = Vérification des lignes
 # MT: pending native review (fr-FR)
+import-map-pill-guessed = Deviné
+# MT: pending native review (fr-FR)
+import-map-pill-saved = Correspondance enregistrée
+# MT: pending native review (fr-FR)
+import-map-saved-you = De votre import du { $date }
+# MT: pending native review (fr-FR)
+import-map-saved-from = De l'import de { $name } du { $date }
+# MT: pending native review (fr-FR)
+import-map-saved-unknown = D'un import précédent du { $date }
+# MT: pending native review (fr-FR)
+import-map-collapsed-you = { $count ->
+    [one] 1 colonne associée d'après votre import du { $date }
+   *[other] Les { $count } colonnes associées d'après votre import du { $date }
+   }
+# MT: pending native review (fr-FR)
+import-map-collapsed-from = { $count ->
+    [one] 1 colonne associée d'après l'import de { $name } du { $date }
+   *[other] Les { $count } colonnes associées d'après l'import de { $name } du { $date }
+   }
+# MT: pending native review (fr-FR)
+import-map-collapsed-unknown = { $count ->
+    [one] 1 colonne associée d'après un import précédent du { $date }
+   *[other] Les { $count } colonnes associées d'après un import précédent du { $date }
+   }
+# MT: pending native review (fr-FR)
+import-map-collapsed-names = { $count ->
+    [one] 1 colonne correspond à un nom de champ
+   *[other] Les { $count } colonnes correspondent à des noms de champ
+   }
+# MT: pending native review (fr-FR)
+import-map-show-columns = Afficher les colonnes
+# MT: pending native review (fr-FR)
+import-map-change = Modifier
+# MT: pending native review (fr-FR)
+import-map-problem-dates = Ces dates commencent-elles par le jour ou par le mois ? Chaque exemple peut se lire des deux façons.
+# MT: pending native review (fr-FR)
+import-map-summary-match-assets = { $key ->
+    [serial_number] Rapprochement par numéro de série
+   *[other] Rapprochement par étiquette d'actif
+   }
+# MT: pending native review (fr-FR)
+import-map-summary-match-users = Rapprochement par e-mail
+# MT: pending native review (fr-FR)
+import-map-summary-match-tickets = Chaque ligne crée un ticket
+# MT: pending native review (fr-FR)
+import-map-summary-dates = { $order ->
+    [dmy] Dates jour en premier
+    [mdy] Dates mois en premier
+   *[other] Dates année en premier
+   }
+# MT: pending native review (fr-FR)
+import-map-summary-decimal = { $mark ->
+    [comma] Décimales avec virgule
+   *[other] Décimales avec point
+   }
+# MT: pending native review (fr-FR)
 import-map-blocked = { $count ->
     [one] Corrigez 1 problème pour continuer
    *[other] Corrigez { $count } problèmes pour continuer
@@ -3830,25 +3878,13 @@ import-options-match-asset-tag = Étiquette d'actif
 # MT: pending native review (fr-FR)
 import-options-match-serial = Numéro de série
 # MT: pending native review (fr-FR)
-import-options-match-none = Ne pas rapprocher
-# MT: pending native review (fr-FR)
 import-options-match-asset-tag-help = Les lignes dont l'étiquette existe mettent à jour cet actif.
 # MT: pending native review (fr-FR)
 import-options-match-serial-help = Les lignes dont le numéro de série existe mettent à jour cet actif.
 # MT: pending native review (fr-FR)
-import-options-match-none-help = Chaque ligne crée un nouvel actif. Une ligne dont l'étiquette ou le numéro de série existe déjà est ignorée comme erreur.
-# MT: pending native review (fr-FR)
 import-options-match-users = Les lignes sont rapprochées des personnes existantes par adresse e-mail.
 # MT: pending native review (fr-FR)
 import-options-match-tickets = Chaque ligne crée un nouveau ticket.
-# MT: pending native review (fr-FR)
-import-options-default-kind-label = Type pour toutes les lignes
-# MT: pending native review (fr-FR)
-import-options-default-kind-placeholder = Choisir un type
-# MT: pending native review (fr-FR)
-import-options-default-kind-none = Aucun type par défaut
-# MT: pending native review (fr-FR)
-import-options-default-kind-help = Les nouveaux actifs sans type reçoivent celui-ci. Les actifs existants gardent le leur.
 # MT: pending native review (fr-FR)
 import-options-date-label = Dates dans le fichier
 # MT: pending native review (fr-FR)
@@ -3863,6 +3899,57 @@ import-options-decimal-label = Séparateur décimal
 import-options-decimal-dot = Point (12.5)
 # MT: pending native review (fr-FR)
 import-options-decimal-comma = Virgule (12,5)
+# MT: pending native review (fr-FR)
+import-options-mode-label = Lignes à importer
+# MT: pending native review (fr-FR)
+import-options-mode-create-update = Créer et mettre à jour
+# MT: pending native review (fr-FR)
+import-options-mode-create-only = Créer uniquement
+# MT: pending native review (fr-FR)
+import-options-mode-update-only = Mettre à jour uniquement
+# MT: pending native review (fr-FR)
+import-options-mode-create-update-help = Les lignes qui correspondent à un actif le mettent à jour. Les autres en créent un.
+# MT: pending native review (fr-FR)
+import-options-mode-create-only-help = Les lignes dont l'actif existe déjà sont ignorées. Les autres en créent un.
+# MT: pending native review (fr-FR)
+import-options-mode-update-only-help = Les lignes qui correspondent à un actif le mettent à jour. Les autres sont ignorées comme introuvables.
+# MT: pending native review (fr-FR)
+import-options-date-fact = { $order ->
+    [dmy] jour en premier (14/03/2024)
+    [mdy] mois en premier (03/14/2024)
+   *[other] année en premier (2024-03-14)
+   }
+# MT: pending native review (fr-FR)
+import-options-decimal-fact = { $mark ->
+    [comma] virgule (12,5)
+   *[other] point (12.5)
+   }
+# MT: pending native review (fr-FR)
+import-constants-heading = Définir pour toutes les lignes
+# MT: pending native review (fr-FR)
+import-constants-help = Remplit un champ absent du fichier, sur les nouvelles lignes. N'est pas mémorisé pour le prochain import.
+# MT: pending native review (fr-FR)
+import-constants-add = Ajouter une valeur pour toutes les lignes
+# MT: pending native review (fr-FR)
+import-constants-field-label = Champ
+# MT: pending native review (fr-FR)
+import-constants-field-placeholder = Choisir un champ
+# MT: pending native review (fr-FR)
+import-constants-pick-field = Choisissez d'abord un champ.
+# MT: pending native review (fr-FR)
+import-constants-value-label = Valeur
+# MT: pending native review (fr-FR)
+import-constants-value-placeholder = Choisir une valeur
+# MT: pending native review (fr-FR)
+import-constants-apply-assets = Appliquer aussi aux actifs existants
+# MT: pending native review (fr-FR)
+import-constants-remove = Retirer
+# MT: pending native review (fr-FR)
+import-constants-guessed-role = Le rôle le plus sûr, prérempli.
+# MT: pending native review (fr-FR)
+import-constants-kind-label = Type pour toutes les lignes
+# MT: pending native review (fr-FR)
+import-constants-kind-placeholder = Choisir un type
 # MT: pending native review (fr-FR)
 import-review-checked = { $count ->
     [one] 1 ligne vérifiée.

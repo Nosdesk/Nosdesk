@@ -3706,12 +3706,8 @@ import-map-group-ignore = Don't import
 import-map-ignore = Don't import
 import-map-ignore-description = Keep the column out of the import
 import-map-required = Required
-import-map-kind-required = Required on create, or set a default below
+import-map-kind-required = Required on create, or set it for every row below
 import-map-mapped-from = Mapped from '{ $header }'
-import-map-pill-previous = From last import
-import-map-pill-exact = Exact match
-import-map-pill-label = Matched label
-import-map-pill-synonym = Guessed
 import-map-clash = Also mapped from { $headers }. Pick one.
 import-map-summary-mapped = { $mapped } of { $total } columns mapped
 import-map-summary-ignored = { $count } not imported
@@ -3730,7 +3726,7 @@ import-map-problems-heading = { $count ->
    }
 import-map-problem-duplicate = { $count } columns map to { $field }: { $headers }.
 import-map-problem-required = No column maps to { $field }.
-import-map-problem-kind = Nothing gives the kind. Map a Kind column or choose a kind for every row.
+import-map-problem-kind = Nothing gives the kind.
 import-map-warnings-heading = Some columns are left out
 import-map-warning-ignored = { $count ->
     [one] 1 column won't be imported.
@@ -3752,6 +3748,45 @@ import-map-check = { $count ->
    *[other] Check { $count } rows
    }
 import-map-checking = Checking rows
+import-map-pill-guessed = Guessed
+import-map-pill-saved = Saved match
+import-map-saved-you = From your import on { $date }
+import-map-saved-from = From { $name }'s import on { $date }
+import-map-saved-unknown = From an earlier import on { $date }
+import-map-collapsed-you = { $count ->
+    [one] 1 column matched from your import on { $date }
+   *[other] All { $count } columns matched from your import on { $date }
+   }
+import-map-collapsed-from = { $count ->
+    [one] 1 column matched from { $name }'s import on { $date }
+   *[other] All { $count } columns matched from { $name }'s import on { $date }
+   }
+import-map-collapsed-unknown = { $count ->
+    [one] 1 column matched from an earlier import on { $date }
+   *[other] All { $count } columns matched from an earlier import on { $date }
+   }
+import-map-collapsed-names = { $count ->
+    [one] 1 column matches a field name
+   *[other] All { $count } columns match field names
+   }
+import-map-show-columns = Show columns
+import-map-change = Change
+import-map-problem-dates = Are these dates day first or month first? Every sample could be either.
+import-map-summary-match-assets = { $key ->
+    [serial_number] Matching by serial number
+   *[other] Matching by asset tag
+   }
+import-map-summary-match-users = Matching by email
+import-map-summary-match-tickets = Every row creates a ticket
+import-map-summary-dates = { $order ->
+    [dmy] Dates day first
+    [mdy] Dates month first
+   *[other] Dates year first
+   }
+import-map-summary-decimal = { $mark ->
+    [comma] Decimal comma
+   *[other] Decimal point
+   }
 import-map-blocked = { $count ->
     [one] Fix 1 problem to continue
    *[other] Fix { $count } problems to continue
@@ -3760,16 +3795,10 @@ import-options-heading = How to import
 import-options-match-label = Match existing assets by
 import-options-match-asset-tag = Asset tag
 import-options-match-serial = Serial number
-import-options-match-none = Don't match
 import-options-match-asset-tag-help = Rows with a tag that exists update that asset.
 import-options-match-serial-help = Rows with a serial that exists update that asset.
-import-options-match-none-help = Every row creates a new asset. A row whose tag or serial already exists is skipped as an error.
 import-options-match-users = Rows match existing people by email address.
 import-options-match-tickets = Every row creates a new ticket.
-import-options-default-kind-label = Kind for every row
-import-options-default-kind-placeholder = Choose a kind
-import-options-default-kind-none = No default
-import-options-default-kind-help = New assets with a blank kind get this kind. Existing assets keep theirs.
 import-options-date-label = Dates in the file
 import-options-date-iso = ISO 2026-03-14
 import-options-date-dmy = Day first 14/03/2026
@@ -3777,6 +3806,35 @@ import-options-date-mdy = Month first 03/14/2026
 import-options-decimal-label = Decimal mark
 import-options-decimal-dot = Point (12.5)
 import-options-decimal-comma = Comma (12,5)
+import-options-mode-label = Rows to import
+import-options-mode-create-update = Create and update
+import-options-mode-create-only = Only create new
+import-options-mode-update-only = Only update existing
+import-options-mode-create-update-help = Rows that match an asset update it. The others create one.
+import-options-mode-create-only-help = Rows whose asset already exists are skipped. The others create one.
+import-options-mode-update-only-help = Rows that match an asset update it. The others are skipped as not found.
+import-options-date-fact = { $order ->
+    [dmy] day first (14/03/2024)
+    [mdy] month first (03/14/2024)
+   *[other] year first (2024-03-14)
+   }
+import-options-decimal-fact = { $mark ->
+    [comma] comma (12,5)
+   *[other] point (12.5)
+   }
+import-constants-heading = Set for every row
+import-constants-help = Fills a field the file lacks, on new rows. Not remembered for the next import.
+import-constants-add = Add a value for every row
+import-constants-field-label = Field
+import-constants-field-placeholder = Choose a field
+import-constants-pick-field = Pick a field first.
+import-constants-value-label = Value
+import-constants-value-placeholder = Choose a value
+import-constants-apply-assets = Also apply to existing assets
+import-constants-remove = Remove
+import-constants-guessed-role = The safest role, pre-filled.
+import-constants-kind-label = Kind for every row
+import-constants-kind-placeholder = Choose a kind
 import-review-checked = { $count ->
     [one] 1 row checked.
    *[other] { $count } rows checked.
