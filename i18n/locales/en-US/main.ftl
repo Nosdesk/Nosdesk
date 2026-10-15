@@ -3541,6 +3541,7 @@ csv-import-subtitle = Import data from CSV files into your system
 csv-import-step-upload = Upload
 csv-import-step-review = Review
 csv-import-step-done = Done
+import-step-values = Match values
 csv-import-step-upload-heading = Upload your CSV
 csv-import-type-label = What are you importing?
 csv-import-type-assets = Assets
@@ -3835,6 +3836,74 @@ import-constants-remove = Remove
 import-constants-guessed-role = The safest role, pre-filled.
 import-constants-kind-label = Kind for every row
 import-constants-kind-placeholder = Choose a kind
+# Match values step
+import-values-load-failed = The file's values couldn't be read. Go back to Map columns and check again.
+import-values-loading = Reading the file's values
+import-values-card-title = { $header } → { $field }
+import-values-group-or = Or
+import-values-replace = Replace with
+import-values-leave-as-is = Leave as is
+import-values-leave-as-is-help = Existing assets keep their kind. New rows without one are skipped.
+import-values-leave-blank = Leave blank
+import-values-skip = Skip these rows
+import-values-close-to = close to '{ $label }'
+import-values-consequence-skipped = would be skipped
+import-values-consequence-blank = left blank
+import-values-consequence-as-is = left as is
+import-values-blank = (blank)
+import-values-filter-no-match = No match { $count }
+import-values-filter-guessed = Guessed { $count }
+import-values-filter-all = All
+import-values-filter-label = Filter values
+import-values-bulk-skip = Skip all { $count }
+import-values-bulk-blank = Leave all { $count } blank
+import-values-scale = { $total } distinct values. Exact matches are linked. Choose what happens to the other { $rest }.
+import-values-scale-label = What happens to the other values
+import-values-scale-download = Download these values
+import-values-col-value = Value in the file
+import-values-col-rows = Rows
+import-values-col-becomes = Becomes
+import-values-col-status = Match and what happens
+import-values-all-matched = { $headers }: all values matched.
+import-values-strip-checked = { $count ->
+    [one] 1 row checked
+   *[other] { $count } rows checked
+}
+import-values-strip-columns = { $count ->
+    [one] 1 column needs an answer
+   *[other] { $count } columns need answers
+}
+import-values-strip-skipped = { $count ->
+    [one] 1 row would be skipped as things stand
+   *[other] { $count } rows would be skipped as things stand
+}
+import-values-strip-none-skipped = No rows would be skipped
+import-values-picker-label = What '{ $value }' becomes
+import-values-replace-date = A date, YYYY-MM-DD
+import-values-replace-number = A number
+import-values-replace-label = What replaces '{ $value }'
+import-values-replace-needed = Type what replaces it.
+import-values-replace-missing = { $count ->
+    [one] 1 value needs what replaces it
+   *[other] { $count } values need what replaces them
+}
+import-values-pill-no-match = No match
+import-values-row-count = { $count ->
+    [one] 1 row
+   *[other] { $count } rows
+}
+import-values-empty-filter = No values match this filter.
+import-values-show-more = Show { $count } more
+import-values-matched = { $count ->
+    [one] 1 value matched
+   *[other] { $count } values matched
+}
+import-values-show = Show
+import-values-hide = Hide
+import-values-back = Back to Map columns
+import-values-check-again = Check again
+import-review-values-matched = All values matched automatically
+import-review-values-see = See them
 import-review-checked = { $count ->
     [one] 1 row checked.
    *[other] { $count } rows checked.

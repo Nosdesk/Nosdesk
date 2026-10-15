@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Bulk import wizard: Start, Map, Review, Done.
+ * Bulk import wizard: Start, Map, Match values (when needed), Review, Done.
  *
  *  - Start  : pick the type and drop or pick a file, which uploads at
  *             once. The server parses the .csv or .xlsx and answers with
@@ -12,6 +12,10 @@
  *             mapping and options, and "Check" stores them and runs the
  *             dry run (`dry_run_done`). "Change file" deletes the job and
  *             returns to Start.
+ *  - Match values : shown after the check when a value in a mapped column
+ *             has no match, is Guessed, or is a saved answer that drops
+ *             data; "Check again" stores the answers (`PUT values`) and
+ *             checks the rows with them.
  *  - Review : what the dry run found, row by row, and the error report;
  *             Import commits.
  *  - Done   : the committed counts and the report of skipped rows.
@@ -22,7 +26,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useQuery } from '@pinia/colada'
+import { useQuery, useQueryCache } from '@pinia/colada'
 
 import BackButton from '@/components/common/BackButton.vue'
 import Button from '@/components/common/Button.vue'
@@ -36,14 +40,19 @@ import { formatFileSize } from '@nosdesk/core/utils/formatFileSize'
 import ImportMapStep from '@/components/import/ImportMapStep.vue'
 import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
 import ImportSheetPanel from '@/components/import/ImportSheetPanel.vue'
+import ImportValuesStep from '@/components/import/ImportValuesStep.vue'
+import { cards as valueCards, needsValues } from '@/components/import/valuesModel'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import {
   importFieldsQueryKey,
   importService,
+  importValuesQueryKey,
   type ColumnMapping,
   type ImportJob,
   type ImportJobType,
   type ImportOptions,
+  type ImportValues,
+  type ValueAnswers,
 } from '@nosdesk/core/services/importService'
 
 const fluent = useFluent()
@@ -52,11 +61,11 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const route = useRoute()
 const router = useRouter()
 
-type Step = 'start' | 'map' | 'review' | 'done'
-const STEPS: Step[] = ['start', 'map', 'review', 'done']
+type Step = 'start' | 'map' | 'values' | 'review' | 'done'
 const STEP_KEYS: Record<Step, string> = {
   start: 'import-step-start',
   map: 'import-step-map',
+  values: 'import-step-values',
   review: 'import-step-review',
   done: 'import-step-done',
 }
@@ -107,9 +116,45 @@ const jobType = computed<ImportJobType>(() => job.value?.job_type ?? selectedTyp
 const fieldsQuery = useQuery({
   key: () => importFieldsQueryKey(jobType.value),
   query: () => importService.fields(jobType.value),
-  enabled: () => step.value === 'map' || step.value === 'review',
+  enabled: () => step.value === 'map' || step.value === 'values' || step.value === 'review',
 })
 const fields = computed(() => fieldsQuery.data.value ?? [])
+
+const queryCache = useQueryCache()
+
+/** The checked job's values: for Match values, and for Review's line when
+ *  the step wasn't needed. Keyed on the job's last change. */
+const valuesQuery = useQuery({
+  key: () => importValuesQueryKey(job.value?.id ?? '', job.value?.updated_at ?? ''),
+  query: () => importService.values(job.value!.id),
+  enabled: () =>
+    !!job.value &&
+    job.value.status === 'dry_run_done' &&
+    (step.value === 'values' || step.value === 'review'),
+})
+const valuesView = computed<ImportValues | undefined>(() => valuesQuery.data.value)
+
+/** Whether Match values belongs in this import's steps: some value is
+ *  listed there, or the admin is on it. */
+const valuesStepShown = computed(
+  () =>
+    step.value === 'values' ||
+    (!!valuesView.value && valueCards(valuesView.value, {}).length > 0),
+)
+
+/** Every mapped value matched without a question: Review says so. */
+const valuesAllMatched = computed(
+  () =>
+    !!valuesView.value &&
+    valuesView.value.columns.length > 0 &&
+    valueCards(valuesView.value, {}).length === 0,
+)
+
+const STEPS = computed<Step[]>(() =>
+  valuesStepShown.value
+    ? ['start', 'map', 'values', 'review', 'done']
+    : ['start', 'map', 'review', 'done'],
+)
 
 const { kinds: assetKinds } = useAssetKindsQuery()
 const kindOptions = computed(() =>
@@ -122,7 +167,7 @@ const typeOptions = computed(() => [
   { value: 'tickets' as ImportJobType, label: t('csv-import-type-tickets') },
 ])
 
-const stepIndex = computed(() => STEPS.indexOf(step.value))
+const stepIndex = computed(() => STEPS.value.indexOf(step.value))
 
 // ---- job + route ----
 
@@ -305,7 +350,37 @@ async function check(mapping: ColumnMapping, options: ImportOptions, ignored: nu
   errorMessage.value = ''
   commitNotice.value = ''
   try {
-    job.value = await importService.putMapping(job.value.id, mapping, options, ignored)
+    const checked = await importService.putMapping(job.value.id, mapping, options, ignored)
+    job.value = checked
+    step.value = (await valuesNeeded(checked)) ? 'values' : 'review'
+  } catch (e) {
+    errorMessage.value = apiError(e, 'import-error-generic')
+  } finally {
+    busy.value = null
+  }
+}
+
+/** Read the checked job's values into the cache and say whether Match
+ *  values has something to ask. Values that can't be read don't hold the
+ *  import up: Review shows the check either way. */
+async function valuesNeeded(checked: ImportJob): Promise<boolean> {
+  try {
+    const view = await importService.values(checked.id)
+    queryCache.setQueryData(importValuesQueryKey(checked.id, checked.updated_at), view)
+    return needsValues(view)
+  } catch {
+    return false
+  }
+}
+
+/** "Check again" on Match values: store the answers and check the rows. */
+async function checkValues(answers: ValueAnswers) {
+  if (!job.value) return
+  busy.value = 'check'
+  errorMessage.value = ''
+  commitNotice.value = ''
+  try {
+    job.value = await importService.putValues(job.value.id, answers)
     step.value = 'review'
   } catch (e) {
     errorMessage.value = apiError(e, 'import-error-generic')
@@ -440,8 +515,17 @@ function startOver() {
 /** Completed steps the job lets the admin go back to. */
 function canGoTo(target: Step): boolean {
   if (busy.value) return false
-  if (target === 'map') return step.value === 'review'
+  if (target === 'map') return step.value === 'review' || step.value === 'values'
+  if (target === 'values') return step.value === 'review' && valuesStepShown.value
   return false
+}
+
+/** Review's "See them": Match values with every value matched. */
+function seeValues() {
+  if (busy.value) return
+  errorMessage.value = ''
+  commitNotice.value = ''
+  step.value = 'values'
 }
 
 function goTo(target: Step) {
@@ -672,6 +756,24 @@ const viewImportedLabelKey = computed(() => {
         </p>
       </template>
 
+      <!-- Match values --------------------------------------------------- -->
+      <template v-else-if="step === 'values' && job">
+        <ImportValuesStep
+          v-if="valuesView && fields.length > 0"
+          :key="job.id"
+          :view="valuesView"
+          :fields="fields"
+          :checking="busy === 'check'"
+          @check="checkValues"
+          @back="goTo('map')"
+        />
+        <ErrorBanner v-else-if="valuesQuery.error.value" :message="$t('import-values-load-failed')" />
+        <p v-else class="flex items-center gap-2 text-sm text-secondary">
+          <Spinner size="sm" />
+          {{ $t('import-values-loading') }}
+        </p>
+      </template>
+
       <!-- Review --------------------------------------------------------- -->
       <ImportReviewStep
         v-else-if="step === 'review' && job?.summary"
@@ -679,7 +781,9 @@ const viewImportedLabelKey = computed(() => {
         :fields="fields"
         :committing="busy === 'commit'"
         :downloading="downloadingReport"
+        :values-all-matched="valuesAllMatched"
         @back="goTo('map')"
+        @see-values="seeValues"
         @commit="commit"
         @download-report="downloadReport"
       />

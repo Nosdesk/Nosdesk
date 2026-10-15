@@ -8,6 +8,7 @@ import type {
   ImportJob,
   ImportRowsPage,
   ImportSource,
+  ImportValues,
 } from '@nosdesk/core/services/importService'
 
 const api = vi.hoisted(() => ({
@@ -21,10 +22,13 @@ const api = vi.hoisted(() => ({
   fields: vi.fn(),
   rows: vi.fn(),
   errorReport: vi.fn(),
+  values: vi.fn(),
+  putValues: vi.fn(),
 }))
 
 vi.mock('@nosdesk/core/services/importService', () => ({
   importFieldsQueryKey: (type: string) => ['import-fields', type],
+  importValuesQueryKey: (id: string, at: string) => ['import-values', id, at],
   importService: {
     upload: (...a: unknown[]) => api.upload(...a),
     putSource: (...a: unknown[]) => api.putSource(...a),
@@ -36,6 +40,8 @@ vi.mock('@nosdesk/core/services/importService', () => ({
     fields: (...a: unknown[]) => api.fields(...a),
     rows: (...a: unknown[]) => api.rows(...a),
     errorReport: (...a: unknown[]) => api.errorReport(...a),
+    values: (...a: unknown[]) => api.values(...a),
+    putValues: (...a: unknown[]) => api.putValues(...a),
     templateUrl: (type: string) => `/api/admin/import/template/${type}`,
   },
 }))
@@ -175,6 +181,88 @@ function rowsPage(overrides: Partial<ImportRowsPage> = {}): ImportRowsPage {
   }
 }
 
+/** A checked job's values with nothing to ask. */
+function noValues(): ImportValues {
+  return { rows_checked: 12, rows_skipped: 2, skipped_other: [5, 9], columns: [] }
+}
+
+/** Type has a value with no match and a guess; Qty a number that doesn't
+ *  read. Rows 5 and 9 are skipped for other reasons. */
+function valuesToAnswer(): ImportValues {
+  return {
+    rows_checked: 12,
+    rows_skipped: 5,
+    skipped_other: [5, 9],
+    columns: [
+      {
+        field: 'quantity',
+        index: 5,
+        header: 'Qty',
+        value_type: 'number',
+        required: false,
+        choices: [],
+        distinct: 3,
+        matched: 2,
+        values: [
+          {
+            key: 'two',
+            text: 'two',
+            blank: false,
+            rows: [6, 7],
+            match: 'no_match',
+            reason: { code: 'unreadable' },
+            suggested: { action: 'skip' },
+            skipped_rows: [6, 7],
+          },
+        ],
+      },
+      {
+        field: 'kind',
+        index: 1,
+        header: 'Type',
+        value_type: 'enum',
+        required: true,
+        choices: [
+          { value: 'generic', label: 'Generic asset' },
+          { value: 'camera', label: 'Camera' },
+        ],
+        distinct: 3,
+        matched: 1,
+        values: [
+          {
+            key: 'tripod',
+            text: 'tripod',
+            blank: false,
+            rows: [8, 10, 11],
+            match: 'no_match',
+            suggested: { action: 'skip' },
+            skipped_rows: [8, 10, 11],
+          },
+          {
+            key: 'cam',
+            text: 'Cam',
+            blank: false,
+            rows: [3],
+            match: 'guessed',
+            reason: { code: 'synonym' },
+            suggested: { action: 'match', target: 'camera' },
+            skipped_rows: [],
+          },
+          {
+            key: 'camera',
+            text: 'camera',
+            blank: false,
+            rows: [2, 4],
+            match: 'exact',
+            suggested: { action: 'match', target: 'camera' },
+            skipped_rows: [],
+          },
+        ],
+      },
+    ],
+  }
+}
+
 let wrapper: VueWrapper | null = null
 let router: Router
 
@@ -182,6 +270,7 @@ beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset()
   api.fields.mockResolvedValue(FIELDS)
   api.rows.mockResolvedValue(rowsPage())
+  api.values.mockResolvedValue(noValues())
   localStorage.clear()
   router = createRouter({
     history: createMemoryHistory(),
@@ -1057,5 +1146,117 @@ describe('CsvImportView Change file', () => {
     await flushPromises()
     expect(api.remove).not.toHaveBeenCalled()
     expect(currentStep()).toBe('start')
+  })
+})
+
+describe('CsvImportView Match values', () => {
+  async function checkFromMap() {
+    api.upload.mockResolvedValue(parsedJob())
+    api.putMapping.mockResolvedValue(checkedJob())
+    await mountAt()
+    await pick(csvFile())
+    await flushPromises()
+    await checkButton().trigger('click')
+    await flushPromises()
+  }
+
+  it('opens after the check when a value asks for an answer, cards in source order', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    await checkFromMap()
+    expect(api.values).toHaveBeenCalledWith('job-1')
+    expect(currentStep()).toBe('values')
+    expect(wrapper!.findAll('[data-step]').map((s) => s.attributes('data-step'))).toEqual([
+      'start',
+      'map',
+      'values',
+      'review',
+      'done',
+    ])
+    const cards = wrapper!.findAll('[data-test="import-values-card"]')
+    expect(cards.map((c) => c.attributes('data-field'))).toEqual(['kind', 'quantity'])
+    // No match first, then the guess; the exact match is a count.
+    const kindRows = cards[0].findAll('[data-test="import-value-row"]')
+    expect(kindRows.map((r) => r.attributes('data-value-id'))).toEqual(['kind:tripod', 'kind:cam'])
+    expect(kindRows[0].find('[data-test="pill-no-match"]').exists()).toBe(true)
+    expect(kindRows[1].find('[data-test="pill-guessed"]').exists()).toBe(true)
+    expect(cards[0].find('[data-test="import-values-matched"]').text()).toContain('import-values-matched')
+  })
+
+  it('counts live in the strip and stores the answers on Check again', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    api.putValues.mockResolvedValue(checkedJob({ updated_at: '2026-10-15T02:00:00Z' }))
+    await checkFromMap()
+    const needing = () => wrapper!.find('[data-test="import-values-needing"]')
+    const skipped = () => wrapper!.find('[data-test="import-values-skipped"]')
+    // Rows 5 and 9, three tripods and two "two" rows.
+    expect(skipped().text()).toBe('import-values-strip-skipped')
+    expect(skipped().classes()).toContain('text-status-error')
+    expect(needing().text()).toBe('import-values-strip-columns')
+
+    const rows = wrapper!.findAll('[data-test="import-value-row"]')
+    const tripod = rows.find((r) => r.attributes('data-value-id')!.endsWith('tripod'))!
+    await tripod.find('select').setValue('match:camera')
+    const two = rows.find((r) => r.attributes('data-value-id')!.endsWith('two'))!
+    await two.find('select').setValue('replace')
+    await two.find('[data-test="import-value-replace"]').setValue('2')
+    await flushPromises()
+    // Only rows 5 and 9 are left; tripod no longer would be skipped.
+    expect(tripod.find('[data-test="import-value-consequence"]').exists()).toBe(false)
+
+    await wrapper!.find('[data-test="import-values-check"]').trigger('click')
+    await flushPromises()
+    expect(api.putValues).toHaveBeenCalledWith('job-1', {
+      kind: { '': { tripod: { action: 'match', target: 'camera' } } },
+      quantity: { '': { two: { action: 'replace', value: '2' } } },
+    })
+    expect(currentStep()).toBe('review')
+  })
+
+  it('holds Check again while a Replace with is empty', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    await checkFromMap()
+    const two = wrapper!
+      .findAll('[data-test="import-value-row"]')
+      .find((r) => r.attributes('data-value-id')!.endsWith('two'))!
+    await two.find('select').setValue('replace')
+    await wrapper!.find('[data-test="import-values-check"]').trigger('click')
+    await flushPromises()
+    expect(api.putValues).not.toHaveBeenCalled()
+    expect(wrapper!.text()).toContain('import-values-replace-missing')
+  })
+
+  it('steps to the next problem with Next problem', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    await checkFromMap()
+    wrapper!.element.ownerDocument.body.appendChild(wrapper!.element)
+    const next = wrapper!.find('[data-test="import-values-next"]')
+    await next.trigger('click')
+    await flushPromises()
+    const focused = () =>
+      (document.activeElement as HTMLElement | null)?.closest('[data-value-id]')?.getAttribute('data-value-id')
+    expect(focused()).toBe('kind:tripod')
+    await next.trigger('click')
+    await flushPromises()
+    expect(focused()).toBe('quantity:two')
+  })
+
+  it('skips the step when every value matched, and Review offers to show them', async () => {
+    const matched = valuesToAnswer()
+    matched.columns = [{ ...matched.columns[1], values: [matched.columns[1].values[2]] }]
+    api.values.mockResolvedValue(matched)
+    await checkFromMap()
+    expect(currentStep()).toBe('review')
+    expect(wrapper!.findAll('[data-step]').map((s) => s.attributes('data-step'))).not.toContain('values')
+    await wrapper!.find('[data-test="import-review-see-values"]').trigger('click')
+    await flushPromises()
+    expect(currentStep()).toBe('values')
+    expect(wrapper!.find('[data-test="import-values-settled-card"]').exists()).toBe(true)
+  })
+
+  it('goes back to Map from Match values', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    await checkFromMap()
+    await wrapper!.find('[data-test="import-values-back"]').trigger('click')
+    expect(currentStep()).toBe('map')
   })
 })
