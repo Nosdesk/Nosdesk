@@ -1,9 +1,11 @@
-//! CSV bulk-import. Two-phase workflow:
+//! CSV bulk-import. Three steps:
 //!
-//! 1. Upload + parse + dry-run validates every row against the
-//!    type's schema and reports the projected effect (would-
-//!    create / would-update / errors) without writing.
-//! 2. Commit applies the validated rows in one transaction,
+//! 1. Upload parses the file, keeps its grid, and suggests which
+//!    field each column feeds (`mapping`).
+//! 2. The admin's mapping runs the dry-run: every row is validated
+//!    against the type's schema and the projected effect (would-
+//!    create / would-update / errors) is reported without writing.
+//! 3. Commit applies the validated rows in one transaction,
 //!    upserting by the type's natural key.
 //!
 //! Per-type behaviour lives in a [`Importer`] implementation;
@@ -11,14 +13,16 @@
 
 pub mod assets;
 pub mod csv_parser;
+pub mod mapping;
 pub mod safe_cells;
 pub mod tickets;
 pub mod types;
 pub mod users;
 
 pub use types::{
-    CommitError, ImportContext, ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer,
-    RowError,
+    CommitError, DateOrder, DecimalMark, ErrorGroup, FieldGroup, FieldSpec, ImportContext,
+    ImportOptions, ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer, MatchBy,
+    RowError, ValueType,
 };
 
 use diesel::result::Error as DieselError;
@@ -34,15 +38,25 @@ pub fn importer_for(t: ImportType) -> Box<dyn Importer> {
     }
 }
 
-/// Run the dry-run validation against an already-parsed CSV.
-/// The summary is the structured result the admin reviews
-/// before committing.
+/// Run the dry-run validation against an already-parsed CSV with the
+/// default options. The summary is the structured result the admin
+/// reviews before committing.
 pub fn dry_run(
     conn: &mut DbConnection,
     t: ImportType,
     parsed: &csv_parser::ParsedCsv,
 ) -> Result<ImportSummary, DieselError> {
-    importer_for(t).dry_run(conn, parsed)
+    dry_run_with(conn, t, parsed, &ImportOptions::default())
+}
+
+/// [`dry_run`] with the admin's options.
+pub fn dry_run_with(
+    conn: &mut DbConnection,
+    t: ImportType,
+    parsed: &csv_parser::ParsedCsv,
+    options: &ImportOptions,
+) -> Result<ImportSummary, DieselError> {
+    Ok(importer_for(t).dry_run(conn, parsed, options)?.finish())
 }
 
 /// Apply the rows in a single transaction. Caller is

@@ -29,8 +29,8 @@ use crate::repository::workspaces::{
 
 use super::csv_parser::ParsedCsv;
 use super::types::{
-    CommitError, ImportContext, ImportSummary, ImportedRecords, ImportedUser, Importer, RowError,
-    MAX_ERRORS,
+    CommitError, FieldGroup, FieldSpec, ImportContext, ImportOptions, ImportSummary, ImportType,
+    ImportedRecords, ImportedUser, Importer, ValueType,
 };
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
@@ -42,21 +42,51 @@ impl Importer for UserImporter {
         HEADERS
     }
 
+    fn fields(&self, _conn: &mut DbConnection) -> Result<Vec<FieldSpec>, diesel::result::Error> {
+        let t = ImportType::Users;
+        Ok(vec![
+            FieldSpec::fixed(
+                t,
+                "email",
+                "Email",
+                FieldGroup::Core,
+                ValueType::Email,
+                true,
+            ),
+            FieldSpec::fixed(t, "name", "Name", FieldGroup::Core, ValueType::Text, true),
+            FieldSpec::fixed(t, "role", "Role", FieldGroup::Core, ValueType::Enum, true)
+                .with_enum(["admin", "technician", "user"].map(String::from).to_vec()),
+            FieldSpec::fixed(
+                t,
+                "pronouns",
+                "Pronouns",
+                FieldGroup::Core,
+                ValueType::Text,
+                false,
+            ),
+        ])
+    }
+
+    fn synonyms(&self) -> &'static [(&'static str, &'static str)] {
+        &[
+            ("emailaddress", "email"),
+            ("mail", "email"),
+            ("fullname", "name"),
+            ("displayname", "name"),
+            ("userrole", "role"),
+        ]
+    }
+
     fn dry_run(
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
+        _options: &ImportOptions,
     ) -> Result<ImportSummary, diesel::result::Error> {
-        let mut summary = ImportSummary {
-            row_count: parsed.rows.len(),
-            would_create: 0,
-            would_update: 0,
-            errors: Vec::new(),
-            errors_truncated: false,
-        };
+        let mut summary = ImportSummary::new(parsed.rows.len());
 
         if let Some(err) = check_headers(&parsed.headers) {
-            push_error(&mut summary, 1, None, err);
+            summary.push_error(1, None, err);
             return Ok(summary);
         }
 
@@ -70,7 +100,7 @@ impl Importer for UserImporter {
                 Ok(RowAction::Update(_)) => summary.would_update += 1,
                 Err(errs) => {
                     for (col, msg) in errs {
-                        push_error(&mut summary, row_num, col, msg);
+                        summary.push_error(row_num, col, msg);
                     }
                 }
             }
@@ -251,18 +281,6 @@ fn load_existing_primary_emails(
         .into_iter()
         .map(|(e, u)| (e.to_lowercase(), u))
         .collect())
-}
-
-fn push_error(summary: &mut ImportSummary, row: usize, column: Option<String>, message: String) {
-    if summary.errors.len() >= MAX_ERRORS {
-        summary.errors_truncated = true;
-        return;
-    }
-    summary.errors.push(RowError {
-        row,
-        column,
-        message,
-    });
 }
 
 fn validate_row(

@@ -752,7 +752,7 @@ fn a_blank_cell_never_clears_on_update() {
 }
 
 /// One request to the import routes, signed in as `user` in `ws`.
-async fn call_import_route(
+pub(crate) async fn call_import_route(
     pool: &crate::common::TestPool,
     ws: &crate::common::WorkspaceSeed,
     user: uuid::Uuid,
@@ -814,6 +814,15 @@ async fn call_import_route(
 
 /// A multipart upload of `body` as `filename` to `POST /admin/import`.
 fn upload_request(filename: &str, body: &[u8]) -> actix_web::test::TestRequest {
+    upload_request_for("assets", filename, body)
+}
+
+/// A multipart upload of a `job_type` file.
+pub(crate) fn upload_request_for(
+    job_type: &str,
+    filename: &str,
+    body: &[u8],
+) -> actix_web::test::TestRequest {
     let mut payload = format!(
         "--x\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: text/csv\r\n\r\n"
     )
@@ -821,17 +830,17 @@ fn upload_request(filename: &str, body: &[u8]) -> actix_web::test::TestRequest {
     payload.extend_from_slice(body);
     payload.extend_from_slice(b"\r\n--x--\r\n");
     actix_web::test::TestRequest::post()
-        .uri("/api/admin/import?type=assets")
+        .uri(&format!("/api/admin/import?type={job_type}"))
         .insert_header(("content-type", "multipart/form-data; boundary=x"))
         .set_payload(payload)
 }
 
-fn json(body: &[u8]) -> serde_json::Value {
+pub(crate) fn json(body: &[u8]) -> serde_json::Value {
     serde_json::from_slice(body).unwrap_or_default()
 }
 
 /// The fixture workspace, with the generic kind the asset tests import.
-fn import_workspace(pool: &crate::common::TestPool) -> crate::common::WorkspaceSeed {
+pub(crate) fn import_workspace(pool: &crate::common::TestPool) -> crate::common::WorkspaceSeed {
     crate::common::ensure_test_keyring();
     crate::common::with_upload_dir();
     let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
@@ -856,30 +865,18 @@ async fn a_failed_commit_is_recorded_on_the_job() {
     let pool = db.pool_with_size(4);
     let ws = import_workspace(&pool);
 
-    let csv = tempfile::NamedTempFile::new().expect("temp csv");
-    std::fs::write(
-        csv.path(),
-        format!("{HEADER}\nFine,generic,JOB-001,,,,,,,,\nRefused,generic,JOB-002,,,,,,,,\n"),
+    let job = upload_and_check(
+        &pool,
+        &ws,
+        &format!("{HEADER}\nFine,generic,JOB-001,,,,,,,,\nRefused,generic,JOB-002,,,,,,,,\n"),
     )
-    .expect("write csv");
-    let job_id = uuid::Uuid::new_v4();
-    {
-        let mut conn = pool.get().expect("conn");
-        diesel::sql_query(
-            "ALTER TABLE assets ADD CONSTRAINT test_refuse_name CHECK (name <> 'Refused')",
-        )
-        .execute(&mut conn)
-        .expect("add constraint");
-        diesel::sql_query(
-            "INSERT INTO import_jobs (id, job_type, status, filename, file_path, workspace_id)
-             VALUES ($1, 'assets', 'dry_run_done', 'assets.csv', $2, $3)",
-        )
-        .bind::<diesel::sql_types::Uuid, _>(job_id)
-        .bind::<diesel::sql_types::Text, _>(csv.path().to_string_lossy().to_string())
-        .bind::<diesel::sql_types::Integer, _>(ws.workspace_id)
-        .execute(&mut conn)
-        .expect("seed job");
-    }
+    .await;
+    let job_id = uuid::Uuid::parse_str(job["id"].as_str().expect("job id")).expect("uuid");
+    diesel::sql_query(
+        "ALTER TABLE assets ADD CONSTRAINT test_refuse_name CHECK (name <> 'Refused')",
+    )
+    .execute(&mut pool.get().expect("conn"))
+    .expect("add constraint");
 
     let (status, body) = call_import_route(
         &pool,
@@ -947,13 +944,25 @@ async fn upload_and_commit_answer_without_the_file_path() {
     let job = json(&body);
     assert_eq!(status, StatusCode::OK, "{job}");
     assert!(job.get("file_path").is_none(), "{job}");
-    assert_eq!(job["status"], "dry_run_done");
-    assert_eq!(job["summary"]["would_create"], 1, "{job}");
+    assert_eq!(job["status"], "parsed");
     assert_eq!(
         job["filename"].as_str().map(|f| f.chars().count()),
         Some(255)
     );
     let job_id = job["id"].as_str().expect("job id").to_string();
+
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        mapping_request(&job_id, template_mapping()),
+    )
+    .await;
+    let job = json(&body);
+    assert_eq!(status, StatusCode::OK, "{job}");
+    assert!(job.get("file_path").is_none(), "{job}");
+    assert_eq!(job["status"], "dry_run_done");
+    assert_eq!(job["summary"]["would_create"], 1, "{job}");
 
     let (status, body) = call_import_route(
         &pool,
@@ -989,24 +998,21 @@ async fn upload_and_commit_answer_without_the_file_path() {
     assert_eq!(row.created_by, Some(ws.admin_uuid));
 }
 
-/// Writes to an import job land in the audit log, with the summary (row
-/// errors can carry other people's emails) reduced to whether it changed.
+/// Writes to an import job land in the audit log, with the summary and
+/// the file's columns, mapping and options (cell values can carry other
+/// people's emails) reduced to whether they changed.
 #[actix_web::test]
-async fn an_import_job_is_audited_without_its_summary() {
+async fn an_import_job_is_audited_without_its_contents() {
     let db = TestDb::new();
     let pool = db.pool_with_size(4);
     let ws = import_workspace(&pool);
 
-    let file = format!("{HEADER}\nAudited,generic,AUD-001,,,,,,,,\n");
-    let (status, body) = call_import_route(
+    let job = upload_and_check(
         &pool,
         &ws,
-        ws.admin_uuid,
-        upload_request("assets.csv", file.as_bytes()),
+        &format!("{HEADER}\nAudited,generic,AUD-001,,,,,,,,\n"),
     )
     .await;
-    let job = json(&body);
-    assert!(status.is_success(), "{job}");
     let job_id = job["id"].as_str().expect("job id").to_string();
 
     #[derive(diesel::QueryableByName)]
@@ -1026,11 +1032,21 @@ async fn an_import_job_is_audited_without_its_summary() {
     .load(&mut pool.get().expect("conn"))
     .expect("read audit log");
     let ops: Vec<&str> = rows.iter().map(|r| r.op.as_str()).collect();
-    assert_eq!(ops, vec!["I", "U"]);
-    let update = rows[1].after_jsonb.as_ref().expect("after_jsonb");
-    assert!(update.get("summary").is_none(), "{update}");
-    assert_eq!(update["summary_changed"], true, "{update}");
-    assert_eq!(update["status"], "dry_run_done");
+    assert_eq!(ops, vec!["I", "U", "U"]);
+    for row in &rows {
+        let after = row.after_jsonb.as_ref().expect("after_jsonb");
+        for column in ["summary", "source", "mapping", "options", "row_results"] {
+            assert!(after.get(column).is_none(), "{column}: {after}");
+        }
+    }
+    let parsed = rows[1].after_jsonb.as_ref().expect("after_jsonb");
+    assert_eq!(parsed["status"], "parsed");
+    assert_eq!(parsed["source_changed"], true, "{parsed}");
+    let checked = rows[2].after_jsonb.as_ref().expect("after_jsonb");
+    assert_eq!(checked["status"], "dry_run_done");
+    for column in ["summary", "mapping", "options"] {
+        assert_eq!(checked[format!("{column}_changed")], true, "{checked}");
+    }
     assert!(rows.iter().all(|r| r.actor_uuid == Some(ws.admin_uuid)));
 }
 
@@ -1047,8 +1063,10 @@ async fn import_routes_refuse_a_non_admin() {
 
     let requests = [
         TestRequest::get().uri("/api/admin/import/template/assets"),
+        TestRequest::get().uri("/api/admin/import/fields?type=assets"),
         upload_request("assets.csv", format!("{HEADER}\n").as_bytes()),
         TestRequest::get().uri(&format!("/api/admin/import/{job}")),
+        mapping_request(&job.to_string(), template_mapping()),
         TestRequest::post().uri(&format!("/api/admin/import/{job}/commit")),
     ];
     for req in requests {
@@ -1130,6 +1148,58 @@ struct CountRow {
     count: i64,
 }
 
+/// `PUT /admin/import/{id}/mapping` with `body`.
+pub(crate) fn mapping_request(
+    job_id: &str,
+    body: serde_json::Value,
+) -> actix_web::test::TestRequest {
+    actix_web::test::TestRequest::put()
+        .uri(&format!("/api/admin/import/{job_id}/mapping"))
+        .set_json(body)
+}
+
+/// The mapping a template-headed file takes: each field from the column
+/// of the same name.
+pub(crate) fn template_mapping() -> serde_json::Value {
+    let mapping: serde_json::Map<String, serde_json::Value> = HEADER
+        .split(',')
+        .enumerate()
+        .map(|(i, h)| (h.to_string(), i.into()))
+        .collect();
+    serde_json::json!({ "mapping": mapping })
+}
+
+/// Upload `file` and map it as a template: the job, checked.
+async fn upload_and_check(
+    pool: &crate::common::TestPool,
+    ws: &crate::common::WorkspaceSeed,
+    file: &str,
+) -> serde_json::Value {
+    use actix_web::http::StatusCode;
+    let (status, body) = call_import_route(
+        pool,
+        ws,
+        ws.admin_uuid,
+        upload_request("assets.csv", file.as_bytes()),
+    )
+    .await;
+    let job = json(&body);
+    assert_eq!(status, StatusCode::OK, "{job}");
+    assert_eq!(job["status"], "parsed", "{job}");
+    let id = job["id"].as_str().expect("job id").to_string();
+    let (status, body) = call_import_route(
+        pool,
+        ws,
+        ws.admin_uuid,
+        mapping_request(&id, template_mapping()),
+    )
+    .await;
+    let job = json(&body);
+    assert_eq!(status, StatusCode::OK, "{job}");
+    assert_eq!(job["status"], "dry_run_done", "{job}");
+    job
+}
+
 /// Purging a user who ran an import clears them from the job and the
 /// assets it created; the audit triggers on both run in the purge's
 /// workspace context.
@@ -1150,6 +1220,7 @@ fn purging_an_importer_clears_them_from_the_job_and_its_assets() {
         let job = backend::repository::imports::create(
             c,
             NewImportJob {
+                id: uuid::Uuid::new_v4(),
                 job_type: "assets".to_string(),
                 filename: "assets.csv".to_string(),
                 file_path: "/dev/null".to_string(),
@@ -1159,6 +1230,7 @@ fn purging_an_importer_clears_them_from_the_job_and_its_assets() {
         let ctx = imports::ImportContext {
             actor: Some(importer),
             job_id: job.id,
+            options: Default::default(),
         };
         imports::commit(c, ImportType::Assets, &parsed, &ctx)
             .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e}").into()))?;
