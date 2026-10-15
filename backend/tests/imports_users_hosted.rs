@@ -1,5 +1,6 @@
-//! On hosted, the user import leaves staff seats to the control plane and
-//! can't create an audit reviewer, as the add-user API can't.
+//! On hosted, the user import leaves staff seats to the control plane, as the
+//! member-role endpoint does, and can't create an audit reviewer, as the
+//! add-user API can't.
 //!
 //! A standalone binary rather than part of `tests/it`: deployment mode is
 //! process-wide environment.
@@ -35,6 +36,21 @@ fn staff_seats_and_audit_reviewers_are_refused_on_hosted() {
     let a = common::seed_two_workspaces(&mut conn).a;
     add_primary_email(&mut conn, a.admin_uuid, "admin@example.com");
 
+    // An owner imports, so the tier check passes and the seat authority is
+    // what refuses.
+    let owner = common::insert_plain_user(&mut conn, "Owner");
+    let owner_pin = ActorContext::user(owner, None).with_workspace(a.workspace_id);
+    with_actor_context::<_, diesel::result::Error>(&mut conn, &owner_pin, |c| {
+        backend::repository::workspaces::add_membership(
+            c,
+            a.workspace_id,
+            owner,
+            "owner",
+            backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+        )
+    })
+    .expect("owner membership");
+
     let file = tempfile::NamedTempFile::new().expect("temp csv");
     std::fs::write(
         file.path(),
@@ -47,16 +63,17 @@ fn staff_seats_and_audit_reviewers_are_refused_on_hosted() {
     .expect("write csv");
     let parsed = csv_parser::parse_file(file.path()).expect("parse");
 
-    let pin = ActorContext::user(a.admin_uuid, None).with_workspace(a.workspace_id);
+    let pin = owner_pin;
     let ctx = ImportContext {
-        actor: Some(a.admin_uuid),
+        actor: Some(owner),
         job_id: Uuid::new_v4(),
     };
     let summary = with_actor_context::<_, diesel::result::Error>(&mut conn, &pin, |c| {
         imports::dry_run(c, ImportType::Users, &parsed, &ctx)
     })
     .expect("dry-run");
-    let staff = "team members (admin, technician) are managed in the Nosdesk control plane; import requesters (user) only";
+    let staff =
+        "Team members are managed in the Nosdesk control plane. Add, re-role, or remove seats there.";
     let errors: Vec<(usize, Option<&str>, &str)> = summary
         .errors
         .iter()

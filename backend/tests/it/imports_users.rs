@@ -7,26 +7,25 @@ use backend::services::imports::{self, csv_parser, ImportContext, ImportSummary,
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 
-use crate::common::{
-    self, count_table, fixture_path, import_ctx, TestDb, TestPooledConn, WorkspaceSeed,
-};
+use crate::common::{self, count_table, fixture_path, TestDb, TestPooledConn, WorkspaceSeed};
 
 #[test]
 fn happy_path_creates_users_and_primary_emails() {
     let db = TestDb::new();
     let mut conn = db.conn();
+    let ws1_admin = new_member(&mut conn, 1, "admin");
     let users_before = count_table(&mut conn, "users");
 
     let parsed = csv_parser::parse_file(&fixture_path("imports/users_valid.csv")).expect("parse");
-    let summary =
-        imports::dry_run(&mut conn, ImportType::Users, &parsed, &import_ctx()).expect("dry-run");
+    let summary = imports::dry_run(&mut conn, ImportType::Users, &parsed, &ctx_for(ws1_admin))
+        .expect("dry-run");
     assert_eq!(summary.row_count, 3);
     assert_eq!(summary.would_create, 3);
     assert_eq!(summary.would_update, 0);
     assert!(summary.errors.is_empty(), "errors: {:?}", summary.errors);
 
-    let records =
-        imports::commit(&mut conn, ImportType::Users, &parsed, &import_ctx()).expect("commit");
+    let records = imports::commit(&mut conn, ImportType::Users, &parsed, &ctx_for(ws1_admin))
+        .expect("commit");
     assert_eq!(records.len(), 3);
     assert_eq!(count_table(&mut conn, "users"), users_before + 3);
 
@@ -76,10 +75,11 @@ fn happy_path_creates_users_and_primary_emails() {
 fn errors_csv_classifies_each_failure() {
     let db = TestDb::new();
     let mut conn = db.conn();
+    let ws1_admin = new_member(&mut conn, 1, "admin");
 
     let parsed = csv_parser::parse_file(&fixture_path("imports/users_errors.csv")).expect("parse");
-    let summary =
-        imports::dry_run(&mut conn, ImportType::Users, &parsed, &import_ctx()).expect("dry-run");
+    let summary = imports::dry_run(&mut conn, ImportType::Users, &parsed, &ctx_for(ws1_admin))
+        .expect("dry-run");
 
     assert_eq!(summary.row_count, 9);
     // valid + the first occurrence of duplicate@example.com →
@@ -112,22 +112,23 @@ fn errors_csv_classifies_each_failure() {
 fn second_commit_upserts_by_email() {
     let db = TestDb::new();
     let mut conn = db.conn();
+    let ws1_admin = new_member(&mut conn, 1, "admin");
 
     let parsed = csv_parser::parse_file(&fixture_path("imports/users_valid.csv")).expect("parse");
 
-    let first =
-        imports::commit(&mut conn, ImportType::Users, &parsed, &import_ctx()).expect("commit 1");
+    let first = imports::commit(&mut conn, ImportType::Users, &parsed, &ctx_for(ws1_admin))
+        .expect("commit 1");
     assert_eq!(first.len(), 3);
 
     // Second pass: every primary email matches → 3 updates.
-    let summary =
-        imports::dry_run(&mut conn, ImportType::Users, &parsed, &import_ctx()).expect("dry-run 2");
+    let summary = imports::dry_run(&mut conn, ImportType::Users, &parsed, &ctx_for(ws1_admin))
+        .expect("dry-run 2");
     assert_eq!(summary.would_create, 0);
     assert_eq!(summary.would_update, 3);
     assert!(summary.errors.is_empty());
 
-    let second =
-        imports::commit(&mut conn, ImportType::Users, &parsed, &import_ctx()).expect("commit 2");
+    let second = imports::commit(&mut conn, ImportType::Users, &parsed, &ctx_for(ws1_admin))
+        .expect("commit 2");
     assert_eq!(second.len(), 3);
 
     // No duplicate user_emails rows.
@@ -151,6 +152,7 @@ fn second_commit_upserts_by_email() {
 fn row_errors_name_the_line_the_row_starts_on() {
     let db = TestDb::new();
     let mut conn = db.conn();
+    let ws1_admin = new_member(&mut conn, 1, "admin");
     let file = tempfile::NamedTempFile::new().expect("temp csv");
     std::fs::write(
         file.path(),
@@ -162,8 +164,8 @@ fn row_errors_name_the_line_the_row_starts_on() {
     .expect("write csv");
     let parsed = csv_parser::parse_file(file.path()).expect("parse");
 
-    let summary =
-        imports::dry_run(&mut conn, ImportType::Users, &parsed, &import_ctx()).expect("dry-run");
+    let summary = imports::dry_run(&mut conn, ImportType::Users, &parsed, &ctx_for(ws1_admin))
+        .expect("dry-run");
     let errors: Vec<(usize, Option<&str>)> = summary
         .errors
         .iter()
@@ -219,6 +221,22 @@ fn member_role(conn: &mut TestPooledConn, ws: i32, user: Uuid) -> Option<String>
         .first(&mut **conn)
         .optional()
         .expect("read membership")
+}
+
+/// A new account holding `role` in workspace `ws`.
+fn new_member(conn: &mut TestPooledConn, ws: i32, role: &str) -> Uuid {
+    let user = common::insert_plain_user(conn, &format!("{role} of {ws}"));
+    grant(conn, ws, user, role);
+    user
+}
+
+fn grant(conn: &mut TestPooledConn, ws: i32, user: Uuid, role: &str) {
+    use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
+    let pin = ActorContext::user(user, None).with_workspace(ws);
+    with_actor_context::<_, diesel::result::Error>(conn, &pin, |c| {
+        add_membership(c, ws, user, role, SeatWriteAuthority::ControlPlane)
+    })
+    .expect("grant membership");
 }
 
 fn ctx_for(actor: Uuid) -> ImportContext {
@@ -372,14 +390,15 @@ fn audit_reviewer_is_refused_on_update_and_created_as_add_user_does() {
     );
 }
 
-/// A platform admin's import renames a member and changes their workspace
-/// role; the member's platform role stays whatever the CSV says.
+/// A platform admin who owns the workspace renames a member and changes their
+/// workspace role; the member's platform role stays whatever the CSV says.
 #[test]
 fn a_member_is_renamed_and_keeps_their_platform_role() {
     let db = TestDb::new();
     let mut conn = db.conn();
     let a = common::seed_two_workspaces(&mut conn).a;
     let operator = common::insert_user(&mut conn, "Operator");
+    grant(&mut conn, a.workspace_id, operator.uuid, "owner");
     add_primary_email(&mut conn, a.member_uuid, "member@example.com");
     set_platform_role(&mut conn, a.member_uuid, "audit_reviewer");
 
@@ -442,4 +461,120 @@ fn a_workspace_admin_renames_only_themselves() {
         Some("member")
     );
     assert_eq!(profile(&mut conn, a.admin_uuid).0, "Renamed Admin");
+}
+
+// ---- Roles: the member-role endpoint's gate ------------------------------
+
+const FORBIDDEN_TIER: &str =
+    "You can only manage members and agents; managing admins or owners requires the owner role";
+
+/// A workspace admin can't give anyone admin, new or existing, as the
+/// member-role endpoint refuses it; nothing is written.
+#[test]
+fn a_workspace_admin_cannot_assign_admin() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    let a = common::seed_two_workspaces(&mut conn).a;
+    add_primary_email(&mut conn, a.member_uuid, "member@example.com");
+
+    let parsed = parse(
+        "email,name,role,pronouns\n\
+         new.admin@example.com,New Admin,admin,\n\
+         member@example.com,a Member,admin,\n",
+    );
+    let (summary, committed) = import_into(&mut conn, &a, a.admin_uuid, &parsed);
+    assert_eq!(
+        errors_of(&summary),
+        vec![
+            (2, Some("role"), FORBIDDEN_TIER),
+            (3, Some("role"), FORBIDDEN_TIER)
+        ]
+    );
+    assert_eq!((summary.would_create, summary.would_update), (0, 0));
+    assert_eq!(committed, 0);
+    assert_eq!(
+        member_role(&mut conn, a.workspace_id, a.member_uuid).as_deref(),
+        Some("member")
+    );
+    use backend::schema::user_emails;
+    let created: i64 = user_emails::table
+        .filter(user_emails::email.eq("new.admin@example.com"))
+        .count()
+        .get_result(&mut *conn)
+        .expect("count");
+    assert_eq!(created, 0);
+}
+
+/// Roles the endpoint allows still import: an admin gives agent, an owner
+/// gives admin, on new and existing members alike.
+#[test]
+fn roles_the_endpoint_allows_are_imported() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    let a = common::seed_two_workspaces(&mut conn).a;
+    let owner = new_member(&mut conn, a.workspace_id, "owner");
+    add_primary_email(&mut conn, a.member_uuid, "member@example.com");
+
+    let by_admin = parse(
+        "email,name,role,pronouns\n\
+         new.agent@example.com,New Agent,technician,\n\
+         member@example.com,a Member,technician,\n",
+    );
+    let (summary, committed) = import_into(&mut conn, &a, a.admin_uuid, &by_admin);
+    assert!(summary.errors.is_empty(), "{:?}", summary.errors);
+    assert_eq!((summary.would_create, summary.would_update), (1, 1));
+    assert_eq!(committed, 2);
+    assert_eq!(
+        member_role(&mut conn, a.workspace_id, a.member_uuid).as_deref(),
+        Some("agent")
+    );
+
+    let by_owner = parse(
+        "email,name,role,pronouns\n\
+         new.admin@example.com,New Admin,admin,\n\
+         member@example.com,a Member,admin,\n",
+    );
+    let (summary, committed) = import_into(&mut conn, &a, owner, &by_owner);
+    assert!(summary.errors.is_empty(), "{:?}", summary.errors);
+    assert_eq!(committed, 2);
+    assert_eq!(
+        member_role(&mut conn, a.workspace_id, a.member_uuid).as_deref(),
+        Some("admin")
+    );
+    use backend::schema::user_emails;
+    let created: Uuid = user_emails::table
+        .filter(user_emails::email.eq("new.admin@example.com"))
+        .select(user_emails::user_uuid)
+        .first(&mut *conn)
+        .expect("new admin");
+    assert_eq!(
+        member_role(&mut conn, a.workspace_id, created).as_deref(),
+        Some("admin")
+    );
+}
+
+/// The only owner can't demote themselves, as the endpoint refuses it.
+#[test]
+fn the_only_owner_cannot_be_demoted() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    let a = common::seed_two_workspaces(&mut conn).a;
+    let owner = new_member(&mut conn, a.workspace_id, "owner");
+    add_primary_email(&mut conn, owner, "owner@example.com");
+
+    let parsed = parse("email,name,role,pronouns\nowner@example.com,owner of x,admin,\n");
+    let (summary, committed) = import_into(&mut conn, &a, owner, &parsed);
+    assert_eq!(
+        errors_of(&summary),
+        vec![(
+            2,
+            Some("role"),
+            "cannot demote the only owner; promote another member first"
+        )]
+    );
+    assert_eq!(committed, 0);
+    assert_eq!(
+        member_role(&mut conn, a.workspace_id, owner).as_deref(),
+        Some("owner")
+    );
 }

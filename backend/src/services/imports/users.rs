@@ -10,8 +10,11 @@
 //! later associate with an identity provider, send a reset link to, or
 //! invite to set up MFA.
 //!
-//! The import mirrors the API's gates. An update changes the member's
-//! workspace role, never their platform role. Their name and pronouns
+//! The import mirrors the API's gates. A workspace role, on a new or an
+//! existing member, passes the member-role endpoint's gate (the importer's
+//! tier, the target's tier, hosted seat authority, the last owner) or the
+//! row is refused in that endpoint's words; an unchanged role isn't gated.
+//! An update never changes the member's platform role. Their name and pronouns
 //! change only where the edit-user API would let the importing admin
 //! change them (their own row, or anyone's as a platform admin), and a
 //! name owned by a Nosdesk account stays put. `audit_reviewer` creates
@@ -30,13 +33,17 @@ use diesel::OptionalExtension;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
+use crate::errors::EXTERNALLY_MANAGED_MESSAGE;
+use crate::handlers::workspace_members::{
+    can_assign, can_manage, FORBIDDEN_TIER_MESSAGE, LAST_OWNER_MESSAGE, SEAT_LIMIT_MESSAGE,
+};
 use crate::models::{NewUser, PlatformRole, User, UserUpdate, WorkspaceRole};
 use crate::repository::user_helpers::{
     create_user_with_email, primary_email_holders, CreateUserWithEmailOutcome, PrimaryEmailHolder,
 };
 use crate::repository::users::update_user;
 use crate::repository::workspaces::{
-    nosdesk_account_managed, staff_change_externally_managed, staff_identity_externally_managed,
+    count_workspace_owners, is_seat_limit_violation, membership, nosdesk_account_managed,
     update_membership_role, SeatWriteAuthority, UpdateMembershipRoleResult,
 };
 
@@ -48,7 +55,6 @@ use super::types::{
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
 
-const STAFF_MANAGED: &str = "team members (admin, technician) are managed in the Nosdesk control plane; import requesters (user) only";
 const AUDIT_REVIEWER_REFUSED: &str =
     "audit_reviewer can't be set by import; set it from the user's page";
 
@@ -79,13 +85,19 @@ impl Importer for UserImporter {
         }
 
         let lookup = Lookup::load(conn, parsed, ctx)?;
-        let mut emails_in_file: HashSet<String> = HashSet::new();
+        let mut state = FileState::new(&lookup);
 
         for record in parsed.records() {
             let row_num = record.source_row;
-            match validate_row(&record.values, &lookup, &mut emails_in_file) {
-                Ok(RowAction::Create { .. }) => summary.would_create += 1,
-                Ok(RowAction::UpdateMember { .. }) => summary.would_update += 1,
+            let mut local = state.clone();
+            match validate_row(&record.values, &lookup, &mut local) {
+                Ok(action) => {
+                    state = local;
+                    match action {
+                        RowAction::Create { .. } => summary.would_create += 1,
+                        RowAction::UpdateMember { .. } => summary.would_update += 1,
+                    }
+                }
                 Err(errs) => {
                     for (col, msg) in errs {
                         push_error(&mut summary, row_num, col, msg);
@@ -109,17 +121,29 @@ impl Importer for UserImporter {
             .into());
         }
         let lookup = Lookup::load(conn, parsed, ctx)?;
-        let mut emails_in_file: HashSet<String> = HashSet::new();
+        let mut state = FileState::new(&lookup);
 
         let mut imported: Vec<ImportedUser> = Vec::new();
         for record in parsed.records() {
             let row = &record.values;
-            let mut local = emails_in_file.clone();
+            let mut local = state.clone();
             let action = match validate_row(row, &lookup, &mut local) {
                 Ok(a) => a,
                 Err(_) => continue,
             };
-            emails_in_file = local;
+            state = local;
+            // A seat-limit refusal from the database aborts the transaction;
+            // report it against the row, in the member-role endpoint's words.
+            let seat_limit = |e: diesel::result::Error| -> CommitError {
+                if is_seat_limit_violation(&e) {
+                    CommitError::Row {
+                        row: record.source_row,
+                        message: SEAT_LIMIT_MESSAGE.to_string(),
+                    }
+                } else {
+                    e.into()
+                }
+            };
 
             let email = trimmed(row, "email");
             match action {
@@ -156,7 +180,9 @@ impl Importer for UserImporter {
                         conn,
                         None,
                         SeatWriteAuthority::Product,
-                    )? {
+                    )
+                    .map_err(seat_limit)?
+                    {
                         CreateUserWithEmailOutcome::Created(user, user_email) => {
                             imported.push(ImportedUser {
                                 user,
@@ -171,27 +197,30 @@ impl Importer for UserImporter {
                 }
                 RowAction::UpdateMember {
                     user_uuid,
-                    workspace_role,
+                    new_role,
                     name,
                     pronouns,
                 } => {
-                    // The membership role change routes through the gated
-                    // update_membership_role (Product authority): a staff seat
-                    // in hosted is control-plane-owned, so it's refused and the
-                    // row skipped (validation blocks it upstream; this is the
-                    // enforcement point). Role changes are operator-side and
+                    // A role change passed the member-role endpoint's gate in
+                    // validate_row; update_membership_role (Product authority)
+                    // re-checks hosted seats and the last owner, and a refusal
+                    // here skips the row. Role changes are operator-side and
                     // intentionally not sync-emitted.
-                    match update_membership_role(
-                        conn,
-                        lookup.workspace_id,
-                        user_uuid,
-                        workspace_role.as_str(),
-                        SeatWriteAuthority::Product,
-                    )? {
-                        UpdateMembershipRoleResult::Updated(_)
-                        | UpdateMembershipRoleResult::LastOwner => {}
-                        UpdateMembershipRoleResult::NotFound
-                        | UpdateMembershipRoleResult::ExternallyManaged => continue,
+                    if let Some(role) = new_role {
+                        match update_membership_role(
+                            conn,
+                            lookup.workspace_id,
+                            user_uuid,
+                            role.as_str(),
+                            SeatWriteAuthority::Product,
+                        )
+                        .map_err(seat_limit)?
+                        {
+                            UpdateMembershipRoleResult::Updated(_) => {}
+                            UpdateMembershipRoleResult::NotFound
+                            | UpdateMembershipRoleResult::LastOwner
+                            | UpdateMembershipRoleResult::ExternallyManaged => continue,
+                        }
                     }
                     // update_user emits user.updated (carrying the new
                     // workspace role) and returns the refreshed model for
@@ -228,10 +257,10 @@ enum RowAction {
         platform_role: PlatformRole,
         workspace_role: WorkspaceRole,
     },
-    /// `name` / `pronouns` are `Some` only when they change.
+    /// `new_role` / `name` / `pronouns` are `Some` only when they change.
     UpdateMember {
         user_uuid: Uuid,
-        workspace_role: WorkspaceRole,
+        new_role: Option<WorkspaceRole>,
         name: Option<String>,
         pronouns: Option<String>,
     },
@@ -249,6 +278,29 @@ struct Lookup {
     actor_is_platform_admin: bool,
     /// Members whose name is owned by their Nosdesk account (hosted staff).
     name_managed: HashSet<Uuid>,
+    /// The importing admin's active role in the workspace, the tier the
+    /// member-role endpoint gates on.
+    actor_role: Option<WorkspaceRole>,
+    /// Active owners before the import.
+    owners: i64,
+}
+
+/// What earlier rows of the file have claimed. Cloned per row and kept only
+/// when the row validates, so a refused row claims nothing.
+#[derive(Clone)]
+struct FileState {
+    emails: HashSet<String>,
+    /// Owners left after the owner demotions accepted so far.
+    owners: i64,
+}
+
+impl FileState {
+    fn new(lookup: &Lookup) -> Self {
+        Self {
+            emails: HashSet::new(),
+            owners: lookup.owners,
+        }
+    }
 }
 
 impl Lookup {
@@ -280,12 +332,21 @@ impl Lookup {
             })
             .collect();
         let name_managed = nosdesk_account_managed(conn, &member_uuids);
+        let actor_role = match ctx.actor {
+            Some(actor) => {
+                membership(conn, workspace_id, actor)?.map(|m| WorkspaceRole::from_db(&m.role))
+            }
+            None => None,
+        };
+        let owners = count_workspace_owners(conn, workspace_id)?;
         Ok(Self {
             workspace_id,
             holders,
             actor: ctx.actor,
             actor_is_platform_admin,
             name_managed,
+            actor_role,
+            owners,
         })
     }
 
@@ -293,6 +354,49 @@ impl Lookup {
     /// or anyone's as a platform admin.
     fn may_edit_profile(&self, user: &User) -> bool {
         self.actor == Some(user.uuid) || self.actor_is_platform_admin
+    }
+
+    /// The member-role endpoint's gate (`PATCH /api/workspace/members/{uuid}`)
+    /// for giving `new` to a member whose role is `current` (`None` for a new
+    /// member), checked in the endpoint's order and refused in its words.
+    fn role_gate(
+        &self,
+        state: &mut FileState,
+        current: Option<&str>,
+        new: WorkspaceRole,
+    ) -> Result<(), String> {
+        let caller = match self.actor_role {
+            None => return Err("You are not a member of this workspace".into()),
+            Some(r) if !r.meets(WorkspaceRole::Admin) => {
+                return Err(format!(
+                    "This action requires {} privileges or higher in this workspace",
+                    WorkspaceRole::Admin.as_str()
+                ))
+            }
+            Some(r) => r,
+        };
+        if !can_assign(caller, new) {
+            return Err(FORBIDDEN_TIER_MESSAGE.into());
+        }
+        let Some(current) = current else {
+            if SeatWriteAuthority::Product.refuses_role(new.as_str()) {
+                return Err(EXTERNALLY_MANAGED_MESSAGE.into());
+            }
+            return Ok(());
+        };
+        if !can_manage(caller, WorkspaceRole::from_db(current)) {
+            return Err(FORBIDDEN_TIER_MESSAGE.into());
+        }
+        if SeatWriteAuthority::Product.refuses_change(current, new.as_str()) {
+            return Err(EXTERNALLY_MANAGED_MESSAGE.into());
+        }
+        if current == WorkspaceRole::Owner.as_str() && new != WorkspaceRole::Owner {
+            if state.owners <= 1 {
+                return Err(LAST_OWNER_MESSAGE.into());
+            }
+            state.owners -= 1;
+        }
+        Ok(())
     }
 }
 
@@ -322,7 +426,7 @@ fn push_error(summary: &mut ImportSummary, row: usize, column: Option<String>, m
 fn validate_row(
     row: &HashMap<String, String>,
     lookup: &Lookup,
-    emails_in_file: &mut HashSet<String>,
+    state: &mut FileState,
 ) -> Result<RowAction, Vec<(Option<String>, String)>> {
     let mut errors: Vec<(Option<String>, String)> = Vec::new();
 
@@ -354,12 +458,6 @@ fn validate_row(
                 ));
                 None
             }
-            Ok((_, ws_role)) if staff_identity_externally_managed(ws_role.as_str()) => {
-                // In hosted, staff seats are provisioned in the control plane;
-                // the import can only create/update requesters.
-                errors.push((Some("role".into()), STAFF_MANAGED.into()));
-                None
-            }
             Ok(roles) => Some(roles),
         }
     };
@@ -369,7 +467,7 @@ fn validate_row(
     };
 
     let email_key = email.to_lowercase();
-    if !emails_in_file.insert(email_key.clone()) {
+    if !state.emails.insert(email_key.clone()) {
         return Err(vec![(
             Some("email".into()),
             format!("email '{email}' appears more than once in this file"),
@@ -378,6 +476,9 @@ fn validate_row(
 
     match lookup.holders.get(&email_key) {
         None => {
+            if let Err(msg) = lookup.role_gate(state, None, workspace_role) {
+                return Err(vec![(Some("role".into()), msg)]);
+            }
             // The add-user API creates an audit reviewer only where local
             // credentials are allowed (self-hosted), for a workspace admin,
             // which the import already requires.
@@ -398,8 +499,12 @@ fn validate_row(
             "User with this email already exists".into(),
         )]),
         Some(PrimaryEmailHolder::Member { user, role }) => {
-            if staff_change_externally_managed(role, workspace_role.as_str()) {
-                errors.push((Some("role".into()), STAFF_MANAGED.into()));
+            // An unchanged role writes nothing, so it isn't gated.
+            let new_role = (role.as_str() != workspace_role.as_str()).then_some(workspace_role);
+            if let Some(new) = new_role {
+                if let Err(msg) = lookup.role_gate(state, Some(role), new) {
+                    errors.push((Some("role".into()), msg));
+                }
             }
             // The platform role is never written on update; a row may only
             // name one the member already holds.
@@ -437,7 +542,7 @@ fn validate_row(
             }
             Ok(RowAction::UpdateMember {
                 user_uuid: user.uuid,
-                workspace_role,
+                new_role,
                 name: name_change,
                 pronouns: pronouns_change,
             })

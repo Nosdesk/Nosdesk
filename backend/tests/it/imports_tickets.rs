@@ -10,12 +10,13 @@ use diesel::prelude::*;
 
 use backend::services::imports::{self, csv_parser, ImportType};
 
-use crate::common::{count_table, fixture_path, import_ctx, TestDb};
+use crate::common::{self, count_table, fixture_path, import_ctx, TestDb};
 
 fn seed_user_prerequisites(conn: &mut backend::db::DbConnection) {
     let parsed =
         csv_parser::parse_file(&fixture_path("imports/users_valid.csv")).expect("parse users");
-    imports::commit(conn, ImportType::Users, &parsed, &import_ctx()).expect("commit users");
+    let ctx = common::workspace_admin_import_ctx(conn);
+    imports::commit(conn, ImportType::Users, &parsed, &ctx).expect("commit users");
 }
 
 #[test]
