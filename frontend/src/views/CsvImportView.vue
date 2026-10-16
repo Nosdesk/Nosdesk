@@ -1016,7 +1016,7 @@ function viewImported() {
           </Button>
         </div>
 
-        <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" />
+        <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" @refreshed="onRemoved" />
 
         <p class="text-sm">
           <RouterLink :class="linkClass" to="/admin/data-import" data-test="import-done-recent">

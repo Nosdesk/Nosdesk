@@ -4811,6 +4811,12 @@ import-remove-load-failed = De geïmporteerde assets konden niet worden gecontro
 # MT: pending native review (nl-NL)
 import-remove-failed = Het verwijderen van de geïmporteerde assets is mislukt en er is niets verwijderd.
 # MT: pending native review (nl-NL)
+import-remove-already-removed = De activa die deze import heeft gemaakt, zijn al verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-still-running = Nog bezig met verwijderen. Deze pagina wordt bijgewerkt zodra het klaar is.
+# MT: pending native review (nl-NL)
+import-remove-still-running-later = Het verwijderen duurt langer dan verwacht. Kom later terug naar deze pagina om te zien hoe het is afgelopen.
+# MT: pending native review (nl-NL)
 import-remove-title = { $count ->
     [one] 1 asset verwijderen?
    *[other] { $count } assets verwijderen?

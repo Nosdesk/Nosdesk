@@ -336,7 +336,7 @@ const linkClass =
               {{ previousHelp }}
             </p>
           </div>
-          <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" />
+          <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" @refreshed="onRemoved" />
         </template>
 
         <p class="text-sm">

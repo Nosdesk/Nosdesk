@@ -4385,6 +4385,9 @@ import-remove-window = Only assets nobody has changed since. Until { $date }.
 import-remove-window-closed = Removal window closed { $date }.
 import-remove-load-failed = Couldn't check the imported assets. Try again.
 import-remove-failed = Removing the imported assets failed and nothing was deleted.
+import-remove-already-removed = The assets this import created were already removed.
+import-remove-still-running = Still removing. This page updates when it finishes.
+import-remove-still-running-later = Removing is taking longer than expected. Come back to this page later to see how it ended.
 import-remove-title = { $count ->
     [one] Delete 1 asset?
    *[other] Delete { $count } assets?

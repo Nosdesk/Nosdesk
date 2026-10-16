@@ -4821,6 +4821,12 @@ import-remove-load-failed = Impossible de vérifier les actifs importés. Réess
 # MT: pending native review (fr-FR)
 import-remove-failed = La suppression des actifs importés a échoué et rien n'a été supprimé.
 # MT: pending native review (fr-FR)
+import-remove-already-removed = Les actifs créés par cet import ont déjà été supprimés.
+# MT: pending native review (fr-FR)
+import-remove-still-running = Suppression en cours. Cette page se met à jour une fois terminée.
+# MT: pending native review (fr-FR)
+import-remove-still-running-later = La suppression prend plus de temps que prévu. Revenez sur cette page plus tard pour voir le résultat.
+# MT: pending native review (fr-FR)
 import-remove-title = { $count ->
     [one] Supprimer 1 actif ?
    *[other] Supprimer { $count } actifs ?
