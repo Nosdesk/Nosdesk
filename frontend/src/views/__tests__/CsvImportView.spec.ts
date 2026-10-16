@@ -1411,6 +1411,28 @@ describe('CsvImportView Start', () => {
     expect(currentStep()).toBe('map')
   })
 
+  it('words a refusal by its code, and shows the server English for an unknown code', async () => {
+    api.upload.mockRejectedValue({
+      response: {
+        status: 400,
+        data: { error: 'The rows in this workbook are on hidden sheets.', code: 'import_sheets_hidden', args: {} },
+      },
+    })
+    await mountAt()
+    await pick(new File(['PK'], 'gear.xlsx'))
+    await flushPromises()
+    const banner = wrapper!.find('[data-test="import-upload-error"]')
+    expect(banner.text()).toContain('import-refused-sheets-hidden')
+    expect(banner.text()).not.toContain('hidden sheets.')
+
+    api.upload.mockRejectedValue({
+      response: { status: 400, data: { error: 'Something new went wrong.', code: 'import_something_new' } },
+    })
+    await pick(new File(['PK'], 'gear.xlsx'))
+    await flushPromises()
+    expect(wrapper!.find('[data-test="import-upload-error"]').text()).toContain('Something new went wrong.')
+  })
+
   it('refuses a file that is not a spreadsheet without uploading it', async () => {
     await mountAt()
     await pick(new File(['%PDF'], 'scan.pdf', { type: 'application/pdf' }))

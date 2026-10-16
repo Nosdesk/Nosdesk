@@ -30,7 +30,6 @@ import type { DropdownOption } from '@/components/common/dropdownOption'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useAuthStore } from '@/stores/auth'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
-import { assetStatusLabel } from '@/utils/assetStatusMeta'
 import type {
   ColumnMapping,
   DateOrder,
@@ -44,6 +43,7 @@ import type {
   SuggestionProvenance,
 } from '@nosdesk/core/services/importService'
 
+import { choiceLabel } from './choiceLabels'
 import { detectOtherType, listHeaders } from './detectType'
 import {
   IGNORE,
@@ -225,7 +225,7 @@ function valueOptions(c: ConstantRow): DropdownOption[] | null {
   }
   const values = field?.enum
   if (!values || values.length === 0) return null
-  const label = (v: string) => (isAssets.value && c.field === 'status' ? assetStatusLabel(t, v) : v)
+  const label = (v: string) => choiceLabel(t, props.job.job_type, c.field, v, v)
   return values.map((v) => ({ value: v, label: label(v) }))
 }
 

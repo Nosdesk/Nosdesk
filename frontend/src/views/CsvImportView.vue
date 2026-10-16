@@ -51,6 +51,7 @@ import ImportValuesStep from '@/components/import/ImportValuesStep.vue'
 import { detailPath, doneHeadline, reportOffered } from '@/components/import/historyModel'
 import ImportRemoveBlock from '@/components/import/ImportRemoveBlock.vue'
 import ImportSignInLine from '@/components/import/ImportSignInLine.vue'
+import { errorBody, refusalText } from '@/components/import/refusals'
 import { outcomes, planDelta, webhookHearsAssets } from '@/components/import/reviewModel'
 import { cards as valueCards, needsValues } from '@/components/import/valuesModel'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
@@ -276,9 +277,10 @@ onMounted(() => {
   if (typeof id === 'string' && id) resume(id)
 })
 
+/** A failed request in words: a refusal by its code, else the server's
+ *  message. */
 function apiError(e: unknown, fallbackKey: string): string {
-  const err = e as { response?: { data?: { error?: string } } }
-  return err?.response?.data?.error ?? (e instanceof Error ? e.message : t(fallbackKey))
+  return refusalText(t, errorBody(e)) ?? (e instanceof Error ? e.message : t(fallbackKey))
 }
 
 /** A step that failed: a draft whose file is gone goes back to Start to

@@ -29,7 +29,6 @@ import type { DropdownOption } from '@/components/common/dropdownOption'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useAuthStore } from '@/stores/auth'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
-import { assetStatusLabel } from '@/utils/assetStatusMeta'
 import {
   importService,
   importValuesPreviewQueryKey,
@@ -85,6 +84,7 @@ import {
   type Entry,
   type ValueFilter,
 } from './valuesModel'
+import { choiceLabel as localChoiceLabel } from './choiceLabels'
 
 const props = defineProps<{
   view: ImportValues
@@ -189,15 +189,17 @@ function cardNote(card: Card): string {
 
 const isParsed = (col: ImportValueColumn) => !col.lookup && col.choices.length === 0
 
-/** A choice's label: an asset status in the viewer's language, else the
- *  server's. */
+const type = computed(() => props.jobType ?? 'assets')
+
+/** A choice's label: an asset status, a role or a priority in the viewer's
+ *  language, else the server's. */
 function choiceLabel(col: ImportValueColumn, value: string, label: string): string {
-  return col.field === 'status' ? assetStatusLabel(t, value) : label
+  return localChoiceLabel(t, type.value, col.field, value, label)
 }
 
 /** Why a choice can't be picked, in the viewer's language for a status. */
 function disabledNote(col: ImportValueColumn, note: string): string {
-  return col.field === 'status' ? t('import-values-status-after-import') : note
+  return type.value === 'assets' && col.field === 'status' ? t('import-values-status-after-import') : note
 }
 
 /** The manufacturer a model value is answered under, for its "under" line;

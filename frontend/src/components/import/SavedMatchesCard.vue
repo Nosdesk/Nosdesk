@@ -9,7 +9,6 @@ import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 
 import SectionCard from '@/components/common/SectionCard.vue'
-import { assetStatusLabel } from '@/utils/assetStatusMeta'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
 import {
   importAnswersQueryKey,
@@ -19,6 +18,7 @@ import {
   type SavedMatches,
 } from '@nosdesk/core/services/importService'
 
+import { choiceLabel } from './choiceLabels'
 import { examples, firstName } from './matchesModel'
 
 const fluent = useFluent()
@@ -56,8 +56,8 @@ const summaries = computed<Summary[]>(() =>
 const loaded = computed(() => queries.every(({ query }) => query.data.value !== undefined))
 
 function outcome(type: ImportJobType, e: SavedMatch): string {
-  if (type === 'assets' && e.field === 'status' && e.target) return assetStatusLabel(t, e.target)
-  return e.label ?? e.target ?? ''
+  const fallback = e.label ?? e.target ?? ''
+  return e.target ? choiceLabel(t, type, e.field, e.target, fallback) : fallback
 }
 
 function line(s: Summary): string {

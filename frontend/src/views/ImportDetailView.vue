@@ -37,6 +37,7 @@ import {
   reportOffered,
   resumeTarget,
 } from '@/components/import/historyModel'
+import { errorBody, refusalText } from '@/components/import/refusals'
 import { previousValuesHelp, removalState } from '@/components/import/removeModel'
 import { webhookHearsAssets } from '@/components/import/reviewModel'
 
@@ -148,11 +149,11 @@ async function importNextSheet() {
     queryCache.invalidateQueries({ key: ['import-jobs'] })
     router.push(resumeTarget(next.id))
   } catch (e) {
-    const err = e as { response?: { data?: { code?: string; error?: string } } }
+    const body = errorBody(e)
     errorMessage.value =
-      err?.response?.data?.code === 'import_file_missing'
+      body?.code === 'import_file_missing'
         ? t('import-file-missing')
-        : (err?.response?.data?.error ?? t('import-error-generic'))
+        : (refusalText(t, body) ?? t('import-error-generic'))
   } finally {
     startingNext.value = false
   }

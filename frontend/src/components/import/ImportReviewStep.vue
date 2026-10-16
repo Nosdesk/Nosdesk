@@ -29,7 +29,6 @@ import StatusPill from '@/components/common/StatusPill.vue'
 import Tooltip from '@/components/common/Tooltip.vue'
 import type { StatusPillTone } from '@/components/common/statusPillTone'
 import { useMobileDetection } from '@/composables/useMobileDetection'
-import { assetStatusLabel } from '@/utils/assetStatusMeta'
 import {
   importService,
   type ImportField,
@@ -38,6 +37,7 @@ import {
   type RowFilter,
 } from '@nosdesk/core/services/importService'
 
+import { choiceLabel, localisesChoices } from './choiceLabels'
 import {
   PAGE,
   defaultFilter,
@@ -126,7 +126,7 @@ function changeName(field: string): string {
 /** A changed value as the admin reads it; `null` is blank. */
 function shown(field: string, value: string | null | undefined): string | null {
   if (value === null || value === undefined || value === '') return null
-  if (field === 'status') return assetStatusLabel(t, value)
+  if (localisesChoices(type.value, field)) return choiceLabel(t, type.value, field, value, value)
   if (field === 'kind') return kindLabel(value)
   return value
 }

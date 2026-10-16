@@ -2606,6 +2606,8 @@ user-mgmt-grouping-joined-this-year = This year
 user-mgmt-grouping-joined-older = Earlier
 user-mgmt-role-admin = Administrateur
 user-mgmt-role-technician = Agent
+# MT: pending native review (fr-FR)
+user-mgmt-role-audit_reviewer = Réviseur d'audit
 user-mgmt-role-user = Utilisateur
 user-mgmt-column-user = Utilisateur
 user-mgmt-column-email = E-mail
@@ -3643,6 +3645,60 @@ import-commit-not-finished = L'import ne s'est pas terminé et rien n'a été im
 import-commit-still-running-later = L'import prend plus de temps que prévu. Revenez sur cette page plus tard pour voir le résultat.
 # MT: pending native review (fr-FR)
 import-error-not-csv = { $name } n'est pas un fichier .csv ou .xlsx.
+# MT: pending native review (fr-FR)
+import-refused-file-empty = Le fichier est vide.
+# MT: pending native review (fr-FR)
+import-refused-file-too-large = Ce fichier dépasse { $max } Mo. Divisez-le et importez-le en plusieurs fois.
+# MT: pending native review (fr-FR)
+import-refused-xlsx-protected = Ce fichier semble être un classeur protégé par mot de passe ou un ancien fichier .xls. Enregistrez-le au format .xlsx et réessayez.
+# MT: pending native review (fr-FR)
+import-refused-xlsx-unreadable = Ce classeur ne peut pas être lu. Ouvrez-le dans Excel, enregistrez-le au format .xlsx et importez-le à nouveau.
+# MT: pending native review (fr-FR)
+import-refused-xlsx-too-large = Ce classeur est trop volumineux une fois décompressé. Copiez la feuille dont vous avez besoin dans un nouveau classeur et importez celui-ci.
+# MT: pending native review (fr-FR)
+import-refused-xlsx-too-many-parts = Ce classeur contient plus de { $max } parties et ne peut donc pas être importé. Copiez la feuille dont vous avez besoin dans un nouveau classeur et importez celui-ci.
+# MT: pending native review (fr-FR)
+import-refused-xlsx-no-rows = Ce classeur ne contient aucune ligne à importer. Vérifiez que les données se trouvent sur une feuille de calcul et sont enregistrées.
+# MT: pending native review (fr-FR)
+import-refused-sheets-hidden = Les lignes de ce classeur se trouvent sur des feuilles masquées. Affichez la feuille à importer et importez à nouveau le fichier.
+# MT: pending native review (fr-FR)
+import-refused-sheet-unknown = Ce classeur ne contient aucune feuille portant ce nom.
+# MT: pending native review (fr-FR)
+import-refused-sheet-hidden = Cette feuille est masquée dans le classeur. Affichez-la et importez à nouveau le fichier.
+# MT: pending native review (fr-FR)
+import-refused-sheet-already-imported = Cette feuille a déjà été importée depuis ce fichier.
+# MT: pending native review (fr-FR)
+import-refused-sheet-empty = La feuille « { $sheet } » est vide.
+# MT: pending native review (fr-FR)
+import-refused-header-row-empty = La ligne { $row } de « { $sheet } » est vide. Choisissez la ligne qui contient les en-têtes de colonnes.
+# MT: pending native review (fr-FR)
+import-refused-sheet-too-many-rows = La feuille « { $sheet } » contient plus de { $max } lignes sous son en-tête. Divisez-la en feuilles plus petites et importez-les une par une.
+# MT: pending native review (fr-FR)
+import-refused-sheet-no-rows = Il n'y a aucune ligne sous la ligne d'en-tête (ligne { $row }) de « { $sheet } ».
+# MT: pending native review (fr-FR)
+import-refused-sheet-too-wide = La feuille « { $sheet } » contient plus de colonnes qu'un import n'en accepte. La limite est de { $max }.
+# MT: pending native review (fr-FR)
+import-refused-header-too-long = L'en-tête de la colonne { $column } dépasse { $max } caractères.
+# MT: pending native review (fr-FR)
+import-refused-cell-too-long = Ligne { $row }, colonne « { $column } » : la valeur dépasse { $max } caractères.
+# MT: pending native review (fr-FR)
+import-refused-csv-unreadable = Ce fichier ne peut pas être lu comme un CSV. Enregistrez-le au format CSV ou .xlsx et importez-le à nouveau.
+# MT: pending native review (fr-FR)
+import-refused-csv-not-utf8 = Ce CSV n'est pas en UTF-8. Importez plutôt le fichier .xlsx, ou enregistrez le CSV en UTF-8.
+# MT: pending native review (fr-FR)
+import-refused-no-header = Le fichier n'a pas de ligne d'en-tête.
+# MT: pending native review (fr-FR)
+import-refused-header-duplicate = La colonne « { $name } » apparaît plusieurs fois dans la ligne d'en-tête. Renommez-en ou supprimez-en une.
+# MT: pending native review (fr-FR)
+import-refused-header-blank = La colonne { $column } contient des valeurs mais pas d'en-tête. Nommez-la ou supprimez la colonne.
+# MT: pending native review (fr-FR)
+import-refused-too-many-columns = Le fichier contient { $count } colonnes. La limite est de { $max }.
+# MT: pending native review (fr-FR)
+import-refused-too-many-rows = Le fichier contient plus de { $max } lignes de données. Divisez-le et importez-le en plusieurs fois.
+# MT: pending native review (fr-FR)
+import-refused-no-rows = Le fichier contient une ligne d'en-tête mais aucune donnée.
+# MT: pending native review (fr-FR)
+import-refused-timed-out = La lecture de ce fichier a pris trop de temps. Copiez la feuille dont vous avez besoin dans un nouveau fichier et importez celui-ci.
 # MT: pending native review (fr-FR)
 import-start-type-heading = Que souhaitez-vous importer ?
 # MT: pending native review (fr-FR)

@@ -2602,6 +2602,8 @@ user-mgmt-grouping-joined-this-year = This year
 user-mgmt-grouping-joined-older = Earlier
 user-mgmt-role-admin = Beheerder
 user-mgmt-role-technician = Agent
+# MT: pending native review (nl-NL)
+user-mgmt-role-audit_reviewer = Auditbeoordelaar
 user-mgmt-role-user = Gebruiker
 user-mgmt-column-user = Gebruiker
 user-mgmt-column-email = E-mailadres
@@ -3633,6 +3635,60 @@ import-commit-not-finished = De import is niet voltooid en er is niets geïmport
 import-commit-still-running-later = De import duurt langer dan verwacht. Kom later terug naar deze pagina om te zien hoe hij is afgelopen.
 # MT: pending native review (nl-NL)
 import-error-not-csv = { $name } is geen .csv- of .xlsx-bestand.
+# MT: pending native review (nl-NL)
+import-refused-file-empty = Het bestand is leeg.
+# MT: pending native review (nl-NL)
+import-refused-file-too-large = Dit bestand is groter dan { $max } MB. Splits het en importeer het in kleinere delen.
+# MT: pending native review (nl-NL)
+import-refused-xlsx-protected = Dit lijkt een met een wachtwoord beveiligde werkmap of een oud .xls-bestand. Sla het op als .xlsx en probeer het opnieuw.
+# MT: pending native review (nl-NL)
+import-refused-xlsx-unreadable = Deze werkmap kan niet worden gelezen. Open hem in Excel, sla hem op als .xlsx en upload hem opnieuw.
+# MT: pending native review (nl-NL)
+import-refused-xlsx-too-large = Deze werkmap is te groot na het uitpakken. Kopieer het blad dat u nodig hebt naar een nieuwe werkmap en upload die.
+# MT: pending native review (nl-NL)
+import-refused-xlsx-too-many-parts = Deze werkmap bevat meer dan { $max } onderdelen en kan daarom niet worden geïmporteerd. Kopieer het blad dat u nodig hebt naar een nieuwe werkmap en upload die.
+# MT: pending native review (nl-NL)
+import-refused-xlsx-no-rows = Deze werkmap heeft geen rijen om te importeren. Controleer of de gegevens op een werkblad staan en zijn opgeslagen.
+# MT: pending native review (nl-NL)
+import-refused-sheets-hidden = De rijen in deze werkmap staan op verborgen bladen. Maak het blad dat u wilt importeren zichtbaar en upload het bestand opnieuw.
+# MT: pending native review (nl-NL)
+import-refused-sheet-unknown = Deze werkmap heeft geen blad met die naam.
+# MT: pending native review (nl-NL)
+import-refused-sheet-hidden = Dat blad is verborgen in de werkmap. Maak het zichtbaar en upload het bestand opnieuw.
+# MT: pending native review (nl-NL)
+import-refused-sheet-already-imported = Dat blad is al uit dit bestand geïmporteerd.
+# MT: pending native review (nl-NL)
+import-refused-sheet-empty = Het blad '{ $sheet }' is leeg.
+# MT: pending native review (nl-NL)
+import-refused-header-row-empty = Rij { $row } van '{ $sheet }' is leeg. Kies de rij met de kolomkoppen.
+# MT: pending native review (nl-NL)
+import-refused-sheet-too-many-rows = Het blad '{ $sheet }' heeft meer dan { $max } rijen onder de koprij. Splits het in kleinere bladen en importeer ze een voor een.
+# MT: pending native review (nl-NL)
+import-refused-sheet-no-rows = Er staan geen rijen onder de koprij (rij { $row }) van '{ $sheet }'.
+# MT: pending native review (nl-NL)
+import-refused-sheet-too-wide = Het blad '{ $sheet }' heeft meer kolommen dan een import aankan. De limiet is { $max }.
+# MT: pending native review (nl-NL)
+import-refused-header-too-long = De kop in kolom { $column } is langer dan { $max } tekens.
+# MT: pending native review (nl-NL)
+import-refused-cell-too-long = Rij { $row }, kolom '{ $column }' is langer dan { $max } tekens.
+# MT: pending native review (nl-NL)
+import-refused-csv-unreadable = Dit bestand kan niet als CSV worden gelezen. Sla het op als CSV of .xlsx en upload het opnieuw.
+# MT: pending native review (nl-NL)
+import-refused-csv-not-utf8 = Deze CSV is geen UTF-8. Upload in plaats daarvan het .xlsx-bestand, of sla de CSV op als UTF-8.
+# MT: pending native review (nl-NL)
+import-refused-no-header = Het bestand heeft geen koprij.
+# MT: pending native review (nl-NL)
+import-refused-header-duplicate = De kolom '{ $name }' komt meer dan eens voor in de koprij. Hernoem of verwijder er een.
+# MT: pending native review (nl-NL)
+import-refused-header-blank = Kolom { $column } heeft waarden maar geen kop. Geef hem een naam of verwijder de kolom.
+# MT: pending native review (nl-NL)
+import-refused-too-many-columns = Het bestand heeft { $count } kolommen. De limiet is { $max }.
+# MT: pending native review (nl-NL)
+import-refused-too-many-rows = Het bestand heeft meer dan { $max } gegevensrijen. Splits het en importeer het in kleinere delen.
+# MT: pending native review (nl-NL)
+import-refused-no-rows = Het bestand heeft een koprij maar geen gegevens.
+# MT: pending native review (nl-NL)
+import-refused-timed-out = Het lezen van dit bestand duurde te lang. Kopieer het blad dat u nodig hebt naar een nieuw bestand en upload dat.
 # MT: pending native review (nl-NL)
 import-start-type-heading = Wat wilt u importeren?
 # MT: pending native review (nl-NL)
