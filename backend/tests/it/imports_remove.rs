@@ -1039,9 +1039,9 @@ async fn previous_values_hold_what_the_updates_replaced() {
     assert_eq!(
         lines,
         vec![
-            "asset_tag,name,kind,status,location,notes",
-            "V-1,V-1,generic,in_service,Studio A,",
-            "V-2,V-2,generic,,Studio B,",
+            "asset_tag,status,location,notes",
+            "V-1,in_service,Studio A,",
+            "V-2,,Studio B,",
         ]
     );
     let (_, job) = call(
@@ -1060,7 +1060,8 @@ async fn previous_values_hold_what_the_updates_replaced() {
 
 /// Importing the previous values file matches by tag, lands the rows as
 /// Updated, and puts the values back; the field that was blank before
-/// keeps the import's value.
+/// keeps the import's value. The file has no Name or Kind column, and Map
+/// takes it as it is.
 #[actix_web::test]
 async fn previous_values_import_back_as_updates() {
     let db = TestDb::new();
@@ -1100,10 +1101,8 @@ async fn previous_values_import_back_as_updates() {
         .collect();
     assert_eq!(
         serde_json::Value::Object(mapping.clone()),
-        serde_json::json!({
-            "asset_tag": 0, "name": 1, "kind": 2, "status": 3, "location": 4, "notes": 5
-        }),
-        "every header maps to its field"
+        serde_json::json!({ "asset_tag": 0, "status": 1, "location": 2, "notes": 3 }),
+        "every header maps to its field, with no Name or Kind column"
     );
     let (status, body) = call_import_route(
         &pool,

@@ -65,6 +65,9 @@ use super::values::Choice;
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
 
+/// The message of a new person with no role.
+pub const ROLE_REQUIRED: &str = "role is required";
+
 const AUDIT_REVIEWER_REFUSED: &str =
     "audit_reviewer can't be set by import; set it from the user's page";
 
@@ -205,7 +208,7 @@ impl Importer for UserImporter {
                 }
                 Err(errs) => RowResult::skipped(row_num, errs),
             };
-            plan.rows.push(identify(result, &values));
+            plan.rows.push(identify(result, &values, &lookup));
         }
         Ok(plan)
     }
@@ -237,13 +240,14 @@ impl Importer for UserImporter {
                 identify(
                     RowResult::skipped(row_num, vec![(Some("role".into()), message.to_string())]),
                     row,
+                    &lookup,
                 )
             };
             let mut local = state.clone();
             let action = match validate_row(row, &lookup, &mut local) {
                 Ok(a) => a,
                 Err(errs) => {
-                    rows.push(identify(RowResult::skipped(row_num, errs), row));
+                    rows.push(identify(RowResult::skipped(row_num, errs), row, &lookup));
                     continue;
                 }
             };
@@ -305,6 +309,7 @@ impl Importer for UserImporter {
                                 RowResult::planned(row_num, RowOutcome::Create)
                                     .with_record(RecordId::Uuid(user.uuid)),
                                 row,
+                                &lookup,
                             ));
                             imported.push(ImportedUser {
                                 user,
@@ -326,6 +331,7 @@ impl Importer for UserImporter {
                         RowResult::planned(row_num, RowOutcome::Unchanged)
                             .with_record(RecordId::Uuid(user_uuid)),
                         row,
+                        &lookup,
                     ));
                 }
                 RowAction::UpdateMember {
@@ -386,7 +392,7 @@ impl Importer for UserImporter {
                     let mut result = RowResult::planned(row_num, RowOutcome::Update)
                         .with_record(RecordId::Uuid(user.uuid));
                     result.fields_written = changes;
-                    rows.push(identify(result, row));
+                    rows.push(identify(result, row, &lookup));
                     imported.push(ImportedUser {
                         user,
                         primary_email: Some(email),
@@ -469,11 +475,19 @@ impl FileState {
     }
 }
 
-/// The row's email and name on its result.
-fn identify(result: RowResult, row: &HashMap<String, String>) -> RowResult {
-    result
-        .with_key(Some(trimmed(row, "email")))
-        .with_label(trimmed(row, "name"))
+/// The row's email and name on its result: the name the row gives, or for
+/// a member's row without one the name they keep.
+fn identify(result: RowResult, row: &HashMap<String, String>, lookup: &Lookup) -> RowResult {
+    let email = trimmed(row, "email");
+    let mut name = trimmed(row, "name");
+    if name.is_empty() {
+        if let Some(PrimaryEmailHolder::Member { user, .. }) =
+            lookup.holders.get(&email.to_lowercase())
+        {
+            name = user.name.clone();
+        }
+    }
+    result.with_key(Some(email)).with_label(name)
 }
 
 /// The row with its name settled: the Name cell, or, when that is blank,
@@ -657,7 +671,7 @@ fn validate_row(
     let role_raw = trimmed(row, "role");
     let roles = if role_raw.is_empty() {
         if !member {
-            errors.push((Some("role".into()), "role is required".into()));
+            errors.push((Some("role".into()), ROLE_REQUIRED.into()));
         }
         None
     } else {
@@ -689,7 +703,7 @@ fn validate_row(
         )]),
         None => {
             let Some((platform_role, workspace_role)) = roles else {
-                return Err(vec![(Some("role".into()), "role is required".into())]);
+                return Err(vec![(Some("role".into()), ROLE_REQUIRED.into())]);
             };
             if let Err(msg) = lookup.role_gate(state, None, workspace_role) {
                 return Err(vec![(Some("role".into()), msg)]);

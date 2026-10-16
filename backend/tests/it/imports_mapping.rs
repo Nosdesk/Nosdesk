@@ -631,7 +631,8 @@ async fn the_fields_endpoint_lists_the_targets() {
 }
 
 /// The mapping endpoint refuses a mapping it can't run, naming the
-/// problem, and accepts the default kind in place of a Kind column.
+/// problem, and accepts the default kind in place of a Kind column. Name
+/// and Kind block only when every row creates.
 #[actix_web::test]
 async fn the_mapping_endpoint_refuses_what_it_cannot_run() {
     let db = TestDb::new();
@@ -655,12 +656,14 @@ async fn the_mapping_endpoint_refuses_what_it_cannot_run() {
             serde_json::json!({ "mapping": { "name": 0, "kind": 1, "colour": 2 } }),
             "unknown field 'colour'",
         ),
+        // Name and Kind are needed to create: they block when every row
+        // creates.
         (
-            serde_json::json!({ "mapping": { "kind": 1 } }),
+            serde_json::json!({ "mapping": { "kind": 1 }, "options": { "mode": "create_only" } }),
             "no column maps to Name",
         ),
         (
-            serde_json::json!({ "mapping": { "name": 0 } }),
+            serde_json::json!({ "mapping": { "name": 0 }, "options": { "mode": "create_only" } }),
             "no column maps to Kind",
         ),
         (

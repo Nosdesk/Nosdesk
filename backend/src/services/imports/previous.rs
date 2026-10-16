@@ -1,11 +1,9 @@
 //! Download previous values (design r2 §9): the values an asset import's
 //! updates replaced, as a file the importer reads back. One row per
 //! updated asset, keyed by the field the import matched on, then every
-//! field the import wrote, each holding the value before it.
-//!
-//! Name and kind are always there: Map refuses a file without them. A row
-//! whose update didn't change one holds the value the asset kept, which
-//! is the value before.
+//! field the import wrote, each holding the value before it. Name and
+//! kind are there only when the import wrote them: a row that matches an
+//! asset leaves out what the file doesn't give.
 //!
 //! A field that was blank before has an empty cell, and an empty cell
 //! never changes a value, so importing the file can't blank it again;
@@ -42,19 +40,15 @@ pub fn key_field(key: MatchBy) -> &'static str {
     }
 }
 
-/// Fields every asset import maps, so every file has them.
-const ALWAYS: &[&str] = &["name", "kind"];
-
 /// The fields the file holds, in the template's order with attributes
 /// after the core fields.
 fn columns(rows: &[&RowResult], key: &str) -> Vec<String> {
-    let mut written: BTreeSet<&str> = rows
+    let written: BTreeSet<&str> = rows
         .iter()
         .flat_map(|r| r.fields_written.keys())
         .map(String::as_str)
         .filter(|f| *f != key && !NOT_RESTORABLE.contains(f))
         .collect();
-    written.extend(ALWAYS);
     let rank = |f: &str| {
         TEMPLATE_CORE_HEADERS
             .iter()
@@ -79,18 +73,12 @@ fn updated<'a>(rows: &'a [RowResult], key: &str) -> Vec<&'a RowResult> {
         .collect()
 }
 
-/// A row's cell for `field`: the value before the import, which for a
-/// field the row didn't write is blank, or for name and kind the value the
-/// asset kept.
+/// A row's cell for `field`: the value before the import, blank for a
+/// field the row didn't write.
 fn before(row: &RowResult, field: &str) -> Option<String> {
-    match row.fields_written.get(field) {
-        Some(change) => change.before.clone(),
-        None => match field {
-            "name" => row.label.clone(),
-            "kind" => row.kind.clone(),
-            _ => None,
-        },
-    }
+    row.fields_written
+        .get(field)
+        .and_then(|change| change.before.clone())
 }
 
 /// How many assets the file has and how many of their fields were blank.
@@ -103,7 +91,6 @@ pub fn counts(rows: &[RowResult], key: MatchBy) -> PreviousValues {
         .map(|r| {
             columns
                 .iter()
-                .filter(|c| !ALWAYS.contains(&c.as_str()))
                 .filter_map(|c| r.fields_written.get(c))
                 .filter(|change| change.before.as_deref().is_none_or(|v| v.trim().is_empty()))
                 .count()
@@ -199,9 +186,9 @@ mod tests {
         assert_eq!(
             lines(&file),
             vec![
-                "asset_tag,name,kind,status,location,notes".to_string(),
-                "T-1,Cam 2,camera,,Studio A,".to_string(),
-                "T-2,Cam 3,camera,in_repair,,".to_string(),
+                "asset_tag,status,location,notes".to_string(),
+                "T-1,,Studio A,".to_string(),
+                "T-2,in_repair,,".to_string(),
             ]
         );
         assert_eq!(
@@ -228,8 +215,8 @@ mod tests {
         assert_eq!(
             lines(&file),
             vec![
-                "serial_number,name,kind,asset_tag,attr:mount".to_string(),
-                "SN-1,Old name,camera,OLD-1,'=EF".to_string(),
+                "serial_number,name,asset_tag,attr:mount".to_string(),
+                "SN-1,Old name,OLD-1,'=EF".to_string(),
             ]
         );
     }
@@ -239,7 +226,7 @@ mod tests {
         let rows = vec![RowResult::planned(2, RowOutcome::Unchanged)];
         assert_eq!(
             lines(&csv(&rows, MatchBy::AssetTag).unwrap()),
-            vec!["asset_tag,name,kind"]
+            vec!["asset_tag"]
         );
         assert_eq!(counts(&rows, MatchBy::AssetTag), PreviousValues::default());
     }

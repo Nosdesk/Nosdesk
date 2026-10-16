@@ -12,6 +12,7 @@ import type {
   ImportConstant,
   ImportField,
   ImportJobType,
+  ImportMode,
   ImportSource,
   Suggestion,
   SuggestionProvenance,
@@ -148,16 +149,58 @@ export function buildConstants(
     }))
 }
 
+/** Whether every row of the file creates a record: tickets always, assets
+ *  under Only create new. People match by email and update a member, and
+ *  assets under the other modes update the rows that match. */
+export function everyRowCreates(jobType: ImportJobType, mode: ImportMode): boolean {
+  if (jobType === 'tickets') return true
+  return jobType === 'assets' && mode === 'create_only'
+}
+
+/** Whether a required field is needed only to create a record: any but a
+ *  match key, on a type whose rows can update. An update leaves it as it
+ *  is when nothing gives it. */
+export function requiredOnCreate(fieldId: string, jobType: ImportJobType): boolean {
+  return jobType !== 'tickets' && !KEY_FIELDS[jobType].includes(fieldId)
+}
+
+/** Required fields nothing gives, in field order. A required field is
+ *  covered by a column or by a constant with a value; an asset's kind also
+ *  by a Model column, since a linked model gives it, and a person's name
+ *  by First name or Last name columns. */
+function uncovered(
+  rows: MapRow[],
+  fields: ImportField[],
+  jobType: ImportJobType,
+  constants: ConstantRow[],
+): string[] {
+  const mapped = new Set(rows.filter(isMapped).map((r) => r.target))
+  const constant = new Set(constants.filter((c) => c.field && c.value.trim()).map((c) => c.field))
+  return fields
+    .filter((field) => {
+      if (!field.required || mapped.has(field.id) || constant.has(field.id)) return false
+      if (jobType === 'assets' && field.id === 'kind' && mapped.has('model')) return false
+      // A person's name joins their first and last names.
+      return !(
+        jobType === 'users' &&
+        field.id === 'name' &&
+        (mapped.has('first_name') || mapped.has('last_name'))
+      )
+    })
+    .map((field) => field.id)
+}
+
 /** What stops the check, in the order the admin should read them. A
- *  required field is covered by a column or by a constant with a value; an
- *  asset's kind also by a Model column, since a linked model gives it, and
- *  a person's name by First name or Last name columns. */
+ *  required field nothing gives blocks when it is the match key or every
+ *  row creates; otherwise rows that match update without it, and
+ *  {@link createNeeds} warns about the rows that would create. */
 export function problems(
   rows: MapRow[],
   fields: ImportField[],
   jobType: ImportJobType,
   constants: ConstantRow[] = [],
   datesUnresolved = false,
+  mode: ImportMode = 'create_update',
 ): Problem[] {
   const out: Problem[] = []
   const byField = new Map<string, number[]>()
@@ -168,26 +211,31 @@ export function problems(
   for (const [field, columns] of byField) {
     if (columns.length > 1) out.push({ kind: 'duplicate', field, columns })
   }
-  const constant = new Set(constants.filter((c) => c.field && c.value.trim()).map((c) => c.field))
-  for (const field of fields) {
-    if (!field.required || byField.has(field.id) || constant.has(field.id)) continue
-    if (jobType === 'assets' && field.id === 'kind' && byField.has('model')) continue
-    // A person's name joins their first and last names.
-    if (
-      jobType === 'users' &&
-      field.id === 'name' &&
-      (byField.has('first_name') || byField.has('last_name'))
-    ) {
-      continue
-    }
+  const creates = everyRowCreates(jobType, mode)
+  for (const field of uncovered(rows, fields, jobType, constants)) {
+    if (!creates && requiredOnCreate(field, jobType)) continue
     out.push(
-      jobType === 'assets' && field.id === 'kind'
-        ? { kind: 'kind' }
-        : { kind: 'required', field: field.id },
+      jobType === 'assets' && field === 'kind' ? { kind: 'kind' } : { kind: 'required', field },
     )
   }
   if (datesUnresolved) out.push({ kind: 'dates' })
   return out
+}
+
+/** Fields new records need that nothing gives, when that doesn't block:
+ *  rows that match update without them, and rows that would create are
+ *  reported on Review. Empty under Only update existing, where no row
+ *  creates, and when every row creates, where they block instead. */
+export function createNeeds(
+  rows: MapRow[],
+  fields: ImportField[],
+  jobType: ImportJobType,
+  constants: ConstantRow[] = [],
+  mode: ImportMode = 'create_update',
+): string[] {
+  if (everyRowCreates(jobType, mode)) return []
+  if (jobType === 'assets' && mode === 'update_only') return []
+  return uncovered(rows, fields, jobType, constants).filter((f) => requiredOnCreate(f, jobType))
 }
 
 /** The other columns mapped to the same field as `row`, if any. */

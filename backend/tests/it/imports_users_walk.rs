@@ -289,8 +289,9 @@ async fn invites_are_for_committed_users_imports() {
     assert!(job.get("sign_in").is_none(), "{job}");
 }
 
-/// Map takes First name and Last name in place of Name, and refuses a
-/// users mapping with neither.
+/// Map takes First name and Last name in place of Name. With neither,
+/// Map takes the file and every new person is a row error fixed on Map
+/// columns: a name is needed to create a person, not to update a member.
 #[actix_web::test]
 async fn first_and_last_names_cover_the_name() {
     let db = TestDb::new();
@@ -309,15 +310,24 @@ async fn first_and_last_names_cover_the_name() {
         ws,
         mapping_request(
             &id,
-            serde_json::json!({ "mapping": { "email": 2, "role": 3 } }),
+            serde_json::json!({
+                "mapping": { "email": 2 },
+                "options": {
+                    "constants": [{ "field": "role", "value": "user", "apply_to": "new" }]
+                }
+            }),
         ),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(
-        body["error"].as_str().unwrap_or("").contains("Name"),
-        "{body}"
-    );
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["summary"]["would_create"], 0, "{body}");
+    assert_eq!(body["summary"]["rows_with_errors"], 8, "{body}");
+    let groups = body["summary"]["error_groups"].as_array().expect("groups");
+    assert_eq!(groups.len(), 1, "{body}");
+    assert_eq!(groups[0]["column"], "name");
+    assert_eq!(groups[0]["message"], "name is required");
+    assert_eq!(groups[0]["count"], 8);
+    assert_eq!(groups[0]["fix"], "map");
     let (status, body) = call(
         &pool,
         ws,
@@ -334,6 +344,74 @@ async fn first_and_last_names_cover_the_name() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["summary"]["would_create"], 8, "{body}");
+}
+
+fn role_of(pool: &TestPool, ws: &WorkspaceSeed, user: Uuid) -> String {
+    let workspace = ws.workspace_id;
+    run_in_workspace(pool, REF, workspace, move |c| {
+        use backend::schema::workspace_members::dsl as m;
+        m::workspace_members
+            .filter(m::workspace_id.eq(workspace))
+            .filter(m::user_uuid.eq(user))
+            .select(m::role)
+            .first::<String>(c)
+    })
+    .expect("read role")
+}
+
+/// A file with the email and one field to change updates the member: Map
+/// takes it with no Name or Role column, and the member keeps their name.
+#[actix_web::test]
+async fn an_email_and_one_field_update_a_member() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = &import_workspaces(&pool).a;
+    let sam = sam(&mut pool.get().expect("conn"), ws);
+
+    let file = "Email,Role\nsam.lee@example.com,technician\n";
+    let (_, job) = call(
+        &pool,
+        ws,
+        upload_request_for("users", "roles.csv", file.as_bytes()),
+    )
+    .await;
+    let id = job["id"].as_str().expect("id").to_string();
+    let (status, body) = call(
+        &pool,
+        ws,
+        mapping_request(
+            &id,
+            serde_json::json!({ "mapping": { "email": 0, "role": 1 } }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let summary = &body["summary"];
+    assert_eq!(summary["would_update"], 1, "{summary}");
+    assert_eq!(summary["rows_with_errors"], 0, "{summary}");
+    assert_eq!(summary["changes"][0]["field"], "role", "{summary}");
+
+    let (status, body) = call(
+        &pool,
+        ws,
+        TestRequest::post().uri(&format!("/api/admin/import/{id}/commit")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, page) = call(
+        &pool,
+        ws,
+        TestRequest::get().uri(&format!("/api/admin/import/{id}/rows")),
+    )
+    .await;
+    let row = &page["rows"][0];
+    assert_eq!(row["outcome"], "update", "{page}");
+    assert_eq!(row["label"], "Sam Lee", "{page}");
+    assert_eq!(role_of(&pool, ws, sam), "agent");
+    assert_eq!(
+        name_of(&pool, ws, "sam.lee@example.com").as_deref(),
+        Some("Sam Lee")
+    );
 }
 
 fn parse(content: &str) -> csv_parser::ParsedCsv {
@@ -387,7 +465,7 @@ fn a_members_row_changes_only_what_it_gives() {
     assert_eq!(
         labels,
         vec![
-            None,
+            Some("Sam Lee"),
             Some("Display Name"),
             Some("Joined Name"),
             Some("Mononym")

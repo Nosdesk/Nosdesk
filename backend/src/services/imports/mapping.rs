@@ -14,8 +14,8 @@ use uuid::Uuid;
 
 use super::csv_parser::{ParsedCsv, SourceRow, MAX_CELL_CHARS, MAX_ROWS};
 use super::types::{
-    ApplyTo, DecimalMark, FieldSpec, ImportOptions, ImportSummary, ImportType, RowOutcome,
-    RowResult, UnmappedColumn, ValueAnswer, ValueAnswers,
+    ApplyTo, DecimalMark, FieldSpec, ImportMode, ImportOptions, ImportSummary, ImportType,
+    RowOutcome, RowResult, UnmappedColumn, ValueAnswer, ValueAnswers,
 };
 
 /// Sample values carried per header.
@@ -374,6 +374,11 @@ pub struct MappingError(pub String);
 /// The asset kind may come from `options.default_kind` or a Model column
 /// instead of a Kind column; the caller checks that kind exists. A user's
 /// name may come from First name and Last name columns instead.
+///
+/// A required field other than the match key is required to create a
+/// record, never to update one, so it is checked here only when every row
+/// creates (see [`every_row_creates`]). Otherwise rows that match update
+/// and rows that would create without it are reported on Review.
 pub fn validate(
     import_type: ImportType,
     mapping: &ColumnMapping,
@@ -421,7 +426,12 @@ pub fn validate(
         }
     }
     validate_constants(import_type, mapping, options, fields)?;
-    for spec in fields.iter().filter(|f| f.required) {
+    let creates = every_row_creates(import_type, options);
+    let keys = key_fields(import_type);
+    for spec in fields
+        .iter()
+        .filter(|f| f.required && (creates || keys.contains(&f.id.as_str())))
+    {
         if mapping.contains_key(&spec.id) || options.constants.iter().any(|c| c.field == spec.id) {
             continue;
         }
@@ -447,6 +457,17 @@ pub fn validate(
         }
     }
     Ok(())
+}
+
+/// Whether every row of the file creates a record: tickets always, assets
+/// under Only create new. Users match by email and update a member, and
+/// assets under the other modes update the rows that match.
+pub fn every_row_creates(import_type: ImportType, options: &ImportOptions) -> bool {
+    match import_type {
+        ImportType::Tickets => true,
+        ImportType::Assets => options.row_mode() == ImportMode::CreateOnly,
+        ImportType::Users => false,
+    }
 }
 
 /// Fields a constant can't set: the keys rows are matched on, where one
@@ -975,24 +996,100 @@ mod tests {
         let out_of_range = ColumnMapping::from([("name".into(), 0), ("kind".into(), 7)]);
         assert!(validate(ImportType::Assets, &out_of_range, &opts, &fields(), &h).is_err());
 
+        // Name and Kind are needed to create, so they block when every row
+        // creates.
+        let create_only = ImportOptions {
+            mode: ImportMode::CreateOnly,
+            ..Default::default()
+        };
         let no_kind = ColumnMapping::from([("name".into(), 0)]);
-        let err = validate(ImportType::Assets, &no_kind, &opts, &fields(), &h).unwrap_err();
+        let err = validate(ImportType::Assets, &no_kind, &create_only, &fields(), &h).unwrap_err();
         assert!(err.0.contains("Kind"), "{err:?}");
         let defaulted = ImportOptions {
             default_kind: Some("generic".into()),
-            ..Default::default()
+            ..create_only.clone()
         };
         assert!(validate(ImportType::Assets, &no_kind, &defaulted, &fields(), &h).is_ok());
         // A linked model gives the kind too.
         let mut with_model = fields();
         with_model.push(field("model", "Model", false));
         let model = ColumnMapping::from([("name".into(), 0), ("model".into(), 1)]);
-        assert!(validate(ImportType::Assets, &model, &opts, &with_model, &h).is_ok());
+        assert!(validate(ImportType::Assets, &model, &create_only, &with_model, &h).is_ok());
 
         let no_name = ColumnMapping::from([("kind".into(), 1)]);
         assert_eq!(
-            validate(ImportType::Assets, &no_name, &opts, &fields(), &h).unwrap_err(),
+            validate(ImportType::Assets, &no_name, &create_only, &fields(), &h).unwrap_err(),
             MappingError("no column maps to Name".into())
+        );
+    }
+
+    #[test]
+    fn name_and_kind_block_only_when_every_row_creates() {
+        let h = headers(&["Tag", "Location"]);
+        let mut with_location = fields();
+        with_location.push(field("location", "Location", false));
+        let key_only = ColumnMapping::from([("asset_tag".into(), 0), ("location".into(), 1)]);
+        for (mode, blocks) in [
+            (ImportMode::CreateUpdate, false),
+            (ImportMode::UpdateOnly, false),
+            (ImportMode::CreateOnly, true),
+        ] {
+            let opts = ImportOptions {
+                mode,
+                ..Default::default()
+            };
+            let result = validate(ImportType::Assets, &key_only, &opts, &with_location, &h);
+            assert_eq!(result.is_err(), blocks, "{mode:?}: {result:?}");
+        }
+
+        // A user's email is the key and always needed; name and role only
+        // create, so a member's row updates without them.
+        let user = |id: &str, label: &str, required: bool| {
+            FieldSpec::fixed(
+                ImportType::Users,
+                id,
+                label,
+                FieldGroup::Core,
+                ValueType::Text,
+                required,
+            )
+        };
+        let users = vec![
+            user("email", "Email", true),
+            user("name", "Name", true),
+            user("role", "Role", true),
+            user("pronouns", "Pronouns", false),
+        ];
+        let h = headers(&["Email", "Pronouns"]);
+        let opts = ImportOptions::default();
+        let email_only = ColumnMapping::from([("email".into(), 0), ("pronouns".into(), 1)]);
+        assert!(validate(ImportType::Users, &email_only, &opts, &users, &h).is_ok());
+        let no_email = ColumnMapping::from([("pronouns".into(), 1)]);
+        assert_eq!(
+            validate(ImportType::Users, &no_email, &opts, &users, &h).unwrap_err(),
+            MappingError("no column maps to Email".into())
+        );
+
+        // Every ticket row creates.
+        let tickets = vec![FieldSpec::fixed(
+            ImportType::Tickets,
+            "title",
+            "Title",
+            FieldGroup::Core,
+            ValueType::Text,
+            true,
+        )];
+        let h = headers(&["Body"]);
+        assert_eq!(
+            validate(
+                ImportType::Tickets,
+                &ColumnMapping::new(),
+                &opts,
+                &tickets,
+                &h
+            )
+            .unwrap_err(),
+            MappingError("no column maps to Title".into())
         );
     }
 

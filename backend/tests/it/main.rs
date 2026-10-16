@@ -79,6 +79,7 @@ mod imports_catalog;
 mod imports_data_shape;
 mod imports_files;
 mod imports_history;
+mod imports_key_only;
 mod imports_map_memory;
 mod imports_mapping;
 mod imports_next_sheet;
