@@ -391,9 +391,10 @@ function kindList(slugs: string[]): string {
 }
 
 /** Kinds in the file whose new rows need attributes nothing gives. Only
- *  the Kind column's samples and the kind for every row are known here. */
+ *  the Kind column's samples and the kind for every row are known here.
+ *  Under Only update existing no row creates, so there is nothing to say. */
 const requiredWarnings = computed(() =>
-  isAssets.value
+  isAssets.value && mode.value !== 'update_only'
     ? requiredAttributeWarnings(
         rows.value,
         props.fields,

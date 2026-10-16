@@ -750,6 +750,28 @@ describe('CsvImportView Map step', () => {
     expect(api.putMapping.mock.calls[0][2]).not.toHaveProperty('default_kind')
   })
 
+  it('says which kinds need attributes, except under Only update existing', async () => {
+    api.fields.mockResolvedValue([
+      ...FIELDS,
+      {
+        id: 'attr:mount',
+        label: 'Mount',
+        group: 'attribute',
+        value_type: 'text',
+        required: false,
+        kinds: ['camera'],
+        required_for: ['camera'],
+      },
+    ])
+    await openMap()
+    const warning = () => wrapper!.find('[data-test="import-required-attributes"]')
+    expect(warning().text()).toContain('import-map-warning-required-none')
+    await modeRadios()[2].trigger('click')
+    expect(warning().exists()).toBe(false)
+    await modeRadios()[0].trigger('click')
+    expect(warning().exists()).toBe(true)
+  })
+
   it('pills only guesses, and says where a saved match came from', async () => {
     await openMap(
       parsedJob({
