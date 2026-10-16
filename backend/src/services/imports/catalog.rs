@@ -125,14 +125,13 @@ impl Catalog {
             LookupKind::Manufacturer => vec![LookupContext {
                 key: String::new(),
                 label: None,
-                lookup: Lookup {
+                lookup: Lookup::new(
                     kind,
-                    choices: self
-                        .manufacturers
+                    self.manufacturers
                         .iter()
                         .map(|m| Choice::new(m.id.to_string(), m.name.clone()))
                         .collect(),
-                },
+                ),
             }],
             LookupKind::Group => {
                 let mut choices: Vec<Choice> = self
@@ -148,9 +147,11 @@ impl Catalog {
                 vec![LookupContext {
                     key: String::new(),
                     label: None,
-                    lookup: Lookup { kind, choices },
+                    lookup: Lookup::new(kind, choices),
                 }]
             }
+            // Members aren't catalog entries; the importer lists them.
+            LookupKind::Person => Vec::new(),
             LookupKind::Model => contexts
                 .iter()
                 .map(|context| {
@@ -163,15 +164,20 @@ impl Catalog {
                             choice
                         })
                         .collect();
+                    let owner = self.manufacturers_named(context);
                     let label = (!context.is_empty()).then(|| {
-                        self.manufacturers_named(context)
+                        owner
                             .first()
                             .map_or_else(|| context.clone(), |m| m.name.clone())
                     });
+                    // Only the catalog's manufacturer is known here; one the
+                    // import creates is settled from the answers.
+                    let mut lookup = Lookup::new(kind, choices);
+                    lookup.can_create = owner.len() == 1;
                     LookupContext {
                         key: context.clone(),
                         label,
-                        lookup: Lookup { kind, choices },
+                        lookup,
                     }
                 })
                 .collect(),

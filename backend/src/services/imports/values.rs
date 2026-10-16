@@ -79,9 +79,13 @@ pub struct Choice {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled: Option<String>,
     /// More about the entry, to tell apart entries with the same label: a
-    /// model's manufacturer.
+    /// model's manufacturer, a member's email.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// What a value names the entry by, normalized, when that isn't its
+    /// label: a member's email.
+    #[serde(skip)]
+    pub key: Option<String>,
 }
 
 impl Choice {
@@ -91,6 +95,7 @@ impl Choice {
             label: label.into(),
             disabled: None,
             detail: None,
+            key: None,
         }
     }
 }
@@ -102,13 +107,21 @@ pub enum LookupKind {
     Manufacturer,
     Model,
     Group,
+    /// A workspace member, named by primary email or user id.
+    Person,
 }
 
 impl LookupKind {
-    /// Whether a value can stay as text, unlinked. A group has no text of
-    /// its own, so it is linked or left off.
+    /// Whether a value can stay as text, unlinked. A group and a person
+    /// have no text of their own, so they are linked or left off.
     pub fn keeps_text(self) -> bool {
-        self != Self::Group
+        matches!(self, Self::Manufacturer | Self::Model)
+    }
+
+    /// Whether the import can create an entry a value names. Members are
+    /// never created here.
+    pub fn creates(self) -> bool {
+        self != Self::Person
     }
 
     /// What a value nothing matches comes to: kept as text, or left off.
@@ -128,14 +141,30 @@ impl LookupKind {
 pub struct Lookup {
     pub kind: LookupKind,
     pub choices: Vec<Choice>,
+    /// Whether a value can be created here. A model can't be without a
+    /// manufacturer to belong to: the catalog's, or one the import creates
+    /// (which [`prepare`] works out from the manufacturer answers).
+    pub can_create: bool,
 }
 
 impl Lookup {
-    /// The choices named `key` (a [`normalize_value`]), pickable or not.
+    pub fn new(kind: LookupKind, choices: Vec<Choice>) -> Self {
+        Self {
+            kind,
+            choices,
+            can_create: kind.creates(),
+        }
+    }
+
+    /// The choices named `key` (a [`normalize_value`]), pickable or not:
+    /// by label, or by the choice's own key or value where it has a key.
     fn named(&self, key: &str) -> Vec<&Choice> {
         self.choices
             .iter()
-            .filter(|c| normalize_value(&c.label) == key)
+            .filter(|c| match &c.key {
+                Some(own) => own == key || c.value.to_lowercase() == key,
+                None => normalize_value(&c.label) == key,
+            })
             .collect()
     }
 }
@@ -505,11 +534,15 @@ pub enum Reason {
     Disabled { label: String, note: String },
     /// The cell doesn't read as the field's type.
     Unreadable,
-    /// Names more than one entry, told apart only by case.
+    /// Names more than one entry, told apart only by case, or (a model with
+    /// no manufacturer) by their manufacturer, given as `label (detail)`.
     Ambiguous { labels: Vec<String> },
     /// Another value of the column would be created too and is spelled
     /// close to this one.
     BothNew { text: String },
+    /// A model nothing matches, on rows with no manufacturer to create it
+    /// under: the manufacturer is blank, kept as text or left blank.
+    NeedsManufacturer,
 }
 
 /// A saved answer and where it came from.
@@ -938,7 +971,13 @@ fn prematch(
             if live.len() > 1 {
                 // Told apart by case only: the importer can't pick, so the
                 // rows are skipped until the admin does.
-                let labels = live.iter().map(|c| c.label.clone()).collect();
+                let labels = live
+                    .iter()
+                    .map(|c| match &c.detail {
+                        Some(detail) => format!("{} ({detail})", c.label),
+                        None => c.label.clone(),
+                    })
+                    .collect();
                 return (
                     Layer::NoMatch,
                     Some(Reason::Ambiguous { labels }),
@@ -1198,7 +1237,13 @@ fn fits_lookup(lookup: &Lookup, key: &str, answer: &ValueAnswer) -> Result<(), S
             }
         }
         ValueAnswer::KeepText if lookup.kind.keeps_text() => Ok(()),
+        ValueAnswer::KeepText if lookup.kind == LookupKind::Person => {
+            Err("can't be kept as text; leave it unassigned instead".to_string())
+        }
         ValueAnswer::KeepText => Err("can't be kept as text; leave it off instead".to_string()),
+        ValueAnswer::Create if !lookup.kind.creates() => {
+            Err("members aren't created by an import; leave it unassigned instead".to_string())
+        }
         ValueAnswer::Create => match lookup.named(key).into_iter().find(|c| c.disabled.is_none()) {
             Some(existing) => Err(format!(
                 "'{}' already exists; link to it instead",
@@ -1441,7 +1486,7 @@ pub fn prepare(
         columns.extend(open_matchers(
             conn, job_type, fields, mapping, family, &seen,
         )?);
-        let more = resolve(
+        let mut more = resolve(
             job_type,
             grid,
             columns,
@@ -1450,10 +1495,42 @@ pub fn prepare(
             stored,
             &resolution.row_contexts,
         );
+        note_model_owners(&mut more.columns, &resolution.columns);
         resolution.columns.extend(more.columns);
     }
     resolution.columns.sort_by_key(|c| c.index);
     Ok(resolution)
+}
+
+/// Settle which model contexts can create a model: those the catalog's
+/// manufacturer names, and those of a manufacturer the import creates
+/// (its value answered Create in `settled`). In the others, a model
+/// nothing matches is noted as needing a manufacturer.
+fn note_model_owners(columns: &mut [ResolvedColumn], settled: &[ResolvedColumn]) {
+    let created: HashSet<&str> = settled
+        .iter()
+        .filter(|c| c.matcher.lookup() == Some(LookupKind::Manufacturer))
+        .flat_map(|c| &c.values)
+        .filter(|v| matches!(v.effective(), Some(ValueAnswer::Create)))
+        .map(|v| v.key.as_str())
+        .collect();
+    for column in columns.iter_mut() {
+        let Matcher::Lookup(lookup) = &mut column.matcher else {
+            continue;
+        };
+        if lookup.kind != LookupKind::Model || lookup.can_create {
+            continue;
+        }
+        if !column.context.is_empty() && created.contains(column.context.as_str()) {
+            lookup.can_create = true;
+            continue;
+        }
+        for value in &mut column.values {
+            if value.layer == Layer::NoMatch && value.reason.is_none() {
+                value.reason = Some(Reason::NeedsManufacturer);
+            }
+        }
+    }
 }
 
 /// Why rows holding `text` are held back by the admin's Skip.
@@ -1714,6 +1791,10 @@ pub struct ColumnView {
     /// created, and kept as text where the catalog has text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lookup: Option<LookupKind>,
+    /// For a lookup column, whether its values can be created: not for
+    /// members, nor for models with no manufacturer to belong to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub can_create: Option<bool>,
     /// What a value can link to; empty for numbers and dates.
     pub choices: Vec<Choice>,
     /// Distinct values in the column.
@@ -1860,6 +1941,10 @@ pub fn view(
                 value_type: column.value_type,
                 required: column.required,
                 lookup: column.matcher.lookup(),
+                can_create: match &column.matcher {
+                    Matcher::Lookup(lookup) => Some(lookup.can_create),
+                    _ => None,
+                },
                 choices: column.matcher.choices().to_vec(),
                 distinct,
                 matched,
@@ -2006,6 +2091,7 @@ mod tests {
                 label: "On loan".into(),
                 disabled: Some("Set by a loan after import".into()),
                 detail: None,
+                key: None,
             }],
             aliases: Vec::new(),
             synonyms: Vec::new(),
@@ -2327,15 +2413,15 @@ mod tests {
     }
 
     fn makers() -> Matcher {
-        Matcher::Lookup(Lookup {
-            kind: LookupKind::Manufacturer,
-            choices: vec![
+        Matcher::Lookup(Lookup::new(
+            LookupKind::Manufacturer,
+            vec![
                 Choice::new("1", "Sony"),
                 Choice::new("2", "SONY"),
                 Choice::new("3", "Canon"),
                 Choice::new("4", "Blackmagic Design"),
             ],
-        })
+        ))
     }
 
     #[test]
@@ -2371,10 +2457,10 @@ mod tests {
             (Layer::NoMatch, Some(ValueAnswer::KeepText))
         );
         // Models are never guessed.
-        let models = Matcher::Lookup(Lookup {
-            kind: LookupKind::Model,
-            choices: vec![Choice::new("9", "PXW-Z280")],
-        });
+        let models = Matcher::Lookup(Lookup::new(
+            LookupKind::Model,
+            vec![Choice::new("9", "PXW-Z280")],
+        ));
         let z190 = prematch(
             "model", "sony", false, &models, "pxw-z190", "PXW-Z190", &memory,
         );
@@ -2399,12 +2485,198 @@ mod tests {
             &ValueAnswer::Replace { value: "x".into() }
         )
         .is_err());
-        let groups = Matcher::Lookup(Lookup {
-            kind: LookupKind::Group,
-            choices: vec![Choice::new("5", "Studio A")],
-        });
+        let groups = Matcher::Lookup(Lookup::new(
+            LookupKind::Group,
+            vec![Choice::new("5", "Studio A")],
+        ));
         assert!(fits(&groups, false, "studio b", &ValueAnswer::KeepText).is_err());
         assert!(fits(&groups, false, "studio b", &ValueAnswer::LeaveBlank).is_ok());
+    }
+
+    fn members() -> Matcher {
+        let member = |id: &str, name: &str, email: &str| {
+            let mut c = Choice::new(id, name);
+            c.key = Some(normalize_value(email));
+            c.detail = Some(email.to_string());
+            c
+        };
+        Matcher::Lookup(Lookup::new(
+            LookupKind::Person,
+            vec![
+                member(
+                    "11111111-1111-1111-1111-111111111111",
+                    "Priya Nair",
+                    "priya@tvs.example",
+                ),
+                member(
+                    "22222222-2222-2222-2222-222222222222",
+                    "Sam Lee",
+                    "Sam@TVS.example",
+                ),
+            ],
+        ))
+    }
+
+    /// A person matches by primary email or user id, never by a close
+    /// spelling, and is left unassigned when nothing matches. Members are
+    /// linked or left off: never created, never kept as text.
+    #[test]
+    fn people_match_by_email_and_are_left_unassigned_otherwise() {
+        let m = members();
+        let memory = Memory::default();
+        let at = |text: &str| {
+            prematch(
+                "primary_user",
+                "",
+                false,
+                &m,
+                &normalize_value(text),
+                text,
+                &memory,
+            )
+        };
+        let sam = at("sam@tvs.EXAMPLE");
+        assert_eq!(sam.0, Layer::Exact);
+        assert_eq!(sam.2, Some(link("22222222-2222-2222-2222-222222222222")));
+        let by_id = at("11111111-1111-1111-1111-111111111111");
+        assert_eq!(by_id.2, Some(link("11111111-1111-1111-1111-111111111111")));
+        let stranger = at("crew@tvs.example");
+        assert_eq!(
+            (stranger.0, stranger.1, stranger.2),
+            (Layer::NoMatch, None, Some(ValueAnswer::LeaveBlank))
+        );
+        // A name isn't a match.
+        assert_eq!(at("Priya Nair").0, Layer::NoMatch);
+
+        assert!(fits(&m, false, "crew@tvs.example", &ValueAnswer::LeaveBlank).is_ok());
+        assert!(fits(&m, false, "crew@tvs.example", &ValueAnswer::Skip).is_ok());
+        assert!(fits(
+            &m,
+            false,
+            "crew@tvs.example",
+            &link("11111111-1111-1111-1111-111111111111")
+        )
+        .is_ok());
+        assert!(fits(&m, false, "crew@tvs.example", &link("nobody")).is_err());
+        assert!(fits(&m, false, "crew@tvs.example", &ValueAnswer::Create).is_err());
+        assert!(fits(&m, false, "crew@tvs.example", &ValueAnswer::KeepText).is_err());
+    }
+
+    /// A model name more than one manufacturer has, on rows without one,
+    /// names each with its manufacturer.
+    #[test]
+    fn an_ambiguous_model_names_its_manufacturers() {
+        let with_maker = |id: &str, maker: &str| {
+            let mut c = Choice::new(id, "C300");
+            c.detail = Some(maker.to_string());
+            c
+        };
+        let models = Matcher::Lookup(Lookup::new(
+            LookupKind::Model,
+            vec![with_maker("1", "Canon"), with_maker("2", "Canon Pro")],
+        ));
+        let (layer, reason, answer, _) = prematch(
+            "model",
+            "",
+            false,
+            &models,
+            "c300",
+            "C300",
+            &Memory::default(),
+        );
+        assert_eq!(layer, Layer::NoMatch);
+        assert_eq!(
+            reason,
+            Some(Reason::Ambiguous {
+                labels: vec!["C300 (Canon)".into(), "C300 (Canon Pro)".into()]
+            })
+        );
+        assert_eq!(answer, Some(ValueAnswer::Skip));
+    }
+
+    /// Models nothing matches can be created under the catalog's
+    /// manufacturer or one the import creates; under a manufacturer kept as
+    /// text, or none, they need a manufacturer.
+    #[test]
+    fn models_need_a_manufacturer_to_be_created_under() {
+        let parsed = grid(
+            &["name", "manufacturer", "model"],
+            &[
+                &["A", "Sony", "Venice"],
+                &["B", "Blackmagic", "URSA"],
+                &["C", "Arri", "Alexa"],
+                &["D", "", "Pocket"],
+            ],
+        );
+        let makers = column(
+            spec("manufacturer", ValueType::Text, false),
+            1,
+            Matcher::Lookup(Lookup::new(
+                LookupKind::Manufacturer,
+                vec![Choice::new("1", "Sony")],
+            )),
+        );
+        let settled = resolve(
+            ImportType::Assets,
+            &parsed,
+            vec![makers],
+            &ImportOptions::default(),
+            &Memory::default(),
+            &answers("manufacturer", &[("blackmagic", ValueAnswer::Create)]),
+            &RowContexts::new(),
+        );
+        let model_in = |context: &str, catalog_owner: bool| {
+            let mut lookup = Lookup::new(LookupKind::Model, Vec::new());
+            lookup.can_create = catalog_owner;
+            ColumnMatcher {
+                spec: spec("model", ValueType::Text, false),
+                index: 2,
+                context: context.to_string(),
+                family: Some("manufacturer"),
+                context_label: None,
+                matcher: Matcher::Lookup(lookup),
+            }
+        };
+        let rows: FamilyContexts = [
+            (2, "sony".to_string()),
+            (3, "blackmagic".to_string()),
+            (4, "arri".to_string()),
+            (5, String::new()),
+        ]
+        .into();
+        let row_contexts: RowContexts = [("manufacturer".to_string(), rows)].into();
+        let mut models = resolve(
+            ImportType::Assets,
+            &parsed,
+            vec![
+                model_in("sony", true),
+                model_in("blackmagic", false),
+                model_in("arri", false),
+                model_in("", false),
+            ],
+            &ImportOptions::default(),
+            &Memory::default(),
+            &ValueAnswers::new(),
+            &row_contexts,
+        );
+        note_model_owners(&mut models.columns, &settled.columns);
+        let summary: Vec<(&str, bool, Option<Reason>)> = models
+            .columns
+            .iter()
+            .map(|c| {
+                let can = matches!(&c.matcher, Matcher::Lookup(l) if l.can_create);
+                (c.context.as_str(), can, c.values[0].reason.clone())
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("sony", true, None),
+                ("blackmagic", true, None),
+                ("arri", false, Some(Reason::NeedsManufacturer)),
+                ("", false, Some(Reason::NeedsManufacturer)),
+            ]
+        );
     }
 
     /// A list column answers each item; a lookup's answers stay out of the
@@ -2420,10 +2692,10 @@ mod tests {
                 &["C", "Old"],
             ],
         );
-        let groups = Matcher::Lookup(Lookup {
-            kind: LookupKind::Group,
-            choices: vec![Choice::new("5", "Studio A"), Choice::new("6", "Field kit")],
-        });
+        let groups = Matcher::Lookup(Lookup::new(
+            LookupKind::Group,
+            vec![Choice::new("5", "Studio A"), Choice::new("6", "Field kit")],
+        ));
         let resolution = resolve(
             ImportType::Assets,
             &parsed,

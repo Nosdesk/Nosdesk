@@ -886,6 +886,26 @@ pub fn member_primary_emails(conn: &mut DbConnection) -> QueryResult<Vec<(Uuid, 
         .load(conn)
 }
 
+/// Each active member of the pinned workspace with their name and primary
+/// email, by name: the people an import can assign assets to.
+pub fn member_directory(conn: &mut DbConnection) -> QueryResult<Vec<(Uuid, String, String)>> {
+    use crate::schema::{user_emails, users};
+    workspace_members::table
+        .inner_join(users::table)
+        .inner_join(user_emails::table.on(user_emails::user_uuid.eq(workspace_members::user_uuid)))
+        .filter(workspace_members::workspace_id.eq(super::pinned_workspace()))
+        .filter(workspace_members::removed_at.is_null())
+        .filter(users::deleted_at.is_null())
+        .filter(user_emails::is_primary.eq(true))
+        .select((
+            workspace_members::user_uuid,
+            users::name,
+            user_emails::email,
+        ))
+        .order((users::name.asc(), user_emails::email.asc()))
+        .load(conn)
+}
+
 /// Count owner-role memberships in a workspace. Used by
 /// [`remove_membership`] and [`update_membership_role`] to enforce
 /// the "at least one owner" invariant — a workspace with zero
