@@ -978,6 +978,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-csv-import' }
         },
         {
+          path: 'data-import/matches',
+          name: 'admin-import-saved-matches',
+          component: () => import('../views/SavedMatchesView.vue'),
+          meta: { titleKey: 'route-title-admin-import-saved-matches' }
+        },
+        {
           path: 'backup-restore',
           name: 'admin-backup-restore',
           component: () => import('../views/BackupRestoreView.vue'),

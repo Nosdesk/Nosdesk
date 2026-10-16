@@ -4141,6 +4141,156 @@ import-values-bulk-unassigned = Laisser les { $count } non attribués
 # MT: pending native review (fr-FR)
 import-values-scale-create = Tout créer
 # MT: pending native review (fr-FR)
+import-values-footer = Les réponses sont enregistrées quand vous appuyez sur Importer et utilisées lors du prochain import { $noun }.
+# MT: pending native review (fr-FR)
+import-values-footer-link = Correspondances enregistrées
+# MT: pending native review (fr-FR)
+import-matches-noun = { $type ->
+    [users] d'utilisateurs
+    [tickets] de tickets
+   *[assets] de ressources
+}
+# MT: pending native review (fr-FR)
+import-matches-nouns = { $type ->
+    [users] les utilisateurs
+    [tickets] les tickets
+   *[assets] les ressources
+}
+# MT: pending native review (fr-FR)
+import-matches-title = Correspondances enregistrées
+# MT: pending native review (fr-FR)
+import-matches-subtitle = Ce que devient une orthographe de votre fichier dans l'espace de travail. Enregistrée la première fois que quelqu'un répond à l'étape Valeurs, puis utilisée à chaque import suivant du même type jusqu'à sa suppression.
+# MT: pending native review (fr-FR)
+import-matches-back-hub = Retour à l'import de données
+# MT: pending native review (fr-FR)
+import-matches-back-values = Retour à l'étape Valeurs
+# MT: pending native review (fr-FR)
+import-matches-type-label = Type d'import
+# MT: pending native review (fr-FR)
+import-matches-type-option = { $type ->
+    [users] Utilisateurs
+    [tickets] Tickets
+   *[assets] Ressources
+} · { $count }
+# MT: pending native review (fr-FR)
+import-matches-values-title = Valeurs · { $count }
+# MT: pending native review (fr-FR)
+import-matches-col-file = Dans votre fichier
+# MT: pending native review (fr-FR)
+import-matches-col-workspace = Dans l'espace de travail
+# MT: pending native review (fr-FR)
+import-matches-col-saved-by = Enregistrée par
+# MT: pending native review (fr-FR)
+import-matches-becomes = devient
+# MT: pending native review (fr-FR)
+import-matches-actions = Actions
+# MT: pending native review (fr-FR)
+import-matches-created = créée
+# MT: pending native review (fr-FR)
+import-matches-kept-as-text = Conservée en texte
+# MT: pending native review (fr-FR)
+import-matches-left-as-is = Laissée telle quelle
+# MT: pending native review (fr-FR)
+import-matches-left-off = Laissée de côté
+# MT: pending native review (fr-FR)
+import-matches-left-unassigned = Laissée non attribuée
+# MT: pending native review (fr-FR)
+import-matches-left-blank = Laissée vide
+# MT: pending native review (fr-FR)
+import-matches-no-manufacturer = Sans fabricant
+# MT: pending native review (fr-FR)
+import-matches-saved-by = { $name }, { $date }
+# MT: pending native review (fr-FR)
+import-matches-former-member = Un ancien membre
+# MT: pending native review (fr-FR)
+import-matches-open-import = Ouvrir cet import
+# MT: pending native review (fr-FR)
+import-matches-delete = Supprimer
+# MT: pending native review (fr-FR)
+import-matches-delete-hint = Le prochain import redemandera cette valeur
+# MT: pending native review (fr-FR)
+import-matches-search = Rechercher des valeurs et des champs
+# MT: pending native review (fr-FR)
+import-matches-search-label = Rechercher les correspondances enregistrées
+# MT: pending native review (fr-FR)
+import-matches-count = { $count } enregistrées
+# MT: pending native review (fr-FR)
+import-matches-count-filtered = { $shown } sur { $total } affichées
+# MT: pending native review (fr-FR)
+import-matches-section-filtered = { $shown } sur { $total }
+# MT: pending native review (fr-FR)
+import-matches-no-results = Aucune correspondance enregistrée ne contient cela.
+# MT: pending native review (fr-FR)
+import-matches-delete-all = { $count ->
+    [one] Supprimer la correspondance enregistrée pour { $nouns }
+   *[other] Supprimer les { $count } correspondances enregistrées pour { $nouns }
+}
+# MT: pending native review (fr-FR)
+import-matches-delete-all-hint = Le prochain import { $noun } redemandera chaque valeur.
+# MT: pending native review (fr-FR)
+import-matches-delete-all-title = { $count ->
+    [one] Supprimer la correspondance enregistrée pour { $nouns } ?
+   *[other] Supprimer les { $count } correspondances enregistrées pour { $nouns } ?
+}
+# MT: pending native review (fr-FR)
+import-matches-delete-all-body = Le prochain import { $noun } redemandera chaque valeur. La correspondance des colonnes de votre dernier import est conservée ; la carte Colonnes ci-dessous l'affiche, et l'étape Colonnes du prochain import la remplace.
+# MT: pending native review (fr-FR)
+import-matches-delete-all-confirm = Tout supprimer
+# MT: pending native review (fr-FR)
+import-matches-deleted-all = Supprimé. Le prochain import { $noun } redemandera chaque valeur.
+# MT: pending native review (fr-FR)
+import-matches-deleted-one = Supprimé. Le prochain import { $noun } redemandera « { $value } ».
+# MT: pending native review (fr-FR)
+import-matches-delete-failed = Suppression impossible. Réessayez.
+# MT: pending native review (fr-FR)
+import-matches-empty = Rien d'enregistré pour l'instant. Quand un import demande ce que signifie une valeur ou une colonne de votre fichier, la réponse est enregistrée ici et utilisée lors du prochain import.
+# MT: pending native review (fr-FR)
+import-matches-load-failed = Les correspondances enregistrées n'ont pas pu être chargées.
+# MT: pending native review (fr-FR)
+import-matches-retry = Réessayer
+# MT: pending native review (fr-FR)
+import-matches-columns-title = Colonnes · { $count }
+# MT: pending native review (fr-FR)
+import-matches-columns-title-empty = Colonnes
+# MT: pending native review (fr-FR)
+import-matches-columns-from = { $count } colonnes de { $who } : { $mapped ->
+    [one] 1 va vers un champ.
+   *[other] { $mapped } vont vers un champ.
+}
+# MT: pending native review (fr-FR)
+import-matches-columns-off = { $count } non importées ({ $list }).
+# MT: pending native review (fr-FR)
+import-matches-columns-replaces = L'étape Colonnes de votre prochain import { $noun } remplace ceci.
+# MT: pending native review (fr-FR)
+import-matches-columns-empty = Aucun import { $noun } n'a encore été vérifié. Le plus récent définit comment ses en-têtes de colonnes seront reconnus la prochaine fois.
+# MT: pending native review (fr-FR)
+import-matches-who = l'import de { $name } du { $date }
+# MT: pending native review (fr-FR)
+import-matches-who-unknown = un import précédent du { $date }
+# MT: pending native review (fr-FR)
+import-matches-no-field = Aucun champ
+# MT: pending native review (fr-FR)
+import-matches-show-columns = Afficher les colonnes
+# MT: pending native review (fr-FR)
+import-matches-hide-columns = Masquer les colonnes
+# MT: pending native review (fr-FR)
+import-matches-manage = Gérer
+# MT: pending native review (fr-FR)
+import-matches-hub-more = et { $count } de plus
+# MT: pending native review (fr-FR)
+import-matches-hub-line = { $values ->
+    [one] 1 valeur
+   *[other] { $values } valeurs
+} et { $columns ->
+    [one] 1 colonne
+   *[other] { $columns } colonnes
+} pour { $nouns }, la plus récente de { $who }.
+# MT: pending native review (fr-FR)
+import-matches-hub-line-values = { $values ->
+    [one] 1 valeur
+   *[other] { $values } valeurs
+} pour { $nouns }.
+# MT: pending native review (fr-FR)
 import-review-values-matched = Toutes les valeurs correspondent automatiquement
 # MT: pending native review (fr-FR)
 import-review-values-see = Les voir
@@ -7322,6 +7472,8 @@ admin-ldap-preview-members = { $count } membres
 admin-ldap-preview-not-found = groupe introuvable dans l'annuaire
 admin-ldap-preview-default = Tous les autres → Membre
 route-title-admin-csv-import = Importation CSV
+# MT: pending native review (fr-FR)
+route-title-admin-import-saved-matches = Correspondances enregistrées
 route-title-admin-backup-restore = Sauvegarde et restauration
 route-title-group-detail = Détails du groupe
 route-title-authenticating = Authentification en cours...

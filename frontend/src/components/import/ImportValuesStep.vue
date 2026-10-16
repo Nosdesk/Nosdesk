@@ -34,6 +34,7 @@ import {
   importService,
   importValuesPreviewQueryKey,
   type ImportField,
+  type ImportJobType,
   type ImportValue,
   type ImportValueColumn,
   type ImportValues,
@@ -95,6 +96,8 @@ const props = defineProps<{
   /** A field whose card opens in view with its first value's picker
    *  focused: Review's "Fix at Match values". */
   focusField?: string | null
+  /** The import's type, for the footer's noun. */
+  jobType?: ImportJobType
 }>()
 
 const emit = defineEmits<{
@@ -933,6 +936,16 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
       data-test="import-values-settled"
     >
       {{ settledText }}
+    </p>
+
+    <!-- Answers are saved on Import: where to see them. -->
+    <p class="text-sm text-tertiary" data-test="import-values-footer">
+      {{ $t('import-values-footer', { noun: $t('import-matches-noun', { type: jobType ?? 'assets' }) }) }}
+      <RouterLink
+        :to="{ path: '/admin/data-import/matches', query: { type: jobType ?? 'assets', from: 'values', job: jobId } }"
+        :class="linkClass"
+        data-test="import-values-footer-link"
+      >{{ $t('import-values-footer-link') }}</RouterLink>
     </p>
 
     <!-- Action bar. -->
