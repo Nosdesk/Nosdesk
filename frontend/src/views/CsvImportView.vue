@@ -177,6 +177,8 @@ const webhooksHearAssets = computed(() => webhookHearsAssets(webhooksQuery.data.
 /** The field whose card Match values opens on: Review's "Fix at Match
  *  values". */
 const valuesFocus = ref<string | null>(null)
+/** The field Map columns opens on: Review's "Fix at Map columns". */
+const mapFocus = ref<string | null>(null)
 
 const STEPS = computed<Step[]>(() =>
   valuesStepShown.value
@@ -422,6 +424,7 @@ async function switchType(type: ImportJobType) {
 
 async function check(mapping: ColumnMapping, options: ImportOptions, ignored: number[]) {
   if (!job.value) return
+  mapFocus.value = null
   busy.value = 'check'
   errorMessage.value = ''
   commitNotice.value = ''
@@ -653,7 +656,15 @@ function goTo(target: Step) {
   errorMessage.value = ''
   commitNotice.value = ''
   if (target === 'values') valuesFocus.value = null
+  if (target === 'map') mapFocus.value = null
   step.value = target
+}
+
+/** Review's "Fix at Map columns": Map columns, at the field. */
+function fixMap(field: string | null) {
+  if (!canGoTo('map')) return
+  goTo('map')
+  mapFocus.value = field
 }
 
 // ---- done ----
@@ -886,6 +897,7 @@ function viewImported() {
           :checking="busy === 'check'"
           :switching="busy === 'type'"
           :discarding="busy === 'discard'"
+          :focus-field="mapFocus"
           @check="check"
           @switch-type="switchType"
           @change-file="changeFile"
@@ -931,7 +943,7 @@ function viewImported() {
         @back="goTo('map')"
         @see-values="seeValues"
         @fix-values="fixValues"
-        @fix-map="goTo('map')"
+        @fix-map="fixMap"
         @commit="commit"
         @download-report="downloadReport"
       />

@@ -1108,6 +1108,26 @@ describe('CsvImportView Review plan', () => {
     await entry.trigger('keydown', { key: 'Enter' })
     await flushPromises()
     expect(currentStep()).toBe('map')
+    // Nothing gives Fuel: the button that adds a value for every row is
+    // focused.
+    expect(document.activeElement?.getAttribute('data-test')).toBe('import-constant-add')
+  })
+
+  it('fixes at Map columns on the field\'s value for every row', async () => {
+    const base = problemsJob()
+    await openReview({
+      ...base,
+      options: { ...base.options!, constants: [{ field: 'quantity', value: '3', apply_to: 'new' }] },
+      summary: {
+        ...base.summary!,
+        error_groups: [{ column: 'quantity', message: 'required for Vehicle assets', count: 40, fix: 'map' }],
+      },
+    })
+    await wrapper!.find('[data-test="import-problem-fix-map"]').trigger('click')
+    await flushPromises()
+    expect(currentStep()).toBe('map')
+    const focused = document.activeElement as HTMLElement | null
+    expect(focused?.closest('[data-test="import-constant-value"]')).not.toBeNull()
   })
 
   it('downloads one problem\'s rows', async () => {
