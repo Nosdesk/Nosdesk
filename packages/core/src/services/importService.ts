@@ -159,7 +159,6 @@ export interface ImportConstant {
 export interface ImportOptions {
   match_by?: MatchBy
   mode?: ImportMode
-  create_missing?: boolean
   default_kind?: string | null
   date_order?: DateOrder
   decimal?: DecimalMark | null
@@ -243,6 +242,9 @@ export type ValueReason =
   | { code: 'ambiguous'; labels: string[] }
   /** Another value would be created too and is spelled close to this one. */
   | { code: 'both_new'; text: string }
+  /** A model nothing matches, on rows with no manufacturer it could be
+   *  created under. */
+  | { code: 'needs_manufacturer' }
 
 /** An entry a value can link to. */
 export interface ValueChoice {
@@ -250,13 +252,14 @@ export interface ValueChoice {
   label: string
   /** Why it can't be picked here, when it can't. */
   disabled?: string
-  /** More about the entry: a model's manufacturer. */
+  /** More about the entry: a model's manufacturer, a member's email. */
   detail?: string
 }
 
-/** The catalog a lookup column links to. Its values can also be created,
- *  and kept as text except a group's. */
-export type ValueLookup = 'manufacturer' | 'model' | 'group'
+/** What a lookup column links to: a catalog, whose values can also be
+ *  created and kept as text except a group's, or the workspace's members,
+ *  who are linked or left unassigned. */
+export type ValueLookup = 'manufacturer' | 'model' | 'group' | 'person'
 
 /** One distinct value of a mapped column. */
 export interface ImportValue {
@@ -289,8 +292,11 @@ export interface ImportValueColumn {
   context?: string
   /** The context's name. */
   context_label?: string
-  /** Set for a column whose values link to catalog entries. */
+  /** Set for a column whose values link to catalog entries or members. */
   lookup?: ValueLookup
+  /** For a lookup column, whether its values can be created: never a
+   *  member, nor a model on rows with no manufacturer to belong to. */
+  can_create?: boolean
   /** The source column. */
   index: number
   /** The file's header. */
@@ -359,6 +365,8 @@ export interface ImportRowsPage {
 export const importFieldsQueryKey = (jobType: ImportJobType) => ['import-fields', jobType] as const
 export const importValuesQueryKey = (jobId: string, updatedAt: string) =>
   ['import-values', jobId, updatedAt] as const
+export const importValuesPreviewQueryKey = (jobId: string, updatedAt: string, answersKey: string) =>
+  ['import-values-preview', jobId, updatedAt, answersKey] as const
 
 export const importService = {
   /** Upload + parse. Returns the job in status `parsed` with the file's
@@ -420,6 +428,16 @@ export const importService = {
    *  their answers. The job must be checked. */
   async values(jobId: string): Promise<ImportValues> {
     const { data } = await apiClient.get<ImportValues>(`/admin/import/${jobId}/values`)
+    return data
+  },
+
+  /** The values as `answers` would match them, without storing them or
+   *  checking the rows: Match values reads the Model card again for
+   *  manufacturer answers not yet checked. */
+  async previewValues(jobId: string, answers: ValueAnswers): Promise<ImportValues> {
+    const { data } = await apiClient.post<ImportValues>(`/admin/import/${jobId}/values/preview`, {
+      answers,
+    })
     return data
   },
 

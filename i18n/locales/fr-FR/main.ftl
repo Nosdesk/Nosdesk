@@ -4105,6 +4105,42 @@ import-values-back = Retour aux colonnes
 # MT: pending native review (fr-FR)
 import-values-check-again = Vérifier à nouveau
 # MT: pending native review (fr-FR)
+import-values-create = Créer « { $value } »
+# MT: pending native review (fr-FR)
+import-values-create-anyway = Créer « { $value } » quand même
+# MT: pending native review (fr-FR)
+import-values-create-under = Créer « { $value } » sous { $manufacturer }
+# MT: pending native review (fr-FR)
+import-values-needs-maker = Fabricant requis
+# MT: pending native review (fr-FR)
+import-values-leave-unassigned = Laisser non attribué
+# MT: pending native review (fr-FR)
+import-values-consequence-unassigned = laissé non attribué
+# MT: pending native review (fr-FR)
+import-values-consequence-created = sera créé
+# MT: pending native review (fr-FR)
+import-values-ambiguous = Correspond à plusieurs entrées : { $labels }. Choisissez-en une.
+# MT: pending native review (fr-FR)
+import-values-both-new = Les deux seraient créés. Choisissez une orthographe.
+# MT: pending native review (fr-FR)
+import-values-recomputed = Recalculé d'après vos réponses pour { $header }
+# MT: pending native review (fr-FR)
+import-values-under = sous { $manufacturer }
+# MT: pending native review (fr-FR)
+import-values-bulk-keep-text = Conserver les { $count } comme texte
+# MT: pending native review (fr-FR)
+import-values-bulk-create-models = Créer ces { $count } modèles
+# MT: pending native review (fr-FR)
+import-values-bulk-create-manufacturers = Créer ces { $count } fabricants
+# MT: pending native review (fr-FR)
+import-values-bulk-create-groups = Créer ces { $count } groupes
+# MT: pending native review (fr-FR)
+import-values-bulk-off = Ne pas ajouter les { $count }
+# MT: pending native review (fr-FR)
+import-values-bulk-unassigned = Laisser les { $count } non attribués
+# MT: pending native review (fr-FR)
+import-values-scale-create = Tout créer
+# MT: pending native review (fr-FR)
 import-review-values-matched = Toutes les valeurs correspondent automatiquement
 # MT: pending native review (fr-FR)
 import-review-values-see = Les voir

@@ -12,8 +12,11 @@ import {
   answerKey,
   answersToSend,
   applyBulk,
+  applyScale,
   bulkActions,
+  canCreate,
   cardId,
+  cardMatchedCount,
   cards,
   columnsNeeding,
   consequence,
@@ -29,8 +32,15 @@ import {
   skippedNow,
   idOf,
   leavesAsIs,
+  makerEditsKey,
+  makerName,
+  makersAnswered,
+  previewAnswers,
+  scaleChoice,
   valueId,
   valuesCsv,
+  withModels,
+  type Card,
   type Edits,
 } from '../valuesModel'
 
@@ -117,9 +127,10 @@ describe('a card', () => {
   })
 
   it('filters by how a value matched', () => {
-    const list = [tripod, cam, dolly, camra]
-    expect(filterValues(list, 'no_match').map((v) => v.text)).toEqual(['tripod', 'dolly'])
-    expect(filterValues(list, 'guessed').map((v) => v.text)).toEqual(['Cam', 'Camra'])
+    const col = kindColumn([])
+    const list = [tripod, cam, dolly, camra].map((v) => ({ col, v }))
+    expect(filterValues(list, 'no_match').map((e) => e.v.text)).toEqual(['tripod', 'dolly'])
+    expect(filterValues(list, 'guessed').map((e) => e.v.text)).toEqual(['Cam', 'Camra'])
     expect(filterValues(list, 'all')).toHaveLength(4)
   })
 
@@ -146,22 +157,28 @@ describe('the cards', () => {
   })
 })
 
+/** The one card of `col` as it stands with `edits`. */
+function cardOf(columns: ImportValueColumn[], edits: Edits = {}): Card {
+  const [card] = cards(view(columns), edits)
+  return card
+}
+
 describe('bulk answers', () => {
   it('offer Skip all for a required field and Leave blank too for an optional one', () => {
     const kinds = kindColumn([tripod, dolly, cam])
     // Both are already Skip: nothing to offer.
-    expect(bulkActions(kinds, listedValues(kinds, {}), {})).toEqual([])
+    expect(bulkActions(cardOf([kinds]), {})).toEqual([])
     const leftBlank: Edits = { [valueId('kind', 'dolly')]: { action: 'leave_blank' } }
-    expect(bulkActions(kinds, listedValues(kinds, {}), leftBlank)).toEqual([{ action: 'skip', count: 2 }])
+    expect(bulkActions(cardOf([kinds], leftBlank), leftBlank)).toEqual([{ action: 'skip', count: 2 }])
 
     const qty = qtyColumn([two, value('lots', 'no_match', [50])])
-    expect(bulkActions(qty, listedValues(qty, {}), {})).toEqual([{ action: 'leave_blank', count: 2 }])
+    expect(bulkActions(cardOf([qty]), {})).toEqual([{ action: 'leave_blank', count: 2 }])
   })
 
   it('leave linked and replaced values alone', () => {
     const qty = qtyColumn([two, value('lots', 'no_match', [50]), value('many', 'no_match', [51])])
     const edits: Edits = { [valueId('quantity', 'two')]: { action: 'replace', value: '2' } }
-    const next = applyBulk(qty, listedValues(qty, edits), edits, 'leave_blank')
+    const next = applyBulk(cardOf([qty], edits), edits, 'leave_blank')
     expect(next[valueId('quantity', 'two')]).toEqual({ action: 'replace', value: '2' })
     expect(next[valueId('quantity', 'lots')]).toEqual({ action: 'leave_blank' })
     expect(next[valueId('quantity', 'many')]).toEqual({ action: 'leave_blank' })
@@ -169,7 +186,194 @@ describe('bulk answers', () => {
 
   it('need two values', () => {
     const qty = qtyColumn([two])
-    expect(bulkActions(qty, listedValues(qty, {}), {})).toEqual([])
+    expect(bulkActions(cardOf([qty]), {})).toEqual([])
+  })
+})
+
+const keepText = { action: 'keep_text' } as const
+const leaveBlank = { action: 'leave_blank' } as const
+
+/** A lookup value nothing matches, with the field's default. */
+function unmatched(text: string, rows: number[], suggested: typeof keepText | typeof leaveBlank, extra: Partial<ImportValue> = {}) {
+  return value(text, 'no_match', rows, { suggested, skipped_rows: [], ...extra })
+}
+
+function makeColumn(values: ImportValue[]): ImportValueColumn {
+  return {
+    ...kindColumn(values, { field: 'manufacturer', index: 3, header: 'Make', required: false }),
+    lookup: 'manufacturer',
+    can_create: true,
+    choices: [{ value: '1', label: 'Sony' }],
+  }
+}
+
+function modelColumn(context: string, values: ImportValue[], extra: Partial<ImportValueColumn> = {}): ImportValueColumn {
+  return {
+    ...kindColumn(values, { field: 'model', index: 4, header: 'Model', required: false }),
+    lookup: 'model',
+    context,
+    context_label: context || undefined,
+    can_create: true,
+    choices: [],
+    ...extra,
+  }
+}
+
+describe('lookup cards', () => {
+  const blackmagic = unmatched('Blackmagic', [40, 41], keepText)
+  const arri = unmatched('ARRI', [42], keepText)
+  const corp = value('Sony Corp', 'guessed', [12], {
+    reason: { code: 'close_to', label: 'Sony' },
+    suggested: { action: 'match', target: '1' },
+    skipped_rows: [],
+  })
+
+  it('create or keep as text a manufacturer, leaving a guessed link alone', () => {
+    const card = cardOf([makeColumn([corp, blackmagic, arri])])
+    expect(bulkActions(card, {})).toEqual([{ action: 'create', count: 2 }])
+    const created = applyBulk(card, {}, 'create')
+    expect(created[valueId('manufacturer', 'blackmagic')]).toEqual({ action: 'create' })
+    expect(created[valueId('manufacturer', 'sony corp')]).toBeUndefined()
+    // Created, they can all be kept as text again.
+    expect(bulkActions(cardOf([makeColumn([corp, blackmagic, arri])], created), created)).toEqual([
+      { action: 'keep_text', count: 2 },
+    ])
+    expect(consequence(makeColumn([blackmagic]), blackmagic, created)).toBe('created')
+  })
+
+  it('put every manufacturer of a model on one card, each value under its own', () => {
+    const ursa = unmatched('URSA', [40], keepText)
+    const pocket = unmatched('Pocket 6K', [41], keepText)
+    const venice = unmatched('Venice', [12], keepText)
+    const loose = unmatched('Alexa', [50], keepText, { reason: { code: 'needs_manufacturer' } })
+    const under = [
+      modelColumn('sony', [venice], { context_label: 'Sony' }),
+      modelColumn('blackmagic', [ursa, pocket]),
+      modelColumn('', [loose], { can_create: false }),
+    ]
+    const list = cards(view(under), {})
+    expect(list).toHaveLength(1)
+    const [card] = list
+    expect(card.id).toBe('model')
+    // Most rows first; ties keep the server's order.
+    expect(card.listed.map((e) => e.v.text)).toEqual(['Venice', 'URSA', 'Pocket 6K', 'Alexa'])
+    // The same name under two manufacturers is two values.
+    expect(idOf(under[0], venice)).not.toBe(idOf(under[1], { ...venice }))
+    // Models without a manufacturer can't be created, only kept as text.
+    expect(canCreate(under[2], loose)).toBe(false)
+    expect(bulkActions(card, {})).toEqual([{ action: 'create', count: 3 }])
+    const created = applyBulk(card, {}, 'create')
+    expect(created[idOf(under[2], loose)]).toBeUndefined()
+    expect(bulkActions(cards(view(under), created)[0], created)).toEqual([{ action: 'keep_text', count: 4 }])
+  })
+
+  it('name the manufacturer a model is under: the catalog name, else the file spelling', () => {
+    const make = makeColumn([blackmagic])
+    const v = view([make, modelColumn('sony', [], { context_label: 'Sony' }), modelColumn('blackmagic', [])])
+    expect(makerName(v, v.columns[1])).toBe('Sony')
+    expect(makerName(v, v.columns[2])).toBe('Blackmagic')
+    expect(makerName(v, modelColumn('', []))).toBe('')
+  })
+
+  it('create or leave off a group', () => {
+    const groups: ImportValueColumn = {
+      ...kindColumn(
+        [unmatched('Studio C', [5], leaveBlank), unmatched('OB van', [6, 7], leaveBlank)],
+        { field: 'groups', index: 9, header: 'Groups', required: false },
+      ),
+      lookup: 'group',
+      can_create: true,
+    }
+    const card = cardOf([groups])
+    expect(bulkActions(card, {})).toEqual([{ action: 'create', count: 2 }])
+    const created = applyBulk(card, {}, 'create')
+    expect(bulkActions(cardOf([groups], created), created)).toEqual([{ action: 'leave_blank', count: 2 }])
+    expect(consequence(groups, groups.values[0], {})).toBe('off')
+  })
+
+  it('leave unassigned or skip the people nothing matches, and never create one', () => {
+    const emails = ['crew@tvs.example', 'hire@lens.example', 'nightshift@tvs.example', 'temp@agency.example']
+    const people: ImportValueColumn = {
+      ...kindColumn(
+        emails.map((e, i) => unmatched(e, [100 + i], leaveBlank)),
+        { field: 'primary_user', index: 10, header: 'Assigned To', required: false },
+      ),
+      lookup: 'person',
+      can_create: false,
+      choices: [{ value: 'u-1', label: 'Priya Nair', detail: 'priya@tvs.example' }],
+    }
+    const card = cardOf([people])
+    expect(consequence(people, people.values[0], {})).toBe('unassigned')
+    expect(canCreate(people, people.values[0])).toBe(false)
+    // All four already left unassigned: Skip is the one to offer.
+    expect(bulkActions(card, {})).toEqual([{ action: 'skip', count: 4 }])
+    const skipped = applyBulk(card, {}, 'skip')
+    expect(bulkActions(cardOf([people], skipped), skipped)).toEqual([{ action: 'leave_blank', count: 4 }])
+  })
+
+  it('answer a scaled card with Create only where the import can create', () => {
+    const many = Array.from({ length: SCALE_LIMIT + 1 }, (_, i) => unmatched(`M-${i}`, [i + 2], keepText))
+    const columns = [
+      modelColumn('sony', many.slice(0, 150), { context_label: 'Sony' }),
+      modelColumn('', many.slice(150), { can_create: false }),
+    ]
+    const card = cardOf(columns)
+    expect(card.scaled).toBe(true)
+    expect(scaleChoice(card, {})).toBe('keep_text')
+    const created = applyScale(card, {}, 'create')
+    expect(Object.keys(created)).toHaveLength(150)
+    expect(scaleChoice(cardOf(columns, created), created)).toBe('create')
+    expect(cardMatchedCount(card, {})).toBe(0)
+  })
+})
+
+describe('the Model card under new manufacturer answers', () => {
+  const corp = value('Sony Corp', 'guessed', [12, 13], {
+    reason: { code: 'close_to', label: 'Sony' },
+    suggested: { action: 'match', target: '1' },
+    skipped_rows: [],
+  })
+  const fx6 = value('FX6', 'exact', [12], { suggested: { action: 'match', target: '9' }, skipped_rows: [] })
+  const venice = unmatched('Venice', [13], keepText, { answer: { action: 'create' } })
+  const make = makeColumn([corp])
+  const models = modelColumn('sony', [fx6, venice], { context_label: 'Sony' })
+  const checked = view([make, models])
+
+  it('is read again only for manufacturer answers the check didn’t use', () => {
+    expect(makerEditsKey(checked, {})).toBe('')
+    // Confirming the guess changes nothing.
+    expect(makerEditsKey(checked, { [idOf(make, corp)]: { action: 'match', target: '1' } })).toBe('')
+    // A model edit doesn't either.
+    expect(makerEditsKey(checked, { [idOf(models, venice)]: keepText })).toBe('')
+    const kept = { [idOf(make, corp)]: keepText }
+    expect(makerEditsKey(checked, kept)).not.toBe('')
+    expect(makerEditsKey(checked, kept)).toBe(makerEditsKey(checked, { ...kept, [idOf(models, venice)]: keepText }))
+    expect(makersAnswered(checked, kept)).toBe(true)
+    expect(makersAnswered(checked, {})).toBe(false)
+  })
+
+  it('reads under the manufacturer edits and the job’s own answers, not the model edits', () => {
+    const edits: Edits = { [idOf(make, corp)]: keepText, [idOf(models, venice)]: keepText }
+    expect(previewAnswers(checked, edits)).toEqual({
+      manufacturer: { '': { 'sony corp': keepText } },
+      model: { sony: { venice: { action: 'create' } } },
+    })
+  })
+
+  it('swaps in the recomputed models and drops answers that no longer apply', () => {
+    const moved = modelColumn('sony corp', [unmatched('FX6', [12], keepText), unmatched('Venice', [13], keepText)], {
+      can_create: false,
+    })
+    const preview = view([make, moved])
+    const now = withModels(checked, preview)
+    expect(now.columns.map((c) => [c.field, c.context])).toEqual([
+      ['manufacturer', undefined],
+      ['model', 'sony corp'],
+    ])
+    // The edit on Venice under Sony has no value to answer any more.
+    const edits: Edits = { [idOf(models, venice)]: { action: 'create' } }
+    expect(answersToSend(now, edits)).toEqual({})
+    expect(withModels(checked, undefined)).toBe(checked)
   })
 })
 
@@ -275,6 +479,13 @@ describe('answers', () => {
     const withBlank = kindColumn([blank])
     expect(consequence(withBlank, blank, {})).toBe('skipped')
     expect(consequence(withBlank, blank, { [valueId('kind', '')]: { action: 'match', target: 'camera' } })).toBeNull()
+  })
+
+  it('say a person nothing matches is left unassigned', () => {
+    const crew = value('crew@tvs.example', 'no_match', [7], { suggested: { action: 'leave_blank' }, skipped_rows: [] })
+    const people = kindColumn([crew], { field: 'primary_user', required: false, lookup: 'person' })
+    expect(consequence(people, crew, {})).toBe('unassigned')
+    expect(answerFromKey('create')).toEqual({ action: 'create' })
   })
 
   it('say a catalog value is kept as text, or a group left off', () => {
