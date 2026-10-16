@@ -316,6 +316,9 @@ pub struct PaginationParams {
     /// param can be omitted without an explicit `false`.
     #[serde(rename = "lowStock")]
     low_stock: Option<String>,
+    /// An import job's id: only the assets it created and updated.
+    /// Workspace admins only, like the import itself.
+    import: Option<String>,
 }
 
 /// Query params for `GET /api/assets/export`. Accepts the same
@@ -331,6 +334,8 @@ pub struct AssetExportQuery {
     groups: Option<String>,
     #[serde(rename = "lowStock")]
     low_stock: Option<String>,
+    /// As on the paginated list.
+    import: Option<String>,
     /// `snapshot` (default) exports current-state rows; `history` exports the
     /// lifecycle event log (one row per transition, ticket-correlated).
     scope: Option<String>,
@@ -759,16 +764,25 @@ pub async fn asset_grouping_dataset(
         return errors::forbidden("Forbidden: technicians and administrators only");
     }
 
-    let filters = repository::assets::AssetListFilters {
-        search: query.search.as_deref(),
-        warranty: query.warranty.as_deref(),
-        location: query.location.as_deref(),
-        status: query.status.as_deref(),
-        groups: query.groups.as_deref(),
-        low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
+    let import = match import_param(query.import.as_deref(), &auth) {
+        Ok(v) => v,
+        Err(e) => return e.response(),
     };
 
     let result = tc.run(move |conn| {
+        let ids = match import {
+            Some(job) => Some(import_asset_ids(conn, job)?),
+            None => None,
+        };
+        let filters = repository::assets::AssetListFilters {
+            search: query.search.as_deref(),
+            warranty: query.warranty.as_deref(),
+            location: query.location.as_deref(),
+            status: query.status.as_deref(),
+            groups: query.groups.as_deref(),
+            low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
+            ids: ids.as_deref(),
+        };
         let devices = repository::assets::list_for_export(conn, filters)?;
         let today = chrono::Utc::now().date_naive();
         // Build the responses in one batched pass, then derive the grouping
@@ -943,16 +957,25 @@ pub async fn export_assets(
     }
     let want_history = query.scope.as_deref() == Some("history");
 
-    let filters = repository::assets::AssetListFilters {
-        search: query.search.as_deref(),
-        status: query.status.as_deref(),
-        warranty: query.warranty.as_deref(),
-        location: query.location.as_deref(),
-        groups: query.groups.as_deref(),
-        low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
+    let import = match import_param(query.import.as_deref(), &auth) {
+        Ok(v) => v,
+        Err(e) => return e.response(),
     };
 
     let export_result = tc.run(|conn| {
+        let ids = match import {
+            Some(job) => Some(import_asset_ids(conn, job)?),
+            None => None,
+        };
+        let filters = repository::assets::AssetListFilters {
+            search: query.search.as_deref(),
+            status: query.status.as_deref(),
+            warranty: query.warranty.as_deref(),
+            location: query.location.as_deref(),
+            groups: query.groups.as_deref(),
+            low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
+            ids: ids.as_deref(),
+        };
         let rows = if assets_hidden_from(conn, &auth) {
             Vec::new()
         } else {
@@ -1095,6 +1118,54 @@ pub async fn get_asset_locations(mut tc: TenantConn, auth: AuthContext) -> impl 
     }
 }
 
+/// The import job `?import=` names, for a workspace admin; a bad id is
+/// 400 and anyone else 403, since import jobs are admin-only.
+fn import_param(raw: Option<&str>, auth: &AuthContext) -> Result<Option<Uuid>, ImportParamError> {
+    let Some(raw) = raw.filter(|r| !r.is_empty()) else {
+        return Ok(None);
+    };
+    if !auth.is_workspace_admin() {
+        return Err(ImportParamError::Forbidden);
+    }
+    Uuid::parse_str(raw)
+        .map(Some)
+        .map_err(|_| ImportParamError::BadId)
+}
+
+/// Why `?import=` was refused.
+enum ImportParamError {
+    Forbidden,
+    BadId,
+}
+
+impl ImportParamError {
+    fn response(self) -> HttpResponse {
+        match self {
+            Self::Forbidden => errors::forbidden("Filtering by import requires workspace admin"),
+            Self::BadId => errors::bad_request("import must be an import job id"),
+        }
+    }
+}
+
+/// The assets an import created and updated, from the record ids the job
+/// keeps for the life of the workspace. None for a job that isn't an asset
+/// import here or wrote nothing.
+fn import_asset_ids(conn: &mut crate::db::DbConnection, job: Uuid) -> Result<Vec<i32>, Error> {
+    use crate::services::imports::{RecordId, RecordIds};
+    let ids: RecordIds = repository::imports::record_ids(conn, job, "assets")?
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    Ok(ids
+        .created
+        .into_iter()
+        .chain(ids.updated)
+        .filter_map(|id| match id {
+            RecordId::Int(id) => Some(id),
+            RecordId::Uuid(_) => None,
+        })
+        .collect())
+}
+
 // Get paginated devices
 pub async fn get_paginated_devices(
     mut tc: TenantConn,
@@ -1112,11 +1183,19 @@ pub async fn get_paginated_devices(
     let groups = query.groups.clone();
     let kind = query.kind.clone();
     let low_stock = matches!(query.low_stock.as_deref(), Some("true") | Some("1"));
+    let import = match import_param(query.import.as_deref(), &auth) {
+        Ok(v) => v,
+        Err(e) => return e.response(),
+    };
 
     let result = tc.run(|conn| {
         if assets_hidden_from(conn, &auth) {
             return Ok((Vec::new(), 0));
         }
+        let ids = match import {
+            Some(job) => Some(import_asset_ids(conn, job)?),
+            None => None,
+        };
         let (devices, total) = repository::get_paginated_devices(
             conn,
             page,
@@ -1130,6 +1209,7 @@ pub async fn get_paginated_devices(
             groups,
             kind,
             low_stock,
+            ids.as_deref(),
         )?;
         let mut extras = Vec::with_capacity(devices.len());
         let devices: Vec<Asset> = devices

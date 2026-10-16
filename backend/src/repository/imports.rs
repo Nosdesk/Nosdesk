@@ -67,6 +67,172 @@ pub fn list_recent(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<Impor
         .load(conn)
 }
 
+/// A job as Recent imports reads it: no file columns beyond the sheet name,
+/// no rows, and the outcome counts lifted out of the summary.
+#[derive(Debug, Clone, Queryable)]
+pub struct ImportJobListRow {
+    pub id: Uuid,
+    pub job_type: String,
+    pub status: String,
+    pub filename: String,
+    pub created_by: Option<Uuid>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub pruned_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub sheet: Option<String>,
+    pub would_create: Option<i32>,
+    pub would_update: Option<i32>,
+    pub unchanged: Option<i32>,
+    pub skipped: Option<i32>,
+}
+
+/// The workspace's newest jobs that reached Map (the upload read, whatever
+/// happened since), newest first. A refused upload or a failed commit
+/// isn't listed.
+// sync-audit-only: read-only
+pub fn list_reached_map(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<ImportJobListRow>> {
+    use crate::schema::import_jobs::dsl as j;
+    use diesel::dsl::sql;
+    use diesel::sql_types::{Integer, Nullable, Text};
+    j::import_jobs
+        .filter(j::source.is_not_null())
+        .filter(j::status.eq_any(["parsed", "dry_run_done", "committing", "done"]))
+        .order((j::created_at.desc(), j::id.desc()))
+        .limit(limit)
+        .select((
+            j::id,
+            j::job_type,
+            j::status,
+            j::filename,
+            j::created_by,
+            j::created_at,
+            j::updated_at,
+            j::completed_at,
+            j::pruned_at,
+            sql::<Nullable<Text>>("import_jobs.source->>'sheet'"),
+            sql::<Nullable<Integer>>("(import_jobs.summary->>'would_create')::int"),
+            sql::<Nullable<Integer>>("(import_jobs.summary->>'would_update')::int"),
+            sql::<Nullable<Integer>>("(import_jobs.summary->>'unchanged')::int"),
+            sql::<Nullable<Integer>>("(import_jobs.summary->>'rows_with_errors')::int"),
+        ))
+        .load(conn)
+}
+
+/// The records a committed job created and updated
+/// (`services::imports::RecordIds`), without the rest of the job; `None`
+/// when there is no such job here or it wrote nothing.
+// sync-audit-only: read-only
+pub fn record_ids(
+    conn: &mut DbConnection,
+    id: Uuid,
+    job_type: &str,
+) -> QueryResult<Option<serde_json::Value>> {
+    use crate::schema::import_jobs::dsl as j;
+    Ok(j::import_jobs
+        .find(id)
+        .filter(j::job_type.eq(job_type))
+        .select(j::record_ids)
+        .first::<Option<serde_json::Value>>(conn)
+        .optional()?
+        .flatten())
+}
+
+/// Jobs, across every workspace, whose detail the prune drops: committed
+/// before `cutoff`, or drafts last changed before it, not pruned yet. At
+/// most `limit`, oldest first, as (workspace, job).
+// sync-audit-only: read-only
+pub fn prune_due(
+    conn: &mut DbConnection,
+    cutoff: chrono::DateTime<chrono::Utc>,
+    limit: i64,
+) -> QueryResult<Vec<(i32, Uuid)>> {
+    use crate::schema::import_jobs::dsl as j;
+    j::import_jobs
+        .filter(j::pruned_at.is_null())
+        .filter(
+            j::status
+                .eq("done")
+                .and(j::completed_at.lt(cutoff))
+                .or(j::status
+                    .eq_any(["parsed", "dry_run_done"])
+                    .and(j::updated_at.lt(cutoff))),
+        )
+        .order(j::updated_at.asc())
+        .limit(limit)
+        .select((j::workspace_id, j::id))
+        .load(conn)
+}
+
+/// Jobs, across every workspace, nothing was imported from and that never
+/// reached Map or whose commit failed, last changed before `cutoff`: the
+/// prune deletes them with their files. At most `limit`, as
+/// (workspace, job).
+// sync-audit-only: read-only
+pub fn discard_due(
+    conn: &mut DbConnection,
+    cutoff: chrono::DateTime<chrono::Utc>,
+    limit: i64,
+) -> QueryResult<Vec<(i32, Uuid)>> {
+    use crate::schema::import_jobs::dsl as j;
+    j::import_jobs
+        .filter(j::status.eq("failed").or(j::source.is_null()))
+        .filter(j::status.ne("done"))
+        .filter(j::record_ids.is_null())
+        .filter(j::records_committed.is_null())
+        .filter(j::updated_at.lt(cutoff))
+        .order(j::updated_at.asc())
+        .limit(limit)
+        .select((j::workspace_id, j::id))
+        .load(conn)
+}
+
+/// Drop a job's per-row results and answers, and cut its summary and
+/// source to what the prune keeps (`services::imports::history`), marking
+/// it pruned. Only a job [`prune_due`] still picks at `cutoff`, read again
+/// under a row lock, so a draft changed since the scan is left alone.
+/// Leaves `updated_at` alone, so the job keeps its place in header memory
+/// and its age. 0 when there was nothing to prune.
+// sync-audit-only: admin bulk-import audit log, see create
+pub fn prune(
+    conn: &mut DbConnection,
+    id: Uuid,
+    cutoff: chrono::DateTime<chrono::Utc>,
+) -> QueryResult<usize> {
+    use crate::schema::import_jobs::dsl as j;
+    use crate::services::imports::history;
+    let Some((summary, source)) = j::import_jobs
+        .find(id)
+        .filter(j::pruned_at.is_null())
+        .filter(
+            j::status
+                .eq("done")
+                .and(j::completed_at.lt(cutoff))
+                .or(j::status
+                    .eq_any(["parsed", "dry_run_done"])
+                    .and(j::updated_at.lt(cutoff))),
+        )
+        .select((j::summary, j::source))
+        .for_no_key_update()
+        .first::<(Option<serde_json::Value>, Option<serde_json::Value>)>(conn)
+        .optional()?
+    else {
+        return Ok(0);
+    };
+    let summary = history::pruned_summary(summary);
+    // A source that doesn't read is kept whole: it names the file's columns.
+    let source = history::pruned_source(source.clone()).or(source);
+    diesel::update(j::import_jobs.find(id))
+        .set((
+            j::row_results.eq(None::<serde_json::Value>),
+            j::answers.eq(None::<serde_json::Value>),
+            j::summary.eq(summary),
+            j::source.eq(source),
+            j::pruned_at.eq(Some(chrono::Utc::now())),
+        ))
+        .execute(conn)
+}
+
 /// Convenience: the most recent job a given user has touched.
 /// Used to resume a tab the admin navigated away from.
 // sync-audit-only: workspace config row, see create

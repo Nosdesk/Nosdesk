@@ -57,6 +57,7 @@ const SEEDED: &[&str] = &[
     "sla.detect_breaches",
     "asset_loans.due_reminders",
     "guest_residue.cleanup",
+    "import_history.prune",
 ];
 
 /// Jobs that still run here, but with nothing to do, and why.
@@ -148,6 +149,8 @@ struct Seeded {
     archived_workspace: i32,
     overdue_ticket: i32,
     loan: i32,
+    old_import: Uuid,
+    failed_import: Uuid,
 }
 
 fn seed(conn: &mut Conn) -> Seeded {
@@ -324,6 +327,31 @@ fn seed(conn: &mut Conn) -> Seeded {
         .id)
     });
 
+    // An import committed past its 30 days, and a refused upload as old.
+    #[derive(QueryableByName)]
+    struct JobId {
+        #[diesel(sql_type = SqlUuid)]
+        id: Uuid,
+    }
+    let (old_import, failed_import) = pinned(conn, a, |c| {
+        let old = diesel::sql_query(
+            "INSERT INTO import_jobs (job_type, status, filename, file_path, completed_at, \
+                                      source, row_results) \
+             VALUES ('assets', 'done', 'old.csv', '', now() - interval '45 days', \
+                     '{\"format\": \"csv\", \"header_row\": 1, \"headers\": [], \"row_count\": 0}', \
+                     '{\"phase\": \"committed\", \"rows\": []}') RETURNING id",
+        )
+        .get_result::<JobId>(c)?
+        .id;
+        let failed = diesel::sql_query(
+            "INSERT INTO import_jobs (job_type, status, filename, file_path, updated_at) \
+             VALUES ('assets', 'failed', 'refused.csv', '', now() - interval '45 days') RETURNING id",
+        )
+        .get_result::<JobId>(c)?
+        .id;
+        Ok((old, failed))
+    });
+
     // Workspace B: an unconfirmed request, its unused guest account and an
     // abandoned upload, all past their windows; and a member soft-deleted
     // long ago.
@@ -392,6 +420,8 @@ fn seed(conn: &mut Conn) -> Seeded {
         archived_workspace,
         overdue_ticket,
         loan,
+        old_import,
+        failed_import,
     }
 }
 
@@ -576,6 +606,23 @@ async fn every_scheduled_job_runs_cleanly_on_the_job_pool() {
         &mut conn,
         "abandoned upload removed",
         "SELECT count(*) AS n FROM attachments WHERE name = 'abandoned.png'".into(),
+    );
+    gone(
+        &mut conn,
+        "old import pruned",
+        format!(
+            "SELECT count(*) AS n FROM import_jobs WHERE id = '{}' \
+             AND (pruned_at IS NULL OR row_results IS NOT NULL)",
+            seeded.old_import
+        ),
+    );
+    gone(
+        &mut conn,
+        "refused upload deleted",
+        format!(
+            "SELECT count(*) AS n FROM import_jobs WHERE id = '{}'",
+            seeded.failed_import
+        ),
     );
     gone(
         &mut conn,

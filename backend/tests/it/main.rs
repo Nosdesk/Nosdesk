@@ -77,6 +77,7 @@ mod imports_assets;
 mod imports_attributes;
 mod imports_catalog;
 mod imports_data_shape;
+mod imports_history;
 mod imports_map_memory;
 mod imports_mapping;
 mod imports_people;

@@ -2,6 +2,8 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::services::imports::history::{state_of, JobState};
+
 /// CSV import job. Two-phase: rows go through dry-run (parse +
 /// validate, write `summary`) before the admin commits. The
 /// audit row outlives the request that triggered the upload so
@@ -37,6 +39,9 @@ pub struct ImportJob {
     pub answers: Option<serde_json::Value>,
     /// `services::imports::RecordIds`, written by the commit.
     pub record_ids: Option<serde_json::Value>,
+    /// When the 30-day prune dropped the file and the per-row detail
+    /// (`services::imports::history`).
+    pub pruned_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -130,6 +135,16 @@ pub struct ImportJobResponse {
     pub ignored: serde_json::Value,
     pub options: Option<serde_json::Value>,
     pub answers: Option<serde_json::Value>,
+    /// Draft, Imported or Expired (`services::imports::history::state_of`);
+    /// `None` for a refused upload or a failed commit.
+    pub state: Option<JobState>,
+    /// When the 30-day prune dropped the file and the per-row detail; from
+    /// then the job is counts, options and mapping only.
+    pub pruned_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Who uploaded it, as the workspace names them; filled where a page
+    /// shows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by_name: Option<String>,
 }
 
 impl From<ImportJob> for ImportJobResponse {
@@ -144,6 +159,12 @@ impl From<ImportJob> for ImportJobResponse {
         };
         let suggested_mapping = lift("suggested_mapping");
         let ignored = lift("ignored");
+        let state = state_of(
+            &job.status,
+            job.updated_at,
+            job.pruned_at,
+            chrono::Utc::now(),
+        );
         Self {
             id: job.id,
             job_type: job.job_type,
@@ -162,6 +183,39 @@ impl From<ImportJob> for ImportJobResponse {
             ignored,
             options: job.options,
             answers: job.answers,
+            state,
+            pruned_at: job.pruned_at,
+            created_by_name: None,
         }
     }
+}
+
+/// One job on Recent imports: who, when, which file, its state and its
+/// outcome counts, without the file's columns or any row.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportJobListItem {
+    pub id: Uuid,
+    pub job_type: String,
+    pub status: String,
+    pub state: Option<JobState>,
+    pub filename: String,
+    /// The workbook sheet, for an .xlsx.
+    pub sheet: Option<String>,
+    pub created_by: Option<Uuid>,
+    pub created_by_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub pruned_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Outcome counts once the job has been checked.
+    pub counts: Option<ImportCounts>,
+}
+
+/// New, Updated, Unchanged and Skipped, as the tiles count them.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct ImportCounts {
+    pub new: i32,
+    pub updated: i32,
+    pub unchanged: i32,
+    pub skipped: i32,
 }
