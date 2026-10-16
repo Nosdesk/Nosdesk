@@ -2599,8 +2599,8 @@ pub async fn remove_created(
         let updated = repo::record_removal(conn, id, auth.user_uuid, value)?;
         info!(
             job_id = %id,
-            deleted = outcome.deleted,
-            kept = outcome.kept.len(),
+            assets_deleted = outcome.deleted,
+            assets_kept = outcome.kept.len(),
             "removed imported assets"
         );
         Ok(RemoveOutcome::Removed(updated))

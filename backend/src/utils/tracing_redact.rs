@@ -172,6 +172,9 @@ const ALLOWED_FIELDS: &[&str] = &[
     "partitions",
     // workspace restore: how many files landed before a put failed.
     "files_restored",
+    // Remove imported assets: how many assets it deleted and kept. Counts.
+    "assets_deleted",
+    "assets_kept",
     // Instance restore of an older backup: the Nosdesk version that made it,
     // the migration it was taken at, and the scratch database restore named.
     // A release string, a migration version and a generated name.

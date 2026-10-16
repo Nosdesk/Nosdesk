@@ -653,7 +653,7 @@ mod tests {
 
     #[test]
     fn the_most_telling_reason_comes_first() {
-        let mut reasons = vec![
+        let mut reasons = [
             KeptReason::Edited {
                 at: Utc::now(),
                 by: None,
