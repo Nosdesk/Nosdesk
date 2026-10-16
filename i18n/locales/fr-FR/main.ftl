@@ -3496,115 +3496,13 @@ collection-delete-title = Supprimer { $name } ?
 collection-delete-title-fallback = Supprimer la collection ?
 collection-delete-confirm = Supprimer
 
-# CSV import (CsvImportView): admin page for importing users,
-# devices, or tickets from CSV. Covers the page header, status
-# messages, action buttons, the import status card, guideline
-# panels, the template list, and both modals (file upload and
-# template download).
+# CSV import (CsvImportView): the back link and the names of the
+# import types.
 csv-import-back = Retour à l'import de données
-csv-import-title = Import CSV
-csv-import-subtitle = Importez des données depuis des fichiers CSV dans votre système
 
-# Phase 1 wizard: upload -> review -> done.
-csv-import-step-upload = Upload
-csv-import-step-review = Review
-csv-import-step-done = Done
-csv-import-step-upload-heading = Upload your CSV
-csv-import-type-label = What are you importing?
 csv-import-type-assets = Assets
 csv-import-type-users = Users
 csv-import-type-tickets = Tickets
-csv-import-type-coming-soon = coming soon
-csv-import-template-label = Start with our template
-csv-import-template-help = The CSV needs to use these exact column headers. Download the empty template, fill it in, then upload it here.
-csv-import-template-button = Download template
-csv-import-file-label = Choose your file
-csv-import-drop-zone-idle = Drop a CSV here, or click to browse
-csv-import-drop-here = Release to upload
-# MT: pending native review (fr-FR)
-csv-import-drop-zone-hint = .csv jusqu'à 10 Mo et 5 000 lignes
-csv-import-drop-zone-replace = Click or drop another file to replace
-csv-import-error-not-csv = "{ $name }" is not a CSV file
-csv-import-action-validate = Validate
-csv-import-summary-rows = Rows in file
-csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
-csv-import-summary-create = Will create
-csv-import-summary-update = Will update
-csv-import-errors-heading = { $count ->
-    [one] 1 ligne contient des erreurs et sera ignorée
-   *[other] { $count } lignes contiennent des erreurs et seront ignorées
-}
-csv-import-errors-truncated = showing first 100
-csv-import-errors-row = Row
-csv-import-errors-column = Column
-csv-import-errors-message = Message
-csv-import-action-discard = Discard
-csv-import-action-apply = Apply ({ $count } rows)
-csv-import-action-new = New import
-csv-import-action-view-assets = View assets
-csv-import-action-view-users = View users
-csv-import-action-view-tickets = View tickets
-csv-import-done-heading = Import complete
-csv-import-done-body = { $count ->
-    [one] 1 ligne importée.
-   *[other] { $count } lignes importées.
-}
-csv-import-done-skipped = { $count ->
-    [one] 1 ligne a été ignorée car elle contenait des erreurs.
-   *[other] { $count } lignes ont été ignorées car elles contenaient des erreurs.
-}
-csv-import-error-generic = Import failed. Check the file and try again.
-csv-import-error-commit-failed = Apply failed; rows were not committed.
-csv-import-action-import = Importer des données
-csv-import-action-templates = Télécharger les modèles
-csv-import-status-heading = Statut de l'import
-csv-import-status-success = Import terminé
-csv-import-status-in-progress = Import en cours
-csv-import-status-error = Échec de l'import
-csv-import-last-import = Dernier import : { $date }
-csv-import-results-total = Enregistrements au total
-csv-import-results-successful = Réussis
-csv-import-results-failed = Échoués
-csv-import-guidelines-heading = Consignes pour l'import CSV
-csv-import-requirements-heading = Prérequis du fichier CSV
-csv-import-requirements-utf8 = Les fichiers doivent être au format CSV avec encodage UTF-8
-csv-import-requirements-headers = La première ligne doit contenir les en-têtes de colonnes correspondant aux champs attendus
-csv-import-requirements-required = Les champs obligatoires ne doivent pas être vides
-csv-import-requirements-date-format = Les champs de date doivent utiliser le format AAAA-MM-JJ
-csv-import-requirements-max-size = Taille maximale du fichier : 10 Mo
-csv-import-notes-heading = Notes importantes
-csv-import-notes-updates = Les enregistrements existants seront mis à jour s'ils partagent un identifiant unique (comme l'e-mail ou l'ID)
-csv-import-notes-validation = La validation des données est effectuée avant l'import, les enregistrements contenant des données invalides seront ignorés
-csv-import-notes-duration = Pour les imports volumineux, le processus peut prendre plusieurs minutes
-csv-import-notes-templates = Téléchargez et utilisez nos modèles pour garantir un formatage correct
-csv-import-templates-heading = Modèles disponibles
-csv-import-templates-intro = Utilisez ces modèles comme point de départ pour vos imports CSV
-csv-import-template-users-name = Modèle Utilisateurs
-csv-import-template-users-description = Importez des comptes utilisateur avec rôles et coordonnées
-csv-import-template-devices-name = Modèle d'actifs
-csv-import-template-devices-description = Importer des actifs avec les détails matériels et les informations de propriété
-csv-import-template-tickets-name = Modèle Tickets
-csv-import-template-tickets-description = Importez des tickets de support avec détails et personnes assignées
-csv-import-template-download = Télécharger
-csv-import-modal-import-title = Importer des données depuis un CSV
-csv-import-modal-data-type = Type de données
-csv-import-modal-type-users = Utilisateurs
-csv-import-modal-type-devices = Actifs
-csv-import-modal-type-tickets = Tickets
-csv-import-modal-file-label = Fichier CSV
-csv-import-modal-upload-link = Téléverser un fichier
-csv-import-modal-drag-drop = ou glissez-déposez
-csv-import-modal-size-hint = Fichiers CSV jusqu'à 10 Mo
-csv-import-modal-cancel = Annuler
-csv-import-modal-start = Lancer l'import
-csv-import-modal-starting = Import en cours...
-csv-import-modal-templates-title = Modèles CSV
-csv-import-modal-templates-intro = Téléchargez nos modèles CSV pour vous assurer que vos données sont correctement formatées pour l'import.
-csv-import-modal-fields-count = { $count ->
-    [one] { $count } champ
-   *[other] { $count } champs
-   }
-csv-import-modal-close = Fermer
 
 # Import wizard (Start, Upload, Map, Review, Done). Field labels
 # (import-field-<type>-<id>) name the targets a column maps to; the
@@ -5022,10 +4920,6 @@ import-field-tickets-requester-email = E-mail du demandeur
 import-field-tickets-assignee-email = E-mail de l'assigné
 # MT: pending native review (fr-FR)
 import-field-tickets-category = Catégorie
-csv-import-error-no-file = Veuillez sélectionner un fichier à importer
-csv-import-error-failed = Échec de l'import
-csv-import-success-completed = Import terminé avec succès
-csv-import-toast-template-downloaded = Modèle { $type } téléchargé
 
 # Error page (ErrorView)
 error-page-default-code = 404

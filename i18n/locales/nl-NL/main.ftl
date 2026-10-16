@@ -3486,115 +3486,13 @@ collection-delete-title = { $name } verwijderen?
 collection-delete-title-fallback = Collectie verwijderen?
 collection-delete-confirm = Verwijderen
 
-# CSV import (CsvImportView): admin page for importing users,
-# devices, or tickets from CSV. Covers the page header, status
-# messages, action buttons, the import status card, guideline
-# panels, the template list, and both modals (file upload and
-# template download).
+# CSV import (CsvImportView): the back link and the names of the
+# import types.
 csv-import-back = Terug naar Gegevensimport
-csv-import-title = CSV-import
-csv-import-subtitle = Importeer gegevens uit CSV-bestanden in je systeem
 
-# Phase 1 wizard: upload -> review -> done.
-csv-import-step-upload = Upload
-csv-import-step-review = Review
-csv-import-step-done = Done
-csv-import-step-upload-heading = Upload your CSV
-csv-import-type-label = What are you importing?
 csv-import-type-assets = Assets
 csv-import-type-users = Users
 csv-import-type-tickets = Tickets
-csv-import-type-coming-soon = coming soon
-csv-import-template-label = Start with our template
-csv-import-template-help = The CSV needs to use these exact column headers. Download the empty template, fill it in, then upload it here.
-csv-import-template-button = Download template
-csv-import-file-label = Choose your file
-csv-import-drop-zone-idle = Drop a CSV here, or click to browse
-csv-import-drop-here = Release to upload
-# MT: pending native review (nl-NL)
-csv-import-drop-zone-hint = .csv tot 10 MB en 5.000 rijen
-csv-import-drop-zone-replace = Click or drop another file to replace
-csv-import-error-not-csv = "{ $name }" is not a CSV file
-csv-import-action-validate = Validate
-csv-import-summary-rows = Rows in file
-csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
-csv-import-summary-create = Will create
-csv-import-summary-update = Will update
-csv-import-errors-heading = { $count ->
-    [one] 1 rij bevat fouten en wordt overgeslagen
-   *[other] { $count } rijen bevatten fouten en worden overgeslagen
-}
-csv-import-errors-truncated = showing first 100
-csv-import-errors-row = Row
-csv-import-errors-column = Column
-csv-import-errors-message = Message
-csv-import-action-discard = Discard
-csv-import-action-apply = Apply ({ $count } rows)
-csv-import-action-new = New import
-csv-import-action-view-assets = View assets
-csv-import-action-view-users = View users
-csv-import-action-view-tickets = View tickets
-csv-import-done-heading = Import complete
-csv-import-done-body = { $count ->
-    [one] 1 rij geïmporteerd.
-   *[other] { $count } rijen geïmporteerd.
-}
-csv-import-done-skipped = { $count ->
-    [one] 1 rij is overgeslagen omdat deze fouten bevatte.
-   *[other] { $count } rijen zijn overgeslagen omdat ze fouten bevatten.
-}
-csv-import-error-generic = Import failed. Check the file and try again.
-csv-import-error-commit-failed = Apply failed; rows were not committed.
-csv-import-action-import = Gegevens importeren
-csv-import-action-templates = Sjablonen downloaden
-csv-import-status-heading = Importstatus
-csv-import-status-success = Import voltooid
-csv-import-status-in-progress = Import bezig
-csv-import-status-error = Import mislukt
-csv-import-last-import = Laatste import: { $date }
-csv-import-results-total = Totaal aantal records
-csv-import-results-successful = Geslaagd
-csv-import-results-failed = Mislukt
-csv-import-guidelines-heading = Richtlijnen voor CSV-import
-csv-import-requirements-heading = Vereisten CSV-bestand
-csv-import-requirements-utf8 = Bestanden moeten in CSV-formaat met UTF-8-codering zijn
-csv-import-requirements-headers = De eerste rij moet kolomkoppen bevatten die overeenkomen met de verwachte velden
-csv-import-requirements-required = Verplichte velden mogen niet leeg zijn
-csv-import-requirements-date-format = Datumvelden moeten het formaat JJJJ-MM-DD gebruiken
-csv-import-requirements-max-size = Maximale bestandsgrootte: 10 MB
-csv-import-notes-heading = Belangrijke opmerkingen
-csv-import-notes-updates = Bestaande records worden bijgewerkt als ze een unieke identifier delen (zoals e-mail of ID)
-csv-import-notes-validation = Gegevensvalidatie wordt vóór de import uitgevoerd, records met ongeldige gegevens worden overgeslagen
-csv-import-notes-duration = Grote imports kunnen enkele minuten duren
-csv-import-notes-templates = Download en gebruik onze sjablonen voor de juiste opmaak
-csv-import-templates-heading = Beschikbare sjablonen
-csv-import-templates-intro = Gebruik deze sjablonen als startpunt voor je CSV-imports
-csv-import-template-users-name = Sjabloon Gebruikers
-csv-import-template-users-description = Importeer gebruikersaccounts met rollen en contactgegevens
-csv-import-template-devices-name = Activasjabloon
-csv-import-template-devices-description = Importeer activa met hardwaregegevens en eigendomsinformatie
-csv-import-template-tickets-name = Sjabloon Tickets
-csv-import-template-tickets-description = Importeer supporttickets met details en toegewezen personen
-csv-import-template-download = Downloaden
-csv-import-modal-import-title = Gegevens uit CSV importeren
-csv-import-modal-data-type = Type gegevens
-csv-import-modal-type-users = Gebruikers
-csv-import-modal-type-devices = Activa
-csv-import-modal-type-tickets = Tickets
-csv-import-modal-file-label = CSV-bestand
-csv-import-modal-upload-link = Een bestand uploaden
-csv-import-modal-drag-drop = of versleep het hierheen
-csv-import-modal-size-hint = CSV-bestanden tot 10 MB
-csv-import-modal-cancel = Annuleren
-csv-import-modal-start = Import starten
-csv-import-modal-starting = Bezig met importeren...
-csv-import-modal-templates-title = CSV-sjablonen
-csv-import-modal-templates-intro = Download onze CSV-sjablonen zodat je gegevens correct worden opgemaakt voor de import.
-csv-import-modal-fields-count = { $count ->
-    [one] { $count } veld
-   *[other] { $count } velden
-   }
-csv-import-modal-close = Sluiten
 
 # Import wizard (Start, Upload, Map, Review, Done). Field labels
 # (import-field-<type>-<id>) name the targets a column maps to; the
@@ -5012,10 +4910,6 @@ import-field-tickets-requester-email = E-mail aanvrager
 import-field-tickets-assignee-email = E-mail toegewezene
 # MT: pending native review (nl-NL)
 import-field-tickets-category = Categorie
-csv-import-error-no-file = Selecteer een bestand om te importeren
-csv-import-error-failed = Import mislukt
-csv-import-success-completed = Import succesvol voltooid
-csv-import-toast-template-downloaded = Sjabloon { $type } gedownload
 
 # Error page (ErrorView)
 error-page-default-code = 404
