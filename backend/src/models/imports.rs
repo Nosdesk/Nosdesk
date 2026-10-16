@@ -86,6 +86,11 @@ pub struct ImportValueAnswer {
     pub answered_by: Option<Uuid>,
     pub job_id: Option<Uuid>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// The value as the file first spelled it; `None` for an answer saved
+    /// before spellings were kept.
+    pub source_text: Option<String>,
+    /// The answer links to an entry the import that saved it created.
+    pub created: bool,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -98,6 +103,8 @@ pub struct NewImportValueAnswer {
     pub answer: serde_json::Value,
     pub answered_by: Option<Uuid>,
     pub job_id: Option<Uuid>,
+    pub source_text: Option<String>,
+    pub created: bool,
 }
 
 /// An import job as the API returns it: the job row without the server's

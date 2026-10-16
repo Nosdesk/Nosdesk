@@ -209,6 +209,8 @@ pub fn upsert_value_answers(
             answer.eq(excluded(answer)),
             answered_by.eq(excluded(answered_by)),
             job_id.eq(excluded(job_id)),
+            source_text.eq(excluded(source_text)),
+            created.eq(excluded(created)),
             updated_at.eq(diesel::dsl::now),
         ))
         .execute(conn)

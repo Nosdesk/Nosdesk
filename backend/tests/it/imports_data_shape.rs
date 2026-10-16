@@ -644,6 +644,8 @@ fn answer(field: &str, value: &str, target: &str, by: Option<Uuid>) -> NewImport
         answer: serde_json::json!({ "action": "match", "target": target }),
         answered_by: by,
         job_id: None,
+        source_text: None,
+        created: false,
     }
 }
 

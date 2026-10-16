@@ -32,6 +32,10 @@
 //!   import without some of their values.
 //! - `GET  /admin/import/fields?type=` lists the fields a column
 //!   can map to.
+//! - `GET  /admin/import/answers?type=` lists the type's saved matches
+//!   and the header memory of its latest mapped import;
+//!   `DELETE /admin/import/answers?type=` deletes every saved match of
+//!   the type and `DELETE /admin/import/answers/{id}` one of them.
 //! - `GET  /admin/import/template/{type}?kind=` returns a CSV header
 //!   row the admin can fill in; for assets, with the kind's attributes.
 //!
@@ -52,6 +56,7 @@ use crate::extractors::{AuthContext, TenantConn};
 use crate::models::{ImportJob, ImportJobResponse, ImportJobUpdate, NewImportJob};
 use crate::repository::imports as repo;
 use crate::services::imports::mapping::{self, ColumnMapping, ImportSource, StoredSource};
+use crate::services::imports::saved;
 use crate::services::imports::values;
 use crate::services::imports::xlsx::{self, FileFormat, SheetChoice};
 use crate::services::imports::{
@@ -65,7 +70,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/admin/import",
         web::post().to(crate::handlers::imports::upload),
     )
-    // Before `/admin/import/{id}`, which would take "fields" as an id.
+    // Before `/admin/import/{id}`, which would take "fields" or
+    // "answers" as an id.
     .route(
         "/admin/import/fields",
         web::get().to(crate::handlers::imports::fields),
@@ -73,6 +79,15 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/import/template/{type}",
         web::get().to(crate::handlers::imports::template),
+    )
+    .service(
+        web::resource("/admin/import/answers")
+            .route(web::get().to(crate::handlers::imports::list_answers))
+            .route(web::delete().to(crate::handlers::imports::delete_answers)),
+    )
+    .route(
+        "/admin/import/answers/{id}",
+        web::delete().to(crate::handlers::imports::delete_answer),
     )
     .route(
         "/admin/import/{id}/source",
@@ -681,6 +696,75 @@ pub async fn fields(
     }
 }
 
+/// The saved matches of an import type, with the header memory of its
+/// latest mapped import, for the Saved matches page.
+pub async fn list_answers(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    query: web::Query<FieldsQuery>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let job_type = match parse_type(query.job_type.as_str()) {
+        Ok(t) => t,
+        Err(message) => return errors::bad_request(message),
+    };
+    let listed = tc.run(|conn| {
+        let fields = imports::importer_for(job_type).fields(conn)?;
+        saved::list(conn, job_type, &fields)
+    });
+    match listed {
+        Ok(view) => HttpResponse::Ok().json(view),
+        Err(e) => {
+            error!(error = ?e, "failed to list saved matches");
+            errors::internal("failed to list saved matches")
+        }
+    }
+}
+
+/// Delete one saved match; the next import asks about its value again.
+pub async fn delete_answer(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    match tc.run(|conn| repo::delete_value_answer(conn, id)) {
+        Ok(0) => errors::not_found_msg("saved match not found"),
+        Ok(_) => HttpResponse::NoContent().finish(),
+        Err(e) => {
+            error!(entity_id = %id, error = ?e, "failed to delete a saved match");
+            errors::internal("failed to delete the saved match")
+        }
+    }
+}
+
+/// Delete every saved match of an import type. The header memory stays.
+pub async fn delete_answers(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    query: web::Query<FieldsQuery>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let job_type = match parse_type(query.job_type.as_str()) {
+        Ok(t) => t,
+        Err(message) => return errors::bad_request(message),
+    };
+    match tc.run(|conn| repo::delete_value_answers(conn, job_type.as_str())) {
+        Ok(deleted) => HttpResponse::Ok().json(serde_json::json!({ "deleted": deleted })),
+        Err(e) => {
+            error!(error = ?e, "failed to delete saved matches");
+            errors::internal("failed to delete the saved matches")
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MappingRequest {
@@ -1184,6 +1268,9 @@ pub async fn commit(
         let mut rows = committed.rows;
         mapping::complete_rows(&mut rows, &column_mapping, &stored.source.headers, &grid);
         let record_ids = imports::RecordIds::from_rows(&rows);
+        // What the admin answered becomes the next import's saved match.
+        let answers = saved::answers_to_save(&resolution, &committed.created);
+        saved::save(conn, job_type, answers, ctx.actor, current.id)?;
 
         let updated = repo::update(
             conn,

@@ -759,11 +759,31 @@ pub fn purge_user(
             .set(user_emails::created_by.eq::<Option<Uuid>>(None))
             .execute(conn)?;
 
-        // 2l. Saved import matches keep the answer, not who gave it.
+        // 2l. Saved import matches keep the answer, not who gave it, and
+        // forget any that name the person: their email as the value in the
+        // file, or the person as the answer.
         diesel::update(
             import_value_answers::table.filter(import_value_answers::answered_by.eq(user_uuid)),
         )
         .set(import_value_answers::answered_by.eq::<Option<Uuid>>(None))
+        .execute(conn)?;
+        let emails: Vec<String> = user_emails::table
+            .filter(user_emails::user_uuid.eq(user_uuid))
+            .select(user_emails::email)
+            .load::<String>(conn)?
+            .iter()
+            .map(|e| crate::services::imports::values::normalize_value(e))
+            .collect();
+        diesel::delete(
+            import_value_answers::table.filter(
+                import_value_answers::normalized_value
+                    .eq_any(&emails)
+                    .or(
+                        diesel::dsl::sql::<diesel::sql_types::Bool>("answer->>'target' = ")
+                            .bind::<diesel::sql_types::Text, _>(user_uuid.to_string()),
+                    ),
+            ),
+        )
         .execute(conn)?;
 
         // 2m. Device loans: return any active loan, restoring the asset's

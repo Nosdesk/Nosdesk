@@ -608,6 +608,19 @@ pub struct RowPlan {
 pub struct Committed {
     pub records: ImportedRecords,
     pub rows: Vec<RowResult>,
+    /// The entries the commit created for values answered Create, so the
+    /// answer is saved as a link to what was made.
+    pub created: Vec<CreatedLink>,
+}
+
+/// A catalog entry a commit created for one answered value: the field,
+/// context and value (as answers key them) whose Create made it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatedLink {
+    pub field: String,
+    pub context: String,
+    pub key: String,
+    pub id: i32,
 }
 
 /// One problem shared by several rows.
