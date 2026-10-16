@@ -94,6 +94,12 @@ describe('Recent imports rows', () => {
     )
   })
 
+  it('says how many created assets were removed, once removal ran', () => {
+    expect(countsLine(t, item({ removed: { deleted: 398, created: 407 } }))).toBe(
+      'import-history-count-removed(deleted=398,created=407)',
+    )
+  })
+
   it('says where a draft stopped, and that an expired one expired', () => {
     expect(countsLine(t, item({ state: 'draft', status: 'parsed', counts: null }))).toBe('import-history-draft-on-map')
     expect(countsLine(t, item({ state: 'draft', status: 'dry_run_done' }))).toBe('import-history-draft-on-review')

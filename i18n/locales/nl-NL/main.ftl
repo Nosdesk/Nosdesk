@@ -4694,6 +4694,167 @@ import-detail-expired = Dit concept is niet geïmporteerd en kan niet worden her
 # MT: pending native review (nl-NL)
 import-detail-load-failed = Deze import is niet geladen.
 # MT: pending native review (nl-NL)
+import-review-changes-blank-before = { $count ->
+    [one] 1 veld was eerst leeg.
+   *[other] { $count } velden waren eerst leeg.
+   }
+# MT: pending native review (nl-NL)
+import-history-count-removed = { $created ->
+    [one] { $deleted } van 1 asset verwijderd
+   *[other] { $deleted } van { $created } assets verwijderd
+   }
+# MT: pending native review (nl-NL)
+import-detail-state-removed = { $created ->
+    [one] Geïmporteerd · { $deleted } van 1 asset verwijderd
+   *[other] Geïmporteerd · { $deleted } van { $created } assets verwijderd
+   }
+# MT: pending native review (nl-NL)
+import-remove-button = Geïmporteerde assets verwijderen
+# MT: pending native review (nl-NL)
+import-remove-window = Alleen assets die sindsdien door niemand zijn gewijzigd. Tot { $date }.
+# MT: pending native review (nl-NL)
+import-remove-window-closed = Termijn voor verwijderen gesloten op { $date }.
+# MT: pending native review (nl-NL)
+import-remove-load-failed = De geïmporteerde assets konden niet worden gecontroleerd. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+import-remove-failed = Het verwijderen van de geïmporteerde assets is mislukt en er is niets verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-title = { $count ->
+    [one] 1 asset verwijderen?
+   *[other] { $count } assets verwijderen?
+   }
+# MT: pending native review (nl-NL)
+import-remove-title-none = Niets te verwijderen
+# MT: pending native review (nl-NL)
+import-remove-confirm = { $count ->
+    [one] 1 asset verwijderen
+   *[other] { $count } assets verwijderen
+   }
+# MT: pending native review (nl-NL)
+import-remove-created = { $count ->
+    [one] Deze import heeft 1 asset aangemaakt.
+   *[other] Deze import heeft { $count } assets aangemaakt.
+   }
+# MT: pending native review (nl-NL)
+import-remove-deletable = { $count ->
+    [one] 1 is sindsdien niet gewijzigd en wordt verwijderd.
+   *[other] { $count } zijn sindsdien niet gewijzigd en worden verwijderd.
+   }
+# MT: pending native review (nl-NL)
+import-remove-kept = { $count ->
+    [one] 1 is sindsdien gewijzigd en blijft bewaard: { $reasons }.
+   *[other] { $count } zijn sindsdien gewijzigd en blijven bewaard: { $reasons }.
+   }
+# MT: pending native review (nl-NL)
+import-remove-gone = { $count ->
+    [one] 1 was al verwijderd.
+   *[other] { $count } waren al verwijderd.
+   }
+# MT: pending native review (nl-NL)
+import-remove-catalog = { $list } die deze import heeft aangemaakt, worden verwijderd als niets anders ze gebruikt.
+# MT: pending native review (nl-NL)
+import-remove-webhooks = { $count ->
+    [one] Webhooks ontvangen 1 asset.deleted-gebeurtenis.
+   *[other] Webhooks ontvangen { $count } asset.deleted-gebeurtenissen.
+   }
+# MT: pending native review (nl-NL)
+import-remove-which-kept = { $count ->
+    [one] Welke blijft bewaard
+   *[other] Welke { $count } blijven bewaard
+   }
+# MT: pending native review (nl-NL)
+import-remove-group-edited = { $count } bewerkt
+# MT: pending native review (nl-NL)
+import-remove-group-photos = { $count } met foto's
+# MT: pending native review (nl-NL)
+import-remove-group-files = { $count } met bestanden
+# MT: pending native review (nl-NL)
+import-remove-group-ticket = { $count ->
+    [one] 1 gekoppeld aan een ticket
+   *[other] { $count } gekoppeld aan tickets
+   }
+# MT: pending native review (nl-NL)
+import-remove-group-status-changed = { $count } met een statuswijziging
+# MT: pending native review (nl-NL)
+import-remove-group-loan = { $count } met een uitleenregistratie
+# MT: pending native review (nl-NL)
+import-remove-group-disposed = { $count } afgevoerd
+# MT: pending native review (nl-NL)
+import-remove-group-audited = { $count } geteld
+# MT: pending native review (nl-NL)
+import-remove-group-usage = { $count } met geregistreerd verbruik
+# MT: pending native review (nl-NL)
+import-remove-group-group-added = { $count } aan een groep toegevoegd
+# MT: pending native review (nl-NL)
+import-remove-group-directory = { $count } in een directorygroep
+# MT: pending native review (nl-NL)
+import-remove-group-synced = { $count } nu gesynchroniseerd
+# MT: pending native review (nl-NL)
+import-remove-group-referenced = { $count } waarnaar een andere asset verwijst
+# MT: pending native review (nl-NL)
+import-remove-reason-edited = Bewerkt op { $date }
+# MT: pending native review (nl-NL)
+import-remove-reason-edited-by = Bewerkt op { $date } door { $name }
+# MT: pending native review (nl-NL)
+import-remove-reason-status-changed = Status sindsdien gewijzigd
+# MT: pending native review (nl-NL)
+import-remove-reason-loan = Heeft een uitleenregistratie
+# MT: pending native review (nl-NL)
+import-remove-reason-disposed = Afgevoerd
+# MT: pending native review (nl-NL)
+import-remove-reason-photos = { $count ->
+    [one] Heeft 1 foto
+   *[other] Heeft { $count } foto's
+   }
+# MT: pending native review (nl-NL)
+import-remove-reason-files = { $count ->
+    [one] Heeft 1 bestand
+   *[other] Heeft { $count } bestanden
+   }
+# MT: pending native review (nl-NL)
+import-remove-reason-audited = Geteld op { $date }
+# MT: pending native review (nl-NL)
+import-remove-reason-usage = Verbruik geregistreerd
+# MT: pending native review (nl-NL)
+import-remove-reason-group-added = Sindsdien aan een groep toegevoegd
+# MT: pending native review (nl-NL)
+import-remove-reason-ticket = Gekoppeld aan ticket #{ $id }
+# MT: pending native review (nl-NL)
+import-remove-reason-directory = In een directorygroep
+# MT: pending native review (nl-NL)
+import-remove-reason-synced-intune = Nu gesynchroniseerd vanuit Intune
+# MT: pending native review (nl-NL)
+import-remove-reason-synced-entra = Nu gesynchroniseerd vanuit Microsoft Entra
+# MT: pending native review (nl-NL)
+import-remove-reason-synced-generic = Nu gesynchroniseerd vanuit een externe bron
+# MT: pending native review (nl-NL)
+import-remove-reason-referenced = Waarnaar '{ $name }' verwijst
+# MT: pending native review (nl-NL)
+import-remove-result = { $count ->
+    [one] 1 asset verwijderd op { $date } door { $name }.
+   *[other] { $count } assets verwijderd op { $date } door { $name }.
+   }
+# MT: pending native review (nl-NL)
+import-remove-result-anonymous = { $count ->
+    [one] 1 asset verwijderd op { $date }.
+   *[other] { $count } assets verwijderd op { $date }.
+   }
+# MT: pending native review (nl-NL)
+import-remove-result-kept = { $count } bewaard.
+# MT: pending native review (nl-NL)
+import-previous-download = Vorige waarden downloaden (.csv)
+# MT: pending native review (nl-NL)
+import-previous-help = Importeer dit bestand om de vorige waarden terug te zetten. Een veld dat eerst leeg was, kan zo niet worden hersteld, omdat lege cellen nooit een waarde wijzigen.
+# MT: pending native review (nl-NL)
+import-previous-help-blank = { $count ->
+    [one] Importeer dit bestand om de vorige waarden terug te zetten. Een veld dat eerst leeg was, kan zo niet worden hersteld, omdat lege cellen nooit een waarde wijzigen; 1 zo'n veld staat in de kaart Wat er verandert van de import.
+   *[other] Importeer dit bestand om de vorige waarden terug te zetten. Een veld dat eerst leeg was, kan zo niet worden hersteld, omdat lege cellen nooit een waarde wijzigen; { $count } zulke velden staan in de kaart Wat er verandert van de import.
+   }
+# MT: pending native review (nl-NL)
+import-previous-none = Geen updates in deze import
+# MT: pending native review (nl-NL)
+import-previous-failed = De vorige waarden konden niet worden gedownload.
+# MT: pending native review (nl-NL)
 import-field-assets-name = Naam
 # MT: pending native review (nl-NL)
 import-field-assets-kind = Soort

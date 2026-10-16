@@ -4704,6 +4704,167 @@ import-detail-expired = Ce brouillon n'a pas été importé et ne peut pas être
 # MT: pending native review (fr-FR)
 import-detail-load-failed = Cet import ne s'est pas chargé.
 # MT: pending native review (fr-FR)
+import-review-changes-blank-before = { $count ->
+    [one] 1 champ était vide avant.
+   *[other] { $count } champs étaient vides avant.
+   }
+# MT: pending native review (fr-FR)
+import-history-count-removed = { $created ->
+    [one] { $deleted } actif supprimé sur 1
+   *[other] { $deleted } actifs supprimés sur { $created }
+   }
+# MT: pending native review (fr-FR)
+import-detail-state-removed = { $created ->
+    [one] Importé · { $deleted } actif supprimé sur 1
+   *[other] Importé · { $deleted } actifs supprimés sur { $created }
+   }
+# MT: pending native review (fr-FR)
+import-remove-button = Supprimer les actifs importés
+# MT: pending native review (fr-FR)
+import-remove-window = Uniquement les actifs que personne n'a modifiés depuis. Jusqu'au { $date }.
+# MT: pending native review (fr-FR)
+import-remove-window-closed = Délai de suppression clos le { $date }.
+# MT: pending native review (fr-FR)
+import-remove-load-failed = Impossible de vérifier les actifs importés. Réessayez.
+# MT: pending native review (fr-FR)
+import-remove-failed = La suppression des actifs importés a échoué et rien n'a été supprimé.
+# MT: pending native review (fr-FR)
+import-remove-title = { $count ->
+    [one] Supprimer 1 actif ?
+   *[other] Supprimer { $count } actifs ?
+   }
+# MT: pending native review (fr-FR)
+import-remove-title-none = Rien à supprimer
+# MT: pending native review (fr-FR)
+import-remove-confirm = { $count ->
+    [one] Supprimer 1 actif
+   *[other] Supprimer { $count } actifs
+   }
+# MT: pending native review (fr-FR)
+import-remove-created = { $count ->
+    [one] Cet import a créé 1 actif.
+   *[other] Cet import a créé { $count } actifs.
+   }
+# MT: pending native review (fr-FR)
+import-remove-deletable = { $count ->
+    [one] 1 n'a pas été modifié depuis et sera supprimé.
+   *[other] { $count } n'ont pas été modifiés depuis et seront supprimés.
+   }
+# MT: pending native review (fr-FR)
+import-remove-kept = { $count ->
+    [one] 1 a été modifié depuis et sera conservé : { $reasons }.
+   *[other] { $count } ont été modifiés depuis et seront conservés : { $reasons }.
+   }
+# MT: pending native review (fr-FR)
+import-remove-gone = { $count ->
+    [one] 1 était déjà supprimé.
+   *[other] { $count } étaient déjà supprimés.
+   }
+# MT: pending native review (fr-FR)
+import-remove-catalog = { $list } créés par cet import seront supprimés si rien d'autre ne les utilise.
+# MT: pending native review (fr-FR)
+import-remove-webhooks = { $count ->
+    [one] Les webhooks recevront 1 événement asset.deleted.
+   *[other] Les webhooks recevront { $count } événements asset.deleted.
+   }
+# MT: pending native review (fr-FR)
+import-remove-which-kept = { $count ->
+    [one] Lequel est conservé
+   *[other] Lesquels des { $count } sont conservés
+   }
+# MT: pending native review (fr-FR)
+import-remove-group-edited = { $count } modifiés
+# MT: pending native review (fr-FR)
+import-remove-group-photos = { $count } avec des photos
+# MT: pending native review (fr-FR)
+import-remove-group-files = { $count } avec des fichiers
+# MT: pending native review (fr-FR)
+import-remove-group-ticket = { $count ->
+    [one] 1 lié à un ticket
+   *[other] { $count } liés à des tickets
+   }
+# MT: pending native review (fr-FR)
+import-remove-group-status-changed = { $count } avec un changement de statut
+# MT: pending native review (fr-FR)
+import-remove-group-loan = { $count } avec un prêt enregistré
+# MT: pending native review (fr-FR)
+import-remove-group-disposed = { $count } mis au rebut
+# MT: pending native review (fr-FR)
+import-remove-group-audited = { $count } inventoriés
+# MT: pending native review (fr-FR)
+import-remove-group-usage = { $count } avec une utilisation enregistrée
+# MT: pending native review (fr-FR)
+import-remove-group-group-added = { $count } ajoutés à un groupe
+# MT: pending native review (fr-FR)
+import-remove-group-directory = { $count } dans un groupe d'annuaire
+# MT: pending native review (fr-FR)
+import-remove-group-synced = { $count } désormais synchronisés
+# MT: pending native review (fr-FR)
+import-remove-group-referenced = { $count } référencés par un autre actif
+# MT: pending native review (fr-FR)
+import-remove-reason-edited = Modifié le { $date }
+# MT: pending native review (fr-FR)
+import-remove-reason-edited-by = Modifié le { $date } par { $name }
+# MT: pending native review (fr-FR)
+import-remove-reason-status-changed = Statut modifié depuis
+# MT: pending native review (fr-FR)
+import-remove-reason-loan = A un prêt enregistré
+# MT: pending native review (fr-FR)
+import-remove-reason-disposed = Mis au rebut
+# MT: pending native review (fr-FR)
+import-remove-reason-photos = { $count ->
+    [one] A 1 photo
+   *[other] A { $count } photos
+   }
+# MT: pending native review (fr-FR)
+import-remove-reason-files = { $count ->
+    [one] A 1 fichier
+   *[other] A { $count } fichiers
+   }
+# MT: pending native review (fr-FR)
+import-remove-reason-audited = Inventorié le { $date }
+# MT: pending native review (fr-FR)
+import-remove-reason-usage = Utilisation enregistrée
+# MT: pending native review (fr-FR)
+import-remove-reason-group-added = Ajouté à un groupe depuis
+# MT: pending native review (fr-FR)
+import-remove-reason-ticket = Lié au ticket n° { $id }
+# MT: pending native review (fr-FR)
+import-remove-reason-directory = Dans un groupe d'annuaire
+# MT: pending native review (fr-FR)
+import-remove-reason-synced-intune = Désormais synchronisé depuis Intune
+# MT: pending native review (fr-FR)
+import-remove-reason-synced-entra = Désormais synchronisé depuis Microsoft Entra
+# MT: pending native review (fr-FR)
+import-remove-reason-synced-generic = Désormais synchronisé depuis une source externe
+# MT: pending native review (fr-FR)
+import-remove-reason-referenced = Référencé par « { $name } »
+# MT: pending native review (fr-FR)
+import-remove-result = { $count ->
+    [one] 1 actif supprimé le { $date } par { $name }.
+   *[other] { $count } actifs supprimés le { $date } par { $name }.
+   }
+# MT: pending native review (fr-FR)
+import-remove-result-anonymous = { $count ->
+    [one] 1 actif supprimé le { $date }.
+   *[other] { $count } actifs supprimés le { $date }.
+   }
+# MT: pending native review (fr-FR)
+import-remove-result-kept = { $count } conservés.
+# MT: pending native review (fr-FR)
+import-previous-download = Télécharger les valeurs précédentes (.csv)
+# MT: pending native review (fr-FR)
+import-previous-help = Importez ce fichier pour rétablir les valeurs précédentes. Un champ vide auparavant ne peut pas être rétabli ainsi, car une cellule vide ne modifie jamais une valeur.
+# MT: pending native review (fr-FR)
+import-previous-help-blank = { $count ->
+    [one] Importez ce fichier pour rétablir les valeurs précédentes. Un champ vide auparavant ne peut pas être rétabli ainsi, car une cellule vide ne modifie jamais une valeur ; 1 champ de ce type figure dans la carte Ce qui change de l'import.
+   *[other] Importez ce fichier pour rétablir les valeurs précédentes. Un champ vide auparavant ne peut pas être rétabli ainsi, car une cellule vide ne modifie jamais une valeur ; { $count } champs de ce type figurent dans la carte Ce qui change de l'import.
+   }
+# MT: pending native review (fr-FR)
+import-previous-none = Aucune mise à jour dans cet import
+# MT: pending native review (fr-FR)
+import-previous-failed = Impossible de télécharger les valeurs précédentes.
+# MT: pending native review (fr-FR)
 import-field-assets-name = Nom
 # MT: pending native review (fr-FR)
 import-field-assets-kind = Type
