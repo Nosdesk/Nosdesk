@@ -4,11 +4,9 @@
 use actix_web::http::StatusCode;
 use actix_web::test::TestRequest;
 
-use backend::services::imports::mapping;
-
 use crate::common::TestDb;
 use crate::imports_assets::{
-    call_import_route, import_workspace, import_workspaces, json, mapping_request,
+    call_import_route, import_workspace, import_workspaces, job_files, json, mapping_request,
     upload_and_check, upload_request,
 };
 
@@ -42,21 +40,6 @@ fn suggested(job: &serde_json::Value) -> Vec<(u64, String)> {
             )
         })
         .collect()
-}
-
-/// Every file kept for a job: the upload and its grid.
-fn job_files(id: &str) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(mapping::imports_dir())
-        .map(|entries| {
-            entries
-                .filter_map(|e| e.ok())
-                .map(|e| e.file_name().to_string_lossy().to_string())
-                .filter(|n| n.starts_with(&format!("{id}.")))
-                .collect()
-        })
-        .unwrap_or_default();
-    names.sort();
-    names
 }
 
 /// A checked draft switched to another type comes back to `parsed` with
@@ -198,14 +181,18 @@ async fn a_draft_is_deleted_with_its_files() {
     )
     .await;
     let id = job["id"].as_str().expect("job id").to_string();
-    assert_eq!(
-        job_files(&id),
-        vec![format!("{id}.csv"), format!("{id}.grid.json")]
+    let files = job_files(ws.workspace_id, &id).await;
+    assert_eq!(files.len(), 2, "{files:?}");
+    assert!(
+        files[0].starts_with("grid.") && files[0].ends_with(".json"),
+        "{files:?}"
     );
+    assert_eq!(files[1], "upload.csv");
 
     let (status, body) = call_import_route(&pool, &ws, ws.admin_uuid, delete_request(&id)).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "{}", json(&body));
-    assert!(job_files(&id).is_empty(), "{:?}", job_files(&id));
+    let files = job_files(ws.workspace_id, &id).await;
+    assert!(files.is_empty(), "{files:?}");
     let (status, _) = call_import_route(&pool, &ws, ws.admin_uuid, get_request(&id)).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
@@ -242,7 +229,8 @@ async fn a_committed_import_cannot_be_deleted() {
     let (status, body) = call_import_route(&pool, &ws, ws.admin_uuid, get_request(&id)).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json(&body)["status"], "done");
-    assert_eq!(job_files(&id).len(), 2, "{:?}", job_files(&id));
+    let files = job_files(ws.workspace_id, &id).await;
+    assert_eq!(files.len(), 2, "{files:?}");
 }
 
 /// Another workspace's job is not found, for a type change and a delete
@@ -276,5 +264,6 @@ async fn start_routes_stay_in_their_workspace() {
     let (status, body) = call_import_route(&pool, a, a.admin_uuid, get_request(&id)).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json(&body)["job_type"], "assets");
-    assert_eq!(job_files(&id).len(), 2, "{:?}", job_files(&id));
+    let files = job_files(a.workspace_id, &id).await;
+    assert_eq!(files.len(), 2, "{files:?}");
 }

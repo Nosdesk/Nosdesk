@@ -424,6 +424,18 @@ describe('CsvImportView commit guards', () => {
     expect(api.rows.mock.calls.length).toBeGreaterThan(1)
   })
 
+  it('goes back to Start when the file is no longer available', async () => {
+    api.commit.mockRejectedValue({
+      response: { status: 409, data: { code: 'import_file_missing', error: 'server words' } },
+    })
+    await importFromReview()
+    await flushPromises()
+    expect(currentStep()).toBe('start')
+    expect(wrapper!.text()).toContain('import-file-missing')
+    expect(wrapper!.text()).not.toContain('server words')
+    expect(router.currentRoute.value.query.job).toBeUndefined()
+  })
+
   describe('when the request ends before the commit does', () => {
     beforeEach(() => {
       vi.useFakeTimers()

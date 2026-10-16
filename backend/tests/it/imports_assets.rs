@@ -856,6 +856,7 @@ pub(crate) async fn call_import_route(
         App::new()
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(search))
+            .app_data(web::Data::new(crate::common::test_storage()))
             .wrap_fn(move |req, srv| {
                 req.extensions_mut().insert(workspace.clone());
                 req.extensions_mut().insert(claims.clone());
@@ -869,6 +870,23 @@ pub(crate) async fn call_import_route(
     let resp = http_test::call_service(&app, req.to_request()).await;
     let status = resp.status();
     (status, http_test::read_body(resp).await)
+}
+
+/// The names of the files kept for job `id` in workspace `workspace_id`,
+/// sorted: its grid (`grid.{version}.json`) and upload (`upload.{ext}`).
+pub(crate) async fn job_files(workspace_id: i32, id: &str) -> Vec<String> {
+    use backend::utils::storage::{Storage, WorkspaceScopedStorage};
+    let scoped = WorkspaceScopedStorage::new(crate::common::test_storage(), workspace_id);
+    let prefix = format!("imports/{id}/");
+    let mut names: Vec<String> = scoped
+        .list_prefix(&prefix)
+        .await
+        .expect("list import files")
+        .iter()
+        .map(|p| p.strip_prefix(&prefix).unwrap_or(p).to_string())
+        .collect();
+    names.sort();
+    names
 }
 
 /// A multipart upload of `body` as `filename` to `POST /admin/import`.

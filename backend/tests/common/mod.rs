@@ -639,6 +639,25 @@ pub fn with_upload_dir() {
     std::env::set_var("UPLOAD_DIR", dir.path());
 }
 
+/// One local storage root for the test binary, installed as the process
+/// storage too, so handlers given it and scheduled jobs reading
+/// `process_storage()` see the same files. Tests write under their own
+/// random names, so sharing it is safe.
+pub fn test_storage() -> std::sync::Arc<dyn backend::utils::storage::Storage> {
+    use backend::utils::storage::{
+        create_storage, process_storage, set_process_storage, StorageConfig,
+    };
+    static ROOT: OnceLock<tempfile::TempDir> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let root = tempfile::tempdir().expect("tempdir");
+        set_process_storage(create_storage(StorageConfig::Local {
+            base_path: root.path().to_string_lossy().into_owned(),
+        }));
+        root
+    });
+    process_storage()
+}
+
 /// Resolve a path inside `tests/fixtures/`. Tests use this so
 /// `cargo test` invocations don't depend on the current working
 /// directory.

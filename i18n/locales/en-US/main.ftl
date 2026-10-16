@@ -4303,6 +4303,7 @@ import-history-resume = Resume
 import-history-view = View
 import-history-cannot-resume = Cannot resume
 import-history-expired-resume = This draft expired 30 days after its last change and can't be resumed. Upload the file again.
+import-file-missing = This import's file is no longer available. Upload the file again.
 import-history-options-constants = { $count ->
     [one] 1 value set for every row
    *[other] { $count } values set for every row

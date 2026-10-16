@@ -346,8 +346,15 @@ async fn put_source_switches_sheet_and_header_row() {
         }
     };
 
+    let before = crate::imports_assets::job_files(ws.workspace_id, &id).await;
     let (status, job) = put(serde_json::json!({"sheet": "Vehicles"})).await;
     assert_eq!(status, StatusCode::OK, "{job}");
+    // The new sheet's grid takes the old one's place in storage.
+    let after = crate::imports_assets::job_files(ws.workspace_id, &id).await;
+    assert_eq!(after.len(), 2, "{after:?}");
+    assert_ne!(after[0], before[0], "a new grid version");
+    assert_eq!(after[1], "upload.xlsx");
+    assert!(job["source"].get("grid").is_none(), "{job}");
     assert_eq!(job["source"]["sheet"], "Vehicles");
     assert_eq!(job["source"]["header_row"], 1);
     assert_eq!(header_names(&job), vec!["Rego", "Make"]);

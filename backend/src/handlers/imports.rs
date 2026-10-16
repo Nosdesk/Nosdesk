@@ -59,11 +59,12 @@ use uuid::Uuid;
 use std::sync::Arc;
 
 use crate::errors;
-use crate::extractors::{AuthContext, TenantConn};
+use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::models::{
     ImportCounts, ImportJob, ImportJobListItem, ImportJobResponse, ImportJobUpdate, NewImportJob,
 };
 use crate::repository::imports as repo;
+use crate::services::imports::files::{self, FileError};
 use crate::services::imports::history::{self, JobState};
 use crate::services::imports::mapping::{self, ColumnMapping, ImportSource, StoredSource};
 use crate::services::imports::saved;
@@ -169,6 +170,7 @@ enum UploadOutcome {
 pub async fn upload(
     mut tc: TenantConn,
     auth: AuthContext,
+    storage: ScopedStorage,
     query: web::Query<UploadQuery>,
     mut payload: Multipart,
 ) -> impl Responder {
@@ -199,63 +201,78 @@ pub async fn upload(
     // A workbook by its first bytes; anything else reads as CSV.
     let format = xlsx::detect(&file_bytes);
 
-    // The raw upload and its grid are both named by the job id.
-    let job_id = Uuid::new_v4();
-    let extension = format.as_ref().map_or("upload", |f| f.as_str());
-    let stored_path = match persist_upload(job_id, extension, &file_bytes) {
-        Ok(p) => p,
-        Err(e) => {
-            error!(error = ?e, "failed to persist import upload");
-            return errors::internal("failed to save uploaded file");
-        }
-    };
+    // The raw upload and its grid are both kept under the job id. A v7 id
+    // dates the files, so the sweep for files without a job can leave an
+    // upload alone while its job is still being created.
+    let job_id = Uuid::now_v7();
+    let extension = format.as_ref().map_or("bin", |f| f.as_str());
+    let stored_key =
+        match files::put_upload(storage.0.as_ref(), job_id, extension, &file_bytes).await {
+            Ok(key) => key,
+            Err(e) => {
+                error!(error = ?e, "failed to store import upload");
+                return errors::internal("failed to save uploaded file");
+            }
+        };
 
-    // Parse and write the grid off the async worker and before any
-    // transaction opens.
-    let read = parse_off_worker(move || -> std::io::Result<ReadOutcome> {
+    // Parse off the async worker and before any transaction opens.
+    let read = parse_off_worker(move || -> std::io::Result<(ReadOutcome, Vec<u8>)> {
         let format = match format {
             Ok(f) => f,
-            Err(refused) => return Ok(ReadOutcome::Refused(refused.0)),
+            Err(refused) => return Ok((ReadOutcome::Refused(refused.0), Vec::new())),
         };
         match format {
             FileFormat::Xlsx => match xlsx::read(&file_bytes, None) {
                 Ok(workbook) => {
-                    mapping::write_grid(job_id, &workbook.grid)?;
-                    Ok(ReadOutcome::Read(workbook.source))
+                    let grid = files::grid_bytes(&workbook.grid)?;
+                    Ok((ReadOutcome::Read(workbook.source), grid))
                 }
-                Err(refused) => Ok(ReadOutcome::Refused(refused.0)),
+                Err(refused) => Ok((ReadOutcome::Refused(refused.0), Vec::new())),
             },
             FileFormat::Csv => {
                 let parsed = match csv_parser::parse_bytes(&file_bytes) {
                     Ok(p) => p,
-                    Err(e) => return Ok(ReadOutcome::Refused(e.to_string())),
+                    Err(e) => return Ok((ReadOutcome::Refused(e.to_string()), Vec::new())),
                 };
                 if parsed.rows.is_empty() {
-                    return Ok(ReadOutcome::Refused(
-                        "The file has a header row and no data.".to_string(),
+                    return Ok((
+                        ReadOutcome::Refused("The file has a header row and no data.".to_string()),
+                        Vec::new(),
                     ));
                 }
-                mapping::write_grid(job_id, &parsed)?;
-                Ok(ReadOutcome::Read(mapping::csv_source(&parsed)))
+                let grid = files::grid_bytes(&parsed)?;
+                Ok((ReadOutcome::Read(mapping::csv_source(&parsed)), grid))
             }
         }
     })
     .await;
-    let read = match read {
+    let (read, grid_bytes) = match read {
         Ok(Ok(outcome)) => outcome,
         Ok(Err(e)) => {
-            error!(error = ?e, "failed to store import grid");
+            error!(error = ?e, "failed to encode import grid");
             return errors::internal("failed to save uploaded file");
         }
-        Err(ParseFailure::TimedOut) => ReadOutcome::Refused(TIMED_OUT.to_string()),
+        Err(ParseFailure::TimedOut) => (ReadOutcome::Refused(TIMED_OUT.to_string()), Vec::new()),
         Err(ParseFailure::Task(e)) => {
             error!(error = %e, "import parse task failed");
             return errors::internal("failed to read uploaded file");
         }
     };
+    let grid = match read {
+        ReadOutcome::Read(_) => {
+            match files::put_grid(storage.0.as_ref(), job_id, &grid_bytes).await {
+                Ok(version) => Some(version),
+                Err(e) => {
+                    error!(error = ?e, "failed to store import grid");
+                    return errors::internal("failed to save uploaded file");
+                }
+            }
+        }
+        ReadOutcome::Refused(_) => None,
+    };
+    drop(grid_bytes);
 
     let job_type_str = job_type.as_str().to_string();
-    let stored_path_str = stored_path.to_string_lossy().to_string();
     let result = tc.run(|conn| {
         let job = repo::create(
             conn,
@@ -263,7 +280,7 @@ pub async fn upload(
                 id: job_id,
                 job_type: job_type_str.clone(),
                 filename: stored_filename(&filename),
-                file_path: stored_path_str,
+                file_path: stored_key,
                 created_by: Some(user_uuid),
             },
         )?;
@@ -276,7 +293,7 @@ pub async fn upload(
             }
         };
 
-        let stored = suggest_for(conn, job_type, source)?;
+        let stored = suggest_for(conn, job_type, source, grid)?;
 
         let updated = repo::update(
             conn,
@@ -300,6 +317,8 @@ pub async fn upload(
         Ok(UploadOutcome::BadRequest(msg)) => errors::bad_request(msg),
         Err(e) => {
             error!(error = ?e, "import upload failed");
+            // No job names these files.
+            remove_files(&storage, job_id).await;
             errors::internal("failed to start import")
         }
     }
@@ -333,11 +352,12 @@ where
 
 /// The source with the mapping suggested for it: from the type's last
 /// mapped import in the workspace, whatever its status, then ids, labels
-/// and synonyms.
+/// and synonyms. `grid` is the version of the grid the source was read into.
 fn suggest_for(
     conn: &mut crate::db::DbConnection,
     job_type: ImportType,
     source: ImportSource,
+    grid: Option<Uuid>,
 ) -> Result<StoredSource, diesel::result::Error> {
     let importer = imports::importer_for(job_type);
     let fields = importer.fields(conn)?;
@@ -351,6 +371,7 @@ fn suggest_for(
         source,
         suggested_mapping,
         ignored: Vec::new(),
+        grid,
     })
 }
 
@@ -412,7 +433,8 @@ enum SourceCheck {
 
 /// Result variants for the source flow.
 enum SourceOutcome {
-    Ok(ImportJob),
+    /// The job, and the grid version its source named before.
+    Ok(ImportJob, Option<Uuid>),
     NotFound,
     Conflict(String),
 }
@@ -425,6 +447,7 @@ enum SourceOutcome {
 pub async fn put_source(
     mut tc: TenantConn,
     auth: AuthContext,
+    storage: ScopedStorage,
     path: web::Path<Uuid>,
     body: web::Json<SourceRequest>,
 ) -> impl Responder {
@@ -475,34 +498,25 @@ pub async fn put_source(
         }
     };
 
-    // Read the workbook again and stage its grid beside the current one;
-    // it takes the current one's place once the job row agrees.
-    let upload = upload_path(id, FileFormat::Xlsx.as_str());
+    // Read the workbook again and store its grid as a new version beside
+    // the current one; the job switches to it once the row agrees.
+    let bytes = match files::read_upload(storage.0.as_ref(), id, FileFormat::Xlsx.as_str()).await {
+        Ok(b) => b,
+        Err(e) => return file_error(id, e),
+    };
     let choice = SheetChoice { sheet, header_row };
     let read = parse_off_worker(move || -> std::io::Result<Result<_, String>> {
-        let bytes = match std::fs::read(&upload) {
-            Ok(b) => b,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Err(
-                    "this import's file is no longer available; upload it again".to_string(),
-                ))
-            }
-            Err(e) => return Err(e),
-        };
         match xlsx::read(&bytes, Some(&choice)) {
-            Ok(workbook) => {
-                let staged = mapping::StagedGrid::write(id, &workbook.grid)?;
-                Ok(Ok((staged, workbook.source)))
-            }
+            Ok(workbook) => Ok(Ok((files::grid_bytes(&workbook.grid)?, workbook.source))),
             Err(refused) => Ok(Err(refused.0)),
         }
     })
     .await;
-    let (staged, source) = match read {
+    let (grid_bytes, source) = match read {
         Ok(Ok(Ok(read))) => read,
         Ok(Ok(Err(message))) => return errors::bad_request(message),
         Ok(Err(e)) => {
-            error!(job_id = %id, error = ?e, "failed to store import grid");
+            error!(job_id = %id, error = ?e, "failed to encode import grid");
             return errors::internal("failed to read import file");
         }
         Err(ParseFailure::TimedOut) => return errors::bad_request(TIMED_OUT),
@@ -511,6 +525,14 @@ pub async fn put_source(
             return errors::internal("failed to read import file");
         }
     };
+    let new_grid = match files::put_grid(storage.0.as_ref(), id, &grid_bytes).await {
+        Ok(version) => version,
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to store import grid");
+            return errors::internal("failed to read import file");
+        }
+    };
+    drop(grid_bytes);
 
     let result = tc.run(|conn| {
         if !repo::try_lock_job(conn, id)? {
@@ -526,7 +548,8 @@ pub async fn put_source(
         if let Some(message) = source_precondition(&job) {
             return Ok(SourceOutcome::Conflict(message));
         }
-        let stored = suggest_for(conn, job_type, source)?;
+        let replaced = stored_source(&job).and_then(|s| s.grid);
+        let stored = suggest_for(conn, job_type, source, Some(new_grid))?;
         let updated = repo::update(
             conn,
             id,
@@ -545,24 +568,22 @@ pub async fn put_source(
             rows = stored.source.row_count,
             "import source chosen"
         );
-        Ok(SourceOutcome::Ok(updated))
+        Ok(SourceOutcome::Ok(updated, replaced))
     });
 
-    match result {
-        Ok(SourceOutcome::Ok(job)) => {
-            if let Err(e) = staged.install() {
-                error!(job_id = %id, error = ?e, "failed to install import grid");
-                let message = "The sheet couldn't be saved. Upload the file again.";
-                if let Err(mark_err) = tc.run(|conn| {
-                    mark_failed(conn, id, message);
-                    Ok(())
-                }) {
-                    error!(job_id = %id, error = ?mark_err, "failed to record import failure");
-                }
-                return errors::internal(message);
-            }
-            HttpResponse::Ok().json(ImportJobResponse::from(job))
+    // The version the job doesn't name is only storage now.
+    let unused = match &result {
+        Ok(SourceOutcome::Ok(_, replaced)) => replaced.filter(|v| *v != new_grid),
+        _ => Some(new_grid),
+    };
+    if let Some(version) = unused {
+        if let Err(e) = files::remove_grid(storage.0.as_ref(), id, version).await {
+            error!(job_id = %id, error = ?e, "failed to remove an unused import grid");
         }
+    }
+
+    match result {
+        Ok(SourceOutcome::Ok(job, _)) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
         Ok(SourceOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
         Ok(SourceOutcome::Conflict(message)) => errors::conflict(message),
         Err(e) => {
@@ -640,7 +661,7 @@ pub async fn put_type(
                 "this import has no file to read; upload the file again".to_string(),
             ));
         };
-        let stored = suggest_for(conn, job_type, stored.source)?;
+        let stored = suggest_for(conn, job_type, stored.source, stored.grid)?;
         let updated = repo::update(
             conn,
             id,
@@ -821,6 +842,7 @@ enum MappingOutcome {
 pub async fn put_mapping(
     mut tc: TenantConn,
     auth: AuthContext,
+    storage: ScopedStorage,
     path: web::Path<Uuid>,
     body: web::Json<MappingRequest>,
 ) -> impl Responder {
@@ -897,7 +919,7 @@ pub async fn put_mapping(
         }
     };
 
-    let grid = match read_job_grid(id).await {
+    let grid = match read_job_grid(&storage, id, stored.grid).await {
         Ok(grid) => grid,
         Err(resp) => return resp,
     };
@@ -928,7 +950,8 @@ pub async fn put_mapping(
         // The sheet may have been read again since the check above, and the
         // mapping names the columns that were checked.
         let Some(mut current) = stored_source(&job).filter(|s| {
-            serde_json::to_value(&s.source).ok() == serde_json::to_value(&stored.source).ok()
+            s.grid == stored.grid
+                && serde_json::to_value(&s.source).ok() == serde_json::to_value(&stored.source).ok()
         }) else {
             return Ok(MappingOutcome::Conflict(
                 "the file was read again while checking; map its columns again".to_string(),
@@ -1100,20 +1123,39 @@ fn resolve_options(
     Ok(())
 }
 
-/// Read a job's grid off the async worker.
-async fn read_job_grid(id: Uuid) -> Result<csv_parser::ParsedCsv, HttpResponse> {
-    match web::block(move || mapping::read_grid(id)).await {
-        Ok(Ok(grid)) => Ok(grid),
-        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => Err(errors::bad_request(
-            "this import's file is no longer available; upload it again",
-        )),
-        Ok(Err(e)) => {
-            error!(job_id = %id, error = ?e, "failed to read import grid");
-            Err(errors::internal("failed to read import file"))
+/// Read the grid version a job's source names from storage.
+async fn read_job_grid(
+    storage: &ScopedStorage,
+    id: Uuid,
+    version: Option<Uuid>,
+) -> Result<csv_parser::ParsedCsv, HttpResponse> {
+    files::read_grid(storage.0.as_ref(), id, version)
+        .await
+        .map_err(|e| file_error(id, e))
+}
+
+/// The answer to a job file that couldn't be read: 409
+/// `import_file_missing` when it is gone, so the admin uploads it again.
+fn file_error(id: Uuid, e: FileError) -> HttpResponse {
+    match e {
+        FileError::Missing => {
+            info!(job_id = %id, "import file missing");
+            errors::conflict_with_code(files::MISSING, files::MISSING_CODE)
         }
+        e => {
+            error!(job_id = %id, error = ?e, "failed to read import file");
+            errors::internal("failed to read import file")
+        }
+    }
+}
+
+/// Remove a job's files, logging a failure: the sweep catches what's left.
+async fn remove_files(storage: &ScopedStorage, id: Uuid) -> usize {
+    match files::remove_job_files(storage.0.as_ref(), id).await {
+        Ok(removed) => removed,
         Err(e) => {
-            error!(job_id = %id, error = ?e, "import read task failed");
-            Err(errors::internal("failed to read import file"))
+            error!(job_id = %id, error = ?e, "failed to remove import files");
+            0
         }
     }
 }
@@ -1150,6 +1192,7 @@ enum CommitOutcome {
 pub async fn commit(
     mut tc: TenantConn,
     auth: AuthContext,
+    storage: ScopedStorage,
     search_service: web::Data<Arc<SearchService>>,
     path: web::Path<Uuid>,
 ) -> impl Responder {
@@ -1190,7 +1233,7 @@ pub async fn commit(
     let Some(stored) = stored_source(&job) else {
         return errors::bad_request("this import has no file to commit; upload the file again");
     };
-    let grid = match read_job_grid(id).await {
+    let grid = match read_job_grid(&storage, id, stored.grid).await {
         Ok(grid) => grid,
         Err(resp) => return resp,
     };
@@ -1593,6 +1636,7 @@ enum DeleteOutcome {
 pub async fn delete_job(
     mut tc: TenantConn,
     auth: AuthContext,
+    storage: ScopedStorage,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if !auth.is_workspace_admin() {
@@ -1621,12 +1665,9 @@ pub async fn delete_job(
     match result {
         Ok(DeleteOutcome::Deleted) => {
             // The row is gone, so nothing reads the files again; one left
-            // behind is only disk.
-            match web::block(move || mapping::remove_job_files(id)).await {
-                Ok(Ok(removed)) => info!(job_id = %id, count = removed, "import discarded"),
-                Ok(Err(e)) => error!(job_id = %id, error = ?e, "failed to remove import files"),
-                Err(e) => error!(job_id = %id, error = ?e, "import file removal task failed"),
-            }
+            // behind is only storage, which the sweep removes.
+            let removed = remove_files(&storage, id).await;
+            info!(job_id = %id, count = removed, "import discarded");
             HttpResponse::NoContent().finish()
         }
         Ok(DeleteOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
@@ -1666,7 +1707,11 @@ fn values_precondition(job: &ImportJob) -> Option<String> {
 }
 
 /// Load a checked job for Match values, or the response that refuses it.
-async fn load_values_job(tc: &mut TenantConn, id: Uuid) -> Result<ValuesJob, HttpResponse> {
+async fn load_values_job(
+    tc: &mut TenantConn,
+    storage: &ScopedStorage,
+    id: Uuid,
+) -> Result<ValuesJob, HttpResponse> {
     let loaded = tc.run(|conn| {
         let job = repo::get(conn, id)?;
         let fields = match ImportType::from_str(&job.job_type) {
@@ -1701,7 +1746,7 @@ async fn load_values_job(tc: &mut TenantConn, id: Uuid) -> Result<ValuesJob, Htt
             "This import was checked before column mapping. Upload the file again.",
         ));
     };
-    let grid = read_job_grid(id).await?;
+    let grid = read_job_grid(storage, id, stored.grid).await?;
     let mapped = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
     Ok(ValuesJob {
         job,
@@ -1721,13 +1766,14 @@ async fn load_values_job(tc: &mut TenantConn, id: Uuid) -> Result<ValuesJob, Htt
 pub async fn get_values(
     mut tc: TenantConn,
     auth: AuthContext,
+    storage: ScopedStorage,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if !auth.is_workspace_admin() {
         return errors::forbidden("Import requires workspace admin");
     }
     let id = path.into_inner();
-    let loaded = match load_values_job(&mut tc, id).await {
+    let loaded = match load_values_job(&mut tc, &storage, id).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -1786,6 +1832,7 @@ pub struct ValuesRequest {
 pub async fn preview_values(
     mut tc: TenantConn,
     auth: AuthContext,
+    storage: ScopedStorage,
     path: web::Path<Uuid>,
     body: web::Json<ValuesRequest>,
 ) -> impl Responder {
@@ -1794,7 +1841,7 @@ pub async fn preview_values(
     }
     let id = path.into_inner();
     let ValuesRequest { answers } = body.into_inner();
-    let loaded = match load_values_job(&mut tc, id).await {
+    let loaded = match load_values_job(&mut tc, &storage, id).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -1837,6 +1884,7 @@ enum ValuesOutcome {
 pub async fn put_values(
     mut tc: TenantConn,
     auth: AuthContext,
+    storage: ScopedStorage,
     path: web::Path<Uuid>,
     body: web::Json<ValuesRequest>,
 ) -> impl Responder {
@@ -1854,7 +1902,7 @@ pub async fn put_values(
         stored,
         grid,
         mut mapped,
-    } = match load_values_job(&mut tc, id).await {
+    } = match load_values_job(&mut tc, &storage, id).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -2112,6 +2160,7 @@ enum ReportRows {
 pub async fn error_report(
     mut tc: TenantConn,
     auth: AuthContext,
+    storage: ScopedStorage,
     path: web::Path<Uuid>,
     query: web::Query<ErrorReportQuery>,
 ) -> impl Responder {
@@ -2166,7 +2215,7 @@ pub async fn error_report(
             return errors::internal("failed to load import rows");
         }
     };
-    let Some(source) = stored_source(&job).map(|s| s.source) else {
+    let Some((source, grid_version)) = stored_source(&job).map(|s| (s.source, s.grid)) else {
         return errors::conflict(NOT_CHECKED);
     };
     let summary: imports::ImportSummary = job
@@ -2205,7 +2254,7 @@ pub async fn error_report(
         ReportRows::Skipped => {
             // A row that imports keeps no cells; the file has them.
             let grid = if report::has_partial_rows(&stored.rows) {
-                match read_job_grid(id).await {
+                match read_job_grid(&storage, id, grid_version).await {
                     Ok(grid) => Some(grid),
                     Err(resp) => return resp,
                 }
@@ -2247,7 +2296,7 @@ pub async fn error_report(
         }
         ReportRows::Dropped(groups) => {
             // Rows that import keep no cells; the file has them.
-            let grid = match read_job_grid(id).await {
+            let grid = match read_job_grid(&storage, id, grid_version).await {
                 Ok(grid) => grid,
                 Err(resp) => return resp,
             };
@@ -2442,24 +2491,6 @@ async fn read_first_file_field(payload: &mut Multipart) -> Result<(String, Vec<u
 /// characters.
 fn stored_filename(name: &str) -> String {
     name.chars().take(255).collect()
-}
-
-fn persist_upload(
-    job_id: Uuid,
-    extension: &str,
-    bytes: &[u8],
-) -> std::io::Result<std::path::PathBuf> {
-    let dir = mapping::imports_dir();
-    std::fs::create_dir_all(&dir)?;
-    let path = upload_path(job_id, extension);
-    std::fs::write(&path, bytes)?;
-    Ok(path)
-}
-
-/// Where a job's original upload is kept (`csv` or `xlsx`), derived from
-/// the job id alone.
-fn upload_path(job_id: Uuid, extension: &str) -> std::path::PathBuf {
-    mapping::imports_dir().join(format!("{job_id}.{extension}"))
 }
 
 fn mark_failed(conn: &mut crate::db::DbConnection, id: Uuid, message: &str) {

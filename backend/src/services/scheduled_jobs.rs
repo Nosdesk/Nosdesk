@@ -671,7 +671,13 @@ pub async fn prune_import_history(pool: Pool) -> Result<()> {
         None => return Ok(()),
     };
     let cutoff = chrono::Utc::now() - crate::services::imports::history::details_window();
-    prune_import_history_before(&pool, cutoff).await
+    prune_import_history_before(&pool, cutoff).await?;
+    sweep_import_files_in(
+        &pool,
+        crate::utils::storage::process_storage(),
+        chrono::Utc::now() - chrono::Duration::days(1),
+    )
+    .await
 }
 
 /// One pass of [`prune_import_history`] with `cutoff` in place of 30 days
@@ -704,7 +710,7 @@ pub async fn prune_import_history_before(
             },
         ) {
             Ok(0) => {}
-            Ok(_) => done.push(id),
+            Ok(_) => done.push((workspace_id, id)),
             Err(e) => {
                 warn!(workspace_id, job_id = %id, error = ?e, "scheduler: import prune failed")
             }
@@ -729,7 +735,7 @@ pub async fn prune_import_history_before(
             Ok(0) => {}
             Ok(_) => {
                 discarded += 1;
-                done.push(id);
+                done.push((workspace_id, id));
             }
             Err(e) => {
                 warn!(workspace_id, job_id = %id, error = ?e, "scheduler: import discard failed")
@@ -737,17 +743,20 @@ pub async fn prune_import_history_before(
         }
     }
 
-    // The rows no longer point at the files; one left behind is only disk.
-    let files = if done.is_empty() {
-        0
-    } else {
-        tokio::task::spawn_blocking(move || {
-            crate::services::imports::mapping::remove_jobs_files(&done)
-        })
-        .await
-        .context("import file removal task")?
-        .context("remove import files")?
-    };
+    // The rows no longer point at the files; one left behind is only
+    // storage, which the sweep removes.
+    let storage = crate::utils::storage::process_storage();
+    let mut files = 0usize;
+    for (workspace_id, id) in done {
+        let scoped =
+            crate::utils::storage::WorkspaceScopedStorage::new(storage.clone(), workspace_id);
+        match crate::services::imports::files::remove_job_files(&scoped, id).await {
+            Ok(n) => files += n,
+            Err(e) => {
+                warn!(workspace_id, job_id = %id, error = ?e, "scheduler: import file removal failed")
+            }
+        }
+    }
     if pruned > 0 {
         info!(count = pruned, "scheduler: import history pruned");
     }
@@ -756,6 +765,78 @@ pub async fn prune_import_history_before(
     }
     if files > 0 {
         info!(count = files, "scheduler: import files removed");
+    }
+    Ok(())
+}
+
+/// Remove import files no job keeps: those of a job deleted, discarded or
+/// pruned whose removal failed, and of an upload whose job was never
+/// created. Lists `imports/` in each workspace's storage. Job ids are v7,
+/// so only files of jobs created before `created_before` go; an id that
+/// isn't v7 is left alone.
+pub async fn sweep_import_files_in(
+    pool: &Pool,
+    storage: Arc<dyn crate::utils::storage::Storage>,
+    created_before: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    use crate::services::imports::files;
+
+    let workspaces =
+        // cross-tenant: lists every workspace; each one's files are read through its own prefix below.
+        crate::sync::session::background_run(pool, "scheduler:import_file_sweep_scan", |conn| {
+            crate::repository::workspaces::list_workspaces(conn, true)
+        })
+        .map_err(|e| anyhow::anyhow!("list workspaces: {e}"))?;
+    let cutoff = created_before.timestamp_millis();
+    let mut removed = 0usize;
+    for workspace_id in workspaces.iter().map(|w| w.id) {
+        let scoped =
+            crate::utils::storage::WorkspaceScopedStorage::new(storage.clone(), workspace_id);
+        let stored = match files::stored_jobs(&scoped).await {
+            Ok(ids) => ids,
+            Err(e) => {
+                warn!(workspace_id, error = ?e, "scheduler: import file listing failed");
+                continue;
+            }
+        };
+        let old: Vec<uuid::Uuid> = stored
+            .into_iter()
+            .filter(|id| {
+                id.get_timestamp().is_some_and(|t| {
+                    let (secs, nanos) = t.to_unix();
+                    (secs as i64) * 1000 + i64::from(nanos / 1_000_000) < cutoff
+                })
+            })
+            .collect();
+        if old.is_empty() {
+            continue;
+        }
+        let kept = match crate::sync::session::run_in_workspace(
+            pool,
+            "scheduler:import_file_sweep",
+            workspace_id,
+            |conn| crate::repository::imports::keeping_files(conn, &old),
+        ) {
+            Ok(kept) => kept,
+            Err(e) => {
+                warn!(workspace_id, error = ?e, "scheduler: import file sweep lookup failed");
+                continue;
+            }
+        };
+        for id in old.into_iter().filter(|id| !kept.contains(id)) {
+            match files::remove_job_files(&scoped, id).await {
+                Ok(n) => removed += n,
+                Err(e) => {
+                    warn!(workspace_id, job_id = %id, error = ?e, "scheduler: import file sweep failed")
+                }
+            }
+        }
+    }
+    if removed > 0 {
+        info!(
+            count = removed,
+            "scheduler: import files without a job removed"
+        );
     }
     Ok(())
 }

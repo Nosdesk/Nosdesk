@@ -187,6 +187,18 @@ pub fn discard_due(
         .load(conn)
 }
 
+/// Of `ids`, the jobs whose files are still kept: those with a row the
+/// prune hasn't reached. The sweep removes the files of the rest.
+// sync-audit-only: read-only
+pub fn keeping_files(conn: &mut DbConnection, ids: &[Uuid]) -> QueryResult<Vec<Uuid>> {
+    use crate::schema::import_jobs::dsl as j;
+    j::import_jobs
+        .filter(j::id.eq_any(ids))
+        .filter(j::pruned_at.is_null())
+        .select(j::id)
+        .load(conn)
+}
+
 /// Drop a job's per-row results and answers, and cut its summary and
 /// source to what the prune keeps (`services::imports::history`), marking
 /// it pruned. Only a job [`prune_due`] still picks at `cutoff`, read again

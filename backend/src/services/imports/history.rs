@@ -96,6 +96,8 @@ pub fn pruned_summary(summary: Option<serde_json::Value>) -> Option<serde_json::
 pub fn pruned_source(source: Option<serde_json::Value>) -> Option<serde_json::Value> {
     let mut s: StoredSource = serde_json::from_value(source?).ok()?;
     s.source.preview.clear();
+    // The prune removes the grid with the job's other files.
+    s.grid = None;
     for header in &mut s.source.headers {
         header.samples.clear();
     }
