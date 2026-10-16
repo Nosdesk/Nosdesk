@@ -870,6 +870,22 @@ pub fn list_workspace_members(
         .load(conn)
 }
 
+/// The pinned workspace's current members, each with their primary email,
+/// for matching a person by email (an import's primary user). Deleted
+/// accounts are left out.
+pub fn member_primary_emails(conn: &mut DbConnection) -> QueryResult<Vec<(Uuid, String)>> {
+    use crate::schema::{user_emails, users};
+    workspace_members::table
+        .inner_join(users::table)
+        .inner_join(user_emails::table.on(user_emails::user_uuid.eq(workspace_members::user_uuid)))
+        .filter(workspace_members::workspace_id.eq(super::pinned_workspace()))
+        .filter(workspace_members::removed_at.is_null())
+        .filter(users::deleted_at.is_null())
+        .filter(user_emails::is_primary.eq(true))
+        .select((workspace_members::user_uuid, user_emails::email))
+        .load(conn)
+}
+
 /// Count owner-role memberships in a workspace. Used by
 /// [`remove_membership`] and [`update_membership_role`] to enforce
 /// the "at least one owner" invariant — a workspace with zero

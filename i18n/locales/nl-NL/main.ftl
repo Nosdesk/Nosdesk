@@ -4211,6 +4211,10 @@ import-field-assets-unit = Eenheid
 # MT: pending native review (nl-NL)
 import-field-assets-low-stock-threshold = Drempel lage voorraad
 # MT: pending native review (nl-NL)
+import-field-assets-purchase-date = Aankoopdatum
+# MT: pending native review (nl-NL)
+import-field-assets-primary-user = Primaire gebruiker
+# MT: pending native review (nl-NL)
 import-field-assets-manufacturer = Fabrikant
 # MT: pending native review (nl-NL)
 import-field-assets-model = Model

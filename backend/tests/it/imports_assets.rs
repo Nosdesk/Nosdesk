@@ -274,22 +274,35 @@ fn kind_matches_label_or_slug_ignoring_case() {
     assert_eq!(kind_of(&mut conn, "KIND-002").as_deref(), Some("laptop"));
 }
 
-/// The CSV carries no attributes, so a kind's required attributes don't
-/// stop its rows importing.
+/// A new asset needs its kind's required attributes: without the column
+/// the row is skipped and names the attribute; with it the row imports.
 #[test]
-fn a_kind_with_required_attributes_imports() {
+fn a_kind_with_required_attributes_needs_them_on_create() {
     let db = TestDb::new();
     let mut conn = db.conn();
     diesel::sql_query(
         r#"INSERT INTO asset_kinds (slug, label, attribute_schema, sort_order, is_builtin, category)
            VALUES ('badge', 'Badge',
-                   '{"type":"object","properties":{"badge_no":{"type":"string"}},"required":["badge_no"]}',
+                   '{"type":"object","properties":{"badge_no":{"type":"string","title":"Badge number"}},"required":["badge_no"]}',
                    200, false, 'physical')"#,
     )
     .execute(&mut *conn)
     .expect("seed kind");
     let parsed = parse_text("Front door badge,badge,BADGE-001,,,,,,,,\n");
 
+    let summary =
+        imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
+    assert_eq!(summary.would_create, 0);
+    assert_eq!(summary.errors[0].column.as_deref(), Some("badge_no"));
+    assert_eq!(summary.errors[0].message, "required for Badge assets");
+
+    let file = tempfile::NamedTempFile::new().expect("temp csv");
+    std::fs::write(
+        file.path(),
+        format!("{HEADER},badge_no\nFront door badge,badge,BADGE-001,,,,,,,,,B-17\n"),
+    )
+    .expect("write csv");
+    let parsed = csv_parser::parse_file(file.path()).expect("parse");
     let summary =
         imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert!(summary.errors.is_empty(), "{:?}", summary.errors);
@@ -1113,6 +1126,7 @@ async fn import_routes_refuse_a_non_admin() {
 
     let requests = [
         TestRequest::get().uri("/api/admin/import/template/assets"),
+        TestRequest::get().uri("/api/admin/import/template/assets?kind=laptop"),
         TestRequest::get().uri("/api/admin/import/fields?type=assets"),
         upload_request("assets.csv", format!("{HEADER}\n").as_bytes()),
         TestRequest::get().uri(&format!("/api/admin/import/{job}")),
@@ -1142,7 +1156,10 @@ async fn import_routes_refuse_a_non_admin() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(String::from_utf8_lossy(&body), format!("{HEADER}\n"));
+    assert_eq!(
+        String::from_utf8_lossy(&body),
+        "\u{FEFF}name,kind,asset_tag,serial_number,status,manufacturer,model,location,primary_user,purchase_date,groups,notes,quantity,unit,low_stock_threshold\n"
+    );
 }
 
 /// A file over a cap is refused whole, naming the cap, and the job is
