@@ -570,6 +570,7 @@ async fn the_fields_endpoint_lists_the_targets() {
             "kind",
             "asset_tag",
             "serial_number",
+            "status",
             "location",
             "notes",
             "quantity",
@@ -588,11 +589,26 @@ async fn the_fields_endpoint_lists_the_targets() {
     assert!(fields[1]["enum"]
         .as_array()
         .is_some_and(|kinds| kinds.iter().any(|k| k == "generic")));
-    assert_eq!(fields[6]["value_type"], "number");
-    assert_eq!(fields[9]["value_type"], "date");
-    assert_eq!(fields[10]["value_type"], "user");
-    assert_eq!(fields[11]["group"], "links");
-    assert_eq!(fields[13]["value_type"], "array");
+    // Statuses an import can set: disposed and on loan come from a
+    // disposal or a loan.
+    assert_eq!(fields[4]["value_type"], "enum");
+    assert_eq!(
+        fields[4]["enum"],
+        serde_json::json!([
+            "in_service",
+            "in_stock",
+            "on_order",
+            "in_transit",
+            "in_repair",
+            "retired",
+            "lost"
+        ])
+    );
+    assert_eq!(fields[7]["value_type"], "number");
+    assert_eq!(fields[10]["value_type"], "date");
+    assert_eq!(fields[11]["value_type"], "user");
+    assert_eq!(fields[12]["group"], "links");
+    assert_eq!(fields[14]["value_type"], "array");
     // The built-in IT kinds' warranty attributes, less the synced keys.
     let warranty = fields
         .iter()

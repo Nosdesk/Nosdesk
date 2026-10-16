@@ -3983,6 +3983,10 @@ import-values-leave-as-is = Laten zoals het is
 # MT: pending native review (nl-NL)
 import-values-leave-as-is-help = Bestaande assets houden hun soort. Nieuwe rijen zonder soort worden overgeslagen.
 # MT: pending native review (nl-NL)
+import-values-status-leave-help = Bestaande assets houden hun status. Nieuwe beginnen als In gebruik.
+# MT: pending native review (nl-NL)
+import-values-status-after-import = Ingesteld door een afvoer of een uitlening na de import
+# MT: pending native review (nl-NL)
 import-values-leave-blank = Leeg laten
 # MT: pending native review (nl-NL)
 import-values-keep-text = Als tekst behouden
@@ -4016,6 +4020,8 @@ import-values-filter-label = Waarden filteren
 import-values-bulk-skip = Alle { $count } overslaan
 # MT: pending native review (nl-NL)
 import-values-bulk-blank = Alle { $count } leeg laten
+# MT: pending native review (nl-NL)
+import-values-bulk-as-is = Alle { $count } laten zoals ze zijn
 # MT: pending native review (nl-NL)
 import-values-scale = { $total } verschillende waarden. Exacte overeenkomsten zijn gekoppeld. Kies wat er met de andere { $rest } gebeurt.
 # MT: pending native review (nl-NL)
@@ -4238,6 +4244,8 @@ import-field-assets-kind = Soort
 import-field-assets-asset-tag = Activalabel
 # MT: pending native review (nl-NL)
 import-field-assets-serial-number = Serienummer
+# MT: pending native review (nl-NL)
+import-field-assets-status = Status
 # MT: pending native review (nl-NL)
 import-field-assets-location = Locatie
 # MT: pending native review (nl-NL)

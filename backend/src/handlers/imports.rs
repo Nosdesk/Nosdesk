@@ -903,13 +903,16 @@ fn plan(
 }
 
 /// Whether a fresh plan does what the reviewed one said, row for row: the
-/// same outcome on the same record. Wording of errors may differ.
+/// same outcome on the same record, moving its status the same way.
+/// Wording of errors may differ.
 fn same_plan(reviewed: &[RowResult], fresh: &[RowResult]) -> bool {
     reviewed.len() == fresh.len()
-        && reviewed
-            .iter()
-            .zip(fresh)
-            .all(|(a, b)| a.row == b.row && a.outcome == b.outcome && a.record_id == b.record_id)
+        && reviewed.iter().zip(fresh).all(|(a, b)| {
+            a.row == b.row
+                && a.outcome == b.outcome
+                && a.record_id == b.record_id
+                && a.fields_written.get("status") == b.fields_written.get("status")
+        })
 }
 
 /// Why a job's mapping can't change now, if it can't.

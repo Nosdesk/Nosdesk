@@ -30,6 +30,7 @@ import type { DropdownOption } from '@/components/common/dropdownOption'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useAuthStore } from '@/stores/auth'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
+import { assetStatusLabel } from '@/utils/assetStatusMeta'
 import type {
   ColumnMapping,
   DateOrder,
@@ -212,7 +213,7 @@ const canAddConstant = computed(
 )
 
 /** The picker a constant's value takes: kinds for Kind, yes or no, the
- *  options of an enum, else typed text. */
+ *  options of an enum (statuses by their labels), else typed text. */
 function valueOptions(c: ConstantRow): DropdownOption[] | null {
   if (isAssets.value && c.field === 'kind') return props.kinds
   const field = fieldById.value.get(c.field)
@@ -223,7 +224,9 @@ function valueOptions(c: ConstantRow): DropdownOption[] | null {
     ]
   }
   const values = field?.enum
-  return values && values.length > 0 ? values.map((v) => ({ value: v, label: v })) : null
+  if (!values || values.length === 0) return null
+  const label = (v: string) => (isAssets.value && c.field === 'status' ? assetStatusLabel(t, v) : v)
+  return values.map((v) => ({ value: v, label: label(v) }))
 }
 
 function valueInputType(c: ConstantRow): string {

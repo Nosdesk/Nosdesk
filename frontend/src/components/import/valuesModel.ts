@@ -65,6 +65,13 @@ export function isAnswered(col: ImportValueColumn, v: ImportValue, edits: Edits)
   return idOf(col, v) in edits || v.answer !== undefined
 }
 
+/** Whether Leave blank leaves the field as it is on an existing record as
+ *  well as blank on a new one: an asset's status, which a new asset starts
+ *  in service. */
+export function leavesAsIs(col: ImportValueColumn): boolean {
+  return col.field === 'status'
+}
+
 /** An answer that drops what the file says. */
 export function isDiscard(a?: ValueAnswer): boolean {
   return a?.action === 'leave_blank' || a?.action === 'skip' || a?.action === 'keep_text'
@@ -186,6 +193,7 @@ export function consequence(col: ImportValueColumn, v: ImportValue, edits: Edits
   if (now?.action === 'keep_text') return 'text'
   if (now?.action !== 'leave_blank') return null
   if (col.lookup === 'group') return 'off'
+  if (leavesAsIs(col)) return 'as_is'
   if (!v.blank) return 'blank'
   // A blank kind left as it is skips the new rows the last check found.
   return sameAnswer(now, checkedAnswer(v)) && v.skipped_rows.length > 0 ? 'skipped' : 'as_is'

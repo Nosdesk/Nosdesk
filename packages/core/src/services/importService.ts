@@ -335,11 +335,13 @@ export interface ImportRowResult {
   errors?: { column: string | null; source_column?: string | null; message: string }[]
   /** Values the row imports without: its kind has no such attribute. */
   dropped?: { column: string; source_column?: string | null; kind: string }[]
-  /** After the commit: each field the row changed, before and after. */
+  /** After the commit: each field the row changed, before and after. In a
+   *  checked plan: the status move the commit would make. */
   fields_written?: Record<string, { before: string | null; after: string | null }>
   groups_added?: number[]
   catalog_created?: { kind: 'manufacturer' | 'model' | 'group'; id: number; observed_updated_at?: string }[]
-  /** The lifecycle event the commit wrote (an Imported event). */
+  /** The last lifecycle event the commit wrote: the status move, else the
+   *  Imported event of a new asset. */
   transition_id?: number
   written_at?: string
   observed_updated_at?: string
