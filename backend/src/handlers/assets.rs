@@ -13,7 +13,9 @@ use uuid::Uuid;
 use crate::models::{Asset, AssetGroupRef, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
-use crate::services::assets::{validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS};
+use crate::services::assets::{
+    model_stamp, validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS,
+};
 use crate::services::imports::assets::{build_history_rows, write_assets_csv, write_history_csv};
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
@@ -1796,29 +1798,6 @@ pub struct SetModelBody {
     pub model_id: i32,
 }
 
-/// Merge a model's `default_attributes` onto an asset's attributes
-/// without clobbering values the asset already carries (per-unit data
-/// wins over a model default). A key counts as empty when it is absent,
-/// null, or an empty string.
-fn stamp_default_attributes(
-    existing: &serde_json::Value,
-    defaults: &serde_json::Value,
-) -> serde_json::Value {
-    let mut merged = existing.as_object().cloned().unwrap_or_default();
-    if let Some(obj) = defaults.as_object() {
-        for (key, value) in obj {
-            let occupied = merged
-                .get(key)
-                .map(|v| !v.is_null() && v.as_str() != Some(""))
-                .unwrap_or(false);
-            if !occupied {
-                merged.insert(key.clone(), value.clone());
-            }
-        }
-    }
-    serde_json::Value::Object(merged)
-}
-
 /// `POST /api/assets/{id}/model` — stamp a catalog model onto an asset:
 /// copy the model's manufacturer, model name, kind, and default specs
 /// (no-clobber) onto the row and link `model_id`. Copy-at-assignment, so
@@ -1871,12 +1850,12 @@ pub async fn set_asset_model(
             }
         };
 
-    let merged_attrs = stamp_default_attributes(&existing.attributes, &model.default_attributes);
+    let stamp = model_stamp::stamp(&existing.attributes, &model, &manufacturer.name);
 
     // The stamped (kind, attributes) pair must be valid, or we'd write an
     // asset that fails its own kind's schema.
-    let kind = model.kind.clone();
-    let attrs_for_validation = merged_attrs.clone();
+    let kind = stamp.kind.clone();
+    let attrs_for_validation = stamp.attributes.clone();
     match tc.run(move |conn| Ok::<_, Error>(validate_for_kind(conn, &kind, &attrs_for_validation)))
     {
         Ok(Ok(())) => {}
@@ -1884,17 +1863,7 @@ pub async fn set_asset_model(
         Err(_) => return errors::internal("Failed to validate asset"),
     }
 
-    let update = AssetUpdate {
-        manufacturer: Some(manufacturer.name),
-        model: Some(model.name.clone()),
-        kind: Some(model.kind.clone()),
-        attributes: Some(merged_attrs),
-        model_id: Some(Some(model_id)),
-        updated_at: Some(chrono::Utc::now().naive_utc()),
-        ..Default::default()
-    };
-
-    apply_asset_update_response(&mut tc, asset_id, update, &search_service)
+    apply_asset_update_response(&mut tc, asset_id, stamp.into_update(), &search_service)
 }
 
 /// `DELETE /api/assets/{id}/model` — unlink the catalog model. The
@@ -2018,31 +1987,5 @@ mod tests {
         let existing = json!({ "intune_device_id": "abc-123", "warranty_status": "Active" });
         let merged = overlay_user_attributes(&existing, None);
         assert_eq!(merged, existing);
-    }
-
-    use super::stamp_default_attributes;
-
-    #[test]
-    fn stamp_fills_empty_keys_without_clobbering() {
-        // Asset already has a hostname and a blank warranty; the model
-        // defaults a warranty and an OS.
-        let existing = json!({
-            "hostname": "LAPTOP-1",
-            "warranty_status": "",
-            "os_version": null,
-        });
-        let defaults = json!({
-            "hostname": "MODEL-DEFAULT",   // occupied -> keep the asset's
-            "warranty_status": "Active",   // empty string -> fill
-            "os_version": "14.0",          // null -> fill
-            "operating_system": "macOS",   // absent -> fill
-        });
-
-        let merged = stamp_default_attributes(&existing, &defaults);
-
-        assert_eq!(merged["hostname"], "LAPTOP-1");
-        assert_eq!(merged["warranty_status"], "Active");
-        assert_eq!(merged["os_version"], "14.0");
-        assert_eq!(merged["operating_system"], "macOS");
     }
 }

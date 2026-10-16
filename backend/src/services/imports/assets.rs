@@ -41,23 +41,31 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{Asset, AssetKind, AssetLifecycleEvent, AssetUpdate, NewAsset};
+use crate::models::{
+    Asset, AssetGroup, AssetKind, AssetLifecycleEvent, AssetModel, AssetUpdate, Manufacturer,
+    NewAsset, NewAssetGroup, NewAssetModel, NewManufacturer,
+};
+use crate::repository::asset_groups as group_repo;
 use crate::repository::asset_kinds as kind_repo;
 use crate::repository::asset_lifecycle as asset_lifecycle_repo;
 use crate::repository::asset_models as model_repo;
 use crate::repository::assets as asset_repo;
+use crate::repository::manufacturers as manufacturer_repo;
 use crate::repository::workspaces as workspace_repo;
 use crate::services::assets::kinds::{validate_attributes, AttributeError};
+use crate::services::assets::model_stamp::stamp_default_attributes;
 use crate::services::assets::SYNC_OWNED_ATTRIBUTE_KEYS;
 
+use super::catalog::Catalog;
 use super::csv_parser::ParsedCsv;
 use super::safe_cells::csv_formula_safe;
 use super::types::{
-    duplicate_in_file, CommitError, Committed, DateOrder, DecimalMark, DroppedCell, FieldChange,
-    FieldGroup, FieldSpec, ImportContext, ImportMode, ImportOptions, ImportType, ImportedRecords,
-    Importer, MatchBy, Notice, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
+    duplicate_in_file, CatalogKind, CatalogPlan, CatalogRef, CommitError, Committed, DateOrder,
+    DecimalMark, DroppedCell, FieldChange, FieldGroup, FieldSpec, ImportContext, ImportMode,
+    ImportOptions, ImportType, ImportedRecords, Importer, MatchBy, Notice, PlannedModel, RecordId,
+    RowOutcome, RowPlan, RowResult, ValueAnswer, ValueType,
 };
-use super::values::{self, Choice, ValueContext};
+use super::values::{self, normalize_value, Choice, LookupKind, ValueContext};
 
 /// Universal CSV columns the importer accepts. Export writes
 /// these first (same order/names) so a round-trip upserts on
@@ -355,6 +363,7 @@ impl Importer for AssetImporter {
         let t = ImportType::Assets;
         let registry = kind_repo::list_kinds(conn)?;
         let kinds = registry.iter().map(|k| k.slug.clone()).collect();
+        use ValueType::Array;
         let mut fields = vec![
             FieldSpec::fixed(t, "name", "Name", Core, Text, true),
             FieldSpec::fixed(t, "kind", "Kind", Core, Enum, true).with_enum(kinds),
@@ -377,6 +386,7 @@ impl Importer for AssetImporter {
             FieldSpec::fixed(t, "primary_user", "Primary user", Core, User, false),
             FieldSpec::fixed(t, "manufacturer", "Manufacturer", Links, Text, false),
             FieldSpec::fixed(t, "model", "Model", Links, Text, false),
+            FieldSpec::fixed(t, "groups", "Groups", Links, Array, false),
         ];
         fields.extend(
             attribute_defs(&registry)
@@ -417,6 +427,10 @@ impl Importer for AssetImporter {
             ("assigneduser", "primary_user"),
             ("user", "primary_user"),
             ("usedby", "primary_user"),
+            ("group", "groups"),
+            ("assetgroup", "groups"),
+            ("assetgroups", "groups"),
+            ("tags", "groups"),
         ]
     }
 
@@ -500,19 +514,54 @@ impl Importer for AssetImporter {
         ))
     }
 
-    /// Each row's kind, as [`plan_row`] reads it.
+    /// Attributes are answered per kind, models per manufacturer.
+    fn context_family(&self, field: &FieldSpec) -> Option<&'static str> {
+        if field.group == FieldGroup::Attribute {
+            Some(KIND_FAMILY)
+        } else if field.id == "model" {
+            Some(MANUFACTURER_FAMILY)
+        } else {
+            None
+        }
+    }
+
+    /// A model's kind can be a row's kind, so models settle first.
+    fn context_families(&self) -> &'static [&'static str] {
+        &[MANUFACTURER_FAMILY, KIND_FAMILY]
+    }
+
+    fn lookups(
+        &self,
+        conn: &mut DbConnection,
+        field: &FieldSpec,
+        contexts: &[String],
+    ) -> Result<Option<Vec<values::LookupContext>>, diesel::result::Error> {
+        let Some(kind) = lookup_kind(&field.id) else {
+            return Ok(None);
+        };
+        Ok(Some(Catalog::load(conn)?.lookups(kind, contexts)))
+    }
+
+    /// Each row's kind, as [`plan_row`] reads it, or the manufacturer its
+    /// model is matched under.
     fn row_contexts(
         &self,
         conn: &mut DbConnection,
         grid: &ParsedCsv,
         options: &ImportOptions,
+        family: &str,
     ) -> Result<HashMap<usize, String>, diesel::result::Error> {
         let lookups = Lookups::load(conn)?;
         let mut out = HashMap::new();
         for record in grid.records() {
             let row = with_constants(record.values, &lookups, options);
-            if let Some(kind) = row_kind(&row, &lookups, options) {
-                out.insert(record.source_row, kind);
+            let context = match family {
+                MANUFACTURER_FAMILY => Some(pick_maker(&row, &lookups, options).context(&lookups)),
+                KIND_FAMILY => row_kind(&row, &lookups, options),
+                _ => None,
+            };
+            if let Some(context) = context {
+                out.insert(record.source_row, context);
             }
         }
         Ok(out)
@@ -532,41 +581,45 @@ impl Importer for AssetImporter {
         }
 
         let lookups = Lookups::load(conn)?;
-        let file_keys = FileKeys::scan(parsed);
+        let planned = plan_all(parsed, &lookups, &ctx.options);
         let mut plan = RowPlan::default();
         let mut keyless = 0;
 
-        for record in parsed.records() {
-            let values = with_constants(record.values, &lookups, &ctx.options);
-            let row = &values;
-            let result = match plan_row(row, &lookups, &file_keys, &ctx.options) {
+        for entry in planned.entries {
+            let row = &entry.row;
+            let result = match entry.planned {
                 Ok(planned) => {
                     let mut result = match planned.action {
                         RowAction::Create => {
                             if is_keyless(row) {
                                 keyless += 1;
                             }
-                            RowResult::planned(record.source_row, RowOutcome::Create)
+                            RowResult::planned(entry.source_row, RowOutcome::Create)
                         }
                         RowAction::Update(id) | RowAction::SyncedUpdate(id) => {
-                            RowResult::planned(record.source_row, RowOutcome::Update)
+                            RowResult::planned(entry.source_row, RowOutcome::Update)
                                 .with_record(RecordId::Int(id))
                         }
                         RowAction::Unchanged(id) => {
-                            RowResult::planned(record.source_row, RowOutcome::Unchanged)
+                            RowResult::planned(entry.source_row, RowOutcome::Unchanged)
                                 .with_record(RecordId::Int(id))
                         }
                     };
                     result.dropped = planned.dropped;
                     result
                 }
-                Err(field_errors) => RowResult::skipped(record.source_row, field_errors),
+                Err(field_errors) => RowResult::skipped(entry.source_row, field_errors),
             };
             plan.rows.push(identify(result, row, &ctx.options));
         }
         if keyless > 0 {
             plan.notices.push(keyless_notice(keyless));
         }
+        if planned.locations_snapped > 0 {
+            plan.notices
+                .push(location_notice(planned.locations_snapped));
+        }
+        plan.catalog = planned.catalog;
 
         Ok(plan)
     }
@@ -586,16 +639,18 @@ impl Importer for AssetImporter {
             .into());
         }
         let lookups = Lookups::load(conn)?;
-        let file_keys = FileKeys::scan(parsed);
+        let planned = plan_all(parsed, &lookups, &ctx.options);
+        let names = planned.names;
+        let options = &ctx.options;
+        let mark = options.decimal_mark();
+        let mut made = Made::default();
 
         let mut assets = Vec::new();
         let mut rows = Vec::with_capacity(parsed.rows.len());
-        for record in parsed.records() {
-            let row_num = record.source_row;
-            let options = &ctx.options;
-            let values = with_constants(record.values, &lookups, options);
-            let row = &values;
-            let planned = match plan_row(row, &lookups, &file_keys, options) {
+        for entry in planned.entries {
+            let row_num = entry.source_row;
+            let row = &entry.row;
+            let planned = match entry.planned {
                 Ok(planned) => planned,
                 Err(field_errors) => {
                     rows.push(identify(
@@ -606,13 +661,27 @@ impl Importer for AssetImporter {
                     continue;
                 }
             };
-            let mark = options.decimal_mark();
+            // A synced asset whose row matches what's stored: nothing to
+            // write.
+            if let RowAction::Unchanged(asset_id) = planned.action {
+                let mut result = RowResult::planned(row_num, RowOutcome::Unchanged)
+                    .with_record(RecordId::Int(asset_id));
+                result.dropped = planned.dropped;
+                rows.push(identify(result, row, options));
+                continue;
+            }
+
+            let mut created = Vec::new();
+            let texts = made
+                .settle(conn, &lookups, &names, &planned, ctx.actor, &mut created)
+                .map_err(|e| row_write_error(row_num, e))?;
             let (outcome, written) = match planned.action {
                 RowAction::Create => (
                     RowOutcome::Create,
-                    asset_repo::create_device(
+                    asset_repo::create_device_linked(
                         conn,
-                        build_new_asset(row, &planned, ctx.actor, mark),
+                        build_new_asset(row, &planned, &texts, ctx.actor, mark),
+                        texts.link,
                     ),
                 ),
                 // Routed through update_device so the asset.updated sync
@@ -622,11 +691,11 @@ impl Importer for AssetImporter {
                     asset_repo::update_device(
                         conn,
                         asset_id,
-                        build_asset_update(row, &planned, mark),
+                        build_asset_update(row, &planned, &texts, mark),
                     ),
                 ),
-                // A synced asset takes its attributes and nothing else, as
-                // PUT re-scopes its update.
+                // A synced asset takes its attributes and groups and
+                // nothing else, as PUT re-scopes its update.
                 RowAction::SyncedUpdate(asset_id) => (
                     RowOutcome::Update,
                     asset_repo::update_device(
@@ -639,14 +708,7 @@ impl Importer for AssetImporter {
                         },
                     ),
                 ),
-                // A synced asset's row matched it, so there is nothing to write.
-                RowAction::Unchanged(asset_id) => {
-                    let mut result = RowResult::planned(row_num, RowOutcome::Unchanged)
-                        .with_record(RecordId::Int(asset_id));
-                    result.dropped = planned.dropped;
-                    rows.push(identify(result, row, options));
-                    continue;
-                }
+                RowAction::Unchanged(_) => unreachable!("handled above"),
             };
             let asset = written.map_err(|e| row_write_error(row_num, e))?;
             let before = match planned.action {
@@ -657,6 +719,29 @@ impl Importer for AssetImporter {
                 RowResult::planned(row_num, outcome).with_record(RecordId::Int(asset.id));
             result.fields_written = fields_written(before, &asset, &lookups);
             result.dropped = planned.dropped;
+            result.catalog_created = created;
+            // Additive: the groups the asset is in, and the row's.
+            if !texts.groups.is_empty() {
+                let current: Vec<i32> = lookups
+                    .asset_groups
+                    .get(&asset.id)
+                    .cloned()
+                    .unwrap_or_default();
+                let added: Vec<i32> = texts
+                    .groups
+                    .iter()
+                    .copied()
+                    .filter(|id| !current.contains(id))
+                    .collect();
+                if !added.is_empty() {
+                    let mut desired = current.clone();
+                    desired.extend(&added);
+                    let set = group_repo::set_groups_for_asset(conn, asset.id, &desired, ctx.actor)
+                        .map_err(|e| row_write_error(row_num, e))?;
+                    result.groups_added =
+                        set.into_iter().filter(|id| !current.contains(id)).collect();
+                }
+            }
             if outcome == RowOutcome::Create {
                 let event =
                     asset_lifecycle_repo::record_imported(conn, &asset, ctx.actor, ctx.job_id)?;
@@ -721,9 +806,9 @@ fn matched_asset<'a>(
     lookups.existing.get(&id)
 }
 
-/// The row's kind as a slug: its kind cell, or for a blank cell the
-/// matched asset's kind, else the default kind. `None` when the cell names
-/// no kind.
+/// The row's kind as a slug: its kind cell, or for a blank cell the kind of
+/// the model it links, else the matched asset's kind, else the default
+/// kind. `None` when the cell names no kind.
 fn row_kind(
     row: &HashMap<String, String>,
     lookups: &Lookups,
@@ -732,6 +817,13 @@ fn row_kind(
     let cell = trimmed(row, "kind");
     if !cell.is_empty() {
         return lookups.kinds.get(&cell.to_lowercase()).cloned();
+    }
+    let maker = pick_maker(row, lookups, options);
+    let context = maker.context(lookups);
+    if let ModelPick::Link(id) = pick_model(row, lookups, options, &context).0 {
+        if let Some(model) = lookups.catalog.model(id) {
+            return Some(model.kind.clone());
+        }
     }
     if let Some(asset) = matched_asset(row, lookups, options) {
         return Some(asset.kind.clone());
@@ -892,8 +984,19 @@ struct PlannedRow {
     attributes: Option<Value>,
     purchase_date: Option<NaiveDate>,
     primary_user: Option<Uuid>,
-    /// Values the row's kind has no attribute for.
+    /// Values the row's kind has no attribute for, and groups left off.
     dropped: Vec<DroppedCell>,
+    maker: MakerPick,
+    model: ModelPick,
+    /// The row links the asset to a model it isn't linked to: a new
+    /// asset's, or another one.
+    model_changes: bool,
+    /// Groups the row lists, linked or created.
+    groups: Vec<GroupPick>,
+    /// The location as written: the cell, or the existing spelling it
+    /// differs from only by case or spacing.
+    location: Option<String>,
+    location_snapped: bool,
 }
 
 /// Workspace state every row is checked against, loaded once per run.
@@ -916,6 +1019,10 @@ struct Lookups {
     members: HashMap<String, Uuid>,
     /// Members' primary emails by user.
     member_emails: HashMap<Uuid, String>,
+    /// Manufacturers, models, groups and locations rows link to.
+    catalog: Catalog,
+    /// Each asset's groups that aren't archived.
+    asset_groups: HashMap<i32, Vec<i32>>,
 }
 
 struct KindInfo {
@@ -950,9 +1057,11 @@ impl Lookups {
             existing.insert(asset.id, asset);
         }
 
-        let models = model_repo::list(conn)?
-            .into_iter()
-            .map(|m| (m.id, m.name))
+        let catalog = Catalog::load(conn)?;
+        let models = catalog
+            .models
+            .iter()
+            .map(|m| (m.id, m.name.clone()))
             .collect();
 
         let registry = kind_repo::list_kinds(conn)?;
@@ -1004,6 +1113,8 @@ impl Lookups {
             attributes,
             members,
             member_emails,
+            catalog,
+            asset_groups: group_repo::active_group_ids_by_asset(conn)?,
         })
     }
 
@@ -1227,32 +1338,115 @@ fn plan_row(
         }
     }
 
-    // Matched on slug or label, ignoring case. A blank cell keeps an
-    // existing asset's kind and gives a new one the default kind.
+    // The catalog: the manufacturer, the model matched under it, and the
+    // location's spelling.
     let existing = target.and_then(|id| lookups.existing.get(&id));
+    let maker = pick_maker(row, lookups, options);
+    if let MakerPick::Ambiguous(message) = &maker {
+        error("manufacturer", message.clone());
+    }
+    let context = maker.context(lookups);
+    let (model, model_error) = pick_model(row, lookups, options, &context);
+    if let Some(message) = model_error {
+        error("model", message);
+    }
+    let linked = match &model {
+        ModelPick::Link(id) => lookups.catalog.model(*id),
+        _ => None,
+    };
+    let model_changes = match &model {
+        ModelPick::Link(id) => existing.is_none_or(|a| a.model_id != Some(*id)),
+        ModelPick::New { .. } => true,
+        _ => false,
+    };
+    let location_cell = trimmed(row, "location");
+    let (location, location_snapped) = if location_cell.is_empty() {
+        (None, false)
+    } else {
+        match lookups.catalog.snap_location(&location_cell) {
+            Some(spelling) => (Some(spelling.to_string()), true),
+            None => (Some(location_cell), false),
+        }
+    };
+
+    // Matched on slug or label, ignoring case. A blank cell takes the
+    // linked model's kind, else keeps an existing asset's kind and gives a
+    // new one the default kind. A kind cell must agree with the model.
     let kind_cell = trimmed(row, "kind");
     let kind = if kind_cell.is_empty() {
-        match (existing, &options.default_kind) {
-            (Some(asset), _) => Some(asset.kind.clone()),
-            (None, Some(default)) => {
+        match (linked, existing, &options.default_kind) {
+            (Some(model), _, _) => Some(model.kind.clone()),
+            (None, Some(asset), _) => Some(asset.kind.clone()),
+            (None, None, Some(default)) => {
                 let found = lookups.kinds.get(&default.to_lowercase()).cloned();
                 if found.is_none() {
                     error("kind", unknown_kind_error(lookups, default));
                 }
                 found
             }
-            (None, None) => {
+            (None, None, None) => {
                 error("kind", "kind is required".to_string());
                 None
             }
         }
     } else {
         let found = lookups.kinds.get(&kind_cell.to_lowercase()).cloned();
-        if found.is_none() {
-            error("kind", unknown_kind_error(lookups, &kind_cell));
+        match (&found, linked) {
+            (None, _) => error("kind", unknown_kind_error(lookups, &kind_cell)),
+            (Some(found), Some(model)) if *found != model.kind => error(
+                "kind",
+                format!(
+                    "the model {} is a {}, not a {}",
+                    model.name,
+                    lookups.kind_label(&model.kind),
+                    lookups.kind_label(found)
+                ),
+            ),
+            _ => {}
         }
         found
     };
+
+    // A model the import creates needs a manufacturer, and a kind whose
+    // new models need no attribute values: it is created without any.
+    if let ModelPick::New { text, .. } = &model {
+        if !matches!(maker, MakerPick::Link(_) | MakerPick::New { .. }) {
+            error("model", format!("'{text}' needs a manufacturer"));
+        } else if let Some(info) = kind.as_ref().and_then(|k| lookups.by_slug.get(k)) {
+            let mut needed: Vec<String> = required_keys(&info.schema)
+                .into_iter()
+                .map(|key| {
+                    let prop = info.schema.pointer(&format!("/properties/{key}"));
+                    prop.map_or_else(|| humanize(&key), |prop| title_of(&key, prop))
+                })
+                .collect();
+            if !needed.is_empty() {
+                needed.sort_unstable();
+                error(
+                    "model",
+                    format!(
+                        "'{text}' can't be created here: new {} models need {}; add it under Asset models first",
+                        info.label,
+                        needed.join(", ")
+                    ),
+                );
+            }
+        }
+    }
+
+    let (groups, group_drops, group_errors) =
+        pick_groups(row, lookups, options, kind.as_deref().unwrap_or(""));
+    for message in group_errors {
+        error("groups", message);
+    }
+    let current_groups: &[i32] = existing
+        .and_then(|a| lookups.asset_groups.get(&a.id))
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let groups_change = groups.iter().any(|g| match g {
+        GroupPick::Link(id) => !current_groups.contains(id),
+        GroupPick::New { .. } => true,
+    });
 
     // An update follows what PUT and the asset page allow.
     let mut synced = false;
@@ -1260,9 +1454,25 @@ fn plan_row(
     if let (Some(new_kind), Some(asset)) = (&kind, existing) {
         if let Some(source) = &asset.external_sync_source {
             synced = true;
-            if let Some(column) =
-                synced_column_change(row, asset, new_kind, mark, purchase_date, primary_user)
-            {
+            let texts = PlannedText {
+                maker: maker_text(&maker, &model, lookups),
+                model: model_text(&model, lookups),
+                location: location.clone(),
+            };
+            let column = if model_changes {
+                Some("model")
+            } else {
+                synced_column_change(
+                    row,
+                    asset,
+                    new_kind,
+                    mark,
+                    purchase_date,
+                    primary_user,
+                    &texts,
+                )
+            };
+            if let Some(column) = column {
                 error(
                     column,
                     format!(
@@ -1273,7 +1483,7 @@ fn plan_row(
                     ),
                 );
             }
-        } else if let Some(message) = kind_change_error(lookups, asset, new_kind) {
+        } else if let Some(message) = kind_change_error(lookups, asset, new_kind, model_changes) {
             error("kind", message);
             kind_ok = false;
         }
@@ -1294,12 +1504,25 @@ fn plan_row(
         let mut merged = existing
             .and_then(|a| a.attributes.as_object().cloned())
             .unwrap_or_default();
-        let writes = !read.values.is_empty();
+        let mut writes = !read.values.is_empty();
         for (key, value) in read.values {
             if merged.get(&key) != Some(&value) {
                 attributes_changed = true;
             }
             merged.insert(key, value);
+        }
+        // A model the row links the asset to fills in its defaults where
+        // the asset has no value, as the asset page's stamp does.
+        if let (true, Some(model)) = (model_changes, linked) {
+            let stamped =
+                stamp_default_attributes(&Value::Object(merged.clone()), &model.default_attributes);
+            if let Value::Object(stamped) = stamped {
+                if stamped != merged {
+                    merged = stamped;
+                    writes = true;
+                    attributes_changed = true;
+                }
+            }
         }
         let kind_changed = existing.is_some_and(|a| a.kind != *kind);
         // A new asset is always checked; an existing one when the row
@@ -1322,10 +1545,14 @@ fn plan_row(
         }
     }
 
+    dropped.extend(group_drops);
+
     match kind {
         Some(kind) if errors.is_empty() => {
             let action = match target {
-                Some(id) if synced && attributes_changed => RowAction::SyncedUpdate(id),
+                Some(id) if synced && (attributes_changed || groups_change) => {
+                    RowAction::SyncedUpdate(id)
+                }
                 Some(id) if synced => RowAction::Unchanged(id),
                 Some(id) => RowAction::Update(id),
                 None => RowAction::Create,
@@ -1337,9 +1564,619 @@ fn plan_row(
                 purchase_date,
                 primary_user,
                 dropped,
+                maker,
+                model,
+                model_changes,
+                groups,
+                location,
+                location_snapped,
             })
         }
         _ => Err(errors),
+    }
+}
+
+/// The context family attributes are answered per: the row's kind.
+const KIND_FAMILY: &str = "kind";
+/// The context family models are answered per: the row's manufacturer.
+const MANUFACTURER_FAMILY: &str = "manufacturer";
+
+/// The catalog a field's values link to.
+fn lookup_kind(field: &str) -> Option<LookupKind> {
+    match field {
+        "manufacturer" => Some(LookupKind::Manufacturer),
+        "model" => Some(LookupKind::Model),
+        "groups" => Some(LookupKind::Group),
+        _ => None,
+    }
+}
+
+/// The answer Match values gives the rows holding `value` of a lookup
+/// field in `context`.
+fn lookup_answer<'a>(
+    options: &'a ImportOptions,
+    field: &str,
+    context: &str,
+    value: &str,
+) -> Option<&'a ValueAnswer> {
+    options
+        .lookups
+        .get(field)?
+        .get(context)?
+        .get(&normalize_value(value))
+}
+
+/// The catalog entry a link answer names, by id.
+fn linked_id(answer: Option<&ValueAnswer>) -> Option<i32> {
+    match answer? {
+        ValueAnswer::Match { target } => match target {
+            Value::String(s) => s.parse().ok(),
+            Value::Number(n) => n.as_i64().and_then(|n| i32::try_from(n).ok()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// What a row's manufacturer cell comes to.
+#[derive(Debug, Clone, PartialEq)]
+enum MakerPick {
+    /// Blank, or left blank: nothing is written.
+    None,
+    /// Kept as text, unlinked.
+    Text(String),
+    /// The catalog's manufacturer.
+    Link(i32),
+    /// Created by the import; `key` is its name normalized, `text` the
+    /// row's spelling.
+    New { key: String, text: String },
+    /// Names more than one manufacturer; the row is skipped.
+    Ambiguous(String),
+}
+
+impl MakerPick {
+    /// The manufacturer context the row's model is matched in: the name of
+    /// the manufacturer the row has, normalized, or empty for none.
+    fn context(&self, lookups: &Lookups) -> String {
+        match self {
+            Self::None | Self::Ambiguous(_) => String::new(),
+            Self::Text(text) => normalize_value(text),
+            Self::Link(id) => lookups
+                .catalog
+                .manufacturer(*id)
+                .map(|m| normalize_value(&m.name))
+                .unwrap_or_default(),
+            Self::New { key, .. } => key.clone(),
+        }
+    }
+}
+
+/// What a row's model cell comes to.
+#[derive(Debug, Clone, PartialEq)]
+enum ModelPick {
+    None,
+    Text(String),
+    Link(i32),
+    New { key: String, text: String },
+}
+
+/// A group a row lists.
+#[derive(Debug, Clone, PartialEq)]
+enum GroupPick {
+    Link(i32),
+    New { key: String },
+}
+
+/// The row's manufacturer: the Match values answer for its cell, else the
+/// one manufacturer named so; a name no manufacturer has is kept as text.
+fn pick_maker(
+    row: &HashMap<String, String>,
+    lookups: &Lookups,
+    options: &ImportOptions,
+) -> MakerPick {
+    let cell = trimmed(row, "manufacturer");
+    if cell.is_empty() {
+        return MakerPick::None;
+    }
+    let key = normalize_value(&cell);
+    let answer = lookup_answer(options, "manufacturer", "", &cell);
+    if let Some(id) = linked_id(answer).filter(|id| lookups.catalog.manufacturer(*id).is_some()) {
+        return MakerPick::Link(id);
+    }
+    let named = lookups.catalog.manufacturers_named(&key);
+    match (answer, named.as_slice()) {
+        (Some(ValueAnswer::KeepText), _) => MakerPick::Text(cell),
+        (Some(ValueAnswer::LeaveBlank), _) => MakerPick::None,
+        (_, [only]) => MakerPick::Link(only.id),
+        (Some(ValueAnswer::Create), []) => MakerPick::New { key, text: cell },
+        (_, []) => MakerPick::Text(cell),
+        (_, several) => MakerPick::Ambiguous(format!(
+            "'{cell}' matches more than one manufacturer: {}",
+            several
+                .iter()
+                .map(|m| m.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+/// The row's model within its manufacturer `context`: the Match values
+/// answer for its cell, else the one model named so there. With no
+/// manufacturer the name must be one model's across the catalog. A name no
+/// model has is kept as text. The error, when the name is ambiguous.
+fn pick_model(
+    row: &HashMap<String, String>,
+    lookups: &Lookups,
+    options: &ImportOptions,
+    context: &str,
+) -> (ModelPick, Option<String>) {
+    let cell = trimmed(row, "model");
+    if cell.is_empty() {
+        return (ModelPick::None, None);
+    }
+    let key = normalize_value(&cell);
+    let answer = lookup_answer(options, "model", context, &cell);
+    if let Some(id) = linked_id(answer).filter(|id| lookups.catalog.model(*id).is_some()) {
+        return (ModelPick::Link(id), None);
+    }
+    let named = lookups.catalog.models_named(context, &key);
+    match (answer, named.as_slice()) {
+        (Some(ValueAnswer::KeepText), _) => (ModelPick::Text(cell), None),
+        (Some(ValueAnswer::LeaveBlank), _) => (ModelPick::None, None),
+        (_, [only]) => (ModelPick::Link(only.id), None),
+        (Some(ValueAnswer::Create), []) => (ModelPick::New { key, text: cell }, None),
+        (_, []) => (ModelPick::Text(cell), None),
+        (_, several) => {
+            let message = if context.is_empty() {
+                let mut makers: Vec<&str> = several
+                    .iter()
+                    .map(|m| lookups.catalog.maker_of(m))
+                    .collect();
+                makers.sort_unstable();
+                makers.dedup();
+                format!(
+                    "'{cell}' is a model of more than one manufacturer ({}); give the row a manufacturer",
+                    makers.join(", ")
+                )
+            } else {
+                format!(
+                    "'{cell}' matches more than one model: {}",
+                    several
+                        .iter()
+                        .map(|m| m.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            (ModelPick::Text(cell), Some(message))
+        }
+    }
+}
+
+/// The groups a row lists (`;`-separated): linked to the active group of
+/// each name, or created where Match values says so. A name no group has,
+/// a directory group's, and one left off are left out and counted. The
+/// errors, for a name too long to create.
+fn pick_groups(
+    row: &HashMap<String, String>,
+    lookups: &Lookups,
+    options: &ImportOptions,
+    kind: &str,
+) -> (Vec<GroupPick>, Vec<DroppedCell>, Vec<String>) {
+    let cell = trimmed(row, "groups");
+    let mut picks: Vec<GroupPick> = Vec::new();
+    let mut dropped = Vec::new();
+    let mut errors = Vec::new();
+    for item in values::list_items(&cell) {
+        let key = normalize_value(item);
+        let answer = lookup_answer(options, "groups", "", item);
+        let linked = linked_id(answer)
+            .filter(|id| lookups.catalog.group(*id).is_some())
+            .or_else(|| lookups.catalog.group_named(&key).map(|g| g.id));
+        let pick = match (answer, linked) {
+            (Some(ValueAnswer::LeaveBlank | ValueAnswer::KeepText), _) => None,
+            (_, Some(id)) => Some(GroupPick::Link(id)),
+            (Some(ValueAnswer::Create), None) => {
+                if item.chars().count() > GROUP_NAME_MAX {
+                    errors.push(format!(
+                        "'{item}' is longer than {GROUP_NAME_MAX} characters, the most a group name holds"
+                    ));
+                    None
+                } else {
+                    Some(GroupPick::New { key })
+                }
+            }
+            _ => None,
+        };
+        match pick {
+            Some(pick) => {
+                if !picks.contains(&pick) {
+                    picks.push(pick);
+                }
+            }
+            None => dropped.push(DroppedCell {
+                column: "groups".to_string(),
+                source_column: None,
+                kind: kind.to_string(),
+                value: Some(item.to_string()),
+            }),
+        }
+    }
+    (picks, dropped, errors)
+}
+
+/// Longest group name the database holds.
+const GROUP_NAME_MAX: usize = 255;
+
+/// The manufacturer, model and location text a row writes, as the plan
+/// knows them: a created entry is named as this row spells it.
+struct PlannedText {
+    maker: Option<String>,
+    model: Option<String>,
+    location: Option<String>,
+}
+
+/// The manufacturer text a row writes: a linked model's maker, else the
+/// manufacturer's name or the cell.
+fn maker_text(maker: &MakerPick, model: &ModelPick, lookups: &Lookups) -> Option<String> {
+    if let Some(linked) = match model {
+        ModelPick::Link(id) => lookups.catalog.model(*id),
+        _ => None,
+    } {
+        return Some(lookups.catalog.maker_of(linked).to_string());
+    }
+    match maker {
+        MakerPick::None | MakerPick::Ambiguous(_) => None,
+        MakerPick::Text(text) | MakerPick::New { text, .. } => Some(text.clone()),
+        MakerPick::Link(id) => lookups.catalog.manufacturer(*id).map(|m| m.name.clone()),
+    }
+}
+
+fn model_text(model: &ModelPick, lookups: &Lookups) -> Option<String> {
+    match model {
+        ModelPick::None => None,
+        ModelPick::Text(text) | ModelPick::New { text, .. } => Some(text.clone()),
+        ModelPick::Link(id) => lookups.catalog.model(*id).map(|m| m.name.clone()),
+    }
+}
+
+/// A manufacturer a created model belongs to: one the catalog has, or one
+/// the same import creates (by its key).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum MakerRef {
+    Existing(i32),
+    New(String),
+}
+
+/// The manufacturer a row's created model belongs to.
+fn maker_ref(maker: &MakerPick) -> Option<MakerRef> {
+    match maker {
+        MakerPick::Link(id) => Some(MakerRef::Existing(*id)),
+        MakerPick::New { key, .. } => Some(MakerRef::New(key.clone())),
+        _ => None,
+    }
+}
+
+/// The names created entries take: each as the file first spells it.
+#[derive(Default)]
+struct Names {
+    makers: HashMap<String, String>,
+    models: HashMap<(MakerRef, String), String>,
+    groups: HashMap<String, String>,
+}
+
+/// One data row and its plan.
+struct Entry {
+    source_row: usize,
+    row: HashMap<String, String>,
+    planned: Result<PlannedRow, Vec<(Option<String>, String)>>,
+}
+
+/// Every row's plan, with what only the file as a whole can say.
+struct PlannedFile {
+    entries: Vec<Entry>,
+    names: Names,
+    catalog: CatalogPlan,
+    /// Rows whose location takes an existing spelling.
+    locations_snapped: usize,
+}
+
+/// Plan every row, in file order, then hold up the models the file creates
+/// against each other: rows creating one model under different kinds are
+/// skipped, naming each other. What's left gives the catalog entries the
+/// import creates.
+fn plan_all(parsed: &ParsedCsv, lookups: &Lookups, options: &ImportOptions) -> PlannedFile {
+    let file_keys = FileKeys::scan(parsed);
+    let mut entries: Vec<Entry> = parsed
+        .records()
+        .map(|record| {
+            let row = with_constants(record.values, lookups, options);
+            let planned = plan_row(&row, lookups, &file_keys, options);
+            Entry {
+                source_row: record.source_row,
+                row,
+                planned,
+            }
+        })
+        .collect();
+
+    // The kinds each created model is asked for, and by which rows.
+    let mut kinds: HashMap<(MakerRef, String), BTreeMap<String, Vec<usize>>> = HashMap::new();
+    for entry in &entries {
+        let Ok(planned) = &entry.planned else {
+            continue;
+        };
+        if let (ModelPick::New { key, .. }, Some(maker)) =
+            (&planned.model, maker_ref(&planned.maker))
+        {
+            kinds
+                .entry((maker, key.clone()))
+                .or_default()
+                .entry(planned.kind.clone())
+                .or_default()
+                .push(entry.source_row);
+        }
+    }
+    for entry in &mut entries {
+        let Ok(planned) = &entry.planned else {
+            continue;
+        };
+        let ModelPick::New { key, text } = &planned.model else {
+            continue;
+        };
+        let Some(maker) = maker_ref(&planned.maker) else {
+            continue;
+        };
+        let Some(asked) = kinds.get(&(maker, key.clone())).filter(|k| k.len() > 1) else {
+            continue;
+        };
+        let listed: Vec<String> = asked
+            .iter()
+            .map(|(kind, rows)| format!("{} ({})", lookups.kind_label(kind), rows_text(rows)))
+            .collect();
+        let message = format!(
+            "'{text}' would be created as more than one kind: {}; give these rows one kind",
+            listed.join(", ")
+        );
+        entry.planned = Err(vec![(Some("model".to_string()), message)]);
+    }
+
+    // Created entries, named as the file first spells them.
+    let mut names = Names::default();
+    let mut catalog = CatalogPlan::default();
+    let mut locations_snapped = 0;
+    for entry in &entries {
+        let Ok(planned) = &entry.planned else {
+            continue;
+        };
+        if planned.location_snapped {
+            locations_snapped += 1;
+        }
+        if let MakerPick::New { key, text } = &planned.maker {
+            if !names.makers.contains_key(key) {
+                names.makers.insert(key.clone(), text.clone());
+                catalog.manufacturers.push(text.clone());
+            }
+        }
+        if let (ModelPick::New { key, text }, Some(maker)) =
+            (&planned.model, maker_ref(&planned.maker))
+        {
+            let id = (maker.clone(), key.clone());
+            if let std::collections::hash_map::Entry::Vacant(slot) = names.models.entry(id) {
+                slot.insert(text.clone());
+                let manufacturer = match &maker {
+                    MakerRef::Existing(id) => lookups
+                        .catalog
+                        .manufacturer(*id)
+                        .map(|m| m.name.clone())
+                        .unwrap_or_default(),
+                    MakerRef::New(key) => names.makers.get(key).cloned().unwrap_or_default(),
+                };
+                catalog.models.push(PlannedModel {
+                    manufacturer,
+                    name: text.clone(),
+                    kind: planned.kind.clone(),
+                });
+            }
+        }
+        for group in &planned.groups {
+            if let GroupPick::New { key } = group {
+                if !names.groups.contains_key(key) {
+                    let text = first_item(&entry.row, key);
+                    names.groups.insert(key.clone(), text.clone());
+                    catalog.groups.push(text);
+                }
+            }
+        }
+    }
+    PlannedFile {
+        entries,
+        names,
+        catalog,
+        locations_snapped,
+    }
+}
+
+/// The spelling of the group item `key` in a row's groups cell.
+fn first_item(row: &HashMap<String, String>, key: &str) -> String {
+    let cell = trimmed(row, "groups");
+    let found = values::list_items(&cell)
+        .find(|item| normalize_value(item) == key)
+        .unwrap_or(key)
+        .to_string();
+    found
+}
+
+/// File lines for a message: "row 5", "rows 2 and 4", "rows 2, 4 and 9".
+fn rows_text(rows: &[usize]) -> String {
+    let mut listed: Vec<String> = rows.iter().map(ToString::to_string).collect();
+    match listed.len() {
+        0 => String::new(),
+        1 => format!("row {}", listed[0]),
+        _ => {
+            let last = listed.pop().unwrap_or_default();
+            format!("rows {} and {last}", listed.join(", "))
+        }
+    }
+}
+
+fn location_notice(count: usize) -> Notice {
+    let message = if count == 1 {
+        "1 location matched an existing spelling.".to_string()
+    } else {
+        format!("{count} locations matched an existing spelling.")
+    };
+    Notice {
+        code: "location_snapped".to_string(),
+        count,
+        message,
+    }
+}
+
+/// What a row writes once its catalog entries exist.
+struct Texts {
+    maker: Option<String>,
+    model: Option<String>,
+    /// The model to link the asset to, when the link changes.
+    link: Option<i32>,
+    /// The group ids the row lists.
+    groups: Vec<i32>,
+}
+
+/// Catalog entries the commit has created, by key, so each is created once.
+#[derive(Default)]
+struct Made {
+    makers: HashMap<String, Manufacturer>,
+    models: HashMap<(MakerRef, String), AssetModel>,
+    groups: HashMap<String, AssetGroup>,
+}
+
+impl Made {
+    /// Create what the row needs and the catalog lacks, through the
+    /// repositories, recording each on `created`, and say what the row
+    /// writes.
+    fn settle(
+        &mut self,
+        conn: &mut DbConnection,
+        lookups: &Lookups,
+        names: &Names,
+        planned: &PlannedRow,
+        actor: Option<Uuid>,
+        created: &mut Vec<CatalogRef>,
+    ) -> Result<Texts, diesel::result::Error> {
+        let mut maker = maker_text(&planned.maker, &planned.model, lookups);
+        let mut maker_id = match &planned.maker {
+            MakerPick::Link(id) => Some(*id),
+            _ => None,
+        };
+        if let MakerPick::New { key, text } = &planned.maker {
+            let made = match self.makers.get(key) {
+                Some(m) => m.clone(),
+                None => {
+                    let name = names.makers.get(key).unwrap_or(text).clone();
+                    let m = manufacturer_repo::create(
+                        conn,
+                        NewManufacturer {
+                            name,
+                            created_by: actor,
+                        },
+                    )?;
+                    created.push(CatalogRef {
+                        kind: CatalogKind::Manufacturer,
+                        id: m.id,
+                        observed_updated_at: Some(observed_timestamp(m.updated_at.naive_utc())),
+                    });
+                    self.makers.insert(key.clone(), m.clone());
+                    m
+                }
+            };
+            maker = Some(made.name.clone());
+            maker_id = Some(made.id);
+        }
+
+        let mut model = model_text(&planned.model, lookups);
+        let mut link = match planned.model {
+            ModelPick::Link(id) if planned.model_changes => Some(id),
+            _ => None,
+        };
+        if let (ModelPick::New { key, text }, Some(owner), Some(maker_id)) =
+            (&planned.model, maker_ref(&planned.maker), maker_id)
+        {
+            let id = (owner, key.clone());
+            let made = match self.models.get(&id) {
+                Some(m) => m.clone(),
+                None => {
+                    let name = names.models.get(&id).unwrap_or(text).clone();
+                    let m = model_repo::create(
+                        conn,
+                        NewAssetModel {
+                            manufacturer_id: maker_id,
+                            name,
+                            kind: planned.kind.clone(),
+                            part_number: None,
+                            default_attributes: serde_json::json!({}),
+                            notes: None,
+                            created_by: actor,
+                        },
+                    )?;
+                    created.push(CatalogRef {
+                        kind: CatalogKind::Model,
+                        id: m.id,
+                        observed_updated_at: Some(observed_timestamp(m.updated_at.naive_utc())),
+                    });
+                    self.models.insert(id, m.clone());
+                    m
+                }
+            };
+            model = Some(made.name.clone());
+            link = Some(made.id);
+        }
+
+        let mut groups = Vec::with_capacity(planned.groups.len());
+        for group in &planned.groups {
+            match group {
+                GroupPick::Link(id) => groups.push(*id),
+                GroupPick::New { key } => {
+                    let made = match self.groups.get(key) {
+                        Some(g) => g.clone(),
+                        None => {
+                            let name = names
+                                .groups
+                                .get(key)
+                                .cloned()
+                                .unwrap_or_else(|| key.clone());
+                            let g = group_repo::create_group(
+                                conn,
+                                NewAssetGroup {
+                                    name,
+                                    description: None,
+                                    color: None,
+                                    display_order: 0,
+                                    created_by: actor,
+                                },
+                            )?;
+                            created.push(CatalogRef {
+                                kind: CatalogKind::Group,
+                                id: g.id,
+                                observed_updated_at: Some(observed_timestamp(g.updated_at)),
+                            });
+                            self.groups.insert(key.clone(), g.clone());
+                            g
+                        }
+                    };
+                    if !groups.contains(&made.id) {
+                        groups.push(made.id);
+                    }
+                }
+            }
+        }
+        Ok(Texts {
+            maker,
+            model,
+            link,
+            groups,
+        })
     }
 }
 
@@ -1378,6 +2215,7 @@ fn read_attributes(
                     column: def.id.clone(),
                     source_column: None,
                     kind: kind.to_string(),
+                    value: None,
                 });
             }
             continue;
@@ -1638,7 +2476,8 @@ fn sync_source_name(source: &str) -> &'static str {
 /// asset. PUT takes none of these on a synced asset; attributes it does
 /// take. Values compare as the update would write them, so a blank cell
 /// never differs, and stored values compare trimmed, so a re-imported
-/// export matches.
+/// export matches. Manufacturer, model and location compare as the row
+/// writes them (`texts`): linked, or snapped to a stored spelling.
 fn synced_column_change(
     row: &HashMap<String, String>,
     asset: &Asset,
@@ -1646,6 +2485,7 @@ fn synced_column_change(
     mark: DecimalMark,
     purchase_date: Option<NaiveDate>,
     primary_user: Option<Uuid>,
+    texts: &PlannedText,
 ) -> Option<&'static str> {
     fn stored(value: &Option<String>) -> Option<&str> {
         value.as_deref().map(str::trim).filter(|v| !v.is_empty())
@@ -1654,6 +2494,11 @@ fn synced_column_change(
     let kept = |column: &str, current: &Option<String>| {
         opt_string(row, column).is_some_and(|v| Some(v.as_str()) != stored(current))
     };
+    let written = |value: &Option<String>, current: &Option<String>| {
+        value
+            .as_deref()
+            .is_some_and(|v| Some(v.trim()) != stored(current))
+    };
     let kept_decimal = |column: &str, current: &Option<BigDecimal>| {
         check_decimal(row, column, mark).is_ok_and(|v| v.is_some_and(|v| Some(v) != *current))
     };
@@ -1661,9 +2506,9 @@ fn synced_column_change(
         ("name", trimmed(row, "name") != asset.name.trim()),
         ("kind", new_kind != asset.kind),
         ("serial_number", kept("serial_number", &asset.serial_number)),
-        ("manufacturer", kept("manufacturer", &asset.manufacturer)),
-        ("model", kept("model", &asset.model)),
-        ("location", kept("location", &asset.location)),
+        ("manufacturer", written(&texts.maker, &asset.manufacturer)),
+        ("model", written(&texts.model, &asset.model)),
+        ("location", written(&texts.location, &asset.location)),
         ("notes", kept("notes", &asset.notes)),
         ("quantity", kept_decimal("quantity", &asset.quantity)),
         ("unit", kept("unit", &asset.unit)),
@@ -1687,13 +2532,19 @@ fn synced_column_change(
 
 /// The error for an update that moves `existing` (not synced) to
 /// `new_kind`, if the asset page wouldn't allow it: its model sets its
-/// kind, or it holds attributes the new kind doesn't define.
-fn kind_change_error(lookups: &Lookups, existing: &Asset, new_kind: &str) -> Option<String> {
+/// kind (unless the row links it to another model, which is what changes
+/// the kind), or it holds attributes the new kind doesn't define.
+fn kind_change_error(
+    lookups: &Lookups,
+    existing: &Asset,
+    new_kind: &str,
+    model_changes: bool,
+) -> Option<String> {
     let old_kind = &existing.kind;
     if old_kind == new_kind {
         return None;
     }
-    if let Some(model_id) = existing.model_id {
+    if let (Some(model_id), false) = (existing.model_id, model_changes) {
         let model = lookups.models.get(&model_id).map_or_else(
             || "its model".to_string(),
             |name| format!("its model {name}"),
@@ -1781,15 +2632,16 @@ fn opt_decimal(row: &HashMap<String, String>, key: &str, mark: DecimalMark) -> O
 fn build_new_asset(
     row: &HashMap<String, String>,
     planned: &PlannedRow,
+    texts: &Texts,
     created_by: Option<Uuid>,
     mark: DecimalMark,
 ) -> NewAsset {
     NewAsset {
         name: trimmed(row, "name"),
         serial_number: opt_string(row, "serial_number"),
-        manufacturer: opt_string(row, "manufacturer"),
-        model: opt_string(row, "model"),
-        location: opt_string(row, "location"),
+        manufacturer: texts.maker.clone(),
+        model: texts.model.clone(),
+        location: planned.location.clone(),
         notes: opt_string(row, "notes"),
         primary_user_uuid: planned.primary_user,
         purchase_date: planned.purchase_date,
@@ -1810,15 +2662,16 @@ fn build_new_asset(
 fn build_asset_update(
     row: &HashMap<String, String>,
     planned: &PlannedRow,
+    texts: &Texts,
     mark: DecimalMark,
 ) -> AssetUpdate {
     // A blank cell leaves the column as it is (outer `None`); it never clears.
     AssetUpdate {
         name: Some(trimmed(row, "name")),
         serial_number: opt_string(row, "serial_number").map(Some),
-        manufacturer: opt_string(row, "manufacturer"),
-        model: opt_string(row, "model"),
-        location: opt_string(row, "location").map(Some),
+        manufacturer: texts.maker.clone(),
+        model: texts.model.clone(),
+        location: planned.location.clone().map(Some),
         notes: opt_string(row, "notes").map(Some),
         primary_user_uuid: planned.primary_user.map(Some),
         managed_by_user_uuid: None,
@@ -1831,9 +2684,9 @@ fn build_asset_update(
         unit: opt_string(row, "unit").map(Some),
         external_sync_source: None,
         low_stock_threshold: opt_decimal(row, "low_stock_threshold", mark).map(Some),
-        // CSV import doesn't link the model catalog (yet); leave the
-        // existing model link untouched.
-        model_id: None,
+        // Linked when the row links another model; otherwise the existing
+        // link stays.
+        model_id: texts.link.map(Some),
     }
 }
 

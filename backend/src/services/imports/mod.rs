@@ -13,6 +13,7 @@
 //! the top-level handlers dispatch on `ImportType`.
 
 pub mod assets;
+pub mod catalog;
 pub mod csv_parser;
 pub mod mapping;
 pub mod report;
@@ -24,11 +25,12 @@ pub mod values;
 pub mod xlsx;
 
 pub use types::{
-    ApplyTo, CatalogKind, CatalogRef, CellError, CommitError, Committed, Constant, DateOrder,
-    DecimalMark, DroppedCell, DroppedGroup, ErrorGroup, FieldChange, FieldGroup, FieldSpec,
-    ImportContext, ImportMode, ImportOptions, ImportSummary, ImportType, ImportedRecords,
-    ImportedUser, Importer, MatchBy, Notice, RecordId, RecordIds, RowError, RowOutcome, RowPhase,
-    RowPlan, RowResult, StoredRowResults, ValueAnswer, ValueAnswers, ValueType,
+    ApplyTo, CatalogKind, CatalogPlan, CatalogRef, CellError, CommitError, Committed, Constant,
+    DateOrder, DecimalMark, DroppedCell, DroppedGroup, ErrorGroup, FieldChange, FieldGroup,
+    FieldSpec, ImportContext, ImportMode, ImportOptions, ImportSummary, ImportType,
+    ImportedRecords, ImportedUser, Importer, MatchBy, Notice, PlannedModel, RecordId, RecordIds,
+    RowError, RowOutcome, RowPhase, RowPlan, RowResult, StoredRowResults, ValueAnswer,
+    ValueAnswers, ValueType,
 };
 
 use diesel::result::Error as DieselError;

@@ -21,12 +21,21 @@
 //! are keyed by field, context and the value as [`normalize_value`] gives
 //! it. The context is empty for a field answered the same on every row. A
 //! field the importer answers per row context (an asset attribute, per the
-//! row's kind) has one column per context, each with its own matcher, and
-//! takes the rows of that context only. Settling runs in two phases: the
-//! fields without a context first (the kind among them), so each row's
-//! context is read after its kind answer.
+//! row's kind; an asset model, per the row's manufacturer answer) has one
+//! column per context, each with its own matcher, and takes the rows of
+//! that context only. Contexts come in families, each read from the rows
+//! once the answers it depends on are settled: the fields without a
+//! context first (kind and manufacturer among them), then each family in
+//! the importer's order, so a model's kind can give a row the kind its
+//! attributes are answered for.
+//!
+//! A lookup field links to catalog entries ([`Lookup`]): its answers reach
+//! the importer as they are ([`Resolution::lookup_answers`]) instead of
+//! being written into cells, so a link names one entry by id, and a value
+//! can be created or kept as text. A list field (groups) answers each
+//! `;`-separated item on its own.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
@@ -69,6 +78,10 @@ pub struct Choice {
     /// Why the entry can't be picked here, when it can't.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled: Option<String>,
+    /// More about the entry, to tell apart entries with the same label: a
+    /// model's manufacturer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 impl Choice {
@@ -77,8 +90,109 @@ impl Choice {
             value: value.into(),
             label: label.into(),
             disabled: None,
+            detail: None,
         }
     }
+}
+
+/// Which catalog a lookup field links to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LookupKind {
+    Manufacturer,
+    Model,
+    Group,
+}
+
+impl LookupKind {
+    /// Whether a value can stay as text, unlinked. A group has no text of
+    /// its own, so it is linked or left off.
+    pub fn keeps_text(self) -> bool {
+        self != Self::Group
+    }
+
+    /// What a value nothing matches comes to: kept as text, or left off.
+    fn unmatched(self) -> ValueAnswer {
+        if self.keeps_text() {
+            ValueAnswer::KeepText
+        } else {
+            ValueAnswer::LeaveBlank
+        }
+    }
+}
+
+/// The entries of one catalog a lookup field's values link to. Each
+/// choice's value is the entry's id and its label the entry's name, which
+/// values match on.
+#[derive(Debug, Clone)]
+pub struct Lookup {
+    pub kind: LookupKind,
+    pub choices: Vec<Choice>,
+}
+
+impl Lookup {
+    /// The choices named `key` (a [`normalize_value`]), pickable or not.
+    fn named(&self, key: &str) -> Vec<&Choice> {
+        self.choices
+            .iter()
+            .filter(|c| normalize_value(&c.label) == key)
+            .collect()
+    }
+}
+
+/// A company name as near-duplicates compare: [`normalize_value`] without
+/// punctuation and without a trailing Inc, Ltd, Pty, Corp, GmbH and the
+/// like, so "Sony Corp." is "sony".
+pub fn company_key(name: &str) -> String {
+    const SUFFIXES: &[&str] = &[
+        "inc",
+        "incorporated",
+        "ltd",
+        "limited",
+        "pty",
+        "corp",
+        "corporation",
+        "co",
+        "company",
+        "gmbh",
+        "llc",
+        "plc",
+        "ag",
+        "sa",
+        "bv",
+        "nv",
+    ];
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
+    let mut words: Vec<String> = normalize_value(&cleaned)
+        .split(' ')
+        .filter(|w| !w.is_empty())
+        .map(String::from)
+        .collect();
+    while words.len() > 1 && words.last().is_some_and(|w| SUFFIXES.contains(&w.as_str())) {
+        words.pop();
+    }
+    words.join(" ")
+}
+
+/// Whether two company names are near-duplicates: the same once
+/// [`company_key`] has them, or spelled close (Jaro-Winkler at the fuzzy
+/// threshold) when both are five characters or longer.
+pub fn near_company(a: &str, b: &str) -> Option<f64> {
+    let (a, b) = (company_key(a), company_key(b));
+    if a.is_empty() || b.is_empty() {
+        return None;
+    }
+    if a == b {
+        return Some(1.0);
+    }
+    if a.chars().count() < FUZZY_MIN_CHARS || b.chars().count() < FUZZY_MIN_CHARS {
+        return None;
+    }
+    let score = jaro_winkler(&a, &b);
+    (score >= FUZZY_THRESHOLD).then_some(score)
 }
 
 /// How a field's values are matched.
@@ -100,6 +214,8 @@ pub enum Matcher {
     Number(DecimalMark),
     /// Values must read as a date ([`parse_date`]) in this order.
     Date(DateOrder),
+    /// Values link to catalog entries.
+    Lookup(Lookup),
 }
 
 /// Spellings of yes, normalized.
@@ -154,7 +270,15 @@ impl Matcher {
     fn choices(&self) -> &[Choice] {
         match self {
             Self::Choice { choices, .. } => choices,
+            Self::Lookup(lookup) => &lookup.choices,
             _ => &[],
+        }
+    }
+
+    fn lookup(&self) -> Option<LookupKind> {
+        match self {
+            Self::Lookup(lookup) => Some(lookup.kind),
+            _ => None,
         }
     }
 
@@ -381,6 +505,11 @@ pub enum Reason {
     Disabled { label: String, note: String },
     /// The cell doesn't read as the field's type.
     Unreadable,
+    /// Names more than one entry, told apart only by case.
+    Ambiguous { labels: Vec<String> },
+    /// Another value of the column would be created too and is spelled
+    /// close to this one.
+    BothNew { text: String },
 }
 
 /// A saved answer and where it came from.
@@ -458,9 +587,13 @@ pub struct ResolvedColumn {
     pub field: String,
     /// The source column that feeds the field.
     pub index: usize,
-    /// The row context the column answers for (a kind slug); empty when
-    /// the field is answered the same on every row.
+    /// The row context the column answers for (a kind slug, a
+    /// manufacturer); empty when the field is answered the same on every
+    /// row.
     pub context: String,
+    /// The family of contexts the column is answered per; `None` for a
+    /// field answered the same on every row.
+    pub family: Option<&'static str>,
     /// The context's name, for the card title.
     pub context_label: Option<String>,
     pub value_type: ValueType,
@@ -496,13 +629,61 @@ impl ResolvedValue {
     }
 }
 
+/// Each row's context in one family, by source row. A row without one
+/// takes no answer of that family.
+pub type FamilyContexts = HashMap<usize, String>;
+
+/// Row contexts by family.
+pub type RowContexts = HashMap<String, FamilyContexts>;
+
 /// The answers a mapped grid takes, column by column.
 #[derive(Debug, Clone, Default)]
 pub struct Resolution {
     pub columns: Vec<ResolvedColumn>,
-    /// Each row's context, by source row, when a column answers per
-    /// context. A row without one takes no contextual answer.
-    pub row_contexts: HashMap<usize, String>,
+    /// Each row's context per family, when a column answers per context.
+    pub row_contexts: RowContexts,
+}
+
+impl Resolution {
+    /// The answers of lookup columns, as the importer reads them: by field,
+    /// context and value, each the answer its rows take.
+    pub fn lookup_answers(&self) -> ValueAnswers {
+        let mut out = ValueAnswers::new();
+        for column in &self.columns {
+            if column.matcher.lookup().is_none() {
+                continue;
+            }
+            for value in &column.values {
+                if let Some(answer) = value.effective() {
+                    out.entry(column.field.clone())
+                        .or_default()
+                        .entry(column.context.clone())
+                        .or_default()
+                        .insert(value.key.clone(), answer.clone());
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Whether a row is in a column's context.
+fn in_context(
+    family: Option<&str>,
+    context: &str,
+    row_contexts: &RowContexts,
+    source_row: usize,
+) -> bool {
+    match family {
+        None => true,
+        Some(family) => {
+            row_contexts
+                .get(family)
+                .and_then(|rows| rows.get(&source_row))
+                .map(String::as_str)
+                == Some(context)
+        }
+    }
 }
 
 /// One context of a field answered per row: its key (a kind slug), its
@@ -514,6 +695,15 @@ pub struct ValueContext {
     pub spec: FieldSpec,
 }
 
+/// One context of a lookup field and the entries its values link to there.
+#[derive(Debug, Clone)]
+pub struct LookupContext {
+    pub key: String,
+    /// The context's name, for the card title; `None` for the empty one.
+    pub label: Option<String>,
+    pub lookup: Lookup,
+}
+
 /// How one mapped column's values are matched, for one context.
 #[derive(Debug, Clone)]
 pub struct ColumnMatcher {
@@ -522,6 +712,8 @@ pub struct ColumnMatcher {
     pub index: usize,
     /// Empty for a field answered the same on every row.
     pub context: String,
+    /// The family of contexts the field is answered per.
+    pub family: Option<&'static str>,
     pub context_label: Option<String>,
     pub matcher: Matcher,
 }
@@ -542,6 +734,9 @@ fn matcher_for(
     spec: &FieldSpec,
     options: &ImportOptions,
 ) -> diesel::QueryResult<Option<Matcher>> {
+    if let Some(mut found) = importer.lookups(conn, spec, &[String::new()])? {
+        return Ok(found.pop().map(|c| Matcher::Lookup(c.lookup)));
+    }
     Ok(match importer.value_choices(conn, spec)? {
         Some(choices) => Some(Matcher::Choice {
             choices,
@@ -564,7 +759,9 @@ fn matcher_for(
 
 /// The fields of `job_type` with a matcher, among those `mapping` feeds,
 /// in source column order: one per field, or one per context for a field
-/// answered per row context.
+/// answered per row context. A field whose contexts are the ones its rows
+/// hold (a model, per manufacturer) has none here; [`open_matchers`] gives
+/// them once the contexts are known.
 pub fn matchers(
     conn: &mut DbConnection,
     job_type: ImportType,
@@ -578,35 +775,111 @@ pub fn matchers(
         let Some(&index) = mapping.get(&spec.id) else {
             continue;
         };
-        match importer.value_contexts(conn, spec)? {
-            Some(contexts) => {
-                for context in contexts {
-                    let Some(matcher) =
-                        matcher_for(importer.as_ref(), conn, &context.spec, options)?
-                    else {
-                        continue;
-                    };
-                    out.push(ColumnMatcher {
-                        spec: context.spec,
-                        index,
-                        context: context.key,
-                        context_label: Some(context.label),
-                        matcher,
-                    });
-                }
+        let family = importer.context_family(spec);
+        if family.is_none() {
+            if let Some(matcher) = matcher_for(importer.as_ref(), conn, spec, options)? {
+                out.push(ColumnMatcher {
+                    spec: spec.clone(),
+                    index,
+                    context: String::new(),
+                    family: None,
+                    context_label: None,
+                    matcher,
+                });
             }
-            None => {
-                if let Some(matcher) = matcher_for(importer.as_ref(), conn, spec, options)? {
-                    out.push(ColumnMatcher {
-                        spec: spec.clone(),
-                        index,
-                        context: String::new(),
-                        context_label: None,
-                        matcher,
-                    });
+            continue;
+        }
+        let Some(contexts) = importer.value_contexts(conn, spec)? else {
+            continue;
+        };
+        for context in contexts {
+            let Some(matcher) = matcher_for(importer.as_ref(), conn, &context.spec, options)?
+            else {
+                continue;
+            };
+            out.push(ColumnMatcher {
+                spec: context.spec,
+                index,
+                context: context.key,
+                family,
+                context_label: Some(context.label),
+                matcher,
+            });
+        }
+    }
+    out.sort_by_key(|m| m.index);
+    Ok(out)
+}
+
+/// The matchers of mapped lookup fields of `family` whose contexts are the
+/// ones rows hold: one per context in `contexts`.
+pub fn open_matchers(
+    conn: &mut DbConnection,
+    job_type: ImportType,
+    fields: &[FieldSpec],
+    mapping: &ColumnMapping,
+    family: &str,
+    contexts: &BTreeSet<String>,
+) -> diesel::QueryResult<Vec<ColumnMatcher>> {
+    let importer = super::importer_for(job_type);
+    let mut out = Vec::new();
+    if contexts.is_empty() {
+        return Ok(out);
+    }
+    let contexts: Vec<String> = contexts.iter().cloned().collect();
+    for spec in fields {
+        let Some(&index) = mapping.get(&spec.id) else {
+            continue;
+        };
+        let Some(own) = importer.context_family(spec).filter(|f| *f == family) else {
+            continue;
+        };
+        if importer.value_contexts(conn, spec)?.is_some() {
+            continue;
+        }
+        let Some(found) = importer.lookups(conn, spec, &contexts)? else {
+            continue;
+        };
+        for context in found {
+            out.push(ColumnMatcher {
+                spec: spec.clone(),
+                index,
+                context: context.key,
+                family: Some(own),
+                context_label: context.label,
+                matcher: Matcher::Lookup(context.lookup),
+            });
+        }
+    }
+    out.sort_by_key(|m| m.index);
+    Ok(out)
+}
+
+/// The matchers answers sent for a job are checked against: [`matchers`],
+/// and for each field answered per a context its rows hold, one per context
+/// the answers name.
+pub fn matchers_for_answers(
+    conn: &mut DbConnection,
+    job_type: ImportType,
+    fields: &[FieldSpec],
+    mapping: &ColumnMapping,
+    options: &ImportOptions,
+    answers: &ValueAnswers,
+) -> diesel::QueryResult<Vec<ColumnMatcher>> {
+    let importer = super::importer_for(job_type);
+    let mut out = matchers(conn, job_type, fields, mapping, options)?;
+    for family in importer.context_families() {
+        let mut named = BTreeSet::new();
+        for spec in fields {
+            if importer.context_family(spec) == Some(*family) {
+                if let Some(contexts) = answers.get(&spec.id) {
+                    named.extend(contexts.keys().cloned());
                 }
             }
         }
+        out.extend(open_matchers(
+            conn, job_type, fields, mapping, family, &named,
+        )?);
     }
     out.sort_by_key(|m| m.index);
     Ok(out)
@@ -648,6 +921,62 @@ fn prematch(
             Some(_) => (Layer::Exact, None, None, None),
             None => (Layer::NoMatch, Some(Reason::Unreadable), skip, None),
         },
+        Matcher::Lookup(lookup) => {
+            let named = lookup.named(key);
+            let live: Vec<&&Choice> = named.iter().filter(|c| c.disabled.is_none()).collect();
+            if let [only] = live.as_slice() {
+                return (Layer::Exact, None, link(&only.value), None);
+            }
+            if let Some(s) = saved() {
+                return (
+                    Layer::Saved,
+                    None,
+                    Some(s.answer.clone()),
+                    Some(s.provenance.clone()),
+                );
+            }
+            if live.len() > 1 {
+                // Told apart by case only: the importer can't pick, so the
+                // rows are skipped until the admin does.
+                let labels = live.iter().map(|c| c.label.clone()).collect();
+                return (
+                    Layer::NoMatch,
+                    Some(Reason::Ambiguous { labels }),
+                    skip,
+                    None,
+                );
+            }
+            if let Some(refused) = named.first() {
+                return (
+                    Layer::NoMatch,
+                    Some(Reason::Disabled {
+                        label: refused.label.clone(),
+                        note: refused.disabled.clone().unwrap_or_default(),
+                    }),
+                    Some(lookup.kind.unmatched()),
+                    None,
+                );
+            }
+            if lookup.kind == LookupKind::Manufacturer {
+                let close = lookup
+                    .choices
+                    .iter()
+                    .filter(|c| c.disabled.is_none())
+                    .filter_map(|c| near_company(text, &c.label).map(|score| (score, c)))
+                    .max_by(|a, b| a.0.total_cmp(&b.0));
+                if let Some((_, choice)) = close {
+                    return (
+                        Layer::Guessed,
+                        Some(Reason::CloseTo {
+                            label: choice.label.clone(),
+                        }),
+                        link(&choice.value),
+                        None,
+                    );
+                }
+            }
+            (Layer::NoMatch, None, Some(lookup.kind.unmatched()), None)
+        }
         Matcher::Choice {
             choices,
             aliases,
@@ -799,6 +1128,9 @@ pub fn jaro_winkler(a: &str, b: &str) -> f64 {
 /// for the admin, when it can't.
 fn fits(matcher: &Matcher, required: bool, key: &str, answer: &ValueAnswer) -> Result<(), String> {
     let blank = key.is_empty();
+    if let Matcher::Lookup(lookup) = matcher {
+        return fits_lookup(lookup, key, answer);
+    }
     match (matcher, answer) {
         (_, ValueAnswer::Skip) => Ok(()),
         (Matcher::Choice { .. }, ValueAnswer::Match { target }) => match matcher.pickable(target) {
@@ -837,6 +1169,119 @@ fn fits(matcher: &Matcher, required: bool, key: &str, answer: &ValueAnswer) -> R
     }
 }
 
+/// [`fits`] for a lookup field: link to an entry, create one named by the
+/// value unless one is, keep the value as text where the field has text,
+/// leave it off, or skip.
+fn fits_lookup(lookup: &Lookup, key: &str, answer: &ValueAnswer) -> Result<(), String> {
+    match answer {
+        ValueAnswer::Skip | ValueAnswer::LeaveBlank => Ok(()),
+        ValueAnswer::Match { target } => {
+            let target = target
+                .as_str()
+                .map(String::from)
+                .unwrap_or_else(|| target.to_string());
+            match lookup
+                .choices
+                .iter()
+                .find(|c| c.value == target && c.disabled.is_none())
+            {
+                Some(_) => Ok(()),
+                None => Err(format!("'{target}' isn't one of the choices")),
+            }
+        }
+        ValueAnswer::KeepText if lookup.kind.keeps_text() => Ok(()),
+        ValueAnswer::KeepText => Err("can't be kept as text; leave it off instead".to_string()),
+        ValueAnswer::Create => match lookup.named(key).into_iter().find(|c| c.disabled.is_none()) {
+            Some(existing) => Err(format!(
+                "'{}' already exists; link to it instead",
+                existing.label
+            )),
+            None => Ok(()),
+        },
+        ValueAnswer::Replace { .. } => {
+            Err("can't be replaced with typed text; pick an entry".to_string())
+        }
+    }
+}
+
+/// Every distinct value of a column with the file lines holding each, in
+/// order of first appearance: whole cells, or each `;`-separated item of a
+/// list field's cells.
+fn distinct_values(
+    grid: &ParsedCsv,
+    at: usize,
+    list: bool,
+    blank_value: bool,
+    keep: impl Fn(usize) -> bool,
+) -> Vec<(String, String, Vec<usize>)> {
+    let mut order: Vec<String> = Vec::new();
+    let mut found: HashMap<String, (String, Vec<usize>)> = HashMap::new();
+    for row in &grid.rows {
+        if !keep(row.source_row) {
+            continue;
+        }
+        let cell = row.cells.get(at).map(|c| c.trim()).unwrap_or("");
+        let items: Vec<&str> = if list {
+            list_items(cell).collect()
+        } else if cell.is_empty() && !blank_value {
+            Vec::new()
+        } else {
+            vec![cell]
+        };
+        for item in items {
+            let key = normalize_value(item);
+            let entry = found.entry(key.clone()).or_insert_with(|| {
+                order.push(key);
+                (item.to_string(), Vec::new())
+            });
+            if entry.1.last() != Some(&row.source_row) {
+                entry.1.push(row.source_row);
+            }
+        }
+    }
+    order
+        .into_iter()
+        .map(|key| {
+            let (text, rows) = found.remove(&key).unwrap_or_default();
+            (key, text, rows)
+        })
+        .collect()
+}
+
+/// A list cell's items: `;`-separated, trimmed, blanks dropped.
+pub fn list_items(cell: &str) -> impl Iterator<Item = &str> {
+    cell.split(';')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+}
+
+/// Note values of a manufacturer column that would both be created and are
+/// near-duplicates of each other, each naming the one more rows hold.
+fn note_near_duplicates(values: &mut [ResolvedValue]) {
+    const MOST: usize = 200;
+    let new: Vec<usize> = values
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| v.layer == Layer::NoMatch && v.reason.is_none())
+        .map(|(i, _)| i)
+        .take(MOST)
+        .collect();
+    let mut notes: Vec<(usize, String)> = Vec::new();
+    for &i in &new {
+        let twin = new
+            .iter()
+            .filter(|&&j| j != i)
+            .filter(|&&j| near_company(&values[i].text, &values[j].text).is_some())
+            .max_by_key(|&&j| values[j].rows.len());
+        if let Some(&j) = twin {
+            notes.push((i, values[j].text.clone()));
+        }
+    }
+    for (i, text) in notes {
+        values[i].reason = Some(Reason::BothNew { text });
+    }
+}
+
 /// Work out every mapped value's answer: the admin's stored one when it
 /// still fits, else what matching suggests. `grid` is the mapped grid
 /// ([`super::mapping::map_job_grid`]), one column per field id. A column
@@ -848,13 +1293,14 @@ pub fn resolve(
     options: &ImportOptions,
     memory: &Memory,
     stored: &ValueAnswers,
-    row_contexts: &HashMap<usize, String>,
+    row_contexts: &RowContexts,
 ) -> Resolution {
     let mut columns = Vec::with_capacity(matchers.len());
     for ColumnMatcher {
         spec,
         index,
         context,
+        family,
         context_label,
         matcher,
     } in matchers
@@ -862,31 +1308,17 @@ pub fn resolve(
         let Some(at) = grid.headers.iter().position(|h| h == &spec.id) else {
             continue;
         };
-        let blank_value = context.is_empty() && blank_is_value(job_type, &spec.id, options);
+        let blank_value = family.is_none() && blank_is_value(job_type, &spec.id, options);
         let answered = stored
             .get(&spec.id)
             .and_then(|contexts| contexts.get(&context));
-        let mut order: Vec<String> = Vec::new();
-        let mut found: HashMap<String, (String, Vec<usize>)> = HashMap::new();
-        for row in &grid.rows {
-            if !context.is_empty() && row_contexts.get(&row.source_row) != Some(&context) {
-                continue;
-            }
-            let cell = row.cells.get(at).map(|c| c.trim()).unwrap_or("");
-            if cell.is_empty() && !blank_value {
-                continue;
-            }
-            let key = normalize_value(cell);
-            let entry = found.entry(key.clone()).or_insert_with(|| {
-                order.push(key);
-                (cell.to_string(), Vec::new())
-            });
-            entry.1.push(row.source_row);
-        }
-        let values = order
+        let list = spec.value_type == ValueType::Array;
+        let found = distinct_values(grid, at, list, blank_value, |row| {
+            in_context(family, &context, row_contexts, row)
+        });
+        let mut values: Vec<ResolvedValue> = found
             .into_iter()
-            .map(|key| {
-                let (text, rows) = found.remove(&key).unwrap_or_default();
+            .map(|(key, text, rows)| {
                 let (layer, reason, suggested, saved) = if key.is_empty() {
                     // Blank kind: left as it is unless answered.
                     (Layer::NoMatch, None, Some(ValueAnswer::LeaveBlank), None)
@@ -917,10 +1349,14 @@ pub fn resolve(
                 }
             })
             .collect();
+        if matcher.lookup() == Some(LookupKind::Manufacturer) {
+            note_near_duplicates(&mut values);
+        }
         columns.push(ResolvedColumn {
             field: spec.id.clone(),
             index,
             context,
+            family,
             context_label,
             value_type: spec.value_type,
             required: spec.required,
@@ -935,9 +1371,10 @@ pub fn resolve(
     }
 }
 
-/// Load what [`resolve`] needs and resolve, in two phases: the columns
-/// without a context first, then, once each row's context reads from the
-/// grid with those answers written, the columns answered per context.
+/// Load what [`resolve`] needs and resolve in phases: the columns without
+/// a context first, then each family of contexts in the importer's order,
+/// its row contexts read from the grid with every answer settled so far
+/// written in.
 pub fn prepare(
     conn: &mut DbConnection,
     job_type: ImportType,
@@ -947,13 +1384,18 @@ pub fn prepare(
     grid: &ParsedCsv,
     stored: &ValueAnswers,
 ) -> diesel::QueryResult<Resolution> {
+    let importer = super::importer_for(job_type);
+    let families = importer.context_families();
     let all = matchers(conn, job_type, fields, mapping, options)?;
-    if all.is_empty() {
+    let open_mapped = fields
+        .iter()
+        .any(|f| mapping.contains_key(&f.id) && importer.context_family(f).is_some());
+    if all.is_empty() && !open_mapped {
         return Ok(Resolution::default());
     }
     let memory = Memory::load(conn, job_type)?;
-    let (contextual, plain): (Vec<ColumnMatcher>, Vec<ColumnMatcher>) =
-        all.into_iter().partition(|m| !m.context.is_empty());
+    let (mut contextual, plain): (Vec<ColumnMatcher>, Vec<ColumnMatcher>) =
+        all.into_iter().partition(|m| m.family.is_some());
     let mut resolution = resolve(
         job_type,
         grid,
@@ -961,33 +1403,48 @@ pub fn prepare(
         options,
         &memory,
         stored,
-        &HashMap::new(),
+        &RowContexts::new(),
     );
-    if contextual.is_empty() {
-        return Ok(resolution);
+    for family in families {
+        let has_fixed = contextual.iter().any(|m| m.family == Some(*family));
+        let has_open = fields
+            .iter()
+            .any(|f| mapping.contains_key(&f.id) && importer.context_family(f) == Some(*family));
+        if !has_fixed && !has_open {
+            continue;
+        }
+        let mut staged = MappedGrid {
+            grid: grid.clone(),
+            blocked: Vec::new(),
+        };
+        let mut staged_options = options.clone();
+        if let Some(kind) = apply(&resolution, &mut staged) {
+            staged_options.default_kind = Some(kind);
+        }
+        staged_options.lookups = resolution.lookup_answers();
+        let rows = importer.row_contexts(conn, &staged.grid, &staged_options, family)?;
+        let seen: BTreeSet<String> = rows.values().cloned().collect();
+        resolution.row_contexts.insert(family.to_string(), rows);
+        let (mine, rest): (Vec<ColumnMatcher>, Vec<ColumnMatcher>) = contextual
+            .into_iter()
+            .partition(|m| m.family == Some(*family));
+        contextual = rest;
+        let mut columns = mine;
+        columns.extend(open_matchers(
+            conn, job_type, fields, mapping, family, &seen,
+        )?);
+        let more = resolve(
+            job_type,
+            grid,
+            columns,
+            options,
+            &memory,
+            stored,
+            &resolution.row_contexts,
+        );
+        resolution.columns.extend(more.columns);
     }
-    let mut staged = MappedGrid {
-        grid: grid.clone(),
-        blocked: Vec::new(),
-    };
-    let mut staged_options = options.clone();
-    if let Some(kind) = apply(&resolution, &mut staged) {
-        staged_options.default_kind = Some(kind);
-    }
-    let row_contexts =
-        super::importer_for(job_type).row_contexts(conn, &staged.grid, &staged_options)?;
-    let more = resolve(
-        job_type,
-        grid,
-        contextual,
-        options,
-        &memory,
-        stored,
-        &row_contexts,
-    );
-    resolution.columns.extend(more.columns);
     resolution.columns.sort_by_key(|c| c.index);
-    resolution.row_contexts = row_contexts;
     Ok(resolution)
 }
 
@@ -1005,20 +1462,28 @@ pub fn skip_message(text: &str) -> String {
 /// admin's Skip holds the rows back as skipped. A suggested Skip leaves the
 /// cell for the importer, whose own error skips the row and says why. An
 /// answer for blank kind cells is the kind new rows take: the returned
-/// default kind.
+/// default kind. A lookup column's cells stay as the file has them; its
+/// answers reach the importer through [`Resolution::lookup_answers`].
 pub fn apply(resolution: &Resolution, mapped: &mut MappedGrid) -> Option<String> {
     let mut default_kind = None;
     let mut held: BTreeMap<usize, Vec<(Option<String>, String)>> = BTreeMap::new();
-    let mut writes: Vec<(usize, &str, HashMap<String, Option<String>>)> = Vec::new();
+    let mut writes: Vec<(usize, &ResolvedColumn, HashMap<String, Option<String>>)> = Vec::new();
     for column in &resolution.columns {
         let Some(at) = mapped.grid.headers.iter().position(|h| h == &column.field) else {
             continue;
         };
+        let lookup = column.matcher.lookup().is_some();
         let mut cells: HashMap<String, Option<String>> = HashMap::new();
         for value in &column.values {
             let Some(answer) = value.effective() else {
                 continue;
             };
+            if lookup {
+                if matches!(answer, ValueAnswer::Skip) && value.answer.is_some() {
+                    hold(&mut held, &value.rows, &column.field, &value.text);
+                }
+                continue;
+            }
             if value.key.is_empty() {
                 match answer {
                     ValueAnswer::Match { target } => {
@@ -1046,13 +1511,17 @@ pub fn apply(resolution: &Resolution, mapped: &mut MappedGrid) -> Option<String>
             }
         }
         if !cells.is_empty() {
-            writes.push((at, column.context.as_str(), cells));
+            writes.push((at, column, cells));
         }
     }
     for row in &mut mapped.grid.rows {
-        let row_context = resolution.row_contexts.get(&row.source_row);
-        for (at, context, cells) in &writes {
-            if !context.is_empty() && row_context.map(String::as_str) != Some(*context) {
+        for (at, column, cells) in &writes {
+            if !in_context(
+                column.family,
+                &column.context,
+                &resolution.row_contexts,
+                row.source_row,
+            ) {
                 continue;
             }
             let Some(cell) = row.cells.get_mut(*at) else {
@@ -1091,7 +1560,8 @@ fn hold(
 }
 
 /// Resolve the job's answers and write them into `mapped`, setting the
-/// default kind a blank kind's answer gives new rows on `options`.
+/// default kind a blank kind's answer gives new rows on `options`, and the
+/// lookup columns' answers.
 #[allow(clippy::too_many_arguments)]
 pub fn settle(
     conn: &mut DbConnection,
@@ -1114,6 +1584,7 @@ pub fn settle(
     if let Some(kind) = apply(&resolution, mapped) {
         options.default_kind = Some(kind);
     }
+    options.lookups = resolution.lookup_answers();
     Ok(resolution)
 }
 
@@ -1133,7 +1604,7 @@ pub fn validate(
                 "'{field}' isn't a mapped column with values to answer"
             )));
         };
-        let per_context = !first.context.is_empty();
+        let per_context = first.family.is_some();
         for (context, values) in contexts {
             let Some(column) = of_field.iter().find(|m| m.context == context) else {
                 return Err(MappingError(if per_context {
@@ -1194,7 +1665,7 @@ pub fn blank_fields(
 ) -> HashSet<String> {
     columns
         .iter()
-        .filter(|m| m.context.is_empty() && blank_is_value(job_type, &m.spec.id, options))
+        .filter(|m| m.family.is_none() && blank_is_value(job_type, &m.spec.id, options))
         .map(|m| m.spec.id.clone())
         .collect()
 }
@@ -1231,6 +1702,10 @@ pub struct ColumnView {
     pub header: String,
     pub value_type: ValueType,
     pub required: bool,
+    /// The catalog a lookup column links to: its values can also be
+    /// created, and kept as text where the catalog has text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lookup: Option<LookupKind>,
     /// What a value can link to; empty for numbers and dates.
     pub choices: Vec<Choice>,
     /// Distinct values in the column.
@@ -1362,7 +1837,7 @@ pub fn view(
                 exact_seen <= MATCHED_SHOWN
             });
             // Exact numbers and dates are just values; only their count shows.
-            if !matches!(column.matcher, Matcher::Choice { .. }) {
+            if !matches!(column.matcher, Matcher::Choice { .. } | Matcher::Lookup(_)) {
                 values.retain(|v| !is_exact(v));
             }
             ColumnView {
@@ -1376,6 +1851,7 @@ pub fn view(
                     .unwrap_or_default(),
                 value_type: column.value_type,
                 required: column.required,
+                lookup: column.matcher.lookup(),
                 choices: column.matcher.choices().to_vec(),
                 distinct,
                 matched,
@@ -1521,6 +1997,7 @@ mod tests {
                 value: "on_loan".into(),
                 label: "On loan".into(),
                 disabled: Some("Set by a loan after import".into()),
+                detail: None,
             }],
             aliases: Vec::new(),
             synonyms: Vec::new(),
@@ -1614,6 +2091,7 @@ mod tests {
             spec,
             index,
             context: String::new(),
+            family: None,
             context_label: None,
             matcher,
         }
@@ -1643,7 +2121,7 @@ mod tests {
             options,
             &Memory::default(),
             stored,
-            &HashMap::new(),
+            &RowContexts::new(),
         );
         let mapped = MappedGrid {
             grid: parsed,
@@ -1840,6 +2318,138 @@ mod tests {
         assert_eq!(read_boolean("maybe"), None);
     }
 
+    fn makers() -> Matcher {
+        Matcher::Lookup(Lookup {
+            kind: LookupKind::Manufacturer,
+            choices: vec![
+                Choice::new("1", "Sony"),
+                Choice::new("2", "SONY"),
+                Choice::new("3", "Canon"),
+                Choice::new("4", "Blackmagic Design"),
+            ],
+        })
+    }
+
+    #[test]
+    fn company_names_compare_without_punctuation_and_suffixes() {
+        assert_eq!(company_key("Sony Corp."), "sony");
+        assert_eq!(company_key("Acme Pty Ltd"), "acme");
+        assert_eq!(company_key("Corp"), "corp");
+        assert!(near_company("Sony Corp", "Sony").is_some());
+        assert!(near_company("Blackmagic", "Blackmagic Design").is_some());
+        assert!(near_company("Canon", "Nikon").is_none());
+        assert!(near_company("Panasonik", "Panasonic").is_some());
+        assert!(near_company("Sony", "Sonu").is_none());
+    }
+
+    #[test]
+    fn lookups_link_exact_names_and_refuse_ones_held_twice() {
+        let m = makers();
+        let memory = Memory::default();
+        let at =
+            |key: &str, text: &str| prematch("manufacturer", "", false, &m, key, text, &memory);
+        assert_eq!(at("canon", "canon").2, Some(link("3")));
+        assert_eq!(at("canon", "canon").0, Layer::Exact);
+        let sony = at("sony", "sony");
+        assert_eq!(sony.0, Layer::NoMatch);
+        assert!(matches!(sony.1, Some(Reason::Ambiguous { ref labels }) if labels.len() == 2));
+        assert_eq!(sony.2, Some(ValueAnswer::Skip));
+        let close = at("canon inc.", "Canon Inc.");
+        assert_eq!(close.0, Layer::Guessed);
+        assert_eq!(close.2, Some(link("3")));
+        let new = at("arri", "ARRI");
+        assert_eq!(
+            (new.0, new.2),
+            (Layer::NoMatch, Some(ValueAnswer::KeepText))
+        );
+        // Models are never guessed.
+        let models = Matcher::Lookup(Lookup {
+            kind: LookupKind::Model,
+            choices: vec![Choice::new("9", "PXW-Z280")],
+        });
+        let z190 = prematch(
+            "model", "sony", false, &models, "pxw-z190", "PXW-Z190", &memory,
+        );
+        assert_eq!(
+            (z190.0, z190.2),
+            (Layer::NoMatch, Some(ValueAnswer::KeepText))
+        );
+    }
+
+    #[test]
+    fn lookup_answers_fit_their_catalog() {
+        let m = makers();
+        assert!(fits(&m, false, "arri", &ValueAnswer::Create).is_ok());
+        assert!(fits(&m, false, "canon", &ValueAnswer::Create).is_err());
+        assert!(fits(&m, false, "arri", &ValueAnswer::KeepText).is_ok());
+        assert!(fits(&m, false, "arri", &link("3")).is_ok());
+        assert!(fits(&m, false, "arri", &link("99")).is_err());
+        assert!(fits(
+            &m,
+            false,
+            "arri",
+            &ValueAnswer::Replace { value: "x".into() }
+        )
+        .is_err());
+        let groups = Matcher::Lookup(Lookup {
+            kind: LookupKind::Group,
+            choices: vec![Choice::new("5", "Studio A")],
+        });
+        assert!(fits(&groups, false, "studio b", &ValueAnswer::KeepText).is_err());
+        assert!(fits(&groups, false, "studio b", &ValueAnswer::LeaveBlank).is_ok());
+    }
+
+    /// A list column answers each item; a lookup's answers stay out of the
+    /// cells and reach the importer whole, and the admin's Skip on one item
+    /// holds its rows.
+    #[test]
+    fn list_items_are_values_and_lookups_answer_the_importer() {
+        let parsed = grid(
+            &["name", "groups"],
+            &[
+                &["A", "Studio A; Field kit"],
+                &["B", "studio a"],
+                &["C", "Old"],
+            ],
+        );
+        let groups = Matcher::Lookup(Lookup {
+            kind: LookupKind::Group,
+            choices: vec![Choice::new("5", "Studio A"), Choice::new("6", "Field kit")],
+        });
+        let resolution = resolve(
+            ImportType::Assets,
+            &parsed,
+            vec![column(spec("groups", ValueType::Array, false), 1, groups)],
+            &ImportOptions::default(),
+            &Memory::default(),
+            &answers("groups", &[("old", ValueAnswer::Skip)]),
+            &RowContexts::new(),
+        );
+        let values = &resolution.columns[0].values;
+        let keys: Vec<(&str, &[usize])> = values
+            .iter()
+            .map(|v| (v.key.as_str(), v.rows.as_slice()))
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                ("studio a", &[2, 3][..]),
+                ("field kit", &[2][..]),
+                ("old", &[4][..])
+            ]
+        );
+        let lookups = resolution.lookup_answers();
+        assert_eq!(lookups["groups"][""]["studio a"], link("5"));
+        let mut mapped = MappedGrid {
+            grid: parsed,
+            blocked: Vec::new(),
+        };
+        apply(&resolution, &mut mapped);
+        assert_eq!(mapped.grid.rows[0].cells[1], "Studio A; Field kit");
+        assert_eq!(mapped.blocked.len(), 1);
+        assert_eq!(mapped.blocked[0].row, 4);
+    }
+
     /// A column answered per context reads only its context's rows, and
     /// its answers write only into them.
     #[test]
@@ -1858,15 +2468,17 @@ mod tests {
             spec: spec("condition", ValueType::Enum, false),
             index: 1,
             context: context.to_string(),
+            family: Some("kind"),
             context_label: Some(context.to_string()),
             matcher: options_for(options),
         };
-        let row_contexts: HashMap<usize, String> = [
+        let kinds: FamilyContexts = [
             (2, "camera".to_string()),
             (3, "vehicle".to_string()),
             (4, "vehicle".to_string()),
         ]
         .into();
+        let row_contexts: RowContexts = [("kind".to_string(), kinds)].into();
         let mut stored = ValueAnswers::new();
         stored.entry("condition".to_string()).or_default().insert(
             "vehicle".to_string(),

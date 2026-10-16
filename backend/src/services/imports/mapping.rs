@@ -368,8 +368,8 @@ pub struct MappingError(pub String);
 
 /// Check a mapping against the fields and the file: every field id known,
 /// every column in range and used once, every required field covered.
-/// The asset kind may come from `options.default_kind` instead of a
-/// column; the caller checks that kind exists.
+/// The asset kind may come from `options.default_kind` or a Model column
+/// instead of a Kind column; the caller checks that kind exists.
 pub fn validate(
     import_type: ImportType,
     mapping: &ColumnMapping,
@@ -421,12 +421,15 @@ pub fn validate(
         if mapping.contains_key(&spec.id) || options.constants.iter().any(|c| c.field == spec.id) {
             continue;
         }
+        // A kind for every row, or a model column: a linked model gives its
+        // kind, and a row nothing gives one is reported on its own.
         let defaulted = import_type == ImportType::Assets
             && spec.id == "kind"
-            && options
+            && (options
                 .default_kind
                 .as_deref()
-                .is_some_and(|k| !k.trim().is_empty());
+                .is_some_and(|k| !k.trim().is_empty())
+                || mapping.contains_key("model"));
         if !defaulted {
             return Err(MappingError(if spec.id == "kind" {
                 "no column maps to Kind; map one or choose a kind for every row".to_string()
@@ -1032,6 +1035,11 @@ mod tests {
             ..Default::default()
         };
         assert!(validate(ImportType::Assets, &no_kind, &defaulted, &fields(), &h).is_ok());
+        // A linked model gives the kind too.
+        let mut with_model = fields();
+        with_model.push(field("model", "Model", false));
+        let model = ColumnMapping::from([("name".into(), 0), ("model".into(), 1)]);
+        assert!(validate(ImportType::Assets, &model, &opts, &with_model, &h).is_ok());
 
         let no_name = ColumnMapping::from([("kind".into(), 1)]);
         assert_eq!(

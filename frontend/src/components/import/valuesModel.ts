@@ -27,7 +27,7 @@ export type Edits = Record<string, ValueAnswer>
 
 export type ValueFilter = 'no_match' | 'guessed' | 'all'
 export type BulkAction = 'skip' | 'leave_blank'
-export type Consequence = 'skipped' | 'blank' | 'as_is' | null
+export type Consequence = 'skipped' | 'blank' | 'as_is' | 'text' | 'off' | null
 
 /** A value's id across cards. A field answered the same on every row is
  *  `field:key`; one answered per kind (an attribute, whose id may hold a
@@ -183,7 +183,9 @@ export function skippedNow(view: ImportValues, edits: Edits): number {
 export function consequence(col: ImportValueColumn, v: ImportValue, edits: Edits): Consequence {
   const now = currentAnswer(col, v, edits)
   if (now?.action === 'skip') return 'skipped'
+  if (now?.action === 'keep_text') return 'text'
   if (now?.action !== 'leave_blank') return null
+  if (col.lookup === 'group') return 'off'
   if (!v.blank) return 'blank'
   // A blank kind left as it is skips the new rows the last check found.
   return sameAnswer(now, checkedAnswer(v)) && v.skipped_rows.length > 0 ? 'skipped' : 'as_is'
@@ -295,7 +297,7 @@ export function answerFromKey(key: string, previous?: ValueAnswer): ValueAnswer 
   if (key === 'replace') {
     return { action: 'replace', value: previous?.action === 'replace' ? previous.value : '' }
   }
-  return { action: key as 'skip' | 'leave_blank' }
+  return { action: key as 'skip' | 'leave_blank' | 'keep_text' }
 }
 
 /** A cell as a spreadsheet won't run it as a formula. */

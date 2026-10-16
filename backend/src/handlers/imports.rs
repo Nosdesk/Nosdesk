@@ -1130,7 +1130,16 @@ pub async fn commit(
             &stored,
             &grid,
         )?;
-        if !reviewed.is_some_and(|r| same_plan(&r.rows, &fresh)) {
+        // The catalog entries it creates are part of the plan too.
+        let reviewed_catalog = current
+            .summary
+            .as_ref()
+            .and_then(|s| serde_json::from_value::<imports::ImportSummary>(s.clone()).ok())
+            .map(|s| s.catalog)
+            .unwrap_or_default();
+        if !reviewed.is_some_and(|r| same_plan(&r.rows, &fresh))
+            || reviewed_catalog != summary.catalog
+        {
             let updated = repo::update(
                 conn,
                 id,
@@ -1573,7 +1582,14 @@ pub async fn put_values(
         return errors::bad_request(e.0);
     }
     let checked = tc.run(|conn| {
-        let columns = values::matchers(conn, job_type, &fields, &column_mapping, &options)?;
+        let columns = values::matchers_for_answers(
+            conn,
+            job_type,
+            &fields,
+            &column_mapping,
+            &options,
+            &answers,
+        )?;
         let blanks = values::blank_fields(job_type, &columns, &options);
         Ok(values::validate(answers, &columns, &blanks))
     });

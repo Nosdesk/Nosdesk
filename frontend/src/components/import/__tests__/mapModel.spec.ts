@@ -153,6 +153,12 @@ describe('problems', () => {
     expect(problems(r, FIELDS, 'assets')).toEqual([])
   })
 
+  it('lets a Model column give an asset its kind', () => {
+    const r = rows()
+    r[2].target = 'model'
+    expect(problems(r, FIELDS, 'assets')).toEqual([])
+  })
+
   it('asks about dates the samples leave open', () => {
     expect(problems(rows(), FIELDS, 'assets', [constant('kind', 'c')], true)).toEqual([
       { kind: 'dates' },

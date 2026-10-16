@@ -1,6 +1,7 @@
 //! `PUT /assets/{id}` keeps a model-linked asset's kind: the model sets
 //! it, and this route never changes the model. The kind changes once the
-//! model is cleared on `DELETE /assets/{id}/model`.
+//! model is cleared on `DELETE /assets/{id}/model`. `POST
+//! /assets/{id}/model` stamps one on.
 
 use std::sync::Arc;
 
@@ -205,4 +206,63 @@ async fn an_unlinked_asset_changes_kind() {
     .await;
     assert_eq!(status, StatusCode::OK, "{resp}");
     assert_eq!(stored(&f, plain).kind, "desktop");
+}
+
+/// `POST /assets/{id}/model` stamps the model through the shared stamp:
+/// its manufacturer and name as text, its kind, and the link. A synced
+/// asset is refused.
+#[actix_web::test]
+async fn setting_a_model_stamps_it() {
+    #[derive(diesel::QueryableByName)]
+    struct Stamped {
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+        manufacturer: Option<String>,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+        model: Option<String>,
+    }
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let plain = laptop(&f, "Laptop-03", false);
+    let model_id = diesel::sql_query(
+        "WITH m AS (INSERT INTO manufacturers (name, workspace_id) VALUES ('Dell', $1) RETURNING id)
+         INSERT INTO asset_models (manufacturer_id, name, kind, workspace_id)
+         SELECT id, 'OptiPlex 7010', 'desktop', $1 FROM m RETURNING id",
+    )
+    .bind::<diesel::sql_types::Integer, _>(f.ws.workspace_id)
+    .get_result::<IdRow>(&mut f.pool.get().expect("conn"))
+    .expect("seed model")
+    .id;
+
+    let uri = format!("/api/assets/{plain}/model");
+    let (status, resp) = call(
+        &f,
+        Method::POST,
+        &uri,
+        Some(json!({ "model_id": model_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resp}");
+    let row = stored(&f, plain);
+    assert_eq!(row.kind, "desktop");
+    assert_eq!(row.model_id, Some(model_id));
+    let stamped: Stamped =
+        diesel::sql_query("SELECT manufacturer, model FROM assets WHERE id = $1")
+            .bind::<diesel::sql_types::Integer, _>(plain)
+            .get_result(&mut f.pool.get().expect("conn"))
+            .expect("read stamp");
+    assert_eq!(stamped.manufacturer.as_deref(), Some("Dell"));
+    assert_eq!(stamped.model.as_deref(), Some("OptiPlex 7010"));
+
+    diesel::sql_query("UPDATE assets SET external_sync_source = 'intune' WHERE id = $1")
+        .bind::<diesel::sql_types::Integer, _>(plain)
+        .execute(&mut f.pool.get().expect("conn"))
+        .expect("mark synced");
+    let (status, resp) = call(
+        &f,
+        Method::POST,
+        &uri,
+        Some(json!({ "model_id": model_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{resp}");
 }
