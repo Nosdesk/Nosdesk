@@ -7,7 +7,7 @@
 use actix_web::http::StatusCode;
 use actix_web::test::TestRequest;
 use diesel::prelude::*;
-use diesel::sql_types::{Integer, Text, Uuid as SqlUuid};
+use diesel::sql_types::{Integer, Uuid as SqlUuid};
 use uuid::Uuid;
 
 use backend::sync::session::run_in_workspace;
@@ -355,8 +355,8 @@ async fn the_prune_keeps_counts_ids_and_options_and_drops_the_detail() {
 
 /// A draft untouched for 30 days reads Expired before the prune reaches
 /// it and can't be changed or committed; the prune then drops its file and
-/// rows and keeps it listed as Expired. A refused upload that old is
-/// deleted with its file; a recent draft is left alone.
+/// rows and keeps it listed as Expired. A recent draft is left alone, and a
+/// refused upload leaves no job to prune.
 #[actix_web::test]
 async fn drafts_expire_after_thirty_days() {
     let db = TestDb::new();
@@ -385,34 +385,24 @@ async fn drafts_expire_after_thirty_days() {
     let (status, _) = upload(&pool, ws, "empty.csv", "name,kind,asset_tag\n").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     #[derive(QueryableByName)]
-    struct IdRow {
-        #[diesel(sql_type = Text)]
-        id: String,
+    struct CountRow {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        count: i64,
     }
     let refused = diesel::sql_query(
-        "SELECT id::text AS id FROM import_jobs WHERE status = 'failed' AND workspace_id = $1",
+        "SELECT COUNT(*)::bigint AS count FROM import_jobs WHERE status = 'failed' AND workspace_id = $1",
     )
     .bind::<Integer, _>(ws.workspace_id)
-    .get_result::<IdRow>(&mut pool.get().expect("conn"))
-    .expect("refused job")
-    .id;
-    assert_eq!(
-        files_of(ws, &refused).await,
-        1,
-        "the refused upload is kept"
-    );
+    .get_result::<CountRow>(&mut pool.get().expect("conn"))
+    .expect("count refused jobs")
+    .count;
+    assert_eq!(refused, 0, "a refused upload makes no job");
 
     on_job(
         &pool,
         ws,
         "UPDATE import_jobs SET updated_at = now() - interval '31 days' WHERE id = $1",
         &id,
-    );
-    on_job(
-        &pool,
-        ws,
-        "UPDATE import_jobs SET updated_at = now() - interval '31 days' WHERE id = $1",
-        &refused,
     );
 
     // Expired by age, before any prune.
@@ -448,11 +438,6 @@ async fn drafts_expire_after_thirty_days() {
     assert!(after.row_results.is_none());
     assert!(after.mapping.is_some());
     assert_eq!(files_of(ws, &id).await, 0);
-    assert!(
-        job_row(&pool, &refused).is_none(),
-        "the refused upload is deleted"
-    );
-    assert_eq!(files_of(ws, &refused).await, 0, "with its file");
     let fresh_after = job_row(&pool, &fresh_id).expect("fresh draft");
     assert!(fresh_after.pruned_at.is_none());
     assert!(fresh_after.row_results.is_some());

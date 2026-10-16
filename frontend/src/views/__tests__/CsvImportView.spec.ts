@@ -279,6 +279,8 @@ let wrapper: VueWrapper | null = null
 let router: Router
 
 beforeEach(() => {
+  // Unsaved Match values answers are kept per tab.
+  sessionStorage.clear()
   for (const fn of Object.values(api)) fn.mockReset()
   api.fields.mockResolvedValue(FIELDS)
   api.rows.mockResolvedValue(rowsPage())
@@ -1106,6 +1108,26 @@ describe('CsvImportView Review plan', () => {
     await entry.trigger('keydown', { key: 'Enter' })
     await flushPromises()
     expect(currentStep()).toBe('map')
+    // Nothing gives Fuel: the button that adds a value for every row is
+    // focused.
+    expect(document.activeElement?.getAttribute('data-test')).toBe('import-constant-add')
+  })
+
+  it('fixes at Map columns on the field\'s value for every row', async () => {
+    const base = problemsJob()
+    await openReview({
+      ...base,
+      options: { ...base.options!, constants: [{ field: 'quantity', value: '3', apply_to: 'new' }] },
+      summary: {
+        ...base.summary!,
+        error_groups: [{ column: 'quantity', message: 'required for Vehicle assets', count: 40, fix: 'map' }],
+      },
+    })
+    await wrapper!.find('[data-test="import-problem-fix-map"]').trigger('click')
+    await flushPromises()
+    expect(currentStep()).toBe('map')
+    const focused = document.activeElement as HTMLElement | null
+    expect(focused?.closest('[data-test="import-constant-value"]')).not.toBeNull()
   })
 
   it('downloads one problem\'s rows', async () => {
@@ -1411,6 +1433,28 @@ describe('CsvImportView Start', () => {
     expect(currentStep()).toBe('map')
   })
 
+  it('words a refusal by its code, and shows the server English for an unknown code', async () => {
+    api.upload.mockRejectedValue({
+      response: {
+        status: 400,
+        data: { error: 'The rows in this workbook are on hidden sheets.', code: 'import_sheets_hidden', args: {} },
+      },
+    })
+    await mountAt()
+    await pick(new File(['PK'], 'gear.xlsx'))
+    await flushPromises()
+    const banner = wrapper!.find('[data-test="import-upload-error"]')
+    expect(banner.text()).toContain('import-refused-sheets-hidden')
+    expect(banner.text()).not.toContain('hidden sheets.')
+
+    api.upload.mockRejectedValue({
+      response: { status: 400, data: { error: 'Something new went wrong.', code: 'import_something_new' } },
+    })
+    await pick(new File(['PK'], 'gear.xlsx'))
+    await flushPromises()
+    expect(wrapper!.find('[data-test="import-upload-error"]').text()).toContain('Something new went wrong.')
+  })
+
   it('refuses a file that is not a spreadsheet without uploading it', async () => {
     await mountAt()
     await pick(new File(['%PDF'], 'scan.pdf', { type: 'application/pdf' }))
@@ -1600,6 +1644,49 @@ describe('CsvImportView Match values', () => {
     await mountAt('/admin/data-import/csv?job=job-1&step=values')
     expect(currentStep()).toBe('values')
     expect(router.currentRoute.value.query).toEqual({ job: 'job-1' })
+  })
+
+  it('keeps unsaved answers through Saved matches and back, and drops them on Check again', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    api.putValues.mockResolvedValue(checkedJob({ updated_at: '2026-10-15T02:00:00Z' }))
+    await checkFromMap()
+    const tripod = () =>
+      wrapper!
+        .findAll('[data-test="import-value-row"]')
+        .find((r) => r.attributes('data-value-id')!.endsWith('tripod'))!
+    await tripod().find('select').setValue('match:camera')
+    await flushPromises()
+
+    wrapper!.unmount()
+    api.get.mockResolvedValue(checkedJob())
+    await mountAt('/admin/data-import/csv?job=job-1&step=values')
+    expect(currentStep()).toBe('values')
+    expect((tripod().find('select').element as HTMLSelectElement).value).toBe('match:camera')
+
+    await wrapper!.find('[data-test="import-values-check"]').trigger('click')
+    await flushPromises()
+    expect(api.putValues).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({ kind: { '': { tripod: { action: 'match', target: 'camera' } } } }),
+    )
+    expect(sessionStorage.length).toBe(0)
+  })
+
+  it('gives unsaved answers back only for the check they were made on', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    await checkFromMap()
+    const tripod = () =>
+      wrapper!
+        .findAll('[data-test="import-value-row"]')
+        .find((r) => r.attributes('data-value-id')!.endsWith('tripod'))!
+    await tripod().find('select').setValue('match:camera')
+    await flushPromises()
+
+    wrapper!.unmount()
+    api.get.mockResolvedValue(checkedJob({ updated_at: '2026-10-15T05:00:00Z' }))
+    await mountAt('/admin/data-import/csv?job=job-1&step=values')
+    expect(currentStep()).toBe('values')
+    expect((tripod().find('select').element as HTMLSelectElement).value).not.toBe('match:camera')
   })
 
   it('counts live in the strip and stores the answers on Check again', async () => {

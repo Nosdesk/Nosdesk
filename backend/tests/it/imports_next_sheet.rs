@@ -371,3 +371,33 @@ async fn refusals() {
     assert_eq!(body["code"], "import_details_pruned", "{body}");
     assert!(get_job(&pool, ws, &id).await.get("next_sheet").is_none());
 }
+
+/// A next sheet's draft can't switch with `PUT source` to a sheet already
+/// imported from the same upload; a sheet nothing imported still reads.
+#[actix_web::test]
+async fn a_next_sheet_draft_cannot_switch_to_an_imported_sheet() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    let cameras = committed_cameras(&pool, &ws).await;
+    let (status, vehicles) = call(&pool, &ws, next_sheet(&id_of(&cameras), "Vehicles")).await;
+    assert_eq!(status, StatusCode::CREATED, "{vehicles}");
+    let draft = id_of(&vehicles);
+
+    let source = |sheet: &str| {
+        TestRequest::put()
+            .uri(&format!("/api/admin/import/{draft}/source"))
+            .set_json(serde_json::json!({ "sheet": sheet }))
+    };
+    let (status, body) = call(&pool, &ws, source("Cameras")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["code"], "import_sheet_already_imported", "{body}");
+    assert_eq!(
+        get_job(&pool, &ws, &draft).await["source"]["sheet"],
+        "Vehicles"
+    );
+
+    let (status, body) = call(&pool, &ws, source("Misc")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["source"]["sheet"], "Misc", "{body}");
+}

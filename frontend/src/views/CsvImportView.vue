@@ -51,6 +51,7 @@ import ImportValuesStep from '@/components/import/ImportValuesStep.vue'
 import { detailPath, doneHeadline, reportOffered } from '@/components/import/historyModel'
 import ImportRemoveBlock from '@/components/import/ImportRemoveBlock.vue'
 import ImportSignInLine from '@/components/import/ImportSignInLine.vue'
+import { errorBody, refusalText } from '@/components/import/refusals'
 import { outcomes, planDelta, webhookHearsAssets } from '@/components/import/reviewModel'
 import { cards as valueCards, needsValues } from '@/components/import/valuesModel'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
@@ -176,6 +177,8 @@ const webhooksHearAssets = computed(() => webhookHearsAssets(webhooksQuery.data.
 /** The field whose card Match values opens on: Review's "Fix at Match
  *  values". */
 const valuesFocus = ref<string | null>(null)
+/** The field Map columns opens on: Review's "Fix at Map columns". */
+const mapFocus = ref<string | null>(null)
 
 const STEPS = computed<Step[]>(() =>
   valuesStepShown.value
@@ -276,9 +279,10 @@ onMounted(() => {
   if (typeof id === 'string' && id) resume(id)
 })
 
+/** A failed request in words: a refusal by its code, else the server's
+ *  message. */
 function apiError(e: unknown, fallbackKey: string): string {
-  const err = e as { response?: { data?: { error?: string } } }
-  return err?.response?.data?.error ?? (e instanceof Error ? e.message : t(fallbackKey))
+  return refusalText(t, errorBody(e)) ?? (e instanceof Error ? e.message : t(fallbackKey))
 }
 
 /** A step that failed: a draft whose file is gone goes back to Start to
@@ -420,6 +424,7 @@ async function switchType(type: ImportJobType) {
 
 async function check(mapping: ColumnMapping, options: ImportOptions, ignored: number[]) {
   if (!job.value) return
+  mapFocus.value = null
   busy.value = 'check'
   errorMessage.value = ''
   commitNotice.value = ''
@@ -557,7 +562,10 @@ async function downloadReport(only?: { group?: number; dropped?: number[] }) {
     document.body.removeChild(link)
     URL.revokeObjectURL(link.href)
   } catch (e) {
-    errorMessage.value = apiError(e, 'import-error-report-failed')
+    errorMessage.value =
+      errorBody(e)?.code === 'import_file_missing'
+        ? t('import-file-missing')
+        : apiError(e, 'import-error-report-failed')
   } finally {
     downloadingReport.value = false
   }
@@ -651,7 +659,15 @@ function goTo(target: Step) {
   errorMessage.value = ''
   commitNotice.value = ''
   if (target === 'values') valuesFocus.value = null
+  if (target === 'map') mapFocus.value = null
   step.value = target
+}
+
+/** Review's "Fix at Map columns": Map columns, at the field. */
+function fixMap(field: string | null) {
+  if (!canGoTo('map')) return
+  goTo('map')
+  mapFocus.value = field
 }
 
 // ---- done ----
@@ -884,6 +900,7 @@ function viewImported() {
           :checking="busy === 'check'"
           :switching="busy === 'type'"
           :discarding="busy === 'discard'"
+          :focus-field="mapFocus"
           @check="check"
           @switch-type="switchType"
           @change-file="changeFile"
@@ -929,7 +946,7 @@ function viewImported() {
         @back="goTo('map')"
         @see-values="seeValues"
         @fix-values="fixValues"
-        @fix-map="goTo('map')"
+        @fix-map="fixMap"
         @commit="commit"
         @download-report="downloadReport"
       />
@@ -999,7 +1016,7 @@ function viewImported() {
           </Button>
         </div>
 
-        <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" />
+        <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" @refreshed="onRemoved" />
 
         <p class="text-sm">
           <RouterLink :class="linkClass" to="/admin/data-import" data-test="import-done-recent">

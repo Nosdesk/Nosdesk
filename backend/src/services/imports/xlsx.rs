@@ -74,39 +74,35 @@ impl FileFormat {
     }
 }
 
-/// Why a workbook can't be imported, worded for the admin.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Refused(pub String);
-
-impl std::fmt::Display for Refused {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for Refused {}
-
-fn refused(message: impl Into<String>) -> Refused {
-    Refused(message.into())
-}
+pub use super::refusal::Refused;
 
 /// The refusal for an OLE compound file.
 pub const PROTECTED_OR_XLS: &str =
     "This file is password-protected or an older .xls workbook. Save it as .xlsx without a password and upload it again.";
 
+fn protected() -> Refused {
+    Refused::new("import_xlsx_protected", PROTECTED_OR_XLS)
+}
+
 fn unreadable() -> Refused {
-    refused("This workbook can't be read. Open it in Excel, save it as .xlsx and upload it again.")
+    Refused::new(
+        "import_xlsx_unreadable",
+        "This workbook can't be read. Open it in Excel, save it as .xlsx and upload it again.",
+    )
 }
 
 fn too_large() -> Refused {
-    refused("This workbook is too large once unpacked. Copy the sheet you need into a new workbook and upload that.")
+    Refused::new(
+        "import_xlsx_too_large",
+        "This workbook is too large once unpacked. Copy the sheet you need into a new workbook and upload that.",
+    )
 }
 
 /// Tell a workbook from a CSV. A zip is taken for a workbook; anything
 /// that isn't a zip or an OLE file is read as CSV.
 pub fn detect(bytes: &[u8]) -> Result<FileFormat, Refused> {
     if bytes.starts_with(&CFB_MAGIC) {
-        return Err(refused(PROTECTED_OR_XLS));
+        return Err(protected());
     }
     if bytes.starts_with(&ZIP_MAGIC) {
         return Ok(FileFormat::Xlsx);
@@ -133,10 +129,14 @@ fn part_needed(name: &str) -> bool {
 pub fn repack(bytes: &[u8]) -> Result<Vec<u8>, Refused> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_| unreadable())?;
     if archive.len() > MAX_ENTRIES {
-        return Err(refused(format!(
-            "This workbook holds more than {} parts, so it can't be imported. Copy the sheet you need into a new workbook and upload that.",
-            fmt_count(MAX_ENTRIES)
-        )));
+        return Err(Refused::new(
+            "import_xlsx_too_many_parts",
+            format!(
+                "This workbook holds more than {} parts, so it can't be imported. Copy the sheet you need into a new workbook and upload that.",
+                fmt_count(MAX_ENTRIES)
+            ),
+        )
+        .arg("max", MAX_ENTRIES));
     }
     let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default()
@@ -149,7 +149,7 @@ pub fn repack(bytes: &[u8]) -> Result<Vec<u8>, Refused> {
         let name = {
             let raw = archive.by_index_raw(i).map_err(|_| unreadable())?;
             if raw.encrypted() {
-                return Err(refused(PROTECTED_OR_XLS));
+                return Err(protected());
             }
             raw.name().to_string()
         };
@@ -192,8 +192,7 @@ pub struct Workbook {
 }
 
 /// Read an uploaded workbook into the grid of one sheet: the chosen one,
-/// or the first visible sheet with rows that import (a hidden sheet only
-/// when no visible one has any).
+/// or the first visible sheet with rows that import.
 pub fn read(bytes: &[u8], choice: Option<&SheetChoice>) -> Result<Workbook, Refused> {
     if detect(bytes)? != FileFormat::Xlsx {
         return Err(unreadable());
@@ -206,10 +205,11 @@ pub fn read(bytes: &[u8], choice: Option<&SheetChoice>) -> Result<Workbook, Refu
                 .iter()
                 .position(|s| s.name == choice.sheet)
                 .ok_or_else(|| {
-                    refused(format!(
-                        "This workbook has no sheet named '{}'.",
-                        choice.sheet
-                    ))
+                    Refused::new(
+                        "import_sheet_unknown",
+                        format!("This workbook has no sheet named '{}'.", choice.sheet),
+                    )
+                    .arg("sheet", choice.sheet.clone())
                 })?;
             let sheet = &sheets[index];
             let header_row = match choice.header_row {
@@ -217,8 +217,13 @@ pub fn read(bytes: &[u8], choice: Option<&SheetChoice>) -> Result<Workbook, Refu
                     .ok()
                     .filter(|r| *r >= 1)
                     .ok_or_else(|| empty_header(sheet, row))?,
-                None => guess_header_row(&sheet.rows)
-                    .ok_or_else(|| refused(format!("The sheet '{}' is empty.", sheet.name)))?,
+                None => guess_header_row(&sheet.rows).ok_or_else(|| {
+                    Refused::new(
+                        "import_sheet_empty",
+                        format!("The sheet '{}' is empty.", sheet.name),
+                    )
+                    .arg("sheet", sheet.name.clone())
+                })?,
             };
             (index, header_row, build_grid(sheet, header_row)?)
         }
@@ -257,23 +262,22 @@ pub fn read(bytes: &[u8], choice: Option<&SheetChoice>) -> Result<Workbook, Refu
     Ok(Workbook { grid, source })
 }
 
-/// The sheet an upload opens on: visible sheets first, in workbook order,
-/// then hidden ones; the first with data under its guessed header that
-/// builds. When every sheet with data fails, the first failure says why.
+/// Whether a sheet has rows under its guessed header.
+fn has_data(sheet: &ScannedSheet) -> Option<u32> {
+    guess_header_row(&sheet.rows).filter(|&header_row| sheet.data_rows(header_row) > 0)
+}
+
+/// The sheet an upload opens on: the first visible sheet, in workbook
+/// order, with data under its guessed header that builds. When every
+/// visible sheet with data fails, the first failure says why. A hidden
+/// sheet is never opened: when only hidden sheets hold data, the refusal
+/// says to unhide one.
 fn default_sheet(sheets: &[ScannedSheet]) -> Result<(usize, u32, BuiltGrid), Refused> {
-    let order = sheets
-        .iter()
-        .enumerate()
-        .filter(|(_, s)| s.visible)
-        .chain(sheets.iter().enumerate().filter(|(_, s)| !s.visible));
     let mut first_error = None;
-    for (index, sheet) in order {
-        let Some(header_row) = guess_header_row(&sheet.rows) else {
+    for (index, sheet) in sheets.iter().enumerate().filter(|(_, s)| s.visible) {
+        let Some(header_row) = has_data(sheet) else {
             continue;
         };
-        if sheet.data_rows(header_row) == 0 {
-            continue;
-        }
         match build_grid(sheet, header_row) {
             Ok(built) => return Ok((index, header_row, built)),
             Err(e) => {
@@ -281,18 +285,31 @@ fn default_sheet(sheets: &[ScannedSheet]) -> Result<(usize, u32, BuiltGrid), Ref
             }
         }
     }
-    Err(first_error.unwrap_or_else(|| {
-        refused(
-            "This workbook has no rows to import. Check that the data is on a worksheet and saved.",
-        )
-    }))
+    if let Some(e) = first_error {
+        return Err(e);
+    }
+    if sheets.iter().any(|s| !s.visible && has_data(s).is_some()) {
+        return Err(Refused::new(
+            "import_sheets_hidden",
+            "The rows in this workbook are on hidden sheets. Unhide the sheet to import and upload the file again.",
+        ));
+    }
+    Err(Refused::new(
+        "import_xlsx_no_rows",
+        "This workbook has no rows to import. Check that the data is on a worksheet and saved.",
+    ))
 }
 
 fn empty_header(sheet: &ScannedSheet, row: usize) -> Refused {
-    refused(format!(
-        "Row {row} of '{}' is empty. Choose the row that holds the column headers.",
-        sheet.name
-    ))
+    Refused::new(
+        "import_header_row_empty",
+        format!(
+            "Row {row} of '{}' is empty. Choose the row that holds the column headers.",
+            sheet.name
+        ),
+    )
+    .arg("row", row.to_string())
+    .arg("sheet", sheet.name.clone())
 }
 
 // ---- scanning ----
@@ -575,23 +592,38 @@ fn build_grid(sheet: &ScannedSheet, header_row: u32) -> Result<BuiltGrid, Refuse
         .map(|(&row, r)| (row, r))
         .collect();
     if sheet.truncated || data.len() > MAX_ROWS {
-        return Err(refused(format!(
-            "The sheet '{}' has more than {} rows under its header. Split it into smaller sheets and import them one at a time.",
-            sheet.name,
-            fmt_count(MAX_ROWS)
-        )));
+        return Err(Refused::new(
+            "import_sheet_too_many_rows",
+            format!(
+                "The sheet '{}' has more than {} rows under its header. Split it into smaller sheets and import them one at a time.",
+                sheet.name,
+                fmt_count(MAX_ROWS)
+            ),
+        )
+        .arg("sheet", sheet.name.clone())
+        .arg("max", MAX_ROWS));
     }
     if data.is_empty() {
-        return Err(refused(format!(
-            "There are no rows under the header row (row {header_row}) of '{}'.",
-            sheet.name
-        )));
+        return Err(Refused::new(
+            "import_sheet_no_rows",
+            format!(
+                "There are no rows under the header row (row {header_row}) of '{}'.",
+                sheet.name
+            ),
+        )
+        .arg("row", header_row.to_string())
+        .arg("sheet", sheet.name.clone()));
     }
     let too_wide = |width: String| {
-        refused(format!(
-            "The sheet '{}' has {width} columns from the header row down; an import takes at most {MAX_COLUMNS}.",
-            sheet.name
-        ))
+        Refused::new(
+            "import_sheet_too_wide",
+            format!(
+                "The sheet '{}' has {width} columns from the header row down; an import takes at most {MAX_COLUMNS}.",
+                sheet.name
+            ),
+        )
+        .arg("sheet", sheet.name.clone())
+        .arg("max", MAX_COLUMNS)
     };
     if header.overflow || data.iter().any(|(_, r)| r.overflow) {
         return Err(too_wide(format!("more than {MAX_SCAN_COLUMN}")));
@@ -614,10 +646,15 @@ fn build_grid(sheet: &ScannedSheet, header_row: u32) -> Result<BuiltGrid, Refuse
     for cell in &header.cells {
         let at = (cell.col - first) as usize;
         if cell.kind == CellKind::TooLong || cell.value.chars().count() > MAX_HEADER_CHARS {
-            return Err(refused(format!(
-                "The header in column {} is longer than {MAX_HEADER_CHARS} characters.",
-                column_letter(cell.col)
-            )));
+            return Err(Refused::new(
+                "import_header_too_long",
+                format!(
+                    "The header in column {} is longer than {MAX_HEADER_CHARS} characters.",
+                    column_letter(cell.col)
+                ),
+            )
+            .arg("column", column_letter(cell.col))
+            .arg("max", MAX_HEADER_CHARS));
         }
         header_text[at] = cell.value.clone();
     }
@@ -659,11 +696,17 @@ fn build_grid(sheet: &ScannedSheet, header_row: u32) -> Result<BuiltGrid, Refuse
                 continue;
             };
             if cell.kind == CellKind::TooLong {
-                return Err(refused(format!(
-                    "Row {row_number}, column '{}' is longer than {} characters.",
-                    headers[index],
-                    fmt_count(MAX_CELL_CHARS)
-                )));
+                return Err(Refused::new(
+                    "import_cell_too_long",
+                    format!(
+                        "Row {row_number}, column '{}' is longer than {} characters.",
+                        headers[index],
+                        fmt_count(MAX_CELL_CHARS)
+                    ),
+                )
+                .arg("row", row_number.to_string())
+                .arg("column", headers[index].clone())
+                .arg("max", MAX_CELL_CHARS));
             }
             if cell.kind == CellKind::Error {
                 cell_errors.push(index);
@@ -883,7 +926,7 @@ mod tests {
         assert_eq!(detect(b"name,kind\n"), Ok(FileFormat::Csv));
         assert_eq!(
             detect(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1]),
-            Err(Refused(PROTECTED_OR_XLS.to_string()))
+            Err(protected())
         );
     }
 
@@ -975,6 +1018,27 @@ mod tests {
         assert_eq!(source.preview[2].cells[1], "Name");
     }
 
+    /// Data on hidden sheets only: the upload is refused, never opened on a
+    /// hidden sheet; an empty visible sheet beside it changes nothing.
+    #[test]
+    fn hidden_sheets_alone_are_refused() {
+        let mut wb = XlWorkbook::new();
+        {
+            let ws = wb.add_worksheet();
+            ws.set_name("Notes").expect("name");
+        }
+        {
+            let ws = wb.add_worksheet();
+            ws.set_name("Data").expect("name");
+            ws.set_hidden(true);
+            ws.write_string(0, 0, "Name").expect("write");
+            ws.write_string(1, 0, "Camera A").expect("write");
+        }
+        let bytes = wb.save_to_buffer().expect("save");
+        let err = super::read(&bytes, None).unwrap_err();
+        assert_eq!(err.code, "import_sheets_hidden", "{err}");
+    }
+
     #[test]
     fn a_chosen_sheet_and_header_row_are_read() {
         let bytes = sample_workbook();
@@ -1010,7 +1074,8 @@ mod tests {
             }),
         )
         .unwrap_err();
-        assert!(err.0.contains("Row 2 of 'Cameras' is empty"), "{err}");
+        assert!(err.message.contains("Row 2 of 'Cameras' is empty"), "{err}");
+        assert_eq!(err.code, "import_header_row_empty");
         let err = super::read(
             &bytes,
             Some(&SheetChoice {
@@ -1019,7 +1084,8 @@ mod tests {
             }),
         )
         .unwrap_err();
-        assert!(err.0.contains("no sheet named 'Nope'"), "{err}");
+        assert!(err.message.contains("no sheet named 'Nope'"), "{err}");
+        assert_eq!(err.code, "import_sheet_unknown");
     }
 
     #[test]
@@ -1032,6 +1098,8 @@ mod tests {
         }
         let bytes = zip.finish().expect("finish").into_inner();
         let err = repack(&bytes).unwrap_err();
-        assert!(err.0.contains("more than 10,000 parts"), "{err}");
+        assert!(err.message.contains("more than 10,000 parts"), "{err}");
+        assert_eq!(err.code, "import_xlsx_too_many_parts");
+        assert_eq!(err.args["max"], 10_000);
     }
 }

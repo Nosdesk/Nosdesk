@@ -8,6 +8,11 @@
  * The counts come from the server when the button is pressed, so the
  * dialog never shows a stale plan; the removal checks again under its
  * locks before it deletes anything.
+ *
+ * A removal that fails is read back before it is called failed: another
+ * admin may have removed the assets already, and a request that timed out
+ * or found the removal still running is waited on until the job says it
+ * ran.
  */
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -35,6 +40,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'removed', job: ImportJob): void
+  /** The job as it is now, read again after a refusal. */
+  (e: 'refreshed', job: ImportJob): void
 }>()
 
 const fluent = useFluent()
@@ -57,10 +64,67 @@ const showDialog = ref(false)
 const checking = ref(false)
 const removing = ref(false)
 const errorMessage = ref('')
+/** The removal is still running on the server and is being waited on. */
+const waiting = ref(false)
 
 function codeOf(e: unknown): { status?: number; code?: string } {
   const response = (e as { response?: { status?: number; data?: { code?: string } } })?.response
   return { status: response?.status, code: response?.data?.code }
+}
+
+/** Seconds between reads while a removal still runs, and how many. */
+const POLL_MS = 2000
+const POLL_LIMIT = 150
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** The job as it is now; `null` when it can't be read. */
+async function reread(): Promise<ImportJob | null> {
+  try {
+    return await importService.get(props.job.id)
+  } catch {
+    return null
+  }
+}
+
+const hasRun = (j: ImportJob | null): j is ImportJob => !!j && (!!j.removed_at || !!j.remove_result)
+
+/** The request may have reached a server still removing: no answer, a
+ *  gateway timeout, or the job's lock held. */
+function mayStillRun(e: unknown): boolean {
+  const { status, code } = codeOf(e)
+  return status === undefined || status === 502 || status === 503 || status === 504 || code === 'import_busy'
+}
+
+/** Read the job until the removal shows on it, or give up. */
+async function waitForRemoval() {
+  waiting.value = true
+  try {
+    for (let i = 0; i < POLL_LIMIT; i++) {
+      await sleep(POLL_MS)
+      const found = await reread()
+      if (hasRun(found)) {
+        emit('removed', found)
+        return
+      }
+    }
+    errorMessage.value = t('import-remove-still-running-later')
+  } finally {
+    waiting.value = false
+  }
+}
+
+/** A refusal that means the job moved on: say so and show it as it is. */
+async function refusedAfterChange(code: string | undefined): Promise<boolean> {
+  if (code === 'import_already_removed') {
+    errorMessage.value = t('import-remove-already-removed')
+  } else if (code === 'import_removal_window_closed') {
+    errorMessage.value = t('import-remove-window-closed', { date: closesOn.value })
+  } else {
+    return false
+  }
+  const found = await reread()
+  if (found) emit('refreshed', found)
+  return true
 }
 
 async function openDialog() {
@@ -71,11 +135,7 @@ async function openDialog() {
     plan.value = await importService.removalPlan(props.job.id)
     showDialog.value = true
   } catch (e) {
-    const { code } = codeOf(e)
-    errorMessage.value =
-      code === 'import_removal_window_closed'
-        ? t('import-remove-window-closed', { date: closesOn.value })
-        : t('import-remove-load-failed')
+    if (!(await refusedAfterChange(codeOf(e).code))) errorMessage.value = t('import-remove-load-failed')
   } finally {
     checking.value = false
   }
@@ -91,11 +151,15 @@ async function confirm() {
     emit('removed', updated)
   } catch (e) {
     showDialog.value = false
-    const { code } = codeOf(e)
-    errorMessage.value =
-      code === 'import_removal_window_closed'
-        ? t('import-remove-window-closed', { date: closesOn.value })
-        : t('import-remove-failed')
+    if (await refusedAfterChange(codeOf(e).code)) return
+    if (mayStillRun(e)) {
+      await waitForRemoval()
+      return
+    }
+    // Read back before calling it failed: it may have run all the same.
+    const found = await reread()
+    if (hasRun(found)) emit('removed', found)
+    else errorMessage.value = t('import-remove-failed')
   } finally {
     removing.value = false
   }
@@ -140,7 +204,7 @@ const keptReason = (k: KeptAsset) => (k.reasons[0] ? reasonLine(t, k.reasons[0],
     <div v-else class="flex flex-wrap items-center gap-x-3 gap-y-1">
       <Button
         variant="ghost-danger"
-        :loading="checking"
+        :loading="checking || waiting"
         data-test="import-remove-button"
         @click="openDialog"
       >
@@ -151,6 +215,9 @@ const keptReason = (k: KeptAsset) => (k.reasons[0] ? reasonLine(t, k.reasons[0],
       </span>
     </div>
 
+    <p v-if="waiting" role="status" class="text-sm text-secondary" data-test="import-remove-waiting">
+      {{ $t('import-remove-still-running') }}
+    </p>
     <ErrorBanner v-if="errorMessage" :message="errorMessage" />
 
     <ConfirmModal

@@ -2602,6 +2602,8 @@ user-mgmt-grouping-joined-this-year = This year
 user-mgmt-grouping-joined-older = Earlier
 user-mgmt-role-admin = Beheerder
 user-mgmt-role-technician = Agent
+# MT: pending native review (nl-NL)
+user-mgmt-role-audit_reviewer = Auditbeoordelaar
 user-mgmt-role-user = Gebruiker
 user-mgmt-column-user = Gebruiker
 user-mgmt-column-email = E-mailadres
@@ -3484,115 +3486,13 @@ collection-delete-title = { $name } verwijderen?
 collection-delete-title-fallback = Collectie verwijderen?
 collection-delete-confirm = Verwijderen
 
-# CSV import (CsvImportView): admin page for importing users,
-# devices, or tickets from CSV. Covers the page header, status
-# messages, action buttons, the import status card, guideline
-# panels, the template list, and both modals (file upload and
-# template download).
+# CSV import (CsvImportView): the back link and the names of the
+# import types.
 csv-import-back = Terug naar Gegevensimport
-csv-import-title = CSV-import
-csv-import-subtitle = Importeer gegevens uit CSV-bestanden in je systeem
 
-# Phase 1 wizard: upload -> review -> done.
-csv-import-step-upload = Upload
-csv-import-step-review = Review
-csv-import-step-done = Done
-csv-import-step-upload-heading = Upload your CSV
-csv-import-type-label = What are you importing?
 csv-import-type-assets = Assets
 csv-import-type-users = Users
 csv-import-type-tickets = Tickets
-csv-import-type-coming-soon = coming soon
-csv-import-template-label = Start with our template
-csv-import-template-help = The CSV needs to use these exact column headers. Download the empty template, fill it in, then upload it here.
-csv-import-template-button = Download template
-csv-import-file-label = Choose your file
-csv-import-drop-zone-idle = Drop a CSV here, or click to browse
-csv-import-drop-here = Release to upload
-# MT: pending native review (nl-NL)
-csv-import-drop-zone-hint = .csv tot 10 MB en 5.000 rijen
-csv-import-drop-zone-replace = Click or drop another file to replace
-csv-import-error-not-csv = "{ $name }" is not a CSV file
-csv-import-action-validate = Validate
-csv-import-summary-rows = Rows in file
-csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
-csv-import-summary-create = Will create
-csv-import-summary-update = Will update
-csv-import-errors-heading = { $count ->
-    [one] 1 rij bevat fouten en wordt overgeslagen
-   *[other] { $count } rijen bevatten fouten en worden overgeslagen
-}
-csv-import-errors-truncated = showing first 100
-csv-import-errors-row = Row
-csv-import-errors-column = Column
-csv-import-errors-message = Message
-csv-import-action-discard = Discard
-csv-import-action-apply = Apply ({ $count } rows)
-csv-import-action-new = New import
-csv-import-action-view-assets = View assets
-csv-import-action-view-users = View users
-csv-import-action-view-tickets = View tickets
-csv-import-done-heading = Import complete
-csv-import-done-body = { $count ->
-    [one] 1 rij geïmporteerd.
-   *[other] { $count } rijen geïmporteerd.
-}
-csv-import-done-skipped = { $count ->
-    [one] 1 rij is overgeslagen omdat deze fouten bevatte.
-   *[other] { $count } rijen zijn overgeslagen omdat ze fouten bevatten.
-}
-csv-import-error-generic = Import failed. Check the file and try again.
-csv-import-error-commit-failed = Apply failed; rows were not committed.
-csv-import-action-import = Gegevens importeren
-csv-import-action-templates = Sjablonen downloaden
-csv-import-status-heading = Importstatus
-csv-import-status-success = Import voltooid
-csv-import-status-in-progress = Import bezig
-csv-import-status-error = Import mislukt
-csv-import-last-import = Laatste import: { $date }
-csv-import-results-total = Totaal aantal records
-csv-import-results-successful = Geslaagd
-csv-import-results-failed = Mislukt
-csv-import-guidelines-heading = Richtlijnen voor CSV-import
-csv-import-requirements-heading = Vereisten CSV-bestand
-csv-import-requirements-utf8 = Bestanden moeten in CSV-formaat met UTF-8-codering zijn
-csv-import-requirements-headers = De eerste rij moet kolomkoppen bevatten die overeenkomen met de verwachte velden
-csv-import-requirements-required = Verplichte velden mogen niet leeg zijn
-csv-import-requirements-date-format = Datumvelden moeten het formaat JJJJ-MM-DD gebruiken
-csv-import-requirements-max-size = Maximale bestandsgrootte: 10 MB
-csv-import-notes-heading = Belangrijke opmerkingen
-csv-import-notes-updates = Bestaande records worden bijgewerkt als ze een unieke identifier delen (zoals e-mail of ID)
-csv-import-notes-validation = Gegevensvalidatie wordt vóór de import uitgevoerd, records met ongeldige gegevens worden overgeslagen
-csv-import-notes-duration = Grote imports kunnen enkele minuten duren
-csv-import-notes-templates = Download en gebruik onze sjablonen voor de juiste opmaak
-csv-import-templates-heading = Beschikbare sjablonen
-csv-import-templates-intro = Gebruik deze sjablonen als startpunt voor je CSV-imports
-csv-import-template-users-name = Sjabloon Gebruikers
-csv-import-template-users-description = Importeer gebruikersaccounts met rollen en contactgegevens
-csv-import-template-devices-name = Activasjabloon
-csv-import-template-devices-description = Importeer activa met hardwaregegevens en eigendomsinformatie
-csv-import-template-tickets-name = Sjabloon Tickets
-csv-import-template-tickets-description = Importeer supporttickets met details en toegewezen personen
-csv-import-template-download = Downloaden
-csv-import-modal-import-title = Gegevens uit CSV importeren
-csv-import-modal-data-type = Type gegevens
-csv-import-modal-type-users = Gebruikers
-csv-import-modal-type-devices = Activa
-csv-import-modal-type-tickets = Tickets
-csv-import-modal-file-label = CSV-bestand
-csv-import-modal-upload-link = Een bestand uploaden
-csv-import-modal-drag-drop = of versleep het hierheen
-csv-import-modal-size-hint = CSV-bestanden tot 10 MB
-csv-import-modal-cancel = Annuleren
-csv-import-modal-start = Import starten
-csv-import-modal-starting = Bezig met importeren...
-csv-import-modal-templates-title = CSV-sjablonen
-csv-import-modal-templates-intro = Download onze CSV-sjablonen zodat je gegevens correct worden opgemaakt voor de import.
-csv-import-modal-fields-count = { $count ->
-    [one] { $count } veld
-   *[other] { $count } velden
-   }
-csv-import-modal-close = Sluiten
 
 # Import wizard (Start, Upload, Map, Review, Done). Field labels
 # (import-field-<type>-<id>) name the targets a column maps to; the
@@ -3633,6 +3533,60 @@ import-commit-not-finished = De import is niet voltooid en er is niets geïmport
 import-commit-still-running-later = De import duurt langer dan verwacht. Kom later terug naar deze pagina om te zien hoe hij is afgelopen.
 # MT: pending native review (nl-NL)
 import-error-not-csv = { $name } is geen .csv- of .xlsx-bestand.
+# MT: pending native review (nl-NL)
+import-refused-file-empty = Het bestand is leeg.
+# MT: pending native review (nl-NL)
+import-refused-file-too-large = Dit bestand is groter dan { $max } MB. Splits het en importeer het in kleinere delen.
+# MT: pending native review (nl-NL)
+import-refused-xlsx-protected = Dit lijkt een met een wachtwoord beveiligde werkmap of een oud .xls-bestand. Sla het op als .xlsx en probeer het opnieuw.
+# MT: pending native review (nl-NL)
+import-refused-xlsx-unreadable = Deze werkmap kan niet worden gelezen. Open hem in Excel, sla hem op als .xlsx en upload hem opnieuw.
+# MT: pending native review (nl-NL)
+import-refused-xlsx-too-large = Deze werkmap is te groot na het uitpakken. Kopieer het blad dat u nodig hebt naar een nieuwe werkmap en upload die.
+# MT: pending native review (nl-NL)
+import-refused-xlsx-too-many-parts = Deze werkmap bevat meer dan { $max } onderdelen en kan daarom niet worden geïmporteerd. Kopieer het blad dat u nodig hebt naar een nieuwe werkmap en upload die.
+# MT: pending native review (nl-NL)
+import-refused-xlsx-no-rows = Deze werkmap heeft geen rijen om te importeren. Controleer of de gegevens op een werkblad staan en zijn opgeslagen.
+# MT: pending native review (nl-NL)
+import-refused-sheets-hidden = De rijen in deze werkmap staan op verborgen bladen. Maak het blad dat u wilt importeren zichtbaar en upload het bestand opnieuw.
+# MT: pending native review (nl-NL)
+import-refused-sheet-unknown = Deze werkmap heeft geen blad met die naam.
+# MT: pending native review (nl-NL)
+import-refused-sheet-hidden = Dat blad is verborgen in de werkmap. Maak het zichtbaar en upload het bestand opnieuw.
+# MT: pending native review (nl-NL)
+import-refused-sheet-already-imported = Dat blad is al uit dit bestand geïmporteerd.
+# MT: pending native review (nl-NL)
+import-refused-sheet-empty = Het blad '{ $sheet }' is leeg.
+# MT: pending native review (nl-NL)
+import-refused-header-row-empty = Rij { $row } van '{ $sheet }' is leeg. Kies de rij met de kolomkoppen.
+# MT: pending native review (nl-NL)
+import-refused-sheet-too-many-rows = Het blad '{ $sheet }' heeft meer dan { $max } rijen onder de koprij. Splits het in kleinere bladen en importeer ze een voor een.
+# MT: pending native review (nl-NL)
+import-refused-sheet-no-rows = Er staan geen rijen onder de koprij (rij { $row }) van '{ $sheet }'.
+# MT: pending native review (nl-NL)
+import-refused-sheet-too-wide = Het blad '{ $sheet }' heeft meer kolommen dan een import aankan. De limiet is { $max }.
+# MT: pending native review (nl-NL)
+import-refused-header-too-long = De kop in kolom { $column } is langer dan { $max } tekens.
+# MT: pending native review (nl-NL)
+import-refused-cell-too-long = Rij { $row }, kolom '{ $column }' is langer dan { $max } tekens.
+# MT: pending native review (nl-NL)
+import-refused-csv-unreadable = Dit bestand kan niet als CSV worden gelezen. Sla het op als CSV of .xlsx en upload het opnieuw.
+# MT: pending native review (nl-NL)
+import-refused-csv-not-utf8 = Deze CSV is geen UTF-8. Upload in plaats daarvan het .xlsx-bestand, of sla de CSV op als UTF-8.
+# MT: pending native review (nl-NL)
+import-refused-no-header = Het bestand heeft geen koprij.
+# MT: pending native review (nl-NL)
+import-refused-header-duplicate = De kolom '{ $name }' komt meer dan eens voor in de koprij. Hernoem of verwijder er een.
+# MT: pending native review (nl-NL)
+import-refused-header-blank = Kolom { $column } heeft waarden maar geen kop. Geef hem een naam of verwijder de kolom.
+# MT: pending native review (nl-NL)
+import-refused-too-many-columns = Het bestand heeft { $count } kolommen. De limiet is { $max }.
+# MT: pending native review (nl-NL)
+import-refused-too-many-rows = Het bestand heeft meer dan { $max } gegevensrijen. Splits het en importeer het in kleinere delen.
+# MT: pending native review (nl-NL)
+import-refused-no-rows = Het bestand heeft een koprij maar geen gegevens.
+# MT: pending native review (nl-NL)
+import-refused-timed-out = Het lezen van dit bestand duurde te lang. Kopieer het blad dat u nodig hebt naar een nieuw bestand en upload dat.
 # MT: pending native review (nl-NL)
 import-start-type-heading = Wat wilt u importeren?
 # MT: pending native review (nl-NL)
@@ -3883,7 +3837,11 @@ import-map-blocked = { $count ->
 # MT: pending native review (nl-NL)
 import-options-heading = Importinstellingen
 # MT: pending native review (nl-NL)
-import-options-match-label = Bestaande activa zoeken op
+import-options-match-label = { $type ->
+    [users] Bestaande gebruikers zoeken op
+    [tickets] Bestaande tickets
+   *[other] Bestaande activa zoeken op
+   }
 # MT: pending native review (nl-NL)
 import-options-match-asset-tag = Activalabel
 # MT: pending native review (nl-NL)
@@ -4114,6 +4072,10 @@ import-values-ambiguous = Komt overeen met meer dan één: { $labels }. Kies er 
 import-values-both-new = Beide zouden worden aangemaakt. Kies één spelling.
 # MT: pending native review (nl-NL)
 import-values-recomputed = Opnieuw berekend na je antwoorden voor { $header }
+# MT: pending native review (nl-NL)
+import-values-preview-failed = De modellen konden niet worden bijgewerkt voor uw antwoorden bij { $header }. Ze zijn mogelijk niet actueel.
+# MT: pending native review (nl-NL)
+import-values-preview-retry = Opnieuw proberen
 # MT: pending native review (nl-NL)
 import-values-under = onder { $manufacturer }
 # MT: pending native review (nl-NL)
@@ -4751,6 +4713,12 @@ import-remove-load-failed = De geïmporteerde assets konden niet worden gecontro
 # MT: pending native review (nl-NL)
 import-remove-failed = Het verwijderen van de geïmporteerde assets is mislukt en er is niets verwijderd.
 # MT: pending native review (nl-NL)
+import-remove-already-removed = De activa die deze import heeft gemaakt, zijn al verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-still-running = Nog bezig met verwijderen. Deze pagina wordt bijgewerkt zodra het klaar is.
+# MT: pending native review (nl-NL)
+import-remove-still-running-later = Het verwijderen duurt langer dan verwacht. Kom later terug naar deze pagina om te zien hoe het is afgelopen.
+# MT: pending native review (nl-NL)
 import-remove-title = { $count ->
     [one] 1 asset verwijderen?
    *[other] { $count } assets verwijderen?
@@ -4942,10 +4910,6 @@ import-field-tickets-requester-email = E-mail aanvrager
 import-field-tickets-assignee-email = E-mail toegewezene
 # MT: pending native review (nl-NL)
 import-field-tickets-category = Categorie
-csv-import-error-no-file = Selecteer een bestand om te importeren
-csv-import-error-failed = Import mislukt
-csv-import-success-completed = Import succesvol voltooid
-csv-import-toast-template-downloaded = Sjabloon { $type } gedownload
 
 # Error page (ErrorView)
 error-page-default-code = 404

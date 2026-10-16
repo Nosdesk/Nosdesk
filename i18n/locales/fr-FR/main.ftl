@@ -2606,6 +2606,8 @@ user-mgmt-grouping-joined-this-year = This year
 user-mgmt-grouping-joined-older = Earlier
 user-mgmt-role-admin = Administrateur
 user-mgmt-role-technician = Agent
+# MT: pending native review (fr-FR)
+user-mgmt-role-audit_reviewer = Réviseur d'audit
 user-mgmt-role-user = Utilisateur
 user-mgmt-column-user = Utilisateur
 user-mgmt-column-email = E-mail
@@ -3494,115 +3496,13 @@ collection-delete-title = Supprimer { $name } ?
 collection-delete-title-fallback = Supprimer la collection ?
 collection-delete-confirm = Supprimer
 
-# CSV import (CsvImportView): admin page for importing users,
-# devices, or tickets from CSV. Covers the page header, status
-# messages, action buttons, the import status card, guideline
-# panels, the template list, and both modals (file upload and
-# template download).
+# CSV import (CsvImportView): the back link and the names of the
+# import types.
 csv-import-back = Retour à l'import de données
-csv-import-title = Import CSV
-csv-import-subtitle = Importez des données depuis des fichiers CSV dans votre système
 
-# Phase 1 wizard: upload -> review -> done.
-csv-import-step-upload = Upload
-csv-import-step-review = Review
-csv-import-step-done = Done
-csv-import-step-upload-heading = Upload your CSV
-csv-import-type-label = What are you importing?
 csv-import-type-assets = Assets
 csv-import-type-users = Users
 csv-import-type-tickets = Tickets
-csv-import-type-coming-soon = coming soon
-csv-import-template-label = Start with our template
-csv-import-template-help = The CSV needs to use these exact column headers. Download the empty template, fill it in, then upload it here.
-csv-import-template-button = Download template
-csv-import-file-label = Choose your file
-csv-import-drop-zone-idle = Drop a CSV here, or click to browse
-csv-import-drop-here = Release to upload
-# MT: pending native review (fr-FR)
-csv-import-drop-zone-hint = .csv jusqu'à 10 Mo et 5 000 lignes
-csv-import-drop-zone-replace = Click or drop another file to replace
-csv-import-error-not-csv = "{ $name }" is not a CSV file
-csv-import-action-validate = Validate
-csv-import-summary-rows = Rows in file
-csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
-csv-import-summary-create = Will create
-csv-import-summary-update = Will update
-csv-import-errors-heading = { $count ->
-    [one] 1 ligne contient des erreurs et sera ignorée
-   *[other] { $count } lignes contiennent des erreurs et seront ignorées
-}
-csv-import-errors-truncated = showing first 100
-csv-import-errors-row = Row
-csv-import-errors-column = Column
-csv-import-errors-message = Message
-csv-import-action-discard = Discard
-csv-import-action-apply = Apply ({ $count } rows)
-csv-import-action-new = New import
-csv-import-action-view-assets = View assets
-csv-import-action-view-users = View users
-csv-import-action-view-tickets = View tickets
-csv-import-done-heading = Import complete
-csv-import-done-body = { $count ->
-    [one] 1 ligne importée.
-   *[other] { $count } lignes importées.
-}
-csv-import-done-skipped = { $count ->
-    [one] 1 ligne a été ignorée car elle contenait des erreurs.
-   *[other] { $count } lignes ont été ignorées car elles contenaient des erreurs.
-}
-csv-import-error-generic = Import failed. Check the file and try again.
-csv-import-error-commit-failed = Apply failed; rows were not committed.
-csv-import-action-import = Importer des données
-csv-import-action-templates = Télécharger les modèles
-csv-import-status-heading = Statut de l'import
-csv-import-status-success = Import terminé
-csv-import-status-in-progress = Import en cours
-csv-import-status-error = Échec de l'import
-csv-import-last-import = Dernier import : { $date }
-csv-import-results-total = Enregistrements au total
-csv-import-results-successful = Réussis
-csv-import-results-failed = Échoués
-csv-import-guidelines-heading = Consignes pour l'import CSV
-csv-import-requirements-heading = Prérequis du fichier CSV
-csv-import-requirements-utf8 = Les fichiers doivent être au format CSV avec encodage UTF-8
-csv-import-requirements-headers = La première ligne doit contenir les en-têtes de colonnes correspondant aux champs attendus
-csv-import-requirements-required = Les champs obligatoires ne doivent pas être vides
-csv-import-requirements-date-format = Les champs de date doivent utiliser le format AAAA-MM-JJ
-csv-import-requirements-max-size = Taille maximale du fichier : 10 Mo
-csv-import-notes-heading = Notes importantes
-csv-import-notes-updates = Les enregistrements existants seront mis à jour s'ils partagent un identifiant unique (comme l'e-mail ou l'ID)
-csv-import-notes-validation = La validation des données est effectuée avant l'import, les enregistrements contenant des données invalides seront ignorés
-csv-import-notes-duration = Pour les imports volumineux, le processus peut prendre plusieurs minutes
-csv-import-notes-templates = Téléchargez et utilisez nos modèles pour garantir un formatage correct
-csv-import-templates-heading = Modèles disponibles
-csv-import-templates-intro = Utilisez ces modèles comme point de départ pour vos imports CSV
-csv-import-template-users-name = Modèle Utilisateurs
-csv-import-template-users-description = Importez des comptes utilisateur avec rôles et coordonnées
-csv-import-template-devices-name = Modèle d'actifs
-csv-import-template-devices-description = Importer des actifs avec les détails matériels et les informations de propriété
-csv-import-template-tickets-name = Modèle Tickets
-csv-import-template-tickets-description = Importez des tickets de support avec détails et personnes assignées
-csv-import-template-download = Télécharger
-csv-import-modal-import-title = Importer des données depuis un CSV
-csv-import-modal-data-type = Type de données
-csv-import-modal-type-users = Utilisateurs
-csv-import-modal-type-devices = Actifs
-csv-import-modal-type-tickets = Tickets
-csv-import-modal-file-label = Fichier CSV
-csv-import-modal-upload-link = Téléverser un fichier
-csv-import-modal-drag-drop = ou glissez-déposez
-csv-import-modal-size-hint = Fichiers CSV jusqu'à 10 Mo
-csv-import-modal-cancel = Annuler
-csv-import-modal-start = Lancer l'import
-csv-import-modal-starting = Import en cours...
-csv-import-modal-templates-title = Modèles CSV
-csv-import-modal-templates-intro = Téléchargez nos modèles CSV pour vous assurer que vos données sont correctement formatées pour l'import.
-csv-import-modal-fields-count = { $count ->
-    [one] { $count } champ
-   *[other] { $count } champs
-   }
-csv-import-modal-close = Fermer
 
 # Import wizard (Start, Upload, Map, Review, Done). Field labels
 # (import-field-<type>-<id>) name the targets a column maps to; the
@@ -3643,6 +3543,60 @@ import-commit-not-finished = L'import ne s'est pas terminé et rien n'a été im
 import-commit-still-running-later = L'import prend plus de temps que prévu. Revenez sur cette page plus tard pour voir le résultat.
 # MT: pending native review (fr-FR)
 import-error-not-csv = { $name } n'est pas un fichier .csv ou .xlsx.
+# MT: pending native review (fr-FR)
+import-refused-file-empty = Le fichier est vide.
+# MT: pending native review (fr-FR)
+import-refused-file-too-large = Ce fichier dépasse { $max } Mo. Divisez-le et importez-le en plusieurs fois.
+# MT: pending native review (fr-FR)
+import-refused-xlsx-protected = Ce fichier semble être un classeur protégé par mot de passe ou un ancien fichier .xls. Enregistrez-le au format .xlsx et réessayez.
+# MT: pending native review (fr-FR)
+import-refused-xlsx-unreadable = Ce classeur ne peut pas être lu. Ouvrez-le dans Excel, enregistrez-le au format .xlsx et importez-le à nouveau.
+# MT: pending native review (fr-FR)
+import-refused-xlsx-too-large = Ce classeur est trop volumineux une fois décompressé. Copiez la feuille dont vous avez besoin dans un nouveau classeur et importez celui-ci.
+# MT: pending native review (fr-FR)
+import-refused-xlsx-too-many-parts = Ce classeur contient plus de { $max } parties et ne peut donc pas être importé. Copiez la feuille dont vous avez besoin dans un nouveau classeur et importez celui-ci.
+# MT: pending native review (fr-FR)
+import-refused-xlsx-no-rows = Ce classeur ne contient aucune ligne à importer. Vérifiez que les données se trouvent sur une feuille de calcul et sont enregistrées.
+# MT: pending native review (fr-FR)
+import-refused-sheets-hidden = Les lignes de ce classeur se trouvent sur des feuilles masquées. Affichez la feuille à importer et importez à nouveau le fichier.
+# MT: pending native review (fr-FR)
+import-refused-sheet-unknown = Ce classeur ne contient aucune feuille portant ce nom.
+# MT: pending native review (fr-FR)
+import-refused-sheet-hidden = Cette feuille est masquée dans le classeur. Affichez-la et importez à nouveau le fichier.
+# MT: pending native review (fr-FR)
+import-refused-sheet-already-imported = Cette feuille a déjà été importée depuis ce fichier.
+# MT: pending native review (fr-FR)
+import-refused-sheet-empty = La feuille « { $sheet } » est vide.
+# MT: pending native review (fr-FR)
+import-refused-header-row-empty = La ligne { $row } de « { $sheet } » est vide. Choisissez la ligne qui contient les en-têtes de colonnes.
+# MT: pending native review (fr-FR)
+import-refused-sheet-too-many-rows = La feuille « { $sheet } » contient plus de { $max } lignes sous son en-tête. Divisez-la en feuilles plus petites et importez-les une par une.
+# MT: pending native review (fr-FR)
+import-refused-sheet-no-rows = Il n'y a aucune ligne sous la ligne d'en-tête (ligne { $row }) de « { $sheet } ».
+# MT: pending native review (fr-FR)
+import-refused-sheet-too-wide = La feuille « { $sheet } » contient plus de colonnes qu'un import n'en accepte. La limite est de { $max }.
+# MT: pending native review (fr-FR)
+import-refused-header-too-long = L'en-tête de la colonne { $column } dépasse { $max } caractères.
+# MT: pending native review (fr-FR)
+import-refused-cell-too-long = Ligne { $row }, colonne « { $column } » : la valeur dépasse { $max } caractères.
+# MT: pending native review (fr-FR)
+import-refused-csv-unreadable = Ce fichier ne peut pas être lu comme un CSV. Enregistrez-le au format CSV ou .xlsx et importez-le à nouveau.
+# MT: pending native review (fr-FR)
+import-refused-csv-not-utf8 = Ce CSV n'est pas en UTF-8. Importez plutôt le fichier .xlsx, ou enregistrez le CSV en UTF-8.
+# MT: pending native review (fr-FR)
+import-refused-no-header = Le fichier n'a pas de ligne d'en-tête.
+# MT: pending native review (fr-FR)
+import-refused-header-duplicate = La colonne « { $name } » apparaît plusieurs fois dans la ligne d'en-tête. Renommez-en ou supprimez-en une.
+# MT: pending native review (fr-FR)
+import-refused-header-blank = La colonne { $column } contient des valeurs mais pas d'en-tête. Nommez-la ou supprimez la colonne.
+# MT: pending native review (fr-FR)
+import-refused-too-many-columns = Le fichier contient { $count } colonnes. La limite est de { $max }.
+# MT: pending native review (fr-FR)
+import-refused-too-many-rows = Le fichier contient plus de { $max } lignes de données. Divisez-le et importez-le en plusieurs fois.
+# MT: pending native review (fr-FR)
+import-refused-no-rows = Le fichier contient une ligne d'en-tête mais aucune donnée.
+# MT: pending native review (fr-FR)
+import-refused-timed-out = La lecture de ce fichier a pris trop de temps. Copiez la feuille dont vous avez besoin dans un nouveau fichier et importez celui-ci.
 # MT: pending native review (fr-FR)
 import-start-type-heading = Que souhaitez-vous importer ?
 # MT: pending native review (fr-FR)
@@ -3893,7 +3847,11 @@ import-map-blocked = { $count ->
 # MT: pending native review (fr-FR)
 import-options-heading = Options d'import
 # MT: pending native review (fr-FR)
-import-options-match-label = Retrouver les actifs existants par
+import-options-match-label = { $type ->
+    [users] Retrouver les utilisateurs existants par
+    [tickets] Tickets existants
+   *[other] Retrouver les actifs existants par
+   }
 # MT: pending native review (fr-FR)
 import-options-match-asset-tag = Étiquette d'actif
 # MT: pending native review (fr-FR)
@@ -4124,6 +4082,10 @@ import-values-ambiguous = Correspond à plusieurs entrées : { $labels }. Choisi
 import-values-both-new = Les deux seraient créés. Choisissez une orthographe.
 # MT: pending native review (fr-FR)
 import-values-recomputed = Recalculé d'après vos réponses pour { $header }
+# MT: pending native review (fr-FR)
+import-values-preview-failed = Impossible de mettre à jour les modèles selon vos réponses pour { $header }. Ils ne sont peut-être pas à jour.
+# MT: pending native review (fr-FR)
+import-values-preview-retry = Réessayer
 # MT: pending native review (fr-FR)
 import-values-under = sous { $manufacturer }
 # MT: pending native review (fr-FR)
@@ -4761,6 +4723,12 @@ import-remove-load-failed = Impossible de vérifier les actifs importés. Réess
 # MT: pending native review (fr-FR)
 import-remove-failed = La suppression des actifs importés a échoué et rien n'a été supprimé.
 # MT: pending native review (fr-FR)
+import-remove-already-removed = Les actifs créés par cet import ont déjà été supprimés.
+# MT: pending native review (fr-FR)
+import-remove-still-running = Suppression en cours. Cette page se met à jour une fois terminée.
+# MT: pending native review (fr-FR)
+import-remove-still-running-later = La suppression prend plus de temps que prévu. Revenez sur cette page plus tard pour voir le résultat.
+# MT: pending native review (fr-FR)
 import-remove-title = { $count ->
     [one] Supprimer 1 actif ?
    *[other] Supprimer { $count } actifs ?
@@ -4952,10 +4920,6 @@ import-field-tickets-requester-email = E-mail du demandeur
 import-field-tickets-assignee-email = E-mail de l'assigné
 # MT: pending native review (fr-FR)
 import-field-tickets-category = Catégorie
-csv-import-error-no-file = Veuillez sélectionner un fichier à importer
-csv-import-error-failed = Échec de l'import
-csv-import-success-completed = Import terminé avec succès
-csv-import-toast-template-downloaded = Modèle { $type } téléchargé
 
 # Error page (ErrorView)
 error-page-default-code = 404

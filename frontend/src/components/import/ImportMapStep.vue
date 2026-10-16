@@ -30,7 +30,6 @@ import type { DropdownOption } from '@/components/common/dropdownOption'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useAuthStore } from '@/stores/auth'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
-import { assetStatusLabel } from '@/utils/assetStatusMeta'
 import type {
   ColumnMapping,
   DateOrder,
@@ -44,6 +43,7 @@ import type {
   SuggestionProvenance,
 } from '@nosdesk/core/services/importService'
 
+import { choiceLabel } from './choiceLabels'
 import { detectOtherType, listHeaders } from './detectType'
 import {
   IGNORE,
@@ -84,6 +84,9 @@ const props = defineProps<{
   switching?: boolean
   /** "Change file" is deleting the job. */
   discarding?: boolean
+  /** A field the step opens on, its picker focused: Review's "Fix at Map
+   *  columns". */
+  focusField?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -225,7 +228,7 @@ function valueOptions(c: ConstantRow): DropdownOption[] | null {
   }
   const values = field?.enum
   if (!values || values.length === 0) return null
-  const label = (v: string) => (isAssets.value && c.field === 'status' ? assetStatusLabel(t, v) : v)
+  const label = (v: string) => choiceLabel(t, props.job.job_type, c.field, v, v)
   return values.map((v) => ({ value: v, label: label(v) }))
 }
 
@@ -483,7 +486,41 @@ async function expand() {
   tableRoot.value?.querySelector<HTMLElement>('button[aria-haspopup]')?.focus()
 }
 
+const sectionRoot = ref<HTMLElement | null>(null)
+
+/** Bring where `field` is set into view, focused: the column mapped to it,
+ *  else its value for every row, else the kind for every row, else the
+ *  button that adds a value for every row. */
+async function focusOnField(field: string) {
+  if (collapsed.value) {
+    collapsed.value = false
+    await nextTick()
+  }
+  const row = rows.value.find((r) => r.target === field)
+  if (row) {
+    await focusColumn(row.index)
+    return
+  }
+  const root = sectionRoot.value
+  if (!root) return
+  const control = (el: Element | null | undefined) =>
+    el?.querySelector<HTMLElement>('button[aria-haspopup], [role="combobox"], input, select, button') ?? null
+  const at = constants.value.findIndex((c) => c.field === field)
+  const constant = at >= 0 ? root.querySelectorAll('[data-test="import-constant"]')[at] : undefined
+  const target =
+    control(constant?.querySelector('[data-test="import-constant-value"]')) ??
+    (field === 'kind' ? control(root.querySelector('[data-test="import-kind-for-every-row"]')) : null) ??
+    root.querySelector<HTMLElement>('[data-test="import-constant-add"]')
+  target?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  target?.focus({ preventScroll: true })
+}
+
 onMounted(async () => {
+  if (props.focusField) {
+    await nextTick()
+    await focusOnField(props.focusField)
+    return
+  }
   if (!collapsed.value) return
   await nextTick()
   ;(checkButton.value?.$el as HTMLElement | undefined)?.focus()
@@ -578,7 +615,7 @@ const linkClass =
 </script>
 
 <template>
-  <section class="flex flex-col gap-6">
+  <section ref="sectionRoot" class="flex flex-col gap-6">
     <!-- Type detection: the headers look like another type. -->
     <Callout v-if="typeHint" severity="info" data-test="import-type-hint">
       <div class="px-4 py-3 flex flex-col gap-2">
@@ -888,7 +925,7 @@ const linkClass =
                 <span class="text-tertiary">{{ $t('import-constants-guessed-role') }}</span>
               </div>
             </div>
-            <div class="min-w-0">
+            <div class="min-w-0" data-test="import-constant-value">
               <p v-if="!c.field" class="text-xs text-tertiary md:pt-7">
                 {{ $t('import-constants-pick-field') }}
               </p>
@@ -943,14 +980,14 @@ const linkClass =
         <template #title>{{ $t('import-options-heading') }}</template>
         <div class="flex flex-col gap-5">
           <div class="flex flex-col gap-2">
-            <span class="text-sm font-medium text-primary">{{ $t('import-options-match-label') }}</span>
+            <span class="text-sm font-medium text-primary">{{ $t('import-options-match-label', { type: job.job_type }) }}</span>
             <template v-if="isAssets">
               <SegmentedControl
                 v-model="matchBy"
                 class="self-start"
                 :options="matchOptions"
                 size="sm"
-                :aria-label="$t('import-options-match-label')"
+                :aria-label="$t('import-options-match-label', { type: job.job_type })"
               />
               <p class="text-xs text-tertiary">{{ matchHelp }}</p>
             </template>

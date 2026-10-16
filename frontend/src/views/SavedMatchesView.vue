@@ -21,7 +21,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Icon from '@/components/common/Icon.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
-import { assetStatusLabel } from '@/utils/assetStatusMeta'
+import { choiceLabel } from '@/components/import/choiceLabels'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import {
@@ -95,10 +95,9 @@ function contextLabel(field: string, label: string | null): string {
 function outcomeText(e: SavedMatch): string {
   switch (e.outcome) {
     case 'link':
-      if (type.value === 'assets' && e.field === 'status' && e.target) {
-        return assetStatusLabel(t, e.target)
-      }
-      return e.label ?? e.target ?? ''
+      return e.target
+        ? choiceLabel(t, type.value, e.field, e.target, e.label ?? e.target)
+        : (e.label ?? '')
     case 'kept_as_text':
       return t('import-matches-kept-as-text')
     case 'left_as_is':

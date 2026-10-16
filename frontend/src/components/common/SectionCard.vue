@@ -20,6 +20,9 @@ interface Props {
   actionTo?: string
   /** Label for the action link. Defaults to "View all". */
   actionLabel?: string
+  /** Whether the action link ends in an arrow. Off for a card whose rows
+   *  already read as arrows, so the link reads once. */
+  actionArrow?: boolean
   /** Tailwind padding class applied to the body. Defaults to `p-3`;
    *  pass an empty string for flush-edge content (lists, tables). */
   contentPadding?: string
@@ -35,6 +38,7 @@ interface Props {
 
 withDefaults(defineProps<Props>(), {
   actionLabel: 'View all',
+  actionArrow: true,
   contentPadding: 'p-3',
   clipContent: true,
   stickyHeader: false,
@@ -68,7 +72,7 @@ withDefaults(defineProps<Props>(), {
         :to="actionTo"
         class="text-2xs font-medium text-accent hover:underline whitespace-nowrap"
       >
-        {{ actionLabel }} →
+        {{ actionLabel }}<span v-if="actionArrow" aria-hidden="true"> →</span>
       </router-link>
     </header>
 

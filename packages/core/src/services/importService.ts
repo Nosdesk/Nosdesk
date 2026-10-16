@@ -621,6 +621,24 @@ export const importValuesQueryKey = (jobId: string, updatedAt: string) =>
 export const importValuesPreviewQueryKey = (jobId: string, updatedAt: string, answersKey: string) =>
   ['import-values-preview', jobId, updatedAt, answersKey] as const
 
+/** Run a download; when it fails, read its body, a Blob, back as the JSON
+ *  error the server sent, so the caller can read its `code`. */
+export async function withJsonError<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (e) {
+    const response = (e as { response?: { data?: unknown } })?.response
+    if (response && typeof Blob !== 'undefined' && response.data instanceof Blob) {
+      try {
+        response.data = JSON.parse(await response.data.text())
+      } catch {
+        // Not JSON: the caller words the failure itself.
+      }
+    }
+    throw e
+  }
+}
+
 export const importService = {
   /** Upload + parse. Returns the job in status `parsed` with the file's
    *  headers, samples and a suggested mapping. */
@@ -791,10 +809,12 @@ export const importService = {
     const params: Record<string, string | number> = {}
     if (only.group !== undefined) params.group = only.group
     if (only.dropped?.length) params.dropped = only.dropped.join(',')
-    const response = await apiClient.get<Blob>(`/admin/import/${jobId}/error-report`, {
-      params,
-      responseType: 'blob',
-    })
+    const response = await withJsonError(() =>
+      apiClient.get<Blob>(`/admin/import/${jobId}/error-report`, {
+        params,
+        responseType: 'blob',
+      }),
+    )
     const disposition = String(response.headers['content-disposition'] ?? '')
     const match = /filename="([^"]+)"/.exec(disposition)
     return { blob: response.data, filename: match?.[1] ?? 'import-errors.csv' }
@@ -816,9 +836,11 @@ export const importService = {
   /** The previous values file: one row per updated asset with the values
    *  the import replaced. */
   async previousValues(jobId: string): Promise<{ blob: Blob; filename: string }> {
-    const response = await apiClient.get<Blob>(`/admin/import/${jobId}/previous-values`, {
-      responseType: 'blob',
-    })
+    const response = await withJsonError(() =>
+      apiClient.get<Blob>(`/admin/import/${jobId}/previous-values`, {
+        responseType: 'blob',
+      }),
+    )
     const disposition = String(response.headers['content-disposition'] ?? '')
     const match = /filename="([^"]+)"/.exec(disposition)
     return { blob: response.data, filename: match?.[1] ?? 'previous-values.csv' }

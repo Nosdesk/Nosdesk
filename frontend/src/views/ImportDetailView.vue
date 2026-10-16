@@ -37,6 +37,7 @@ import {
   reportOffered,
   resumeTarget,
 } from '@/components/import/historyModel'
+import { errorBody, refusalText } from '@/components/import/refusals'
 import { previousValuesHelp, removalState } from '@/components/import/removeModel'
 import { webhookHearsAssets } from '@/components/import/reviewModel'
 
@@ -148,11 +149,11 @@ async function importNextSheet() {
     queryCache.invalidateQueries({ key: ['import-jobs'] })
     router.push(resumeTarget(next.id))
   } catch (e) {
-    const err = e as { response?: { data?: { code?: string; error?: string } } }
+    const body = errorBody(e)
     errorMessage.value =
-      err?.response?.data?.code === 'import_file_missing'
+      body?.code === 'import_file_missing'
         ? t('import-file-missing')
-        : (err?.response?.data?.error ?? t('import-error-generic'))
+        : (refusalText(t, body) ?? t('import-error-generic'))
   } finally {
     startingNext.value = false
   }
@@ -175,8 +176,9 @@ async function downloadReport(only?: { group?: number; dropped?: number[] }) {
     URL.revokeObjectURL(link.href)
   } catch (e) {
     const err = e as { response?: { status?: number } }
-    errorMessage.value =
-      err?.response?.status === 410 ? t('import-detail-kept-30-days') : t('import-error-report-failed')
+    if (err?.response?.status === 410) errorMessage.value = t('import-detail-kept-30-days')
+    else if (errorBody(e)?.code === 'import_file_missing') errorMessage.value = t('import-file-missing')
+    else errorMessage.value = t('import-error-report-failed')
   } finally {
     downloading.value = false
   }
@@ -334,7 +336,7 @@ const linkClass =
               {{ previousHelp }}
             </p>
           </div>
-          <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" />
+          <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" @refreshed="onRemoved" />
         </template>
 
         <p class="text-sm">

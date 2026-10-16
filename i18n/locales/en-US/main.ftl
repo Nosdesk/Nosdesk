@@ -3530,115 +3530,14 @@ collection-delete-title = Delete { $name }?
 collection-delete-title-fallback = Delete collection?
 collection-delete-confirm = Delete
 
-# CSV import (CsvImportView): admin page for importing users,
-# devices, or tickets from CSV. Covers the page header, status
-# messages, action buttons, the import status card, guideline
-# panels, the template list, and both modals (file upload and
-# template download).
+# CSV import (CsvImportView): the back link and the names of the
+# import types.
 csv-import-back = Back to Data Import
-csv-import-title = CSV Import
-csv-import-subtitle = Import data from CSV files into your system
 
-# Phase 1 wizard: upload -> review -> done.
-csv-import-step-upload = Upload
-csv-import-step-review = Review
-csv-import-step-done = Done
 import-step-values = Match values
-csv-import-step-upload-heading = Upload your CSV
-csv-import-type-label = What are you importing?
 csv-import-type-assets = Assets
 csv-import-type-users = Users
 csv-import-type-tickets = Tickets
-csv-import-type-coming-soon = coming soon
-csv-import-template-label = Start with our template
-csv-import-template-help = The CSV needs to use these exact column headers. Download the empty template, fill it in, then upload it here.
-csv-import-template-button = Download template
-csv-import-file-label = Choose your file
-csv-import-drop-zone-idle = Drop a CSV here, or click to browse
-csv-import-drop-here = Release to upload
-csv-import-drop-zone-hint = .csv up to 10 MB and 5,000 rows
-csv-import-drop-zone-replace = Click or drop another file to replace
-csv-import-error-not-csv = "{ $name }" is not a CSV file
-csv-import-action-validate = Validate
-csv-import-summary-rows = Rows in file
-csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
-csv-import-summary-create = Will create
-csv-import-summary-update = Will update
-csv-import-errors-heading = { $count ->
-    [one] 1 row has errors and will be skipped
-   *[other] { $count } rows have errors and will be skipped
-}
-csv-import-errors-truncated = showing first 100
-csv-import-errors-row = Row
-csv-import-errors-column = Column
-csv-import-errors-message = Message
-csv-import-action-discard = Discard
-csv-import-action-apply = Apply ({ $count } rows)
-csv-import-action-new = New import
-csv-import-action-view-assets = View assets
-csv-import-action-view-users = View users
-csv-import-action-view-tickets = View tickets
-csv-import-done-heading = Import complete
-csv-import-done-body = { $count ->
-    [one] Imported 1 row.
-   *[other] Imported { $count } rows.
-}
-csv-import-done-skipped = { $count ->
-    [one] 1 row was skipped because it had errors.
-   *[other] { $count } rows were skipped because they had errors.
-}
-csv-import-error-generic = Import failed. Check the file and try again.
-csv-import-error-commit-failed = Apply failed; rows were not committed.
-csv-import-action-import = Import Data
-csv-import-action-templates = Download Templates
-csv-import-status-heading = Import Status
-csv-import-status-success = Import Completed
-csv-import-status-in-progress = Import in Progress
-csv-import-status-error = Import Failed
-csv-import-last-import = Last import: { $date }
-csv-import-results-total = Total Records
-csv-import-results-successful = Successful
-csv-import-results-failed = Failed
-csv-import-guidelines-heading = CSV Import Guidelines
-csv-import-requirements-heading = CSV File Requirements
-csv-import-requirements-utf8 = Files must be in CSV format with UTF-8 encoding
-csv-import-requirements-headers = The first row must contain column headers matching the expected fields
-csv-import-requirements-required = Required fields must not be empty
-csv-import-requirements-date-format = Date fields should use the format YYYY-MM-DD
-csv-import-requirements-max-size = Maximum file size: 10MB
-csv-import-notes-heading = Important Notes
-csv-import-notes-updates = Existing records will be updated if they share a unique identifier (like email or ID)
-csv-import-notes-validation = Data validation is performed before import, records with invalid data will be skipped
-csv-import-notes-duration = For large imports, the process may take several minutes to complete
-csv-import-notes-templates = Download and use our template files to ensure proper formatting
-csv-import-templates-heading = Available Templates
-csv-import-templates-intro = Use these templates as a starting point for your CSV imports
-csv-import-template-users-name = Users Template
-csv-import-template-users-description = Import user accounts with roles and contact information
-csv-import-template-devices-name = Assets template
-csv-import-template-devices-description = Import assets with hardware details and ownership information
-csv-import-template-tickets-name = Tickets Template
-csv-import-template-tickets-description = Import support tickets with details and assignees
-csv-import-template-download = Download
-csv-import-modal-import-title = Import Data from CSV
-csv-import-modal-data-type = Data Type
-csv-import-modal-type-users = Users
-csv-import-modal-type-devices = Assets
-csv-import-modal-type-tickets = Tickets
-csv-import-modal-file-label = CSV File
-csv-import-modal-upload-link = Upload a file
-csv-import-modal-drag-drop = or drag and drop
-csv-import-modal-size-hint = CSV files up to 10MB
-csv-import-modal-cancel = Cancel
-csv-import-modal-start = Start Import
-csv-import-modal-starting = Importing...
-csv-import-modal-templates-title = CSV Templates
-csv-import-modal-templates-intro = Download our CSV templates to ensure your data is formatted correctly for import.
-csv-import-modal-fields-count = { $count ->
-    [one] { $count } field
-   *[other] { $count } fields
-   }
-csv-import-modal-close = Close
 
 # Import wizard (Start, Upload, Map, Review, Done). Field labels
 # (import-field-<type>-<id>) name the targets a column maps to; the
@@ -3660,6 +3559,33 @@ import-commit-still-running = Still importing. This page updates when the import
 import-commit-not-finished = The import didn't finish and nothing was imported. Check the plan and import again.
 import-commit-still-running-later = The import is taking longer than expected. Come back to this page later to see how it ended.
 import-error-not-csv = { $name } isn't a .csv or .xlsx file.
+import-refused-file-empty = The file is empty.
+import-refused-file-too-large = This file is over { $max } MB. Split it and import it in smaller runs.
+import-refused-xlsx-protected = This looks like a password-protected workbook or an old .xls file. Save it as .xlsx and try again.
+import-refused-xlsx-unreadable = This workbook can't be read. Open it in Excel, save it as .xlsx and upload it again.
+import-refused-xlsx-too-large = This workbook is too large once unpacked. Copy the sheet you need into a new workbook and upload that.
+import-refused-xlsx-too-many-parts = This workbook holds more than { $max } parts, so it can't be imported. Copy the sheet you need into a new workbook and upload that.
+import-refused-xlsx-no-rows = This workbook has no rows to import. Check that the data is on a worksheet and saved.
+import-refused-sheets-hidden = The rows in this workbook are on hidden sheets. Unhide the sheet to import and upload the file again.
+import-refused-sheet-unknown = This workbook has no sheet by that name.
+import-refused-sheet-hidden = That sheet is hidden in the workbook. Unhide it and upload the file again.
+import-refused-sheet-already-imported = That sheet was already imported from this file.
+import-refused-sheet-empty = The sheet '{ $sheet }' is empty.
+import-refused-header-row-empty = Row { $row } of '{ $sheet }' is empty. Choose the row that holds the column headers.
+import-refused-sheet-too-many-rows = The sheet '{ $sheet }' has more than { $max } rows under its header. Split it into smaller sheets and import them one at a time.
+import-refused-sheet-no-rows = There are no rows under the header row (row { $row }) of '{ $sheet }'.
+import-refused-sheet-too-wide = The sheet '{ $sheet }' has more columns than an import takes. The limit is { $max }.
+import-refused-header-too-long = The header in column { $column } is longer than { $max } characters.
+import-refused-cell-too-long = Row { $row }, column '{ $column }' is longer than { $max } characters.
+import-refused-csv-unreadable = This file can't be read as a CSV. Save it as CSV or .xlsx and upload it again.
+import-refused-csv-not-utf8 = This CSV isn't UTF-8. Upload the .xlsx instead, or save the CSV as UTF-8.
+import-refused-no-header = The file has no header row.
+import-refused-header-duplicate = The column '{ $name }' appears more than once in the header row. Rename or remove one.
+import-refused-header-blank = Column { $column } has values but no header. Name it or delete the column.
+import-refused-too-many-columns = The file has { $count } columns. The limit is { $max }.
+import-refused-too-many-rows = The file has more than { $max } data rows. Split it and import it in smaller runs.
+import-refused-no-rows = The file has a header row and no data.
+import-refused-timed-out = Reading this file took too long. Copy the sheet you need into a new file and upload that.
 import-start-type-heading = What are you importing?
 import-start-type-label = What to import
 import-start-heading = Import from a spreadsheet
@@ -3806,7 +3732,11 @@ import-map-blocked = { $count ->
    *[other] Fix { $count } problems to continue
    }
 import-options-heading = How to import
-import-options-match-label = Match existing assets by
+import-options-match-label = { $type ->
+    [users] Match existing users by
+    [tickets] Existing tickets
+   *[other] Match existing assets by
+   }
 import-options-match-asset-tag = Asset tag
 import-options-match-serial = Serial number
 import-options-match-asset-tag-help = Rows with a tag that exists update that asset.
@@ -3935,6 +3865,8 @@ import-values-consequence-created = will be created
 import-values-ambiguous = Matches more than one: { $labels }. Pick one.
 import-values-both-new = Both would be created. Pick one spelling.
 import-values-recomputed = Recomputed after your { $header } answers
+import-values-preview-failed = Couldn't update the models for your { $header } answers. They may be out of date.
+import-values-preview-retry = Try again
 import-values-under = under { $manufacturer }
 import-values-bulk-keep-text = Keep all { $count } as text
 import-values-bulk-create-models = Create these { $count } models
@@ -4356,6 +4288,9 @@ import-remove-window = Only assets nobody has changed since. Until { $date }.
 import-remove-window-closed = Removal window closed { $date }.
 import-remove-load-failed = Couldn't check the imported assets. Try again.
 import-remove-failed = Removing the imported assets failed and nothing was deleted.
+import-remove-already-removed = The assets this import created were already removed.
+import-remove-still-running = Still removing. This page updates when it finishes.
+import-remove-still-running-later = Removing is taking longer than expected. Come back to this page later to see how it ended.
 import-remove-title = { $count ->
     [one] Delete 1 asset?
    *[other] Delete { $count } assets?
@@ -4473,10 +4408,6 @@ import-field-tickets-due-date = Due date
 import-field-tickets-requester-email = Requester email
 import-field-tickets-assignee-email = Assignee email
 import-field-tickets-category = Category
-csv-import-error-no-file = Please select a file to import
-csv-import-error-failed = Import failed
-csv-import-success-completed = Import completed successfully
-csv-import-toast-template-downloaded = { $type } template downloaded
 
 # Error page (ErrorView)
 error-page-default-code = 404

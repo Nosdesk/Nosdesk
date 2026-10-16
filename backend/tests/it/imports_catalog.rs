@@ -904,3 +904,81 @@ async fn models_are_recomputed_for_manufacturer_answers_before_the_check() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json(&body)["answers"], serde_json::Value::Null);
 }
+
+/// A row that links an asset to another model of the same name shows the
+/// change with each model's manufacturer, whether or not the asset's
+/// manufacturer text changes with it.
+#[actix_web::test]
+async fn a_same_name_model_relink_names_both_manufacturers() {
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let (ws, cat) = workspace(&pool);
+    let canon = insert_id(
+        &pool,
+        "SELECT id FROM manufacturers WHERE name = $1 AND workspace_id = $2",
+        &ws,
+        "Canon",
+    );
+    seed_model(&pool, &ws, canon, "FX6", "camera", serde_json::json!({}));
+    seed_asset(
+        &pool,
+        &ws,
+        "R-1",
+        "camera",
+        None,
+        Some((cat.fx6, "Sony", "FX6")),
+        false,
+    );
+    // Its manufacturer text already reads Canon; only the link moves.
+    seed_asset(
+        &pool,
+        &ws,
+        "R-2",
+        "camera",
+        None,
+        Some((cat.fx6, "Canon", "FX6")),
+        false,
+    );
+    let file = "Name,Type,Tag,Make,Model,Mount\n\
+                R-1,camera,R-1,Canon,FX6,\n\
+                R-2,camera,R-2,Canon,FX6,\n";
+    let job = checked(&pool, &ws, file, CAMERA_MAPPING, serde_json::json!({})).await;
+    assert_eq!(errors(&job), vec![], "{job}");
+    assert_eq!(job["summary"]["would_update"], 2, "{job}");
+    let id = id_of(&job);
+
+    let rows = rows(&pool, &ws, &id).await;
+    let changes = |tag: &str| {
+        rows.iter()
+            .find(|r| r["key"] == tag)
+            .unwrap_or_else(|| panic!("no row {tag} in {rows:?}"))["fields_written"]
+            .clone()
+    };
+    let r1 = changes("R-1");
+    assert_eq!(
+        r1["model"],
+        serde_json::json!({ "before": "FX6 (Sony)", "after": "FX6 (Canon)" }),
+        "{r1}"
+    );
+    assert_eq!(
+        r1["manufacturer"],
+        serde_json::json!({ "before": "Sony", "after": "Canon" }),
+        "{r1}"
+    );
+    let r2 = changes("R-2");
+    assert_eq!(
+        r2["model"],
+        serde_json::json!({ "before": "FX6 (Sony)", "after": "FX6 (Canon)" }),
+        "{r2}"
+    );
+    assert!(r2.get("manufacturer").is_none(), "{r2}");
+
+    // The commit makes the same plan and links both to Canon's FX6.
+    commit(&pool, &ws, &id).await;
+    let canon_fx6 = stored(&pool, "R-1").expect("R-1").model_id;
+    assert_ne!(canon_fx6, Some(cat.fx6));
+    assert!(canon_fx6.is_some());
+    let r2 = stored(&pool, "R-2").expect("R-2");
+    assert_eq!(r2.model_id, canon_fx6);
+    assert_eq!(r2.manufacturer.as_deref(), Some("Canon"));
+}

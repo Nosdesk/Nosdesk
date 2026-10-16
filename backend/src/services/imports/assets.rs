@@ -1188,12 +1188,23 @@ fn update_changes(
         }
     }
     if writes.model_changes && !changes.contains_key("model") {
-        let name = writes.texts.model.clone();
+        // Another model of the same name: each side reads as the model
+        // with its manufacturer, so the change shows what moved.
+        let was = asset
+            .model_id
+            .and_then(|id| lookups.catalog.model(id))
+            .map(|m| model_label(&m.name, lookups.catalog.maker_of(m)))
+            .or_else(|| before.get("model").cloned().flatten());
+        let now = writes
+            .texts
+            .model
+            .as_deref()
+            .map(|name| model_label(name, writes.texts.maker.as_deref().unwrap_or_default()));
         changes.insert(
             "model".to_string(),
             FieldChange {
-                before: before.get("model").cloned().flatten(),
-                after: name,
+                before: was,
+                after: now,
             },
         );
     }
@@ -1230,6 +1241,16 @@ fn update_changes(
         );
     }
     changes
+}
+
+/// A model's full label: its name with its manufacturer's, as Review lists
+/// created models.
+fn model_label(name: &str, maker: &str) -> String {
+    if maker.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name} ({maker})")
+    }
 }
 
 /// `assets.updated_at` as row results keep it: microseconds, as Postgres

@@ -524,3 +524,38 @@ export function valuesCsv(headers: [string, string], values: ImportValue[]): str
   for (const v of values) lines.push(`${csvCell(v.text)},${v.rows.length}`)
   return `${lines.join('\r\n')}\r\n`
 }
+
+// ---- unsaved answers ----
+
+const DRAFT_PREFIX = 'nosdesk.import-values-edits:'
+
+/** This tab's unsaved answers for a job, kept while the step is away (on
+ *  Saved matches, or back on Map) and given back only for the check they
+ *  were made on. */
+export function loadEdits(jobId: string, version: string): Edits | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_PREFIX + jobId)
+    if (!raw) return null
+    const draft = JSON.parse(raw) as { version?: string; edits?: Edits }
+    return draft.version === version && draft.edits && typeof draft.edits === 'object' ? draft.edits : null
+  } catch {
+    return null
+  }
+}
+
+export function saveEdits(jobId: string, version: string, edits: Edits) {
+  try {
+    if (Object.keys(edits).length === 0) sessionStorage.removeItem(DRAFT_PREFIX + jobId)
+    else sessionStorage.setItem(DRAFT_PREFIX + jobId, JSON.stringify({ version, edits }))
+  } catch {
+    // Storage can be full or blocked; the answers stay on screen.
+  }
+}
+
+export function clearEdits(jobId: string) {
+  try {
+    sessionStorage.removeItem(DRAFT_PREFIX + jobId)
+  } catch {
+    // Nothing kept.
+  }
+}

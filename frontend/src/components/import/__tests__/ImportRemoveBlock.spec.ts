@@ -4,11 +4,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { mountWithProviders } from '@/test/mountWithProviders'
 import type { ImportJob, RemovalPlan } from '@nosdesk/core/services/importService'
 
-const api = vi.hoisted(() => ({ removalPlan: vi.fn(), removeCreated: vi.fn() }))
+const api = vi.hoisted(() => ({ removalPlan: vi.fn(), removeCreated: vi.fn(), get: vi.fn() }))
 vi.mock('@nosdesk/core/services/importService', () => ({
   importService: {
     removalPlan: (...a: unknown[]) => api.removalPlan(...a),
     removeCreated: (...a: unknown[]) => api.removeCreated(...a),
+    get: (...a: unknown[]) => api.get(...a),
   },
 }))
 vi.mock('@/components/common/ConfirmModal.vue', () => ({
@@ -152,6 +153,87 @@ describe('ImportRemoveBlock', () => {
     const emitted = wrapper!.findComponent(ImportRemoveBlock).emitted('removed')
     expect(emitted?.[0]).toEqual([removed])
     expect(wrapper!.find('[data-test="confirm"]').exists()).toBe(false)
+  })
+
+  describe('when the removal fails', () => {
+    const removed = () =>
+      job({
+        removed_at: '2026-10-15T00:00:00Z',
+        removed_by_name: 'Sam Lee',
+        remove_result: { created: 407, deleted: 398, gone: 0, deleted_ids: [], kept: [] },
+      })
+
+    async function confirmRemoval() {
+      api.removalPlan.mockResolvedValue(PLAN)
+      mount(job())
+      await wrapper!.find('[data-test="import-remove-button"]').trigger('click')
+      await flushPromises()
+      await wrapper!.find('[data-test="confirm-ok"]').trigger('click')
+      await flushPromises()
+    }
+
+    const block = () => wrapper!.findComponent(ImportRemoveBlock)
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('says another admin removed them already and shows the job as it is', async () => {
+      api.removeCreated.mockRejectedValue({
+        response: { status: 409, data: { code: 'import_already_removed', error: 'English' } },
+      })
+      api.get.mockResolvedValue(removed())
+      await confirmRemoval()
+      expect(api.get).toHaveBeenCalledWith('job-1')
+      expect(block().emitted('refreshed')?.[0]).toEqual([removed()])
+      expect(wrapper!.text()).toContain('import-remove-already-removed')
+      expect(wrapper!.text()).not.toContain('import-remove-failed')
+    })
+
+    it('says the window closed when the check finds it closed, and shows the job as it is', async () => {
+      api.removalPlan.mockRejectedValue({
+        response: { status: 410, data: { code: 'import_removal_window_closed' } },
+      })
+      const closed = job({ pruned_at: '2026-11-15T00:00:00Z' })
+      api.get.mockResolvedValue(closed)
+      mount(job())
+      await wrapper!.find('[data-test="import-remove-button"]').trigger('click')
+      await flushPromises()
+      expect(block().emitted('refreshed')?.[0]).toEqual([closed])
+      expect(wrapper!.text()).toContain('import-remove-window-closed')
+    })
+
+    it('waits on a removal that timed out until the job says it ran', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout'] })
+      api.removeCreated.mockRejectedValue(new Error('timeout'))
+      api.get.mockResolvedValueOnce(job()).mockResolvedValue(removed())
+      await confirmRemoval()
+      expect(wrapper!.find('[data-test="import-remove-waiting"]').text()).toBe('import-remove-still-running')
+      await vi.advanceTimersByTimeAsync(2000)
+      await flushPromises()
+      expect(block().emitted('removed')).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(2000)
+      await flushPromises()
+      expect(block().emitted('removed')?.[0]).toEqual([removed()])
+      expect(wrapper!.find('[data-test="import-remove-waiting"]').exists()).toBe(false)
+      expect(wrapper!.text()).not.toContain('import-remove-failed')
+    })
+
+    it('reads the job back before calling a failure', async () => {
+      api.removeCreated.mockRejectedValue({ response: { status: 500, data: {} } })
+      api.get.mockResolvedValue(removed())
+      await confirmRemoval()
+      expect(block().emitted('removed')?.[0]).toEqual([removed()])
+      expect(wrapper!.text()).not.toContain('import-remove-failed')
+    })
+
+    it('says it failed when the job shows it didn\'t run', async () => {
+      api.removeCreated.mockRejectedValue({ response: { status: 500, data: {} } })
+      api.get.mockResolvedValue(job())
+      await confirmRemoval()
+      expect(block().emitted('removed')).toBeUndefined()
+      expect(wrapper!.text()).toContain('import-remove-failed')
+    })
   })
 
   it('shows the result with the kept list and reasons in place of the button', () => {

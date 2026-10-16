@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use super::refusal::Refused;
 use super::safe_cells::strip_formula_guard;
 
 /// Most data rows one file may carry.
@@ -129,6 +130,36 @@ impl std::fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
+
+impl ParseError {
+    /// The refusal an upload answers with: the English above, with a code
+    /// the client words it by.
+    pub fn refusal(&self) -> Refused {
+        let message = self.to_string();
+        match self {
+            Self::Io(_) | Self::Csv(_) => Refused::new("import_csv_unreadable", message),
+            Self::NotUtf8 => Refused::new("import_csv_not_utf8", message),
+            Self::MissingHeader => Refused::new("import_no_header", message),
+            Self::DuplicateHeader(name) => {
+                Refused::new("import_header_duplicate", message).arg("name", name.clone())
+            }
+            Self::BlankHeader(column) => {
+                Refused::new("import_header_blank", message).arg("column", column.to_string())
+            }
+            Self::HeaderTooLong(column) => Refused::new("import_header_too_long", message)
+                .arg("column", column.to_string())
+                .arg("max", MAX_HEADER_CHARS),
+            Self::TooManyColumns(count) => Refused::new("import_too_many_columns", message)
+                .arg("count", *count)
+                .arg("max", MAX_COLUMNS),
+            Self::TooManyRows => Refused::new("import_too_many_rows", message).arg("max", MAX_ROWS),
+            Self::CellTooLong { row, column } => Refused::new("import_cell_too_long", message)
+                .arg("row", row.to_string())
+                .arg("column", column.clone())
+                .arg("max", MAX_CELL_CHARS),
+        }
+    }
+}
 
 /// Parse a CSV file from disk. UTF-8 only; BOM stripped.
 pub fn parse_file(path: &Path) -> Result<ParsedCsv, ParseError> {
