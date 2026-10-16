@@ -123,12 +123,12 @@ const keptReason = (k: KeptAsset) => (k.reasons[0] ? reasonLine(t, k.reasons[0],
         <span class="font-medium text-primary">{{ result }}</span>
       </template>
       <ul v-if="resultKept.length > 0" class="flex flex-col gap-1 px-4 py-3 text-sm" data-test="import-remove-kept">
-        <li v-for="k in resultKept" :key="k.id" class="min-w-0 break-words">
-          <RouterLink :to="`/assets/${k.id}`" class="text-accent hover:underline">
+        <li v-for="k in resultKept" :key="k.id" class="flex flex-wrap items-baseline gap-x-1.5 min-w-0">
+          <RouterLink :to="`/assets/${k.id}`" class="flex flex-wrap items-baseline gap-x-1.5 min-w-0 text-accent hover:underline">
             <span v-if="k.tag" class="font-mono text-xs">{{ k.tag }}</span>
-            {{ k.name }}
+            <span class="break-words min-w-0">{{ k.name }}</span>
           </RouterLink>
-          <span class="text-tertiary"> · {{ keptReason(k) }}</span>
+          <span class="text-tertiary">· {{ keptReason(k) }}</span>
         </li>
       </ul>
     </Callout>
@@ -170,10 +170,10 @@ const keptReason = (k: KeptAsset) => (k.reasons[0] ? reasonLine(t, k.reasons[0],
             {{ $t('import-remove-which-kept', { count: planKept.length }) }}
           </summary>
           <ul class="mt-2 flex flex-col gap-1 max-h-48 overflow-y-auto">
-            <li v-for="k in planKept" :key="k.id" class="min-w-0 break-words">
+            <li v-for="k in planKept" :key="k.id" class="flex flex-wrap items-baseline gap-x-1.5 min-w-0">
               <span v-if="k.tag" class="font-mono text-xs text-primary">{{ k.tag }}</span>
-              <span class="text-primary"> {{ k.name }}</span>
-              <span class="text-tertiary"> · {{ keptReason(k) }}</span>
+              <span class="text-primary break-words min-w-0">{{ k.name }}</span>
+              <span class="text-tertiary">· {{ keptReason(k) }}</span>
             </li>
           </ul>
         </details>

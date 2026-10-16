@@ -587,7 +587,6 @@ export const importJobQueryKey = (jobId: string) => ['import-job', jobId] as con
 export const importFieldsQueryKey = (jobType: ImportJobType) => ['import-fields', jobType] as const
 export const importAnswersQueryKey = (jobType: ImportJobType) =>
   ['import-answers', jobType] as const
-export const importRemovalQueryKey = (jobId: string) => ['import-removal', jobId] as const
 export const importValuesQueryKey = (jobId: string, updatedAt: string) =>
   ['import-values', jobId, updatedAt] as const
 export const importValuesPreviewQueryKey = (jobId: string, updatedAt: string, answersKey: string) =>
