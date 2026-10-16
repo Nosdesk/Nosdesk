@@ -972,4 +972,13 @@ async fn a_same_name_model_relink_names_both_manufacturers() {
         "{r2}"
     );
     assert!(r2.get("manufacturer").is_none(), "{r2}");
+
+    // The commit makes the same plan and links both to Canon's FX6.
+    commit(&pool, &ws, &id).await;
+    let canon_fx6 = stored(&pool, "R-1").expect("R-1").model_id;
+    assert_ne!(canon_fx6, Some(cat.fx6));
+    assert!(canon_fx6.is_some());
+    let r2 = stored(&pool, "R-2").expect("R-2");
+    assert_eq!(r2.model_id, canon_fx6);
+    assert_eq!(r2.manufacturer.as_deref(), Some("Canon"));
 }
