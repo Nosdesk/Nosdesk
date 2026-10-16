@@ -3833,7 +3833,11 @@ import-map-blocked = { $count ->
    *[other] Fix { $count } problems to continue
    }
 import-options-heading = How to import
-import-options-match-label = Match existing assets by
+import-options-match-label = { $type ->
+    [users] Match existing users by
+    [tickets] Existing tickets
+   *[other] Match existing assets by
+   }
 import-options-match-asset-tag = Asset tag
 import-options-match-serial = Serial number
 import-options-match-asset-tag-help = Rows with a tag that exists update that asset.

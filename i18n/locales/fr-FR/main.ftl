@@ -3949,7 +3949,11 @@ import-map-blocked = { $count ->
 # MT: pending native review (fr-FR)
 import-options-heading = Options d'import
 # MT: pending native review (fr-FR)
-import-options-match-label = Retrouver les actifs existants par
+import-options-match-label = { $type ->
+    [users] Retrouver les utilisateurs existants par
+    [tickets] Tickets existants
+   *[other] Retrouver les actifs existants par
+   }
 # MT: pending native review (fr-FR)
 import-options-match-asset-tag = Étiquette d'actif
 # MT: pending native review (fr-FR)

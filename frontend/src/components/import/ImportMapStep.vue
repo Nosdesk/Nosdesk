@@ -980,14 +980,14 @@ const linkClass =
         <template #title>{{ $t('import-options-heading') }}</template>
         <div class="flex flex-col gap-5">
           <div class="flex flex-col gap-2">
-            <span class="text-sm font-medium text-primary">{{ $t('import-options-match-label') }}</span>
+            <span class="text-sm font-medium text-primary">{{ $t('import-options-match-label', { type: job.job_type }) }}</span>
             <template v-if="isAssets">
               <SegmentedControl
                 v-model="matchBy"
                 class="self-start"
                 :options="matchOptions"
                 size="sm"
-                :aria-label="$t('import-options-match-label')"
+                :aria-label="$t('import-options-match-label', { type: job.job_type })"
               />
               <p class="text-xs text-tertiary">{{ matchHelp }}</p>
             </template>

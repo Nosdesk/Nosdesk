@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { FluentBundle, FluentResource } from '@fluent/bundle'
 
+import enUS from '../../../../../i18n/locales/en-US/main.ftl?raw'
 import { errorBody, refusalText } from '../refusals'
 import { choiceLabel, localisesChoices } from '../choiceLabels'
 
@@ -44,5 +46,33 @@ describe('choice labels', () => {
     expect(choiceLabel(t, 'users', 'role', 'owner', 'Owner')).toBe('Owner')
     expect(choiceLabel(t, 'tickets', 'workflow_state', 'Open', 'Open')).toBe('Open')
     expect(choiceLabel(t, 'assets', 'kind', 'camera', 'Camera')).toBe('Camera')
+  })
+})
+
+describe('the en-US wording', () => {
+  const bundle = new FluentBundle('en-US', { useIsolating: false })
+  bundle.addResource(new FluentResource(enUS))
+  const real = (key: string, args?: Record<string, string | number>) => {
+    const message = bundle.getMessage(key)
+    if (!message?.value) throw new Error(`no message ${key}`)
+    return bundle.formatPattern(message.value, args)
+  }
+
+  it('words refusals with their args', () => {
+    expect(refusalText(real, { code: 'import_too_many_rows', args: { max: 5000 } })).toBe(
+      'The file has more than 5,000 data rows. Split it and import it in smaller runs.',
+    )
+    expect(refusalText(real, { code: 'import_header_row_empty', args: { row: '2', sheet: 'Cameras' } })).toBe(
+      "Row 2 of 'Cameras' is empty. Choose the row that holds the column headers.",
+    )
+    expect(refusalText(real, { code: 'import_sheets_hidden', args: {} })).toBe(
+      'The rows in this workbook are on hidden sheets. Unhide the sheet to import and upload the file again.',
+    )
+  })
+
+  it('names what existing records are matched by for each type', () => {
+    expect(real('import-options-match-label', { type: 'assets' })).toBe('Match existing assets by')
+    expect(real('import-options-match-label', { type: 'users' })).toBe('Match existing users by')
+    expect(real('import-options-match-label', { type: 'tickets' })).toBe('Existing tickets')
   })
 })

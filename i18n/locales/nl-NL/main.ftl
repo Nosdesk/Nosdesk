@@ -3939,7 +3939,11 @@ import-map-blocked = { $count ->
 # MT: pending native review (nl-NL)
 import-options-heading = Importinstellingen
 # MT: pending native review (nl-NL)
-import-options-match-label = Bestaande activa zoeken op
+import-options-match-label = { $type ->
+    [users] Bestaande gebruikers zoeken op
+    [tickets] Bestaande tickets
+   *[other] Bestaande activa zoeken op
+   }
 # MT: pending native review (nl-NL)
 import-options-match-asset-tag = Activalabel
 # MT: pending native review (nl-NL)
