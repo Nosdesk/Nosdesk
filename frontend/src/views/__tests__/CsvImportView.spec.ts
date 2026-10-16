@@ -806,6 +806,51 @@ describe('CsvImportView Review rows', () => {
     expect(currentStep()).toBe('done')
     expect(wrapper!.find('[data-test="import-done-report"]').exists()).toBe(true)
   })
+
+  /** A checked job with no skipped rows, leaving out `dropped`. */
+  function wholeJob(dropped: NonNullable<ImportJob['summary']>['dropped'], overrides: Partial<ImportJob> = {}) {
+    const base = checkedJob()
+    return checkedJob({
+      summary: {
+        ...base.summary!,
+        row_count: 10,
+        errors: [],
+        errors_total: 0,
+        rows_with_errors: 0,
+        error_groups: [],
+        dropped,
+      },
+      ...overrides,
+    })
+  }
+  const PERSON = [{ column: 'primary_user', kind: 'camera', value: 'nobody@example.com', count: 1 }]
+
+  it('offers the report on Review when rows import without some values', async () => {
+    await openReview(wholeJob(PERSON))
+    expect(wrapper!.find('[data-test="import-error-report"]').exists()).toBe(true)
+    expect(wrapper!.find('[data-test="import-error-report-phone"]').exists()).toBe(true)
+    expect(wrapper!.text()).not.toContain('import-review-skip-reason')
+  })
+
+  it('hides the report on Review when every row imports whole', async () => {
+    await openReview(wholeJob([]))
+    expect(wrapper!.find('[data-test="import-error-report"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-test="import-error-report-phone"]').exists()).toBe(false)
+  })
+
+  it('offers the report on Done only when rows imported without some values', async () => {
+    api.get.mockResolvedValue(wholeJob(PERSON, { status: 'done', records_committed: 10 }))
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('done')
+    expect(wrapper!.find('[data-test="import-done-report"]').exists()).toBe(true)
+
+    wrapper!.unmount()
+    wrapper = null
+    api.get.mockResolvedValue(wholeJob([], { status: 'done', records_committed: 10 }))
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('done')
+    expect(wrapper!.find('[data-test="import-done-report"]').exists()).toBe(false)
+  })
 })
 
 describe('CsvImportView Review plan', () => {

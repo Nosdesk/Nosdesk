@@ -25,8 +25,9 @@
 //!   from, with its files.
 //! - `GET  /admin/import/{id}/rows?filter=&offset=&limit=` pages
 //!   through every row's result, from the dry run or the commit.
-//! - `GET  /admin/import/{id}/error-report` downloads the skipped
-//!   rows as CSV in the file's own layout, with the reasons; `?group=`
+//! - `GET  /admin/import/{id}/error-report` downloads the skipped and
+//!   partly imported rows as CSV in the file's own layout, with the
+//!   reasons; `?group=`
 //!   narrows it to one problem's rows and `?dropped=` lists the rows that
 //!   import without some of their values.
 //! - `GET  /admin/import/fields?type=` lists the fields a column
@@ -1887,7 +1888,8 @@ pub struct ErrorReportQuery {
 
 /// Which rows a report lists.
 enum ReportRows {
-    /// Every skipped row.
+    /// Every skipped row and every row that imports without some of its
+    /// values.
     Skipped,
     /// The skipped rows with this error.
     Group(imports::ErrorGroup),
@@ -1895,11 +1897,16 @@ enum ReportRows {
     Dropped(Vec<imports::DroppedGroup>),
 }
 
-/// The skipped rows as CSV, in the file's layout with a `Row` and an
-/// `Errors` column first (`services::imports::report`). Before the commit
-/// these are the rows it would skip; after, the rows it skipped. `group`
-/// narrows it to the rows of one problem; `dropped` lists instead the rows
-/// that import without some of their values, with why.
+/// The error report as CSV, in the file's layout with a `Row` and an
+/// `Errors` column first (`services::imports::report`): the skipped rows
+/// and the partly imported ones, those that import without some of their
+/// values. A value is left out when the row's kind has no such attribute,
+/// a group is unknown or answered Leave off, or a person is not a member or
+/// answered Leave blank (`RowResult::dropped`); a Leave blank answer on any
+/// other column clears the cell before the check, so it is not counted.
+/// Before the commit the rows are the plan's; after, what it wrote. `group`
+/// narrows it to the skipped rows of one problem; `dropped` to the rows
+/// that leave out a value of those groups.
 pub async fn error_report(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -1993,7 +2000,30 @@ pub async fn error_report(
 
     let body = match &wanted {
         ReportRows::Skipped => {
-            report::error_report_csv(&source.headers, delimiter, &stored.rows, &fields)
+            // A row that imports keeps no cells; the file has them.
+            let grid = if report::has_partial_rows(&stored.rows) {
+                match read_job_grid(id).await {
+                    Ok(grid) => Some(grid),
+                    Err(resp) => return resp,
+                }
+            } else {
+                None
+            };
+            let cells: std::collections::HashMap<usize, &Vec<String>> = grid
+                .iter()
+                .flat_map(|g| g.rows.iter().map(|r| (r.source_row, &r.cells)))
+                .collect();
+            let kind_label =
+                |slug: &str| kinds.get(slug).cloned().unwrap_or_else(|| slug.to_string());
+            report::error_report_csv(
+                &source.headers,
+                delimiter,
+                &stored.rows,
+                &fields,
+                stored.phase,
+                kind_label,
+                |row| cells.get(&row).map_or(&[][..], |c| c.as_slice()),
+            )
         }
         ReportRows::Group(group) => {
             let lines = stored

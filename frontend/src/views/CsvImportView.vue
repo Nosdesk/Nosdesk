@@ -18,7 +18,8 @@
  *             checks the rows with them.
  *  - Review : what the dry run found, row by row, and the error report;
  *             Import commits.
- *  - Done   : the committed counts and the report of skipped rows.
+ *  - Done   : the committed counts and the error report (skipped and
+ *             partly imported rows).
  *
  * The job id rides in `?job=` so a reload or a link resumes at the step
  * the job's status implies.
@@ -43,7 +44,7 @@ import ImportMapStep from '@/components/import/ImportMapStep.vue'
 import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
 import ImportSheetPanel from '@/components/import/ImportSheetPanel.vue'
 import ImportValuesStep from '@/components/import/ImportValuesStep.vue'
-import { planDelta, webhookHearsAssets } from '@/components/import/reviewModel'
+import { planDelta, reportHasRows, webhookHearsAssets } from '@/components/import/reviewModel'
 import { cards as valueCards, needsValues } from '@/components/import/valuesModel'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import {
@@ -587,6 +588,8 @@ const skippedOnDone = computed(() => {
   )
 })
 
+const reportOnDone = computed(() => reportHasRows(skippedOnDone.value, job.value?.summary))
+
 function viewImported() {
   switch (job.value?.job_type) {
     case 'users':
@@ -865,7 +868,7 @@ const viewImportedLabelKey = computed(() => {
         <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
           <Button variant="ghost" @click="startOver">{{ $t('import-done-new') }}</Button>
           <Button
-            v-if="skippedOnDone > 0"
+            v-if="reportOnDone"
             class="ml-auto"
             variant="secondary"
             icon="download"
@@ -875,7 +878,7 @@ const viewImportedLabelKey = computed(() => {
           >
             {{ $t('import-review-download-report') }}
           </Button>
-          <Button :class="skippedOnDone > 0 ? '' : 'ml-auto'" @click="viewImported">{{ $t(viewImportedLabelKey) }}</Button>
+          <Button :class="reportOnDone ? '' : 'ml-auto'" @click="viewImported">{{ $t(viewImportedLabelKey) }}</Button>
         </div>
       </section>
     </div>
