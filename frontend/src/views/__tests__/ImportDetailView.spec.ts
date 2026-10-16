@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   rows: vi.fn(),
   errorReport: vi.fn(),
   previousValues: vi.fn(),
+  nextSheet: vi.fn(),
 }))
 vi.mock('@nosdesk/core/services/importService', () => ({
   importJobQueryKey: (id: string) => ['import-job', id],
@@ -21,6 +22,7 @@ vi.mock('@nosdesk/core/services/importService', () => ({
     rows: (...a: unknown[]) => api.rows(...a),
     errorReport: (...a: unknown[]) => api.errorReport(...a),
     previousValues: (...a: unknown[]) => api.previousValues(...a),
+    nextSheet: (...a: unknown[]) => api.nextSheet(...a),
   },
 }))
 const hooks = vi.hoisted(() => ({ list: vi.fn() }))
@@ -203,6 +205,29 @@ describe('ImportDetailView', () => {
     await open(job({ pruned_at: '2026-11-15T00:00:00Z', removal_closes_at: '2026-11-14T00:00:00Z' }))
     expect(wrapper!.find('[data-test="import-remove-closed"]').text()).toBe('import-remove-window-closed')
     expect(wrapper!.find('[data-test="import-detail-previous"]').exists()).toBe(false)
+  })
+
+  it('imports the next sheet of the workbook in the wizard', async () => {
+    api.nextSheet.mockResolvedValue(job({ id: 'job-2', status: 'parsed', state: 'draft' }))
+    await open(job({ next_sheet: 'Vehicles' }))
+    const next = wrapper!.find('[data-test="import-detail-next-sheet"]')
+    expect(next.text()).toBe('import-done-next-sheet')
+    await next.trigger('click')
+    await flushPromises()
+    expect(api.nextSheet).toHaveBeenCalledWith('job-1', 'Vehicles')
+    expect(router.currentRoute.value.path).toBe('/admin/data-import/csv')
+    expect(router.currentRoute.value.query.job).toBe('job-2')
+  })
+
+  it('says so when the file for the next sheet is gone', async () => {
+    api.nextSheet.mockRejectedValue({
+      response: { status: 409, data: { code: 'import_file_missing', error: 'gone' } },
+    })
+    await open(job({ next_sheet: 'Vehicles' }))
+    await wrapper!.find('[data-test="import-detail-next-sheet"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('import-file-missing')
+    expect(router.currentRoute.value.path).toBe('/admin/data-import/imports/job-1')
   })
 
   it('sends a draft to the wizard and says an expired one is over', async () => {

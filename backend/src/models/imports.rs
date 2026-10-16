@@ -50,6 +50,9 @@ pub struct ImportJob {
     /// `services::imports::remove::RemoveResult`: each created asset
     /// deleted or kept with its reasons, and the catalog entries removed.
     pub remove_result: Option<serde_json::Value>,
+    /// For a job made by Import the next sheet, the job its workbook was
+    /// first uploaded to; `None` for that first job.
+    pub upload_of: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -61,6 +64,8 @@ pub struct NewImportJob {
     pub filename: String,
     pub file_path: String,
     pub created_by: Option<Uuid>,
+    /// See [`ImportJob::upload_of`].
+    pub upload_of: Option<Uuid>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -170,6 +175,11 @@ pub struct ImportJobResponse {
     /// its previous values file; filled where a page shows it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_values: Option<PreviousValues>,
+    /// For a committed workbook import, the next visible sheet with rows
+    /// that nothing has imported from this upload yet; filled where a page
+    /// shows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_sheet: Option<String>,
 }
 
 impl From<ImportJob> for ImportJobResponse {
@@ -223,6 +233,7 @@ impl From<ImportJob> for ImportJobResponse {
             removed_by_name: None,
             remove_result: job.remove_result,
             previous_values: None,
+            next_sheet: None,
         }
     }
 }

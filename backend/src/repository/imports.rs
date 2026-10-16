@@ -159,6 +159,37 @@ pub fn list_reached_map(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<
         .load(conn)
 }
 
+/// A job made from one upload, as Import the next sheet reads it.
+#[derive(Debug, Clone, Queryable)]
+pub struct UploadJobRow {
+    pub id: Uuid,
+    pub status: String,
+    pub sheet: Option<String>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub pruned_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Every job made from the upload first sent to job `root`: `root` itself
+/// and each job Import the next sheet made from it, with the sheet each
+/// one reads. Oldest first.
+// sync-audit-only: read-only
+pub fn jobs_of_upload(conn: &mut DbConnection, root: Uuid) -> QueryResult<Vec<UploadJobRow>> {
+    use crate::schema::import_jobs::dsl as j;
+    use diesel::dsl::sql;
+    use diesel::sql_types::{Nullable, Text};
+    j::import_jobs
+        .filter(j::id.eq(root).or(j::upload_of.eq(root)))
+        .order((j::created_at.asc(), j::id.asc()))
+        .select((
+            j::id,
+            j::status,
+            sql::<Nullable<Text>>("import_jobs.source->>'sheet'"),
+            j::updated_at,
+            j::pruned_at,
+        ))
+        .load(conn)
+}
+
 /// The records a committed job created and updated
 /// (`services::imports::RecordIds`), without the rest of the job; `None`
 /// when there is no such job here or it wrote nothing.

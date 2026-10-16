@@ -291,6 +291,10 @@ export interface ImportJob {
   /** The previous values file's size, while the details are kept (the
    *  job's own read, asset imports only). */
   previous_values?: PreviousValuesCounts | null
+  /** For a committed workbook import whose file is kept, the next visible
+   *  sheet with rows that nothing from this upload has imported (the job's
+   *  own read and the commit's answer). */
+  next_sheet?: string | null
 }
 
 /** Why an asset an import created is kept by Remove imported assets. The
@@ -621,6 +625,16 @@ export const importService = {
   async putType(jobId: string, jobType: ImportJobType): Promise<ImportJob> {
     const { data } = await apiClient.put<ImportJob>(`/admin/import/${jobId}/type`, {
       type: jobType,
+    })
+    return data
+  },
+
+  /** Import the next sheet: a new draft on `sheet` of a committed
+   *  import's workbook, with nothing carried but the file. Answers an open
+   *  draft on that sheet from the same file instead of a second one. */
+  async nextSheet(jobId: string, sheet: string): Promise<ImportJob> {
+    const { data } = await apiClient.post<ImportJob>(`/admin/import/${jobId}/next-sheet`, {
+      sheet,
     })
     return data
   },

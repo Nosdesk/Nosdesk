@@ -21,7 +21,8 @@
  *  - Done   : the receipt: the headline, the four tiles, what wasn't
  *             imported, what it created and changed, the error report
  *             (skipped and partly imported rows), the assets it touched,
- *             and another file of the same type.
+ *             the workbook's next sheet, and another file of the same
+ *             type.
  *
  * The job id rides in `?job=` so a reload or a link resumes at the step
  * the job's status implies.
@@ -112,7 +113,7 @@ const uploadError = ref<{ message: string; detail: string } | null>(null)
 
 const job = ref<ImportJob | null>(null)
 const busy = ref<
-  'upload' | 'source' | 'type' | 'discard' | 'check' | 'commit' | 'resume' | null
+  'upload' | 'source' | 'type' | 'discard' | 'check' | 'commit' | 'resume' | 'next' | null
 >(null)
 const downloadingReport = ref(false)
 const errorMessage = ref('')
@@ -598,6 +599,28 @@ async function importAnother() {
   dropZone.value?.focus()
 }
 
+/** Done's "Import the next sheet": a new draft on that sheet of the same
+ *  file, opened on Map. Nothing comes across but the file; Map matches the
+ *  columns from memory like any new import. */
+async function importNextSheet() {
+  const sheet = job.value?.next_sheet
+  if (!job.value || !sheet || busy.value) return
+  busy.value = 'next'
+  errorMessage.value = ''
+  try {
+    const next = await importService.nextSheet(job.value.id, sheet)
+    job.value = next
+    selectedType.value = next.job_type
+    setJobQuery(next.id)
+    step.value = 'map'
+    queryCache.invalidateQueries({ key: ['import-jobs'] })
+  } catch (e) {
+    stepFailed(e, 'import-error-generic')
+  } finally {
+    busy.value = null
+  }
+}
+
 /** Completed steps the job lets the admin go back to. */
 function canGoTo(target: Step): boolean {
   if (busy.value) return false
@@ -950,7 +973,15 @@ function viewImported() {
           >
             {{ $t('import-review-download-report') }}
           </Button>
-          <!-- A12: "Import the next sheet: {sheet}" goes here. -->
+          <Button
+            v-if="job.next_sheet"
+            variant="secondary"
+            :loading="busy === 'next'"
+            data-test="import-done-next-sheet"
+            @click="importNextSheet"
+          >
+            {{ $t('import-done-next-sheet', { sheet: job.next_sheet }) }}
+          </Button>
           <Button variant="secondary" data-test="import-done-another" @click="importAnother">
             {{ $t('import-done-another') }}
           </Button>
