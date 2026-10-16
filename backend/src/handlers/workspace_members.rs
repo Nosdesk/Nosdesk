@@ -91,7 +91,7 @@ fn parse_role(role: &str) -> Option<WorkspaceRole> {
 }
 
 /// Refusal for a role the caller's tier can't assign or manage. The user
-/// importer gives the same answer for the same rows.
+/// importer and the add-user API give the same answer.
 pub const FORBIDDEN_TIER_MESSAGE: &str =
     "You can only manage members and agents; managing admins or owners requires the owner role";
 
@@ -102,7 +102,8 @@ pub const LAST_OWNER_MESSAGE: &str = "cannot demote the only owner; promote anot
 pub const SEAT_LIMIT_MESSAGE: &str =
     "This workspace has reached its seat limit. Contact support to add more seats.";
 
-fn forbidden_tier() -> HttpResponse {
+/// 403 with [`FORBIDDEN_TIER_MESSAGE`], also returned by the add-user API.
+pub fn forbidden_tier() -> HttpResponse {
     errors::forbidden(FORBIDDEN_TIER_MESSAGE)
 }
 

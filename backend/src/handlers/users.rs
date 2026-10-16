@@ -964,8 +964,10 @@ pub async fn create_user(
     // agent logging a phone-in ticket). Staff and platform roles (agent/admin/
     // audit_reviewer) are seats: workspace-admin, and without this gate any
     // authenticated user could POST role:"admin" and mint a privileged account
-    // (security-audit-2026-06). In hosted they are control-plane owned, so hand
-    // off there rather than mint a local account that can never sign in.
+    // (security-audit-2026-06). The workspace role then passes the member-role
+    // endpoint's tier check, so only an owner creates an admin. In hosted they
+    // are control-plane owned, so hand off there rather than mint a local
+    // account that can never sign in.
     let (platform_role, workspace_role) = match utils::parse_roles(&user_data.role) {
         Ok(roles) => roles,
         Err(e) => return Ok(e.into()),
@@ -976,8 +978,13 @@ pub async fn create_user(
     let actor_claims = if is_requester {
         crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Agent)?
     } else {
-        let claims =
-            crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
+        let (claims, caller_role) = crate::utils::rbac::require_workspace_role_detailed(
+            &req,
+            crate::models::WorkspaceRole::Admin,
+        )?;
+        if !crate::handlers::workspace_members::can_assign(caller_role, workspace_role) {
+            return Ok(crate::handlers::workspace_members::forbidden_tier());
+        }
         if !crate::middleware::workspace_context::local_credentials_permitted() {
             // Same boundary + code as the other staff-mutation refusals.
             return Ok(errors::externally_managed());
