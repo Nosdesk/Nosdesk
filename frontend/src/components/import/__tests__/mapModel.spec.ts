@@ -3,6 +3,7 @@ import type { ImportField, ImportSource, Suggestion } from '@nosdesk/core/servic
 
 import {
   IGNORE,
+  attributeKinds,
   buildConstants,
   buildIgnored,
   buildMapping,
@@ -12,9 +13,11 @@ import {
   freeFields,
   initialRows,
   isSettled,
+  kindsInFile,
   matchesFilter,
   pill,
   problems,
+  requiredAttributeWarnings,
   savedFrom,
   type ConstantRow,
   type MapRow,
@@ -258,5 +261,61 @@ describe('detected options', () => {
     expect(detectDecimal(['12.5'])).toBe('.')
     expect(detectDecimal(['1,250', '3'])).toBeNull()
     expect(detectDecimal(['12.5', '12,5'])).toBeNull()
+  })
+})
+
+describe('required attributes', () => {
+  const KINDS = [
+    { value: 'camera', label: 'Camera' },
+    { value: 'vehicle', label: 'Vehicle' },
+  ]
+  const attribute = (id: string, kinds: string[], requiredFor: string[] = []): ImportField => ({
+    id,
+    label: id,
+    group: 'attribute',
+    value_type: 'text',
+    required: false,
+    kinds,
+    required_for: requiredFor,
+  })
+  const ATTRS = [
+    attribute('fuel', ['vehicle'], ['vehicle']),
+    attribute('mount', ['camera'], ['camera']),
+    attribute('sensor', ['camera'], ['camera']),
+    attribute('rego', ['vehicle']),
+  ]
+  const mapped = (targets: Record<string, string>, samples: string[] = []): MapRow[] =>
+    Object.entries(targets).map(([name, target], index) => ({
+      index,
+      name,
+      samples: target === 'kind' ? samples : [],
+      target,
+      suggestion: null,
+    }))
+
+  it('reads the kinds from the Kind column samples and the kind for every row', () => {
+    expect(kindsInFile(mapped({ Type: 'kind' }, ['camera', ' CAMERA', 'Vehicle', 'Boat']), [], KINDS)).toEqual([
+      'camera',
+      'vehicle',
+    ])
+    expect(kindsInFile(mapped({ Name: 'name' }), [constant('kind', 'vehicle')], KINDS)).toEqual(['vehicle'])
+    expect(kindsInFile(mapped({ Name: 'name' }), [], KINDS)).toEqual([])
+  })
+
+  it('names each kind whose required attributes nothing gives', () => {
+    const r = mapped({ Type: 'kind', Mount: 'mount' })
+    expect(requiredAttributeWarnings(r, ATTRS, [], ['camera', 'vehicle'])).toEqual([
+      { kind: 'camera', needed: ['mount', 'sensor'], missing: ['sensor'] },
+      { kind: 'vehicle', needed: ['fuel'], missing: ['fuel'] },
+    ])
+    // A value for every row gives one.
+    expect(requiredAttributeWarnings(r, ATTRS, [constant('fuel', 'Diesel')], ['vehicle'])).toEqual([])
+    // A kind that isn't in the file asks for nothing.
+    expect(requiredAttributeWarnings(r, ATTRS, [], [])).toEqual([])
+  })
+
+  it('groups an attribute under the kinds that define it', () => {
+    expect(attributeKinds(attribute('insured', ['vehicle', 'camera']), KINDS)).toEqual(['Vehicle', 'Camera'])
+    expect(attributeKinds(attribute('x', ['gone']), KINDS)).toEqual(['gone'])
   })
 })

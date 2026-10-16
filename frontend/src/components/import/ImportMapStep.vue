@@ -46,6 +46,7 @@ import type {
 import { detectOtherType, listHeaders } from './detectType'
 import {
   IGNORE,
+  attributeKinds,
   buildConstants,
   buildIgnored,
   buildMapping,
@@ -58,10 +59,12 @@ import {
   isMapped,
   isNotImported,
   isSettled,
+  kindsInFile,
   mapsValueType,
   matchesFilter,
   pill,
   problems,
+  requiredAttributeWarnings,
   samplesOf,
   savedFrom,
   type ConstantRow,
@@ -208,16 +211,30 @@ const canAddConstant = computed(
   () => freeFields(rows.value, props.fields, props.job.job_type, constants.value).length > 0,
 )
 
-/** The picker a constant's value takes: kinds for Kind, the options of an
- *  enum, else typed text. */
+/** The picker a constant's value takes: kinds for Kind, yes or no, the
+ *  options of an enum, else typed text. */
 function valueOptions(c: ConstantRow): DropdownOption[] | null {
   if (isAssets.value && c.field === 'kind') return props.kinds
-  const values = fieldById.value.get(c.field)?.enum
+  const field = fieldById.value.get(c.field)
+  if (field?.value_type === 'boolean') {
+    return [
+      { value: 'true', label: t('import-constants-yes') },
+      { value: 'false', label: t('import-constants-no') },
+    ]
+  }
+  const values = field?.enum
   return values && values.length > 0 ? values.map((v) => ({ value: v, label: v })) : null
 }
 
 function valueInputType(c: ConstantRow): string {
-  return fieldById.value.get(c.field)?.value_type === 'number' ? 'number' : 'text'
+  switch (fieldById.value.get(c.field)?.value_type) {
+    case 'number':
+      return 'number'
+    case 'date':
+      return 'date'
+    default:
+      return 'text'
+  }
 }
 
 /** The kind for every row, set from the problem callout. */
@@ -241,10 +258,10 @@ const typeHint = computed(() =>
 const typeHintText = computed(() => {
   const hint = typeHint.value
   if (!hint) return ''
-  const lang = typeof document === 'undefined' ? undefined : document.documentElement.lang
   return t(`import-map-detect-${hint.type}`, { headers: listHeaders(hint.headers, lang) })
 })
 const busyElsewhere = computed(() => props.checking || !!props.switching || !!props.discarding)
+const lang = typeof document === 'undefined' ? undefined : document.documentElement.lang || undefined
 
 function fieldLabel(id: string): string {
   const field = fieldById.value.get(id)
@@ -281,11 +298,21 @@ function optionsFor(row: MapRow): DropdownOption[] {
     if (other !== undefined) description = t('import-map-mapped-from', { header: other })
     else if (isAssets.value && f.id === 'kind') description = t('import-map-kind-required')
     else if (f.required) description = t('import-map-required')
+    else if (f.required_for?.length) {
+      description = t('import-map-required-for', { kinds: kindList(f.required_for) })
+    }
+    // Attributes sit under the kinds that define them.
+    const group =
+      f.group === 'attribute' && f.kinds?.length
+        ? t('import-map-group-attribute-kinds', {
+            kinds: listHeaders(attributeKinds(f, props.kinds), lang),
+          })
+        : t(GROUP_KEYS[f.group])
     return {
       value: f.id,
       label: fieldLabel(f.id),
       description,
-      group: t(GROUP_KEYS[f.group]),
+      group,
     }
   })
   options.push({
@@ -320,6 +347,40 @@ function clashText(row: MapRow): string {
   const others = clashingColumns(row, found.value)
   if (others.length === 0) return ''
   return t('import-map-clash', { headers: others.map((i) => `'${headerName(i)}'`).join(', ') })
+}
+
+/** Kind slugs as their labels, in a list. */
+function kindList(slugs: string[]): string {
+  return listHeaders(
+    slugs.map((slug) => props.kinds.find((k) => k.value === slug)?.label ?? slug),
+    lang,
+  )
+}
+
+/** Kinds in the file whose new rows need attributes nothing gives. Only
+ *  the Kind column's samples and the kind for every row are known here. */
+const requiredWarnings = computed(() =>
+  isAssets.value
+    ? requiredAttributeWarnings(
+        rows.value,
+        props.fields,
+        constants.value,
+        kindsInFile(rows.value, constants.value, props.kinds),
+      )
+    : [],
+)
+
+function requiredText(w: { kind: string; needed: string[]; missing: string[] }): string {
+  const kind = kindList([w.kind])
+  const needed = listHeaders(w.needed.map(fieldLabel), lang)
+  if (w.missing.length === w.needed.length) {
+    return t('import-map-warning-required-none', { kind, needed, count: w.missing.length })
+  }
+  return t('import-map-warning-required-some', {
+    kind,
+    needed,
+    missing: listHeaders(w.missing.map(fieldLabel), lang),
+  })
 }
 
 function problemText(p: Problem): string {
@@ -397,8 +458,12 @@ function nextProblem() {
 
 /** Folded when the job opens with every column settled: a fresh job only,
  *  so coming back from Review shows the columns that were checked. */
+// A kind whose required attributes nothing gives keeps the step open, so
+// its warning is read.
 const collapsed = ref(
-  props.job.mapping === null && isSettled(rows.value, found.value, constants.value),
+  props.job.mapping === null &&
+    isSettled(rows.value, found.value, constants.value) &&
+    requiredWarnings.value.length === 0,
 )
 const collapsedText = computed(() => {
   const from = savedFrom(rows.value)
@@ -633,6 +698,17 @@ const linkClass =
               :aria-label="$t('import-options-date-label')"
             />
           </li>
+        </ul>
+      </Callout>
+
+      <!-- Kinds whose new rows need attributes nothing gives: the check
+           goes ahead and skips those rows. -->
+      <Callout v-if="requiredWarnings.length > 0" severity="warning" data-test="import-required-attributes">
+        <template #header>
+          <span class="font-medium text-primary">{{ $t('import-map-required-heading') }}</span>
+        </template>
+        <ul class="px-4 py-3 flex flex-col gap-2 text-sm text-primary">
+          <li v-for="w in requiredWarnings" :key="w.kind">{{ requiredText(w) }}</li>
         </ul>
       </Callout>
 

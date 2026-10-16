@@ -13,6 +13,7 @@ import {
   answersToSend,
   applyBulk,
   bulkActions,
+  cardId,
   cards,
   columnsNeeding,
   consequence,
@@ -26,6 +27,7 @@ import {
   problemIds,
   settledColumns,
   skippedNow,
+  idOf,
   valueId,
   valuesCsv,
   type Edits,
@@ -217,6 +219,35 @@ describe('answers', () => {
     expect(answersToSend(v, { [valueId('kind', 'dolly')]: { action: 'skip' } })).toEqual({
       kind: { '': { tripod: { action: 'match', target: 'camera' }, dolly: { action: 'skip' } } },
     })
+  })
+
+  it('are keyed by kind for a field answered per kind', () => {
+    const good = value('good', 'no_match', [3], { suggested: { action: 'leave_blank' }, skipped_rows: [] })
+    const camera = kindColumn([value('good', 'exact', [2])], {
+      field: 'attr:condition',
+      context: 'camera',
+      context_label: 'Camera',
+      required: false,
+    })
+    const vehicle = kindColumn([good], {
+      field: 'attr:condition',
+      context: 'vehicle',
+      context_label: 'Vehicle',
+      required: false,
+    })
+    // The same field and value on two kinds are two values and two cards.
+    expect(idOf(vehicle, good)).not.toBe(idOf(camera, camera.values[0]))
+    expect(cardId(vehicle)).not.toBe(cardId(camera))
+    const edits: Edits = { [idOf(vehicle, good)]: { action: 'match', target: 'Roadworthy' } }
+    expect(answersToSend(view([camera, vehicle]), edits)).toEqual({
+      'attr:condition': { vehicle: { good: { action: 'match', target: 'Roadworthy' } } },
+    })
+    expect(cards(view([camera, vehicle]), {}).map((c) => cardId(c.column))).toEqual([cardId(vehicle)])
+    // One source column, however many kinds ask about it; settled only
+    // when every kind is.
+    expect(columnsNeeding(view([camera, vehicle]), {})).toBe(1)
+    expect(settledColumns(view([camera, vehicle]), {})).toEqual([])
+    expect(settledColumns(view([camera]), {})).toEqual([camera])
   })
 
   it('round-trip through picker keys, keeping text typed for Replace with', () => {
