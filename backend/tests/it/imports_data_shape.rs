@@ -170,6 +170,7 @@ fn committed_rows_record_what_they_wrote() {
             ("name", None, Some("Tripod")),
             ("quantity", None, Some("2.000")),
             ("serial_number", None, Some("SN-2")),
+            ("status", None, Some("in_service")),
             ("unit", None, Some("pcs")),
         ]
     );

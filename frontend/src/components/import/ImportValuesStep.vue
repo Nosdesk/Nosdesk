@@ -22,6 +22,7 @@ import type { DropdownOption } from '@/components/common/dropdownOption'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useAuthStore } from '@/stores/auth'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
+import { assetStatusLabel } from '@/utils/assetStatusMeta'
 import type {
   ImportField,
   ImportValue,
@@ -46,6 +47,7 @@ import {
   emptyReplacements,
   filterValues,
   isAnswered,
+  leavesAsIs,
   matchedCount,
   matchedValues,
   nextProblem as nextProblemId,
@@ -111,6 +113,17 @@ function title(col: ImportValueColumn): string {
 
 const isParsed = (col: ImportValueColumn) => col.choices.length === 0
 
+/** A choice's label: an asset status in the viewer's language, else the
+ *  server's. */
+function choiceLabel(col: ImportValueColumn, value: string, label: string): string {
+  return col.field === 'status' ? assetStatusLabel(t, value) : label
+}
+
+/** Why a choice can't be picked, in the viewer's language for a status. */
+function disabledNote(col: ImportValueColumn, note: string): string {
+  return col.field === 'status' ? t('import-values-status-after-import') : note
+}
+
 // ---- answers ----
 
 function answerOf(col: ImportValueColumn, v: ImportValue): ValueAnswer | undefined {
@@ -134,8 +147,8 @@ function setReplacement(col: ImportValueColumn, v: ImportValue, value: string) {
 function pickerOptions(col: ImportValueColumn, v: ImportValue): DropdownOption[] {
   const options: DropdownOption[] = col.choices.map((c) => ({
     value: `match:${c.value}`,
-    label: c.label,
-    description: c.disabled ?? c.detail,
+    label: choiceLabel(col, c.value, c.label),
+    description: c.disabled ? disabledNote(col, c.disabled) : c.detail,
     disabled: !!c.disabled,
   }))
   const or = t('import-values-group-or')
@@ -161,6 +174,13 @@ function pickerOptions(col: ImportValueColumn, v: ImportValue): DropdownOption[]
       description: t('import-values-leave-as-is-help'),
       group: or,
     })
+  } else if (leavesAsIs(col)) {
+    options.push({
+      value: 'leave_blank',
+      label: t('import-values-leave-as-is'),
+      description: t('import-values-status-leave-help'),
+      group: or,
+    })
   } else if (!col.required) {
     options.push({ value: 'leave_blank', label: t('import-values-leave-blank'), group: or })
   }
@@ -173,11 +193,13 @@ function answerLabel(col: ImportValueColumn, v: ImportValue): string {
   const a = answerOf(col, v)
   if (!a) return v.text
   switch (a.action) {
-    case 'match':
-      return col.choices.find((c) => c.value === String(a.target))?.label ?? String(a.target)
+    case 'match': {
+      const choice = col.choices.find((c) => c.value === String(a.target))
+      return choice ? choiceLabel(col, choice.value, choice.label) : String(a.target)
+    }
     case 'leave_blank':
       if (col.lookup === 'group') return t('import-values-leave-off')
-      return v.blank ? t('import-values-leave-as-is') : t('import-values-leave-blank')
+      return v.blank || leavesAsIs(col) ? t('import-values-leave-as-is') : t('import-values-leave-blank')
     case 'keep_text':
       return t('import-values-keep-text')
     case 'skip':
@@ -206,9 +228,9 @@ function savedText(v: ImportValue): string {
   return t('import-map-saved-unknown', args)
 }
 
-function noteOf(v: ImportValue): string {
+function noteOf(col: ImportValueColumn, v: ImportValue): string {
   if (v.reason?.code === 'close_to') return t('import-values-close-to', { label: v.reason.label })
-  if (v.reason?.code === 'disabled') return v.reason.note
+  if (v.reason?.code === 'disabled') return disabledNote(col, v.reason.note)
   return ''
 }
 
@@ -268,9 +290,10 @@ function bulkFor(card: Card) {
   return bulkActions(card.column, card.listed, edits.value)
 }
 
-function bulkLabel(action: BulkAction, count: number): string {
-  return action === 'skip'
-    ? t('import-values-bulk-skip', { count })
+function bulkLabel(col: ImportValueColumn, action: BulkAction, count: number): string {
+  if (action === 'skip') return t('import-values-bulk-skip', { count })
+  return leavesAsIs(col)
+    ? t('import-values-bulk-as-is', { count })
     : t('import-values-bulk-blank', { count })
 }
 
@@ -287,7 +310,10 @@ function scaleChoice(card: Card): BulkAction | '' {
 
 function scaleOptions(card: Card) {
   const options: { value: BulkAction | ''; label: string }[] = []
-  if (!card.column.required) options.push({ value: 'leave_blank', label: t('import-values-leave-blank') })
+  if (!card.column.required) {
+    const label = leavesAsIs(card.column) ? t('import-values-leave-as-is') : t('import-values-leave-blank')
+    options.push({ value: 'leave_blank', label })
+  }
   options.push({ value: 'skip', label: t('import-values-skip') })
   return options
 }
@@ -525,7 +551,7 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
                         :class="consequence(card.column, v, edits) === 'skipped' ? 'text-status-error' : 'text-tertiary'"
                       >{{ consequenceText(card.column, v) }}</span>
                     </div>
-                    <span v-if="noteOf(v)" class="text-tertiary">{{ noteOf(v) }}</span>
+                    <span v-if="noteOf(card.column, v)" class="text-tertiary">{{ noteOf(card.column, v) }}</span>
                   </div>
                 </td>
               </tr>
@@ -592,7 +618,7 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
                   v-if="consequenceText(card.column, v)"
                   :class="consequence(card.column, v, edits) === 'skipped' ? 'text-status-error' : 'text-tertiary'"
                 >{{ consequenceText(card.column, v) }}</span>
-                <span v-if="noteOf(v)" class="text-tertiary">{{ noteOf(v) }}</span>
+                <span v-if="noteOf(card.column, v)" class="text-tertiary">{{ noteOf(card.column, v) }}</span>
                 <span v-if="pillOf(card.column, v) === 'saved'" class="text-tertiary">{{ savedText(v) }}</span>
               </div>
             </li>
@@ -666,7 +692,7 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
               :data-bulk="b.action"
               @click="bulk(card, b.action)"
             >
-              {{ bulkLabel(b.action, b.count) }}
+              {{ bulkLabel(card.column, b.action, b.count) }}
             </Button>
           </div>
         </div>

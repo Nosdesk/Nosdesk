@@ -32,6 +32,15 @@
 //! asset linked to a model keeps its kind, since the model sets it. A kind
 //! change never leaves the asset holding attributes the new kind doesn't
 //! define. Any other row is an error that points to the asset page.
+//!
+//! Status moves through the lifecycle rules
+//! ([`asset_lifecycle_repo::transition`], reason Imported, naming the job),
+//! after the asset's own write and, on a new asset, after its Imported
+//! event: a new asset starts in service and moves from there. A blank cell
+//! leaves the status. Disposed and on loan come from a disposal or a loan,
+//! a disposed asset keeps its status, and one out on loan leaves it only
+//! by its return; the dry run refuses each such row as the transition
+//! would. A synced asset's status moves too, as on the asset page.
 
 use bigdecimal::{BigDecimal, ToPrimitive};
 use chrono::NaiveDate;
@@ -42,12 +51,13 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
-    Asset, AssetGroup, AssetKind, AssetLifecycleEvent, AssetModel, AssetUpdate, Manufacturer,
-    NewAsset, NewAssetGroup, NewAssetModel, NewManufacturer,
+    Asset, AssetGroup, AssetKind, AssetLifecycleEvent, AssetModel, AssetStatus, AssetUpdate,
+    Manufacturer, NewAsset, NewAssetGroup, NewAssetModel, NewManufacturer,
 };
 use crate::repository::asset_groups as group_repo;
 use crate::repository::asset_kinds as kind_repo;
-use crate::repository::asset_lifecycle as asset_lifecycle_repo;
+use crate::repository::asset_lifecycle::{self as asset_lifecycle_repo, TransitionError};
+use crate::repository::asset_loans as asset_loans_repo;
 use crate::repository::asset_models as model_repo;
 use crate::repository::assets as asset_repo;
 use crate::repository::manufacturers as manufacturer_repo;
@@ -84,10 +94,44 @@ pub const IMPORT_HEADERS: &[&str] = &[
     "low_stock_threshold",
 ];
 
-/// Columns appended on export only. The importer ignores
-/// extras, so re-importing an unmodified export is a no-op
-/// upsert on the shared columns.
+/// Columns appended on export only. The importer ignores `attributes`,
+/// and an unchanged `status` writes nothing, so re-importing an unmodified
+/// export is a no-op upsert on the shared columns.
 pub const EXPORT_EXTRA_HEADERS: &[&str] = &["status", "attributes"];
+
+/// Every status in picker order, with its label.
+const STATUSES: &[(AssetStatus, &str)] = &[
+    (AssetStatus::InService, "In service"),
+    (AssetStatus::InStock, "In stock"),
+    (AssetStatus::OnOrder, "On order"),
+    (AssetStatus::InTransit, "In transit"),
+    (AssetStatus::InRepair, "In repair"),
+    (AssetStatus::OnLoan, "On loan"),
+    (AssetStatus::Retired, "Retired"),
+    (AssetStatus::Lost, "Lost"),
+    (AssetStatus::Disposed, "Disposed"),
+];
+
+/// Why disposed and on loan can't be picked for the Status column: the
+/// asset page sets them, with the disposal record or the loan.
+pub const STATUS_SET_AFTER_IMPORT: &str = "Set by a disposal or a loan after import";
+
+/// Whether only a disposal or a loan sets `status`, never an import.
+fn set_after_import(status: AssetStatus) -> bool {
+    matches!(status, AssetStatus::Disposed | AssetStatus::OnLoan)
+}
+
+/// A status cell as the status it names, by key or label, ignoring case,
+/// spacing, `_` and `-`.
+fn read_status(cell: &str) -> Option<AssetStatus> {
+    let wanted = values::loose(cell);
+    STATUSES
+        .iter()
+        .find(|(status, label)| {
+            values::loose(status.as_str()) == wanted || values::loose(label) == wanted
+        })
+        .map(|(status, _)| *status)
+}
 
 /// The template's columns before a kind's attributes, in order. An
 /// attribute whose key is one of these is named `attr:<key>`.
@@ -369,6 +413,13 @@ impl Importer for AssetImporter {
             FieldSpec::fixed(t, "kind", "Kind", Core, Enum, true).with_enum(kinds),
             FieldSpec::fixed(t, "asset_tag", "Asset tag", Core, Text, false),
             FieldSpec::fixed(t, "serial_number", "Serial number", Core, Text, false),
+            FieldSpec::fixed(t, "status", "Status", Core, Enum, false).with_enum(
+                STATUSES
+                    .iter()
+                    .filter(|(status, _)| !set_after_import(*status))
+                    .map(|(status, _)| status.as_str().to_string())
+                    .collect(),
+            ),
             FieldSpec::fixed(t, "location", "Location", Core, Text, false),
             FieldSpec::fixed(t, "notes", "Notes", Core, Text, false),
             FieldSpec::fixed(t, "quantity", "Quantity", Core, Number, false),
@@ -431,6 +482,9 @@ impl Importer for AssetImporter {
             ("assetgroup", "groups"),
             ("assetgroups", "groups"),
             ("tags", "groups"),
+            ("state", "status"),
+            ("assetstatus", "status"),
+            ("lifecyclestatus", "status"),
         ]
     }
 
@@ -439,6 +493,20 @@ impl Importer for AssetImporter {
         conn: &mut DbConnection,
         field: &FieldSpec,
     ) -> Result<Option<Vec<Choice>>, diesel::result::Error> {
+        if field.id == "status" {
+            return Ok(Some(
+                STATUSES
+                    .iter()
+                    .map(|(status, label)| {
+                        let mut choice = Choice::new(status.as_str(), *label);
+                        if set_after_import(*status) {
+                            choice.disabled = Some(STATUS_SET_AFTER_IMPORT.to_string());
+                        }
+                        choice
+                    })
+                    .collect(),
+            ));
+        }
         if field.id != "kind" {
             return Ok(values::enum_choices(field));
         }
@@ -473,6 +541,41 @@ impl Importer for AssetImporter {
                 ("ute", "vehicle"),
                 ("licence", "license"),
                 ("software", "license"),
+            ],
+            "status" => &[
+                ("in use", "in_service"),
+                ("active", "in_service"),
+                ("deployed", "in_service"),
+                ("assigned", "in_service"),
+                ("live", "in_service"),
+                ("spare", "in_stock"),
+                ("available", "in_stock"),
+                ("in storage", "in_stock"),
+                ("stored", "in_stock"),
+                ("storage", "in_stock"),
+                ("unassigned", "in_stock"),
+                ("broken", "in_repair"),
+                ("faulty", "in_repair"),
+                ("damaged", "in_repair"),
+                ("repair", "in_repair"),
+                ("needs repair", "in_repair"),
+                ("being repaired", "in_repair"),
+                ("ordered", "on_order"),
+                ("on backorder", "on_order"),
+                ("shipping", "in_transit"),
+                ("shipped", "in_transit"),
+                ("loaned", "on_loan"),
+                ("lent", "on_loan"),
+                ("borrowed", "on_loan"),
+                ("decommissioned", "retired"),
+                ("end of life", "retired"),
+                ("eol", "retired"),
+                ("inactive", "retired"),
+                ("missing", "lost"),
+                ("stolen", "lost"),
+                ("scrapped", "disposed"),
+                ("recycled", "disposed"),
+                ("written off", "disposed"),
             ],
             _ => &[],
         }
@@ -606,6 +709,23 @@ impl Importer for AssetImporter {
                         }
                     };
                     result.dropped = planned.dropped;
+                    // The status move the commit makes, so a commit can
+                    // tell when the asset's status moved since.
+                    if let Some(to) = planned.status_to {
+                        let before = match planned.action {
+                            RowAction::Update(id) | RowAction::SyncedUpdate(id) => {
+                                lookups.existing.get(&id).map(|a| a.status.clone())
+                            }
+                            _ => None,
+                        };
+                        result.fields_written.insert(
+                            "status".to_string(),
+                            FieldChange {
+                                before,
+                                after: Some(to.as_str().to_string()),
+                            },
+                        );
+                    }
                     result
                 }
                 Err(field_errors) => RowResult::skipped(entry.source_row, field_errors),
@@ -695,8 +815,9 @@ impl Importer for AssetImporter {
                     ),
                 ),
                 // A synced asset takes its attributes and groups and
-                // nothing else, as PUT re-scopes its update.
-                RowAction::SyncedUpdate(asset_id) => (
+                // nothing else, as PUT re-scopes its update; its status
+                // moves as the asset page moves it.
+                RowAction::SyncedUpdate(asset_id) if planned.synced_writes => (
                     RowOutcome::Update,
                     asset_repo::update_device(
                         conn,
@@ -708,16 +829,19 @@ impl Importer for AssetImporter {
                         },
                     ),
                 ),
+                RowAction::SyncedUpdate(asset_id) => (
+                    RowOutcome::Update,
+                    asset_repo::get_device_by_id(conn, asset_id),
+                ),
                 RowAction::Unchanged(_) => unreachable!("handled above"),
             };
-            let asset = written.map_err(|e| row_write_error(row_num, e))?;
+            let mut asset = written.map_err(|e| row_write_error(row_num, e))?;
             let before = match planned.action {
                 RowAction::Update(id) | RowAction::SyncedUpdate(id) => lookups.existing.get(&id),
                 _ => None,
             };
             let mut result =
                 RowResult::planned(row_num, outcome).with_record(RecordId::Int(asset.id));
-            result.fields_written = fields_written(before, &asset, &lookups);
             result.dropped = planned.dropped;
             result.catalog_created = created;
             // Additive: the groups the asset is in, and the row's.
@@ -742,11 +866,21 @@ impl Importer for AssetImporter {
                         set.into_iter().filter(|id| !current.contains(id)).collect();
                 }
             }
+            // A new asset's first event, then the status move: the last
+            // event the import writes is the one the row keeps.
             if outcome == RowOutcome::Create {
                 let event =
                     asset_lifecycle_repo::record_imported(conn, &asset, ctx.actor, ctx.job_id)?;
                 result.transition_id = Some(event.id);
             }
+            if let Some(to) = planned.status_to {
+                let (moved, event) = move_status(conn, asset, to, ctx, row_num)?;
+                asset = moved;
+                if let Some(event) = event {
+                    result.transition_id = Some(event.id);
+                }
+            }
+            result.fields_written = fields_written(before, &asset, &lookups);
             // Read back from the row's last write to the asset.
             result.observed_updated_at = Some(observed_timestamp(asset.updated_at));
             rows.push(identify(result, row, options));
@@ -857,6 +991,7 @@ fn field_values(asset: &Asset, lookups: &Lookups) -> BTreeMap<String, Option<Str
     let mut out: BTreeMap<String, Option<String>> = [
         ("name", Some(asset.name.clone())),
         ("kind", Some(asset.kind.clone())),
+        ("status", Some(asset.status.clone())),
         ("asset_tag", text(&asset.asset_tag)),
         ("serial_number", text(&asset.serial_number)),
         ("manufacturer", text(&asset.manufacturer)),
@@ -997,6 +1132,13 @@ struct PlannedRow {
     /// differs from only by case or spacing.
     location: Option<String>,
     location_snapped: bool,
+    /// The status the commit moves the asset to through the lifecycle
+    /// rules, when the row's status differs from the asset's (a new asset
+    /// starts in service).
+    status_to: Option<AssetStatus>,
+    /// A synced asset's row writes its attributes or groups, not only its
+    /// status.
+    synced_writes: bool,
 }
 
 /// Workspace state every row is checked against, loaded once per run.
@@ -1023,6 +1165,8 @@ struct Lookups {
     catalog: Catalog,
     /// Each asset's groups that aren't archived.
     asset_groups: HashMap<i32, Vec<i32>>,
+    /// Assets with a loan out now.
+    on_loan: HashSet<i32>,
 }
 
 struct KindInfo {
@@ -1115,6 +1259,9 @@ impl Lookups {
             member_emails,
             catalog,
             asset_groups: group_repo::active_group_ids_by_asset(conn)?,
+            on_loan: asset_loans_repo::assets_on_active_loan(conn)?
+                .into_iter()
+                .collect(),
         })
     }
 
@@ -1341,6 +1488,13 @@ fn plan_row(
     // The catalog: the manufacturer, the model matched under it, and the
     // location's spelling.
     let existing = target.and_then(|id| lookups.existing.get(&id));
+    let status_to = match plan_status(row, existing, lookups) {
+        Ok(to) => to,
+        Err(message) => {
+            error("status", message);
+            None
+        }
+    };
     let maker = pick_maker(row, lookups, options);
     if let MakerPick::Ambiguous(message) = &maker {
         error("manufacturer", message.clone());
@@ -1547,10 +1701,11 @@ fn plan_row(
 
     dropped.extend(group_drops);
 
+    let synced_writes = attributes_changed || groups_change;
     match kind {
         Some(kind) if errors.is_empty() => {
             let action = match target {
-                Some(id) if synced && (attributes_changed || groups_change) => {
+                Some(id) if synced && (synced_writes || status_to.is_some()) => {
                     RowAction::SyncedUpdate(id)
                 }
                 Some(id) if synced => RowAction::Unchanged(id),
@@ -1570,9 +1725,114 @@ fn plan_row(
                 groups,
                 location,
                 location_snapped,
+                status_to,
+                synced_writes,
             })
         }
         _ => Err(errors),
+    }
+}
+
+/// The status a row moves its asset to, checked as
+/// [`asset_lifecycle_repo::transition`] checks it so the commit's
+/// transition goes through: `None` for a blank cell or the status the asset
+/// already has (a new asset starts in service). Disposed and on loan come
+/// from a disposal or a loan; a disposed asset keeps its status, and one
+/// out on loan leaves it only by its return. The error, worded for the
+/// admin.
+fn plan_status(
+    row: &HashMap<String, String>,
+    existing: Option<&Asset>,
+    lookups: &Lookups,
+) -> Result<Option<AssetStatus>, String> {
+    let cell = trimmed(row, "status");
+    if cell.is_empty() {
+        return Ok(None);
+    }
+    let to = read_status(&cell).ok_or_else(|| format!("'{cell}' isn't a status"))?;
+    let from = existing.map_or(AssetStatus::default_str(), |a| a.status.as_str());
+    if to.as_str() == from {
+        return Ok(None);
+    }
+    let on_loan = existing.is_some_and(|a| lookups.on_loan.contains(&a.id));
+    match to {
+        AssetStatus::Disposed => {
+            return Err(format!(
+                "'{cell}' is set by recording a disposal on the asset page"
+            ));
+        }
+        _ if from == AssetStatus::Disposed.as_str() => {
+            return Err(disposal_is_final(existing.map_or("", |a| a.name.as_str())));
+        }
+        _ if from == AssetStatus::OnLoan.as_str() && on_loan => {
+            return Err(out_on_loan(existing.map_or("", |a| a.name.as_str())));
+        }
+        AssetStatus::OnLoan if !on_loan => {
+            return Err(format!(
+                "'{cell}' is set by issuing a loan on the asset page"
+            ));
+        }
+        _ => {}
+    }
+    Ok(Some(to))
+}
+
+fn disposal_is_final(name: &str) -> String {
+    format!("{name} is disposed, and disposal is final; its status can't change")
+}
+
+fn out_on_loan(name: &str) -> String {
+    format!("{name} is out on loan; return the loan on the asset page to change its status")
+}
+
+/// The commit's status move for a row, through the lifecycle rules: reason
+/// Imported, naming the job. The asset as it stands after, and the event;
+/// no event when the asset already has the status.
+fn move_status(
+    conn: &mut DbConnection,
+    asset: Asset,
+    to: AssetStatus,
+    ctx: &ImportContext,
+    row: usize,
+) -> Result<(Asset, Option<AssetLifecycleEvent>), CommitError> {
+    let input = asset_lifecycle_repo::TransitionInput {
+        asset_id: asset.id,
+        to_status: to.as_str().to_string(),
+        reason: Some(asset_lifecycle_repo::IMPORTED_REASON.to_string()),
+        ticket_id: None,
+        metadata: serde_json::json!({ "import_job_id": ctx.job_id }),
+        actor_uuid: ctx.actor,
+        disposal: None,
+    };
+    let name = asset.name.clone();
+    let refused = |message: String| CommitError::Row {
+        row,
+        column: Some("status".to_string()),
+        message,
+    };
+    match asset_lifecycle_repo::transition(conn, input) {
+        Ok((moved, event)) => Ok((moved, Some(event))),
+        // Moved there since the plan was checked: nothing to write.
+        Err(TransitionError::NoOp) => {
+            let current = asset_repo::get_device_by_id(conn, asset.id)?;
+            Ok((current, None))
+        }
+        Err(TransitionError::FromDisposed) => Err(refused(disposal_is_final(&name))),
+        Err(TransitionError::OnLoanReturnViaLoan) => Err(refused(out_on_loan(&name))),
+        Err(TransitionError::OnLoanNeedsActiveLoan) => Err(refused(
+            "On loan is set by issuing a loan on the asset page".to_string(),
+        )),
+        Err(TransitionError::Db(e)) => Err(row_write_error(row, e)),
+        Err(TransitionError::AssetNotFound) => {
+            Err(CommitError::Db(diesel::result::Error::NotFound))
+        }
+        Err(
+            TransitionError::DisposalRequired
+            | TransitionError::DisposalNotAllowed
+            | TransitionError::InvalidSanitizationMethod(_),
+        ) => Err(refused(
+            "Disposed is set by recording a disposal on the asset page".to_string(),
+        )),
     }
 }
 

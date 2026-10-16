@@ -354,7 +354,9 @@ pub struct RowResult {
     pub cells: Vec<String>,
     /// After the commit, each field the row wrote with its value before and
     /// after, as text. Only fields whose value changed; a blank cell never
-    /// writes, so it is never here.
+    /// writes, so it is never here. In a checked plan, the status move the
+    /// commit would make (`status`), which the commit holds up against the
+    /// plan it makes again.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields_written: BTreeMap<String, FieldChange>,
     /// Groups the row added the record to (ids).
@@ -363,8 +365,11 @@ pub struct RowResult {
     /// Catalog entries the row created.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub catalog_created: Vec<CatalogRef>,
-    /// The lifecycle event the commit wrote for the record: the Imported
-    /// event of a created asset.
+    /// The last lifecycle event the commit wrote for the record: the status
+    /// move a row made through the lifecycle rules, else the Imported event
+    /// of a created asset. Every event an import writes names the job in
+    /// its metadata (`import_job_id`), so the record is untouched since
+    /// while this is its newest event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transition_id: Option<i32>,
     /// When the commit wrote the row; one time for the whole job.

@@ -1021,22 +1021,30 @@ fn prematch(
                     Some(s.provenance.clone()),
                 );
             }
-            let pickable = |value: &str| {
-                choices
-                    .iter()
-                    .find(|c| c.value == value && c.disabled.is_none())
-            };
+            // Another name for a choice: Guessed, or for one that can't be
+            // picked here, no match with the choice's note.
             if let Some(choice) = synonyms
                 .iter()
                 .find(|(from, _)| from == key)
-                .and_then(|(_, to)| pickable(to))
+                .and_then(|(_, to)| choices.iter().find(|c| &c.value == to))
             {
-                return (
-                    Layer::Guessed,
-                    Some(Reason::Synonym),
-                    link(&choice.value),
-                    None,
-                );
+                return match &choice.disabled {
+                    None => (
+                        Layer::Guessed,
+                        Some(Reason::Synonym),
+                        link(&choice.value),
+                        None,
+                    ),
+                    Some(note) => (
+                        Layer::NoMatch,
+                        Some(Reason::Disabled {
+                            label: choice.label.clone(),
+                            note: note.clone(),
+                        }),
+                        default,
+                        None,
+                    ),
+                };
             }
             if let Some(choice) = closest(&wanted, choices) {
                 return (

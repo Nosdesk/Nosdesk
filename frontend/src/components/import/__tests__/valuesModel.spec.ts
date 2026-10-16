@@ -28,6 +28,7 @@ import {
   settledColumns,
   skippedNow,
   idOf,
+  leavesAsIs,
   valueId,
   valuesCsv,
   type Edits,
@@ -283,6 +284,14 @@ describe('answers', () => {
     const spare = value('Spare', 'no_match', [3], { suggested: { action: 'leave_blank' }, skipped_rows: [] })
     const groups = kindColumn([spare], { field: 'groups', required: false, lookup: 'group' })
     expect(consequence(groups, spare, {})).toBe('off')
+  })
+
+  it('say a status left blank is left as is', () => {
+    const loaned = value('Loaned', 'no_match', [5], { suggested: { action: 'leave_blank' }, skipped_rows: [] })
+    const status = kindColumn([loaned], { field: 'status', required: false })
+    expect(leavesAsIs(status)).toBe(true)
+    expect(consequence(status, loaned, {})).toBe('as_is')
+    expect(consequence(status, loaned, { [valueId('status', 'loaned')]: { action: 'skip' } })).toBe('skipped')
   })
 })
 

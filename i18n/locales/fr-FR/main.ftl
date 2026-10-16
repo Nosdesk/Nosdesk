@@ -3993,6 +3993,10 @@ import-values-leave-as-is = Laisser tel quel
 # MT: pending native review (fr-FR)
 import-values-leave-as-is-help = Les biens existants gardent leur type. Les nouvelles lignes sans type sont ignorées.
 # MT: pending native review (fr-FR)
+import-values-status-leave-help = Les biens existants gardent leur statut. Les nouveaux sont créés en service.
+# MT: pending native review (fr-FR)
+import-values-status-after-import = Défini par une mise au rebut ou un prêt après l'import
+# MT: pending native review (fr-FR)
 import-values-leave-blank = Laisser vide
 # MT: pending native review (fr-FR)
 import-values-keep-text = Conserver comme texte
@@ -4026,6 +4030,8 @@ import-values-filter-label = Filtrer les valeurs
 import-values-bulk-skip = Ignorer les { $count }
 # MT: pending native review (fr-FR)
 import-values-bulk-blank = Laisser les { $count } vides
+# MT: pending native review (fr-FR)
+import-values-bulk-as-is = Laisser les { $count } tels quels
 # MT: pending native review (fr-FR)
 import-values-scale = { $total } valeurs distinctes. Les correspondances exactes sont liées. Choisissez ce qu'il advient des { $rest } autres.
 # MT: pending native review (fr-FR)
@@ -4248,6 +4254,8 @@ import-field-assets-kind = Type
 import-field-assets-asset-tag = Étiquette d'actif
 # MT: pending native review (fr-FR)
 import-field-assets-serial-number = Numéro de série
+# MT: pending native review (fr-FR)
+import-field-assets-status = Statut
 # MT: pending native review (fr-FR)
 import-field-assets-location = Emplacement
 # MT: pending native review (fr-FR)
