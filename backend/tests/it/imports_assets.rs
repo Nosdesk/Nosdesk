@@ -1168,6 +1168,7 @@ async fn import_routes_refuse_a_non_admin() {
         TestRequest::post()
             .uri(&format!("/api/admin/import/{job}/next-sheet"))
             .set_json(serde_json::json!({ "sheet": "Vehicles" })),
+        TestRequest::post().uri(&format!("/api/admin/import/{job}/invites")),
     ];
     for req in requests {
         let (status, _) = call_import_route(&pool, &ws, ws.member_uuid, req).await;

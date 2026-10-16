@@ -150,7 +150,8 @@ export function buildConstants(
 
 /** What stops the check, in the order the admin should read them. A
  *  required field is covered by a column or by a constant with a value; an
- *  asset's kind also by a Model column, since a linked model gives it. */
+ *  asset's kind also by a Model column, since a linked model gives it, and
+ *  a person's name by First name or Last name columns. */
 export function problems(
   rows: MapRow[],
   fields: ImportField[],
@@ -171,6 +172,14 @@ export function problems(
   for (const field of fields) {
     if (!field.required || byField.has(field.id) || constant.has(field.id)) continue
     if (jobType === 'assets' && field.id === 'kind' && byField.has('model')) continue
+    // A person's name joins their first and last names.
+    if (
+      jobType === 'users' &&
+      field.id === 'name' &&
+      (byField.has('first_name') || byField.has('last_name'))
+    ) {
+      continue
+    }
     out.push(
       jobType === 'assets' && field.id === 'kind'
         ? { kind: 'kind' }

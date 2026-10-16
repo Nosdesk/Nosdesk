@@ -153,6 +153,30 @@ describe('problems', () => {
     expect(problems(r, FIELDS, 'assets')).toEqual([])
   })
 
+  it('lets First name or Last name give a person their name', () => {
+    const people: ImportField[] = [
+      field('email', true),
+      field('name', true),
+      field('first_name'),
+      field('last_name'),
+    ]
+    const r = rows()
+    r[0].target = 'email'
+    r[1].target = ''
+    r[2].target = ''
+    r[3].target = ''
+    expect(problems(r, people, 'users')).toEqual([{ kind: 'required', field: 'name' }])
+    r[2].target = 'first_name'
+    expect(problems(r, people, 'users')).toEqual([])
+    r[2].target = ''
+    r[3].target = 'last_name'
+    expect(problems(r, people, 'users')).toEqual([])
+    // Only for people: an asset's name isn't joined.
+    expect(problems(r, [...people, field('kind')], 'assets')).toEqual([
+      { kind: 'required', field: 'name' },
+    ])
+  })
+
   it('lets a Model column give an asset its kind', () => {
     const r = rows()
     r[2].target = 'model'

@@ -24,6 +24,7 @@ pub mod remove;
 pub mod report;
 pub mod safe_cells;
 pub mod saved;
+pub mod sign_in;
 pub mod tickets;
 pub mod types;
 pub mod users;

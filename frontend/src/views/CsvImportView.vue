@@ -22,7 +22,8 @@
  *             imported, what it created and changed, the error report
  *             (skipped and partly imported rows), the assets it touched,
  *             the workbook's next sheet, and another file of the same
- *             type.
+ *             type. For users, who can't sign in yet, with Send invites
+ *             or the sign-in provider's line.
  *
  * The job id rides in `?job=` so a reload or a link resumes at the step
  * the job's status implies.
@@ -49,6 +50,7 @@ import ImportSheetPanel from '@/components/import/ImportSheetPanel.vue'
 import ImportValuesStep from '@/components/import/ImportValuesStep.vue'
 import { detailPath, doneHeadline, reportOffered } from '@/components/import/historyModel'
 import ImportRemoveBlock from '@/components/import/ImportRemoveBlock.vue'
+import ImportSignInLine from '@/components/import/ImportSignInLine.vue'
 import { outcomes, planDelta, webhookHearsAssets } from '@/components/import/reviewModel'
 import { cards as valueCards, needsValues } from '@/components/import/valuesModel'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
@@ -61,6 +63,7 @@ import {
   type ImportJobType,
   type ImportOptions,
   type ImportValues,
+  type SignInStatus,
   type ValueAnswers,
 } from '@nosdesk/core/services/importService'
 
@@ -661,6 +664,11 @@ function onRemoved(updated: ImportJob) {
   queryCache.invalidateQueries({ key: ['import-job', updated.id] })
 }
 
+/** Send invites ran: Done's sign-in line as it stands now. */
+function onSignInUpdated(status: SignInStatus | null) {
+  if (job.value) job.value = { ...job.value, sign_in: status }
+}
+
 const doneOutcomes = computed(() => (job.value?.summary ? outcomes(job.value.summary) : null))
 const headlineOnDone = computed(() => (job.value ? doneHeadline(t, job.value) : ''))
 const reportOnDone = computed(() => !!job.value && reportOffered(job.value))
@@ -947,8 +955,12 @@ function viewImported() {
           </div>
         </Callout>
 
-        <!-- A13: for users, "These 7 people can't sign in yet." with Send
-             invites or the SSO wording goes here. -->
+        <ImportSignInLine
+          v-if="job.job_type === 'users' && job.sign_in"
+          :job-id="job.id"
+          :status="job.sign_in"
+          @updated="onSignInUpdated"
+        />
 
         <ImportReviewStep
           v-if="job.summary"

@@ -26,6 +26,7 @@ const api = vi.hoisted(() => ({
   putValues: vi.fn(),
   previewValues: vi.fn(),
   nextSheet: vi.fn(),
+  sendInvites: vi.fn(),
 }))
 
 vi.mock('@nosdesk/core/services/importService', () => ({
@@ -47,6 +48,7 @@ vi.mock('@nosdesk/core/services/importService', () => ({
     putValues: (...a: unknown[]) => api.putValues(...a),
     previewValues: (...a: unknown[]) => api.previewValues(...a),
     nextSheet: (...a: unknown[]) => api.nextSheet(...a),
+    sendInvites: (...a: unknown[]) => api.sendInvites(...a),
     templateUrl: (type: string) => `/api/admin/import/template/${type}`,
   },
 }))
@@ -636,6 +638,25 @@ describe('CsvImportView Done', () => {
     await flushPromises()
     expect(currentStep()).toBe('start')
     expect(wrapper!.text()).toContain('import-file-missing')
+  })
+
+  it('says who can not sign in yet after a users import, and sends invites', async () => {
+    const waiting = { pending: 7, invited: 0, method: 'invite' as const, email_ready: true }
+    api.get.mockResolvedValue(doneJob({ job_type: 'users', sign_in: waiting }))
+    api.sendInvites.mockResolvedValue({ sent: 7, failed: 0, sign_in: { ...waiting, invited: 7 } })
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(wrapper!.find('[data-test="import-sign-in-pending"]').exists()).toBe(true)
+    await wrapper!.find('[data-test="import-sign-in-send"]').trigger('click')
+    await flushPromises()
+    expect(api.sendInvites).toHaveBeenCalledWith('job-1')
+    expect(wrapper!.find('[data-test="import-sign-in-send"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-test="import-sign-in-sent"]').exists()).toBe(true)
+  })
+
+  it('has no sign-in line when nobody is waiting, or for assets', async () => {
+    api.get.mockResolvedValue(doneJob({ job_type: 'users', sign_in: null }))
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(wrapper!.find('[data-test="import-sign-in"]').exists()).toBe(false)
   })
 
   it('links Recent imports from Start', async () => {

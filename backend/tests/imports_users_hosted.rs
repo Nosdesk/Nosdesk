@@ -133,3 +133,94 @@ fn staff_seats_and_audit_reviewers_are_refused_on_hosted() {
         .expect("created emails");
     assert_eq!(created, vec!["requester@example.com".to_string()]);
 }
+
+/// On hosted the import creates requesters, who use the portal. Done's
+/// sign-in line names the workspace's requester sign-in provider when one
+/// is enabled; without one the portal emails them a sign-in link whenever
+/// they ask, so there is no line.
+#[test]
+fn the_sign_in_line_names_the_requester_provider_on_hosted() {
+    use backend::models::{ImportJobUpdate, NewImportJob};
+    use backend::repository::workspace_identity_providers::{self as providers, ProviderInput};
+    use backend::services::imports::sign_in::{self, SignInMethod, SignInStatus};
+
+    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let mut conn = db.conn();
+    let a = common::seed_two_workspaces(&mut conn).a;
+    let pin = ActorContext::user(a.admin_uuid, None).with_workspace(a.workspace_id);
+
+    let parsed =
+        csv_parser::parse_bytes(b"email,name,role,pronouns\nreq@example.com,Req One,user,\n")
+            .expect("parse");
+    let job = with_actor_context::<_, imports::CommitError>(&mut conn, &pin, |c| {
+        let job = backend::repository::imports::create(
+            c,
+            NewImportJob {
+                id: Uuid::now_v7(),
+                job_type: "users".to_string(),
+                filename: "people.csv".to_string(),
+                file_path: "imports/none".to_string(),
+                created_by: Some(a.admin_uuid),
+                upload_of: None,
+            },
+        )?;
+        let ctx = ImportContext {
+            actor: Some(a.admin_uuid),
+            job_id: job.id,
+            options: Default::default(),
+        };
+        let committed = imports::apply(c, ImportType::Users, &parsed, &ctx)?;
+        Ok(backend::repository::imports::update(
+            c,
+            job.id,
+            ImportJobUpdate {
+                status: Some("done".to_string()),
+                record_ids: Some(
+                    serde_json::to_value(imports::RecordIds::from_rows(&committed.rows)).ok(),
+                ),
+                ..Default::default()
+            },
+        )?)
+    })
+    .expect("committed users job");
+
+    let line = with_actor_context::<_, diesel::result::Error>(&mut conn, &pin, |c| {
+        sign_in::status(c, &job)
+    })
+    .expect("status");
+    assert_eq!(line, None);
+
+    with_actor_context::<_, diesel::result::Error>(&mut conn, &pin, |c| {
+        providers::save(
+            c,
+            a.workspace_id,
+            &ProviderInput {
+                kind: "entra",
+                display_name: "Contoso",
+                issuer_url: "https://login.microsoftonline.com/contoso/v2.0",
+                client_id: "client",
+                client_secret: Some("secret"),
+                allowed_domains: &["example.com".to_string()],
+                enabled: true,
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .expect("save provider");
+    let line = with_actor_context::<_, diesel::result::Error>(&mut conn, &pin, |c| {
+        sign_in::status(c, &job)
+    })
+    .expect("status");
+    assert_eq!(
+        line,
+        Some(SignInStatus {
+            pending: 1,
+            invited: 0,
+            method: SignInMethod::Sso,
+            provider: Some("Contoso".to_string()),
+            email_ready: false,
+        })
+    );
+}

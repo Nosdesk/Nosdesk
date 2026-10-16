@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::services::imports::history::{state_of, JobState};
 use crate::services::imports::previous::PreviousValues;
 use crate::services::imports::remove::window_closes_at;
+use crate::services::imports::sign_in::SignInStatus;
 
 /// CSV import job. Two-phase: rows go through dry-run (parse +
 /// validate, write `summary`) before the admin commits. The
@@ -180,6 +181,10 @@ pub struct ImportJobResponse {
     /// shows it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_sheet: Option<String>,
+    /// For a committed users import, the people it created who can't sign
+    /// in yet and how they will; filled where a page shows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<SignInStatus>,
 }
 
 impl From<ImportJob> for ImportJobResponse {
@@ -234,6 +239,7 @@ impl From<ImportJob> for ImportJobResponse {
             remove_result: job.remove_result,
             previous_values: None,
             next_sheet: None,
+            sign_in: None,
         }
     }
 }

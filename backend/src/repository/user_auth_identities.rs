@@ -286,6 +286,26 @@ pub fn users_with_provider(
         .collect())
 }
 
+/// The subset of `user_uuids` that can sign in: a local identity with a
+/// password set, or an identity from any sign-in provider.
+pub fn users_with_sign_in(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> Result<std::collections::HashSet<Uuid>, Error> {
+    Ok(user_auth_identities::table
+        .filter(user_auth_identities::user_uuid.eq_any(user_uuids))
+        .filter(
+            user_auth_identities::provider_type
+                .ne(LOCAL_PROVIDER)
+                .or(user_auth_identities::password_hash.is_not_null()),
+        )
+        .select(user_auth_identities::user_uuid)
+        .distinct()
+        .load::<Uuid>(conn)?
+        .into_iter()
+        .collect())
+}
+
 /// Batched `find_identity_by_provider_user_id`: resolve many external IDs to
 /// their full identity rows in one query, keyed by `external_id`. The user
 /// sync pre-resolves a whole page's identities with this instead of a query

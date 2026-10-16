@@ -4651,6 +4651,36 @@ import-done-another = Importer un autre fichier similaire
 # MT: pending native review (fr-FR)
 import-done-next-sheet = Importer la feuille suivante : { $sheet }
 # MT: pending native review (fr-FR)
+import-done-sign-in-pending =
+    { $count ->
+        [one] Cette personne ne peut pas encore se connecter.
+       *[other] Ces { $count } personnes ne peuvent pas encore se connecter.
+    }
+# MT: pending native review (fr-FR)
+import-done-send-invites =
+    { $count ->
+        [one] Envoyer l'invitation
+       *[other] Envoyer les invitations
+    }
+# MT: pending native review (fr-FR)
+import-done-sign-in-sso = Elles se connectent avec { $provider } une fois leurs comptes créés là-bas.
+# MT: pending native review (fr-FR)
+import-done-invites-sent =
+    { $count ->
+        [one] Invitation envoyée à 1 personne.
+       *[other] Invitations envoyées à { $count } personnes.
+    }
+# MT: pending native review (fr-FR)
+import-done-invites-email-off = L'e-mail n'est pas configuré, les invitations ne peuvent donc pas être envoyées.
+# MT: pending native review (fr-FR)
+import-done-invites-failed =
+    { $count ->
+        [one] 1 invitation n'a pas été envoyée. Réessayez.
+       *[other] { $count } invitations n'ont pas été envoyées. Réessayez.
+    }
+# MT: pending native review (fr-FR)
+import-done-invites-error = Impossible d'envoyer les invitations. Réessayez.
+# MT: pending native review (fr-FR)
 import-history-title = Imports récents
 # MT: pending native review (fr-FR)
 import-history-empty = Aucun import pour le moment. Votre premier import apparaîtra ici avec ses chiffres, et vous pourrez y revenir pendant 30 jours.
@@ -4900,6 +4930,10 @@ import-field-assets-groups = Groupes
 import-field-users-email = E-mail
 # MT: pending native review (fr-FR)
 import-field-users-name = Nom
+# MT: pending native review (fr-FR)
+import-field-users-first-name = Prénom
+# MT: pending native review (fr-FR)
+import-field-users-last-name = Nom de famille
 # MT: pending native review (fr-FR)
 import-field-users-role = Rôle
 # MT: pending native review (fr-FR)

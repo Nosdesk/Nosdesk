@@ -372,7 +372,8 @@ pub struct MappingError(pub String);
 /// Check a mapping against the fields and the file: every field id known,
 /// every column in range and used once, every required field covered.
 /// The asset kind may come from `options.default_kind` or a Model column
-/// instead of a Kind column; the caller checks that kind exists.
+/// instead of a Kind column; the caller checks that kind exists. A user's
+/// name may come from First name and Last name columns instead.
 pub fn validate(
     import_type: ImportType,
     mapping: &ColumnMapping,
@@ -426,13 +427,17 @@ pub fn validate(
         }
         // A kind for every row, or a model column: a linked model gives its
         // kind, and a row nothing gives one is reported on its own.
-        let defaulted = import_type == ImportType::Assets
+        let defaulted = (import_type == ImportType::Assets
             && spec.id == "kind"
             && (options
                 .default_kind
                 .as_deref()
                 .is_some_and(|k| !k.trim().is_empty())
-                || mapping.contains_key("model"));
+                || mapping.contains_key("model")))
+            // A person's name joins their first and last names.
+            || (import_type == ImportType::Users
+                && spec.id == "name"
+                && (mapping.contains_key("first_name") || mapping.contains_key("last_name")));
         if !defaulted {
             return Err(MappingError(if spec.id == "kind" {
                 "no column maps to Kind; map one or choose a kind for every row".to_string()
