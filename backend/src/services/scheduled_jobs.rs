@@ -40,6 +40,7 @@ const KNOWLEDGE_GAP_DETECT_LOCK: i64 = 0x004e_6f73_4b47_4450;
 const APPROVAL_TIMEOUT_LOCK: i64 = 0x004e_6f73_4150_544f;
 const GUEST_RESIDUE_LOCK: i64 = 0x004e_6f73_4752_4553;
 const EMAIL_LOGO_COPIES_LOCK: i64 = 0x004e_6f73_454d_4c47;
+const IMPORT_HISTORY_PRUNE_LOCK: i64 = 0x004e_6f73_494d_5048;
 // Partition drops take a session try-lock that skips the tick when a peer
 // machine is already pruning. Per-parent keys so audit_log and sync_actions
 // prune independently.
@@ -653,6 +654,108 @@ pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
             retention_days = days,
             "scheduler: webhook deliveries pruned"
         );
+    }
+    Ok(())
+}
+
+/// The 30-day prune of import history (`services::imports::history`): a
+/// job committed more than 30 days ago, or a draft untouched for 30 days,
+/// loses its file, grid, per-row results, answers and the detail of its
+/// summary, and keeps its counts, options, mapping and record ids. A job
+/// nothing was imported from that never reached Map, or whose commit
+/// failed, is deleted with its files. Each job is changed pinned to its own
+/// workspace, where its audit trigger records the change.
+pub async fn prune_import_history(pool: Pool) -> Result<()> {
+    let _lock = match try_job_lock(&pool, IMPORT_HISTORY_PRUNE_LOCK, "import_history.prune")? {
+        Some(lock) => lock,
+        None => return Ok(()),
+    };
+    let cutoff = chrono::Utc::now() - crate::services::imports::history::details_window();
+    prune_import_history_before(&pool, cutoff).await
+}
+
+/// One pass of [`prune_import_history`] with `cutoff` in place of 30 days
+/// ago, without the job lock.
+pub async fn prune_import_history_before(
+    pool: &Pool,
+    cutoff: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    use crate::repository::imports as repo;
+    const BATCH: i64 = 500;
+
+    let due =
+        // cross-tenant: finds the jobs due across every workspace; each is pruned pinned to its own workspace below.
+        crate::sync::session::background_run(pool, "scheduler:import_history_scan", |conn| {
+            repo::prune_due(conn, cutoff, BATCH)
+        })
+        .map_err(|e| anyhow::anyhow!("scan import history: {e}"))?;
+    let mut done = Vec::new();
+    for (workspace_id, id) in due {
+        match crate::sync::session::run_in_workspace(
+            pool,
+            "scheduler:import_history_prune",
+            workspace_id,
+            |conn| {
+                // A commit or a change to the job holds this; try next time.
+                if !repo::try_lock_job(conn, id)? {
+                    return Ok(0);
+                }
+                repo::prune(conn, id, cutoff)
+            },
+        ) {
+            Ok(0) => {}
+            Ok(_) => done.push(id),
+            Err(e) => {
+                warn!(workspace_id, job_id = %id, error = ?e, "scheduler: import prune failed")
+            }
+        }
+    }
+    let pruned = done.len();
+
+    let discard =
+        // cross-tenant: finds the jobs due across every workspace; each is deleted pinned to its own workspace below.
+        crate::sync::session::background_run(pool, "scheduler:import_history_discard_scan", |conn| {
+            repo::discard_due(conn, cutoff, BATCH)
+        })
+        .map_err(|e| anyhow::anyhow!("scan discarded imports: {e}"))?;
+    let mut discarded = 0usize;
+    for (workspace_id, id) in discard {
+        match crate::sync::session::run_in_workspace(
+            pool,
+            "scheduler:import_history_discard",
+            workspace_id,
+            |conn| repo::delete(conn, id),
+        ) {
+            Ok(0) => {}
+            Ok(_) => {
+                discarded += 1;
+                done.push(id);
+            }
+            Err(e) => {
+                warn!(workspace_id, job_id = %id, error = ?e, "scheduler: import discard failed")
+            }
+        }
+    }
+
+    // The rows no longer point at the files; one left behind is only disk.
+    let files = if done.is_empty() {
+        0
+    } else {
+        tokio::task::spawn_blocking(move || {
+            crate::services::imports::mapping::remove_jobs_files(&done)
+        })
+        .await
+        .context("import file removal task")?
+        .context("remove import files")?
+    };
+    if pruned > 0 {
+        info!(count = pruned, "scheduler: import history pruned");
+    }
+    if discarded > 0 {
+        info!(count = discarded, "scheduler: unused import jobs deleted");
+    }
+    if files > 0 {
+        info!(count = files, "scheduler: import files removed");
     }
     Ok(())
 }

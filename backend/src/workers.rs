@@ -222,6 +222,14 @@ pub fn scheduled_jobs(
         Duration::from_secs(24 * 60 * 60),
         move || jobs::prune_webhook_deliveries(p.clone()),
     ));
+    // Daily: import history past its 30-day window keeps counts, options,
+    // mapping and record ids; the file and per-row detail go.
+    let p = pool.clone();
+    registry.push(ScheduledJob::new(
+        "import_history.prune",
+        Duration::from_secs(24 * 60 * 60),
+        move || jobs::prune_import_history(p.clone()),
+    ));
     let p = pool.clone();
     registry.push(ScheduledJob::new(
         "audit_log.drop_old_partitions",

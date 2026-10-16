@@ -911,6 +911,7 @@ async fn imports_config_routes_registered() {
     assert_config_registers(
         crate::handlers::imports::config,
         &[
+            ("GET", "/admin/import"),
             ("POST", "/admin/import"),
             ("GET", "/admin/import/fields"),
             ("GET", "/admin/import/answers"),

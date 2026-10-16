@@ -833,6 +833,38 @@ pub fn remove_job_files(job_id: Uuid) -> std::io::Result<usize> {
     Ok(removed)
 }
 
+/// Remove every file of these jobs (their uploads, grids and any staged
+/// grid) in one pass over the imports directory. The count removed.
+pub fn remove_jobs_files(job_ids: &[Uuid]) -> std::io::Result<usize> {
+    if job_ids.is_empty() {
+        return Ok(0);
+    }
+    let entries = match std::fs::read_dir(imports_dir()) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e),
+    };
+    let ids: std::collections::HashSet<String> = job_ids.iter().map(|id| id.to_string()).collect();
+    let mut removed = 0;
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let Some((stem, _)) = name.split_once('.') else {
+            continue;
+        };
+        if !ids.contains(stem) {
+            continue;
+        }
+        match std::fs::remove_file(entry.path()) {
+            Ok(()) => removed += 1,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(removed)
+}
+
 pub fn read_grid(job_id: Uuid) -> std::io::Result<ParsedCsv> {
     let bytes = std::fs::read(grid_path(job_id))?;
     serde_json::from_slice(&bytes).map_err(std::io::Error::other)

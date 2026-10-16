@@ -923,6 +923,7 @@ diesel::table! {
         row_results -> Nullable<Jsonb>,
         answers -> Nullable<Jsonb>,
         record_ids -> Nullable<Jsonb>,
+        pruned_at -> Nullable<Timestamptz>,
     }
 }
 

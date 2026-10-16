@@ -19,8 +19,11 @@
 //!   values and runs the dry run again.
 //! - `POST /admin/import/{id}/commit` applies the validated
 //!   rows in a single transaction and flips status to `done`.
+//! - `GET  /admin/import?limit=20` lists the newest jobs that reached
+//!   Map, light: who, when, the file, the state (Draft, Imported,
+//!   Expired) and the outcome counts.
 //! - `GET  /admin/import/{id}` returns the job row + summary so
-//!   the admin can resume.
+//!   the admin can resume, or read a past import.
 //! - `DELETE /admin/import/{id}` discards a job nothing was imported
 //!   from, with its files.
 //! - `GET  /admin/import/{id}/rows?filter=&offset=&limit=` pages
@@ -41,6 +44,10 @@
 //!
 //! Every route is workspace-admin only, and files are read before any
 //! transaction opens.
+//!
+//! Thirty days after its commit, or after a draft's last change, the prune
+//! drops a job's file and per-row detail (`services::imports::history`):
+//! `rows` and `error-report` then answer 410, and a draft can't go on.
 
 use actix_multipart::Multipart;
 use actix_web::{http::header, web, HttpResponse, Responder};
@@ -53,8 +60,11 @@ use std::sync::Arc;
 
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
-use crate::models::{ImportJob, ImportJobResponse, ImportJobUpdate, NewImportJob};
+use crate::models::{
+    ImportCounts, ImportJob, ImportJobListItem, ImportJobResponse, ImportJobUpdate, NewImportJob,
+};
 use crate::repository::imports as repo;
+use crate::services::imports::history::{self, JobState};
 use crate::services::imports::mapping::{self, ColumnMapping, ImportSource, StoredSource};
 use crate::services::imports::saved;
 use crate::services::imports::values;
@@ -66,9 +76,10 @@ use crate::services::imports::{
 use crate::services::search::{indexing_tasks, SearchService};
 
 pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg.route(
-        "/admin/import",
-        web::post().to(crate::handlers::imports::upload),
+    cfg.service(
+        web::resource("/admin/import")
+            .route(web::get().to(crate::handlers::imports::list_jobs))
+            .route(web::post().to(crate::handlers::imports::upload)),
     )
     // Before `/admin/import/{id}`, which would take "fields" or
     // "answers" as an id.
@@ -563,6 +574,9 @@ pub async fn put_source(
 
 /// Why a job's sheet or header row can't change now, if it can't.
 fn source_precondition(job: &ImportJob) -> Option<String> {
+    if expired(job) {
+        return Some(EXPIRED.to_string());
+    }
     match job.status.as_str() {
         "parsed" | "dry_run_done" => None,
         status => Some(format!(
@@ -660,6 +674,9 @@ pub async fn put_type(
 
 /// Why a job's type can't change now, if it can't.
 fn type_precondition(job: &ImportJob) -> Option<String> {
+    if expired(job) {
+        return Some(EXPIRED.to_string());
+    }
     match job.status.as_str() {
         "parsed" | "dry_run_done" => None,
         status => Some(format!(
@@ -1022,6 +1039,9 @@ fn same_plan(reviewed: &[RowResult], fresh: &[RowResult]) -> bool {
 
 /// Why a job's mapping can't change now, if it can't.
 fn mapping_precondition(job: &ImportJob) -> Option<String> {
+    if expired(job) {
+        return Some(EXPIRED.to_string());
+    }
     match job.status.as_str() {
         "parsed" | "dry_run_done" => None,
         status => Some(format!(
@@ -1361,6 +1381,9 @@ fn stored_answers(job: &ImportJob) -> ValueAnswers {
 /// Why a job can't be committed now, if it can't. A job already `done`
 /// answers with the job unchanged.
 fn commit_precondition(job: &ImportJob) -> Option<CommitOutcome> {
+    if expired(job) {
+        return Some(CommitOutcome::BadRequest(EXPIRED.to_string()));
+    }
     if job.status == "done" {
         return Some(CommitOutcome::AlreadyDone(job.clone()));
     }
@@ -1442,6 +1465,83 @@ fn index_imported_records(search_service: &Arc<SearchService>, records: Imported
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    pub limit: Option<i64>,
+}
+
+/// Recent imports: the newest jobs that reached Map, at most `limit`
+/// (20 by default, up to 50).
+pub async fn list_jobs(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    query: web::Query<ListQuery>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let limit = query.limit.unwrap_or(20).clamp(1, 50);
+    let read = tc.run(|conn| {
+        let rows = repo::list_reached_map(conn, limit)?;
+        let mut uuids: Vec<Uuid> = rows.iter().filter_map(|r| r.created_by).collect();
+        uuids.sort_unstable();
+        uuids.dedup();
+        let names = names_of(conn, uuids)?;
+        Ok((rows, names))
+    });
+    let (rows, names) = match read {
+        Ok(v) => v,
+        Err(e) => {
+            error!(error = ?e, "failed to list import jobs");
+            return errors::internal("failed to list imports");
+        }
+    };
+    let now = chrono::Utc::now();
+    let jobs: Vec<ImportJobListItem> = rows
+        .into_iter()
+        .map(|r| {
+            let checked = r.would_create.is_some();
+            ImportJobListItem {
+                state: history::state_of(&r.status, r.updated_at, r.pruned_at, now),
+                counts: checked.then(|| ImportCounts {
+                    new: r.would_create.unwrap_or(0),
+                    updated: r.would_update.unwrap_or(0),
+                    unchanged: r.unchanged.unwrap_or(0),
+                    skipped: r.skipped.unwrap_or(0),
+                }),
+                created_by_name: r.created_by.and_then(|u| names.get(&u).cloned()),
+                id: r.id,
+                job_type: r.job_type,
+                status: r.status,
+                filename: r.filename,
+                sheet: r.sheet,
+                created_by: r.created_by,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+                completed_at: r.completed_at,
+                pruned_at: r.pruned_at,
+            }
+        })
+        .collect();
+    HttpResponse::Ok().json(serde_json::json!({ "jobs": jobs }))
+}
+
+/// The names the workspace knows these people by.
+fn names_of(
+    conn: &mut crate::db::DbConnection,
+    uuids: Vec<Uuid>,
+) -> Result<std::collections::HashMap<Uuid, String>, diesel::result::Error> {
+    if uuids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    Ok(
+        crate::repository::users::get_user_map_by_uuids_with_persona(&uuids, conn)?
+            .into_iter()
+            .map(|(uuid, user)| (uuid, user.name))
+            .collect(),
+    )
+}
+
 pub async fn get_job(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -1460,10 +1560,16 @@ pub async fn get_job(
         if job.status == "dry_run_done" && repo::commit_running(conn, id)? {
             job.status = "committing".to_string();
         }
-        Ok(job)
+        let names = names_of(conn, job.created_by.into_iter().collect())?;
+        let name = job.created_by.and_then(|u| names.get(&u).cloned());
+        Ok((job, name))
     });
     match read {
-        Ok(j) => HttpResponse::Ok().json(ImportJobResponse::from(j)),
+        Ok((j, name)) => {
+            let mut response = ImportJobResponse::from(j);
+            response.created_by_name = name;
+            HttpResponse::Ok().json(response)
+        }
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("import job {id} not found"))
         }
@@ -1547,6 +1653,9 @@ struct ValuesJob {
 
 /// Why a job's values can't be read or answered now, if they can't.
 fn values_precondition(job: &ImportJob) -> Option<String> {
+    if expired(job) {
+        return Some(EXPIRED.to_string());
+    }
     match job.status.as_str() {
         "dry_run_done" => None,
         "parsed" => Some(NOT_CHECKED.to_string()),
@@ -1868,6 +1977,8 @@ enum RowResultsRead {
     NotFound,
     /// The job hasn't been checked, so it has no row results yet.
     NotChecked,
+    /// The prune dropped the job's row results.
+    Pruned,
 }
 
 fn read_row_results(
@@ -1879,6 +1990,9 @@ fn read_row_results(
         Err(diesel::result::Error::NotFound) => return Ok(RowResultsRead::NotFound),
         Err(e) => return Err(e),
     };
+    if job.pruned_at.is_some() {
+        return Ok(RowResultsRead::Pruned);
+    }
     let Some(value) = repo::row_results(conn, id)? else {
         return Ok(RowResultsRead::NotChecked);
     };
@@ -1926,6 +2040,7 @@ pub async fn rows(
             return errors::not_found_msg(format!("import job {id} not found"))
         }
         Ok(RowResultsRead::NotChecked) => return errors::conflict(NOT_CHECKED),
+        Ok(RowResultsRead::Pruned) => return details_pruned(),
         Err(e) => {
             error!(job_id = %id, error = ?e, "failed to load import rows");
             return errors::internal("failed to load import rows");
@@ -2045,6 +2160,7 @@ pub async fn error_report(
             return errors::not_found_msg(format!("import job {id} not found"))
         }
         Ok((RowResultsRead::NotChecked, _, _)) => return errors::conflict(NOT_CHECKED),
+        Ok((RowResultsRead::Pruned, _, _)) => return details_pruned(),
         Err(e) => {
             error!(job_id = %id, error = ?e, "failed to load import rows");
             return errors::internal("failed to load import rows");
@@ -2359,4 +2475,24 @@ fn mark_failed(conn: &mut crate::db::DbConnection, id: Uuid, message: &str) {
     ) {
         error!(error = ?e, job_id = %id, "failed to mark import job failed");
     }
+}
+
+const EXPIRED: &str =
+    "This draft expired 30 days after its last change and can't go on. Upload the file again.";
+
+/// A draft past the window or pruned: it can't be changed or committed.
+fn expired(job: &ImportJob) -> bool {
+    history::state_of(
+        &job.status,
+        job.updated_at,
+        job.pruned_at,
+        chrono::Utc::now(),
+    ) == Some(JobState::Expired)
+}
+
+const DETAILS_PRUNED: &str = "This import's details were kept for 30 days and have been removed. Its counts, options and mapping are kept.";
+
+/// The answer for a job whose per-row detail the prune dropped.
+fn details_pruned() -> HttpResponse {
+    errors::gone_with_code(DETAILS_PRUNED, "import_details_pruned")
 }

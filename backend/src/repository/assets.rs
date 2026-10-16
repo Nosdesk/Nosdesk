@@ -275,6 +275,8 @@ pub struct AssetListFilters<'a> {
     pub status: Option<&'a str>,
     pub groups: Option<&'a str>,
     pub low_stock_only: bool,
+    /// Only these assets (an import's records, `?import=`).
+    pub ids: Option<&'a [i32]>,
 }
 
 /// Load every asset matching the list filters for CSV export.
@@ -284,7 +286,7 @@ pub fn list_for_export(
     conn: &mut DbConnection,
     filters: AssetListFilters<'_>,
 ) -> QueryResult<Vec<Asset>> {
-    apply_device_filters(
+    let mut query = apply_device_filters(
         assets::table.into_boxed(),
         filters.search,
         filters.warranty,
@@ -293,9 +295,11 @@ pub fn list_for_export(
         filters.status,
         filters.groups,
         filters.low_stock_only,
-    )
-    .order(assets::name.asc())
-    .load(conn)
+    );
+    if let Some(ids) = filters.ids {
+        query = query.filter(assets::id.eq_any(ids));
+    }
+    query.order(assets::name.asc()).load(conn)
 }
 
 // Get paginated devices with filtering and sorting
@@ -312,6 +316,7 @@ pub fn get_paginated_devices(
     groups: Option<String>,
     kind: Option<String>,
     low_stock_only: bool,
+    ids: Option<&[i32]>,
 ) -> Result<(Vec<AssetListRow>, i64), Error> {
     // manufacturer slot is `None`: there is no manufacturer-filter
     // consumer yet. The former `?type=` param fed this slot, which
@@ -326,9 +331,11 @@ pub fn get_paginated_devices(
         groups.as_deref(),
         low_stock_only,
     );
-    let total: i64 = filter_kinds(total, kind.as_deref())
-        .count()
-        .get_result(conn)?;
+    let mut total = filter_kinds(total, kind.as_deref());
+    if let Some(ids) = ids {
+        total = total.filter(assets::id.eq_any(ids));
+    }
+    let total: i64 = total.count().get_result(conn)?;
 
     let mut query = apply_device_filters(
         assets::table.into_boxed(),
@@ -341,6 +348,9 @@ pub fn get_paginated_devices(
         low_stock_only,
     );
     query = filter_kinds(query, kind.as_deref());
+    if let Some(ids) = ids {
+        query = query.filter(assets::id.eq_any(ids));
+    }
 
     // Apply sorting. `attr:<key>` sorts on a kind attribute; `borrower` and
     // `last_status_change` on the open loan and the newest lifecycle event.
