@@ -4287,6 +4287,29 @@ import-done-view = { $type ->
    }
 import-done-another = Import another file like this
 import-done-next-sheet = Import the next sheet: { $sheet }
+import-done-sign-in-pending =
+    { $count ->
+        [one] This person can't sign in yet.
+       *[other] These { $count } people can't sign in yet.
+    }
+import-done-send-invites =
+    { $count ->
+        [one] Send invite
+       *[other] Send invites
+    }
+import-done-sign-in-sso = They sign in with { $provider } once their accounts exist there.
+import-done-invites-sent =
+    { $count ->
+        [one] Invite sent to 1 person.
+       *[other] Invites sent to { $count } people.
+    }
+import-done-invites-email-off = Email isn't set up, so invites can't be sent.
+import-done-invites-failed =
+    { $count ->
+        [one] 1 invite wasn't sent. Try again.
+       *[other] { $count } invites weren't sent. Try again.
+    }
+import-done-invites-error = Couldn't send the invites. Try again.
 import-history-title = Recent imports
 import-history-empty = No imports yet. Your first import will show here with its counts, and you can come back to it for 30 days.
 import-history-load-failed = Recent imports didn't load.
@@ -4439,6 +4462,8 @@ import-field-assets-model = Model
 import-field-assets-groups = Groups
 import-field-users-email = Email
 import-field-users-name = Name
+import-field-users-first-name = First name
+import-field-users-last-name = Last name
 import-field-users-role = Role
 import-field-users-pronouns = Pronouns
 import-field-tickets-title = Title

@@ -4641,6 +4641,36 @@ import-done-another = Nog een vergelijkbaar bestand importeren
 # MT: pending native review (nl-NL)
 import-done-next-sheet = Het volgende blad importeren: { $sheet }
 # MT: pending native review (nl-NL)
+import-done-sign-in-pending =
+    { $count ->
+        [one] Deze persoon kan nog niet inloggen.
+       *[other] Deze { $count } mensen kunnen nog niet inloggen.
+    }
+# MT: pending native review (nl-NL)
+import-done-send-invites =
+    { $count ->
+        [one] Uitnodiging versturen
+       *[other] Uitnodigingen versturen
+    }
+# MT: pending native review (nl-NL)
+import-done-sign-in-sso = Ze loggen in met { $provider } zodra hun accounts daar bestaan.
+# MT: pending native review (nl-NL)
+import-done-invites-sent =
+    { $count ->
+        [one] Uitnodiging verstuurd naar 1 persoon.
+       *[other] Uitnodigingen verstuurd naar { $count } mensen.
+    }
+# MT: pending native review (nl-NL)
+import-done-invites-email-off = E-mail is niet ingesteld, dus er kunnen geen uitnodigingen worden verstuurd.
+# MT: pending native review (nl-NL)
+import-done-invites-failed =
+    { $count ->
+        [one] 1 uitnodiging is niet verstuurd. Probeer het opnieuw.
+       *[other] { $count } uitnodigingen zijn niet verstuurd. Probeer het opnieuw.
+    }
+# MT: pending native review (nl-NL)
+import-done-invites-error = Kan de uitnodigingen niet versturen. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
 import-history-title = Recente imports
 # MT: pending native review (nl-NL)
 import-history-empty = Nog geen imports. Uw eerste import verschijnt hier met de aantallen, en u kunt er 30 dagen op terugkomen.
@@ -4890,6 +4920,10 @@ import-field-assets-groups = Groepen
 import-field-users-email = E-mail
 # MT: pending native review (nl-NL)
 import-field-users-name = Naam
+# MT: pending native review (nl-NL)
+import-field-users-first-name = Voornaam
+# MT: pending native review (nl-NL)
+import-field-users-last-name = Achternaam
 # MT: pending native review (nl-NL)
 import-field-users-role = Rol
 # MT: pending native review (nl-NL)

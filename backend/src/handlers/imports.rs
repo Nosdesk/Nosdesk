@@ -43,6 +43,9 @@
 //! - `POST /admin/import/{id}/next-sheet` starts a new draft on another
 //!   sheet of a committed import's workbook, with nothing carried but the
 //!   file (`services::imports::next_sheet`).
+//! - `POST /admin/import/{id}/invites` sends an invitation to each person a
+//!   committed users import created who can't sign in yet
+//!   (`services::imports::sign_in`).
 //! - `GET  /admin/import/fields?type=` lists the fields a column
 //!   can map to.
 //! - `GET  /admin/import/answers?type=` lists the type's saved matches
@@ -60,7 +63,7 @@
 //! `rows` and `error-report` then answer 410, and a draft can't go on.
 
 use actix_multipart::Multipart;
-use actix_web::{http::header, web, HttpResponse, Responder};
+use actix_web::{http::header, web, HttpRequest, HttpResponse, Responder};
 use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
 use tracing::{error, info};
@@ -83,6 +86,7 @@ use crate::services::imports::next_sheet;
 use crate::services::imports::previous;
 use crate::services::imports::remove;
 use crate::services::imports::saved;
+use crate::services::imports::sign_in;
 use crate::services::imports::values;
 use crate::services::imports::xlsx::{self, FileFormat, SheetChoice};
 use crate::services::imports::{
@@ -161,6 +165,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/import/{id}/next-sheet",
         web::post().to(crate::handlers::imports::next_sheet),
+    )
+    .route(
+        "/admin/import/{id}/invites",
+        web::post().to(crate::handlers::imports::send_invites),
     )
     .service(
         web::resource("/admin/import/{id}")
@@ -2684,6 +2692,156 @@ fn next_sheet_of(
     Ok(next_sheet::offer(&stored.source, &jobs))
 }
 
+// ---- send invites ----
+
+/// What checking Send invites against the job came to.
+enum InviteCheck {
+    Ok {
+        job: ImportJob,
+        people: Vec<sign_in::Waiting>,
+        names: std::collections::HashMap<Uuid, String>,
+        admin_name: String,
+    },
+    NotFound,
+    Refused(HttpResponse),
+}
+
+/// Send invites: an invitation email, the one Resend invitation on a
+/// user's page sends, to each person a committed users import created who
+/// can't sign in yet and holds no open invitation. Only where an invitation
+/// sets a password (self-hosted) and email is set up. Answers how many were
+/// sent and Done's sign-in line as it stands.
+pub async fn send_invites(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let check = tc.run(|conn| {
+        let job = match repo::get(conn, id) {
+            Ok(j) => j,
+            Err(diesel::result::Error::NotFound) => return Ok(InviteCheck::NotFound),
+            Err(e) => return Err(e),
+        };
+        if job.job_type != ImportType::Users.as_str() {
+            return Ok(InviteCheck::Refused(errors::bad_request_with_code(
+                "Only a users import sends invites.",
+                "import_invites_users_only",
+            )));
+        }
+        if job.status != "done" {
+            return Ok(InviteCheck::Refused(errors::conflict_with_code(
+                "This import wasn't committed, so it created nobody to invite.",
+                "import_not_committed",
+            )));
+        }
+        if !crate::middleware::workspace_context::local_credentials_permitted() {
+            return Ok(InviteCheck::Refused(errors::conflict_with_code(
+                "People here sign in with the workspace's sign-in provider, so there are no invites to send.",
+                "import_invites_not_offered",
+            )));
+        }
+        if !sign_in::email_ready() {
+            return Ok(InviteCheck::Refused(errors::conflict_with_code(
+                "Email isn't set up, so invites can't be sent.",
+                "import_invites_email_off",
+            )));
+        }
+        let people: Vec<sign_in::Waiting> =
+            sign_in::waiting(conn, &sign_in::created_people(&job))?
+                .into_iter()
+                .filter(|w| !w.invited)
+                .collect();
+        if people.is_empty() {
+            return Ok(InviteCheck::Refused(errors::conflict_with_code(
+                "Everyone this import created can sign in or has an open invitation.",
+                "import_nothing_to_invite",
+            )));
+        }
+        let mut uuids: Vec<Uuid> = people.iter().map(|p| p.user).collect();
+        uuids.push(auth.user_uuid);
+        let names = names_of(conn, uuids)?;
+        let admin_name = names
+            .get(&auth.user_uuid)
+            .cloned()
+            .unwrap_or_else(|| "An administrator".to_string());
+        Ok(InviteCheck::Ok {
+            job,
+            people,
+            names,
+            admin_name,
+        })
+    });
+    let (job, people, names, admin_name) = match check {
+        Ok(InviteCheck::Ok {
+            job,
+            people,
+            names,
+            admin_name,
+        }) => (job, people, names, admin_name),
+        Ok(InviteCheck::NotFound) => {
+            return errors::not_found_msg(format!("import job {id} not found"))
+        }
+        Ok(InviteCheck::Refused(response)) => return response,
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to load import job");
+            return errors::internal("failed to load import job");
+        }
+    };
+
+    // The invitation helper takes a connection pinned to the request's
+    // workspace, as Resend invitation does.
+    let mut conn = match crate::handlers::helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to get a connection for invites");
+            return errors::internal("failed to send the invites");
+        }
+    };
+    crate::handlers::helpers::pin_request_workspace(&req, &mut conn);
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    for person in &people {
+        let name = names.get(&person.user).map_or("", String::as_str);
+        match crate::handlers::users::send_user_invitation(
+            &mut conn,
+            &req,
+            person.user,
+            &person.email,
+            name,
+            &admin_name,
+        )
+        .await
+        {
+            crate::handlers::users::SendInvitationResult::Success
+            | crate::handlers::users::SendInvitationResult::Capped => sent += 1,
+            other => {
+                error!(job_id = %id, error_kind = %other, "failed to send an import invite");
+                failed += 1;
+            }
+        }
+    }
+    info!(job_id = %id, count = sent, failed, "import invites sent");
+
+    let status = match tc.run(|conn| sign_in::status(conn, &job)) {
+        Ok(status) => status,
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to read the sign-in line after invites");
+            None
+        }
+    };
+    HttpResponse::Ok().json(serde_json::json!({
+        "sent": sent,
+        "failed": failed,
+        "sign_in": status,
+    }))
+}
+
 // ---- remove imported assets, previous values ----
 
 /// Why Remove imported assets can't run on a job.
@@ -2925,16 +3083,19 @@ pub async fn remove_created(
 }
 
 /// The job as Done and the import detail page show it: [`job_response`]
-/// with the size of its previous values file and the sheet to import next.
+/// with the size of its previous values file, the sheet to import next and,
+/// for users, who can't sign in yet.
 fn page_response(
     conn: &mut crate::db::DbConnection,
     job: ImportJob,
 ) -> Result<ImportJobResponse, diesel::result::Error> {
     let previous = previous_values_of(conn, &job)?;
     let next = next_sheet_of(conn, &job)?;
+    let sign_in = sign_in::status(conn, &job)?;
     let mut response = job_response(conn, job)?;
     response.previous_values = previous;
     response.next_sheet = next;
+    response.sign_in = sign_in;
     Ok(response)
 }
 

@@ -107,6 +107,8 @@ fn errors_csv_classifies_each_failure() {
     }
 }
 
+/// The same file again matches every person by email and changes nobody:
+/// each row is Unchanged and nothing is written.
 #[test]
 fn second_commit_upserts_by_email() {
     let db = TestDb::new();
@@ -119,16 +121,18 @@ fn second_commit_upserts_by_email() {
         .expect("commit 1");
     assert_eq!(first.len(), 3);
 
-    // Second pass: every primary email matches → 3 updates.
+    // Second pass: every primary email matches and every value is the
+    // same, so all 3 are Unchanged.
     let summary = imports::dry_run(&mut conn, ImportType::Users, &parsed, &ctx_for(ws1_admin))
         .expect("dry-run 2");
     assert_eq!(summary.would_create, 0);
-    assert_eq!(summary.would_update, 3);
+    assert_eq!(summary.would_update, 0);
+    assert_eq!(summary.unchanged, 3);
     assert!(summary.errors.is_empty());
 
     let second = imports::commit(&mut conn, ImportType::Users, &parsed, &ctx_for(ws1_admin))
         .expect("commit 2");
-    assert_eq!(second.len(), 3);
+    assert_eq!(second.len(), 0);
 
     // No duplicate user_emails rows.
     #[derive(diesel::QueryableByName)]
@@ -181,7 +185,7 @@ fn parse(content: &str) -> csv_parser::ParsedCsv {
     csv_parser::parse_file(file.path()).expect("parse")
 }
 
-fn add_primary_email(conn: &mut TestPooledConn, user: Uuid, email: &str) {
+pub(crate) fn add_primary_email(conn: &mut TestPooledConn, user: Uuid, email: &str) {
     diesel::sql_query(
         "INSERT INTO user_emails (user_uuid, email, email_type, is_primary, is_verified) \
          VALUES ($1, $2, 'personal', true, true)",
@@ -229,7 +233,7 @@ pub(crate) fn new_member(conn: &mut TestPooledConn, ws: i32, role: &str) -> Uuid
     user
 }
 
-fn grant(conn: &mut TestPooledConn, ws: i32, user: Uuid, role: &str) {
+pub(crate) fn grant(conn: &mut TestPooledConn, ws: i32, user: Uuid, role: &str) {
     use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
     let pin = ActorContext::user(user, None).with_workspace(ws);
     with_actor_context::<_, diesel::result::Error>(conn, &pin, |c| {

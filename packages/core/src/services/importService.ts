@@ -295,6 +295,31 @@ export interface ImportJob {
    *  sheet with rows that nothing from this upload has imported (the job's
    *  own read and the commit's answer). */
   next_sheet?: string | null
+  /** For a committed users import, the people it created who can't sign in
+   *  yet and how they will (the job's own read and the commit's answer);
+   *  absent when nobody is waiting. */
+  sign_in?: SignInStatus | null
+}
+
+/** Done's sign-in line for a users import. */
+export interface SignInStatus {
+  /** People the import created who can't sign in yet. */
+  pending: number
+  /** Of those, the ones holding an invitation that is still open. */
+  invited: number
+  /** `invite`: an invitation sets their password. `sso`: they sign in with
+   *  the workspace's provider once their accounts exist there. */
+  method: 'invite' | 'sso'
+  provider?: string | null
+  /** For `invite`: whether email is set up, so invites can be sent. */
+  email_ready: boolean
+}
+
+/** What Send invites did. */
+export interface InvitesResult {
+  sent: number
+  failed: number
+  sign_in: SignInStatus | null
 }
 
 /** Why an asset an import created is kept by Remove imported assets. The
@@ -636,6 +661,13 @@ export const importService = {
     const { data } = await apiClient.post<ImportJob>(`/admin/import/${jobId}/next-sheet`, {
       sheet,
     })
+    return data
+  },
+
+  /** Send invites: an invitation to each person a committed users import
+   *  created who can't sign in yet and holds no open invitation. */
+  async sendInvites(jobId: string): Promise<InvitesResult> {
+    const { data } = await apiClient.post<InvitesResult>(`/admin/import/${jobId}/invites`)
     return data
   },
 

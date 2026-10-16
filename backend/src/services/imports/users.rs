@@ -21,10 +21,18 @@
 //! as the add-user API does (self-hosted only) and can't be granted to
 //! an existing member.
 //!
+//! A member whose row would change nothing is Unchanged: nothing is
+//! written for them. On a member's row a blank cell leaves the value as it
+//! is, so a blank role or name is no change, never a refusal.
+//!
 //! Columns:
 //!   - email   (required, the natural key)
-//!   - name    (required)
-//!   - role    (required: admin | technician | user | audit_reviewer)
+//!   - name    (required for a new person; or First name and Last name)
+//!   - first_name, last_name (optional): joined with a space into the name
+//!     on a row whose Name cell is blank, so a file with a Name column and
+//!     First and Last columns takes Name where it has one
+//!   - role    (required for a new person: admin | technician | user |
+//!     audit_reviewer)
 //!   - pronouns (optional)
 
 use std::collections::{HashMap, HashSet};
@@ -49,9 +57,9 @@ use crate::repository::workspaces::{
 
 use super::csv_parser::ParsedCsv;
 use super::types::{
-    duplicate_in_file, CommitError, Committed, FieldGroup, FieldSpec, ImportContext, ImportOptions,
-    ImportType, ImportedRecords, ImportedUser, Importer, RecordId, RowOutcome, RowPlan, RowResult,
-    ValueType,
+    duplicate_in_file, CommitError, Committed, FieldChange, FieldGroup, FieldSpec, ImportContext,
+    ImportOptions, ImportType, ImportedRecords, ImportedUser, Importer, RecordId, RowOutcome,
+    RowPlan, RowResult, ValueType,
 };
 use super::values::Choice;
 
@@ -79,6 +87,22 @@ impl Importer for UserImporter {
                 true,
             ),
             FieldSpec::fixed(t, "name", "Name", FieldGroup::Core, ValueType::Text, true),
+            FieldSpec::fixed(
+                t,
+                "first_name",
+                "First name",
+                FieldGroup::Core,
+                ValueType::Text,
+                false,
+            ),
+            FieldSpec::fixed(
+                t,
+                "last_name",
+                "Last name",
+                FieldGroup::Core,
+                ValueType::Text,
+                false,
+            ),
             FieldSpec::fixed(t, "role", "Role", FieldGroup::Core, ValueType::Enum, true)
                 .with_enum(["admin", "technician", "user"].map(String::from).to_vec()),
             FieldSpec::fixed(
@@ -129,6 +153,12 @@ impl Importer for UserImporter {
             ("mail", "email"),
             ("fullname", "name"),
             ("displayname", "name"),
+            ("first", "first_name"),
+            ("givenname", "first_name"),
+            ("forename", "first_name"),
+            ("last", "last_name"),
+            ("surname", "last_name"),
+            ("familyname", "last_name"),
             ("userrole", "role"),
         ]
     }
@@ -152,15 +182,23 @@ impl Importer for UserImporter {
 
         for record in parsed.records() {
             let row_num = record.source_row;
-            let values = lookup.with_constants(record.values, &ctx.options);
+            let values = with_name(lookup.with_constants(record.values, &ctx.options));
             let mut local = state.clone();
             let result = match validate_row(&values, &lookup, &mut local) {
                 Ok(action) => {
                     state = local;
                     match action {
                         RowAction::Create { .. } => RowResult::planned(row_num, RowOutcome::Create),
-                        RowAction::UpdateMember { user_uuid, .. } => {
-                            RowResult::planned(row_num, RowOutcome::Update)
+                        RowAction::UpdateMember {
+                            user_uuid, changes, ..
+                        } => {
+                            let mut result = RowResult::planned(row_num, RowOutcome::Update)
+                                .with_record(RecordId::Uuid(user_uuid));
+                            result.fields_written = changes;
+                            result
+                        }
+                        RowAction::Unchanged(user_uuid) => {
+                            RowResult::planned(row_num, RowOutcome::Unchanged)
                                 .with_record(RecordId::Uuid(user_uuid))
                         }
                     }
@@ -191,7 +229,7 @@ impl Importer for UserImporter {
         let mut rows = Vec::with_capacity(parsed.rows.len());
         for record in parsed.records() {
             let row_num = record.source_row;
-            let values = lookup.with_constants(record.values, &ctx.options);
+            let values = with_name(lookup.with_constants(record.values, &ctx.options));
             let row = &values;
             // A write refused below, for a reason validation can't see,
             // skips the row with the member-role endpoint's words.
@@ -282,11 +320,20 @@ impl Importer for UserImporter {
                         }
                     }
                 }
+                RowAction::Unchanged(user_uuid) => {
+                    // Nothing to write: no update, no event.
+                    rows.push(identify(
+                        RowResult::planned(row_num, RowOutcome::Unchanged)
+                            .with_record(RecordId::Uuid(user_uuid)),
+                        row,
+                    ));
+                }
                 RowAction::UpdateMember {
                     user_uuid,
                     new_role,
                     name,
                     pronouns,
+                    changes,
                 } => {
                     // A role change passed the member-role endpoint's gate in
                     // validate_row; update_membership_role (Product authority)
@@ -336,11 +383,10 @@ impl Importer for UserImporter {
                         conn,
                         None,
                     )?;
-                    rows.push(identify(
-                        RowResult::planned(row_num, RowOutcome::Update)
-                            .with_record(RecordId::Uuid(user.uuid)),
-                        row,
-                    ));
+                    let mut result = RowResult::planned(row_num, RowOutcome::Update)
+                        .with_record(RecordId::Uuid(user.uuid));
+                    result.fields_written = changes;
+                    rows.push(identify(result, row));
                     imported.push(ImportedUser {
                         user,
                         primary_email: Some(email),
@@ -362,13 +408,17 @@ enum RowAction {
         platform_role: PlatformRole,
         workspace_role: WorkspaceRole,
     },
-    /// `new_role` / `name` / `pronouns` are `Some` only when they change.
+    /// `new_role` / `name` / `pronouns` are `Some` only when they change;
+    /// at least one does. `changes` is each with its value before and after.
     UpdateMember {
         user_uuid: Uuid,
         new_role: Option<WorkspaceRole>,
         name: Option<String>,
         pronouns: Option<String>,
+        changes: std::collections::BTreeMap<String, FieldChange>,
     },
+    /// A member whose row changes nothing.
+    Unchanged(Uuid),
 }
 
 /// What the rows are checked against: who holds each email in the file,
@@ -424,6 +474,20 @@ fn identify(result: RowResult, row: &HashMap<String, String>) -> RowResult {
     result
         .with_key(Some(trimmed(row, "email")))
         .with_label(trimmed(row, "name"))
+}
+
+/// The row with its name settled: the Name cell, or, when that is blank,
+/// the First name and Last name cells joined with a space.
+fn with_name(mut row: HashMap<String, String>) -> HashMap<String, String> {
+    if trimmed(&row, "name").is_empty() {
+        let joined = [trimmed(&row, "first_name"), trimmed(&row, "last_name")]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        row.insert("name".to_string(), joined);
+    }
+    row
 }
 
 impl Lookup {
@@ -576,15 +640,25 @@ fn validate_row(
             duplicate_in_file("email", &email, rows),
         ));
     }
+    // Who the row is, once its email reads: a member's row leaves a blank
+    // name or role as it is.
+    let holder = if errors.is_empty() {
+        lookup.holders.get(&email.to_lowercase())
+    } else {
+        None
+    };
+    let member = matches!(holder, Some(PrimaryEmailHolder::Member { .. }));
 
     let name = trimmed(row, "name");
-    if name.is_empty() {
+    if name.is_empty() && !member {
         errors.push((Some("name".into()), "name is required".into()));
     }
 
     let role_raw = trimmed(row, "role");
     let roles = if role_raw.is_empty() {
-        errors.push((Some("role".into()), "role is required".into()));
+        if !member {
+            errors.push((Some("role".into()), "role is required".into()));
+        }
         None
     } else {
         match crate::utils::parse_roles(&role_raw) {
@@ -599,14 +673,24 @@ fn validate_row(
         }
     };
 
-    let Some((platform_role, workspace_role)) = roles.filter(|_| errors.is_empty()) else {
+    if !errors.is_empty() {
         return Err(errors);
-    };
+    }
 
-    let email_key = email.to_lowercase();
-
-    match lookup.holders.get(&email_key) {
+    match holder {
+        Some(PrimaryEmailHolder::Member { user, role }) => {
+            validate_member(row, lookup, state, user, role, name, roles)
+        }
+        // An account outside this workspace: refused as the add-user API
+        // refuses it, with the same message whatever the account is.
+        Some(PrimaryEmailHolder::NotMember) => Err(vec![(
+            Some("email".into()),
+            "User with this email already exists".into(),
+        )]),
         None => {
+            let Some((platform_role, workspace_role)) = roles else {
+                return Err(vec![(Some("role".into()), "role is required".into())]);
+            };
             if let Err(msg) = lookup.role_gate(state, None, workspace_role) {
                 return Err(vec![(Some("role".into()), msg)]);
             }
@@ -623,61 +707,109 @@ fn validate_row(
                 workspace_role,
             })
         }
-        // An account outside this workspace: refused as the add-user API
-        // refuses it, with the same message whatever the account is.
-        Some(PrimaryEmailHolder::NotMember) => Err(vec![(
-            Some("email".into()),
-            "User with this email already exists".into(),
-        )]),
-        Some(PrimaryEmailHolder::Member { user, role }) => {
-            // An unchanged role writes nothing, so it isn't gated.
-            let new_role = (role.as_str() != workspace_role.as_str()).then_some(workspace_role);
-            if let Some(new) = new_role {
-                if let Err(msg) = lookup.role_gate(state, Some(role), new) {
-                    errors.push((Some("role".into()), msg));
-                }
-            }
-            // The platform role is never written on update; a row may only
-            // name one the member already holds.
-            if platform_role != PlatformRole::User
-                && PlatformRole::from_db(&user.platform_role) != platform_role
-            {
-                errors.push((Some("role".into()), AUDIT_REVIEWER_REFUSED.into()));
-            }
+    }
+}
 
-            let name_change = (name != user.name).then_some(name);
-            if name_change.is_some() {
-                if lookup.name_managed.contains(&user.uuid) {
-                    errors.push((
-                        Some("name".into()),
-                        "this person's name is managed in their Nosdesk account".into(),
-                    ));
-                } else if !lookup.may_edit_profile(user) {
-                    errors.push((
-                        Some("name".into()),
-                        "only the person or a platform admin can change their name".into(),
-                    ));
-                }
-            }
-            let pronouns_change =
-                opt_string(row, "pronouns").filter(|p| user.pronouns.as_deref() != Some(p));
-            if pronouns_change.is_some() && !lookup.may_edit_profile(user) {
-                errors.push((
-                    Some("pronouns".into()),
-                    "only the person or a platform admin can change their pronouns".into(),
-                ));
-            }
+/// A member's row: what it changes, each change gated as the API gates it,
+/// or Unchanged when it changes nothing. A blank name or role is no change.
+fn validate_member(
+    row: &HashMap<String, String>,
+    lookup: &Lookup,
+    state: &mut FileState,
+    user: &User,
+    role: &str,
+    name: String,
+    roles: Option<(PlatformRole, WorkspaceRole)>,
+) -> Result<RowAction, Vec<(Option<String>, String)>> {
+    let mut errors: Vec<(Option<String>, String)> = Vec::new();
+    let mut changes = std::collections::BTreeMap::new();
 
-            if !errors.is_empty() {
-                return Err(errors);
-            }
-            Ok(RowAction::UpdateMember {
-                user_uuid: user.uuid,
-                new_role,
-                name: name_change,
-                pronouns: pronouns_change,
-            })
+    // An unchanged role writes nothing, so it isn't gated.
+    let new_role = roles
+        .map(|(_, workspace_role)| workspace_role)
+        .filter(|r| role != r.as_str());
+    if let Some(new) = new_role {
+        if let Err(msg) = lookup.role_gate(state, Some(role), new) {
+            errors.push((Some("role".into()), msg));
         }
+        changes.insert(
+            "role".to_string(),
+            FieldChange {
+                before: Some(role_name(role).to_string()),
+                after: Some(role_name(new.as_str()).to_string()),
+            },
+        );
+    }
+    // The platform role is never written on update; a row may only name
+    // one the member already holds.
+    if let Some((platform_role, _)) = roles {
+        if platform_role != PlatformRole::User
+            && PlatformRole::from_db(&user.platform_role) != platform_role
+        {
+            errors.push((Some("role".into()), AUDIT_REVIEWER_REFUSED.into()));
+        }
+    }
+
+    let name_change = (!name.is_empty() && name != user.name).then_some(name);
+    if let Some(new) = &name_change {
+        if lookup.name_managed.contains(&user.uuid) {
+            errors.push((
+                Some("name".into()),
+                "this person's name is managed in their Nosdesk account".into(),
+            ));
+        } else if !lookup.may_edit_profile(user) {
+            errors.push((
+                Some("name".into()),
+                "only the person or a platform admin can change their name".into(),
+            ));
+        }
+        changes.insert(
+            "name".to_string(),
+            FieldChange {
+                before: Some(user.name.clone()),
+                after: Some(new.clone()),
+            },
+        );
+    }
+    let pronouns_change =
+        opt_string(row, "pronouns").filter(|p| user.pronouns.as_deref() != Some(p));
+    if let Some(new) = &pronouns_change {
+        if !lookup.may_edit_profile(user) {
+            errors.push((
+                Some("pronouns".into()),
+                "only the person or a platform admin can change their pronouns".into(),
+            ));
+        }
+        changes.insert(
+            "pronouns".to_string(),
+            FieldChange {
+                before: user.pronouns.clone(),
+                after: Some(new.clone()),
+            },
+        );
+    }
+
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    if changes.is_empty() {
+        return Ok(RowAction::Unchanged(user.uuid));
+    }
+    Ok(RowAction::UpdateMember {
+        user_uuid: user.uuid,
+        new_role,
+        name: name_change,
+        pronouns: pronouns_change,
+        changes,
+    })
+}
+
+/// A workspace role as the import's Role column words it.
+fn role_name(db_role: &str) -> &str {
+    match db_role {
+        "member" => "user",
+        "agent" => "technician",
+        other => other,
     }
 }
 
