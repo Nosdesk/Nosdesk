@@ -4181,6 +4181,10 @@ import-values-both-new = Les deux seraient créés. Choisissez une orthographe.
 # MT: pending native review (fr-FR)
 import-values-recomputed = Recalculé d'après vos réponses pour { $header }
 # MT: pending native review (fr-FR)
+import-values-preview-failed = Impossible de mettre à jour les modèles selon vos réponses pour { $header }. Ils ne sont peut-être pas à jour.
+# MT: pending native review (fr-FR)
+import-values-preview-retry = Réessayer
+# MT: pending native review (fr-FR)
 import-values-under = sous { $manufacturer }
 # MT: pending native review (fr-FR)
 import-values-bulk-keep-text = Conserver les { $count } comme texte

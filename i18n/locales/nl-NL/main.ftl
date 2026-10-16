@@ -4171,6 +4171,10 @@ import-values-both-new = Beide zouden worden aangemaakt. Kies één spelling.
 # MT: pending native review (nl-NL)
 import-values-recomputed = Opnieuw berekend na je antwoorden voor { $header }
 # MT: pending native review (nl-NL)
+import-values-preview-failed = De modellen konden niet worden bijgewerkt voor uw antwoorden bij { $header }. Ze zijn mogelijk niet actueel.
+# MT: pending native review (nl-NL)
+import-values-preview-retry = Opnieuw proberen
+# MT: pending native review (nl-NL)
 import-values-under = onder { $manufacturer }
 # MT: pending native review (nl-NL)
 import-values-bulk-keep-text = Alle { $count } als tekst behouden

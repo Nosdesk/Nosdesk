@@ -147,6 +147,15 @@ const previewQuery = useQuery({
   placeholderData: (previous) => previous,
 })
 
+/** The Model card couldn't be read under this screen's manufacturer
+ *  answers: it still shows the models it read before, so it says so and
+ *  offers to read them again. */
+const previewFailed = computed(() => makerKey.value !== '' && previewQuery.error.value != null)
+
+function retryPreview() {
+  previewQuery.refetch()
+}
+
 /** The view with its Model card read under this screen's manufacturer
  *  answers, once they are. */
 const current = computed<ImportValues>(() =>
@@ -176,16 +185,24 @@ function title(col: ImportValueColumn): string {
     : t('import-values-card-title', args)
 }
 
-/** The Model card's line saying it follows the manufacturer answers. */
+const makerHeader = computed(
+  () => current.value.columns.find((c) => c.lookup === 'manufacturer')?.header ?? '',
+)
+
+/** The Model card's line saying it follows the manufacturer answers; none
+ *  while it couldn't be read under them. */
 const recomputedNote = computed(() => {
-  if (!makersAnswered(current.value, edits.value)) return ''
-  const makers = current.value.columns.find((c) => c.lookup === 'manufacturer')
-  return makers ? t('import-values-recomputed', { header: makers.header }) : ''
+  if (previewFailed.value || !makersAnswered(current.value, edits.value)) return ''
+  return makerHeader.value ? t('import-values-recomputed', { header: makerHeader.value }) : ''
 })
 
 function cardNote(card: Card): string {
   return isModel(card.column) ? recomputedNote.value : ''
 }
+
+/** A Model card showing models read before this screen's manufacturer
+ *  answers. */
+const isStale = (card: Card) => isModel(card.column) && previewFailed.value
 
 const isParsed = (col: ImportValueColumn) => !col.lookup && col.choices.length === 0
 
@@ -641,6 +658,7 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
         content-padding=""
         data-test="import-values-card"
         :data-field="card.column.field"
+        :data-stale="isStale(card) ? 'true' : undefined"
       >
         <template #title>{{ title(card.column) }}</template>
         <template v-if="cardNote(card) && !isMobile" #headerActions>
@@ -654,6 +672,17 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
           >
             {{ cardNote(card) }}
           </p>
+          <p
+            v-if="isStale(card)"
+            role="status"
+            class="px-3 pt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-status-error"
+            data-test="import-values-preview-failed"
+          >
+            <span>{{ $t('import-values-preview-failed', { header: makerHeader }) }}</span>
+            <button type="button" :class="linkClass" data-test="import-values-preview-retry" @click="retryPreview">
+              {{ $t('import-values-preview-retry') }}
+            </button>
+          </p>
           <div v-if="card.listed.length >= FILTER_MIN" class="px-3 pt-3 flex">
             <SegmentedControl
               :model-value="filterOf(card)"
@@ -665,7 +694,11 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
           </div>
 
           <!-- Desktop: a semantic table. -->
-          <table v-if="!isMobile && visible(card).length > 0" class="w-full table-fixed text-sm">
+          <table
+            v-if="!isMobile && visible(card).length > 0"
+            class="w-full table-fixed text-sm"
+            :class="{ 'opacity-60': isStale(card) }"
+          >
             <thead>
               <tr class="text-left text-xs uppercase tracking-wide text-tertiary">
                 <th scope="col" class="px-3 py-2 font-medium">{{ $t('import-values-col-value') }}</th>
@@ -763,7 +796,7 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
           </table>
 
           <!-- Phone: one item per value. -->
-          <ul v-else-if="visible(card).length > 0" class="flex flex-col">
+          <ul v-else-if="visible(card).length > 0" class="flex flex-col" :class="{ 'opacity-60': isStale(card) }">
             <li
               v-for="e in visible(card)"
               :key="entryId(e)"
