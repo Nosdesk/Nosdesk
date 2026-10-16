@@ -3658,6 +3658,12 @@ import-template-help = Les en-têtes du modèle sont des noms de champ comme ass
 # MT: pending native review (fr-FR)
 import-template-download = Télécharger le modèle
 # MT: pending native review (fr-FR)
+import-template-kind-label = Type
+# MT: pending native review (fr-FR)
+import-template-kind-none = Tous les types (colonnes de base uniquement)
+# MT: pending native review (fr-FR)
+import-template-kind-help = Choisissez un type pour ajouter ses colonnes d'attributs.
+# MT: pending native review (fr-FR)
 import-drop-idle = Déposez un fichier .csv ou .xlsx ici, ou touchez pour en choisir un
 # MT: pending native review (fr-FR)
 import-drop-release = Relâchez pour envoyer
@@ -3731,6 +3737,8 @@ import-map-group-lifecycle = Cycle de vie
 # MT: pending native review (fr-FR)
 import-map-group-attribute = Attributs
 # MT: pending native review (fr-FR)
+import-map-group-attribute-kinds = Attributs : { $kinds }
+# MT: pending native review (fr-FR)
 import-map-group-ignore = Ne pas importer
 # MT: pending native review (fr-FR)
 import-map-ignore = Ne pas importer
@@ -3738,6 +3746,8 @@ import-map-ignore = Ne pas importer
 import-map-ignore-description = Laisser la colonne hors de l'import
 # MT: pending native review (fr-FR)
 import-map-required = Obligatoire
+# MT: pending native review (fr-FR)
+import-map-required-for = Obligatoire à la création pour { $kinds }
 # MT: pending native review (fr-FR)
 import-map-kind-required = Obligatoire à la création, ou définissez-le pour toutes les lignes ci-dessous
 # MT: pending native review (fr-FR)
@@ -3781,6 +3791,15 @@ import-map-warning-ignored = { $count ->
     [one] 1 colonne ne sera pas importée.
    *[other] { $count } colonnes ne seront pas importées.
    }
+# MT: pending native review (fr-FR)
+import-map-required-heading = Certains types exigent des attributs
+# MT: pending native review (fr-FR)
+import-map-warning-required-none = Les lignes { $kind } exigent { $needed }. Aucune colonne n'y { $count ->
+    [one] correspond
+   *[other] correspond
+   }, donc les nouveaux actifs { $kind } seront signalés à l'étape Vérification.
+# MT: pending native review (fr-FR)
+import-map-warning-required-some = Les lignes { $kind } exigent { $needed }. Aucune colonne ne correspond à { $missing }, donc les nouveaux actifs { $kind } seront signalés à l'étape Vérification.
 # MT: pending native review (fr-FR)
 import-map-empty-filter = Aucune colonne ne correspond à ce filtre.
 # MT: pending native review (fr-FR)
@@ -3949,6 +3968,10 @@ import-constants-remove = Retirer
 # MT: pending native review (fr-FR)
 import-constants-guessed-role = Le rôle le plus sûr, prérempli.
 # MT: pending native review (fr-FR)
+import-constants-yes = Oui
+# MT: pending native review (fr-FR)
+import-constants-no = Non
+# MT: pending native review (fr-FR)
 import-constants-kind-label = Type pour toutes les lignes
 # MT: pending native review (fr-FR)
 import-constants-kind-placeholder = Choisir un type
@@ -3959,6 +3982,8 @@ import-values-load-failed = Les valeurs du fichier n'ont pas pu être lues. Reve
 import-values-loading = Lecture des valeurs du fichier
 # MT: pending native review (fr-FR)
 import-values-card-title = { $header } → { $field }
+# MT: pending native review (fr-FR)
+import-values-card-title-kind = { $header } → { $field } ({ $kind })
 # MT: pending native review (fr-FR)
 import-values-group-or = Ou
 # MT: pending native review (fr-FR)

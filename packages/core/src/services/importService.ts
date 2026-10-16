@@ -33,6 +33,17 @@ export interface ImportNotice {
   message: string
 }
 
+/** Values of one field rows import without, because the rows' kind has
+ *  no such attribute. */
+export interface DroppedGroup {
+  /** Field id. */
+  column: string
+  source_column?: string | null
+  /** The rows' kind (slug). */
+  kind: string
+  count: number
+}
+
 export interface ImportSummary {
   row_count: number
   would_create: number
@@ -45,6 +56,8 @@ export interface ImportSummary {
   errors_total?: number
   rows_with_errors?: number
   error_groups?: ErrorGroup[]
+  /** Attribute values left out because the row's kind lacks the attribute. */
+  dropped?: DroppedGroup[]
 }
 
 export interface SourceHeader {
@@ -167,9 +180,13 @@ export interface ImportField {
   group: FieldGroup
   value_type: FieldValueType
   required: boolean
+  /** Kind slugs that define the field (attributes only). */
   kinds?: string[]
   enum?: string[]
   format?: string
+  /** Kind slugs whose new assets need the field (attributes only). Never
+   *  blocks the check; rows of those kinds that lack it are skipped. */
+  required_for?: string[]
 }
 
 export interface ImportJob {
@@ -236,6 +253,12 @@ export interface ImportValue {
 
 export interface ImportValueColumn {
   field: string
+  /** The row kind (slug) the column answers for; empty or absent when the
+   *  field is answered the same on every row. Attributes are answered per
+   *  kind. */
+  context?: string
+  /** The kind's name. */
+  context_label?: string
   /** The source column. */
   index: number
   /** The file's header. */
@@ -278,6 +301,8 @@ export interface ImportRowResult {
   /** The record the row matches (before the commit) or wrote (after). */
   record_id?: number | string
   errors?: { column: string | null; source_column?: string | null; message: string }[]
+  /** Values the row imports without: its kind has no such attribute. */
+  dropped?: { column: string; source_column?: string | null; kind: string }[]
   /** After the commit: each field the row changed, before and after. */
   fields_written?: Record<string, { before: string | null; after: string | null }>
   groups_added?: number[]
@@ -416,8 +441,10 @@ export const importService = {
 
   /** Build a URL for the CSV template; trigger via anchor
    *  download in the caller so the browser handles the file
-   *  save rather than us decoding the response body. */
-  templateUrl(jobType: ImportJobType): string {
-    return `/api/admin/import/template/${jobType}`
+   *  save rather than us decoding the response body. For assets, `kind`
+   *  (a slug) adds that kind's attribute columns. */
+  templateUrl(jobType: ImportJobType, kind?: string): string {
+    const base = `/api/admin/import/template/${jobType}`
+    return kind ? `${base}?kind=${encodeURIComponent(kind)}` : base
   },
 }

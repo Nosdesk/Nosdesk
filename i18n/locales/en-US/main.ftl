@@ -3665,6 +3665,9 @@ import-start-reading = Reading the file
 import-template-heading = Start from a template
 import-template-help = Headers in the template are field names like asset_tag. Keep them and matching is automatic. Your own headers work too.
 import-template-download = Download template
+import-template-kind-label = Kind
+import-template-kind-none = Any kind (core columns only)
+import-template-kind-help = Pick a kind to add its attribute columns.
 import-drop-idle = Drop a .csv or .xlsx here, or tap to choose one
 import-drop-release = Release to upload
 import-drop-hint = .csv or .xlsx, up to 10 MB and 5,000 rows
@@ -3703,10 +3706,12 @@ import-map-group-core = Core
 import-map-group-links = Links
 import-map-group-lifecycle = Lifecycle
 import-map-group-attribute = Attributes
+import-map-group-attribute-kinds = Attributes: { $kinds }
 import-map-group-ignore = Don't import
 import-map-ignore = Don't import
 import-map-ignore-description = Keep the column out of the import
 import-map-required = Required
+import-map-required-for = Required on create for { $kinds }
 import-map-kind-required = Required on create, or set it for every row below
 import-map-mapped-from = Mapped from '{ $header }'
 import-map-clash = Also mapped from { $headers }. Pick one.
@@ -3733,6 +3738,12 @@ import-map-warning-ignored = { $count ->
     [one] 1 column won't be imported.
    *[other] { $count } columns won't be imported.
    }
+import-map-required-heading = Some kinds need attributes
+import-map-warning-required-none = { $kind } rows need { $needed }. Nothing is mapped to { $count ->
+    [one] it
+   *[other] them
+   }, so new { $kind } assets will be reported on Review.
+import-map-warning-required-some = { $kind } rows need { $needed }. Nothing is mapped to { $missing }, so new { $kind } assets will be reported on Review.
 import-map-empty-filter = No columns match this filter.
 import-map-change-file = Change file
 import-map-change-file-title = Discard this file?
@@ -3834,12 +3845,15 @@ import-constants-value-placeholder = Choose a value
 import-constants-apply-assets = Also apply to existing assets
 import-constants-remove = Remove
 import-constants-guessed-role = The safest role, pre-filled.
+import-constants-yes = Yes
+import-constants-no = No
 import-constants-kind-label = Kind for every row
 import-constants-kind-placeholder = Choose a kind
 # Match values step
 import-values-load-failed = The file's values couldn't be read. Go back to Map columns and check again.
 import-values-loading = Reading the file's values
 import-values-card-title = { $header } → { $field }
+import-values-card-title-kind = { $header } → { $field } ({ $kind })
 import-values-group-or = Or
 import-values-replace = Replace with
 import-values-leave-as-is = Leave as is

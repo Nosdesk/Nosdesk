@@ -327,3 +327,70 @@ export function detectDecimal(samples: string[]): DecimalMark | null {
   if (dot === comma) return null
   return dot ? '.' : ','
 }
+
+/** A kind as the pickers list it. */
+export interface KindOption {
+  value: string
+  label: string
+}
+
+/**
+ * The kinds the step can tell the file holds: the kind set for every row,
+ * and the kinds the Kind column's samples name by slug or label. Only
+ * samples are known before the check, so a kind further down the file
+ * isn't seen; the check reports its rows on Review.
+ */
+export function kindsInFile(
+  rows: MapRow[],
+  constants: ConstantRow[],
+  kinds: KindOption[],
+): string[] {
+  const bySpelling = new Map<string, string>()
+  for (const k of kinds) {
+    bySpelling.set(k.value.toLowerCase(), k.value)
+    if (!bySpelling.has(k.label.toLowerCase())) bySpelling.set(k.label.toLowerCase(), k.value)
+  }
+  const found: string[] = []
+  const add = (spelling: string) => {
+    const slug = bySpelling.get(spelling.trim().toLowerCase())
+    if (slug && !found.includes(slug)) found.push(slug)
+  }
+  const constant = constants.find((c) => c.field === 'kind' && c.value.trim())
+  if (constant) add(constant.value)
+  for (const row of rows) if (row.target === 'kind') row.samples.forEach(add)
+  return found
+}
+
+/** A kind in the file whose new assets need attributes, and those of them
+ *  no column or value for every row gives. */
+export interface RequiredWarning {
+  kind: string
+  /** Field ids of every attribute the kind requires. */
+  needed: string[]
+  /** Of those, the ones nothing gives. */
+  missing: string[]
+}
+
+export function requiredAttributeWarnings(
+  rows: MapRow[],
+  fields: ImportField[],
+  constants: ConstantRow[],
+  kindsPresent: string[],
+): RequiredWarning[] {
+  const given = new Set([
+    ...rows.filter(isMapped).map((r) => r.target),
+    ...constants.filter((c) => c.field && c.value.trim()).map((c) => c.field),
+  ])
+  const out: RequiredWarning[] = []
+  for (const kind of kindsPresent) {
+    const needed = fields.filter((f) => f.required_for?.includes(kind)).map((f) => f.id)
+    const missing = needed.filter((id) => !given.has(id))
+    if (missing.length > 0) out.push({ kind, needed, missing })
+  }
+  return out
+}
+
+/** The picker group an attribute sits in: the kinds that define it. */
+export function attributeKinds(field: ImportField, kinds: KindOption[]): string[] {
+  return (field.kinds ?? []).map((slug) => kinds.find((k) => k.value === slug)?.label ?? slug)
+}

@@ -29,6 +29,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryCache } from '@pinia/colada'
 
 import BackButton from '@/components/common/BackButton.vue'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import Button from '@/components/common/Button.vue'
 import Callout from '@/components/common/Callout.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
@@ -232,8 +233,17 @@ function apiError(e: unknown, fallbackKey: string): string {
 
 // ---- start ----
 
+/** The kind whose attribute columns the asset template carries; empty for
+ *  the core columns only. */
+const templateKind = ref('')
+const templateKindOptions = computed(() => [
+  { value: '', label: t('import-template-kind-none') },
+  ...kindOptions.value,
+])
+
 function downloadTemplate() {
-  window.location.href = importService.templateUrl(selectedType.value)
+  const kind = selectedType.value === 'assets' ? templateKind.value : ''
+  window.location.href = importService.templateUrl(selectedType.value, kind || undefined)
 }
 
 function chooseFile() {
@@ -719,10 +729,23 @@ const viewImportedLabelKey = computed(() => {
           <template #title>{{ $t('import-template-heading') }}</template>
           <div class="flex flex-col gap-3">
             <p class="text-sm text-secondary">{{ $t('import-template-help') }}</p>
-            <div>
-              <Button variant="secondary" icon="download" @click="downloadTemplate">
-                {{ $t('import-template-download') }}
-              </Button>
+            <p v-if="selectedType === 'assets'" class="text-xs text-tertiary">
+              {{ $t('import-template-kind-help') }}
+            </p>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div v-if="selectedType === 'assets'" class="w-full sm:w-64" data-test="import-template-kind">
+                <BaseDropdown
+                  v-model="templateKind"
+                  :options="templateKindOptions"
+                  :label="$t('import-template-kind-label')"
+                  :placeholder="$t('import-template-kind-none')"
+                />
+              </div>
+              <div>
+                <Button variant="secondary" icon="download" @click="downloadTemplate">
+                  {{ $t('import-template-download') }}
+                </Button>
+              </div>
             </div>
           </div>
         </SectionCard>

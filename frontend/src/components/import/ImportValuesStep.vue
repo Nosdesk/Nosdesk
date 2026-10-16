@@ -52,7 +52,8 @@ import {
   problemIds,
   settledColumns,
   skippedNow,
-  valueId,
+  cardId,
+  idOf,
   valuesCsv,
   type BulkAction,
   type Card,
@@ -102,7 +103,10 @@ function fieldLabel(id: string): string {
 }
 
 function title(col: ImportValueColumn): string {
-  return t('import-values-card-title', { header: col.header, field: fieldLabel(col.field) })
+  const args = { header: col.header, field: fieldLabel(col.field) }
+  return col.context_label
+    ? t('import-values-card-title-kind', { ...args, kind: col.context_label })
+    : t('import-values-card-title', args)
 }
 
 const isParsed = (col: ImportValueColumn) => col.choices.length === 0
@@ -114,7 +118,7 @@ function answerOf(col: ImportValueColumn, v: ImportValue): ValueAnswer | undefin
 }
 
 function setAnswer(col: ImportValueColumn, v: ImportValue, key: string) {
-  const id = valueId(col.field, v.key)
+  const id = idOf(col, v)
   edits.value = { ...edits.value, [id]: answerFromKey(key, answerOf(col, v)) }
 }
 
@@ -124,7 +128,7 @@ function replacementOf(col: ImportValueColumn, v: ImportValue): string {
 }
 
 function setReplacement(col: ImportValueColumn, v: ImportValue, value: string) {
-  edits.value = { ...edits.value, [valueId(col.field, v.key)]: { action: 'replace', value } }
+  edits.value = { ...edits.value, [idOf(col, v)]: { action: 'replace', value } }
 }
 
 function pickerOptions(col: ImportValueColumn, v: ImportValue): DropdownOption[] {
@@ -209,11 +213,11 @@ function valueText(v: ImportValue): string {
 // ---- cards ----
 
 function filterOf(col: ImportValueColumn): ValueFilter {
-  return filters.value[col.field] ?? 'all'
+  return filters.value[cardId(col)] ?? 'all'
 }
 
 function setFilter(col: ImportValueColumn, value: ValueFilter) {
-  filters.value = { ...filters.value, [col.field]: value }
+  filters.value = { ...filters.value, [cardId(col)]: value }
 }
 
 function filterOptions(card: Card) {
@@ -234,7 +238,7 @@ function filtered(card: Card): ImportValue[] {
 
 function visible(card: Card): ImportValue[] {
   const list = filtered(card)
-  return expanded.value[card.column.field] ? list : list.slice(0, PAGE)
+  return expanded.value[cardId(card.column)] ? list : list.slice(0, PAGE)
 }
 
 function hiddenCount(card: Card): number {
@@ -272,7 +276,7 @@ function scaleOptions(card: Card) {
 function setScaleChoice(card: Card, action: BulkAction | '') {
   if (!action) return
   const next = { ...edits.value }
-  for (const v of card.listed) next[valueId(card.column.field, v.key)] = { action }
+  for (const v of card.listed) next[idOf(card.column, v)] = { action }
   edits.value = next
 }
 
@@ -280,7 +284,10 @@ function download(card: Card) {
   const csv = valuesCsv([t('import-values-col-value'), t('import-values-col-rows')], card.listed)
   const link = document.createElement('a')
   link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-  link.download = `${card.column.header || card.column.field}-values.csv`
+  const stem = card.column.header || card.column.field
+  link.download = card.column.context
+    ? `${stem}-${card.column.context}-values.csv`
+    : `${stem}-values.csv`
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
@@ -288,7 +295,7 @@ function download(card: Card) {
 }
 
 function toggleMatched(col: ImportValueColumn) {
-  showMatched.value = { ...showMatched.value, [col.field]: !showMatched.value[col.field] }
+  showMatched.value = { ...showMatched.value, [cardId(col)]: !showMatched.value[cardId(col)] }
 }
 
 /** Settled columns as cards: when nothing asks to be read, the step still
@@ -296,7 +303,9 @@ function toggleMatched(col: ImportValueColumn) {
 const settledCards = computed(() => (shown.value.length === 0 ? settled.value : []))
 
 const settledText = computed(() =>
-  t('import-values-all-matched', { headers: settled.value.map((c) => c.header).join(', ') }),
+  t('import-values-all-matched', {
+    headers: [...new Set(settled.value.map((c) => c.header))].join(', '),
+  }),
 )
 
 // ---- next problem ----
@@ -308,12 +317,11 @@ async function nextProblem() {
   const id = nextProblemId(order.value, problems.value, lastProblem)
   if (!id) return
   lastProblem = id
-  const card = shown.value.find((c) => c.listed.some((v) => valueId(c.column.field, v.key) === id))
+  const card = shown.value.find((c) => c.listed.some((v) => idOf(c.column, v) === id))
   if (card) {
-    const field = card.column.field
-    const index = filtered(card).findIndex((v) => valueId(field, v.key) === id)
+    const index = filtered(card).findIndex((v) => idOf(card.column, v) === id)
     if (index < 0) setFilter(card.column, 'all')
-    if (index < 0 || index >= PAGE) expanded.value = { ...expanded.value, [field]: true }
+    if (index < 0 || index >= PAGE) expanded.value = { ...expanded.value, [cardId(card.column)]: true }
     await nextTick()
   }
   const row = [...(root.value?.querySelectorAll<HTMLElement>('[data-value-id]') ?? [])].find(
@@ -370,7 +378,7 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
       </Button>
     </div>
 
-    <template v-for="card in shown" :key="card.column.field">
+    <template v-for="card in shown" :key="cardId(card.column)">
       <!-- Too many values to list: counts and one answer for the rest. -->
       <SectionCard
         v-if="card.scaled"
@@ -431,7 +439,7 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
               <tr
                 v-for="v in visible(card)"
                 :key="v.key"
-                :data-value-id="valueId(card.column.field, v.key)"
+                :data-value-id="idOf(card.column, v)"
                 data-test="import-value-row"
                 class="border-t border-default"
               >
@@ -510,7 +518,7 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
             <li
               v-for="v in visible(card)"
               :key="v.key"
-              :data-value-id="valueId(card.column.field, v.key)"
+              :data-value-id="idOf(card.column, v)"
               data-test="import-value-row"
               class="border-t border-default first:border-t-0 p-3 flex flex-col gap-2"
             >
@@ -583,7 +591,7 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
               type="button"
               :class="linkClass"
               data-test="import-values-more"
-              @click="expanded = { ...expanded, [card.column.field]: true }"
+              @click="expanded = { ...expanded, [cardId(card.column)]: true }"
             >
               {{ $t('import-values-show-more', { count: hiddenCount(card) }) }}
             </button>
@@ -601,15 +609,15 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
               <button
                 type="button"
                 :class="linkClass"
-                :aria-expanded="!!showMatched[card.column.field]"
+                :aria-expanded="!!showMatched[cardId(card.column)]"
                 @click="toggleMatched(card.column)"
               >
-                {{ showMatched[card.column.field] ? $t('import-values-hide') : $t('import-values-show') }}
+                {{ showMatched[cardId(card.column)] ? $t('import-values-hide') : $t('import-values-show') }}
               </button>
             </template>
           </div>
           <ul
-            v-if="showMatched[card.column.field]"
+            v-if="showMatched[cardId(card.column)]"
             class="px-3 pb-3 flex flex-col gap-1 text-sm"
             data-test="import-values-matched-list"
           >
@@ -649,7 +657,7 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
     <!-- Nothing to read: what every value became, column by column. -->
     <SectionCard
       v-for="col in settledCards"
-      :key="col.field"
+      :key="cardId(col)"
       content-padding=""
       data-test="import-values-settled-card"
     >
@@ -659,11 +667,11 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
         <template v-if="matchedValues(col, edits).length > 0">
           <span aria-hidden="true" class="text-tertiary">·</span>
           <button type="button" :class="linkClass" @click="toggleMatched(col)">
-            {{ showMatched[col.field] ? $t('import-values-hide') : $t('import-values-show') }}
+            {{ showMatched[cardId(col)] ? $t('import-values-hide') : $t('import-values-show') }}
           </button>
         </template>
       </div>
-      <ul v-if="showMatched[col.field]" class="px-3 pb-3 flex flex-col gap-1 text-sm">
+      <ul v-if="showMatched[cardId(col)]" class="px-3 pb-3 flex flex-col gap-1 text-sm">
         <li v-for="v in matchedValues(col, edits)" :key="v.key" class="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span class="font-mono text-primary">{{ valueText(v) }}</span>
           <span class="text-xs text-tertiary">{{ $t('import-values-row-count', { count: v.rows.length }) }}</span>

@@ -3648,6 +3648,12 @@ import-template-help = De kopteksten in het sjabloon zijn veldnamen zoals asset_
 # MT: pending native review (nl-NL)
 import-template-download = Sjabloon downloaden
 # MT: pending native review (nl-NL)
+import-template-kind-label = Soort
+# MT: pending native review (nl-NL)
+import-template-kind-none = Elke soort (alleen basiskolommen)
+# MT: pending native review (nl-NL)
+import-template-kind-help = Kies een soort om de kolommen voor de kenmerken ervan toe te voegen.
+# MT: pending native review (nl-NL)
 import-drop-idle = Sleep een .csv- of .xlsx-bestand hierheen, of tik om er een te kiezen
 # MT: pending native review (nl-NL)
 import-drop-release = Loslaten om te uploaden
@@ -3721,6 +3727,8 @@ import-map-group-lifecycle = Levenscyclus
 # MT: pending native review (nl-NL)
 import-map-group-attribute = Kenmerken
 # MT: pending native review (nl-NL)
+import-map-group-attribute-kinds = Kenmerken: { $kinds }
+# MT: pending native review (nl-NL)
 import-map-group-ignore = Niet importeren
 # MT: pending native review (nl-NL)
 import-map-ignore = Niet importeren
@@ -3728,6 +3736,8 @@ import-map-ignore = Niet importeren
 import-map-ignore-description = De kolom buiten de import houden
 # MT: pending native review (nl-NL)
 import-map-required = Verplicht
+# MT: pending native review (nl-NL)
+import-map-required-for = Verplicht bij aanmaken voor { $kinds }
 # MT: pending native review (nl-NL)
 import-map-kind-required = Verplicht bij aanmaken, of stel het hieronder in voor alle rijen
 # MT: pending native review (nl-NL)
@@ -3771,6 +3781,15 @@ import-map-warning-ignored = { $count ->
     [one] 1 kolom wordt niet geïmporteerd.
    *[other] { $count } kolommen worden niet geïmporteerd.
    }
+# MT: pending native review (nl-NL)
+import-map-required-heading = Sommige soorten hebben kenmerken nodig
+# MT: pending native review (nl-NL)
+import-map-warning-required-none = Rijen van { $kind } hebben { $needed } nodig. Er is niets aan { $count ->
+    [one] gekoppeld
+   *[other] gekoppeld
+   }, dus nieuwe { $kind }-assets worden gemeld bij Controle.
+# MT: pending native review (nl-NL)
+import-map-warning-required-some = Rijen van { $kind } hebben { $needed } nodig. Er is niets gekoppeld aan { $missing }, dus nieuwe { $kind }-assets worden gemeld bij Controle.
 # MT: pending native review (nl-NL)
 import-map-empty-filter = Geen kolommen voldoen aan dit filter.
 # MT: pending native review (nl-NL)
@@ -3939,6 +3958,10 @@ import-constants-remove = Verwijderen
 # MT: pending native review (nl-NL)
 import-constants-guessed-role = De veiligste rol, vooraf ingevuld.
 # MT: pending native review (nl-NL)
+import-constants-yes = Ja
+# MT: pending native review (nl-NL)
+import-constants-no = Nee
+# MT: pending native review (nl-NL)
 import-constants-kind-label = Soort voor alle rijen
 # MT: pending native review (nl-NL)
 import-constants-kind-placeholder = Kies een soort
@@ -3949,6 +3972,8 @@ import-values-load-failed = De waarden van het bestand konden niet worden geleze
 import-values-loading = Waarden van het bestand lezen
 # MT: pending native review (nl-NL)
 import-values-card-title = { $header } → { $field }
+# MT: pending native review (nl-NL)
+import-values-card-title-kind = { $header } → { $field } ({ $kind })
 # MT: pending native review (nl-NL)
 import-values-group-or = Of
 # MT: pending native review (nl-NL)

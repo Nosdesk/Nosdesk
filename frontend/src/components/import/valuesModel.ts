@@ -29,9 +29,19 @@ export type ValueFilter = 'no_match' | 'guessed' | 'all'
 export type BulkAction = 'skip' | 'leave_blank'
 export type Consequence = 'skipped' | 'blank' | 'as_is' | null
 
-/** A value's id across cards: field ids hold no `:`, so the first one ends
- *  the field. */
-export const valueId = (field: string, key: string) => `${field}:${key}`
+/** A value's id across cards. A field answered the same on every row is
+ *  `field:key`; one answered per kind (an attribute, whose id may hold a
+ *  `:`) carries its kind as well. */
+export const valueId = (field: string, key: string, context = '') =>
+  context ? JSON.stringify([field, context, key]) : `${field}:${key}`
+
+/** The id of a value of `col`. */
+export const idOf = (col: ImportValueColumn, v: ImportValue) =>
+  valueId(col.field, v.key, col.context ?? '')
+
+/** A card's id: its field, and its kind when answered per kind. */
+export const cardId = (col: ImportValueColumn) =>
+  col.context ? JSON.stringify([col.field, col.context]) : col.field
 
 export function sameAnswer(a?: ValueAnswer, b?: ValueAnswer): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
@@ -48,11 +58,11 @@ export function currentAnswer(
   v: ImportValue,
   edits: Edits,
 ): ValueAnswer | undefined {
-  return edits[valueId(col.field, v.key)] ?? checkedAnswer(v)
+  return edits[idOf(col, v)] ?? checkedAnswer(v)
 }
 
 export function isAnswered(col: ImportValueColumn, v: ImportValue, edits: Edits): boolean {
-  return valueId(col.field, v.key) in edits || v.answer !== undefined
+  return idOf(col, v) in edits || v.answer !== undefined
 }
 
 /** An answer that drops what the file says. */
@@ -127,11 +137,17 @@ export function cards(view: ImportValues, edits: Edits): Card[] {
     .filter((c) => c.listed.length > 0)
 }
 
-/** Columns whose every value matched, in source order. */
+/** Columns whose every value matched, in source order. A column answered
+ *  per kind is settled when it is for every kind. */
 export function settledColumns(view: ImportValues, edits: Edits): ImportValueColumn[] {
+  const open = new Set(
+    view.columns
+      .filter((col) => col.values.some((v) => isListed(col, v, edits)))
+      .map((col) => col.index),
+  )
   return [...view.columns]
     .sort((a, b) => a.index - b.index)
-    .filter((col) => col.values.every((v) => !isListed(col, v, edits)))
+    .filter((col) => !open.has(col.index))
 }
 
 /** Whether a fresh check needs the step: some value asks to be read. */
@@ -139,9 +155,13 @@ export function needsValues(view: ImportValues): boolean {
   return view.columns.some((col) => col.values.some((v) => needsAnswer(col, v, {})))
 }
 
-/** Columns with a value still asking to be read. */
+/** Source columns with a value still asking to be read, on any kind. */
 export function columnsNeeding(view: ImportValues, edits: Edits): number {
-  return view.columns.filter((col) => col.values.some((v) => needsAnswer(col, v, edits))).length
+  return new Set(
+    view.columns
+      .filter((col) => col.values.some((v) => needsAnswer(col, v, edits)))
+      .map((col) => col.index),
+  ).size
 }
 
 /** Rows that would be skipped as things stand: the ones no answer explains,
@@ -203,14 +223,14 @@ export function applyBulk(
 ): Edits {
   const next = { ...edits }
   for (const v of bulkTargets(col, listed, edits)) {
-    next[valueId(col.field, v.key)] = { action }
+    next[idOf(col, v)] = { action }
   }
   return next
 }
 
 /** The value ids in the order the cards show them. */
 export function displayOrder(list: Card[]): string[] {
-  return list.flatMap((card) => card.listed.map((v) => valueId(card.column.field, v.key)))
+  return list.flatMap((card) => card.listed.map((v) => idOf(card.column, v)))
 }
 
 /** Values "Next problem" stops at: ones whose rows would be skipped, and
@@ -223,7 +243,7 @@ export function problemIds(list: Card[], edits: Edits): string[] {
           consequence(card.column, v, edits) === 'skipped' ||
           (v.match === 'no_match' && !isAnswered(card.column, v, edits)),
       )
-      .map((v) => valueId(card.column.field, v.key)),
+      .map((v) => idOf(card.column, v)),
   )
 }
 
@@ -239,11 +259,12 @@ export function answersToSend(view: ImportValues, edits: Edits): ValueAnswers {
   const out: ValueAnswers = {}
   for (const col of view.columns) {
     for (const v of col.values) {
-      const answer = edits[valueId(col.field, v.key)] ?? v.answer
+      const answer = edits[idOf(col, v)] ?? v.answer
       if (!answer) continue
+      const context = col.context ?? ''
       out[col.field] ??= {}
-      out[col.field][''] ??= {}
-      out[col.field][''][v.key] = answer
+      out[col.field][context] ??= {}
+      out[col.field][context][v.key] = answer
     }
   }
   return out
@@ -257,7 +278,7 @@ export function emptyReplacements(view: ImportValues, edits: Edits): string[] {
         const a = currentAnswer(col, v, edits)
         return a?.action === 'replace' && a.value.trim() === ''
       })
-      .map((v) => valueId(col.field, v.key)),
+      .map((v) => idOf(col, v)),
   )
 }
 
