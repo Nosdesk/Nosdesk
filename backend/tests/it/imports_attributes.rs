@@ -679,6 +679,93 @@ async fn unreadable_attribute_values_take_a_replacement() {
     );
 }
 
+/// Number cells read past a currency symbol or code and the thousands
+/// separator the decimal mark implies, for attributes and core columns
+/// alike; under a `,` mark a lone `,` before three digits could be either
+/// and is refused.
+#[actix_web::test]
+async fn numbers_read_past_currency_and_thousands_separators() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool);
+    let mapping = [
+        ("Name", "name"),
+        ("Tag", "asset_tag"),
+        ("Tare", "@tare"),
+        ("Odometer", "odometer"),
+        ("Qty", "quantity"),
+    ];
+    let constants = serde_json::json!([
+        { "field": "kind", "value": "vehicle" },
+        { "field": "fuel", "value": "Diesel" },
+    ]);
+
+    let file = "Name,Tag,Tare,Odometer,Qty\n\
+                Van 1,V-1,\"$7,450.00\",\"1,234\",US$2\n";
+    let job = checked(
+        &pool,
+        &ws,
+        file,
+        &mapping,
+        serde_json::json!({ "decimal": ".", "constants": constants }),
+    )
+    .await;
+    assert_eq!(errors(&job), vec![]);
+    commit(&pool, &ws, &id_of(&job)).await;
+    let (_, van) = stored(&pool, "V-1").expect("V-1");
+    assert_eq!(van["@tare"], 7450);
+    assert_eq!(van["odometer"], 1234);
+
+    let file = "Name,Tag,Tare,Odometer,Qty\n\
+                Van 2,V-2,\"\u{20ac}1.234,56\",1 234,\"2,5\"\n\
+                Van 3,V-3,\"1,234\",,\n";
+    let job = checked(
+        &pool,
+        &ws,
+        file,
+        &mapping,
+        serde_json::json!({ "decimal": ",", "constants": constants }),
+    )
+    .await;
+    assert_eq!(
+        errors(&job),
+        vec![(
+            3,
+            Some("@tare".to_string()),
+            "'1,234' could be 1234 or 1.234; write it with a thousands separator or more decimals, or check the decimal mark at the Map step".to_string()
+        )]
+    );
+    // The same parser decides what Match values asks about.
+    let id = id_of(&job);
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        TestRequest::get().uri(&format!("/api/admin/import/{id}/values")),
+    )
+    .await;
+    let view = json(&body);
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let tare = view["columns"]
+        .as_array()
+        .expect("columns")
+        .iter()
+        .find(|c| c["field"] == "@tare")
+        .expect("tare column");
+    let texts: Vec<&str> = tare["values"]
+        .as_array()
+        .expect("values")
+        .iter()
+        .filter_map(|v| v["text"].as_str())
+        .collect();
+    assert_eq!(texts, vec!["1,234"]);
+
+    commit(&pool, &ws, &id).await;
+    let (_, van) = stored(&pool, "V-2").expect("V-2");
+    assert_eq!(van["@tare"], 1234.56);
+    assert_eq!(van["odometer"], 1234);
+}
+
 /// An asset synced from Microsoft takes attributes from the file, as PUT
 /// lets the asset page change them, and no other column.
 #[actix_web::test]

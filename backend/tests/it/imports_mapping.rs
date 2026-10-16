@@ -265,9 +265,9 @@ fn match_by_none_refuses_rows_that_already_exist() {
     );
 }
 
-/// With `,` as the decimal mark, `12,5` is twelve and a half and a `.`
-/// (a thousands separator, perhaps) is an error; with `.` a lone comma
-/// points at the option.
+/// With `,` as the decimal mark, `12,5` is twelve and a half, `1.234,5`
+/// groups its thousands with `.`, and a `.` that isn't a thousands
+/// separator is an error; with `.` a lone comma points at the option.
 #[test]
 fn the_decimal_mark_reads_number_cells() {
     let db = TestDb::new();
@@ -275,7 +275,8 @@ fn the_decimal_mark_reads_number_cells() {
     let grid = parse(
         "name;kind;asset_tag;quantity\n\
          Toner;generic;DEC-001;12,5\n\
-         Paper;generic;DEC-002;1.234,5\n",
+         Paper;generic;DEC-002;1.234,5\n\
+         Ink;generic;DEC-003;12.5\n",
     );
     let parsed = mapped(
         &mut conn,
@@ -293,9 +294,9 @@ fn the_decimal_mark_reads_number_cells() {
     };
     let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed, &ctx(comma.clone()))
         .expect("dry-run");
-    assert_eq!(summary.would_create, 1);
+    assert_eq!(summary.would_create, 2);
     assert_eq!(summary.errors.len(), 1, "{:?}", summary.errors);
-    assert_eq!(summary.errors[0].row, 3);
+    assert_eq!(summary.errors[0].row, 4);
     assert!(summary.errors[0].message.contains("decimal mark is ','"));
     imports::commit(&mut conn, ImportType::Assets, &parsed, &ctx(comma)).expect("commit");
     assert_eq!(
@@ -303,6 +304,12 @@ fn the_decimal_mark_reads_number_cells() {
             .quantity
             .as_deref(),
         Some("12.500")
+    );
+    assert_eq!(
+        stored(&mut conn, "asset_tag = 'DEC-002'")
+            .quantity
+            .as_deref(),
+        Some("1234.500")
     );
 
     let dot = imports::dry_run(

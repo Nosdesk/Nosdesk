@@ -168,34 +168,143 @@ impl Matcher {
 }
 
 /// A number cell as the importers read it: `Ok(None)` when blank, the value
-/// when it parses with `mark` and fits `numeric(12,3)`, else the reason.
-/// With `,` as the mark a `.` is refused, since it may be a thousands
-/// separator.
+/// when it reads with `mark` and fits `numeric(12,3)`, else the reason.
+///
+/// A currency symbol or code before or after the number is passed over
+/// (`$7,450.00`, `A$12`, `7 450 €`, `EUR 12`). The thousands separator is
+/// the other mark (`,` for a `.` mark, `.` for a `,` mark) or a space, and
+/// is taken only in groups of three (`1,234.56`, `1.234,56`, `1 234,56`).
+/// Under a `,` mark, one `,` followed by three digits (`1,234`) could be
+/// either and is refused rather than guessed.
 pub fn parse_decimal(raw: &str, mark: DecimalMark) -> Result<Option<BigDecimal>, String> {
     let raw = raw.trim();
     if raw.is_empty() {
         return Ok(None);
     }
-    let text = match mark {
-        DecimalMark::Dot => raw.to_string(),
-        DecimalMark::Comma if raw.contains('.') => {
-            return Err(format!(
-                "'{raw}' has a '.', but the decimal mark is ','; remove thousands separators"
-            ));
-        }
-        DecimalMark::Comma => raw.replace(',', "."),
-    };
-    let value = BigDecimal::from_str(&text).map_err(|_| match mark {
-        DecimalMark::Dot if raw.contains(',') && !raw.contains('.') => format!(
-            "'{raw}' is not a valid decimal; if ',' is the decimal mark, choose ',' at the Map step"
-        ),
-        _ => format!("'{raw}' is not a valid decimal"),
-    })?;
+    let text = number_text(raw, mark)?;
+    let value =
+        BigDecimal::from_str(&text).map_err(|_| format!("'{raw}' is not a valid decimal"))?;
     let max = BigDecimal::from_str(MAX_DECIMAL).expect("constant parses");
     if value.abs() >= max {
         return Err(format!("'{raw}' is too large (at most 999999999.999)"));
     }
     Ok(Some(value))
+}
+
+/// Currency symbols passed over around a number.
+const CURRENCY_SYMBOLS: &[char] = &['$', '€', '£', '¥', '₹', '₩', '₽', '₪', '₫', '¢'];
+
+/// Spaces that group thousands: plain, no-break, narrow no-break, thin.
+const GROUP_SPACES: &[char] = &[' ', '\u{a0}', '\u{202f}', '\u{2009}'];
+
+/// `raw` without a leading or trailing currency symbol or code, and its
+/// sign: `-$7.50` and `$-7.50` are both negative.
+fn strip_currency(raw: &str) -> (bool, &str) {
+    fn sign(text: &str) -> (bool, &str) {
+        match text.strip_prefix('-') {
+            Some(rest) => (true, rest.trim_start()),
+            None => (false, text.strip_prefix('+').unwrap_or(text).trim_start()),
+        }
+    }
+    let (mut negative, mut text) = sign(raw.trim());
+    // A code of up to three capitals before a symbol (`A$`, `US$`), a
+    // symbol alone, or a three-letter code (`USD 12`, `EUR12`).
+    let letters = text.chars().take_while(char::is_ascii_uppercase).count();
+    let after = &text[letters..];
+    if letters <= 3 && after.starts_with(CURRENCY_SYMBOLS) {
+        let symbol = after.chars().next().map_or(0, char::len_utf8);
+        text = after[symbol..].trim_start();
+    } else if letters == 3 {
+        text = after.trim_start();
+    }
+    if !negative {
+        (negative, text) = sign(text);
+    }
+    if let Some(rest) = text.strip_suffix(CURRENCY_SYMBOLS) {
+        text = rest.trim_end();
+    } else {
+        let letters = text
+            .chars()
+            .rev()
+            .take_while(char::is_ascii_uppercase)
+            .count();
+        if letters == 3 {
+            text = text[..text.len() - 3].trim_end();
+        }
+    }
+    (negative, text)
+}
+
+/// A number cell as plain decimal text (`-1234.56`), its currency and
+/// thousands separators dropped, or why it doesn't read.
+fn number_text(raw: &str, mark: DecimalMark) -> Result<String, String> {
+    let (negative, body) = strip_currency(raw);
+    let (decimal, group) = match mark {
+        DecimalMark::Dot => ('.', ','),
+        DecimalMark::Comma => (',', '.'),
+    };
+    let invalid = || {
+        match mark {
+        DecimalMark::Dot if raw.contains(',') && !raw.contains('.') => format!(
+            "'{raw}' is not a valid decimal; if ',' is the decimal mark, choose ',' at the Map step"
+        ),
+        DecimalMark::Comma if raw.contains('.') => format!(
+            "'{raw}' has a '.' that isn't a thousands separator, but the decimal mark is ','; if '.' is the decimal mark, choose '.' at the Map step"
+        ),
+        _ => format!("'{raw}' is not a valid decimal"),
+    }
+    };
+    let digits = |s: &str| s.chars().all(|c| c.is_ascii_digit());
+    let mut parts = body.split(decimal);
+    let whole = parts.next().unwrap_or("");
+    let fraction = parts.next();
+    if parts.next().is_some() || !fraction.is_none_or(digits) {
+        return Err(invalid());
+    }
+    let grouped = whole.contains(group) || whole.contains(GROUP_SPACES);
+    let whole = if grouped {
+        // One separator throughout, a lead group of one to three digits,
+        // then groups of three.
+        let separator = whole.chars().find(|c| !c.is_ascii_digit()).unwrap_or(group);
+        if separator != group && !GROUP_SPACES.contains(&separator) {
+            return Err(invalid());
+        }
+        let groups: Vec<&str> = whole.split(separator).collect();
+        let lead = groups[0];
+        let lead_ok = (1..=3).contains(&lead.len()) && digits(lead);
+        if !lead_ok || groups[1..].iter().any(|g| g.len() != 3 || !digits(g)) {
+            return Err(invalid());
+        }
+        groups.concat()
+    } else {
+        if !digits(whole) || (whole.is_empty() && fraction.is_none_or(str::is_empty)) {
+            return Err(invalid());
+        }
+        whole.to_string()
+    };
+    let fraction = fraction.unwrap_or("");
+    // `1,234` under a `,` mark: one and a bit, or a thousand and more.
+    if mark == DecimalMark::Comma
+        && !grouped
+        && fraction.len() == 3
+        && (1..=3).contains(&whole.len())
+        && !whole.starts_with('0')
+    {
+        return Err(format!(
+            "'{raw}' could be {whole}{fraction} or {whole}.{fraction}; write it with a thousands separator or more decimals, or check the decimal mark at the Map step"
+        ));
+    }
+    let sign = if negative { "-" } else { "" };
+    let whole = if whole.is_empty() {
+        "0"
+    } else {
+        whole.as_str()
+    };
+    Ok(if fraction.is_empty() {
+        format!("{sign}{whole}")
+    } else {
+        format!("{sign}{whole}.{fraction}")
+    })
 }
 
 /// Largest magnitude `numeric(12,3)` holds once rounded to 3 places.
@@ -1792,5 +1901,44 @@ mod tests {
             .map(|r| r.cells[1].as_str())
             .collect();
         assert_eq!(cells, vec!["Good", "Roadworthy", "Roadworthy"]);
+    }
+    #[test]
+    fn numbers_read_past_currency_and_thousands_separators() {
+        let dot = |raw: &str| {
+            parse_decimal(raw, DecimalMark::Dot).map(|v| v.map(|v| v.normalized().to_string()))
+        };
+        let comma = |raw: &str| {
+            parse_decimal(raw, DecimalMark::Comma).map(|v| v.map(|v| v.normalized().to_string()))
+        };
+        let some = |v: &str| Ok(Some(v.to_string()));
+        assert_eq!(dot("$7,450.00"), some("7450"));
+        assert_eq!(dot("A$ 12.5"), some("12.5"));
+        assert_eq!(dot("US$1,000"), some("1000"));
+        assert_eq!(dot("USD 99.95"), some("99.95"));
+        assert_eq!(dot("-$1,234.5"), some("-1234.5"));
+        assert_eq!(dot("1 234 567.25"), some("1234567.25"));
+        assert_eq!(dot("1,234"), some("1234"));
+        assert_eq!(dot("0.125"), some("0.125"));
+        assert_eq!(comma("€1.234,56"), some("1234.56"));
+        assert_eq!(comma("1.234,56 €"), some("1234.56"));
+        assert_eq!(comma("1 234,56"), some("1234.56"));
+        assert_eq!(comma("1\u{a0}234,56 EUR"), some("1234.56"));
+        assert_eq!(comma("12,5"), some("12.5"));
+        assert_eq!(comma("0,125"), some("0.125"));
+        assert_eq!(comma("1234,567"), some("1234.567"));
+
+        let refused = |result: Result<Option<String>, String>, expected: &str| {
+            let err = result.unwrap_err();
+            assert!(err.contains(expected), "{expected}: {err}");
+        };
+        refused(comma("1,234"), "could be 1234 or 1.234");
+        refused(comma("12.5"), "decimal mark is ','");
+        refused(dot("12,5"), "choose ',' at the Map step");
+        refused(dot("1,23,456"), "not a valid decimal");
+        refused(dot("1.234.567"), "not a valid decimal");
+        refused(comma("1.234 567,5"), "decimal mark is ','");
+        refused(dot("two"), "'two' is not a valid decimal");
+        refused(dot("$"), "not a valid decimal");
+        refused(dot("12 apples"), "not a valid decimal");
     }
 }
