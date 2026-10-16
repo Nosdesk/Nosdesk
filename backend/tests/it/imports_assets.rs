@@ -1162,6 +1162,9 @@ async fn import_routes_refuse_a_non_admin() {
             .uri(&format!("/api/admin/import/{job}/type"))
             .set_json(serde_json::json!({ "type": "users" })),
         TestRequest::delete().uri(&format!("/api/admin/import/{job}")),
+        TestRequest::get().uri(&format!("/api/admin/import/{job}/remove-created")),
+        TestRequest::post().uri(&format!("/api/admin/import/{job}/remove-created")),
+        TestRequest::get().uri(&format!("/api/admin/import/{job}/previous-values")),
     ];
     for req in requests {
         let (status, _) = call_import_route(&pool, &ws, ws.member_uuid, req).await;

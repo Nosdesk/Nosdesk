@@ -33,6 +33,13 @@
 //!   reasons; `?group=`
 //!   narrows it to one problem's rows and `?dropped=` lists the rows that
 //!   import without some of their values.
+//! - `GET  /admin/import/{id}/remove-created` says what Remove imported
+//!   assets would do now: the assets the import created, which would be
+//!   deleted, and which are kept and why. `POST` does it, once, within 30
+//!   days of the commit (`services::imports::remove`).
+//! - `GET  /admin/import/{id}/previous-values` downloads, for an asset
+//!   import, the values its updates replaced as a file to import back
+//!   (`services::imports::previous`); 410 once the details are pruned.
 //! - `GET  /admin/import/fields?type=` lists the fields a column
 //!   can map to.
 //! - `GET  /admin/import/answers?type=` lists the type's saved matches
@@ -62,11 +69,15 @@ use crate::errors;
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::models::{
     ImportCounts, ImportJob, ImportJobListItem, ImportJobResponse, ImportJobUpdate, NewImportJob,
+    RemovedCounts,
 };
+use crate::repository::assets::AssetDeletedObserver;
 use crate::repository::imports as repo;
 use crate::services::imports::files::{self, FileError};
 use crate::services::imports::history::{self, JobState};
 use crate::services::imports::mapping::{self, ColumnMapping, ImportSource, StoredSource};
+use crate::services::imports::previous;
+use crate::services::imports::remove;
 use crate::services::imports::saved;
 use crate::services::imports::values;
 use crate::services::imports::xlsx::{self, FileFormat, SheetChoice};
@@ -133,6 +144,15 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/import/{id}/error-report",
         web::get().to(crate::handlers::imports::error_report),
+    )
+    .service(
+        web::resource("/admin/import/{id}/remove-created")
+            .route(web::get().to(crate::handlers::imports::removal_preview))
+            .route(web::post().to(crate::handlers::imports::remove_created)),
+    )
+    .route(
+        "/admin/import/{id}/previous-values",
+        web::get().to(crate::handlers::imports::previous_values),
     )
     .service(
         web::resource("/admin/import/{id}")
@@ -1563,6 +1583,10 @@ pub async fn list_jobs(
                 updated_at: r.updated_at,
                 completed_at: r.completed_at,
                 pruned_at: r.pruned_at,
+                removed: r
+                    .removed
+                    .zip(r.removed_of)
+                    .map(|(deleted, created)| RemovedCounts { deleted, created }),
             }
         })
         .collect();
@@ -1603,16 +1627,13 @@ pub async fn get_job(
         if job.status == "dry_run_done" && repo::commit_running(conn, id)? {
             job.status = "committing".to_string();
         }
-        let names = names_of(conn, job.created_by.into_iter().collect())?;
-        let name = job.created_by.and_then(|u| names.get(&u).cloned());
-        Ok((job, name))
+        let previous = previous_values_of(conn, &job)?;
+        let mut response = job_response(conn, job)?;
+        response.previous_values = previous;
+        Ok(response)
     });
     match read {
-        Ok((j, name)) => {
-            let mut response = ImportJobResponse::from(j);
-            response.created_by_name = name;
-            HttpResponse::Ok().json(response)
-        }
+        Ok(response) => HttpResponse::Ok().json(response),
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("import job {id} not found"))
         }
@@ -2377,6 +2398,356 @@ fn download_stem(filename: &str) -> String {
     } else {
         safe
     }
+}
+
+// ---- remove imported assets, previous values ----
+
+/// Why Remove imported assets can't run on a job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemovalRefusal {
+    /// Users and tickets imports don't offer it.
+    AssetsOnly,
+    /// A draft, or a commit that failed: nothing was imported.
+    NotImported,
+    /// It ran already; it runs once.
+    AlreadyRemoved,
+    /// 30 days after the commit, or the prune dropped the row results the
+    /// rule reads.
+    WindowClosed,
+}
+
+impl RemovalRefusal {
+    fn response(self) -> HttpResponse {
+        match self {
+            Self::AssetsOnly => errors::bad_request_with_code(
+                "Only an asset import can remove what it created.",
+                "import_removal_assets_only",
+            ),
+            Self::NotImported => errors::conflict_with_code(
+                "This import wasn't committed, so it created nothing to remove.",
+                "import_not_committed",
+            ),
+            Self::AlreadyRemoved => errors::conflict_with_code(
+                "The assets this import created were already removed.",
+                "import_already_removed",
+            ),
+            Self::WindowClosed => errors::gone_with_code(
+                "Imported assets can be removed for 30 days after the import. That window has closed.",
+                "import_removal_window_closed",
+            ),
+        }
+    }
+}
+
+/// Whether removal can run on `job` at `now`, before the row results are
+/// read.
+fn removal_precondition(
+    job: &ImportJob,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<RemovalRefusal> {
+    if job.job_type != ImportType::Assets.as_str() {
+        return Some(RemovalRefusal::AssetsOnly);
+    }
+    if job.status != "done" {
+        return Some(RemovalRefusal::NotImported);
+    }
+    if job.removed_at.is_some() {
+        return Some(RemovalRefusal::AlreadyRemoved);
+    }
+    let open = job
+        .completed_at
+        .is_some_and(|at| now < remove::window_closes_at(at));
+    if !open || job.pruned_at.is_some() {
+        return Some(RemovalRefusal::WindowClosed);
+    }
+    None
+}
+
+/// The committed row results removal reads, or the refusal when they are
+/// gone.
+fn committed_rows(
+    conn: &mut crate::db::DbConnection,
+    id: Uuid,
+) -> Result<Result<Vec<RowResult>, RemovalRefusal>, diesel::result::Error> {
+    let stored: Option<StoredRowResults> =
+        repo::row_results(conn, id)?.and_then(|v| serde_json::from_value(v).ok());
+    Ok(match stored {
+        Some(s) if s.phase == RowPhase::Committed => Ok(s.rows),
+        _ => Err(RemovalRefusal::WindowClosed),
+    })
+}
+
+enum RemovalRead<T> {
+    Ok(T),
+    NotFound,
+    Refused(RemovalRefusal),
+}
+
+/// What Remove imported assets would do now, for its dialog: how many
+/// assets the import created, how many would be deleted and which are kept
+/// and why, and how many of the catalog entries it created could go.
+pub async fn removal_preview(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let read = tc.run(|conn| {
+        let job = match repo::get(conn, id) {
+            Ok(j) => j,
+            Err(diesel::result::Error::NotFound) => return Ok(RemovalRead::NotFound),
+            Err(e) => return Err(e),
+        };
+        if let Some(refusal) = removal_precondition(&job, chrono::Utc::now()) {
+            return Ok(RemovalRead::Refused(refusal));
+        }
+        let rows = match committed_rows(conn, id)? {
+            Ok(rows) => rows,
+            Err(refusal) => return Ok(RemovalRead::Refused(refusal)),
+        };
+        let mut plan = remove::plan(conn, &rows, false)?;
+        let editors: Vec<Uuid> = plan
+            .kept
+            .iter()
+            .flat_map(|k| &k.reasons)
+            .filter_map(|r| match r {
+                remove::KeptReason::Edited { by, .. } => *by,
+                _ => None,
+            })
+            .collect();
+        let names = names_of(conn, editors)?;
+        for kept in &mut plan.kept {
+            for reason in &mut kept.reasons {
+                if let remove::KeptReason::Edited { by, by_name, .. } = reason {
+                    *by_name = by.and_then(|u| names.get(&u).cloned());
+                }
+            }
+        }
+        let closes_at = job.completed_at.map(remove::window_closes_at);
+        Ok(RemovalRead::Ok((plan, closes_at)))
+    });
+    match read {
+        Ok(RemovalRead::Ok((plan, closes_at))) => {
+            let mut body = serde_json::to_value(&plan).unwrap_or_default();
+            body["closes_at"] = serde_json::to_value(closes_at).unwrap_or_default();
+            HttpResponse::Ok().json(body)
+        }
+        Ok(RemovalRead::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
+        Ok(RemovalRead::Refused(refusal)) => refusal.response(),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to plan an import removal");
+            errors::internal("failed to check the imported assets")
+        }
+    }
+}
+
+enum RemoveOutcome {
+    Removed(ImportJob),
+    NotFound,
+    Refused(RemovalRefusal),
+    Busy,
+    TypeBusy,
+    NothingToRemove,
+}
+
+/// Remove imported assets: delete the assets the import created that
+/// nobody has touched since, each through `delete_device`, and the
+/// catalog entries it created that nothing uses any more, then record on
+/// the job when, by whom and what happened. Runs once, within 30 days of
+/// the commit, under the job's lock and the import type's lock so it
+/// never meets a commit.
+pub async fn remove_created(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    search_service: web::Data<Arc<SearchService>>,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let deleted = remove::DeletedAssets::default();
+    let result = tc.run(|conn| {
+        if !repo::try_lock_job(conn, id)? {
+            return Ok(RemoveOutcome::Busy);
+        }
+        let job = match repo::get_for_update(conn, id) {
+            Ok(j) => j,
+            Err(diesel::result::Error::NotFound) => return Ok(RemoveOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        if let Some(refusal) = removal_precondition(&job, chrono::Utc::now()) {
+            return Ok(RemoveOutcome::Refused(refusal));
+        }
+        if !repo::try_lock_type(conn, job.workspace_id, &job.job_type)? {
+            return Ok(RemoveOutcome::TypeBusy);
+        }
+        let rows = match committed_rows(conn, id)? {
+            Ok(rows) => rows,
+            Err(refusal) => return Ok(RemoveOutcome::Refused(refusal)),
+        };
+        let plan = remove::plan(conn, &rows, true)?;
+        if plan.deletable == 0 {
+            return Ok(RemoveOutcome::NothingToRemove);
+        }
+        let outcome = remove::remove(conn, &rows, plan, &deleted)?;
+        let value = serde_json::to_value(&outcome)
+            .map_err(|e| diesel::result::Error::SerializationError(Box::new(e)))?;
+        let updated = repo::record_removal(conn, id, auth.user_uuid, value)?;
+        info!(
+            job_id = %id,
+            deleted = outcome.deleted,
+            kept = outcome.kept.len(),
+            "removed imported assets"
+        );
+        Ok(RemoveOutcome::Removed(updated))
+    });
+    match result {
+        Ok(RemoveOutcome::Removed(job)) => {
+            // The deletes committed: the search index drops them now.
+            for asset in deleted.into_ids() {
+                search_service.get_ref().device_deleted(asset);
+            }
+            match tc.run(|conn| job_response(conn, job.clone())) {
+                Ok(response) => HttpResponse::Ok().json(response),
+                Err(e) => {
+                    error!(job_id = %id, error = ?e, "failed to read names for an import removal");
+                    HttpResponse::Ok().json(ImportJobResponse::from(job))
+                }
+            }
+        }
+        Ok(RemoveOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
+        Ok(RemoveOutcome::Refused(refusal)) => refusal.response(),
+        Ok(RemoveOutcome::Busy) => errors::conflict_with_code(
+            "This import is being changed. Try again in a moment.",
+            "import_busy",
+        ),
+        Ok(RemoveOutcome::TypeBusy) => errors::conflict_with_code(
+            "Another import of this type is being committed. Try again when it finishes.",
+            "import_type_busy",
+        ),
+        Ok(RemoveOutcome::NothingToRemove) => errors::conflict_with_code(
+            "Every asset this import created has been changed since, so nothing was deleted.",
+            "import_nothing_to_remove",
+        ),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to remove imported assets");
+            errors::internal("Removing the imported assets failed and nothing was deleted.")
+        }
+    }
+}
+
+/// The job as a page shows it: with the names of who uploaded it, who
+/// removed its assets and who edited the ones kept.
+fn job_response(
+    conn: &mut crate::db::DbConnection,
+    job: ImportJob,
+) -> Result<ImportJobResponse, diesel::result::Error> {
+    let mut result: Option<remove::RemoveResult> = job
+        .remove_result
+        .clone()
+        .and_then(|v| serde_json::from_value(v).ok());
+    let mut people: Vec<Uuid> = job.created_by.into_iter().chain(job.removed_by).collect();
+    if let Some(r) = &result {
+        people.extend(r.editors());
+    }
+    people.sort_unstable();
+    people.dedup();
+    let names = names_of(conn, people)?;
+    let created_by_name = job.created_by.and_then(|u| names.get(&u).cloned());
+    let removed_by_name = job.removed_by.and_then(|u| names.get(&u).cloned());
+    let mut response = ImportJobResponse::from(job);
+    response.created_by_name = created_by_name;
+    response.removed_by_name = removed_by_name;
+    if let Some(r) = result.as_mut() {
+        r.name_editors(&names);
+        response.remove_result = serde_json::to_value(r).ok();
+    }
+    Ok(response)
+}
+
+/// The previous values file: one row per asset the import updated, keyed
+/// as the import matched, with each field it wrote as it was before
+/// (`services::imports::previous`). Importing it puts them back. Asset
+/// imports only, while the details are kept; 410 after the prune.
+pub async fn previous_values(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let (job, stored) = match tc.run(|conn| read_row_results(conn, id)) {
+        Ok(RowResultsRead::Ok(job, stored)) => (job, stored),
+        Ok(RowResultsRead::NotFound) => {
+            return errors::not_found_msg(format!("import job {id} not found"))
+        }
+        Ok(RowResultsRead::NotChecked) => return errors::conflict(NOT_COMMITTED),
+        Ok(RowResultsRead::Pruned) => return details_pruned(),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to load import rows");
+            return errors::internal("failed to load import rows");
+        }
+    };
+    if job.job_type != ImportType::Assets.as_str() {
+        return errors::bad_request_with_code(
+            "Previous values are kept for asset imports only.",
+            "import_previous_values_assets_only",
+        );
+    }
+    if job.status != "done" || stored.phase != RowPhase::Committed {
+        return errors::conflict(NOT_COMMITTED);
+    }
+    let key = stored_choices(&job)
+        .map(|(_, options)| options.key())
+        .unwrap_or_default();
+    match previous::csv(&stored.rows, key) {
+        Ok(body) => HttpResponse::Ok()
+            .insert_header((header::CONTENT_TYPE, "text/csv; charset=utf-8"))
+            .insert_header((
+                header::CONTENT_DISPOSITION,
+                format!(
+                    "attachment; filename=\"{}-previous-values.csv\"",
+                    download_stem(&job.filename)
+                ),
+            ))
+            .body(body),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to write previous values");
+            errors::internal("failed to write the previous values")
+        }
+    }
+}
+
+const NOT_COMMITTED: &str = "this import hasn't been committed, so it changed nothing";
+
+/// The size of a committed asset import's previous values file, while its
+/// row results are kept.
+fn previous_values_of(
+    conn: &mut crate::db::DbConnection,
+    job: &ImportJob,
+) -> Result<Option<previous::PreviousValues>, diesel::result::Error> {
+    if job.job_type != ImportType::Assets.as_str()
+        || job.status != "done"
+        || job.pruned_at.is_some()
+    {
+        return Ok(None);
+    }
+    let Some(stored) = repo::row_results(conn, job.id)?
+        .and_then(|v| serde_json::from_value::<StoredRowResults>(v).ok())
+        .filter(|s| s.phase == RowPhase::Committed)
+    else {
+        return Ok(None);
+    };
+    let key = stored_choices(job)
+        .map(|(_, options)| options.key())
+        .unwrap_or_default();
+    Ok(Some(previous::counts(&stored.rows, key)))
 }
 
 #[derive(Debug, Deserialize)]

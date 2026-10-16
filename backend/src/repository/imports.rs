@@ -26,6 +26,40 @@ pub fn get(conn: &mut DbConnection, id: Uuid) -> QueryResult<ImportJob> {
         .first(conn)
 }
 
+/// A job, its row locked `FOR NO KEY UPDATE` for the rest of the
+/// transaction: a change to the job waits, and nothing that references it
+/// is blocked.
+// sync-audit-only: read-only (takes a row lock, writes nothing)
+pub fn get_for_update(conn: &mut DbConnection, id: Uuid) -> QueryResult<ImportJob> {
+    use crate::schema::import_jobs;
+    import_jobs::table
+        .find(id)
+        .select(ImportJob::as_select())
+        .for_no_key_update()
+        .first(conn)
+}
+
+/// Record that Remove imported assets ran on the job: when, by whom and
+/// what it did. Leaves `updated_at` alone, like the prune, so the job keeps
+/// its place in header memory. The job's audit entry carries the result.
+// sync-audit-only: admin bulk-import audit log, see create
+pub fn record_removal(
+    conn: &mut DbConnection,
+    id: Uuid,
+    by: Uuid,
+    result: serde_json::Value,
+) -> QueryResult<ImportJob> {
+    use crate::schema::import_jobs::dsl as j;
+    diesel::update(j::import_jobs.find(id))
+        .set((
+            j::removed_at.eq(Some(chrono::Utc::now())),
+            j::removed_by.eq(Some(by)),
+            j::remove_result.eq(Some(result)),
+        ))
+        .returning(ImportJob::as_returning())
+        .get_result(conn)
+}
+
 /// A job's stored row results, `None` until its first dry run.
 // sync-audit-only: workspace config row, see create
 pub fn row_results(conn: &mut DbConnection, id: Uuid) -> QueryResult<Option<serde_json::Value>> {
@@ -85,6 +119,10 @@ pub struct ImportJobListRow {
     pub would_update: Option<i32>,
     pub unchanged: Option<i32>,
     pub skipped: Option<i32>,
+    /// From Remove imported assets, once it ran: assets deleted, of those
+    /// created.
+    pub removed: Option<i32>,
+    pub removed_of: Option<i32>,
 }
 
 /// The workspace's newest jobs that reached Map (the upload read, whatever
@@ -115,6 +153,8 @@ pub fn list_reached_map(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<
             sql::<Nullable<Integer>>("(import_jobs.summary->>'would_update')::int"),
             sql::<Nullable<Integer>>("(import_jobs.summary->>'unchanged')::int"),
             sql::<Nullable<Integer>>("(import_jobs.summary->>'rows_with_errors')::int"),
+            sql::<Nullable<Integer>>("(import_jobs.remove_result->>'deleted')::int"),
+            sql::<Nullable<Integer>>("(import_jobs.remove_result->>'created')::int"),
         ))
         .load(conn)
 }
