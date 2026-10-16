@@ -20,6 +20,7 @@ pub mod history;
 pub mod mapping;
 pub mod next_sheet;
 pub mod previous;
+pub mod refusal;
 pub mod remove;
 pub mod report;
 pub mod safe_cells;

@@ -1189,8 +1189,8 @@ async fn import_routes_refuse_a_non_admin() {
     );
 }
 
-/// A file over a cap is refused whole, naming the cap, and the job is
-/// recorded as failed.
+/// A file over a cap is refused whole, naming the cap, with a code and the
+/// values the client words it with. No job is made.
 #[actix_web::test]
 async fn a_file_over_a_cap_is_refused() {
     use actix_web::http::StatusCode;
@@ -1208,16 +1208,44 @@ async fn a_file_over_a_cap_is_refused() {
     let long_header = format!("{HEADER},{}\n", "h".repeat(256));
     let duplicate = format!("{HEADER},name\n");
     let cases = [
-        (too_many_rows, "more than 5,000 data rows"),
-        (format!("{wide_header}\n"), "257 columns"),
+        (
+            too_many_rows,
+            "more than 5,000 data rows",
+            "import_too_many_rows",
+            serde_json::json!({"max": 5000}),
+        ),
+        (
+            format!("{wide_header}\n"),
+            "257 columns",
+            "import_too_many_columns",
+            serde_json::json!({"count": 257, "max": 256}),
+        ),
         (
             long_cell,
             "row 2, column 'notes' is longer than 32,767 characters",
+            "import_cell_too_long",
+            serde_json::json!({"row": "2", "column": "notes", "max": 32767}),
         ),
-        (long_header, "column 12 is longer than 255 characters"),
-        (duplicate, "column 'name' appears more than once"),
+        (
+            long_header,
+            "column 12 is longer than 255 characters",
+            "import_header_too_long",
+            serde_json::json!({"column": "12", "max": 255}),
+        ),
+        (
+            duplicate,
+            "column 'name' appears more than once",
+            "import_header_duplicate",
+            serde_json::json!({"name": "name"}),
+        ),
+        (
+            format!("{HEADER}\n"),
+            "a header row and no data",
+            "import_no_rows",
+            serde_json::json!({}),
+        ),
     ];
-    for (file, message) in cases {
+    for (file, message, code, args) in cases {
         let (status, body) = call_import_route(
             &pool,
             &ws,
@@ -1231,19 +1259,22 @@ async fn a_file_over_a_cap_is_refused() {
             body["error"].as_str().unwrap_or("").contains(message),
             "{message}: {body}"
         );
+        assert_eq!(body["code"], code, "{body}");
+        assert_eq!(body["args"], args, "{body}");
     }
 
     #[derive(diesel::QueryableByName)]
-    struct Failed {
+    struct Jobs {
         #[diesel(sql_type = diesel::sql_types::BigInt)]
         count: i64,
     }
-    let failed: Failed = diesel::sql_query(
-        "SELECT COUNT(*)::bigint AS count FROM import_jobs WHERE status = 'failed'",
+    let jobs: Jobs = diesel::sql_query(
+        "SELECT COUNT(*)::bigint AS count FROM import_jobs WHERE workspace_id = $1",
     )
+    .bind::<diesel::sql_types::Integer, _>(ws.workspace_id)
     .get_result(&mut pool.get().expect("conn"))
-    .expect("count failed jobs");
-    assert_eq!(failed.count, 5);
+    .expect("count jobs");
+    assert_eq!(jobs.count, 0);
 }
 
 #[derive(diesel::QueryableByName)]

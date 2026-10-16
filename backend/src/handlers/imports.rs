@@ -84,6 +84,7 @@ use crate::services::imports::history::{self, JobState};
 use crate::services::imports::mapping::{self, ColumnMapping, ImportSource, StoredSource};
 use crate::services::imports::next_sheet;
 use crate::services::imports::previous;
+use crate::services::imports::refusal::Refused;
 use crate::services::imports::remove;
 use crate::services::imports::saved;
 use crate::services::imports::sign_in;
@@ -191,18 +192,24 @@ fn parse_type(raw: &str) -> Result<ImportType, String> {
 /// What reading an upload came to, before any transaction.
 enum ReadOutcome {
     Read(ImportSource),
-    /// The file can't be imported; the message is for the admin.
-    Refused(String),
+    /// The file can't be imported.
+    Refused(Refused),
 }
 
-/// Result variants for the upload flow.
-enum UploadOutcome {
-    Ok(ImportJob),
-    BadRequest(String),
+/// A file that can't be imported: 400 with the refusal's code, its English
+/// and the values the client words it with.
+fn refused_response(refused: Refused) -> HttpResponse {
+    errors::with_fields(
+        actix_web::http::StatusCode::BAD_REQUEST,
+        refused.code,
+        refused.message,
+        serde_json::json!({ "args": refused.args }),
+    )
 }
 
 /// Upload + parse: store the file and its grid, describe its columns and
-/// suggest a mapping. The job waits in `parsed` for the mapping.
+/// suggest a mapping. The job waits in `parsed` for the mapping. A file
+/// that can't be imported is refused with no job and its upload removed.
 pub async fn upload(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -228,10 +235,10 @@ pub async fn upload(
     // ignored.
     let (filename, file_bytes) = match read_first_file_field(&mut payload).await {
         Ok(v) => v,
-        Err(e) => return errors::bad_request(e),
+        Err(refused) => return refused_response(refused),
     };
     if file_bytes.is_empty() {
-        return errors::bad_request("uploaded file is empty");
+        return refused_response(Refused::new("import_file_empty", "uploaded file is empty"));
     }
 
     // A workbook by its first bytes; anything else reads as CSV.
@@ -255,7 +262,7 @@ pub async fn upload(
     let read = parse_off_worker(move || -> std::io::Result<(ReadOutcome, Vec<u8>)> {
         let format = match format {
             Ok(f) => f,
-            Err(refused) => return Ok((ReadOutcome::Refused(refused.0), Vec::new())),
+            Err(refused) => return Ok((ReadOutcome::Refused(refused), Vec::new())),
         };
         match format {
             FileFormat::Xlsx => match xlsx::read(&file_bytes, None) {
@@ -263,16 +270,19 @@ pub async fn upload(
                     let grid = files::grid_bytes(&workbook.grid)?;
                     Ok((ReadOutcome::Read(workbook.source), grid))
                 }
-                Err(refused) => Ok((ReadOutcome::Refused(refused.0), Vec::new())),
+                Err(refused) => Ok((ReadOutcome::Refused(refused), Vec::new())),
             },
             FileFormat::Csv => {
                 let parsed = match csv_parser::parse_bytes(&file_bytes) {
                     Ok(p) => p,
-                    Err(e) => return Ok((ReadOutcome::Refused(e.to_string()), Vec::new())),
+                    Err(e) => return Ok((ReadOutcome::Refused(e.refusal()), Vec::new())),
                 };
                 if parsed.rows.is_empty() {
                     return Ok((
-                        ReadOutcome::Refused("The file has a header row and no data.".to_string()),
+                        ReadOutcome::Refused(Refused::new(
+                            "import_no_rows",
+                            "The file has a header row and no data.",
+                        )),
                         Vec::new(),
                     ));
                 }
@@ -288,23 +298,27 @@ pub async fn upload(
             error!(error = ?e, "failed to encode import grid");
             return errors::internal("failed to save uploaded file");
         }
-        Err(ParseFailure::TimedOut) => (ReadOutcome::Refused(TIMED_OUT.to_string()), Vec::new()),
+        Err(ParseFailure::TimedOut) => (ReadOutcome::Refused(timed_out()), Vec::new()),
         Err(ParseFailure::Task(e)) => {
             error!(error = %e, "import parse task failed");
             return errors::internal("failed to read uploaded file");
         }
     };
-    let grid = match read {
-        ReadOutcome::Read(_) => {
-            match files::put_grid(storage.0.as_ref(), job_id, &grid_bytes).await {
-                Ok(version) => Some(version),
-                Err(e) => {
-                    error!(error = ?e, "failed to store import grid");
-                    return errors::internal("failed to save uploaded file");
-                }
-            }
+    let source = match read {
+        ReadOutcome::Read(source) => source,
+        ReadOutcome::Refused(refused) => {
+            // No job names the upload.
+            remove_files(&storage, job_id).await;
+            return refused_response(refused);
         }
-        ReadOutcome::Refused(_) => None,
+    };
+    let grid = match files::put_grid(storage.0.as_ref(), job_id, &grid_bytes).await {
+        Ok(version) => version,
+        Err(e) => {
+            error!(error = ?e, "failed to store import grid");
+            remove_files(&storage, job_id).await;
+            return errors::internal("failed to save uploaded file");
+        }
     };
     drop(grid_bytes);
 
@@ -322,15 +336,7 @@ pub async fn upload(
             },
         )?;
 
-        let source = match read {
-            ReadOutcome::Read(source) => source,
-            ReadOutcome::Refused(message) => {
-                mark_failed(conn, job.id, &message);
-                return Ok(UploadOutcome::BadRequest(message));
-            }
-        };
-
-        let stored = suggest_for(conn, job_type, source, grid)?;
+        let stored = suggest_for(conn, job_type, source, Some(grid))?;
 
         let updated = repo::update(
             conn,
@@ -346,12 +352,11 @@ pub async fn upload(
             rows = stored.source.row_count,
             "import parsed"
         );
-        Ok(UploadOutcome::Ok(updated))
+        Ok(updated)
     });
 
     match result {
-        Ok(UploadOutcome::Ok(job)) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
-        Ok(UploadOutcome::BadRequest(msg)) => errors::bad_request(msg),
+        Ok(job) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
         Err(e) => {
             error!(error = ?e, "import upload failed");
             // No job names these files.
@@ -364,8 +369,12 @@ pub async fn upload(
 /// Longest a file may take to parse.
 const PARSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-const TIMED_OUT: &str =
-    "Reading this file took too long. Copy the sheet you need into a new file and upload that.";
+fn timed_out() -> Refused {
+    Refused::new(
+        "import_parse_timed_out",
+        "Reading this file took too long. Copy the sheet you need into a new file and upload that.",
+    )
+}
 
 enum ParseFailure {
     TimedOut,
@@ -542,21 +551,21 @@ pub async fn put_source(
         Err(e) => return file_error(id, e),
     };
     let choice = SheetChoice { sheet, header_row };
-    let read = parse_off_worker(move || -> std::io::Result<Result<_, String>> {
+    let read = parse_off_worker(move || -> std::io::Result<Result<_, Refused>> {
         match xlsx::read(&bytes, Some(&choice)) {
             Ok(workbook) => Ok(Ok((files::grid_bytes(&workbook.grid)?, workbook.source))),
-            Err(refused) => Ok(Err(refused.0)),
+            Err(refused) => Ok(Err(refused)),
         }
     })
     .await;
     let (grid_bytes, source) = match read {
         Ok(Ok(Ok(read))) => read,
-        Ok(Ok(Err(message))) => return errors::bad_request(message),
+        Ok(Ok(Err(refused))) => return refused_response(refused),
         Ok(Err(e)) => {
             error!(job_id = %id, error = ?e, "failed to encode import grid");
             return errors::internal("failed to read import file");
         }
-        Err(ParseFailure::TimedOut) => return errors::bad_request(TIMED_OUT),
+        Err(ParseFailure::TimedOut) => return refused_response(timed_out()),
         Err(ParseFailure::Task(e)) => {
             error!(job_id = %id, error = %e, "import parse task failed");
             return errors::internal("failed to read import file");
@@ -2560,18 +2569,18 @@ pub async fn next_sheet(
         sheet: sheet.clone(),
         header_row: None,
     };
-    let read = parse_off_worker(move || -> std::io::Result<Result<_, String>> {
+    let read = parse_off_worker(move || -> std::io::Result<Result<_, Refused>> {
         match xlsx::read(&bytes, Some(&choice)) {
             Ok(workbook) => Ok(Ok((files::grid_bytes(&workbook.grid)?, workbook.source))),
-            Err(refused) => Ok(Err(refused.0)),
+            Err(refused) => Ok(Err(refused)),
         }
     })
     .await;
     let (grid_bytes, source) = match read {
         Ok(Ok(Ok(read))) => read,
-        Ok(Ok(Err(message))) => {
+        Ok(Ok(Err(refused))) => {
             remove_files(&storage, new_id).await;
-            return errors::bad_request(message);
+            return refused_response(refused);
         }
         Ok(Err(e)) => {
             error!(job_id = %id, error = ?e, "failed to encode import grid");
@@ -2580,7 +2589,7 @@ pub async fn next_sheet(
         }
         Err(ParseFailure::TimedOut) => {
             remove_files(&storage, new_id).await;
-            return errors::bad_request(TIMED_OUT);
+            return refused_response(timed_out());
         }
         Err(ParseFailure::Task(e)) => {
             error!(job_id = %id, error = %e, "import parse task failed");
@@ -3289,12 +3298,17 @@ pub async fn template(
 
 // ---- helpers ----
 
-async fn read_first_file_field(payload: &mut Multipart) -> Result<(String, Vec<u8>), String> {
+async fn read_first_file_field(payload: &mut Multipart) -> Result<(String, Vec<u8>), Refused> {
     // The wizard ships exactly one file field; extra parts are
     // ignored. Take the first one and return.
     let mut field = match payload.try_next().await {
         Ok(Some(field)) => field,
-        _ => return Err("missing file field in upload".to_string()),
+        _ => {
+            return Err(Refused::new(
+                "import_no_file",
+                "missing file field in upload",
+            ))
+        }
     };
 
     let filename = field
@@ -3305,13 +3319,17 @@ async fn read_first_file_field(payload: &mut Multipart) -> Result<(String, Vec<u
 
     let mut bytes: Vec<u8> = Vec::new();
     while let Some(chunk) = field.next().await {
-        let chunk = chunk.map_err(|e| format!("read error: {e}"))?;
+        let chunk = chunk
+            .map_err(|e| Refused::new("import_upload_unreadable", format!("read error: {e}")))?;
         bytes.extend_from_slice(&chunk);
         // 10 MB cap, well above typical single-tenant import
         // volumes, well below our memory budget. Larger files
         // belong in the Phase 2 background-worker path.
         if bytes.len() > 10 * 1024 * 1024 {
-            return Err("file exceeds the 10 MB upload cap".to_string());
+            return Err(
+                Refused::new("import_file_too_large", "file exceeds the 10 MB upload cap")
+                    .arg("max", 10),
+            );
         }
     }
     Ok((filename, bytes))

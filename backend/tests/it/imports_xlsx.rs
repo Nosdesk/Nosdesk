@@ -406,10 +406,17 @@ async fn put_source_switches_sheet_and_header_row() {
 
     let (status, body) = put(serde_json::json!({"sheet": "Nope"})).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "import_sheet_unknown", "{body}");
     let (status, body) = put(serde_json::json!({"sheet": "Cameras", "header_row": 2})).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert!(
         body["error"].as_str().unwrap_or("").contains("Row 2"),
+        "{body}"
+    );
+    assert_eq!(body["code"], "import_header_row_empty", "{body}");
+    assert_eq!(
+        body["args"],
+        serde_json::json!({"row": "2", "sheet": "Cameras"}),
         "{body}"
     );
 
@@ -485,7 +492,54 @@ async fn refusal(
 ) -> String {
     let (status, body) = upload(pool, ws, bytes).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["code"]
+            .as_str()
+            .is_some_and(|c| c.starts_with("import_")),
+        "{body}"
+    );
     body["error"].as_str().unwrap_or("").to_string()
+}
+
+/// A workbook whose rows are all on hidden sheets is refused with its own
+/// code rather than opened on a hidden sheet, and makes no job.
+#[actix_web::test]
+async fn rows_on_hidden_sheets_alone_are_refused() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+
+    let mut wb = Workbook::new();
+    {
+        let sheet = wb.add_worksheet();
+        sheet.set_name("Cover").expect("name");
+    }
+    {
+        let sheet = wb.add_worksheet();
+        sheet.set_name("Assets").expect("name");
+        sheet.set_hidden(true);
+        sheet.write_string(0, 0, "name").expect("write");
+        sheet.write_string(0, 1, "kind").expect("write");
+        sheet.write_string(1, 0, "Camera A").expect("write");
+        sheet.write_string(1, 1, "generic").expect("write");
+    }
+    let bytes = wb.save_to_buffer().expect("save workbook");
+
+    let (status, body) = upload(&pool, &ws, &bytes).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "import_sheets_hidden", "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("hidden sheets"),
+        "{body}"
+    );
+    let jobs: i64 = diesel::sql_query("SELECT COUNT(*)::bigint AS count FROM import_jobs")
+        .get_result::<Count>(&mut pool.get().expect("conn"))
+        .map(|r| r.count)
+        .expect("count");
+    assert_eq!(jobs, 0);
 }
 
 /// A part that inflates past 64 MB, parts that together pass 128 MB, more
@@ -550,14 +604,12 @@ async fn unsafe_and_unreadable_workbooks_are_refused() {
         .await
         .contains("can't be read"));
 
-    // None of the refused uploads left a job that could be checked.
-    let checkable: i64 = diesel::sql_query(
-        "SELECT COUNT(*)::bigint AS count FROM import_jobs WHERE status <> 'failed'",
-    )
-    .get_result::<Count>(&mut pool.get().expect("conn"))
-    .map(|r| r.count)
-    .expect("count");
-    assert_eq!(checkable, 0);
+    // None of the refused uploads left a job.
+    let jobs: i64 = diesel::sql_query("SELECT COUNT(*)::bigint AS count FROM import_jobs")
+        .get_result::<Count>(&mut pool.get().expect("conn"))
+        .map(|r| r.count)
+        .expect("count");
+    assert_eq!(jobs, 0);
 }
 
 #[derive(diesel::QueryableByName)]
