@@ -226,6 +226,8 @@ async fn status_values_match_in_layers_and_disposed_and_on_loan_cant_be_picked()
                 answer: link("in_repair"),
                 answered_by: Some(ws.admin_uuid),
                 job_id: None,
+                source_text: None,
+                created: false,
             }],
         )
     })

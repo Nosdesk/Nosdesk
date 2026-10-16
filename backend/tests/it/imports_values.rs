@@ -175,6 +175,8 @@ fn saved(field: &str, value: &str, target: &str, by: uuid::Uuid) -> NewImportVal
         answer: serde_json::json!({ "action": "match", "target": target }),
         answered_by: Some(by),
         job_id: None,
+        source_text: None,
+        created: false,
     }
 }
 

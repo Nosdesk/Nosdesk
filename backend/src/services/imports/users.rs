@@ -351,6 +351,7 @@ impl Importer for UserImporter {
         Ok(Committed {
             records: ImportedRecords::Users(imported),
             rows,
+            created: Vec::new(),
         })
     }
 }

@@ -233,6 +233,7 @@ impl Importer for TicketImporter {
         Ok(Committed {
             records: ImportedRecords::Tickets(tickets),
             rows,
+            created: Vec::new(),
         })
     }
 }

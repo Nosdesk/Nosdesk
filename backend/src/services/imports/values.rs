@@ -304,7 +304,7 @@ impl Matcher {
         }
     }
 
-    fn lookup(&self) -> Option<LookupKind> {
+    pub(crate) fn lookup(&self) -> Option<LookupKind> {
         match self {
             Self::Lookup(lookup) => Some(lookup.kind),
             _ => None,
@@ -312,7 +312,7 @@ impl Matcher {
     }
 
     /// The choice `target` names, if it can be picked.
-    fn pickable(&self, target: &serde_json::Value) -> Option<&Choice> {
+    pub(crate) fn pickable(&self, target: &serde_json::Value) -> Option<&Choice> {
         let target = target.as_str()?;
         self.choices()
             .iter()
@@ -1173,7 +1173,12 @@ pub fn jaro_winkler(a: &str, b: &str) -> f64 {
 
 /// Whether `answer` can be given to value `key` of a field: the error, worded
 /// for the admin, when it can't.
-fn fits(matcher: &Matcher, required: bool, key: &str, answer: &ValueAnswer) -> Result<(), String> {
+pub(crate) fn fits(
+    matcher: &Matcher,
+    required: bool,
+    key: &str,
+    answer: &ValueAnswer,
+) -> Result<(), String> {
     let blank = key.is_empty();
     if let Matcher::Lookup(lookup) = matcher {
         return fits_lookup(lookup, key, answer);

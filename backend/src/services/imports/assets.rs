@@ -72,10 +72,10 @@ use super::catalog::Catalog;
 use super::csv_parser::ParsedCsv;
 use super::safe_cells::csv_formula_safe;
 use super::types::{
-    duplicate_in_file, CatalogKind, CatalogPlan, CatalogRef, CommitError, Committed, DateOrder,
-    DecimalMark, DroppedCell, FieldChange, FieldGroup, FieldSpec, ImportContext, ImportMode,
-    ImportOptions, ImportType, ImportedRecords, Importer, MatchBy, Notice, PlannedModel, RecordId,
-    RowOutcome, RowPlan, RowResult, ValueAnswer, ValueType,
+    duplicate_in_file, CatalogKind, CatalogPlan, CatalogRef, CommitError, Committed, CreatedLink,
+    DateOrder, DecimalMark, DroppedCell, FieldChange, FieldGroup, FieldSpec, ImportContext,
+    ImportMode, ImportOptions, ImportType, ImportedRecords, Importer, MatchBy, Notice,
+    PlannedModel, RecordId, RowOutcome, RowPlan, RowResult, ValueAnswer, ValueType,
 };
 use super::values::{self, normalize_value, Choice, LookupKind, ValueContext};
 
@@ -917,9 +917,11 @@ impl Importer for AssetImporter {
             rows.push(identify(result, row, options));
             assets.push(asset);
         }
+        let created = made.links(&lookups);
         Ok(Committed {
             records: ImportedRecords::Assets(assets),
             rows,
+            created,
         })
     }
 }
@@ -2578,6 +2580,37 @@ struct Made {
 }
 
 impl Made {
+    /// What each entry was created for: the field, the context its value
+    /// is answered in (a model's manufacturer, named as
+    /// [`MakerPick::context`] names it) and the value's key.
+    fn links(&self, lookups: &Lookups) -> Vec<CreatedLink> {
+        let link = |field: &str, context: String, key: &str, id: i32| CreatedLink {
+            field: field.to_string(),
+            context,
+            key: key.to_string(),
+            id,
+        };
+        let mut out: Vec<CreatedLink> = Vec::new();
+        for (key, m) in &self.makers {
+            out.push(link("manufacturer", String::new(), key, m.id));
+        }
+        for ((owner, key), m) in &self.models {
+            let context = match owner {
+                MakerRef::Existing(id) => lookups
+                    .catalog
+                    .manufacturer(*id)
+                    .map(|m| normalize_value(&m.name))
+                    .unwrap_or_default(),
+                MakerRef::New(key) => key.clone(),
+            };
+            out.push(link("model", context, key, m.id));
+        }
+        for (key, g) in &self.groups {
+            out.push(link("groups", String::new(), key, g.id));
+        }
+        out
+    }
+
     /// The names of groups by id, in order, as one text; `None` for none.
     fn group_names(&self, ids: &[i32], lookups: &Lookups) -> Option<String> {
         let names: Vec<String> = ids

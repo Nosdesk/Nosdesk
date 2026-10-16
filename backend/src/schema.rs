@@ -939,6 +939,8 @@ diesel::table! {
         answered_by -> Nullable<Uuid>,
         job_id -> Nullable<Uuid>,
         updated_at -> Timestamptz,
+        source_text -> Nullable<Text>,
+        created -> Bool,
     }
 }
 
