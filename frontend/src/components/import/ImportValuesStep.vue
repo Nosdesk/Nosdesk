@@ -14,7 +14,7 @@
  * manufacturer, so a manufacturer answer reads the Model card again
  * (`POST values/preview`) before the rows are checked.
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 
@@ -92,6 +92,9 @@ const props = defineProps<{
   jobId: string
   /** The job's `updated_at`: the check the view was read from. */
   version: string
+  /** A field whose card opens in view with its first value's picker
+   *  focused: Review's "Fix at Match values". */
+  focusField?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -539,6 +542,19 @@ async function nextProblem() {
   row?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
   trigger?.focus({ preventScroll: true })
 }
+
+/** Bring the card of `focusField` into view, its first listed value's
+ *  picker focused. */
+onMounted(async () => {
+  if (!props.focusField) return
+  await nextTick()
+  const cardEl = [...(root.value?.querySelectorAll<HTMLElement>('[data-field]') ?? [])].find(
+    (el) => el.dataset.field === props.focusField,
+  )
+  if (!cardEl) return
+  cardEl.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  cardEl.querySelector<HTMLElement>('[data-value-picker]')?.focus({ preventScroll: true })
+})
 
 // ---- action bar ----
 

@@ -18,11 +18,43 @@ export interface RowError {
   message: string
 }
 
+/** Where a problem is fixed: an answer on Match values, a column or a
+ *  constant on Map columns, or in the file (download the rows). */
+export type ImportFix = 'match_values' | 'map' | 'download'
+
 export interface ErrorGroup {
   column: string | null
   source_column?: string | null
   message: string
   count: number
+  /** Absent on summaries checked before fixes were classified. */
+  fix?: ImportFix
+}
+
+/** One field updated rows change. */
+export interface ChangeCount {
+  /** Field id. */
+  field: string
+  source_column?: string | null
+  /** Rows that change it. */
+  count: number
+  /** A constant set for every row, existing records included, writes it. */
+  constant?: boolean
+}
+
+/** How many records of one kind the import creates. */
+export interface KindCount {
+  /** Kind slug. */
+  kind: string
+  count: number
+}
+
+/** A column of the file no field takes. */
+export interface UnmappedColumn {
+  /** The source column, 0-based. */
+  index: number
+  /** Rows with a value in it. */
+  values: number
 }
 
 /** Something about the plan that isn't an error. `message` is the
@@ -34,15 +66,18 @@ export interface ImportNotice {
 }
 
 /** Values of one field rows import without: the rows' kind has no such
- *  attribute, or (groups) nothing links the value. */
+ *  attribute, (groups) nothing links the value, or (primary user) the
+ *  person isn't a member. */
 export interface DroppedGroup {
   /** Field id. */
   column: string
   source_column?: string | null
   /** The rows' kind (slug). */
   kind: string
-  /** The value left out, for a group nothing links. */
+  /** The value left out, for a group nothing links or a person who isn't
+   *  a member; absent for an attribute. */
   value?: string
+  /** Rows. */
   count: number
 }
 
@@ -77,6 +112,13 @@ export interface ImportSummary {
   dropped?: DroppedGroup[]
   /** Catalog entries the import creates; absent when none. */
   catalog?: CatalogPlan
+  /** Fields updated rows change, most first. */
+  changes?: ChangeCount[]
+  /** Kinds of the records the import creates, most first. Assets only. */
+  kinds?: KindCount[]
+  /** Columns no field takes (none chosen, or Don't import), in source
+   *  order. */
+  unmapped?: UnmappedColumn[]
 }
 
 export interface SourceHeader {
@@ -336,13 +378,17 @@ export interface ImportRowResult {
   key?: string
   /** What the row is called (asset name, person, ticket title). */
   label?: string
+  /** The asset's kind (slug), for a row that checks out. */
+  kind?: string
   /** The record the row matches (before the commit) or wrote (after). */
   record_id?: number | string
   errors?: { column: string | null; source_column?: string | null; message: string }[]
-  /** Values the row imports without: its kind has no such attribute. */
-  dropped?: { column: string; source_column?: string | null; kind: string }[]
-  /** After the commit: each field the row changed, before and after. In a
-   *  checked plan: the status move the commit would make. */
+  /** Values the row imports without: its kind has no such attribute, a
+   *  group left off, a person who isn't a member. */
+  dropped?: { column: string; source_column?: string | null; kind: string; value?: string }[]
+  /** Each field the row changes, before and after, as text (status and
+   *  kind as their keys): after the commit what it wrote, in a checked plan
+   *  what an update would write (a new row: its status move). */
   fields_written?: Record<string, { before: string | null; after: string | null }>
   groups_added?: number[]
   catalog_created?: { kind: 'manufacturer' | 'model' | 'group'; id: number; observed_updated_at?: string }[]
@@ -481,9 +527,19 @@ export const importService = {
     return data
   },
 
-  /** The skipped rows as CSV, in the file's layout with the reasons. */
-  async errorReport(jobId: string): Promise<{ blob: Blob; filename: string }> {
+  /** The skipped rows as CSV, in the file's layout with the reasons.
+   *  `group` narrows it to one of the summary's error groups (by index);
+   *  `dropped` lists instead the rows that import without some of their
+   *  values, for those dropped groups (by index). */
+  async errorReport(
+    jobId: string,
+    only: { group?: number; dropped?: number[] } = {},
+  ): Promise<{ blob: Blob; filename: string }> {
+    const params: Record<string, string | number> = {}
+    if (only.group !== undefined) params.group = only.group
+    if (only.dropped?.length) params.dropped = only.dropped.join(',')
     const response = await apiClient.get<Blob>(`/admin/import/${jobId}/error-report`, {
+      params,
       responseType: 'blob',
     })
     const disposition = String(response.headers['content-disposition'] ?? '')

@@ -4149,28 +4149,15 @@ import-review-checked = { $count ->
    *[other] { $count } lignes vérifiées.
    }
 # MT: pending native review (fr-FR)
-import-review-created = { $count } créées
+import-review-created = { $count } nouvelles
 # MT: pending native review (fr-FR)
 import-review-updated = { $count } mises à jour
 # MT: pending native review (fr-FR)
 import-review-will-import = { $count } seront importées : { $parts }.
 # MT: pending native review (fr-FR)
-import-review-all-import = Les { $count } seront importées : { $parts }.
-# MT: pending native review (fr-FR)
 import-review-nothing = Rien ne sera importé.
 # MT: pending native review (fr-FR)
-import-review-skipped = { $count } ignorées pour erreurs.
-# MT: pending native review (fr-FR)
-import-review-tile-create = Création
-# MT: pending native review (fr-FR)
-import-review-tile-update = Mise à jour
-# MT: pending native review (fr-FR)
-import-review-tile-errors = Erreurs
-# MT: pending native review (fr-FR)
-import-review-tile-errors-sub = { $count ->
-    [one] 1 erreur
-   *[other] { $count } erreurs
-   }
+import-review-skipped = { $count } ignorées.
 # MT: pending native review (fr-FR)
 import-review-top-problems = Problèmes principaux
 # MT: pending native review (fr-FR)
@@ -4183,10 +4170,7 @@ import-review-whole-row = Ligne entière
 # MT: pending native review (fr-FR)
 import-review-col-row = Ligne
 # MT: pending native review (fr-FR)
-import-review-unchanged = { $count ->
-    [one] 1 ligne correspond déjà et ne changera pas.
-   *[other] { $count } lignes correspondent déjà et ne changeront pas.
-   }
+import-review-unchanged = { $count } inchangées.
 # MT: pending native review (fr-FR)
 import-review-tile-unchanged = Inchangées
 # MT: pending native review (fr-FR)
@@ -4218,8 +4202,6 @@ import-review-filter-unchanged = Inchangées ({ $count })
 # MT: pending native review (fr-FR)
 import-review-col-name = Nom
 # MT: pending native review (fr-FR)
-import-review-col-result = Résultat
-# MT: pending native review (fr-FR)
 import-review-outcome-create = Nouvelle
 # MT: pending native review (fr-FR)
 import-review-outcome-update = Mise à jour
@@ -4240,12 +4222,9 @@ import-review-rows-none = Aucune ligne à afficher.
 # MT: pending native review (fr-FR)
 import-error-report-failed = Le rapport d'erreurs n'a pas pu être téléchargé. Veuillez réessayer.
 # MT: pending native review (fr-FR)
-import-review-back = Retour aux colonnes
+import-review-back = Retour à Associer les colonnes
 # MT: pending native review (fr-FR)
-import-review-skip-reason = { $count ->
-    [one] 1 ligne sera ignorée
-   *[other] { $count } lignes seront ignorées
-   }
+import-review-skip-reason = { $count } seront ignorées et listées dans le rapport d'erreurs.
 # MT: pending native review (fr-FR)
 import-review-nothing-to-import = Rien à importer
 # MT: pending native review (fr-FR)
@@ -4261,15 +4240,223 @@ import-review-confirm-title = { $count ->
    *[other] Importer { $count } lignes ?
    }
 # MT: pending native review (fr-FR)
-import-review-confirm-changes = { $type ->
-    [users] { $created } personnes seront ajoutées et { $updated } mises à jour.
-    [tickets] { $created } tickets seront créés.
-   *[other] { $created } actifs seront créés et { $updated } mis à jour.
-   }
-# MT: pending native review (fr-FR)
 import-review-confirm-skipped = { $count ->
     [one] 1 ligne en erreur sera ignorée.
    *[other] { $count } lignes en erreur seront ignorées.
+   }
+# MT: pending native review (fr-FR)
+import-review-tile-new = Nouvelles
+# MT: pending native review (fr-FR)
+import-review-tile-updated = Mises à jour
+# MT: pending native review (fr-FR)
+import-review-tile-skipped = Ignorées
+# MT: pending native review (fr-FR)
+import-review-col-outcome = Résultat
+# MT: pending native review (fr-FR)
+import-review-col-detail = Détail
+# MT: pending native review (fr-FR)
+import-review-col-tag = Étiquette
+# MT: pending native review (fr-FR)
+import-review-col-serial = Numéro de série
+# MT: pending native review (fr-FR)
+import-review-col-email = E-mail
+# MT: pending native review (fr-FR)
+import-review-row-number = Ligne { $row }
+# MT: pending native review (fr-FR)
+import-review-fix-values = Corriger dans Valeurs
+# MT: pending native review (fr-FR)
+import-review-fix-map = Corriger dans Associer les colonnes
+# MT: pending native review (fr-FR)
+import-review-download-rows = Télécharger ces lignes
+# MT: pending native review (fr-FR)
+import-review-ni-title = Non importé depuis ce fichier
+# MT: pending native review (fr-FR)
+import-review-ni-title-count = { $count ->
+    [one] Non importé depuis ce fichier (1 colonne)
+   *[other] Non importé depuis ce fichier ({ $count } colonnes)
+   }
+# MT: pending native review (fr-FR)
+import-review-ni-none = Tout le contenu du fichier trouve sa place.
+# MT: pending native review (fr-FR)
+import-review-ni-unmapped = { $count ->
+    [one] 1 colonne sans champ choisi
+   *[other] { $count } colonnes sans champ choisi
+   }
+# MT: pending native review (fr-FR)
+import-review-ni-ignored = { $count ->
+    [one] 1 valeur · Ne pas importer
+   *[other] { $count } valeurs · Ne pas importer
+   }
+# MT: pending native review (fr-FR)
+import-review-ni-attribute-rows = { $count ->
+    [one] 1 valeur sur des lignes { $kind }
+   *[other] { $count } valeurs sur des lignes { $kind }
+   }
+# MT: pending native review (fr-FR)
+import-review-ni-attribute-reason = les actifs { $kind } n'ont pas de { $header }, laissé de côté
+# MT: pending native review (fr-FR)
+import-review-ni-group-rows = { $count ->
+    [one] '{ $value }' sur 1 ligne
+   *[other] '{ $value }' sur { $count } lignes
+   }
+# MT: pending native review (fr-FR)
+import-review-ni-group-reason = groupe inconnu, laissé de côté
+# MT: pending native review (fr-FR)
+import-review-ni-person-rows = { $values ->
+    [one] 1 e-mail
+   *[other] { $values } e-mails
+   } sur { $count ->
+    [one] 1 ligne
+   *[other] { $count } lignes
+   }
+# MT: pending native review (fr-FR)
+import-review-ni-person-reason = { $values ->
+    [one] pas membre, laissé sans utilisateur
+   *[other] pas membres, laissés sans utilisateur
+   }
+# MT: pending native review (fr-FR)
+import-review-new-title = Nouveau dans votre espace de travail
+# MT: pending native review (fr-FR)
+import-review-new-manufacturers = Fabricants ({ $count })
+# MT: pending native review (fr-FR)
+import-review-new-models = Modèles ({ $count })
+# MT: pending native review (fr-FR)
+import-review-new-groups = Groupes ({ $count })
+# MT: pending native review (fr-FR)
+import-review-new-not-right = Ce n’est pas correct ?
+# MT: pending native review (fr-FR)
+import-review-new-change = Modifiez les réponses dans Valeurs
+# MT: pending native review (fr-FR)
+import-review-changes-title = Ce qui change
+# MT: pending native review (fr-FR)
+import-review-changes-records = { $type ->
+    [users] { $count ->
+        [one] 1 utilisateur
+       *[other] { $count } utilisateurs
+       }
+    [tickets] { $count ->
+        [one] 1 ticket
+       *[other] { $count } tickets
+       }
+   *[other] { $count ->
+        [one] 1 actif
+       *[other] { $count } actifs
+       }
+   }
+# MT: pending native review (fr-FR)
+import-review-changes-constant = défini pour chaque ligne
+# MT: pending native review (fr-FR)
+import-review-changes-new = Nouveaux
+# MT: pending native review (fr-FR)
+import-review-changes-blanks = Une cellule vide ne modifie jamais une valeur existante. Les colonnes réglées sur Ne pas importer ne sont pas touchées.
+# MT: pending native review (fr-FR)
+import-review-empty-skipped = Aucune ligne ignorée. Toutes les lignes sont valides.
+# MT: pending native review (fr-FR)
+import-review-empty-new = { $type ->
+    [users] Aucun nouvel utilisateur. Chaque ligne correspond à un utilisateur existant.
+    [tickets] Aucun nouveau ticket.
+   *[other] Aucun nouvel actif. Chaque ligne correspond à un actif existant.
+   }
+# MT: pending native review (fr-FR)
+import-review-empty-updated = Aucune mise à jour. Chaque ligne correspondante est inchangée.
+# MT: pending native review (fr-FR)
+import-review-detail-changes = Modifications :
+# MT: pending native review (fr-FR)
+import-review-detail-none = Aucune modification
+# MT: pending native review (fr-FR)
+import-review-detail-skipped = Ignorée :
+# MT: pending native review (fr-FR)
+import-review-detail-left-out = { $fields } laissé de côté
+# MT: pending native review (fr-FR)
+import-review-blank = vide
+# MT: pending native review (fr-FR)
+import-review-keyboard = Clavier
+# MT: pending native review (fr-FR)
+import-review-keyboard-help = j et k déplacent la ligne en surbrillance. Les flèches gauche et droite changent le filtre. Entrée sur un problème principal lance sa correction.
+# MT: pending native review (fr-FR)
+import-review-confirm-both = { $type ->
+    [users] { $created ->
+        [one] 1 personne sera ajoutée et { $updated } mises à jour.
+       *[other] { $created } personnes seront ajoutées et { $updated } mises à jour.
+       }
+   *[other] { $created ->
+        [one] 1 actif sera créé et { $updated } mis à jour.
+       *[other] { $created } actifs seront créés et { $updated } mis à jour.
+       }
+   }
+# MT: pending native review (fr-FR)
+import-review-confirm-created = { $type ->
+    [users] { $count ->
+        [one] 1 personne sera ajoutée.
+       *[other] { $count } personnes seront ajoutées.
+       }
+    [tickets] { $count ->
+        [one] 1 ticket sera créé.
+       *[other] { $count } tickets seront créés.
+       }
+   *[other] { $count ->
+        [one] 1 actif sera créé.
+       *[other] { $count } actifs seront créés.
+       }
+   }
+# MT: pending native review (fr-FR)
+import-review-confirm-updated = { $type ->
+    [users] { $count ->
+        [one] 1 personne sera mise à jour.
+       *[other] { $count } personnes seront mises à jour.
+       }
+   *[other] { $count ->
+        [one] 1 actif sera mis à jour.
+       *[other] { $count } actifs seront mis à jour.
+       }
+   }
+# MT: pending native review (fr-FR)
+import-review-confirm-unchanged = { $type ->
+    [users] { $count ->
+        [one] 1 ligne correspond à un utilisateur existant et reste inchangée.
+       *[other] { $count } lignes correspondent à des utilisateurs existants et restent inchangées.
+       }
+   *[other] { $count ->
+        [one] 1 ligne correspond à un actif existant et reste inchangée.
+       *[other] { $count } lignes correspondent à des actifs existants et restent inchangées.
+       }
+   }
+# MT: pending native review (fr-FR)
+import-review-count-manufacturers = { $count ->
+    [one] 1 fabricant
+   *[other] { $count } fabricants
+   }
+# MT: pending native review (fr-FR)
+import-review-count-models = { $count ->
+    [one] 1 modèle
+   *[other] { $count } modèles
+   }
+# MT: pending native review (fr-FR)
+import-review-count-groups = { $count ->
+    [one] 1 groupe
+   *[other] { $count } groupes
+   }
+# MT: pending native review (fr-FR)
+import-review-confirm-catalog = Seront créés : { $list }.
+# MT: pending native review (fr-FR)
+import-review-confirm-columns = { $count ->
+    [one] 1 colonne du fichier ne sera pas importée.
+   *[other] { $count } colonnes du fichier ne seront pas importées.
+   }
+# MT: pending native review (fr-FR)
+import-review-confirm-webhooks = { $count ->
+    [one] Les webhooks recevront des événements pour 1 actif.
+   *[other] Les webhooks recevront des événements pour { $count } actifs.
+   }
+# MT: pending native review (fr-FR)
+import-review-plan-changed-more = { $count ->
+    [one] Quelque chose a changé depuis la vérification : 1 ligne de plus serait ignorée. Vérifiez le nouveau plan.
+   *[other] Quelque chose a changé depuis la vérification : { $count } lignes de plus seraient ignorées. Vérifiez le nouveau plan.
+   }
+# MT: pending native review (fr-FR)
+import-review-plan-changed-fewer = { $count ->
+    [one] Quelque chose a changé depuis la vérification : 1 ligne de moins serait ignorée. Vérifiez le nouveau plan.
+   *[other] Quelque chose a changé depuis la vérification : { $count } lignes de moins seraient ignorées. Vérifiez le nouveau plan.
    }
 # MT: pending native review (fr-FR)
 import-done-heading = Import terminé

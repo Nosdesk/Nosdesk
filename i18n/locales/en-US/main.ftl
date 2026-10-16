@@ -3947,19 +3947,11 @@ import-review-checked = { $count ->
     [one] 1 row checked.
    *[other] { $count } rows checked.
    }
-import-review-created = { $count } created
+import-review-created = { $count } new
 import-review-updated = { $count } updated
 import-review-will-import = { $count } will be imported: { $parts }.
-import-review-all-import = All { $count } will be imported: { $parts }.
 import-review-nothing = Nothing will be imported.
-import-review-skipped = { $count } skipped for errors.
-import-review-tile-create = Create
-import-review-tile-update = Update
-import-review-tile-errors = Errors
-import-review-tile-errors-sub = { $count ->
-    [one] 1 error
-   *[other] { $count } errors
-   }
+import-review-skipped = { $count } skipped.
 import-review-top-problems = Top problems
 import-review-problem-rows = { $count ->
     [one] 1 row
@@ -3967,10 +3959,7 @@ import-review-problem-rows = { $count ->
    }
 import-review-whole-row = Whole row
 import-review-col-row = Row
-import-review-unchanged = { $count ->
-    [one] 1 row already matches and won't change.
-   *[other] { $count } rows already match and won't change.
-   }
+import-review-unchanged = { $count } unchanged.
 import-review-tile-unchanged = Unchanged
 import-review-notice-no-key = { $count ->
     [one] 1 row has no asset tag or serial number. Importing this file again would create it again.
@@ -3989,7 +3978,6 @@ import-review-filter-create = New ({ $count })
 import-review-filter-update = Updated ({ $count })
 import-review-filter-unchanged = Unchanged ({ $count })
 import-review-col-name = Name
-import-review-col-result = Result
 import-review-outcome-create = New
 import-review-outcome-update = Updated
 import-review-outcome-unchanged = Unchanged
@@ -4000,11 +3988,8 @@ import-review-rows-next = Next
 import-review-rows-loading = Loading rows
 import-review-rows-none = No rows to show.
 import-error-report-failed = The error report couldn't be downloaded. Try again.
-import-review-back = Back to mapping
-import-review-skip-reason = { $count ->
-    [one] 1 row will be skipped
-   *[other] { $count } rows will be skipped
-   }
+import-review-back = Back to Map columns
+import-review-skip-reason = { $count } will be skipped and listed in the error report.
 import-review-nothing-to-import = Nothing to import
 import-review-import = { $count ->
     [one] Import 1 row
@@ -4015,14 +4000,167 @@ import-review-confirm-title = { $count ->
     [one] Import 1 row?
    *[other] Import { $count } rows?
    }
-import-review-confirm-changes = { $type ->
-    [users] { $created } people will be added and { $updated } updated.
-    [tickets] { $created } tickets will be created.
-   *[other] { $created } assets will be created and { $updated } updated.
-   }
 import-review-confirm-skipped = { $count ->
     [one] 1 row with errors will be skipped.
    *[other] { $count } rows with errors will be skipped.
+   }
+import-review-tile-new = New
+import-review-tile-updated = Updated
+import-review-tile-skipped = Skipped
+import-review-col-outcome = Outcome
+import-review-col-detail = Detail
+import-review-col-tag = Tag
+import-review-col-serial = Serial
+import-review-col-email = Email
+import-review-row-number = Row { $row }
+import-review-fix-values = Fix at Match values
+import-review-fix-map = Fix at Map columns
+import-review-download-rows = Download these rows
+import-review-ni-title = Not imported from this file
+import-review-ni-title-count = { $count ->
+    [one] Not imported from this file (1 column)
+   *[other] Not imported from this file ({ $count } columns)
+   }
+import-review-ni-none = Everything in the file lands somewhere.
+import-review-ni-unmapped = { $count ->
+    [one] 1 column with no field chosen
+   *[other] { $count } columns with no field chosen
+   }
+import-review-ni-ignored = { $count ->
+    [one] 1 value · Don't import
+   *[other] { $count } values · Don't import
+   }
+import-review-ni-attribute-rows = { $count ->
+    [one] 1 value on { $kind } rows
+   *[other] { $count } values on { $kind } rows
+   }
+import-review-ni-attribute-reason = { $kind } assets have no { $header }, left out
+import-review-ni-group-rows = { $count ->
+    [one] '{ $value }' on 1 row
+   *[other] '{ $value }' on { $count } rows
+   }
+import-review-ni-group-reason = unknown group, left off
+import-review-ni-person-rows = { $values ->
+    [one] 1 email
+   *[other] { $values } emails
+   } on { $count ->
+    [one] 1 row
+   *[other] { $count } rows
+   }
+import-review-ni-person-reason = { $values ->
+    [one] not a member, left unassigned
+   *[other] not members, left unassigned
+   }
+import-review-new-title = New in your workspace
+import-review-new-manufacturers = Manufacturers ({ $count })
+import-review-new-models = Models ({ $count })
+import-review-new-groups = Groups ({ $count })
+import-review-new-not-right = Not right?
+import-review-new-change = Change the answers at Match values
+import-review-changes-title = What changes
+import-review-changes-records = { $type ->
+    [users] { $count ->
+        [one] 1 user
+       *[other] { $count } users
+       }
+    [tickets] { $count ->
+        [one] 1 ticket
+       *[other] { $count } tickets
+       }
+   *[other] { $count ->
+        [one] 1 asset
+       *[other] { $count } assets
+       }
+   }
+import-review-changes-constant = set for every row
+import-review-changes-new = New
+import-review-changes-blanks = Blank cells never change an existing value. Columns set to Don't import are left alone.
+import-review-empty-skipped = No skipped rows. Every row checks out.
+import-review-empty-new = { $type ->
+    [users] No new users. Every row matched an existing user.
+    [tickets] No new tickets.
+   *[other] No new assets. Every row matched an existing asset.
+   }
+import-review-empty-updated = No updates. Every matched row is unchanged.
+import-review-detail-changes = Changes:
+import-review-detail-none = No changes
+import-review-detail-skipped = Skipped:
+import-review-detail-left-out = { $fields } left out
+import-review-blank = blank
+import-review-keyboard = Keyboard
+import-review-keyboard-help = j and k move the row highlight. The left and right arrows change the filter. Enter on a top problem runs its fix.
+import-review-confirm-both = { $type ->
+    [users] { $created ->
+        [one] 1 person will be added and { $updated } updated.
+       *[other] { $created } people will be added and { $updated } updated.
+       }
+   *[other] { $created ->
+        [one] 1 asset will be created and { $updated } updated.
+       *[other] { $created } assets will be created and { $updated } updated.
+       }
+   }
+import-review-confirm-created = { $type ->
+    [users] { $count ->
+        [one] 1 person will be added.
+       *[other] { $count } people will be added.
+       }
+    [tickets] { $count ->
+        [one] 1 ticket will be created.
+       *[other] { $count } tickets will be created.
+       }
+   *[other] { $count ->
+        [one] 1 asset will be created.
+       *[other] { $count } assets will be created.
+       }
+   }
+import-review-confirm-updated = { $type ->
+    [users] { $count ->
+        [one] 1 person will be updated.
+       *[other] { $count } people will be updated.
+       }
+   *[other] { $count ->
+        [one] 1 asset will be updated.
+       *[other] { $count } assets will be updated.
+       }
+   }
+import-review-confirm-unchanged = { $type ->
+    [users] { $count ->
+        [one] 1 row matches an existing user and is unchanged.
+       *[other] { $count } rows match existing users and are unchanged.
+       }
+   *[other] { $count ->
+        [one] 1 row matches an existing asset and is unchanged.
+       *[other] { $count } rows match existing assets and are unchanged.
+       }
+   }
+import-review-count-manufacturers = { $count ->
+    [one] 1 manufacturer
+   *[other] { $count } manufacturers
+   }
+import-review-count-models = { $count ->
+    [one] 1 model
+   *[other] { $count } models
+   }
+import-review-count-groups = { $count ->
+    [one] 1 group
+   *[other] { $count } groups
+   }
+import-review-confirm-catalog = { $list } will be created.
+import-review-confirm-columns = { $count ->
+    [one] 1 column from the file won't be imported.
+   *[other] { $count } columns from the file won't be imported.
+   }
+import-review-confirm-webhooks = { $count ->
+    [one] Webhooks will receive events for 1 asset.
+   *[other] Webhooks will receive events for { $count } assets.
+   }
+import-review-plan-changed-more = { $count ->
+    [one] Something changed since you checked: 1 more row would be skipped. Review the new plan.
+   *[other] Something changed since you checked: { $count } more rows would be skipped. Review the new plan.
+   }
+import-review-plan-changed-fewer = { $count ->
+    [one] Something changed since you checked: 1 fewer row would be skipped. Review the new plan.
+   *[other] Something changed since you checked: { $count } fewer rows would be skipped. Review the new plan.
    }
 import-done-heading = Import complete
 import-done-body = { $count ->
