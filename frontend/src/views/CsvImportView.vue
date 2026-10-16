@@ -787,6 +787,8 @@ const viewImportedLabelKey = computed(() => {
           :view="valuesView"
           :fields="fields"
           :checking="busy === 'check'"
+          :job-id="job.id"
+          :version="job.updated_at"
           @check="checkValues"
           @back="goTo('map')"
         />

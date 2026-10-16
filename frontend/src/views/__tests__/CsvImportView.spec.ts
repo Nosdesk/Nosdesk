@@ -24,11 +24,13 @@ const api = vi.hoisted(() => ({
   errorReport: vi.fn(),
   values: vi.fn(),
   putValues: vi.fn(),
+  previewValues: vi.fn(),
 }))
 
 vi.mock('@nosdesk/core/services/importService', () => ({
   importFieldsQueryKey: (type: string) => ['import-fields', type],
   importValuesQueryKey: (id: string, at: string) => ['import-values', id, at],
+  importValuesPreviewQueryKey: (id: string, at: string, key: string) => ['import-values-preview', id, at, key],
   importService: {
     upload: (...a: unknown[]) => api.upload(...a),
     putSource: (...a: unknown[]) => api.putSource(...a),
@@ -42,6 +44,7 @@ vi.mock('@nosdesk/core/services/importService', () => ({
     errorReport: (...a: unknown[]) => api.errorReport(...a),
     values: (...a: unknown[]) => api.values(...a),
     putValues: (...a: unknown[]) => api.putValues(...a),
+    previewValues: (...a: unknown[]) => api.previewValues(...a),
     templateUrl: (type: string) => `/api/admin/import/template/${type}`,
   },
 }))

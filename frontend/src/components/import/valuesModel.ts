@@ -8,6 +8,12 @@
  * job, else what matching suggests. Values keep the order the server's
  * matching gave them (No match, Guessed, the rest), so answering one never
  * moves it under the cursor.
+ *
+ * The server answers a model per the row's manufacturer, one column per
+ * manufacturer; they share one Model card, each value under its
+ * manufacturer. A manufacturer answer can move rows to another
+ * manufacturer, so the Model card is read again for the answers given here
+ * ([`previewAnswers`], [`withModels`]) before "Check again".
  */
 import type {
   ImportValue,
@@ -26,8 +32,22 @@ export const SCALE_LIMIT = 200
 export type Edits = Record<string, ValueAnswer>
 
 export type ValueFilter = 'no_match' | 'guessed' | 'all'
-export type BulkAction = 'skip' | 'leave_blank'
-export type Consequence = 'skipped' | 'blank' | 'as_is' | 'text' | 'off' | null
+export type BulkAction = 'skip' | 'leave_blank' | 'keep_text' | 'create'
+export type Consequence =
+  | 'skipped'
+  | 'blank'
+  | 'as_is'
+  | 'text'
+  | 'off'
+  | 'unassigned'
+  | 'created'
+  | null
+
+/** One value of a card, with the column it belongs to. */
+export interface Entry {
+  col: ImportValueColumn
+  v: ImportValue
+}
 
 /** A value's id across cards. A field answered the same on every row is
  *  `field:key`; one answered per kind (an attribute, whose id may hold a
@@ -39,9 +59,19 @@ export const valueId = (field: string, key: string, context = '') =>
 export const idOf = (col: ImportValueColumn, v: ImportValue) =>
   valueId(col.field, v.key, col.context ?? '')
 
-/** A card's id: its field, and its kind when answered per kind. */
+/** The id of an entry. */
+export const entryId = (e: Entry) => idOf(e.col, e.v)
+
+/** Whether a column answers models: one per manufacturer, on one card. */
+export const isModel = (col: ImportValueColumn) => col.lookup === 'model'
+
+/** A card's id: its field, and its kind when answered per kind. A model's
+ *  manufacturers share one card. */
 export const cardId = (col: ImportValueColumn) =>
-  col.context ? JSON.stringify([col.field, col.context]) : col.field
+  col.context && !isModel(col) ? JSON.stringify([col.field, col.context]) : col.field
+
+/** The value as answers key it, as the server normalizes it. */
+export const normalizeValue = (text: string) => text.trim().split(/\s+/).join(' ').toLowerCase()
 
 export function sameAnswer(a?: ValueAnswer, b?: ValueAnswer): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
@@ -70,6 +100,20 @@ export function isAnswered(col: ImportValueColumn, v: ImportValue, edits: Edits)
  *  in service. */
 export function leavesAsIs(col: ImportValueColumn): boolean {
   return col.field === 'status'
+}
+
+/** Whether Leave blank leaves the value off: a group isn't added, a
+ *  person isn't assigned. */
+export function leavesOff(col: ImportValueColumn): boolean {
+  return col.lookup === 'group' || col.lookup === 'person'
+}
+
+/** Whether the import can create the entry a value names: a lookup that
+ *  creates (not a person; a model only under a manufacturer it can belong
+ *  to), for a value no entry is named. */
+export function canCreate(col: ImportValueColumn, v: ImportValue): boolean {
+  if (!col.lookup || col.lookup === 'person' || col.can_create === false || v.blank) return false
+  return v.reason?.code !== 'ambiguous' && v.reason?.code !== 'needs_manufacturer'
 }
 
 /** An answer that drops what the file says. */
@@ -108,9 +152,35 @@ export function listedValues(col: ImportValueColumn, edits: Edits): ImportValue[
     .map(({ v }) => v)
 }
 
+/** A card's listed values across its columns, ordered as
+ *  [`listedValues`] orders one column's. */
+export function listedEntries(columns: ImportValueColumn[], edits: Edits): Entry[] {
+  return columns
+    .flatMap((col) => col.values.map((v) => ({ col, v })))
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) => isListed(e.col, e.v, edits))
+    .sort(
+      (a, b) =>
+        RANK[a.e.v.match] - RANK[b.e.v.match] ||
+        b.e.v.rows.length - a.e.v.rows.length ||
+        a.i - b.i,
+    )
+    .map(({ e }) => e)
+}
+
 /** Values matched without a question that the server listed. */
 export function matchedValues(col: ImportValueColumn, edits: Edits): ImportValue[] {
   return col.values.filter((v) => !isListed(col, v, edits))
+}
+
+/** A card's values matched without a question that the server listed. */
+export function cardMatched(card: Card, edits: Edits): Entry[] {
+  return card.columns.flatMap((col) => matchedValues(col, edits).map((v) => ({ col, v })))
+}
+
+/** Every value of a card matched without a question, counted. */
+export function cardMatchedCount(card: Card, edits: Edits): number {
+  return card.columns.reduce((n, col) => n + matchedCount(col, edits), 0)
 }
 
 /** Every value matched without a question, counted. */
@@ -121,25 +191,46 @@ export function matchedCount(col: ImportValueColumn, edits: Edits): number {
   return col.matched + savedOrBlank
 }
 
-export function filterValues(values: ImportValue[], filter: ValueFilter): ImportValue[] {
-  if (filter === 'all') return values
-  return values.filter((v) => v.match === filter)
+export function filterValues(entries: Entry[], filter: ValueFilter): Entry[] {
+  if (filter === 'all') return entries
+  return entries.filter((e) => e.v.match === filter)
 }
 
 export interface Card {
+  /** [`cardId`] of its columns. */
+  id: string
+  /** The first of its columns, for the field and the header. */
   column: ImportValueColumn
-  listed: ImportValue[]
+  /** One column, or a model's for each manufacturer. */
+  columns: ImportValueColumn[]
+  listed: Entry[]
   /** Too many values to list one by one. */
   scaled: boolean
 }
 
+/** Columns sharing a card, in source order: a model's manufacturers
+ *  together. */
+export function groupColumns(columns: ImportValueColumn[]): ImportValueColumn[][] {
+  const groups = new Map<string, ImportValueColumn[]>()
+  for (const col of [...columns].sort((a, b) => a.index - b.index)) {
+    const id = cardId(col)
+    groups.set(id, [...(groups.get(id) ?? []), col])
+  }
+  return [...groups.values()]
+}
+
 /** One card per column with a listed value, in source order. */
 export function cards(view: ImportValues, edits: Edits): Card[] {
-  return [...view.columns]
-    .sort((a, b) => a.index - b.index)
-    .map((column) => {
-      const listed = listedValues(column, edits)
-      return { column, listed, scaled: listed.length > SCALE_LIMIT }
+  return groupColumns(view.columns)
+    .map((columns) => {
+      const listed = listedEntries(columns, edits)
+      return {
+        id: cardId(columns[0]),
+        column: columns[0],
+        columns,
+        listed,
+        scaled: listed.length > SCALE_LIMIT,
+      }
     })
     .filter((c) => c.listed.length > 0)
 }
@@ -191,56 +282,107 @@ export function consequence(col: ImportValueColumn, v: ImportValue, edits: Edits
   const now = currentAnswer(col, v, edits)
   if (now?.action === 'skip') return 'skipped'
   if (now?.action === 'keep_text') return 'text'
+  if (now?.action === 'create') return 'created'
   if (now?.action !== 'leave_blank') return null
   if (col.lookup === 'group') return 'off'
+  if (col.lookup === 'person') return 'unassigned'
   if (leavesAsIs(col)) return 'as_is'
   if (!v.blank) return 'blank'
   // A blank kind left as it is skips the new rows the last check found.
   return sameAnswer(now, checkedAnswer(v)) && v.skipped_rows.length > 0 ? 'skipped' : 'as_is'
 }
 
-/** Values a bulk answer applies to: listed ones not linked or replaced. */
-function bulkTargets(col: ImportValueColumn, listed: ImportValue[], edits: Edits): ImportValue[] {
-  return listed.filter((v) => {
-    if (v.blank) return false
-    const now = currentAnswer(col, v, edits)
-    return now === undefined || isDiscard(now)
-  })
+/** Whether a value is still open to a bulk answer: not linked to an entry
+ *  and not replaced, so it drops what the file says or creates an entry. */
+function unlinked(col: ImportValueColumn, v: ImportValue, edits: Edits): boolean {
+  const now = currentAnswer(col, v, edits)
+  return now === undefined || isDiscard(now) || now.action === 'create'
+}
+
+/** The entries a bulk answer applies to: listed ones not linked or
+ *  replaced, and for Create, only those the import can create. */
+export function bulkTargets(card: Card, edits: Edits, action: BulkAction): Entry[] {
+  return card.listed.filter(
+    (e) => !e.v.blank && unlinked(e.col, e.v, edits) && (action !== 'create' || canCreate(e.col, e.v)),
+  )
+}
+
+/** The bulk answers a card's kind of column offers. */
+export function bulkKinds(col: ImportValueColumn): BulkAction[] {
+  switch (col.lookup) {
+    case 'manufacturer':
+    case 'model':
+      return ['create', 'keep_text']
+    case 'group':
+      return ['create', 'leave_blank']
+    case 'person':
+      return ['leave_blank', 'skip']
+    default:
+      return col.required ? ['skip'] : ['leave_blank', 'skip']
+  }
 }
 
 /** The bulk answers a card offers, each with how many values it sets. One
  *  value is answered with its own picker, and an answer every target
  *  already has isn't offered. */
-export function bulkActions(
-  col: ImportValueColumn,
-  listed: ImportValue[],
-  edits: Edits,
-): { action: BulkAction; count: number }[] {
-  const targets = bulkTargets(col, listed, edits)
-  if (targets.length < 2) return []
-  const actions: BulkAction[] = col.required ? ['skip'] : ['leave_blank', 'skip']
-  return actions
-    .filter((action) => targets.some((v) => currentAnswer(col, v, edits)?.action !== action))
-    .map((action) => ({ action, count: targets.length }))
+export function bulkActions(card: Card, edits: Edits): { action: BulkAction; count: number }[] {
+  return bulkKinds(card.column)
+    .map((action) => ({ action, targets: bulkTargets(card, edits, action) }))
+    .filter(
+      ({ action, targets }) =>
+        targets.length >= 2 && targets.some((e) => currentAnswer(e.col, e.v, edits)?.action !== action),
+    )
+    .map(({ action, targets }) => ({ action, count: targets.length }))
 }
 
 /** Every bulk target answered with `action`. */
-export function applyBulk(
-  col: ImportValueColumn,
-  listed: ImportValue[],
-  edits: Edits,
-  action: BulkAction,
-): Edits {
+export function applyBulk(card: Card, edits: Edits, action: BulkAction): Edits {
   const next = { ...edits }
-  for (const v of bulkTargets(col, listed, edits)) {
-    next[idOf(col, v)] = { action }
+  for (const e of bulkTargets(card, edits, action)) next[entryId(e)] = { action }
+  return next
+}
+
+/** What a card with too many values to list can answer for all of them. */
+export function scaleKinds(col: ImportValueColumn): BulkAction[] {
+  switch (col.lookup) {
+    case 'manufacturer':
+    case 'model':
+      return ['keep_text', 'create', 'skip']
+    case 'group':
+      return ['leave_blank', 'create', 'skip']
+    case 'person':
+      return ['leave_blank', 'skip']
+    default:
+      return col.required ? ['skip'] : ['leave_blank', 'skip']
   }
+}
+
+/** The values of a scaled card one answer applies to: every listed one,
+ *  and for Create, those the import can create. */
+function scaleTargets(card: Card, action: BulkAction): Entry[] {
+  return card.listed.filter((e) => action !== 'create' || canCreate(e.col, e.v))
+}
+
+/** The answer a scaled card's values share, if one does. */
+export function scaleChoice(card: Card, edits: Edits): BulkAction | '' {
+  return (
+    scaleKinds(card.column).find((action) => {
+      const targets = scaleTargets(card, action)
+      return targets.length > 0 && targets.every((e) => currentAnswer(e.col, e.v, edits)?.action === action)
+    }) ?? ''
+  )
+}
+
+/** A scaled card's values answered with `action`. */
+export function applyScale(card: Card, edits: Edits, action: BulkAction): Edits {
+  const next = { ...edits }
+  for (const e of scaleTargets(card, action)) next[entryId(e)] = { action }
   return next
 }
 
 /** The value ids in the order the cards show them. */
 export function displayOrder(list: Card[]): string[] {
-  return list.flatMap((card) => card.listed.map((v) => idOf(card.column, v)))
+  return list.flatMap((card) => card.listed.map(entryId))
 }
 
 /** Values "Next problem" stops at: ones whose rows would be skipped, and
@@ -249,11 +391,11 @@ export function problemIds(list: Card[], edits: Edits): string[] {
   return list.flatMap((card) =>
     card.listed
       .filter(
-        (v) =>
-          consequence(card.column, v, edits) === 'skipped' ||
-          (v.match === 'no_match' && !isAnswered(card.column, v, edits)),
+        (e) =>
+          consequence(e.col, e.v, edits) === 'skipped' ||
+          (e.v.match === 'no_match' && !isAnswered(e.col, e.v, edits)),
       )
-      .map((v) => idOf(card.column, v)),
+      .map(entryId),
   )
 }
 
@@ -262,6 +404,68 @@ export function nextProblem(order: string[], problems: string[], last: string | 
   if (problems.length === 0) return null
   const from = last === null ? -1 : order.indexOf(last)
   return problems.find((id) => order.indexOf(id) > from) ?? problems[0]
+}
+
+/** The manufacturer the rows of a model column have: the catalog's, by
+ *  its name, or the file's spelling of one the import creates or keeps as
+ *  text. Empty for rows without one. */
+export function makerName(view: ImportValues, col: ImportValueColumn): string {
+  if (!col.context) return ''
+  const fromFile = view.columns
+    .filter((c) => c.lookup === 'manufacturer')
+    .flatMap((c) => c.values)
+    .find((v) => v.key === col.context)
+  const catalog = col.context_label && col.context_label !== col.context ? col.context_label : undefined
+  return catalog ?? fromFile?.text ?? col.context_label ?? col.context
+}
+
+/** The manufacturer answers given on this screen that differ from the ones
+ *  the server matched models under, as a stable key; empty when none do. */
+export function makerEditsKey(view: ImportValues, edits: Edits): string {
+  const changed: [string, ValueAnswer][] = []
+  for (const col of view.columns) {
+    if (col.lookup !== 'manufacturer') continue
+    for (const v of col.values) {
+      const edit = edits[idOf(col, v)]
+      if (edit && !sameAnswer(edit, checkedAnswer(v))) changed.push([v.key, edit])
+    }
+  }
+  return changed.length ? JSON.stringify(changed.sort((a, b) => a[0].localeCompare(b[0]))) : ''
+}
+
+/** The answers to read the Model card again under: the job's own, with
+ *  this screen's manufacturer edits on top. Model edits stay on this
+ *  screen, so the job's own model answers keep reading as stored. */
+export function previewAnswers(view: ImportValues, edits: Edits): ValueAnswers {
+  const out: ValueAnswers = {}
+  for (const col of view.columns) {
+    for (const v of col.values) {
+      const edit = col.lookup === 'manufacturer' ? edits[idOf(col, v)] : undefined
+      const answer = edit ?? v.answer
+      if (!answer) continue
+      const context = col.context ?? ''
+      out[col.field] ??= {}
+      out[col.field][context] ??= {}
+      out[col.field][context][v.key] = answer
+    }
+  }
+  return out
+}
+
+/** The view with its Model card as `preview` reads it. Model edits for a
+ *  manufacturer the rows no longer have are dropped with their values. */
+export function withModels(view: ImportValues, preview: ImportValues | undefined): ImportValues {
+  if (!preview) return view
+  const models = preview.columns.filter(isModel)
+  return { ...view, columns: [...view.columns.filter((c) => !isModel(c)), ...models] }
+}
+
+/** Whether the Model card reads manufacturer answers: some manufacturer
+ *  value is answered, here or on the job. */
+export function makersAnswered(view: ImportValues, edits: Edits): boolean {
+  return view.columns.some(
+    (col) => col.lookup === 'manufacturer' && col.values.some((v) => isAnswered(col, v, edits)),
+  )
 }
 
 /** The answers to store: the job's own with this screen's edits on top. */
@@ -305,7 +509,7 @@ export function answerFromKey(key: string, previous?: ValueAnswer): ValueAnswer 
   if (key === 'replace') {
     return { action: 'replace', value: previous?.action === 'replace' ? previous.value : '' }
   }
-  return { action: key as 'skip' | 'leave_blank' | 'keep_text' }
+  return { action: key as 'skip' | 'leave_blank' | 'keep_text' | 'create' }
 }
 
 /** A cell as a spreadsheet won't run it as a formula. */

@@ -4095,6 +4095,42 @@ import-values-back = Terug naar kolommen
 # MT: pending native review (nl-NL)
 import-values-check-again = Opnieuw controleren
 # MT: pending native review (nl-NL)
+import-values-create = '{ $value }' aanmaken
+# MT: pending native review (nl-NL)
+import-values-create-anyway = '{ $value }' toch aanmaken
+# MT: pending native review (nl-NL)
+import-values-create-under = '{ $value }' aanmaken onder { $manufacturer }
+# MT: pending native review (nl-NL)
+import-values-needs-maker = Fabrikant nodig
+# MT: pending native review (nl-NL)
+import-values-leave-unassigned = Niet toewijzen
+# MT: pending native review (nl-NL)
+import-values-consequence-unassigned = niet toegewezen
+# MT: pending native review (nl-NL)
+import-values-consequence-created = wordt aangemaakt
+# MT: pending native review (nl-NL)
+import-values-ambiguous = Komt overeen met meer dan één: { $labels }. Kies er een.
+# MT: pending native review (nl-NL)
+import-values-both-new = Beide zouden worden aangemaakt. Kies één spelling.
+# MT: pending native review (nl-NL)
+import-values-recomputed = Opnieuw berekend na je antwoorden voor { $header }
+# MT: pending native review (nl-NL)
+import-values-under = onder { $manufacturer }
+# MT: pending native review (nl-NL)
+import-values-bulk-keep-text = Alle { $count } als tekst behouden
+# MT: pending native review (nl-NL)
+import-values-bulk-create-models = Deze { $count } modellen aanmaken
+# MT: pending native review (nl-NL)
+import-values-bulk-create-manufacturers = Deze { $count } fabrikanten aanmaken
+# MT: pending native review (nl-NL)
+import-values-bulk-create-groups = Deze { $count } groepen aanmaken
+# MT: pending native review (nl-NL)
+import-values-bulk-off = Alle { $count } weglaten
+# MT: pending native review (nl-NL)
+import-values-bulk-unassigned = Alle { $count } niet toewijzen
+# MT: pending native review (nl-NL)
+import-values-scale-create = Alles aanmaken
+# MT: pending native review (nl-NL)
 import-review-values-matched = Alle waarden automatisch gekoppeld
 # MT: pending native review (nl-NL)
 import-review-values-see = Bekijken
