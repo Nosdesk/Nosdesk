@@ -116,20 +116,10 @@ fn job_row(pool: &TestPool, id: &str) -> Option<JobRow> {
     .expect("read job")
 }
 
-fn files_of(id: &str) -> usize {
-    let dir = backend::services::imports::mapping::imports_dir();
-    std::fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .filter(|e| {
-                    e.file_name()
-                        .to_string_lossy()
-                        .starts_with(&format!("{id}."))
-                })
-                .count()
-        })
-        .unwrap_or(0)
+async fn files_of(ws: &crate::common::WorkspaceSeed, id: &str) -> usize {
+    crate::imports_assets::job_files(ws.workspace_id, id)
+        .await
+        .len()
 }
 
 async fn prune(db: &TestDb) {
@@ -271,7 +261,7 @@ async fn the_prune_keeps_counts_ids_and_options_and_drops_the_detail() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{page}");
-    assert!(files_of(&id) > 0);
+    assert!(files_of(ws, &id).await > 0);
     let before = job_row(&pool, &id).expect("job");
     assert!(before.row_results.is_some());
 
@@ -319,7 +309,7 @@ async fn the_prune_keeps_counts_ids_and_options_and_drops_the_detail() {
     assert!(headers
         .iter()
         .all(|h| h["samples"].as_array().is_some_and(Vec::is_empty)));
-    assert_eq!(files_of(&id), 0, "the file and grid are gone");
+    assert_eq!(files_of(ws, &id).await, 0, "the file and grid are gone");
 
     let read = get(&pool, ws, &id).await;
     assert_eq!(read["state"], "imported");
@@ -406,6 +396,11 @@ async fn drafts_expire_after_thirty_days() {
     .get_result::<IdRow>(&mut pool.get().expect("conn"))
     .expect("refused job")
     .id;
+    assert_eq!(
+        files_of(ws, &refused).await,
+        1,
+        "the refused upload is kept"
+    );
 
     on_job(
         &pool,
@@ -452,15 +447,16 @@ async fn drafts_expire_after_thirty_days() {
     assert!(after.pruned_at.is_some());
     assert!(after.row_results.is_none());
     assert!(after.mapping.is_some());
-    assert_eq!(files_of(&id), 0);
+    assert_eq!(files_of(ws, &id).await, 0);
     assert!(
         job_row(&pool, &refused).is_none(),
         "the refused upload is deleted"
     );
+    assert_eq!(files_of(ws, &refused).await, 0, "with its file");
     let fresh_after = job_row(&pool, &fresh_id).expect("fresh draft");
     assert!(fresh_after.pruned_at.is_none());
     assert!(fresh_after.row_results.is_some());
-    assert!(files_of(&fresh_id) > 0);
+    assert!(files_of(ws, &fresh_id).await > 0);
 
     let jobs = list(&pool, ws, "").await;
     let states: Vec<(&str, &str)> = jobs

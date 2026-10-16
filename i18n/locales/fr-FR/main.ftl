@@ -4683,6 +4683,8 @@ import-history-cannot-resume = Reprise impossible
 # MT: pending native review (fr-FR)
 import-history-expired-resume = Ce brouillon a expiré 30 jours après sa dernière modification et ne peut pas être repris. Importez à nouveau le fichier.
 # MT: pending native review (fr-FR)
+import-file-missing = Le fichier de cette importation n'est plus disponible. Importez à nouveau le fichier.
+# MT: pending native review (fr-FR)
 import-history-options-constants = { $count ->
     [one] 1 valeur définie pour chaque ligne
    *[other] { $count } valeurs définies pour chaque ligne

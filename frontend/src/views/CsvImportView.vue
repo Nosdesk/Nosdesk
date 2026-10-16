@@ -276,6 +276,20 @@ function apiError(e: unknown, fallbackKey: string): string {
   return err?.response?.data?.error ?? (e instanceof Error ? e.message : t(fallbackKey))
 }
 
+/** A step that failed: a draft whose file is gone goes back to Start to
+ *  upload it again, anything else shows the error where it is. */
+function stepFailed(e: unknown, fallbackKey: string) {
+  const code = (e as { response?: { data?: { code?: string } } })?.response?.data?.code
+  if (code === 'import_file_missing') {
+    job.value = null
+    step.value = 'start'
+    setJobQuery(null)
+    errorMessage.value = t('import-file-missing')
+    return
+  }
+  errorMessage.value = apiError(e, fallbackKey)
+}
+
 // ---- start ----
 
 /** The kind whose attribute columns the asset template carries; empty for
@@ -370,7 +384,7 @@ async function chooseSource(sheet: string, headerRow: number | null) {
     job.value = await importService.putSource(job.value.id, sheet, headerRow)
     step.value = 'map'
   } catch (e) {
-    errorMessage.value = apiError(e, 'import-error-generic')
+    stepFailed(e, 'import-error-generic')
   } finally {
     busy.value = null
   }
@@ -409,7 +423,7 @@ async function check(mapping: ColumnMapping, options: ImportOptions, ignored: nu
     job.value = checked
     step.value = (await valuesNeeded(checked)) ? 'values' : 'review'
   } catch (e) {
-    errorMessage.value = apiError(e, 'import-error-generic')
+    stepFailed(e, 'import-error-generic')
   } finally {
     busy.value = null
   }
@@ -438,7 +452,7 @@ async function checkValues(answers: ValueAnswers) {
     job.value = await importService.putValues(job.value.id, answers)
     step.value = 'review'
   } catch (e) {
-    errorMessage.value = apiError(e, 'import-error-generic')
+    stepFailed(e, 'import-error-generic')
   } finally {
     busy.value = null
   }
@@ -513,7 +527,7 @@ async function commit() {
     } else if (data?.code === 'import_commit_running' || mayStillRun(e)) {
       await waitForCommit(id)
     } else {
-      errorMessage.value = apiError(e, 'import-error-commit')
+      stepFailed(e, 'import-error-commit')
     }
   } finally {
     busy.value = null

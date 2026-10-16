@@ -4673,6 +4673,8 @@ import-history-cannot-resume = Kan niet worden hervat
 # MT: pending native review (nl-NL)
 import-history-expired-resume = Dit concept is 30 dagen na de laatste wijziging verlopen en kan niet worden hervat. Upload het bestand opnieuw.
 # MT: pending native review (nl-NL)
+import-file-missing = Het bestand van deze import is niet meer beschikbaar. Upload het bestand opnieuw.
+# MT: pending native review (nl-NL)
 import-history-options-constants = { $count ->
     [one] 1 waarde ingesteld voor elke rij
    *[other] { $count } waarden ingesteld voor elke rij

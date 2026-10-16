@@ -159,6 +159,8 @@ impl From<ImportJob> for ImportJobResponse {
         };
         let suggested_mapping = lift("suggested_mapping");
         let ignored = lift("ignored");
+        // Where the grid is stored stays on the server.
+        lift("grid");
         let state = state_of(
             &job.status,
             job.updated_at,

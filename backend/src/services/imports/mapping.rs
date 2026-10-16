@@ -8,7 +8,6 @@
 //! with headers of its own.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -148,6 +147,10 @@ pub struct StoredSource {
     /// column neither mapped nor here was left without a choice.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ignored: Vec<usize>,
+    /// The version of the job's grid in storage (`files::grid_key`). None
+    /// for a job whose grid was never stored: it reads as missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid: Option<Uuid>,
 }
 
 /// Lowercase letters and digits only, with `#` read as "no" so `Asset #`
@@ -750,124 +753,6 @@ pub fn default_decimal(source: &ImportSource) -> DecimalMark {
         Some(";") => DecimalMark::Comma,
         _ => DecimalMark::Dot,
     }
-}
-
-/// Where uploads live: `UPLOAD_DIR/imports`.
-pub fn imports_dir() -> PathBuf {
-    let root = std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "/app/uploads".to_string());
-    Path::new(&root).join("imports")
-}
-
-/// The normalized grid of a job's file, derived from the job id alone.
-pub fn grid_path(job_id: Uuid) -> PathBuf {
-    imports_dir().join(format!("{job_id}.grid.json"))
-}
-
-pub fn write_grid(job_id: Uuid, grid: &ParsedCsv) -> std::io::Result<()> {
-    let path = grid_path(job_id);
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let bytes = serde_json::to_vec(grid).map_err(std::io::Error::other)?;
-    std::fs::write(path, bytes)
-}
-
-/// A grid written beside the job's current one, put in its place by
-/// [`StagedGrid::install`] once the job row agrees, or removed on drop.
-pub struct StagedGrid {
-    job_id: Uuid,
-    path: Option<PathBuf>,
-}
-
-impl StagedGrid {
-    pub fn write(job_id: Uuid, grid: &ParsedCsv) -> std::io::Result<Self> {
-        let dir = imports_dir();
-        std::fs::create_dir_all(&dir)?;
-        let path = dir.join(format!("{job_id}.grid.{}.json", Uuid::new_v4()));
-        let bytes = serde_json::to_vec(grid).map_err(std::io::Error::other)?;
-        std::fs::write(&path, bytes)?;
-        Ok(Self {
-            job_id,
-            path: Some(path),
-        })
-    }
-
-    /// Replace the job's grid with this one.
-    pub fn install(mut self) -> std::io::Result<()> {
-        match self.path.take() {
-            Some(path) => std::fs::rename(path, grid_path(self.job_id)),
-            None => Ok(()),
-        }
-    }
-}
-
-impl Drop for StagedGrid {
-    fn drop(&mut self) {
-        if let Some(path) = self.path.take() {
-            let _ = std::fs::remove_file(path);
-        }
-    }
-}
-
-/// Remove every file kept for a job: the upload, its grid and any staged
-/// grid. A file already gone is not an error. Returns how many were removed.
-pub fn remove_job_files(job_id: Uuid) -> std::io::Result<usize> {
-    let entries = match std::fs::read_dir(imports_dir()) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
-        Err(e) => return Err(e),
-    };
-    let prefix = format!("{job_id}.");
-    let mut removed = 0;
-    for entry in entries {
-        let entry = entry?;
-        if !entry.file_name().to_string_lossy().starts_with(&prefix) {
-            continue;
-        }
-        match std::fs::remove_file(entry.path()) {
-            Ok(()) => removed += 1,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(removed)
-}
-
-/// Remove every file of these jobs (their uploads, grids and any staged
-/// grid) in one pass over the imports directory. The count removed.
-pub fn remove_jobs_files(job_ids: &[Uuid]) -> std::io::Result<usize> {
-    if job_ids.is_empty() {
-        return Ok(0);
-    }
-    let entries = match std::fs::read_dir(imports_dir()) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
-        Err(e) => return Err(e),
-    };
-    let ids: std::collections::HashSet<String> = job_ids.iter().map(|id| id.to_string()).collect();
-    let mut removed = 0;
-    for entry in entries {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        let Some((stem, _)) = name.split_once('.') else {
-            continue;
-        };
-        if !ids.contains(stem) {
-            continue;
-        }
-        match std::fs::remove_file(entry.path()) {
-            Ok(()) => removed += 1,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(removed)
-}
-
-pub fn read_grid(job_id: Uuid) -> std::io::Result<ParsedCsv> {
-    let bytes = std::fs::read(grid_path(job_id))?;
-    serde_json::from_slice(&bytes).map_err(std::io::Error::other)
 }
 
 /// A JSON object of field ids to column indexes that refuses a field

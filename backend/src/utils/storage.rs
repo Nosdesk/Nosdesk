@@ -647,6 +647,11 @@ impl Storage for WorkspaceScopedStorage {
             .await
     }
 
+    async fn delete_prefix(&self, prefix: &str) -> Result<usize, StorageError> {
+        // The backend's own, so local storage removes the directory too.
+        self.inner.delete_prefix(&self.physical(prefix)).await
+    }
+
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, StorageError> {
         // List against the physical prefix, then strip it back to logical paths
         // so callers stay prefix-free (consistent with get_file/put_file).

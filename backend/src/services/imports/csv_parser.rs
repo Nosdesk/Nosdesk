@@ -22,7 +22,7 @@ pub const MAX_HEADER_CHARS: usize = 255;
 
 /// Parsed CSV ready for per-type validation: the header row and each
 /// data row's cells in column order, trimmed. Serialized as the job's
-/// normalized grid (`mapping::grid_path`).
+/// normalized grid (`files::grid_key`).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParsedCsv {
     pub headers: Vec<String>,
