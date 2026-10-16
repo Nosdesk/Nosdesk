@@ -15,36 +15,49 @@
 //! blank kind keeps the asset's kind, and on a new asset takes the default
 //! kind when one is set.
 //!
-//! Columns are universal-only: kind-specific attributes stay out
-//! of the CSV, so a kind's required attributes aren't enforced on
-//! import. The admin fills them in on the asset afterwards.
+//! Kind attributes are fields of their own ([`attribute_defs`]): each key
+//! a kind's schema defines, less the keys a directory sync owns. A row's
+//! attribute cells are read as its kind's schema types them and merged
+//! into the asset's attributes, a blank cell leaving the stored value;
+//! the result is checked against the kind's schema once per row. A new
+//! asset must carry its kind's required attributes. An existing one is
+//! checked as `PUT /assets/{id}` checks it: when the row writes an
+//! attribute or changes the kind. A value for an attribute the row's kind
+//! doesn't have is left out and counted ([`RowResult::dropped`]), not an
+//! error.
 //!
 //! An update writes only what `PUT /assets/{id}` and the asset page would.
-//! An asset synced from Microsoft takes no column from the file: its row
-//! must match what's stored. An asset linked to a model keeps its kind,
-//! since the model sets it. A kind change never leaves the asset holding
-//! attributes the new kind doesn't define. Any other row is an error that
-//! points to the asset page.
+//! An asset synced from Microsoft takes its attributes from the file and
+//! no other column: the rest of its row must match what's stored. An
+//! asset linked to a model keeps its kind, since the model sets it. A kind
+//! change never leaves the asset holding attributes the new kind doesn't
+//! define. Any other row is an error that points to the asset page.
 
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, ToPrimitive};
+use chrono::NaiveDate;
 use diesel::prelude::*;
+use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{Asset, AssetLifecycleEvent, AssetUpdate, NewAsset};
+use crate::models::{Asset, AssetKind, AssetLifecycleEvent, AssetUpdate, NewAsset};
 use crate::repository::asset_kinds as kind_repo;
 use crate::repository::asset_lifecycle as asset_lifecycle_repo;
 use crate::repository::asset_models as model_repo;
 use crate::repository::assets as asset_repo;
+use crate::repository::workspaces as workspace_repo;
+use crate::services::assets::kinds::{validate_attributes, AttributeError};
+use crate::services::assets::SYNC_OWNED_ATTRIBUTE_KEYS;
 
 use super::csv_parser::ParsedCsv;
 use super::safe_cells::csv_formula_safe;
 use super::types::{
-    duplicate_in_file, CommitError, Committed, DecimalMark, FieldChange, FieldGroup, FieldSpec,
-    ImportContext, ImportMode, ImportOptions, ImportType, ImportedRecords, Importer, MatchBy,
-    Notice, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
+    duplicate_in_file, CommitError, Committed, DateOrder, DecimalMark, DroppedCell, FieldChange,
+    FieldGroup, FieldSpec, ImportContext, ImportMode, ImportOptions, ImportType, ImportedRecords,
+    Importer, MatchBy, Notice, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
 };
-use super::values::{self, Choice};
+use super::values::{self, Choice, ValueContext};
 
 /// Universal CSV columns the importer accepts. Export writes
 /// these first (same order/names) so a round-trip upserts on
@@ -68,22 +81,281 @@ pub const IMPORT_HEADERS: &[&str] = &[
 /// upsert on the shared columns.
 pub const EXPORT_EXTRA_HEADERS: &[&str] = &["status", "attributes"];
 
+/// The template's columns before a kind's attributes, in order. An
+/// attribute whose key is one of these is named `attr:<key>`.
+pub const TEMPLATE_CORE_HEADERS: &[&str] = &[
+    "name",
+    "kind",
+    "asset_tag",
+    "serial_number",
+    "status",
+    "manufacturer",
+    "model",
+    "location",
+    "primary_user",
+    "purchase_date",
+    "groups",
+    "notes",
+    "quantity",
+    "unit",
+    "low_stock_threshold",
+];
+
+/// What an attribute's field id starts with when its key is a core column,
+/// as the asset list names attribute columns.
+pub const ATTRIBUTE_PREFIX: &str = "attr:";
+
+/// One attribute key a column can feed, across the kinds that define it.
+#[derive(Debug, Clone)]
+pub struct AttributeDef {
+    pub key: String,
+    /// Field id: the key, or `attr:<key>` when the key is a core column.
+    pub id: String,
+    /// The title the first kind defining it gives it, else the key in words.
+    pub title: String,
+    /// Each kind that defines it, in kind order: slug, label and the
+    /// property's schema.
+    pub kinds: Vec<(String, String, Value)>,
+    /// Kinds whose schema requires it.
+    pub required_for: Vec<String>,
+}
+
+impl AttributeDef {
+    fn prop(&self, kind: &str) -> Option<&Value> {
+        self.kinds
+            .iter()
+            .find(|(slug, _, _)| slug == kind)
+            .map(|(_, _, prop)| prop)
+    }
+
+    /// The field a column maps to: typed as the first kind defining it
+    /// types it, with every kind's enum options.
+    fn field_spec(&self) -> FieldSpec {
+        let first = self.kinds.first().map(|(_, _, prop)| prop);
+        let mut options: Vec<String> = Vec::new();
+        for (_, _, prop) in &self.kinds {
+            for option in enum_options(prop) {
+                if !options.contains(&option) {
+                    options.push(option);
+                }
+            }
+        }
+        let value_type = first.map_or(ValueType::Text, value_type_of);
+        let mut spec = attribute_spec(&self.id, &self.title, value_type);
+        spec.kinds = Some(self.kinds.iter().map(|(slug, _, _)| slug.clone()).collect());
+        if value_type == ValueType::Enum {
+            spec.enum_values = Some(options);
+        }
+        if !self.required_for.is_empty() {
+            spec.required_for = Some(self.required_for.clone());
+        }
+        spec
+    }
+}
+
+/// An attribute field, never required at the Map step.
+fn attribute_spec(id: &str, title: &str, value_type: ValueType) -> FieldSpec {
+    let mut spec = FieldSpec::fixed(
+        ImportType::Assets,
+        id,
+        title,
+        FieldGroup::Attribute,
+        value_type,
+        false,
+    );
+    spec.label_key = None;
+    if value_type == ValueType::Date {
+        spec.format = Some("YYYY-MM-DD".to_string());
+    }
+    spec
+}
+
+/// A property's enum options that are text.
+fn enum_options(prop: &Value) -> Vec<String> {
+    prop.get("enum")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// How a property's cells read.
+fn value_type_of(prop: &Value) -> ValueType {
+    match prop.get("type").and_then(Value::as_str) {
+        Some("boolean") => return ValueType::Boolean,
+        Some("number" | "integer") => return ValueType::Number,
+        Some("array") => return ValueType::Array,
+        _ => {}
+    }
+    if prop.get("enum").and_then(Value::as_array).is_some() {
+        return ValueType::Enum;
+    }
+    match prop.get("format").and_then(Value::as_str) {
+        Some("date") => ValueType::Date,
+        Some("date-time") => ValueType::DateTime,
+        Some("user-uuid") => ValueType::User,
+        Some("asset-ref") => ValueType::AssetRef,
+        Some("email") => ValueType::Email,
+        _ => ValueType::Text,
+    }
+}
+
+/// `warranty_end` as "Warranty end".
+fn humanize(key: &str) -> String {
+    let words = key.replace('_', " ");
+    let words = words.trim();
+    let mut chars = words.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// A property's title, else its key in words.
+fn title_of(key: &str, prop: &Value) -> String {
+    prop.get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map_or_else(|| humanize(key), String::from)
+}
+
+/// Whether a property is fed by a directory sync rather than typed.
+fn is_synced(key: &str, prop: &Value) -> bool {
+    SYNC_OWNED_ATTRIBUTE_KEYS.contains(&key)
+        || prop.get("synced").and_then(Value::as_bool) == Some(true)
+}
+
+/// Every attribute a column can feed, from the kinds in kind order, sorted
+/// by title. Keys a directory sync owns, and properties marked `synced`,
+/// are left out.
+pub fn attribute_defs(kinds: &[AssetKind]) -> Vec<AttributeDef> {
+    let mut defs: Vec<AttributeDef> = Vec::new();
+    for kind in kinds {
+        let Some(properties) = kind
+            .attribute_schema
+            .get("properties")
+            .and_then(Value::as_object)
+        else {
+            continue;
+        };
+        let required = required_keys(&kind.attribute_schema);
+        for (key, prop) in properties {
+            if is_synced(key, prop) {
+                continue;
+            }
+            let at = match defs.iter().position(|d| &d.key == key) {
+                Some(at) => at,
+                None => {
+                    let id = if TEMPLATE_CORE_HEADERS.contains(&key.as_str()) {
+                        format!("{ATTRIBUTE_PREFIX}{key}")
+                    } else {
+                        key.clone()
+                    };
+                    defs.push(AttributeDef {
+                        key: key.clone(),
+                        id,
+                        title: title_of(key, prop),
+                        kinds: Vec::new(),
+                        required_for: Vec::new(),
+                    });
+                    defs.len() - 1
+                }
+            };
+            let def = &mut defs[at];
+            def.kinds
+                .push((kind.slug.clone(), kind.label.clone(), prop.clone()));
+            if required.contains(key) {
+                def.required_for.push(kind.slug.clone());
+            }
+        }
+    }
+    defs.sort_by(|a, b| {
+        a.title
+            .to_lowercase()
+            .cmp(&b.title.to_lowercase())
+            .then_with(|| a.key.cmp(&b.key))
+    });
+    defs
+}
+
+/// The keys a kind's schema requires.
+fn required_keys(schema: &Value) -> HashSet<String> {
+    schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|keys| {
+            keys.iter()
+                .filter_map(|k| k.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The template's header row for `kind` (a slug, or `None` for core
+/// columns only): the core columns, then the kind's attributes sorted by
+/// their title. `None` when no kind has that slug.
+pub fn template_headers(
+    conn: &mut DbConnection,
+    kind: Option<&str>,
+) -> Result<Option<Vec<String>>, diesel::result::Error> {
+    let mut headers: Vec<String> = TEMPLATE_CORE_HEADERS
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let Some(kind) = kind else {
+        return Ok(Some(headers));
+    };
+    let kinds = kind_repo::list_kinds(conn)?;
+    if !kinds.iter().any(|k| k.slug == kind) {
+        return Ok(None);
+    }
+    let mut own: Vec<(String, String)> = attribute_defs(&kinds)
+        .into_iter()
+        .filter_map(|def| {
+            let title = title_of(&def.key, def.prop(kind)?);
+            Some((title, def.id))
+        })
+        .collect();
+    own.sort_by(|a, b| {
+        a.0.to_lowercase()
+            .cmp(&b.0.to_lowercase())
+            .then_with(|| a.1.cmp(&b.1))
+    });
+    headers.extend(own.into_iter().map(|(_, id)| id));
+    Ok(Some(headers))
+}
+
+/// The template as CSV bytes: a BOM so Excel reads it as UTF-8, then the
+/// header row, each cell guarded against formulas.
+pub fn template_csv(headers: &[String]) -> Result<Vec<u8>, csv::Error> {
+    let mut buf = "\u{FEFF}".as_bytes().to_vec();
+    {
+        let mut wtr = csv::Writer::from_writer(&mut buf);
+        wtr.write_record(headers.iter().map(|h| csv_formula_safe(h.clone())))?;
+        wtr.flush()?;
+    }
+    Ok(buf)
+}
+
 pub struct AssetImporter;
 
 impl Importer for AssetImporter {
     fn template_headers(&self) -> &'static [&'static str] {
-        IMPORT_HEADERS
+        TEMPLATE_CORE_HEADERS
     }
 
     fn fields(&self, conn: &mut DbConnection) -> Result<Vec<FieldSpec>, diesel::result::Error> {
         use FieldGroup::{Core, Links};
-        use ValueType::{Enum, Number, Text};
+        use ValueType::{Date, Enum, Number, Text, User};
         let t = ImportType::Assets;
-        let kinds = kind_repo::list_kinds(conn)?
-            .into_iter()
-            .map(|k| k.slug)
-            .collect();
-        Ok(vec![
+        let registry = kind_repo::list_kinds(conn)?;
+        let kinds = registry.iter().map(|k| k.slug.clone()).collect();
+        let mut fields = vec![
             FieldSpec::fixed(t, "name", "Name", Core, Text, true),
             FieldSpec::fixed(t, "kind", "Kind", Core, Enum, true).with_enum(kinds),
             FieldSpec::fixed(t, "asset_tag", "Asset tag", Core, Text, false),
@@ -100,9 +372,18 @@ impl Importer for AssetImporter {
                 Number,
                 false,
             ),
+            FieldSpec::fixed(t, "purchase_date", "Purchase date", Core, Date, false)
+                .with_format("YYYY-MM-DD"),
+            FieldSpec::fixed(t, "primary_user", "Primary user", Core, User, false),
             FieldSpec::fixed(t, "manufacturer", "Manufacturer", Links, Text, false),
             FieldSpec::fixed(t, "model", "Model", Links, Text, false),
-        ])
+        ];
+        fields.extend(
+            attribute_defs(&registry)
+                .iter()
+                .map(AttributeDef::field_spec),
+        );
+        Ok(fields)
     }
 
     fn synonyms(&self) -> &'static [(&'static str, &'static str)] {
@@ -129,6 +410,13 @@ impl Importer for AssetImporter {
             ("comment", "notes"),
             ("note", "notes"),
             ("qty", "quantity"),
+            ("purchased", "purchase_date"),
+            ("dateofpurchase", "purchase_date"),
+            ("datepurchased", "purchase_date"),
+            ("assignedto", "primary_user"),
+            ("assigneduser", "primary_user"),
+            ("user", "primary_user"),
+            ("usedby", "primary_user"),
         ]
     }
 
@@ -138,7 +426,7 @@ impl Importer for AssetImporter {
         field: &FieldSpec,
     ) -> Result<Option<Vec<Choice>>, diesel::result::Error> {
         if field.id != "kind" {
-            return Ok(None);
+            return Ok(values::enum_choices(field));
         }
         Ok(Some(
             kind_repo::list_kinds(conn)?
@@ -176,6 +464,60 @@ impl Importer for AssetImporter {
         }
     }
 
+    /// Attributes are answered per kind: each kind's options, typed as that
+    /// kind's schema types the key.
+    fn value_contexts(
+        &self,
+        conn: &mut DbConnection,
+        field: &FieldSpec,
+    ) -> Result<Option<Vec<ValueContext>>, diesel::result::Error> {
+        if field.group != FieldGroup::Attribute {
+            return Ok(None);
+        }
+        let kinds = kind_repo::list_kinds(conn)?;
+        let Some(def) = attribute_defs(&kinds)
+            .into_iter()
+            .find(|d| d.id == field.id)
+        else {
+            return Ok(Some(Vec::new()));
+        };
+        Ok(Some(
+            def.kinds
+                .iter()
+                .map(|(slug, label, prop)| {
+                    let mut spec = attribute_spec(&def.id, &field.label, value_type_of(prop));
+                    let options = enum_options(prop);
+                    if spec.value_type == ValueType::Enum {
+                        spec.enum_values = Some(options);
+                    }
+                    ValueContext {
+                        key: slug.clone(),
+                        label: label.clone(),
+                        spec,
+                    }
+                })
+                .collect(),
+        ))
+    }
+
+    /// Each row's kind, as [`plan_row`] reads it.
+    fn row_contexts(
+        &self,
+        conn: &mut DbConnection,
+        grid: &ParsedCsv,
+        options: &ImportOptions,
+    ) -> Result<HashMap<usize, String>, diesel::result::Error> {
+        let lookups = Lookups::load(conn)?;
+        let mut out = HashMap::new();
+        for record in grid.records() {
+            let row = with_constants(record.values, &lookups, options);
+            if let Some(kind) = row_kind(&row, &lookups, options) {
+                out.insert(record.source_row, kind);
+            }
+        }
+        Ok(out)
+    }
+
     fn dry_run(
         &self,
         conn: &mut DbConnection,
@@ -198,22 +540,26 @@ impl Importer for AssetImporter {
             let values = with_constants(record.values, &lookups, &ctx.options);
             let row = &values;
             let result = match plan_row(row, &lookups, &file_keys, &ctx.options) {
-                Ok(planned) => match planned.action {
-                    RowAction::Create => {
-                        if is_keyless(row) {
-                            keyless += 1;
+                Ok(planned) => {
+                    let mut result = match planned.action {
+                        RowAction::Create => {
+                            if is_keyless(row) {
+                                keyless += 1;
+                            }
+                            RowResult::planned(record.source_row, RowOutcome::Create)
                         }
-                        RowResult::planned(record.source_row, RowOutcome::Create)
-                    }
-                    RowAction::Update(id) => {
-                        RowResult::planned(record.source_row, RowOutcome::Update)
-                            .with_record(RecordId::Int(id))
-                    }
-                    RowAction::Unchanged(id) => {
-                        RowResult::planned(record.source_row, RowOutcome::Unchanged)
-                            .with_record(RecordId::Int(id))
-                    }
-                },
+                        RowAction::Update(id) | RowAction::SyncedUpdate(id) => {
+                            RowResult::planned(record.source_row, RowOutcome::Update)
+                                .with_record(RecordId::Int(id))
+                        }
+                        RowAction::Unchanged(id) => {
+                            RowResult::planned(record.source_row, RowOutcome::Unchanged)
+                                .with_record(RecordId::Int(id))
+                        }
+                    };
+                    result.dropped = planned.dropped;
+                    result
+                }
                 Err(field_errors) => RowResult::skipped(record.source_row, field_errors),
             };
             plan.rows.push(identify(result, row, &ctx.options));
@@ -266,7 +612,7 @@ impl Importer for AssetImporter {
                     RowOutcome::Create,
                     asset_repo::create_device(
                         conn,
-                        build_new_asset(row, planned.kind, ctx.actor, mark),
+                        build_new_asset(row, &planned, ctx.actor, mark),
                     ),
                 ),
                 // Routed through update_device so the asset.updated sync
@@ -276,28 +622,41 @@ impl Importer for AssetImporter {
                     asset_repo::update_device(
                         conn,
                         asset_id,
-                        build_asset_update(row, planned.kind, mark),
+                        build_asset_update(row, &planned, mark),
+                    ),
+                ),
+                // A synced asset takes its attributes and nothing else, as
+                // PUT re-scopes its update.
+                RowAction::SyncedUpdate(asset_id) => (
+                    RowOutcome::Update,
+                    asset_repo::update_device(
+                        conn,
+                        asset_id,
+                        AssetUpdate {
+                            attributes: planned.attributes.clone(),
+                            updated_at: Some(chrono::Utc::now().naive_utc()),
+                            ..Default::default()
+                        },
                     ),
                 ),
                 // A synced asset's row matched it, so there is nothing to write.
                 RowAction::Unchanged(asset_id) => {
-                    rows.push(identify(
-                        RowResult::planned(row_num, RowOutcome::Unchanged)
-                            .with_record(RecordId::Int(asset_id)),
-                        row,
-                        options,
-                    ));
+                    let mut result = RowResult::planned(row_num, RowOutcome::Unchanged)
+                        .with_record(RecordId::Int(asset_id));
+                    result.dropped = planned.dropped;
+                    rows.push(identify(result, row, options));
                     continue;
                 }
             };
             let asset = written.map_err(|e| row_write_error(row_num, e))?;
             let before = match planned.action {
-                RowAction::Update(id) => lookups.existing.get(&id),
+                RowAction::Update(id) | RowAction::SyncedUpdate(id) => lookups.existing.get(&id),
                 _ => None,
             };
             let mut result =
                 RowResult::planned(row_num, outcome).with_record(RecordId::Int(asset.id));
-            result.fields_written = fields_written(before, &asset);
+            result.fields_written = fields_written(before, &asset, &lookups);
+            result.dropped = planned.dropped;
             if outcome == RowOutcome::Create {
                 let event =
                     asset_lifecycle_repo::record_imported(conn, &asset, ctx.actor, ctx.job_id)?;
@@ -346,12 +705,64 @@ fn matches_existing(
     }
 }
 
-/// An asset's importable fields as text, blank as `None`, in the order
-/// the template lists them.
-fn field_values(asset: &Asset) -> [(&'static str, Option<String>); 11] {
+/// The one existing asset the row's key names, if it names exactly one.
+fn matched_asset<'a>(
+    row: &HashMap<String, String>,
+    lookups: &'a Lookups,
+    options: &ImportOptions,
+) -> Option<&'a Asset> {
+    let id = match options.key() {
+        MatchBy::AssetTag | MatchBy::None => match lookups.tags.get(&trimmed(row, "asset_tag")) {
+            Some(ids) if ids.len() == 1 => Some(ids[0]),
+            _ => None,
+        },
+        MatchBy::SerialNumber => lookups.serials.get(&trimmed(row, "serial_number")).copied(),
+    }?;
+    lookups.existing.get(&id)
+}
+
+/// The row's kind as a slug: its kind cell, or for a blank cell the
+/// matched asset's kind, else the default kind. `None` when the cell names
+/// no kind.
+fn row_kind(
+    row: &HashMap<String, String>,
+    lookups: &Lookups,
+    options: &ImportOptions,
+) -> Option<String> {
+    let cell = trimmed(row, "kind");
+    if !cell.is_empty() {
+        return lookups.kinds.get(&cell.to_lowercase()).cloned();
+    }
+    if let Some(asset) = matched_asset(row, lookups, options) {
+        return Some(asset.kind.clone());
+    }
+    let default = options.default_kind.as_deref()?;
+    lookups.kinds.get(&default.to_lowercase()).cloned()
+}
+
+/// A value as `fields_written` keeps it: text, blank as `None`.
+fn value_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(s) if s.is_empty() => None,
+        Value::String(s) => Some(s.clone()),
+        Value::Array(items) => Some(
+            items
+                .iter()
+                .filter_map(value_text)
+                .collect::<Vec<_>>()
+                .join("; "),
+        ),
+        other => Some(other.to_string()),
+    }
+}
+
+/// An asset's importable fields as text by field id, blank as `None`. The
+/// primary user reads as their email.
+fn field_values(asset: &Asset, lookups: &Lookups) -> BTreeMap<String, Option<String>> {
     let text = |v: &Option<String>| v.clone().filter(|v| !v.is_empty());
     let decimal = |v: &Option<BigDecimal>| v.as_ref().map(ToString::to_string);
-    [
+    let mut out: BTreeMap<String, Option<String>> = [
         ("name", Some(asset.name.clone())),
         ("kind", Some(asset.kind.clone())),
         ("asset_tag", text(&asset.asset_tag)),
@@ -363,25 +774,56 @@ fn field_values(asset: &Asset) -> [(&'static str, Option<String>); 11] {
         ("quantity", decimal(&asset.quantity)),
         ("unit", text(&asset.unit)),
         ("low_stock_threshold", decimal(&asset.low_stock_threshold)),
+        (
+            "purchase_date",
+            asset
+                .purchase_date
+                .map(|d| d.format("%Y-%m-%d").to_string()),
+        ),
+        (
+            "primary_user",
+            asset.primary_user_uuid.map(|u| {
+                lookups
+                    .member_emails
+                    .get(&u)
+                    .cloned()
+                    .unwrap_or_else(|| u.to_string())
+            }),
+        ),
     ]
+    .into_iter()
+    .map(|(field, value)| (field.to_string(), value))
+    .collect();
+    if let Some(attributes) = asset.attributes.as_object() {
+        for (key, value) in attributes {
+            out.insert(lookups.attribute_id(key), value_text(value));
+        }
+    }
+    out
 }
 
 /// What a write changed on an asset, field by field: every field it holds
 /// for a new asset (`before` is `None`), only the changed ones for an
 /// existing one.
-fn fields_written(before: Option<&Asset>, after: &Asset) -> BTreeMap<String, FieldChange> {
-    let old = before.map(field_values);
-    field_values(after)
+fn fields_written(
+    before: Option<&Asset>,
+    after: &Asset,
+    lookups: &Lookups,
+) -> BTreeMap<String, FieldChange> {
+    let old = before.map(|a| field_values(a, lookups)).unwrap_or_default();
+    let new = field_values(after, lookups);
+    let fields: HashSet<&String> = old.keys().chain(new.keys()).collect();
+    fields
         .into_iter()
-        .enumerate()
-        .filter_map(|(i, (field, value))| {
-            let was = old.as_ref().and_then(|o| o[i].1.clone());
-            (value != was).then(|| {
+        .filter_map(|field| {
+            let was = old.get(field).cloned().flatten();
+            let now = new.get(field).cloned().flatten();
+            (was != now).then(|| {
                 (
-                    field.to_string(),
+                    field.clone(),
                     FieldChange {
                         before: was,
-                        after: value,
+                        after: now,
                     },
                 )
             })
@@ -435,6 +877,8 @@ enum RowAction {
     Create,
     /// Update the existing asset with this id (matched on the match key).
     Update(i32),
+    /// A synced asset whose row changes only its attributes: write those.
+    SyncedUpdate(i32),
     /// A synced asset whose row matches what's stored: nothing to write.
     Unchanged(i32),
 }
@@ -443,6 +887,13 @@ struct PlannedRow {
     action: RowAction,
     /// The kind's slug, resolved from the slug or label in the file.
     kind: String,
+    /// The asset's attributes with the row's merged in, when the row
+    /// writes any.
+    attributes: Option<Value>,
+    purchase_date: Option<NaiveDate>,
+    primary_user: Option<Uuid>,
+    /// Values the row's kind has no attribute for.
+    dropped: Vec<DroppedCell>,
 }
 
 /// Workspace state every row is checked against, loaded once per run.
@@ -459,12 +910,19 @@ struct Lookups {
     kinds: HashMap<String, String>,
     kind_labels: Vec<String>,
     by_slug: HashMap<String, KindInfo>,
+    /// The attributes columns can feed.
+    attributes: Vec<AttributeDef>,
+    /// Members by lowercased primary email.
+    members: HashMap<String, Uuid>,
+    /// Members' primary emails by user.
+    member_emails: HashMap<Uuid, String>,
 }
 
 struct KindInfo {
     label: String,
     /// Attribute keys the kind's schema defines.
     properties: HashSet<String>,
+    schema: Value,
 }
 
 impl Lookups {
@@ -509,22 +967,31 @@ impl Lookups {
                 .or_insert_with(|| k.slug.clone());
         }
         let kind_labels = registry.iter().map(|k| k.label.clone()).collect();
+        let attributes = attribute_defs(&registry);
         let by_slug = registry
             .into_iter()
             .map(|k| {
                 let properties = k
                     .attribute_schema
                     .get("properties")
-                    .and_then(serde_json::Value::as_object)
+                    .and_then(Value::as_object)
                     .map(|props| props.keys().cloned().collect())
                     .unwrap_or_default();
                 let info = KindInfo {
                     label: k.label,
                     properties,
+                    schema: k.attribute_schema,
                 };
                 (k.slug, info)
             })
             .collect();
+
+        let mut members = HashMap::new();
+        let mut member_emails = HashMap::new();
+        for (user, email) in workspace_repo::member_primary_emails(conn)? {
+            members.insert(email.to_lowercase(), user);
+            member_emails.insert(user, email);
+        }
 
         Ok(Self {
             tags,
@@ -534,7 +1001,33 @@ impl Lookups {
             kinds,
             kind_labels,
             by_slug,
+            attributes,
+            members,
+            member_emails,
         })
+    }
+
+    /// The field id of an attribute key.
+    fn attribute_id(&self, key: &str) -> String {
+        self.attributes
+            .iter()
+            .find(|d| d.key == key)
+            .map_or_else(|| key.to_string(), |d| d.id.clone())
+    }
+
+    fn kind_label(&self, slug: &str) -> String {
+        self.by_slug
+            .get(slug)
+            .map_or_else(|| slug.to_string(), |k| k.label.clone())
+    }
+
+    /// The member a cell names by primary email (any case) or user id.
+    fn member(&self, cell: &str) -> Option<Uuid> {
+        if cell.contains('@') {
+            return self.members.get(&cell.to_lowercase()).copied();
+        }
+        let id = Uuid::parse_str(cell).ok()?;
+        self.member_emails.contains_key(&id).then_some(id)
     }
 }
 
@@ -622,6 +1115,27 @@ fn plan_row(
         Ok(Some(v)) if v < 0 => error("low_stock_threshold", "must be 0 or more".to_string()),
         Ok(_) => {}
     }
+
+    let purchase_date = match opt_string(row, "purchase_date") {
+        None => None,
+        Some(raw) => match values::parse_date(&raw, options.date_order) {
+            Some(date) => Some(date),
+            None => {
+                error("purchase_date", invalid_date(&raw, options.date_order));
+                None
+            }
+        },
+    };
+    let primary_user = match opt_string(row, "primary_user") {
+        None => None,
+        Some(raw) => match lookups.member(&raw) {
+            Some(user) => Some(user),
+            None => {
+                error("primary_user", not_a_member(&raw));
+                None
+            }
+        },
+    };
 
     let tag = trimmed(row, "asset_tag");
     // Same canonical form the repository stores (trimmed, blank is none).
@@ -713,11 +1227,8 @@ fn plan_row(
         }
     }
 
-    // Matched on slug or label, ignoring case. Kind attributes aren't
-    // CSV columns, so the kind's required attributes aren't checked
-    // here: the asset is created without them and filled in on its page.
-    // A blank cell keeps an existing asset's kind and gives a new one the
-    // default kind.
+    // Matched on slug or label, ignoring case. A blank cell keeps an
+    // existing asset's kind and gives a new one the default kind.
     let existing = target.and_then(|id| lookups.existing.get(&id));
     let kind_cell = trimmed(row, "kind");
     let kind = if kind_cell.is_empty() {
@@ -743,13 +1254,15 @@ fn plan_row(
         found
     };
 
-    // An update follows what PUT and the asset page allow. Required
-    // attributes stay unchecked, as for new rows.
+    // An update follows what PUT and the asset page allow.
     let mut synced = false;
+    let mut kind_ok = true;
     if let (Some(new_kind), Some(asset)) = (&kind, existing) {
         if let Some(source) = &asset.external_sync_source {
             synced = true;
-            if let Some(column) = synced_column_change(row, asset, new_kind, mark) {
+            if let Some(column) =
+                synced_column_change(row, asset, new_kind, mark, purchase_date, primary_user)
+            {
                 error(
                     column,
                     format!(
@@ -762,19 +1275,326 @@ fn plan_row(
             }
         } else if let Some(message) = kind_change_error(lookups, asset, new_kind) {
             error("kind", message);
+            kind_ok = false;
+        }
+    }
+
+    // Attributes, read as the row's kind types them and merged into what
+    // the asset holds.
+    let mut attributes = None;
+    let mut attributes_changed = false;
+    let mut dropped = Vec::new();
+    if let Some(kind) = &kind {
+        let read = read_attributes(row, lookups, kind, options);
+        dropped = read.dropped;
+        let read_ok = read.errors.is_empty();
+        for (column, message) in read.errors {
+            error(&column, message);
+        }
+        let mut merged = existing
+            .and_then(|a| a.attributes.as_object().cloned())
+            .unwrap_or_default();
+        let writes = !read.values.is_empty();
+        for (key, value) in read.values {
+            if merged.get(&key) != Some(&value) {
+                attributes_changed = true;
+            }
+            merged.insert(key, value);
+        }
+        let kind_changed = existing.is_some_and(|a| a.kind != *kind);
+        // A new asset is always checked; an existing one when the row
+        // writes an attribute or changes its kind, as PUT checks it.
+        if read_ok && kind_ok && (existing.is_none() || writes || kind_changed) {
+            if let Some(info) = lookups.by_slug.get(kind) {
+                let merged_value = Value::Object(merged.clone());
+                if let Err(e) = validate_attributes(&info.schema, &merged_value) {
+                    let (key, message) = attribute_error(&e, lookups, kind, &merged);
+                    // Without a key the attributes as a whole are refused,
+                    // which the kind accounts for.
+                    let column =
+                        key.map_or_else(|| "kind".to_string(), |k| lookups.attribute_id(&k));
+                    error(&column, message);
+                }
+            }
+        }
+        if writes {
+            attributes = Some(Value::Object(merged));
         }
     }
 
     match kind {
         Some(kind) if errors.is_empty() => {
             let action = match target {
+                Some(id) if synced && attributes_changed => RowAction::SyncedUpdate(id),
                 Some(id) if synced => RowAction::Unchanged(id),
                 Some(id) => RowAction::Update(id),
                 None => RowAction::Create,
             };
-            Ok(PlannedRow { action, kind })
+            Ok(PlannedRow {
+                action,
+                kind,
+                attributes,
+                purchase_date,
+                primary_user,
+                dropped,
+            })
         }
         _ => Err(errors),
+    }
+}
+
+/// What one row's attribute cells come to.
+struct ReadAttributes {
+    /// Key to value, typed.
+    values: Map<String, Value>,
+    /// Field id and why its cell doesn't read.
+    errors: Vec<(String, String)>,
+    dropped: Vec<DroppedCell>,
+}
+
+/// Read a row's attribute cells as `kind`'s schema types them. A value for
+/// an attribute the kind doesn't have, or has only as a synced field, is
+/// dropped; one a constant set is dropped without a count, since the file
+/// didn't hold it.
+fn read_attributes(
+    row: &HashMap<String, String>,
+    lookups: &Lookups,
+    kind: &str,
+    options: &ImportOptions,
+) -> ReadAttributes {
+    let mut out = ReadAttributes {
+        values: Map::new(),
+        errors: Vec::new(),
+        dropped: Vec::new(),
+    };
+    for def in &lookups.attributes {
+        let raw = trimmed(row, &def.id);
+        if raw.is_empty() {
+            continue;
+        }
+        let Some(prop) = def.prop(kind) else {
+            if !options.constants.iter().any(|c| c.field == def.id) {
+                out.dropped.push(DroppedCell {
+                    column: def.id.clone(),
+                    source_column: None,
+                    kind: kind.to_string(),
+                });
+            }
+            continue;
+        };
+        match parse_attribute(&raw, prop, lookups, options) {
+            Ok(value) => {
+                out.values.insert(def.key.clone(), value);
+            }
+            Err(message) => out.errors.push((def.id.clone(), message)),
+        }
+    }
+    out
+}
+
+/// One attribute cell as its property's schema types it. The schema's
+/// other rules (length, pattern, range) are checked with the whole row.
+fn parse_attribute(
+    raw: &str,
+    prop: &Value,
+    lookups: &Lookups,
+    options: &ImportOptions,
+) -> Result<Value, String> {
+    match prop.get("type").and_then(Value::as_str).unwrap_or("string") {
+        "array" => {
+            let items = prop.get("items").cloned().unwrap_or(Value::Null);
+            raw.split(';')
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(|item| parse_attribute(item, &items, lookups, options))
+                .collect::<Result<Vec<_>, _>>()
+                .map(Value::Array)
+        }
+        "boolean" => values::read_boolean(raw)
+            .map(Value::Bool)
+            .ok_or_else(|| format!("'{raw}' is not yes or no")),
+        ty @ ("number" | "integer") => {
+            let number = values::parse_decimal(raw, options.decimal_mark())?
+                .ok_or_else(|| format!("'{raw}' is not a number"))?;
+            number_value(&number, ty == "integer").ok_or_else(|| {
+                if ty == "integer" {
+                    format!("'{raw}' is not a whole number")
+                } else {
+                    format!("'{raw}' is not a number")
+                }
+            })
+        }
+        _ => parse_text_attribute(raw, prop, lookups, options).map(Value::String),
+    }
+}
+
+/// A number as JSON: whole numbers as integers.
+fn number_value(number: &BigDecimal, integer: bool) -> Option<Value> {
+    if number.is_integer() {
+        return number.to_i64().map(Value::from);
+    }
+    if integer {
+        return None;
+    }
+    let float: f64 = number.to_string().parse().ok()?;
+    serde_json::Number::from_f64(float).map(Value::Number)
+}
+
+/// A text attribute cell: an enum option in its own spelling, a date, a
+/// date-time, a member, an asset, or the text as it is.
+fn parse_text_attribute(
+    raw: &str,
+    prop: &Value,
+    lookups: &Lookups,
+    options: &ImportOptions,
+) -> Result<String, String> {
+    let choices = enum_options(prop);
+    if prop.get("enum").is_some() {
+        let wanted = values::loose(raw);
+        return choices
+            .iter()
+            .find(|c| values::loose(c) == wanted)
+            .cloned()
+            .ok_or_else(|| format!("'{raw}' is not one of: {}", choices.join(", ")));
+    }
+    let order = options.date_order;
+    match prop.get("format").and_then(Value::as_str) {
+        Some("date") => values::parse_date(raw, order)
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .ok_or_else(|| invalid_date(raw, order)),
+        Some("date-time") => parse_date_time(raw, order).ok_or_else(|| {
+            format!(
+                "'{raw}' is not a valid date and time; use YYYY-MM-DDTHH:MM:SSZ or {}",
+                values::date_hint(order)
+            )
+        }),
+        Some("user-uuid") => lookups
+            .member(raw)
+            .map(|u| u.to_string())
+            .ok_or_else(|| not_a_member(raw)),
+        Some("asset-ref") => asset_ref(raw, lookups),
+        _ => Ok(raw.to_string()),
+    }
+}
+
+/// An RFC 3339 date-time, a date-time without an offset (read as UTC), or a
+/// date (midnight UTC), as RFC 3339.
+fn parse_date_time(raw: &str, order: DateOrder) -> Option<String> {
+    use chrono::SecondsFormat;
+    if let Ok(at) = chrono::DateTime::parse_from_rfc3339(raw) {
+        return Some(at.to_rfc3339_opts(SecondsFormat::AutoSi, true));
+    }
+    for format in [
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M",
+    ] {
+        if let Ok(at) = chrono::NaiveDateTime::parse_from_str(raw, format) {
+            return Some(at.and_utc().to_rfc3339_opts(SecondsFormat::AutoSi, true));
+        }
+    }
+    let date = values::parse_date(raw, order)?;
+    Some(
+        date.and_hms_opt(0, 0, 0)?
+            .and_utc()
+            .to_rfc3339_opts(SecondsFormat::AutoSi, true),
+    )
+}
+
+/// An asset reference: a tag one asset holds, or an asset id.
+fn asset_ref(raw: &str, lookups: &Lookups) -> Result<String, String> {
+    match lookups.tags.get(raw).map(Vec::as_slice) {
+        Some([id]) => return Ok(id.to_string()),
+        Some(ids) if ids.len() > 1 => return Err(shared_tag_error(lookups, raw, ids)),
+        _ => {}
+    }
+    match raw.parse::<i32>() {
+        Ok(id) if id > 0 => Ok(id.to_string()),
+        _ => Err(format!("no asset has the tag '{raw}'")),
+    }
+}
+
+fn invalid_date(raw: &str, order: DateOrder) -> String {
+    format!(
+        "'{raw}' is not a valid date; use {}",
+        values::date_hint(order)
+    )
+}
+
+fn not_a_member(raw: &str) -> String {
+    format!("'{raw}' is not a member of this workspace")
+}
+
+/// An attribute check that failed, as the key it's about (when one) and a
+/// message for the admin.
+fn attribute_error(
+    e: &AttributeError,
+    lookups: &Lookups,
+    kind: &str,
+    attributes: &Map<String, Value>,
+) -> (Option<String>, String) {
+    use AttributeError as E;
+    let shown = |key: &str| attributes.get(key).and_then(value_text).unwrap_or_default();
+    let kind_label = lookups.kind_label(kind);
+    let about = |key: &String, message: String| (Some(key.clone()), message);
+    match e {
+        E::NotObject => (None, "attributes must be an object".to_string()),
+        // Shown after the attribute's name: "Fuel: required for Vehicle
+        // assets".
+        E::MissingRequired(key) => about(key, format!("required for {kind_label} assets")),
+        E::UnknownProperty(key) => about(
+            key,
+            format!("{kind_label} assets have no attribute '{key}'; remove it on the asset page"),
+        ),
+        E::WrongType {
+            property, expected, ..
+        } => about(
+            property,
+            format!("'{}' is not a {expected}", shown(property)),
+        ),
+        E::NotInEnum { property, allowed } => {
+            let allowed: Vec<String> = allowed.iter().filter_map(value_text).collect();
+            about(
+                property,
+                format!(
+                    "'{}' is not one of: {}",
+                    shown(property),
+                    allowed.join(", ")
+                ),
+            )
+        }
+        E::TooShort { property, min } => about(
+            property,
+            format!("'{}' is shorter than {min} characters", shown(property)),
+        ),
+        E::TooLong { property, max } => about(
+            property,
+            format!("'{}' is longer than {max} characters", shown(property)),
+        ),
+        E::PatternMismatch { property } => about(
+            property,
+            format!(
+                "'{}' doesn't match the pattern {kind_label} sets for it",
+                shown(property)
+            ),
+        ),
+        E::BadFormat { property, format } => about(
+            property,
+            format!("'{}' is not a valid {format}", shown(property)),
+        ),
+        E::BelowMinimum { property, min } => about(
+            property,
+            format!("'{}' is below the minimum of {min}", shown(property)),
+        ),
+        E::AboveMaximum { property, max } => about(
+            property,
+            format!("'{}' is above the maximum of {max}", shown(property)),
+        ),
+        E::NotMultipleOf { property, step } => about(
+            property,
+            format!("'{}' is not a multiple of {step}", shown(property)),
+        ),
     }
 }
 
@@ -815,14 +1635,17 @@ fn sync_source_name(source: &str) -> &'static str {
 }
 
 /// The first column, in file order, where the row would change a synced
-/// asset. PUT takes none of these on a synced asset. Values compare as the
-/// update would write them, so a blank cell never differs, and stored
-/// values compare trimmed, so a re-imported export matches.
+/// asset. PUT takes none of these on a synced asset; attributes it does
+/// take. Values compare as the update would write them, so a blank cell
+/// never differs, and stored values compare trimmed, so a re-imported
+/// export matches.
 fn synced_column_change(
     row: &HashMap<String, String>,
     asset: &Asset,
     new_kind: &str,
     mark: DecimalMark,
+    purchase_date: Option<NaiveDate>,
+    primary_user: Option<Uuid>,
 ) -> Option<&'static str> {
     fn stored(value: &Option<String>) -> Option<&str> {
         value.as_deref().map(str::trim).filter(|v| !v.is_empty())
@@ -834,7 +1657,7 @@ fn synced_column_change(
     let kept_decimal = |column: &str, current: &Option<BigDecimal>| {
         check_decimal(row, column, mark).is_ok_and(|v| v.is_some_and(|v| Some(v) != *current))
     };
-    let changed: [(&'static str, bool); 10] = [
+    let changed: [(&'static str, bool); 12] = [
         ("name", trimmed(row, "name") != asset.name.trim()),
         ("kind", new_kind != asset.kind),
         ("serial_number", kept("serial_number", &asset.serial_number)),
@@ -847,6 +1670,14 @@ fn synced_column_change(
         (
             "low_stock_threshold",
             kept_decimal("low_stock_threshold", &asset.low_stock_threshold),
+        ),
+        (
+            "purchase_date",
+            purchase_date.is_some_and(|d| Some(d) != asset.purchase_date),
+        ),
+        (
+            "primary_user",
+            primary_user.is_some_and(|u| Some(u) != asset.primary_user_uuid),
         ),
     ];
     changed
@@ -884,16 +1715,10 @@ fn kind_change_error(lookups: &Lookups, existing: &Asset, new_kind: &str) -> Opt
         return None;
     }
     dropped.sort_unstable();
-    let label = |slug: &str| {
-        lookups
-            .by_slug
-            .get(slug)
-            .map_or_else(|| slug.to_string(), |k| k.label.clone())
-    };
     Some(format!(
         "changing kind from {} to {} would drop attributes: {}; change the kind on the asset page instead",
-        label(old_kind),
-        label(new_kind),
+        lookups.kind_label(old_kind),
+        lookups.kind_label(new_kind),
         dropped.join(", ")
     ))
 }
@@ -955,8 +1780,8 @@ fn opt_decimal(row: &HashMap<String, String>, key: &str, mark: DecimalMark) -> O
 
 fn build_new_asset(
     row: &HashMap<String, String>,
-    kind: String,
-    created_by: Option<uuid::Uuid>,
+    planned: &PlannedRow,
+    created_by: Option<Uuid>,
     mark: DecimalMark,
 ) -> NewAsset {
     NewAsset {
@@ -966,11 +1791,14 @@ fn build_new_asset(
         model: opt_string(row, "model"),
         location: opt_string(row, "location"),
         notes: opt_string(row, "notes"),
-        primary_user_uuid: None,
-        purchase_date: None,
+        primary_user_uuid: planned.primary_user,
+        purchase_date: planned.purchase_date,
         asset_tag: opt_string(row, "asset_tag"),
-        kind,
-        attributes: serde_json::json!({}),
+        kind: planned.kind.clone(),
+        attributes: planned
+            .attributes
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({})),
         quantity: opt_decimal(row, "quantity", mark),
         unit: opt_string(row, "unit"),
         external_sync_source: None,
@@ -981,7 +1809,7 @@ fn build_new_asset(
 
 fn build_asset_update(
     row: &HashMap<String, String>,
-    kind: String,
+    planned: &PlannedRow,
     mark: DecimalMark,
 ) -> AssetUpdate {
     // A blank cell leaves the column as it is (outer `None`); it never clears.
@@ -992,13 +1820,13 @@ fn build_asset_update(
         model: opt_string(row, "model"),
         location: opt_string(row, "location").map(Some),
         notes: opt_string(row, "notes").map(Some),
-        primary_user_uuid: None,
+        primary_user_uuid: planned.primary_user.map(Some),
         managed_by_user_uuid: None,
-        purchase_date: None,
+        purchase_date: planned.purchase_date.map(Some),
         asset_tag: opt_string(row, "asset_tag").map(Some),
         updated_at: Some(chrono::Utc::now().naive_utc()),
-        kind: Some(kind),
-        attributes: None,
+        kind: Some(planned.kind.clone()),
+        attributes: planned.attributes.clone(),
         quantity: opt_decimal(row, "quantity", mark).map(Some),
         unit: opt_string(row, "unit").map(Some),
         external_sync_source: None,

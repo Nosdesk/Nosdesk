@@ -29,8 +29,8 @@
 //!   rows as CSV in the file's own layout, with the reasons.
 //! - `GET  /admin/import/fields?type=` lists the fields a column
 //!   can map to.
-//! - `GET  /admin/import/template/{type}` returns a CSV header
-//!   row the admin can fill in.
+//! - `GET  /admin/import/template/{type}?kind=` returns a CSV header
+//!   row the admin can fill in; for assets, with the kind's attributes.
 //!
 //! Every route is workspace-admin only, and files are read before any
 //! transaction opens.
@@ -1517,7 +1517,6 @@ pub async fn get_values(
             .unwrap_or_default();
         Ok(values::view(
             &resolution,
-            &loaded.fields,
             &loaded.stored.source.headers,
             &checked,
         ))
@@ -1863,9 +1862,21 @@ fn download_stem(filename: &str) -> String {
     }
 }
 
-/// Plain-text CSV template for the requested import type. Just
-/// the header row; the admin fills in the data rows.
-pub async fn template(auth: AuthContext, path: web::Path<String>) -> impl Responder {
+#[derive(Debug, Deserialize)]
+pub struct TemplateQuery {
+    /// Assets only: the kind whose attributes follow the core columns.
+    pub kind: Option<String>,
+}
+
+/// CSV template for the requested import type: a header row the admin
+/// fills in. For assets, the core columns, then the attributes of `?kind=`
+/// when given, with a BOM and each header guarded against formulas.
+pub async fn template(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<String>,
+    query: web::Query<TemplateQuery>,
+) -> impl Responder {
     if !auth.is_workspace_admin() {
         return errors::forbidden("Import requires workspace admin");
     }
@@ -1873,16 +1884,58 @@ pub async fn template(auth: AuthContext, path: web::Path<String>) -> impl Respon
         Some(t) => t,
         None => return errors::bad_request("unknown import type"),
     };
-    let importer = imports::importer_for(job_type);
-    let body = importer.template_headers().join(",") + "\n";
+    let kind = query
+        .kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty());
+    let (body, name) = match job_type {
+        ImportType::Assets => {
+            let headers = match tc.run(|conn| imports::assets::template_headers(conn, kind)) {
+                Ok(Some(headers)) => headers,
+                Ok(None) => {
+                    return errors::bad_request(format!(
+                        "unknown kind '{}'",
+                        kind.unwrap_or_default()
+                    ))
+                }
+                Err(e) => {
+                    error!(error = ?e, "failed to read asset kinds for a template");
+                    return errors::internal("failed to build the template");
+                }
+            };
+            let body = match imports::assets::template_csv(&headers) {
+                Ok(body) => body,
+                Err(e) => {
+                    error!(error = ?e, "failed to write an import template");
+                    return errors::internal("failed to build the template");
+                }
+            };
+            let name = match kind {
+                Some(kind) => format!(
+                    "{}.csv",
+                    download_stem(&format!("nosdesk-assets-{kind}-template.csv"))
+                ),
+                None => "nosdesk-assets-template.csv".to_string(),
+            };
+            (body, name)
+        }
+        other => {
+            if kind.is_some() {
+                return errors::bad_request("kind applies to asset templates only");
+            }
+            let body = imports::importer_for(other).template_headers().join(",") + "\n";
+            (
+                body.into_bytes(),
+                format!("nosdesk-{}-template.csv", other.as_str()),
+            )
+        }
+    };
     HttpResponse::Ok()
         .insert_header((header::CONTENT_TYPE, "text/csv; charset=utf-8"))
         .insert_header((
             header::CONTENT_DISPOSITION,
-            format!(
-                "attachment; filename=\"nosdesk-{}-template.csv\"",
-                job_type.as_str()
-            ),
+            format!("attachment; filename=\"{name}\""),
         ))
         .body(body)
 }

@@ -551,7 +551,11 @@ async fn the_fields_endpoint_lists_the_targets() {
     let body = json(&body);
     assert_eq!(status, StatusCode::OK, "{body}");
     let fields = body["fields"].as_array().expect("fields");
-    let ids: Vec<&str> = fields.iter().filter_map(|f| f["id"].as_str()).collect();
+    let ids: Vec<&str> = fields
+        .iter()
+        .filter(|f| f["group"] != "attribute")
+        .filter_map(|f| f["id"].as_str())
+        .collect();
     assert_eq!(
         ids,
         vec![
@@ -564,6 +568,8 @@ async fn the_fields_endpoint_lists_the_targets() {
             "quantity",
             "unit",
             "low_stock_threshold",
+            "purchase_date",
+            "primary_user",
             "manufacturer",
             "model"
         ]
@@ -575,7 +581,18 @@ async fn the_fields_endpoint_lists_the_targets() {
         .as_array()
         .is_some_and(|kinds| kinds.iter().any(|k| k == "generic")));
     assert_eq!(fields[6]["value_type"], "number");
-    assert_eq!(fields[9]["group"], "links");
+    assert_eq!(fields[9]["value_type"], "date");
+    assert_eq!(fields[10]["value_type"], "user");
+    assert_eq!(fields[11]["group"], "links");
+    // The built-in IT kinds' warranty attributes, less the synced keys.
+    let warranty = fields
+        .iter()
+        .find(|f| f["id"] == "warranty_status")
+        .expect("warranty_status attribute");
+    assert_eq!(warranty["group"], "attribute");
+    assert_eq!(warranty["value_type"], "enum");
+    assert!(warranty.get("label_key").is_none());
+    assert!(!fields.iter().any(|f| f["id"] == "hostname"));
 
     let (status, _) = call_import_route(
         &pool,

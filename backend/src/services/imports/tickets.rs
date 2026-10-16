@@ -12,7 +12,7 @@
 //!   - requester_email optional, resolved against user_emails
 //!   - assignee_email  optional, resolved against user_emails
 //!   - category        optional, resolved against ticket_categories.name
-//!   - due_date        optional, ISO-8601 date (YYYY-MM-DD)
+//!   - due_date        optional, a date: YYYY-MM-DD, or in the Map step's order
 //!
 //! No description column for v1; ticket bodies live in
 //! `article_contents` and the import wizard isn't the right
@@ -31,8 +31,8 @@ use crate::repository::tickets as ticket_repo;
 
 use super::csv_parser::ParsedCsv;
 use super::types::{
-    CommitError, Committed, FieldGroup, FieldSpec, ImportContext, ImportType, ImportedRecords,
-    Importer, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
+    CommitError, Committed, DateOrder, FieldGroup, FieldSpec, ImportContext, ImportType,
+    ImportedRecords, Importer, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
 };
 use super::values::{self, Choice};
 
@@ -149,7 +149,7 @@ impl Importer for TicketImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-        _ctx: &ImportContext,
+        ctx: &ImportContext,
     ) -> Result<RowPlan, diesel::result::Error> {
         if let Some(err) = check_headers(&parsed.headers) {
             return Ok(RowPlan {
@@ -163,7 +163,7 @@ impl Importer for TicketImporter {
 
         for record in parsed.records() {
             let row_num = record.source_row;
-            let result = match validate_row(&record.values, &lookups) {
+            let result = match validate_row(&record.values, &lookups, ctx.options.date_order) {
                 Ok(_) => RowResult::planned(row_num, RowOutcome::Create),
                 Err(errs) => RowResult::skipped(row_num, errs),
             };
@@ -177,7 +177,7 @@ impl Importer for TicketImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-        _ctx: &ImportContext,
+        ctx: &ImportContext,
     ) -> Result<Committed, CommitError> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
@@ -192,7 +192,7 @@ impl Importer for TicketImporter {
         for record in parsed.records() {
             let row = &record.values;
             let title = trimmed(row, "title");
-            let resolved = match validate_row(row, &lookups) {
+            let resolved = match validate_row(row, &lookups, ctx.options.date_order) {
                 Ok(r) => r,
                 Err(errs) => {
                     rows.push(RowResult::skipped(record.source_row, errs).with_label(title));
@@ -309,6 +309,7 @@ fn check_headers(headers: &[String]) -> Option<String> {
 fn validate_row(
     row: &HashMap<String, String>,
     lookups: &Lookups,
+    date_order: DateOrder,
 ) -> Result<ResolvedRow, Vec<(Option<String>, String)>> {
     let mut errors: Vec<(Option<String>, String)> = Vec::new();
 
@@ -390,7 +391,7 @@ fn validate_row(
         if raw.is_empty() {
             None
         } else {
-            match values::parse_date(&raw) {
+            match values::parse_date(&raw, date_order) {
                 Some(d) => Some(NaiveDateTime::new(
                     d,
                     NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
@@ -398,7 +399,10 @@ fn validate_row(
                 None => {
                     errors.push((
                         Some("due_date".into()),
-                        format!("'{raw}' is not a valid date; use YYYY-MM-DD"),
+                        format!(
+                            "'{raw}' is not a valid date; use {}",
+                            values::date_hint(date_order)
+                        ),
                     ));
                     None
                 }

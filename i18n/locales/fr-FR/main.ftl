@@ -4221,6 +4221,10 @@ import-field-assets-unit = Unité
 # MT: pending native review (fr-FR)
 import-field-assets-low-stock-threshold = Seuil de stock bas
 # MT: pending native review (fr-FR)
+import-field-assets-purchase-date = Date d'achat
+# MT: pending native review (fr-FR)
+import-field-assets-primary-user = Utilisateur principal
+# MT: pending native review (fr-FR)
 import-field-assets-manufacturer = Fabricant
 # MT: pending native review (fr-FR)
 import-field-assets-model = Modèle

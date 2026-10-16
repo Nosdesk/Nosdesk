@@ -106,6 +106,11 @@ pub struct ImportSummary {
     /// Things worth knowing that aren't errors.
     #[serde(default)]
     pub notices: Vec<Notice>,
+    /// Values in the file that rows import without: a value for an
+    /// attribute the row's kind doesn't have. Counted per field and kind,
+    /// most first; the rows' results name each one.
+    #[serde(default)]
+    pub dropped: Vec<DroppedGroup>,
 }
 
 impl ImportSummary {
@@ -135,7 +140,24 @@ impl ImportSummary {
         if let Some(message) = &plan.file_error {
             summary.push_error(1, None, message.clone());
         }
+        let mut dropped: Vec<DroppedGroup> = Vec::new();
         for result in &plan.rows {
+            if result.outcome != RowOutcome::Skipped {
+                for cell in &result.dropped {
+                    match dropped
+                        .iter_mut()
+                        .find(|g| g.column == cell.column && g.kind == cell.kind)
+                    {
+                        Some(group) => group.count += 1,
+                        None => dropped.push(DroppedGroup {
+                            column: cell.column.clone(),
+                            source_column: cell.source_column.clone(),
+                            kind: cell.kind.clone(),
+                            count: 1,
+                        }),
+                    }
+                }
+            }
             match result.outcome {
                 RowOutcome::Create => summary.would_create += 1,
                 RowOutcome::Update => summary.would_update += 1,
@@ -152,6 +174,9 @@ impl ImportSummary {
             }
         }
         summary.notices = plan.notices.clone();
+        // Stable: equal counts keep file order.
+        dropped.sort_by_key(|g| std::cmp::Reverse(g.count));
+        summary.dropped = dropped;
         summary.finish()
     }
 
@@ -199,6 +224,30 @@ pub struct Notice {
     pub code: String,
     pub count: usize,
     pub message: String,
+}
+
+/// Values of one field a kind doesn't have, dropped from that many rows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DroppedGroup {
+    /// Field id.
+    pub column: String,
+    /// The file's header the field was mapped from.
+    #[serde(default)]
+    pub source_column: Option<String>,
+    /// The rows' kind (slug).
+    pub kind: String,
+    pub count: usize,
+}
+
+/// A value one row imports without: its kind doesn't have the field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DroppedCell {
+    /// Field id.
+    pub column: String,
+    #[serde(default)]
+    pub source_column: Option<String>,
+    /// The row's kind (slug).
+    pub kind: String,
 }
 
 /// What one row of the file comes to.
@@ -256,6 +305,10 @@ pub struct RowResult {
     pub record_id: Option<RecordId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<CellError>,
+    /// Values the row imports without, because its kind doesn't have the
+    /// field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dropped: Vec<DroppedCell>,
     /// The row's cells as the file has them, in source column order, kept
     /// for skipped rows so the error report can give them back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -320,6 +373,7 @@ impl RowResult {
             label: None,
             record_id: None,
             errors: Vec::new(),
+            dropped: Vec::new(),
             cells: Vec::new(),
             fields_written: BTreeMap::new(),
             groups_added: Vec::new(),
@@ -730,6 +784,11 @@ pub struct FieldSpec {
     /// Expected text form, e.g. `YYYY-MM-DD`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
+    /// Kind slugs whose new assets need the field (attributes only). It
+    /// never blocks a mapping: rows of those kinds that lack it are
+    /// reported on Review.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_for: Option<Vec<String>>,
 }
 
 impl FieldSpec {
@@ -757,6 +816,7 @@ impl FieldSpec {
             kinds: None,
             enum_values: None,
             format: None,
+            required_for: None,
         }
     }
 
@@ -797,15 +857,31 @@ pub trait Importer: Send + Sync {
         _conn: &mut DbConnection,
         field: &FieldSpec,
     ) -> Result<Option<Vec<super::values::Choice>>, diesel::result::Error> {
-        Ok(match (&field.value_type, &field.enum_values) {
-            (ValueType::Enum, Some(values)) => Some(
-                values
-                    .iter()
-                    .map(|v| super::values::Choice::new(v.clone(), v.clone()))
-                    .collect(),
-            ),
-            _ => None,
-        })
+        Ok(super::values::enum_choices(field))
+    }
+
+    /// For a field whose values are answered per row context, each
+    /// context with the field as its rows read it; `None` for a field
+    /// answered the same on every row. Asset attributes are answered per
+    /// kind.
+    fn value_contexts(
+        &self,
+        _conn: &mut DbConnection,
+        _field: &FieldSpec,
+    ) -> Result<Option<Vec<super::values::ValueContext>>, diesel::result::Error> {
+        Ok(None)
+    }
+
+    /// Each row's context by source row, read from a mapped grid whose
+    /// answers for fields without a context are written in. A row with
+    /// none is left out.
+    fn row_contexts(
+        &self,
+        _conn: &mut DbConnection,
+        _grid: &ParsedCsv,
+        _options: &ImportOptions,
+    ) -> Result<std::collections::HashMap<usize, String>, diesel::result::Error> {
+        Ok(std::collections::HashMap::new())
     }
 
     /// Other names for a field's choices, as `(name, choice value)`: a

@@ -683,6 +683,9 @@ pub fn annotate(summary: &mut ImportSummary, mapping: &ColumnMapping, headers: &
     for g in &mut summary.error_groups {
         g.source_column = source_of(&g.column);
     }
+    for g in &mut summary.dropped {
+        g.source_column = source_header(mapping, headers, Some(&g.column));
+    }
 }
 
 /// Finish row results for storing: name each error's field by the header
@@ -699,6 +702,9 @@ pub fn complete_rows(
     for result in rows {
         for e in &mut result.errors {
             e.source_column = source_header(mapping, headers, e.column.as_deref());
+        }
+        for d in &mut result.dropped {
+            d.source_column = source_header(mapping, headers, Some(&d.column));
         }
         if result.outcome == RowOutcome::Skipped {
             if let Some(row_cells) = cells.get(&result.row) {
