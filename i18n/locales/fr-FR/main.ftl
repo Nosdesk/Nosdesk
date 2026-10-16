@@ -3995,6 +3995,10 @@ import-values-leave-as-is-help = Les biens existants gardent leur type. Les nouv
 # MT: pending native review (fr-FR)
 import-values-leave-blank = Laisser vide
 # MT: pending native review (fr-FR)
+import-values-keep-text = Conserver comme texte
+# MT: pending native review (fr-FR)
+import-values-leave-off = Ne pas ajouter
+# MT: pending native review (fr-FR)
 import-values-skip = Ignorer ces lignes
 # MT: pending native review (fr-FR)
 import-values-close-to = proche de « { $label } »
@@ -4004,6 +4008,10 @@ import-values-consequence-skipped = seraient ignorées
 import-values-consequence-blank = laissé vide
 # MT: pending native review (fr-FR)
 import-values-consequence-as-is = laissé tel quel
+# MT: pending native review (fr-FR)
+import-values-consequence-text = conservé comme texte
+# MT: pending native review (fr-FR)
+import-values-consequence-off = non ajouté
 # MT: pending native review (fr-FR)
 import-values-blank = (vide)
 # MT: pending native review (fr-FR)
@@ -4145,6 +4153,11 @@ import-review-notice-no-key = { $count ->
    *[other] { $count } lignes n'ont ni étiquette d'actif ni numéro de série. Importer ce fichier à nouveau les créerait une seconde fois.
    }
 # MT: pending native review (fr-FR)
+import-review-notice-location-snapped = { $count ->
+    [one] 1 emplacement correspond à une orthographe existante.
+   *[other] { $count } emplacements correspondent à une orthographe existante.
+   }
+# MT: pending native review (fr-FR)
 import-review-rows-heading = Lignes
 # MT: pending native review (fr-FR)
 import-review-download-report = Télécharger le rapport d'erreurs (.csv)
@@ -4253,6 +4266,8 @@ import-field-assets-primary-user = Utilisateur principal
 import-field-assets-manufacturer = Fabricant
 # MT: pending native review (fr-FR)
 import-field-assets-model = Modèle
+# MT: pending native review (fr-FR)
+import-field-assets-groups = Groupes
 # MT: pending native review (fr-FR)
 import-field-users-email = E-mail
 # MT: pending native review (fr-FR)

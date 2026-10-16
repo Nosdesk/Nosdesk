@@ -3985,6 +3985,10 @@ import-values-leave-as-is-help = Bestaande assets houden hun soort. Nieuwe rijen
 # MT: pending native review (nl-NL)
 import-values-leave-blank = Leeg laten
 # MT: pending native review (nl-NL)
+import-values-keep-text = Als tekst behouden
+# MT: pending native review (nl-NL)
+import-values-leave-off = Weglaten
+# MT: pending native review (nl-NL)
 import-values-skip = Deze rijen overslaan
 # MT: pending native review (nl-NL)
 import-values-close-to = lijkt op '{ $label }'
@@ -3994,6 +3998,10 @@ import-values-consequence-skipped = worden overgeslagen
 import-values-consequence-blank = leeg gelaten
 # MT: pending native review (nl-NL)
 import-values-consequence-as-is = gelaten zoals het is
+# MT: pending native review (nl-NL)
+import-values-consequence-text = als tekst behouden
+# MT: pending native review (nl-NL)
+import-values-consequence-off = weggelaten
 # MT: pending native review (nl-NL)
 import-values-blank = (leeg)
 # MT: pending native review (nl-NL)
@@ -4135,6 +4143,11 @@ import-review-notice-no-key = { $count ->
    *[other] { $count } rijen hebben geen activalabel of serienummer. Als u dit bestand opnieuw importeert, worden ze opnieuw aangemaakt.
    }
 # MT: pending native review (nl-NL)
+import-review-notice-location-snapped = { $count ->
+    [one] 1 locatie komt overeen met een bestaande spelling.
+   *[other] { $count } locaties komen overeen met een bestaande spelling.
+   }
+# MT: pending native review (nl-NL)
 import-review-rows-heading = Rijen
 # MT: pending native review (nl-NL)
 import-review-download-report = Foutrapport downloaden (.csv)
@@ -4243,6 +4256,8 @@ import-field-assets-primary-user = Primaire gebruiker
 import-field-assets-manufacturer = Fabrikant
 # MT: pending native review (nl-NL)
 import-field-assets-model = Model
+# MT: pending native review (nl-NL)
+import-field-assets-groups = Groepen
 # MT: pending native review (nl-NL)
 import-field-users-email = E-mail
 # MT: pending native review (nl-NL)

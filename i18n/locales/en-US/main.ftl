@@ -3859,11 +3859,15 @@ import-values-replace = Replace with
 import-values-leave-as-is = Leave as is
 import-values-leave-as-is-help = Existing assets keep their kind. New rows without one are skipped.
 import-values-leave-blank = Leave blank
+import-values-keep-text = Keep as text
+import-values-leave-off = Leave off
 import-values-skip = Skip these rows
 import-values-close-to = close to '{ $label }'
 import-values-consequence-skipped = would be skipped
 import-values-consequence-blank = left blank
 import-values-consequence-as-is = left as is
+import-values-consequence-text = kept as text
+import-values-consequence-off = left off
 import-values-blank = (blank)
 import-values-filter-no-match = No match { $count }
 import-values-filter-guessed = Guessed { $count }
@@ -3951,6 +3955,10 @@ import-review-notice-no-key = { $count ->
     [one] 1 row has no asset tag or serial number. Importing this file again would create it again.
    *[other] { $count } rows have no asset tag or serial number. Importing this file again would create them again.
    }
+import-review-notice-location-snapped = { $count ->
+    [one] 1 location matched an existing spelling.
+   *[other] { $count } locations matched an existing spelling.
+   }
 import-review-rows-heading = Rows
 import-review-download-report = Download error report (.csv)
 import-review-filter-label = Show rows
@@ -4015,6 +4023,7 @@ import-field-assets-purchase-date = Purchase date
 import-field-assets-primary-user = Primary user
 import-field-assets-manufacturer = Manufacturer
 import-field-assets-model = Model
+import-field-assets-groups = Groups
 import-field-users-email = Email
 import-field-users-name = Name
 import-field-users-role = Role

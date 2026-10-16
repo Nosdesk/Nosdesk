@@ -135,10 +135,24 @@ function pickerOptions(col: ImportValueColumn, v: ImportValue): DropdownOption[]
   const options: DropdownOption[] = col.choices.map((c) => ({
     value: `match:${c.value}`,
     label: c.label,
-    description: c.disabled,
+    description: c.disabled ?? c.detail,
     disabled: !!c.disabled,
   }))
   const or = t('import-values-group-or')
+  if (col.lookup) {
+    // Catalog values: kept as text where the catalog has text, else left
+    // off. Creating entries is answered on the lookup cards.
+    if (col.lookup !== 'group') {
+      options.push({ value: 'keep_text', label: t('import-values-keep-text'), group: or })
+    }
+    options.push({
+      value: 'leave_blank',
+      label: col.lookup === 'group' ? t('import-values-leave-off') : t('import-values-leave-blank'),
+      group: or,
+    })
+    options.push({ value: 'skip', label: t('import-values-skip'), group: or })
+    return options
+  }
   if (isParsed(col)) options.push({ value: 'replace', label: t('import-values-replace') })
   if (v.blank) {
     options.push({
@@ -162,7 +176,10 @@ function answerLabel(col: ImportValueColumn, v: ImportValue): string {
     case 'match':
       return col.choices.find((c) => c.value === String(a.target))?.label ?? String(a.target)
     case 'leave_blank':
+      if (col.lookup === 'group') return t('import-values-leave-off')
       return v.blank ? t('import-values-leave-as-is') : t('import-values-leave-blank')
+    case 'keep_text':
+      return t('import-values-keep-text')
     case 'skip':
       return t('import-values-skip')
     case 'replace':
@@ -199,6 +216,8 @@ const CONSEQUENCE_KEYS = {
   skipped: 'import-values-consequence-skipped',
   blank: 'import-values-consequence-blank',
   as_is: 'import-values-consequence-as-is',
+  text: 'import-values-consequence-text',
+  off: 'import-values-consequence-off',
 } as const
 
 function consequenceText(col: ImportValueColumn, v: ImportValue): string {

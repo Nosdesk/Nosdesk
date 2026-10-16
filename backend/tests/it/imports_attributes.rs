@@ -45,7 +45,7 @@ fn camera_schema() -> serde_json::Value {
     })
 }
 
-fn seed_kind(
+pub(crate) fn seed_kind(
     pool: &TestPool,
     ws: &WorkspaceSeed,
     slug: &str,
@@ -143,7 +143,7 @@ fn stored(pool: &TestPool, tag: &str) -> Option<(StoredAsset, serde_json::Value)
 
 /// Upload `file` and check it with `mapping` (header name to field id) and
 /// `options`: the job.
-async fn checked(
+pub(crate) async fn checked(
     pool: &TestPool,
     ws: &WorkspaceSeed,
     file: &str,
@@ -186,7 +186,7 @@ async fn checked(
     job
 }
 
-async fn commit(pool: &TestPool, ws: &WorkspaceSeed, id: &str) -> serde_json::Value {
+pub(crate) async fn commit(pool: &TestPool, ws: &WorkspaceSeed, id: &str) -> serde_json::Value {
     let (status, body) = call_import_route(
         pool,
         ws,
@@ -199,7 +199,7 @@ async fn commit(pool: &TestPool, ws: &WorkspaceSeed, id: &str) -> serde_json::Va
     job
 }
 
-async fn rows(pool: &TestPool, ws: &WorkspaceSeed, id: &str) -> Vec<serde_json::Value> {
+pub(crate) async fn rows(pool: &TestPool, ws: &WorkspaceSeed, id: &str) -> Vec<serde_json::Value> {
     let (status, body) = call_import_route(
         pool,
         ws,
@@ -212,12 +212,12 @@ async fn rows(pool: &TestPool, ws: &WorkspaceSeed, id: &str) -> Vec<serde_json::
     page["rows"].as_array().expect("rows").clone()
 }
 
-fn id_of(job: &serde_json::Value) -> String {
+pub(crate) fn id_of(job: &serde_json::Value) -> String {
     job["id"].as_str().expect("id").to_string()
 }
 
 /// (row, field id, message) for every error of the job's summary.
-fn errors(job: &serde_json::Value) -> Vec<(u64, Option<String>, String)> {
+pub(crate) fn errors(job: &serde_json::Value) -> Vec<(u64, Option<String>, String)> {
     job["summary"]["errors"]
         .as_array()
         .expect("errors")

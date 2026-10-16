@@ -33,15 +33,32 @@ export interface ImportNotice {
   message: string
 }
 
-/** Values of one field rows import without, because the rows' kind has
- *  no such attribute. */
+/** Values of one field rows import without: the rows' kind has no such
+ *  attribute, or (groups) nothing links the value. */
 export interface DroppedGroup {
   /** Field id. */
   column: string
   source_column?: string | null
   /** The rows' kind (slug). */
   kind: string
+  /** The value left out, for a group nothing links. */
+  value?: string
   count: number
+}
+
+/** A model an import creates. */
+export interface PlannedModel {
+  manufacturer: string
+  name: string
+  /** Kind slug. */
+  kind: string
+}
+
+/** Catalog entries an import creates, named as the file first spells them. */
+export interface CatalogPlan {
+  manufacturers: string[]
+  models: PlannedModel[]
+  groups: string[]
 }
 
 export interface ImportSummary {
@@ -56,8 +73,10 @@ export interface ImportSummary {
   errors_total?: number
   rows_with_errors?: number
   error_groups?: ErrorGroup[]
-  /** Attribute values left out because the row's kind lacks the attribute. */
+  /** Values left out: attributes the row's kind lacks, groups left off. */
   dropped?: DroppedGroup[]
+  /** Catalog entries the import creates; absent when none. */
+  catalog?: CatalogPlan
 }
 
 export interface SourceHeader {
@@ -220,6 +239,10 @@ export type ValueReason =
   | { code: 'close_to'; label: string }
   | { code: 'disabled'; label: string; note: string }
   | { code: 'unreadable' }
+  /** Names more than one catalog entry, told apart only by case. */
+  | { code: 'ambiguous'; labels: string[] }
+  /** Another value would be created too and is spelled close to this one. */
+  | { code: 'both_new'; text: string }
 
 /** An entry a value can link to. */
 export interface ValueChoice {
@@ -227,7 +250,13 @@ export interface ValueChoice {
   label: string
   /** Why it can't be picked here, when it can't. */
   disabled?: string
+  /** More about the entry: a model's manufacturer. */
+  detail?: string
 }
+
+/** The catalog a lookup column links to. Its values can also be created,
+ *  and kept as text except a group's. */
+export type ValueLookup = 'manufacturer' | 'model' | 'group'
 
 /** One distinct value of a mapped column. */
 export interface ImportValue {
@@ -253,12 +282,15 @@ export interface ImportValue {
 
 export interface ImportValueColumn {
   field: string
-  /** The row kind (slug) the column answers for; empty or absent when the
+  /** The row context the column answers for; empty or absent when the
    *  field is answered the same on every row. Attributes are answered per
-   *  kind. */
+   *  kind (slug), models per the row's manufacturer (its name, lowercased;
+   *  empty for rows without one). */
   context?: string
-  /** The kind's name. */
+  /** The context's name. */
   context_label?: string
+  /** Set for a column whose values link to catalog entries. */
+  lookup?: ValueLookup
   /** The source column. */
   index: number
   /** The file's header. */

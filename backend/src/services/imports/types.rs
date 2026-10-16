@@ -107,10 +107,41 @@ pub struct ImportSummary {
     #[serde(default)]
     pub notices: Vec<Notice>,
     /// Values in the file that rows import without: a value for an
-    /// attribute the row's kind doesn't have. Counted per field and kind,
-    /// most first; the rows' results name each one.
+    /// attribute the row's kind doesn't have, a group left off. Counted per
+    /// field, kind and value, most first; the rows' results name each one.
     #[serde(default)]
     pub dropped: Vec<DroppedGroup>,
+    /// Catalog entries the import would create, in file order.
+    #[serde(default, skip_serializing_if = "CatalogPlan::is_empty")]
+    pub catalog: CatalogPlan,
+}
+
+/// Catalog entries an import creates, each named as the file first spells
+/// it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CatalogPlan {
+    #[serde(default)]
+    pub manufacturers: Vec<String>,
+    #[serde(default)]
+    pub models: Vec<PlannedModel>,
+    #[serde(default)]
+    pub groups: Vec<String>,
+}
+
+impl CatalogPlan {
+    pub fn is_empty(&self) -> bool {
+        self.manufacturers.is_empty() && self.models.is_empty() && self.groups.is_empty()
+    }
+}
+
+/// A model an import creates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlannedModel {
+    /// Its manufacturer's name, existing or created by the same import.
+    pub manufacturer: String,
+    pub name: String,
+    /// Kind slug.
+    pub kind: String,
 }
 
 impl ImportSummary {
@@ -144,15 +175,15 @@ impl ImportSummary {
         for result in &plan.rows {
             if result.outcome != RowOutcome::Skipped {
                 for cell in &result.dropped {
-                    match dropped
-                        .iter_mut()
-                        .find(|g| g.column == cell.column && g.kind == cell.kind)
-                    {
+                    match dropped.iter_mut().find(|g| {
+                        g.column == cell.column && g.kind == cell.kind && g.value == cell.value
+                    }) {
                         Some(group) => group.count += 1,
                         None => dropped.push(DroppedGroup {
                             column: cell.column.clone(),
                             source_column: cell.source_column.clone(),
                             kind: cell.kind.clone(),
+                            value: cell.value.clone(),
                             count: 1,
                         }),
                     }
@@ -174,6 +205,7 @@ impl ImportSummary {
             }
         }
         summary.notices = plan.notices.clone();
+        summary.catalog = plan.catalog.clone();
         // Stable: equal counts keep file order.
         dropped.sort_by_key(|g| std::cmp::Reverse(g.count));
         summary.dropped = dropped;
@@ -236,6 +268,10 @@ pub struct DroppedGroup {
     pub source_column: Option<String>,
     /// The rows' kind (slug).
     pub kind: String,
+    /// The value left out, for a field whose values are left out one by one
+    /// (a group nothing links); `None` for an attribute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
     pub count: usize,
 }
 
@@ -248,6 +284,9 @@ pub struct DroppedCell {
     pub source_column: Option<String>,
     /// The row's kind (slug).
     pub kind: String,
+    /// The value left out, as [`DroppedGroup::value`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
 }
 
 /// What one row of the file comes to.
@@ -463,6 +502,8 @@ pub struct RowPlan {
     /// One per data row, in file order.
     pub rows: Vec<RowResult>,
     pub notices: Vec<Notice>,
+    /// Catalog entries the rows create.
+    pub catalog: CatalogPlan,
 }
 
 /// What a commit wrote: the records for search indexing and every row's
@@ -626,8 +667,9 @@ pub enum DecimalMark {
 pub struct ImportOptions {
     pub match_by: MatchBy,
     pub mode: ImportMode,
-    /// Create manufacturers, models and groups that don't exist. Stored
-    /// now; read once the catalog columns land.
+    /// Read only, from jobs and clients before Match values answered
+    /// catalog values one by one; creating is an answer now
+    /// ([`ValueAnswer::Create`]), and this is ignored.
     pub create_missing: bool,
     /// Kind slug for new assets whose kind cell is blank.
     pub default_kind: Option<String>,
@@ -636,6 +678,11 @@ pub struct ImportOptions {
     pub decimal: Option<DecimalMark>,
     /// Values set for every row on fields no column feeds.
     pub constants: Vec<Constant>,
+    /// The answers of lookup columns (manufacturer, model, groups) the rows
+    /// take, set by `values::settle` and never stored: their links name
+    /// entries by id, which a cell can't.
+    #[serde(skip)]
+    pub lookups: ValueAnswers,
 }
 
 impl ImportOptions {
@@ -872,14 +919,42 @@ pub trait Importer: Send + Sync {
         Ok(None)
     }
 
-    /// Each row's context by source row, read from a mapped grid whose
-    /// answers for fields without a context are written in. A row with
-    /// none is left out.
+    /// The family of contexts a field is answered per (an asset
+    /// attribute per `kind`, a model per `manufacturer`), or `None` for a
+    /// field answered the same on every row. A field of a family that
+    /// [`Self::value_contexts`] gives no contexts for is answered per the
+    /// contexts rows hold, through [`Self::lookups`].
+    fn context_family(&self, _field: &FieldSpec) -> Option<&'static str> {
+        None
+    }
+
+    /// Context families in the order they are settled: a family's row
+    /// contexts may read the answers of the families before it.
+    fn context_families(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// For a field whose values link to catalog entries, the entries in
+    /// each of `contexts` (just the empty one for a field without
+    /// context); `None` for any other field.
+    fn lookups(
+        &self,
+        _conn: &mut DbConnection,
+        _field: &FieldSpec,
+        _contexts: &[String],
+    ) -> Result<Option<Vec<super::values::LookupContext>>, diesel::result::Error> {
+        Ok(None)
+    }
+
+    /// Each row's context in `family` by source row, read from a mapped
+    /// grid whose answers so far are written in (and, for lookups, in
+    /// `options`). A row with none is left out.
     fn row_contexts(
         &self,
         _conn: &mut DbConnection,
         _grid: &ParsedCsv,
         _options: &ImportOptions,
+        _family: &str,
     ) -> Result<std::collections::HashMap<usize, String>, diesel::result::Error> {
         Ok(std::collections::HashMap::new())
     }
@@ -951,6 +1026,7 @@ mod tests {
                 ),
             ],
             notices: vec![],
+            catalog: CatalogPlan::default(),
         };
         let summary = ImportSummary::from_plan(4, &plan);
         assert_eq!(

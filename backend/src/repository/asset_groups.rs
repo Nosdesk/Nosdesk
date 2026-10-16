@@ -107,7 +107,33 @@ pub fn restore_group(conn: &mut DbConnection, id: i32) -> QueryResult<AssetGroup
         .get_result(conn)
 }
 
+/// Every group that isn't archived, in picker order.
+pub fn active_groups(conn: &mut DbConnection) -> QueryResult<Vec<AssetGroup>> {
+    asset_groups::table
+        .filter(asset_groups::archived_at.is_null())
+        .order((asset_groups::display_order.asc(), asset_groups::name.asc()))
+        .load(conn)
+}
+
 // ---- Asset ↔ group assignment ----------------------------------
+
+/// Each asset's groups that aren't archived, as ids, for every asset in at
+/// least one.
+pub fn active_group_ids_by_asset(conn: &mut DbConnection) -> QueryResult<HashMap<i32, Vec<i32>>> {
+    let rows: Vec<(i32, i32)> = asset_group_assignments::table
+        .inner_join(asset_groups::table.on(asset_groups::id.eq(asset_group_assignments::group_id)))
+        .filter(asset_groups::archived_at.is_null())
+        .select((
+            asset_group_assignments::asset_id,
+            asset_group_assignments::group_id,
+        ))
+        .load(conn)?;
+    let mut out: HashMap<i32, Vec<i32>> = HashMap::new();
+    for (asset_id, group_id) in rows {
+        out.entry(asset_id).or_default().push(group_id);
+    }
+    Ok(out)
+}
 
 /// Full (non-archived) group rows an asset belongs to, ordered for stable
 /// rendering. Feeds the asset-detail pill row.

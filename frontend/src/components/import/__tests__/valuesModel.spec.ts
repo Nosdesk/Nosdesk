@@ -275,6 +275,15 @@ describe('answers', () => {
     expect(consequence(withBlank, blank, {})).toBe('skipped')
     expect(consequence(withBlank, blank, { [valueId('kind', '')]: { action: 'match', target: 'camera' } })).toBeNull()
   })
+
+  it('say a catalog value is kept as text, or a group left off', () => {
+    const blackmagic = value('Blackmagic', 'no_match', [2], { suggested: { action: 'keep_text' }, skipped_rows: [] })
+    const makers = kindColumn([blackmagic], { field: 'manufacturer', required: false, lookup: 'manufacturer' })
+    expect(consequence(makers, blackmagic, {})).toBe('text')
+    const spare = value('Spare', 'no_match', [3], { suggested: { action: 'leave_blank' }, skipped_rows: [] })
+    const groups = kindColumn([spare], { field: 'groups', required: false, lookup: 'group' })
+    expect(consequence(groups, spare, {})).toBe('off')
+  })
 })
 
 describe('the values download', () => {

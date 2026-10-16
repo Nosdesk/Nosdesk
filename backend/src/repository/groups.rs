@@ -1179,6 +1179,14 @@ pub fn get_devices_in_group(conn: &mut DbConnection, group_id: i32) -> QueryResu
         .load(conn)
 }
 
+/// Every group's name.
+pub fn group_names(conn: &mut DbConnection) -> QueryResult<Vec<String>> {
+    groups::table
+        .select(groups::name)
+        .order(groups::name.asc())
+        .load(conn)
+}
+
 /// Get all groups for a device
 pub fn get_groups_for_device(conn: &mut DbConnection, device_id: i32) -> QueryResult<Vec<Group>> {
     asset_directory_memberships::table

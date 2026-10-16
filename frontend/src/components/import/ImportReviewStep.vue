@@ -81,9 +81,13 @@ const headline = computed(() => {
 const topProblems = computed(() => (summary.value.error_groups ?? []).slice(0, 5))
 
 /** Notices worded by code; an unknown code shows the server's sentence. */
+const NOTICE_KEYS: Record<string, string> = {
+  no_key: 'import-review-notice-no-key',
+  location_snapped: 'import-review-notice-location-snapped',
+}
 const notices = computed(() =>
   (summary.value.notices ?? []).map((n) =>
-    n.code === 'no_key' ? t('import-review-notice-no-key', { count: n.count }) : n.message,
+    NOTICE_KEYS[n.code] ? t(NOTICE_KEYS[n.code], { count: n.count }) : n.message,
   ),
 )
 

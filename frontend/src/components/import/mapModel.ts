@@ -149,7 +149,8 @@ export function buildConstants(
 }
 
 /** What stops the check, in the order the admin should read them. A
- *  required field is covered by a column or by a constant with a value. */
+ *  required field is covered by a column or by a constant with a value; an
+ *  asset's kind also by a Model column, since a linked model gives it. */
 export function problems(
   rows: MapRow[],
   fields: ImportField[],
@@ -169,6 +170,7 @@ export function problems(
   const constant = new Set(constants.filter((c) => c.field && c.value.trim()).map((c) => c.field))
   for (const field of fields) {
     if (!field.required || byField.has(field.id) || constant.has(field.id)) continue
+    if (jobType === 'assets' && field.id === 'kind' && byField.has('model')) continue
     out.push(
       jobType === 'assets' && field.id === 'kind'
         ? { kind: 'kind' }

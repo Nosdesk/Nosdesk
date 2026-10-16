@@ -578,7 +578,8 @@ async fn the_fields_endpoint_lists_the_targets() {
             "purchase_date",
             "primary_user",
             "manufacturer",
-            "model"
+            "model",
+            "groups"
         ]
     );
     assert_eq!(fields[0]["required"], true);
@@ -591,6 +592,7 @@ async fn the_fields_endpoint_lists_the_targets() {
     assert_eq!(fields[9]["value_type"], "date");
     assert_eq!(fields[10]["value_type"], "user");
     assert_eq!(fields[11]["group"], "links");
+    assert_eq!(fields[13]["value_type"], "array");
     // The built-in IT kinds' warranty attributes, less the synced keys.
     let warranty = fields
         .iter()
