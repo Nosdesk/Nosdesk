@@ -10,7 +10,7 @@
 
 use super::mapping::{is_report_header, SourceHeader};
 use super::safe_cells::csv_formula_safe;
-use super::types::{CellError, FieldSpec, RowOutcome, RowResult};
+use super::types::{CellError, DroppedCell, FieldSpec, RowOutcome, RowResult};
 
 /// The report's own leading columns.
 pub const REPORT_COLUMNS: [&str; 2] = ["Row", "Errors"];
@@ -24,6 +24,32 @@ pub fn error_report_csv(
     delimiter: u8,
     rows: &[RowResult],
     fields: &[FieldSpec],
+) -> Result<Vec<u8>, csv::Error> {
+    let lines = rows
+        .iter()
+        .filter(|r| r.outcome == RowOutcome::Skipped)
+        .map(|r| ReportLine {
+            row: r.row,
+            errors: errors_text(&r.errors, fields),
+            cells: &r.cells,
+        });
+    report_csv(headers, delimiter, lines)
+}
+
+/// One row of a report: its line in the file, why it is listed, and its
+/// cells in source column order.
+pub struct ReportLine<'a> {
+    pub row: usize,
+    pub errors: String,
+    pub cells: &'a [String],
+}
+
+/// A report of `lines` in the file's layout: `Row`, `Errors`, then the
+/// file's columns less an earlier report's own.
+pub fn report_csv<'a>(
+    headers: &[SourceHeader],
+    delimiter: u8,
+    lines: impl Iterator<Item = ReportLine<'a>>,
 ) -> Result<Vec<u8>, csv::Error> {
     let kept: Vec<&SourceHeader> = headers
         .iter()
@@ -42,11 +68,11 @@ pub fn error_report_csv(
             .chain(kept.iter().map(|h| h.name.clone()))
             .map(csv_formula_safe);
         wtr.write_record(header_row)?;
-        for result in rows.iter().filter(|r| r.outcome == RowOutcome::Skipped) {
+        for line in lines {
             let cells = kept
                 .iter()
-                .map(|h| result.cells.get(h.index).cloned().unwrap_or_default());
-            let record = [result.row.to_string(), errors_text(&result.errors, fields)]
+                .map(|h| line.cells.get(h.index).cloned().unwrap_or_default());
+            let record = [line.row.to_string(), line.errors]
                 .into_iter()
                 .chain(cells)
                 .map(csv_formula_safe);
@@ -55,6 +81,35 @@ pub fn error_report_csv(
         wtr.flush()?;
     }
     Ok(buf)
+}
+
+/// Why a row imports without some of its values, as one cell: "Header:
+/// reason; Header: reason". `kind_label` names a kind by its slug.
+pub fn dropped_text(
+    cells: &[&DroppedCell],
+    fields: &[FieldSpec],
+    kind_label: impl Fn(&str) -> String,
+) -> String {
+    cells
+        .iter()
+        .map(|d| {
+            let name = d.source_column.clone().unwrap_or_else(|| {
+                fields
+                    .iter()
+                    .find(|f| f.id == d.column)
+                    .map_or_else(|| d.column.clone(), |f| f.label.clone())
+            });
+            let reason = match (d.column.as_str(), &d.value) {
+                ("primary_user", Some(value)) => {
+                    format!("'{value}' is not a member of this workspace, left unassigned")
+                }
+                (_, Some(value)) => format!("'{value}' left off"),
+                (_, None) => format!("{} assets have no {name}, left out", kind_label(&d.kind)),
+            };
+            format!("{name}: {reason}")
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// A row's errors as one cell: "Header: message; Header: message". The

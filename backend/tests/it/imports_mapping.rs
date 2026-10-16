@@ -347,7 +347,8 @@ fn the_default_kind_fills_blank_kinds_on_new_assets() {
         &ctx(ImportOptions::default()),
     )
     .expect("dry-run");
-    assert_eq!((without.would_update, without.errors_total), (1, 1));
+    // The kept row changes nothing on its asset.
+    assert_eq!((without.unchanged, without.errors_total), (1, 1));
     assert_eq!(without.errors[0].column.as_deref(), Some("kind"));
 
     let options = ImportOptions {
@@ -753,6 +754,7 @@ async fn errors_name_the_source_column_and_group() {
             "source_column": "Qty",
             "message": "'lots' is not a valid decimal",
             "count": 2,
+            "fix": "match_values",
         })
     );
 

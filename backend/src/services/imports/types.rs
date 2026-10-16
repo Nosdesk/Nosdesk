@@ -114,6 +114,51 @@ pub struct ImportSummary {
     /// Catalog entries the import would create, in file order.
     #[serde(default, skip_serializing_if = "CatalogPlan::is_empty")]
     pub catalog: CatalogPlan,
+    /// Fields updated rows change, each with how many rows change it, most
+    /// first.
+    #[serde(default)]
+    pub changes: Vec<ChangeCount>,
+    /// Kinds of the records the import creates, each with how many, most
+    /// first. Assets only.
+    #[serde(default)]
+    pub kinds: Vec<KindCount>,
+    /// The file's columns no field takes (none chosen, or Don't import),
+    /// in source order, each with how many rows hold a value in it.
+    #[serde(default)]
+    pub unmapped: Vec<UnmappedColumn>,
+}
+
+/// One field updated rows change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangeCount {
+    /// Field id.
+    pub field: String,
+    /// The file's header the field was mapped from; `None` for a field a
+    /// constant sets, or one the row's other cells change (a status).
+    #[serde(default)]
+    pub source_column: Option<String>,
+    /// Rows that change it.
+    pub count: usize,
+    /// A constant set for every row, existing records included, writes it.
+    #[serde(default)]
+    pub constant: bool,
+}
+
+/// How many records of one kind an import creates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KindCount {
+    /// Kind slug.
+    pub kind: String,
+    pub count: usize,
+}
+
+/// A column of the file no field takes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnmappedColumn {
+    /// The source column (0-based).
+    pub index: usize,
+    /// Rows with a value in it.
+    pub values: usize,
 }
 
 /// Catalog entries an import creates, each named as the file first spells
@@ -206,6 +251,8 @@ impl ImportSummary {
         }
         summary.notices = plan.notices.clone();
         summary.catalog = plan.catalog.clone();
+        summary.changes = change_counts(&plan.rows);
+        summary.kinds = kind_counts(&plan.rows);
         // Stable: equal counts keep file order.
         dropped.sort_by_key(|g| std::cmp::Reverse(g.count));
         summary.dropped = dropped;
@@ -232,6 +279,7 @@ impl ImportSummary {
                         source_column: e.source_column.clone(),
                         message: e.message.clone(),
                         count: 1,
+                        fix: None,
                     });
                 }
             }
@@ -247,6 +295,46 @@ impl ImportSummary {
         }
         self
     }
+}
+
+/// Per field, how many updated rows change it, most first; equal counts
+/// keep the order fields first appear in.
+fn change_counts(rows: &[RowResult]) -> Vec<ChangeCount> {
+    let mut out: Vec<ChangeCount> = Vec::new();
+    for row in rows.iter().filter(|r| r.outcome == RowOutcome::Update) {
+        for field in row.fields_written.keys() {
+            match out.iter_mut().find(|c| &c.field == field) {
+                Some(change) => change.count += 1,
+                None => out.push(ChangeCount {
+                    field: field.clone(),
+                    source_column: None,
+                    count: 1,
+                    constant: false,
+                }),
+            }
+        }
+    }
+    out.sort_by_key(|c| std::cmp::Reverse(c.count));
+    out
+}
+
+/// Per kind, how many created rows take it, most first.
+fn kind_counts(rows: &[RowResult]) -> Vec<KindCount> {
+    let mut out: Vec<KindCount> = Vec::new();
+    for row in rows.iter().filter(|r| r.outcome == RowOutcome::Create) {
+        let Some(kind) = &row.kind else {
+            continue;
+        };
+        match out.iter_mut().find(|k| &k.kind == kind) {
+            Some(count) => count.count += 1,
+            None => out.push(KindCount {
+                kind: kind.clone(),
+                count: 1,
+            }),
+        }
+    }
+    out.sort_by_key(|k| std::cmp::Reverse(k.count));
+    out
 }
 
 /// Something about the plan that isn't an error, counted. The client
@@ -338,6 +426,9 @@ pub struct RowResult {
     /// What the row is called (asset name, person, ticket title).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// The record's kind (slug), for an asset row that checks out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     /// Before the commit, the record an update or unchanged row matches;
     /// after it, the record the row created or updated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -354,9 +445,9 @@ pub struct RowResult {
     pub cells: Vec<String>,
     /// After the commit, each field the row wrote with its value before and
     /// after, as text. Only fields whose value changed; a blank cell never
-    /// writes, so it is never here. In a checked plan, the status move the
-    /// commit would make (`status`), which the commit holds up against the
-    /// plan it makes again.
+    /// writes, so it is never here. In a checked plan, each field an update
+    /// would change (a new record's: the status move the commit would make),
+    /// which the commit holds up against the plan it makes again.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields_written: BTreeMap<String, FieldChange>,
     /// Groups the row added the record to (ids).
@@ -415,6 +506,7 @@ impl RowResult {
             outcome,
             key: None,
             label: None,
+            kind: None,
             record_id: None,
             errors: Vec::new(),
             dropped: Vec::new(),
@@ -528,6 +620,22 @@ pub struct ErrorGroup {
     pub source_column: Option<String>,
     pub message: String,
     pub count: usize,
+    /// Where the admin fixes it, when the summary was read against the
+    /// job's mapping and answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix: Option<Fix>,
+}
+
+/// Where a problem shared by several rows is fixed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Fix {
+    /// An answer to the value on Match values.
+    MatchValues,
+    /// A column or a constant on Map columns.
+    Map,
+    /// In the file: the rows are downloaded, fixed and uploaded again.
+    Download,
 }
 
 /// Per-row validation failure. Surface enough context for the

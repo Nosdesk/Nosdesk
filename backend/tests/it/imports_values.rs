@@ -409,7 +409,7 @@ async fn unreadable_values_skip_and_a_blank_kind_answers_for_new_rows() {
     let id = id_of(&job);
     // The new blank-kind row has no kind; the "two" row doesn't read.
     assert_eq!(job["summary"]["rows_with_errors"], 2, "{job}");
-    assert_eq!(job["summary"]["would_update"], 1, "{job}");
+    assert_eq!(job["summary"]["unchanged"], 1, "{job}");
 
     let (_, view) = get_values(&pool, &ws, &id).await;
     let blank = value(column(&view, "kind"), "");

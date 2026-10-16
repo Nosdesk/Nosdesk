@@ -467,8 +467,8 @@ async fn an_update_moves_the_status_and_an_unchanged_status_writes_nothing() {
     )
     .await;
     assert_eq!(errors(&job), vec![], "{job}");
-    assert_eq!(job["summary"]["would_update"], 3, "{job}");
-    assert_eq!(job["summary"]["unchanged"], 1, "{job}");
+    assert_eq!(job["summary"]["would_update"], 2, "{job}");
+    assert_eq!(job["summary"]["unchanged"], 2, "{job}");
     let id = id_of(&job);
     commit(&pool, &ws, &id).await;
     let done = rows(&pool, &ws, &id).await;
@@ -496,7 +496,8 @@ async fn an_update_moves_the_status_and_an_unchanged_status_writes_nothing() {
     assert_eq!(asset(&pool, "U-2").status, "in_repair");
     assert!(events(&pool, u2).is_empty());
     let r2 = row_result(&done, 3);
-    assert!(r2["fields_written"].get("status").is_none(), "{r2}");
+    assert_eq!(r2["outcome"], "unchanged");
+    assert!(r2.get("fields_written").is_none(), "{r2}");
     assert!(r2.get("transition_id").is_none(), "{r2}");
 
     let r3 = row_result(&done, 4);
@@ -561,7 +562,9 @@ async fn the_dry_run_refuses_what_the_lifecycle_rules_refuse() {
         "{job}"
     );
     assert_eq!(job["summary"]["errors"][0]["source_column"], "Status");
-    assert_eq!(job["summary"]["would_update"], 2, "{job}");
+    // X-1 moves; D-2 already has its status and changes nothing.
+    assert_eq!(job["summary"]["would_update"], 1, "{job}");
+    assert_eq!(job["summary"]["unchanged"], 1, "{job}");
 
     commit(&pool, &ws, &id_of(&job)).await;
     assert_eq!(asset(&pool, "D-1").status, "disposed");

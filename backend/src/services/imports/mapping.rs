@@ -16,7 +16,7 @@ use uuid::Uuid;
 use super::csv_parser::{ParsedCsv, SourceRow, MAX_CELL_CHARS, MAX_ROWS};
 use super::types::{
     ApplyTo, DecimalMark, FieldSpec, ImportOptions, ImportSummary, ImportType, RowOutcome,
-    RowResult, ValueAnswer, ValueAnswers,
+    RowResult, UnmappedColumn, ValueAnswer, ValueAnswers,
 };
 
 /// Sample values carried per header.
@@ -689,6 +689,32 @@ pub fn annotate(summary: &mut ImportSummary, mapping: &ColumnMapping, headers: &
     for g in &mut summary.dropped {
         g.source_column = source_header(mapping, headers, Some(&g.column));
     }
+    for c in &mut summary.changes {
+        c.source_column = source_header(mapping, headers, Some(&c.field));
+    }
+}
+
+/// The file's columns no field takes, with how many rows hold a value in
+/// each. An earlier error report's `Row` and `Errors` are left out: they
+/// were never data.
+pub fn unmapped_columns(
+    mapping: &ColumnMapping,
+    headers: &[SourceHeader],
+    grid: &ParsedCsv,
+) -> Vec<UnmappedColumn> {
+    let mapped: HashSet<usize> = mapping.values().copied().collect();
+    headers
+        .iter()
+        .filter(|h| !mapped.contains(&h.index) && !is_report_header(&h.name))
+        .map(|h| UnmappedColumn {
+            index: h.index,
+            values: grid
+                .rows
+                .iter()
+                .filter(|r| r.cells.get(h.index).is_some_and(|c| !c.trim().is_empty()))
+                .count(),
+        })
+        .collect()
 }
 
 /// Finish row results for storing: name each error's field by the header

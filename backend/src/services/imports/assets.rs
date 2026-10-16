@@ -13,7 +13,9 @@
 //! matched row as already there, only existing ones skip an unmatched row
 //! as not found. A blank cell never clears a column on update; a
 //! blank kind keeps the asset's kind, and on a new asset takes the default
-//! kind when one is set.
+//! kind when one is set. A matched row is compared field by field with its
+//! asset (columns, attributes, model link, groups added, status): one that
+//! changes nothing is unchanged, and the commit writes nothing for it.
 //!
 //! Kind attributes are fields of their own ([`attribute_defs`]): each key
 //! a kind's schema defines, less the keys a directory sync owns. A row's
@@ -716,22 +718,26 @@ impl Importer for AssetImporter {
                         }
                     };
                     result.dropped = planned.dropped;
-                    // The status move the commit makes, so a commit can
-                    // tell when the asset's status moved since.
-                    if let Some(to) = planned.status_to {
-                        let before = match planned.action {
-                            RowAction::Update(id) | RowAction::SyncedUpdate(id) => {
-                                lookups.existing.get(&id).map(|a| a.status.clone())
+                    result.kind = Some(planned.kind);
+                    // What the commit writes: an update's every change, a
+                    // new asset's status move. The commit holds both up
+                    // against the plan it makes again.
+                    match planned.action {
+                        RowAction::Update(_) | RowAction::SyncedUpdate(_) => {
+                            result.fields_written = planned.changes;
+                        }
+                        RowAction::Create => {
+                            if let Some(to) = planned.status_to {
+                                result.fields_written.insert(
+                                    "status".to_string(),
+                                    FieldChange {
+                                        before: None,
+                                        after: Some(to.as_str().to_string()),
+                                    },
+                                );
                             }
-                            _ => None,
-                        };
-                        result.fields_written.insert(
-                            "status".to_string(),
-                            FieldChange {
-                                before,
-                                after: Some(to.as_str().to_string()),
-                            },
-                        );
+                        }
+                        RowAction::Unchanged(_) => {}
                     }
                     result
                 }
@@ -788,12 +794,13 @@ impl Importer for AssetImporter {
                     continue;
                 }
             };
-            // A synced asset whose row matches what's stored: nothing to
-            // write.
+            // A row that matches an asset and changes nothing on it:
+            // nothing to write.
             if let RowAction::Unchanged(asset_id) = planned.action {
                 let mut result = RowResult::planned(row_num, RowOutcome::Unchanged)
                     .with_record(RecordId::Int(asset_id));
                 result.dropped = planned.dropped;
+                result.kind = Some(planned.kind);
                 rows.push(identify(result, row, options));
                 continue;
             }
@@ -850,6 +857,7 @@ impl Importer for AssetImporter {
             let mut result =
                 RowResult::planned(row_num, outcome).with_record(RecordId::Int(asset.id));
             result.dropped = planned.dropped;
+            result.kind = Some(planned.kind.clone());
             result.catalog_created = created;
             // Additive: the groups the asset is in, and the row's.
             if !texts.groups.is_empty() {
@@ -888,6 +896,22 @@ impl Importer for AssetImporter {
                 }
             }
             result.fields_written = fields_written(before, &asset, &lookups);
+            if before.is_some() && !result.groups_added.is_empty() {
+                let current = lookups
+                    .asset_groups
+                    .get(&asset.id)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut after = current.clone();
+                after.extend(&result.groups_added);
+                result.fields_written.insert(
+                    "groups".to_string(),
+                    FieldChange {
+                        before: made.group_names(&current, &lookups),
+                        after: made.group_names(&after, &lookups),
+                    },
+                );
+            }
             // Read back from the row's last write to the asset.
             result.observed_updated_at = Some(observed_timestamp(asset.updated_at));
             rows.push(identify(result, row, options));
@@ -1065,6 +1089,147 @@ fn fields_written(
         .collect()
 }
 
+/// What a matched row writes, as the plan knows it.
+struct RowWrites<'a> {
+    row: &'a HashMap<String, String>,
+    kind: &'a str,
+    texts: &'a PlannedText,
+    model_changes: bool,
+    purchase_date: Option<NaiveDate>,
+    primary_user: Option<Uuid>,
+    /// The asset's attributes with the row's merged in, when it writes any.
+    attributes: Option<&'a Value>,
+    status_to: Option<AssetStatus>,
+    groups: &'a [GroupPick],
+}
+
+/// Each field an update of `asset` changes, before and after, as
+/// [`fields_written`] gives a write: a blank cell leaves the field, text
+/// compares trimmed, numbers and dates as values. A model link that names
+/// another model counts as a change of the model even when its name reads
+/// the same, and so does a group the row adds the asset to.
+fn update_changes(
+    asset: &Asset,
+    writes: &RowWrites,
+    lookups: &Lookups,
+    mark: DecimalMark,
+) -> BTreeMap<String, FieldChange> {
+    let row = writes.row;
+    let before = field_values(asset, lookups);
+    let mut changes = BTreeMap::new();
+    let mut change = |field: &str, after: Option<String>| {
+        let was = before.get(field).cloned().flatten();
+        if was.as_deref().map(str::trim) != after.as_deref().map(str::trim) {
+            changes.insert(field.to_string(), FieldChange { before: was, after });
+        }
+    };
+    let text = |value: Option<String>| value.filter(|v| !v.trim().is_empty());
+
+    change("name", Some(trimmed(row, "name")));
+    change("kind", Some(writes.kind.to_string()));
+    for field in ["asset_tag", "serial_number", "notes", "unit"] {
+        if let Some(value) = opt_string(row, field) {
+            change(field, Some(value));
+        }
+    }
+    if let Some(maker) = text(writes.texts.maker.clone()) {
+        change("manufacturer", Some(maker));
+    }
+    if let Some(model) = text(writes.texts.model.clone()) {
+        change("model", Some(model));
+    }
+    if let Some(location) = text(writes.texts.location.clone()) {
+        change("location", Some(location));
+    }
+    if let Some(date) = writes.purchase_date {
+        if Some(date) != asset.purchase_date {
+            change("purchase_date", Some(date.format("%Y-%m-%d").to_string()));
+        }
+    }
+    if let Some(user) = writes.primary_user {
+        if Some(user) != asset.primary_user_uuid {
+            let email = lookups
+                .member_emails
+                .get(&user)
+                .cloned()
+                .unwrap_or_else(|| user.to_string());
+            change("primary_user", Some(email));
+        }
+    }
+    if let Some(to) = writes.status_to {
+        change("status", Some(to.as_str().to_string()));
+    }
+    for (field, current) in [
+        ("quantity", &asset.quantity),
+        ("low_stock_threshold", &asset.low_stock_threshold),
+    ] {
+        if let Some(value) = opt_decimal(row, field, mark) {
+            if Some(&value) != current.as_ref() {
+                change(field, Some(value.to_string()));
+            }
+        }
+    }
+    if let Some(Value::Object(merged)) = writes.attributes {
+        let stored = asset.attributes.as_object();
+        for (key, value) in merged {
+            // As text, as the commit records what it wrote.
+            if stored.and_then(|s| s.get(key)).and_then(value_text) != value_text(value) {
+                let field = lookups.attribute_id(key);
+                changes.insert(
+                    field.clone(),
+                    FieldChange {
+                        before: before.get(&field).cloned().flatten(),
+                        after: value_text(value),
+                    },
+                );
+            }
+        }
+    }
+    if writes.model_changes && !changes.contains_key("model") {
+        let name = writes.texts.model.clone();
+        changes.insert(
+            "model".to_string(),
+            FieldChange {
+                before: before.get("model").cloned().flatten(),
+                after: name,
+            },
+        );
+    }
+    let current: &[i32] = lookups
+        .asset_groups
+        .get(&asset.id)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let added: Vec<String> = writes
+        .groups
+        .iter()
+        .filter_map(|g| match g {
+            GroupPick::Link(id) if !current.contains(id) => {
+                lookups.catalog.group(*id).map(|g| g.name.clone())
+            }
+            GroupPick::New { key } => Some(first_item(row, key)),
+            GroupPick::Link(_) => None,
+        })
+        .collect();
+    if !added.is_empty() {
+        let names: Vec<String> = current
+            .iter()
+            .filter_map(|id| lookups.catalog.group(*id).map(|g| g.name.clone()))
+            .collect();
+        let joined = |list: &[String]| (!list.is_empty()).then(|| list.join("; "));
+        let mut after = names.clone();
+        after.extend(added);
+        changes.insert(
+            "groups".to_string(),
+            FieldChange {
+                before: joined(&names),
+                after: joined(&after),
+            },
+        );
+    }
+    changes
+}
+
 /// `assets.updated_at` as row results keep it: microseconds, as Postgres
 /// stores it, so it compares equal to the column.
 fn observed_timestamp(at: chrono::NaiveDateTime) -> String {
@@ -1119,6 +1284,9 @@ enum RowAction {
 
 struct PlannedRow {
     action: RowAction,
+    /// For a row that matches an asset, each field the update changes, as
+    /// [`fields_written`] records a write.
+    changes: BTreeMap<String, FieldChange>,
     /// The kind's slug, resolved from the slug or label in the file.
     kind: String,
     /// The asset's attributes with the row's merged in, when the row
@@ -1541,7 +1709,7 @@ fn plan_row(
                 found
             }
             (None, None, None) => {
-                error("kind", "kind is required".to_string());
+                error("kind", values::KIND_REQUIRED.to_string());
                 None
             }
         }
@@ -1714,16 +1882,43 @@ fn plan_row(
     let synced_writes = attributes_changed || groups_change;
     match kind {
         Some(kind) if errors.is_empty() => {
+            // What an update would change, field by field: a matched row
+            // that changes nothing is unchanged and writes nothing.
+            let changes = match existing {
+                Some(asset) => update_changes(
+                    asset,
+                    &RowWrites {
+                        row,
+                        kind: &kind,
+                        texts: &PlannedText {
+                            maker: maker_text(&maker, &model, lookups),
+                            model: model_text(&model, lookups),
+                            location: location.clone(),
+                        },
+                        model_changes,
+                        purchase_date,
+                        primary_user,
+                        attributes: attributes.as_ref(),
+                        status_to,
+                        groups: &groups,
+                    },
+                    lookups,
+                    mark,
+                ),
+                None => BTreeMap::new(),
+            };
             let action = match target {
                 Some(id) if synced && (synced_writes || status_to.is_some()) => {
                     RowAction::SyncedUpdate(id)
                 }
                 Some(id) if synced => RowAction::Unchanged(id),
+                Some(id) if changes.is_empty() => RowAction::Unchanged(id),
                 Some(id) => RowAction::Update(id),
                 None => RowAction::Create,
             };
             Ok(PlannedRow {
                 action,
+                changes,
                 kind,
                 attributes,
                 purchase_date,
@@ -2273,9 +2468,13 @@ fn plan_all(parsed: &ParsedCsv, lookups: &Lookups, options: &ImportOptions) -> P
     let mut catalog = CatalogPlan::default();
     let mut locations_snapped = 0;
     for entry in &entries {
+        // A row that writes nothing creates nothing either.
         let Ok(planned) = &entry.planned else {
             continue;
         };
+        if matches!(planned.action, RowAction::Unchanged(_)) {
+            continue;
+        }
         if planned.location_snapped {
             locations_snapped += 1;
         }
@@ -2379,6 +2578,26 @@ struct Made {
 }
 
 impl Made {
+    /// The names of groups by id, in order, as one text; `None` for none.
+    fn group_names(&self, ids: &[i32], lookups: &Lookups) -> Option<String> {
+        let names: Vec<String> = ids
+            .iter()
+            .filter_map(|id| {
+                lookups
+                    .catalog
+                    .group(*id)
+                    .map(|g| g.name.clone())
+                    .or_else(|| {
+                        self.groups
+                            .values()
+                            .find(|g| g.id == *id)
+                            .map(|g| g.name.clone())
+                    })
+            })
+            .collect();
+        (!names.is_empty()).then(|| names.join("; "))
+    }
+
     /// Create what the row needs and the catalog lacks, through the
     /// repositories, recording each on `created`, and say what the row
     /// writes.
@@ -2706,7 +2925,9 @@ fn attribute_error(
         E::NotObject => (None, "attributes must be an object".to_string()),
         // Shown after the attribute's name: "Fuel: required for Vehicle
         // assets".
-        E::MissingRequired(key) => about(key, format!("required for {kind_label} assets")),
+        E::MissingRequired(key) => {
+            about(key, format!("{}{kind_label} assets", values::REQUIRED_FOR))
+        }
         E::UnknownProperty(key) => about(
             key,
             format!("{kind_label} assets have no attribute '{key}'; remove it on the asset page"),
