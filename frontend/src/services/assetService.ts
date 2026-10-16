@@ -22,6 +22,9 @@ export interface AssetPaginationParams extends PaginationParams {
    *  assets at or below their low-stock threshold. Backend
    *  treats anything else as off. */
   lowStock?: string;
+  /** An import job's id: only the assets it created and updated (workspace
+   *  admins). */
+  import?: string;
 }
 
 export interface AssetLocationOption {
@@ -65,6 +68,7 @@ export const getAssetGroupingDataset = async (filters: {
   warranty?: string;
   location?: string;
   lowStock?: string;
+  import?: string;
 }): Promise<AssetGroupingRow[]> => {
   const params: Record<string, string> = {};
   if (filters.search) params.search = filters.search;
@@ -72,6 +76,7 @@ export const getAssetGroupingDataset = async (filters: {
   if (filters.warranty) params.warranty = filters.warranty;
   if (filters.location) params.location = filters.location;
   if (filters.lowStock) params.lowStock = filters.lowStock;
+  if (filters.import) params.import = filters.import;
   const response = await apiClient.get('/assets/grouping-dataset', { params });
   return response.data as AssetGroupingRow[];
 };
@@ -125,7 +130,7 @@ export const getAssetLocations = async (): Promise<AssetLocationOption[]> => {
 
 /** Build query params for CSV export (shared by the download helper). */
 function assetExportParams(
-  filters: Pick<AssetPaginationParams, 'search' | 'status' | 'warranty' | 'location' | 'lowStock'>,
+  filters: Pick<AssetPaginationParams, 'search' | 'status' | 'warranty' | 'location' | 'lowStock' | 'import'>,
 ): URLSearchParams {
   const params = new URLSearchParams({ format: 'csv' });
   if (filters.search) params.set('search', filters.search);
@@ -133,6 +138,7 @@ function assetExportParams(
   if (filters.warranty) params.set('warranty', filters.warranty);
   if (filters.location) params.set('location', filters.location);
   if (filters.lowStock) params.set('lowStock', filters.lowStock);
+  if (filters.import) params.set('import', filters.import);
   return params;
 }
 
@@ -196,7 +202,7 @@ async function downloadCsv(
  *  paginated list. `scope: 'history'` exports the lifecycle event log
  *  (one row per transition) instead of the current-state snapshot. */
 export async function downloadAssetsCsv(
-  filters: Pick<AssetPaginationParams, 'search' | 'status' | 'warranty' | 'location' | 'lowStock'>,
+  filters: Pick<AssetPaginationParams, 'search' | 'status' | 'warranty' | 'location' | 'lowStock' | 'import'>,
   scope?: 'history',
 ): Promise<void> {
   const params = assetExportParams(filters);

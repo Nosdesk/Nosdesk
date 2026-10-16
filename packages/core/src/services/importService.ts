@@ -249,10 +249,22 @@ export interface ImportField {
   required_for?: string[]
 }
 
+/** What Recent imports and the import detail call a job. Expired is a
+ *  draft untouched for 30 days, or one whose file was removed: it can't be
+ *  resumed. */
+export type ImportJobState = 'draft' | 'imported' | 'expired'
+
 export interface ImportJob {
   id: string
   job_type: ImportJobType
   status: ImportJobStatus
+  /** Absent for a refused upload or a failed commit. */
+  state?: ImportJobState | null
+  /** When the 30-day prune removed the file and the per-row detail: the
+   *  job is counts, options and mapping from then on. */
+  pruned_at?: string | null
+  /** Who uploaded it, as the workspace names them (the job's own read). */
+  created_by_name?: string | null
   filename: string
   created_by: string | null
   created_at: string
@@ -472,6 +484,35 @@ export interface SavedMatches {
   columns: SavedColumns | null
 }
 
+/** New, Updated, Unchanged and Skipped, as the tiles count them. */
+export interface ImportCounts {
+  new: number
+  updated: number
+  unchanged: number
+  skipped: number
+}
+
+/** One job on Recent imports. */
+export interface ImportJobListItem {
+  id: string
+  job_type: ImportJobType
+  status: ImportJobStatus
+  state: ImportJobState | null
+  filename: string
+  /** The workbook sheet, for an .xlsx. */
+  sheet: string | null
+  created_by: string | null
+  created_by_name: string | null
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+  pruned_at: string | null
+  /** Once the job has been checked. */
+  counts: ImportCounts | null
+}
+
+export const importJobsQueryKey = (limit: number) => ['import-jobs', limit] as const
+export const importJobQueryKey = (jobId: string) => ['import-job', jobId] as const
 export const importFieldsQueryKey = (jobType: ImportJobType) => ['import-fields', jobType] as const
 export const importAnswersQueryKey = (jobType: ImportJobType) =>
   ['import-answers', jobType] as const
@@ -567,6 +608,14 @@ export const importService = {
   async commit(jobId: string): Promise<ImportJob> {
     const { data } = await apiClient.post<ImportJob>(`/admin/import/${jobId}/commit`)
     return data
+  },
+
+  /** Recent imports: the newest jobs that reached Map, newest first. */
+  async list(limit = 20): Promise<ImportJobListItem[]> {
+    const { data } = await apiClient.get<{ jobs: ImportJobListItem[] }>('/admin/import', {
+      params: { limit },
+    })
+    return data.jobs
   },
 
   async get(jobId: string): Promise<ImportJob> {

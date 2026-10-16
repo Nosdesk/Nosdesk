@@ -4601,14 +4601,96 @@ import-review-plan-changed-fewer = { $count ->
 # MT: pending native review (nl-NL)
 import-done-heading = Import voltooid
 # MT: pending native review (nl-NL)
-import-done-body = { $count ->
-    [one] 1 rij geïmporteerd.
-   *[other] { $count } rijen geïmporteerd.
+import-done-headline = { $count ->
+    [one] 1 rij geïmporteerd: { $parts }.
+   *[other] { $count } rijen geïmporteerd: { $parts }.
    }
 # MT: pending native review (nl-NL)
-import-done-skipped = { $count } overgeslagen wegens fouten.
+import-done-created = { $type ->
+    [users] { $count ->
+        [one] 1 persoon toegevoegd
+       *[other] { $count } personen toegevoegd
+       }
+    [tickets] { $count ->
+        [one] 1 ticket aangemaakt
+       *[other] { $count } tickets aangemaakt
+       }
+   *[other] { $count ->
+        [one] 1 asset aangemaakt
+       *[other] { $count } assets aangemaakt
+       }
+   }
 # MT: pending native review (nl-NL)
-import-done-new = Nog een bestand importeren
+import-done-updated = { $count } bijgewerkt
+# MT: pending native review (nl-NL)
+import-done-nothing = Er is niets geïmporteerd.
+# MT: pending native review (nl-NL)
+import-done-fix-hint = Corrigeer de rijen in het rapport en upload het opnieuw. De kolommen Row en Errors worden genegeerd, en kolommen met dezelfde koppen worden automatisch opnieuw gekoppeld.
+# MT: pending native review (nl-NL)
+import-done-imported-event = Aangemaakte assets tonen 'Geïmporteerd' in hun statusgeschiedenis.
+# MT: pending native review (nl-NL)
+import-done-created-title = Aangemaakt in uw werkruimte
+# MT: pending native review (nl-NL)
+import-done-view = { $type ->
+    [users] Deze gebruikers bekijken
+    [tickets] Deze tickets bekijken
+   *[other] Deze assets bekijken
+   }
+# MT: pending native review (nl-NL)
+import-done-another = Nog een vergelijkbaar bestand importeren
+# MT: pending native review (nl-NL)
+import-history-title = Recente imports
+# MT: pending native review (nl-NL)
+import-history-empty = Nog geen imports. Uw eerste import verschijnt hier met de aantallen, en u kunt er 30 dagen op terugkomen.
+# MT: pending native review (nl-NL)
+import-history-load-failed = Recente imports zijn niet geladen.
+# MT: pending native review (nl-NL)
+import-history-state-draft = Concept
+# MT: pending native review (nl-NL)
+import-history-state-imported = Geïmporteerd
+# MT: pending native review (nl-NL)
+import-history-state-expired = Verlopen
+# MT: pending native review (nl-NL)
+import-history-draft-on-map = Concept bij Kolommen
+# MT: pending native review (nl-NL)
+import-history-draft-on-review = Concept bij Controle
+# MT: pending native review (nl-NL)
+import-history-count-new = { $count } nieuw
+# MT: pending native review (nl-NL)
+import-history-count-updated = { $count } bijgewerkt
+# MT: pending native review (nl-NL)
+import-history-count-unchanged = { $count } ongewijzigd
+# MT: pending native review (nl-NL)
+import-history-count-skipped = { $count } overgeslagen
+# MT: pending native review (nl-NL)
+import-history-count-none = Niets geïmporteerd
+# MT: pending native review (nl-NL)
+import-history-resume = Hervatten
+# MT: pending native review (nl-NL)
+import-history-view = Bekijken
+# MT: pending native review (nl-NL)
+import-history-cannot-resume = Kan niet worden hervat
+# MT: pending native review (nl-NL)
+import-history-expired-resume = Dit concept is 30 dagen na de laatste wijziging verlopen en kan niet worden hervat. Upload het bestand opnieuw.
+# MT: pending native review (nl-NL)
+import-history-options-constants = { $count ->
+    [one] 1 waarde ingesteld voor elke rij
+   *[other] { $count } waarden ingesteld voor elke rij
+   }
+# MT: pending native review (nl-NL)
+import-detail-title = Import op { $date }
+# MT: pending native review (nl-NL)
+import-detail-state = Status
+# MT: pending native review (nl-NL)
+import-detail-options = Opties
+# MT: pending native review (nl-NL)
+import-detail-mapping = Koppeling
+# MT: pending native review (nl-NL)
+import-detail-kept-30-days = Details worden 30 dagen bewaard. Aantallen, opties en de koppeling blijven.
+# MT: pending native review (nl-NL)
+import-detail-expired = Dit concept is niet geïmporteerd en kan niet worden hervat.
+# MT: pending native review (nl-NL)
+import-detail-load-failed = Deze import is niet geladen.
 # MT: pending native review (nl-NL)
 import-field-assets-name = Naam
 # MT: pending native review (nl-NL)
@@ -7464,6 +7546,8 @@ admin-ldap-preview-default = Iedereen anders → Lid
 route-title-admin-csv-import = CSV-import
 # MT: pending native review (nl-NL)
 route-title-admin-import-saved-matches = Opgeslagen koppelingen
+# MT: pending native review (nl-NL)
+route-title-admin-import-detail = Import
 route-title-admin-backup-restore = Back-up en herstel
 route-title-group-detail = Groepsdetails
 route-title-authenticating = Bezig met authenticeren...
@@ -8504,6 +8588,10 @@ user-addresses-error-save = Opslaan van adres mislukt
 user-addresses-error-delete = Verwijderen van adres mislukt
 # MACHINE TRANSLATION, pending native review (native asset groups)
 assets-list-filter-groups-label = Groep
+# MT: pending native review (nl-NL)
+assets-list-filter-import-label = Import
+# MT: pending native review (nl-NL)
+assets-list-filter-import-fallback = Een import
 assets-list-filter-groups-count =
     { $count ->
         [one] 1 activum
