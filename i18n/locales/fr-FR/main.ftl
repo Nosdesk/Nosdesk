@@ -4649,6 +4649,8 @@ import-done-view = { $type ->
 # MT: pending native review (fr-FR)
 import-done-another = Importer un autre fichier similaire
 # MT: pending native review (fr-FR)
+import-done-next-sheet = Importer la feuille suivante : { $sheet }
+# MT: pending native review (fr-FR)
 import-history-title = Imports récents
 # MT: pending native review (fr-FR)
 import-history-empty = Aucun import pour le moment. Votre premier import apparaîtra ici avec ses chiffres, et vous pourrez y revenir pendant 30 jours.

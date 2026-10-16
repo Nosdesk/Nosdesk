@@ -927,6 +927,7 @@ diesel::table! {
         removed_at -> Nullable<Timestamptz>,
         removed_by -> Nullable<Uuid>,
         remove_result -> Nullable<Jsonb>,
+        upload_of -> Nullable<Uuid>,
     }
 }
 

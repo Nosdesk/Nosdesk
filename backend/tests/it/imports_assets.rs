@@ -1165,6 +1165,9 @@ async fn import_routes_refuse_a_non_admin() {
         TestRequest::get().uri(&format!("/api/admin/import/{job}/remove-created")),
         TestRequest::post().uri(&format!("/api/admin/import/{job}/remove-created")),
         TestRequest::get().uri(&format!("/api/admin/import/{job}/previous-values")),
+        TestRequest::post()
+            .uri(&format!("/api/admin/import/{job}/next-sheet"))
+            .set_json(serde_json::json!({ "sheet": "Vehicles" })),
     ];
     for req in requests {
         let (status, _) = call_import_route(&pool, &ws, ws.member_uuid, req).await;
@@ -1325,6 +1328,7 @@ fn purging_an_importer_clears_them_from_the_job_and_its_assets() {
                 filename: "assets.csv".to_string(),
                 file_path: "/dev/null".to_string(),
                 created_by: Some(importer),
+                upload_of: None,
             },
         )?;
         let ctx = imports::ImportContext {

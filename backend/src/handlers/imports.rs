@@ -40,6 +40,9 @@
 //! - `GET  /admin/import/{id}/previous-values` downloads, for an asset
 //!   import, the values its updates replaced as a file to import back
 //!   (`services::imports::previous`); 410 once the details are pruned.
+//! - `POST /admin/import/{id}/next-sheet` starts a new draft on another
+//!   sheet of a committed import's workbook, with nothing carried but the
+//!   file (`services::imports::next_sheet`).
 //! - `GET  /admin/import/fields?type=` lists the fields a column
 //!   can map to.
 //! - `GET  /admin/import/answers?type=` lists the type's saved matches
@@ -76,6 +79,7 @@ use crate::repository::imports as repo;
 use crate::services::imports::files::{self, FileError};
 use crate::services::imports::history::{self, JobState};
 use crate::services::imports::mapping::{self, ColumnMapping, ImportSource, StoredSource};
+use crate::services::imports::next_sheet;
 use crate::services::imports::previous;
 use crate::services::imports::remove;
 use crate::services::imports::saved;
@@ -153,6 +157,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/import/{id}/previous-values",
         web::get().to(crate::handlers::imports::previous_values),
+    )
+    .route(
+        "/admin/import/{id}/next-sheet",
+        web::post().to(crate::handlers::imports::next_sheet),
     )
     .service(
         web::resource("/admin/import/{id}")
@@ -302,6 +310,7 @@ pub async fn upload(
                 filename: stored_filename(&filename),
                 file_path: stored_key,
                 created_by: Some(user_uuid),
+                upload_of: None,
             },
         )?;
 
@@ -1371,6 +1380,17 @@ pub async fn commit(
     });
 
     match result {
+        Ok(CommitOutcome::Ok(job, records)) => {
+            index_imported_records(search_service.get_ref(), records);
+            // Done renders from this answer: the same page as a reload.
+            match tc.run(|conn| page_response(conn, job.clone())) {
+                Ok(response) => HttpResponse::Ok().json(response),
+                Err(e) => {
+                    error!(job_id = %id, error = ?e, "failed to read a committed import's page");
+                    HttpResponse::Ok().json(ImportJobResponse::from(job))
+                }
+            }
+        }
         Ok(outcome) => commit_response(&search_service, outcome),
         Err(e) => {
             // The commit rolled back every row, and the job's status with
@@ -1627,10 +1647,7 @@ pub async fn get_job(
         if job.status == "dry_run_done" && repo::commit_running(conn, id)? {
             job.status = "committing".to_string();
         }
-        let previous = previous_values_of(conn, &job)?;
-        let mut response = job_response(conn, job)?;
-        response.previous_values = previous;
-        Ok(response)
+        page_response(conn, job)
     });
     match read {
         Ok(response) => HttpResponse::Ok().json(response),
@@ -2400,6 +2417,273 @@ fn download_stem(filename: &str) -> String {
     }
 }
 
+// ---- import the next sheet ----
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NextSheetRequest {
+    pub sheet: String,
+}
+
+fn next_sheet_refused(refusal: next_sheet::Refusal) -> HttpResponse {
+    use next_sheet::Refusal;
+    match refusal {
+        Refusal::NotImported => errors::conflict_with_code(
+            "This import wasn't committed. Import this sheet before the next one.",
+            "import_not_committed",
+        ),
+        Refusal::Pruned => details_pruned(),
+        Refusal::SingleSheet => errors::bad_request_with_code(
+            "This file has one sheet, and it was imported.",
+            "import_single_sheet",
+        ),
+        Refusal::UnknownSheet => errors::bad_request_with_code(
+            "This workbook has no sheet by that name.",
+            "import_sheet_unknown",
+        ),
+        Refusal::HiddenSheet => errors::bad_request_with_code(
+            "That sheet is hidden in the workbook. Unhide it and upload the file again.",
+            "import_sheet_hidden",
+        ),
+        Refusal::AlreadyImported => errors::conflict_with_code(
+            "That sheet was already imported from this file.",
+            "import_sheet_already_imported",
+        ),
+    }
+}
+
+/// What checking a next sheet against the source job came to.
+enum NextSheetCheck {
+    Create {
+        job: ImportJob,
+        job_type: ImportType,
+        root: Uuid,
+    },
+    Existing(ImportJob),
+    NotFound,
+    Refused(next_sheet::Refusal),
+}
+
+/// Import the next sheet: a new draft of the same type on another sheet of
+/// a committed import's workbook, with its own copy of the upload, read as
+/// `PUT source` reads a chosen sheet (header row guessed). Nothing else is
+/// carried; Map suggests the columns from memory. A draft on that sheet
+/// from the same upload that can still go on is answered instead of a new
+/// one.
+pub async fn next_sheet(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    storage: ScopedStorage,
+    path: web::Path<Uuid>,
+    body: web::Json<NextSheetRequest>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let sheet = body.into_inner().sheet;
+
+    let check = tc.run(|conn| {
+        let job = match repo::get(conn, id) {
+            Ok(j) => j,
+            Err(diesel::result::Error::NotFound) => return Ok(NextSheetCheck::NotFound),
+            Err(e) => return Err(e),
+        };
+        let root = next_sheet::root_of(job.id, job.upload_of);
+        let jobs = repo::jobs_of_upload(conn, root)?;
+        let source = stored_source(&job).map(|s| s.source);
+        let plan = next_sheet::plan(
+            &job.status,
+            job.pruned_at.is_some(),
+            source.as_ref(),
+            &sheet,
+            &jobs,
+        );
+        match plan {
+            Err(refusal) => Ok(NextSheetCheck::Refused(refusal)),
+            Ok(next_sheet::Plan::Existing(draft)) => {
+                Ok(NextSheetCheck::Existing(repo::get(conn, draft)?))
+            }
+            Ok(next_sheet::Plan::Create) => match ImportType::from_str(&job.job_type) {
+                Some(job_type) => Ok(NextSheetCheck::Create {
+                    job,
+                    job_type,
+                    root,
+                }),
+                None => Ok(NextSheetCheck::Refused(next_sheet::Refusal::NotImported)),
+            },
+        }
+    });
+    let (source_job, job_type, root) = match check {
+        Ok(NextSheetCheck::Create {
+            job,
+            job_type,
+            root,
+        }) => (job, job_type, root),
+        Ok(NextSheetCheck::Existing(draft)) => {
+            return HttpResponse::Ok().json(ImportJobResponse::from(draft))
+        }
+        Ok(NextSheetCheck::NotFound) => {
+            return errors::not_found_msg(format!("import job {id} not found"))
+        }
+        Ok(NextSheetCheck::Refused(refusal)) => return next_sheet_refused(refusal),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to load import job");
+            return errors::internal("failed to load import job");
+        }
+    };
+
+    // The new job's own copy of the upload: the source's files go with its
+    // prune, and this draft has a window of its own.
+    let extension = FileFormat::Xlsx.as_str();
+    let bytes = match files::read_upload(storage.0.as_ref(), id, extension).await {
+        Ok(b) => b,
+        Err(e) => return file_error(id, e),
+    };
+    let new_id = Uuid::now_v7();
+    let stored_key = match files::put_upload(storage.0.as_ref(), new_id, extension, &bytes).await {
+        Ok(key) => key,
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to copy an import upload");
+            return errors::internal("failed to read import file");
+        }
+    };
+    let choice = SheetChoice {
+        sheet: sheet.clone(),
+        header_row: None,
+    };
+    let read = parse_off_worker(move || -> std::io::Result<Result<_, String>> {
+        match xlsx::read(&bytes, Some(&choice)) {
+            Ok(workbook) => Ok(Ok((files::grid_bytes(&workbook.grid)?, workbook.source))),
+            Err(refused) => Ok(Err(refused.0)),
+        }
+    })
+    .await;
+    let (grid_bytes, source) = match read {
+        Ok(Ok(Ok(read))) => read,
+        Ok(Ok(Err(message))) => {
+            remove_files(&storage, new_id).await;
+            return errors::bad_request(message);
+        }
+        Ok(Err(e)) => {
+            error!(job_id = %id, error = ?e, "failed to encode import grid");
+            remove_files(&storage, new_id).await;
+            return errors::internal("failed to read import file");
+        }
+        Err(ParseFailure::TimedOut) => {
+            remove_files(&storage, new_id).await;
+            return errors::bad_request(TIMED_OUT);
+        }
+        Err(ParseFailure::Task(e)) => {
+            error!(job_id = %id, error = %e, "import parse task failed");
+            remove_files(&storage, new_id).await;
+            return errors::internal("failed to read import file");
+        }
+    };
+    let grid = match files::put_grid(storage.0.as_ref(), new_id, &grid_bytes).await {
+        Ok(version) => version,
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to store import grid");
+            remove_files(&storage, new_id).await;
+            return errors::internal("failed to read import file");
+        }
+    };
+    drop(grid_bytes);
+
+    enum Made {
+        Created(ImportJob),
+        Existing(ImportJob),
+        Refused(next_sheet::Refusal),
+        Busy,
+    }
+    let result = tc.run(|conn| {
+        // Under the first job's lock, so two presses make one draft.
+        if !repo::try_lock_job(conn, root)? {
+            return Ok(Made::Busy);
+        }
+        let jobs = repo::jobs_of_upload(conn, root)?;
+        let current = repo::get(conn, source_job.id)?;
+        let plan = next_sheet::plan(
+            &current.status,
+            current.pruned_at.is_some(),
+            stored_source(&current).map(|s| s.source).as_ref(),
+            &sheet,
+            &jobs,
+        );
+        match plan {
+            Err(refusal) => return Ok(Made::Refused(refusal)),
+            Ok(next_sheet::Plan::Existing(draft)) => {
+                return Ok(Made::Existing(repo::get(conn, draft)?))
+            }
+            Ok(next_sheet::Plan::Create) => {}
+        }
+        let job = repo::create(
+            conn,
+            NewImportJob {
+                id: new_id,
+                job_type: job_type.as_str().to_string(),
+                filename: source_job.filename.clone(),
+                file_path: stored_key.clone(),
+                created_by: Some(auth.user_uuid),
+                upload_of: Some(root),
+            },
+        )?;
+        let stored = suggest_for(conn, job_type, source, Some(grid))?;
+        let updated = repo::update(
+            conn,
+            job.id,
+            ImportJobUpdate {
+                status: Some("parsed".to_string()),
+                source: Some(serde_json::to_value(&stored).ok()),
+                ..Default::default()
+            },
+        )?;
+        info!(
+            job_id = %updated.id,
+            rows = stored.source.row_count,
+            "import next sheet started"
+        );
+        Ok(Made::Created(updated))
+    });
+
+    if !matches!(result, Ok(Made::Created(_))) {
+        // No job names these files.
+        remove_files(&storage, new_id).await;
+    }
+    match result {
+        Ok(Made::Created(job)) => HttpResponse::Created().json(ImportJobResponse::from(job)),
+        Ok(Made::Existing(job)) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
+        Ok(Made::Refused(refusal)) => next_sheet_refused(refusal),
+        Ok(Made::Busy) => errors::conflict_with_code(
+            "This import is being changed. Try again in a moment.",
+            "import_busy",
+        ),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to start the next sheet");
+            errors::internal("failed to start the import")
+        }
+    }
+}
+
+/// The sheet Done offers to import next from a committed workbook import
+/// whose file is kept.
+fn next_sheet_of(
+    conn: &mut crate::db::DbConnection,
+    job: &ImportJob,
+) -> Result<Option<String>, diesel::result::Error> {
+    if job.status != "done" || job.pruned_at.is_some() {
+        return Ok(None);
+    }
+    let Some(stored) = stored_source(job) else {
+        return Ok(None);
+    };
+    if stored.source.format != FileFormat::Xlsx.as_str() || stored.source.sheets.len() < 2 {
+        return Ok(None);
+    }
+    let jobs = repo::jobs_of_upload(conn, next_sheet::root_of(job.id, job.upload_of))?;
+    Ok(next_sheet::offer(&stored.source, &jobs))
+}
+
 // ---- remove imported assets, previous values ----
 
 /// Why Remove imported assets can't run on a job.
@@ -2638,6 +2922,20 @@ pub async fn remove_created(
             errors::internal("Removing the imported assets failed and nothing was deleted.")
         }
     }
+}
+
+/// The job as Done and the import detail page show it: [`job_response`]
+/// with the size of its previous values file and the sheet to import next.
+fn page_response(
+    conn: &mut crate::db::DbConnection,
+    job: ImportJob,
+) -> Result<ImportJobResponse, diesel::result::Error> {
+    let previous = previous_values_of(conn, &job)?;
+    let next = next_sheet_of(conn, &job)?;
+    let mut response = job_response(conn, job)?;
+    response.previous_values = previous;
+    response.next_sheet = next;
+    Ok(response)
 }
 
 /// The job as a page shows it: with the names of who uploaded it, who

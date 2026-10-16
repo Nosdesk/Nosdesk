@@ -930,6 +930,7 @@ async fn imports_config_routes_registered() {
             ("GET", "/admin/import/1/remove-created"),
             ("POST", "/admin/import/1/remove-created"),
             ("GET", "/admin/import/1/previous-values"),
+            ("POST", "/admin/import/1/next-sheet"),
             ("GET", "/admin/import/1"),
             ("DELETE", "/admin/import/1"),
         ],

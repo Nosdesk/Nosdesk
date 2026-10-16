@@ -4286,6 +4286,7 @@ import-done-view = { $type ->
    *[other] View these assets
    }
 import-done-another = Import another file like this
+import-done-next-sheet = Import the next sheet: { $sheet }
 import-history-title = Recent imports
 import-history-empty = No imports yet. Your first import will show here with its counts, and you can come back to it for 30 days.
 import-history-load-failed = Recent imports didn't load.

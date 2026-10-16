@@ -4639,6 +4639,8 @@ import-done-view = { $type ->
 # MT: pending native review (nl-NL)
 import-done-another = Nog een vergelijkbaar bestand importeren
 # MT: pending native review (nl-NL)
+import-done-next-sheet = Het volgende blad importeren: { $sheet }
+# MT: pending native review (nl-NL)
 import-history-title = Recente imports
 # MT: pending native review (nl-NL)
 import-history-empty = Nog geen imports. Uw eerste import verschijnt hier met de aantallen, en u kunt er 30 dagen op terugkomen.

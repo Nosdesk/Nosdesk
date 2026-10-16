@@ -135,6 +135,29 @@ const mappedCount = computed(() => mappingRows.value.filter((r) => r.target).len
 const downloading = ref(false)
 const errorMessage = ref('')
 
+/** "Import the next sheet": a new draft on that sheet of the same file,
+ *  opened on Map in the wizard. */
+const startingNext = ref(false)
+async function importNextSheet() {
+  const sheet = job.value?.next_sheet
+  if (!job.value || !sheet || startingNext.value) return
+  startingNext.value = true
+  errorMessage.value = ''
+  try {
+    const next = await importService.nextSheet(job.value.id, sheet)
+    queryCache.invalidateQueries({ key: ['import-jobs'] })
+    router.push(resumeTarget(next.id))
+  } catch (e) {
+    const err = e as { response?: { data?: { code?: string; error?: string } } }
+    errorMessage.value =
+      err?.response?.data?.code === 'import_file_missing'
+        ? t('import-file-missing')
+        : (err?.response?.data?.error ?? t('import-error-generic'))
+  } finally {
+    startingNext.value = false
+  }
+}
+
 async function downloadReport(only?: { group?: number; dropped?: number[] }) {
   if (!job.value || downloading.value) return
   downloading.value = true
@@ -297,6 +320,15 @@ const linkClass =
               <span v-if="previous && previous.rows === 0" class="text-xs text-tertiary" data-test="import-detail-previous-none">
                 {{ $t('import-previous-none') }}
               </span>
+              <Button
+                v-if="job.next_sheet"
+                variant="secondary"
+                :loading="startingNext"
+                data-test="import-detail-next-sheet"
+                @click="importNextSheet"
+              >
+                {{ $t('import-done-next-sheet', { sheet: job.next_sheet }) }}
+              </Button>
             </div>
             <p v-if="previous && previous.rows > 0" class="text-xs text-tertiary" data-test="import-detail-previous-help">
               {{ previousHelp }}

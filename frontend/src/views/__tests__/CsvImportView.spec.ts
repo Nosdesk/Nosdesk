@@ -25,6 +25,7 @@ const api = vi.hoisted(() => ({
   values: vi.fn(),
   putValues: vi.fn(),
   previewValues: vi.fn(),
+  nextSheet: vi.fn(),
 }))
 
 vi.mock('@nosdesk/core/services/importService', () => ({
@@ -45,6 +46,7 @@ vi.mock('@nosdesk/core/services/importService', () => ({
     values: (...a: unknown[]) => api.values(...a),
     putValues: (...a: unknown[]) => api.putValues(...a),
     previewValues: (...a: unknown[]) => api.previewValues(...a),
+    nextSheet: (...a: unknown[]) => api.nextSheet(...a),
     templateUrl: (type: string) => `/api/admin/import/template/${type}`,
   },
 }))
@@ -594,6 +596,46 @@ describe('CsvImportView Done', () => {
     expect(currentStep()).toBe('start')
     expect(wrapper!.text()).toContain('import-history-expired-resume')
     expect(router.currentRoute.value.query.job).toBeUndefined()
+  })
+
+  it('imports the next sheet of the workbook on a new draft, opened on Map', async () => {
+    api.get.mockResolvedValue(doneJob({ next_sheet: 'Vehicles' }))
+    api.nextSheet.mockResolvedValue({
+      ...workbookJob({ sheet: 'Vehicles', header_row: 1 }),
+      id: 'job-2',
+    })
+    await mountAt('/admin/data-import/csv?job=job-1')
+    const actions = wrapper!.find('[data-test="import-done-actions"]')
+    expect(actions.findAll('button').map((b) => b.attributes('data-test'))).toEqual([
+      'import-done-view',
+      'import-done-report',
+      'import-done-next-sheet',
+      'import-done-another',
+    ])
+    await wrapper!.find('[data-test="import-done-next-sheet"]').trigger('click')
+    await flushPromises()
+    expect(api.nextSheet).toHaveBeenCalledWith('job-1', 'Vehicles')
+    expect(currentStep()).toBe('map')
+    expect(router.currentRoute.value.query.job).toBe('job-2')
+    expect(wrapper!.find('[data-test="import-sheet-panel"]').exists()).toBe(true)
+  })
+
+  it('leaves the next sheet out when there is none', async () => {
+    api.get.mockResolvedValue(doneJob({ next_sheet: null }))
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(wrapper!.find('[data-test="import-done-next-sheet"]').exists()).toBe(false)
+  })
+
+  it('goes back to Start when the file for the next sheet is gone', async () => {
+    api.get.mockResolvedValue(doneJob({ next_sheet: 'Vehicles' }))
+    api.nextSheet.mockRejectedValue({
+      response: { status: 409, data: { code: 'import_file_missing', error: 'gone' } },
+    })
+    await mountAt('/admin/data-import/csv?job=job-1')
+    await wrapper!.find('[data-test="import-done-next-sheet"]').trigger('click')
+    await flushPromises()
+    expect(currentStep()).toBe('start')
+    expect(wrapper!.text()).toContain('import-file-missing')
   })
 
   it('links Recent imports from Start', async () => {
