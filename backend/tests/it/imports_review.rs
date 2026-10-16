@@ -1,8 +1,9 @@
 //! What Review reads: a matched row that changes nothing is Unchanged and
 //! the commit writes nothing for it; the summary's per-field change counts,
 //! per-kind new counts and columns no field takes; where each problem is
-//! fixed; and the error report narrowed to one problem's rows or to the
-//! rows that import without some of their values.
+//! fixed; the error report with its skipped and partly imported rows,
+//! uploaded again once fixed; and the report narrowed to one problem's rows
+//! or to the rows that import without some of their values.
 
 use actix_web::http::StatusCode;
 use actix_web::test::TestRequest;
@@ -349,4 +350,225 @@ async fn the_report_narrows_to_one_problem_or_to_left_out_values() {
             "{query}"
         );
     }
+}
+
+/// Give the workspace's member a primary email the import can match.
+fn seed_member_email(pool: &TestPool, ws: &WorkspaceSeed) -> String {
+    let email = format!("sam-{}@example.com", ws.slug);
+    diesel::sql_query(
+        "INSERT INTO user_emails (user_uuid, email, is_primary, is_verified) VALUES ($1, $2, true, true)",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(ws.member_uuid)
+    .bind::<Text, _>(&email)
+    .execute(&mut pool.get().expect("conn"))
+    .expect("seed member email");
+    email
+}
+
+fn report_lines(body: &str) -> Vec<String> {
+    body.trim_start_matches('\u{FEFF}')
+        .lines()
+        .map(String::from)
+        .collect()
+}
+
+/// The unfiltered report lists the skipped rows and the partly imported
+/// ones together in file order: a partly imported row says it will be
+/// imported (before the commit) or was (after), then which values it
+/// leaves out. A row that imports whole is not listed.
+#[actix_web::test]
+async fn the_report_holds_skipped_and_partly_imported_rows() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    seed_kinds(&pool, &ws);
+    seed_asset(&pool, &ws, "U-1", "camera", "Studio A");
+
+    let job = checked(
+        &pool,
+        &ws,
+        &format!(
+            "{HEADER}\n\
+             D-1,D-1,Camera,,,,,,\n\
+             D-1 again,D-1,Camera,,,,,,\n\
+             ,B-1,Camera,,,,,,\n\
+             N-2,N-2,Camera,Studio A,,,XYZ9,nobody@example.com,\n\
+             N-3,N-3,Camera,Studio B,,,,,\n\
+             U-1,U-1,Camera,Studio C,,,,nobody@example.com,\n"
+        ),
+        MAPPING,
+        serde_json::json!({}),
+    )
+    .await;
+    let id = id_of(&job);
+    let uri = format!("/api/admin/import/{id}/error-report");
+    let new_row = "Rego: Camera assets have no Rego, left out; Assigned To: 'nobody@example.com' is not a member of this workspace, left unassigned";
+    let updated_row =
+        "Assigned To: 'nobody@example.com' is not a member of this workspace, left unassigned";
+
+    let (status, body) = get(&pool, &ws, &uri).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.starts_with('\u{FEFF}'), "BOM");
+    let lines = report_lines(&body);
+    assert_eq!(lines[0], format!("Row,Errors,{HEADER}"));
+    let rows: Vec<&str> = lines[1..]
+        .iter()
+        .map(|l| l.split(',').next().unwrap())
+        .collect();
+    assert_eq!(rows, ["2", "3", "4", "5", "7"], "{body}");
+    assert!(
+        lines[1].starts_with("2,Tag: tag 'D-1' appears twice"),
+        "{body}"
+    );
+    assert!(lines[3].starts_with("4,Name: name is required,"), "{body}");
+    assert_eq!(
+        lines[4],
+        format!(
+            "5,\"Will be imported without these values; {new_row}\",N-2,N-2,Camera,Studio A,,,XYZ9,nobody@example.com,"
+        )
+    );
+    assert_eq!(
+        lines[5],
+        format!(
+            "7,\"Will be imported without these values; {updated_row}\",U-1,U-1,Camera,Studio C,,,,nobody@example.com,"
+        )
+    );
+
+    let done = commit(&pool, &ws, &id).await;
+    assert_eq!(done["status"], "done", "{done}");
+    let (status, body) = get(&pool, &ws, &uri).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let after = report_lines(&body);
+    assert_eq!(after.len(), lines.len(), "{body}");
+    assert_eq!(after[..4], lines[..4]);
+    assert_eq!(
+        after[4],
+        format!(
+            "5,\"Imported without these values; {new_row}\",N-2,N-2,Camera,Studio A,,,XYZ9,nobody@example.com,"
+        )
+    );
+    assert!(
+        after[5].starts_with(&format!(
+            "7,\"Imported without these values; {updated_row}\""
+        )),
+        "{body}"
+    );
+}
+
+/// The committed report, fixed and uploaded again: `Row` and `Errors` map
+/// to nothing by rule, every other header comes back from the last
+/// mapping, and matching by tag lands each fixed row. The rows that were
+/// skipped are New; the partly imported ones, now naming a member, are
+/// Updated with nothing left out.
+#[actix_web::test]
+async fn the_fixed_report_imports_skipped_rows_as_new_and_partly_imported_ones_as_updates() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    seed_kinds(&pool, &ws);
+    let member = seed_member_email(&pool, &ws);
+    seed_asset(&pool, &ws, "U-1", "camera", "Studio A");
+
+    let job = checked(
+        &pool,
+        &ws,
+        &format!(
+            "{HEADER}\n\
+             D-1,D-1,Camera,,,,,,\n\
+             D-1 again,D-1,Camera,,,,,,\n\
+             ,B-1,Camera,,,,,,\n\
+             N-2,N-2,Camera,Studio A,,,XYZ9,nobody@example.com,\n\
+             N-3,N-3,Camera,Studio B,,,,,\n\
+             U-1,U-1,Camera,Studio C,,,,nobody@example.com,\n"
+        ),
+        MAPPING,
+        serde_json::json!({}),
+    )
+    .await;
+    let id = id_of(&job);
+    commit(&pool, &ws, &id).await;
+    let (status, report) = get(&pool, &ws, &format!("/api/admin/import/{id}/error-report")).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+
+    let fixed = report
+        .replace("D-1 again,D-1,", "D-1 again,D-2,")
+        .replace(",,B-1,", ",B-1,B-1,")
+        .replace(",XYZ9,", ",,")
+        .replace("nobody@example.com", &member);
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        crate::imports_assets::upload_request("assets-errors.csv", fixed.as_bytes()),
+    )
+    .await;
+    let again = crate::imports_assets::json(&body);
+    assert_eq!(status, StatusCode::OK, "{again}");
+    let suggested = again["suggested_mapping"].as_array().expect("suggestions");
+    let by_index = |i: usize| {
+        suggested
+            .iter()
+            .find(|s| s["index"] == i)
+            .unwrap_or_else(|| panic!("no suggestion for column {i}: {suggested:?}"))
+    };
+    for i in [0, 1] {
+        assert_eq!(by_index(i)["reason"], "report", "{suggested:?}");
+        assert!(by_index(i)["field"].is_null(), "{suggested:?}");
+    }
+    let mut mapping = serde_json::Map::new();
+    for (header, field) in MAPPING {
+        let index = HEADER.split(',').position(|h| h == *header).unwrap() + 2;
+        assert_eq!(by_index(index)["field"], *field, "{suggested:?}");
+        assert_eq!(by_index(index)["reason"], "previous", "{suggested:?}");
+        mapping.insert(field.to_string(), index.into());
+    }
+    let again_id = again["id"].as_str().expect("job id").to_string();
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        crate::imports_assets::mapping_request(
+            &again_id,
+            serde_json::json!({ "mapping": mapping, "options": {} }),
+        ),
+    )
+    .await;
+    let checked_again = crate::imports_assets::json(&body);
+    assert_eq!(status, StatusCode::OK, "{checked_again}");
+    let summary = &checked_again["summary"];
+    assert_eq!(summary["rows_with_errors"], 0, "{summary}");
+    assert_eq!(summary["would_create"], 3, "{summary}");
+    assert_eq!(summary["would_update"], 2, "{summary}");
+    assert_eq!(summary["dropped"], serde_json::json!([]), "{summary}");
+
+    commit(&pool, &ws, &again_id).await;
+    let outcomes: Vec<(String, String)> = rows(&pool, &ws, &again_id)
+        .await
+        .iter()
+        .map(|r| {
+            (
+                r["key"].as_str().unwrap_or_default().to_string(),
+                r["outcome"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    let expect = |key: &str, outcome: &str| (key.to_string(), outcome.to_string());
+    assert_eq!(
+        outcomes,
+        [
+            expect("D-1", "create"),
+            expect("D-2", "create"),
+            expect("B-1", "create"),
+            expect("N-2", "update"),
+            expect("U-1", "update"),
+        ]
+    );
+    let (status, body) = get(
+        &pool,
+        &ws,
+        &format!("/api/admin/import/{again_id}/error-report"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(report_lines(&body).len(), 1, "{body}");
 }

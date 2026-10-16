@@ -39,6 +39,7 @@ import {
   moveHighlight,
   notImported as notImportedOf,
   outcomes,
+  reportHasRows,
   problems as problemsOf,
   typingIn,
   type NotImportedLine,
@@ -82,6 +83,7 @@ const list = (items: string[]) =>
 
 const summary = computed(() => props.job.summary!)
 const o = computed(() => outcomes(summary.value))
+const hasReport = computed(() => reportHasRows(o.value.skipped, summary.value))
 const type = computed(() => props.job.job_type)
 const isAssets = computed(() => type.value === 'assets')
 
@@ -711,8 +713,8 @@ const linkClass =
     </SectionCard>
 
     <!-- Phone: the report sits above the bar, which keeps to one row. -->
-    <div v-if="o.skipped > 0" class="sm:hidden flex flex-col gap-2">
-      <p v-if="o.imported > 0" class="text-xs text-tertiary">{{ $t('import-review-skip-reason', { count: o.skipped }) }}</p>
+    <div v-if="hasReport" class="sm:hidden flex flex-col gap-2">
+      <p v-if="o.imported > 0 && o.skipped > 0" class="text-xs text-tertiary">{{ $t('import-review-skip-reason', { count: o.skipped }) }}</p>
       <div>
         <Button
           variant="secondary"
@@ -736,7 +738,7 @@ const linkClass =
           {{ $t('import-review-skip-reason', { count: o.skipped }) }}
         </span>
         <Button
-          v-if="o.skipped > 0"
+          v-if="hasReport"
           class="shrink-0"
           variant="secondary"
           icon="download"

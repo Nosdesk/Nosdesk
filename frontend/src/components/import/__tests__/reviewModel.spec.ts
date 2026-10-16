@@ -8,6 +8,7 @@ import {
   outcomes,
   planDelta,
   problems,
+  reportHasRows,
   typingIn,
   webhookHearsAssets,
 } from '../reviewModel'
@@ -182,5 +183,23 @@ describe('keyboard', () => {
     expect(moveHighlight(2, 'j', 3)).toBe(2)
     expect(moveHighlight(0, 'k', 3)).toBe(0)
     expect(moveHighlight(0, 'j', 0)).toBe(-1)
+  })
+})
+
+describe('reportHasRows', () => {
+  const person = { column: 'primary_user', kind: 'camera', value: 'nobody@example.com', count: 1 }
+
+  it('has rows when any are skipped', () => {
+    expect(reportHasRows(5, summary())).toBe(true)
+  })
+
+  it('has rows when a row imports without some of its values', () => {
+    expect(reportHasRows(0, summary({ rows_with_errors: 0, dropped: [person] }))).toBe(true)
+  })
+
+  it('is empty when every row imports whole', () => {
+    expect(reportHasRows(0, summary({ rows_with_errors: 0, dropped: [] }))).toBe(false)
+    expect(reportHasRows(0, summary({ rows_with_errors: 0 }))).toBe(false)
+    expect(reportHasRows(0, null)).toBe(false)
   })
 })

@@ -45,6 +45,15 @@ export function outcomes(summary: ImportSummary): Outcomes {
   }
 }
 
+/**
+ * Whether the error report has rows: skipped ones, or ones that import
+ * without some of their values (any dropped group). Review and Done show
+ * its download only then.
+ */
+export function reportHasRows(skipped: number, summary: ImportSummary | null | undefined): boolean {
+  return skipped > 0 || (summary?.dropped?.length ?? 0) > 0
+}
+
 /** Skipped rows first when there are any, else updates, else every row. */
 export function defaultFilter(o: Outcomes): RowFilter {
   if (o.skipped > 0) return 'skipped'
