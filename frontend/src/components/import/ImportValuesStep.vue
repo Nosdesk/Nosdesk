@@ -54,6 +54,7 @@ import {
   cardMatched,
   cardMatchedCount,
   cards,
+  clearEdits,
   columnsNeeding,
   consequence,
   currentAnswer,
@@ -65,12 +66,14 @@ import {
   isAnswered,
   isModel,
   leavesAsIs,
+  loadEdits,
   makerEditsKey,
   makerName,
   makersAnswered,
   nextProblem as nextProblemId,
   previewAnswers,
   problemIds,
+  saveEdits,
   scaleChoice,
   scaleKinds,
   settledColumns,
@@ -155,6 +158,12 @@ const previewFailed = computed(() => makerKey.value !== '' && previewQuery.error
 function retryPreview() {
   previewQuery.refetch()
 }
+
+// Unsaved answers come back when the step opens again on the same check:
+// back from Saved matches, or from Map.
+const keptEdits = loadEdits(props.jobId, props.version)
+if (keptEdits) edits.value = keptEdits
+watch(edits, (e) => saveEdits(props.jobId, props.version, e))
 
 /** The view with its Model card read under this screen's manufacturer
  *  answers, once they are. */
@@ -583,6 +592,7 @@ onMounted(async () => {
 function checkAgain() {
   tried.value = true
   if (unfinished.value.length > 0) return
+  clearEdits(props.jobId)
   emit('check', answersToSend(current.value, edits.value))
 }
 

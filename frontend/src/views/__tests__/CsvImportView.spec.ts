@@ -279,6 +279,8 @@ let wrapper: VueWrapper | null = null
 let router: Router
 
 beforeEach(() => {
+  // Unsaved Match values answers are kept per tab.
+  sessionStorage.clear()
   for (const fn of Object.values(api)) fn.mockReset()
   api.fields.mockResolvedValue(FIELDS)
   api.rows.mockResolvedValue(rowsPage())
@@ -1622,6 +1624,49 @@ describe('CsvImportView Match values', () => {
     await mountAt('/admin/data-import/csv?job=job-1&step=values')
     expect(currentStep()).toBe('values')
     expect(router.currentRoute.value.query).toEqual({ job: 'job-1' })
+  })
+
+  it('keeps unsaved answers through Saved matches and back, and drops them on Check again', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    api.putValues.mockResolvedValue(checkedJob({ updated_at: '2026-10-15T02:00:00Z' }))
+    await checkFromMap()
+    const tripod = () =>
+      wrapper!
+        .findAll('[data-test="import-value-row"]')
+        .find((r) => r.attributes('data-value-id')!.endsWith('tripod'))!
+    await tripod().find('select').setValue('match:camera')
+    await flushPromises()
+
+    wrapper!.unmount()
+    api.get.mockResolvedValue(checkedJob())
+    await mountAt('/admin/data-import/csv?job=job-1&step=values')
+    expect(currentStep()).toBe('values')
+    expect((tripod().find('select').element as HTMLSelectElement).value).toBe('match:camera')
+
+    await wrapper!.find('[data-test="import-values-check"]').trigger('click')
+    await flushPromises()
+    expect(api.putValues).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({ kind: { '': { tripod: { action: 'match', target: 'camera' } } } }),
+    )
+    expect(sessionStorage.length).toBe(0)
+  })
+
+  it('gives unsaved answers back only for the check they were made on', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    await checkFromMap()
+    const tripod = () =>
+      wrapper!
+        .findAll('[data-test="import-value-row"]')
+        .find((r) => r.attributes('data-value-id')!.endsWith('tripod'))!
+    await tripod().find('select').setValue('match:camera')
+    await flushPromises()
+
+    wrapper!.unmount()
+    api.get.mockResolvedValue(checkedJob({ updated_at: '2026-10-15T05:00:00Z' }))
+    await mountAt('/admin/data-import/csv?job=job-1&step=values')
+    expect(currentStep()).toBe('values')
+    expect((tripod().find('select').element as HTMLSelectElement).value).not.toBe('match:camera')
   })
 
   it('counts live in the strip and stores the answers on Check again', async () => {
