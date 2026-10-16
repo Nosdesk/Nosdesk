@@ -26,7 +26,9 @@
 //! - `GET  /admin/import/{id}/rows?filter=&offset=&limit=` pages
 //!   through every row's result, from the dry run or the commit.
 //! - `GET  /admin/import/{id}/error-report` downloads the skipped
-//!   rows as CSV in the file's own layout, with the reasons.
+//!   rows as CSV in the file's own layout, with the reasons; `?group=`
+//!   narrows it to one problem's rows and `?dropped=` lists the rows that
+//!   import without some of their values.
 //! - `GET  /admin/import/fields?type=` lists the fields a column
 //!   can map to.
 //! - `GET  /admin/import/template/{type}?kind=` returns a CSV header
@@ -834,7 +836,7 @@ pub async fn put_mapping(
         // Answers given at Match values stand; those for a field no longer
         // mapped, or that no longer fit, are passed over.
         let mut ctx = ctx;
-        values::settle(
+        let resolution = values::settle(
             conn,
             job_type,
             &fields,
@@ -847,6 +849,7 @@ pub async fn put_mapping(
             conn,
             job_type,
             &mapped,
+            &resolution,
             &ctx,
             &column_mapping,
             &stored,
@@ -890,11 +893,14 @@ const COMMIT_RUNNING: &str = "this import is being committed; wait for it to fin
 
 /// The dry run of a mapped grid as the job stores it: the summary and
 /// every row's result, errors named by the file's headers and skipped rows
-/// with their cells.
+/// with their cells. The summary says where each problem is fixed, which
+/// changes a constant writes, and which columns no field takes.
+#[allow(clippy::too_many_arguments)]
 fn plan(
     conn: &mut crate::db::DbConnection,
     job_type: ImportType,
     mapped: &mapping::MappedGrid,
+    resolution: &values::Resolution,
     ctx: &ImportContext,
     column_mapping: &ColumnMapping,
     stored: &StoredSource,
@@ -903,19 +909,29 @@ fn plan(
     let (mut summary, mut rows) = imports::check_mapped(conn, job_type, mapped, ctx)?;
     mapping::annotate(&mut summary, column_mapping, &stored.source.headers);
     mapping::complete_rows(&mut rows, column_mapping, &stored.source.headers, grid);
+    values::classify_fixes(&mut summary, &rows, resolution, column_mapping);
+    for change in &mut summary.changes {
+        change.constant = ctx
+            .options
+            .constants
+            .iter()
+            .any(|c| c.field == change.field && c.apply_to == imports::ApplyTo::All);
+    }
+    summary.unmapped = mapping::unmapped_columns(column_mapping, &stored.source.headers, grid);
     Ok((summary, rows))
 }
 
 /// Whether a fresh plan does what the reviewed one said, row for row: the
-/// same outcome on the same record, moving its status the same way.
-/// Wording of errors may differ.
+/// same outcome on the same record and kind, writing the same fields from
+/// the same values to the same values. Wording of errors may differ.
 fn same_plan(reviewed: &[RowResult], fresh: &[RowResult]) -> bool {
     reviewed.len() == fresh.len()
         && reviewed.iter().zip(fresh).all(|(a, b)| {
             a.row == b.row
                 && a.outcome == b.outcome
                 && a.record_id == b.record_id
-                && a.fields_written.get("status") == b.fields_written.get("status")
+                && a.kind == b.kind
+                && a.fields_written == b.fields_written
         })
 }
 
@@ -1113,7 +1129,7 @@ pub async fn commit(
         }
         let job_type =
             ImportType::from_str(&current.job_type).expect("checked by commit_precondition");
-        values::settle(
+        let resolution = values::settle(
             conn,
             job_type,
             &fields,
@@ -1132,6 +1148,7 @@ pub async fn commit(
             conn,
             job_type,
             &parsed,
+            &resolution,
             &ctx,
             &column_mapping,
             &stored,
@@ -1694,7 +1711,7 @@ pub async fn put_values(
             job_id: id,
             options,
         };
-        values::settle(
+        let resolution = values::settle(
             conn,
             job_type,
             &fields,
@@ -1707,6 +1724,7 @@ pub async fn put_values(
             conn,
             job_type,
             &mapped,
+            &resolution,
             &ctx,
             &column_mapping,
             &stored,
@@ -1858,35 +1876,81 @@ pub async fn rows(
     }))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ErrorReportQuery {
+    /// Only the rows of one of the summary's error groups, by its index.
+    pub group: Option<usize>,
+    /// Only the rows that import without some of their values, for the
+    /// summary's dropped groups at these indexes (comma-separated).
+    pub dropped: Option<String>,
+}
+
+/// Which rows a report lists.
+enum ReportRows {
+    /// Every skipped row.
+    Skipped,
+    /// The skipped rows with this error.
+    Group(imports::ErrorGroup),
+    /// The rows that leave out a value of one of these groups.
+    Dropped(Vec<imports::DroppedGroup>),
+}
+
 /// The skipped rows as CSV, in the file's layout with a `Row` and an
 /// `Errors` column first (`services::imports::report`). Before the commit
-/// these are the rows it would skip; after, the rows it skipped.
+/// these are the rows it would skip; after, the rows it skipped. `group`
+/// narrows it to the rows of one problem; `dropped` lists instead the rows
+/// that import without some of their values, with why.
 pub async fn error_report(
     mut tc: TenantConn,
     auth: AuthContext,
     path: web::Path<Uuid>,
+    query: web::Query<ErrorReportQuery>,
 ) -> impl Responder {
     if !auth.is_workspace_admin() {
         return errors::forbidden("Import requires workspace admin");
     }
     let id = path.into_inner();
+    let dropped_indexes: Option<Vec<usize>> = match query.dropped.as_deref() {
+        None => None,
+        Some(raw) => match raw
+            .split(',')
+            .map(|i| i.trim().parse::<usize>())
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(list) if !list.is_empty() => Some(list),
+            _ => return errors::bad_request("dropped takes indexes separated by commas"),
+        },
+    };
+    if query.group.is_some() && dropped_indexes.is_some() {
+        return errors::bad_request("ask for one of group and dropped, not both");
+    }
     let loaded = tc.run(|conn| {
         let read = read_row_results(conn, id)?;
-        let fields = match &read {
+        let (fields, kinds) = match &read {
             RowResultsRead::Ok(job, _) => match ImportType::from_str(&job.job_type) {
-                Some(t) => imports::importer_for(t).fields(conn)?,
-                None => Vec::new(),
+                Some(t) => {
+                    let kinds = if t == ImportType::Assets {
+                        crate::repository::asset_kinds::list_kinds(conn)?
+                            .into_iter()
+                            .map(|k| (k.slug, k.label))
+                            .collect()
+                    } else {
+                        std::collections::HashMap::new()
+                    };
+                    (imports::importer_for(t).fields(conn)?, kinds)
+                }
+                None => (Vec::new(), std::collections::HashMap::new()),
             },
-            _ => Vec::new(),
+            _ => (Vec::new(), std::collections::HashMap::new()),
         };
-        Ok((read, fields))
+        Ok((read, fields, kinds))
     });
-    let (job, stored, fields) = match loaded {
-        Ok((RowResultsRead::Ok(job, stored), fields)) => (job, stored, fields),
-        Ok((RowResultsRead::NotFound, _)) => {
+    let (job, stored, fields, kinds) = match loaded {
+        Ok((RowResultsRead::Ok(job, stored), fields, kinds)) => (job, stored, fields, kinds),
+        Ok((RowResultsRead::NotFound, _, _)) => {
             return errors::not_found_msg(format!("import job {id} not found"))
         }
-        Ok((RowResultsRead::NotChecked, _)) => return errors::conflict(NOT_CHECKED),
+        Ok((RowResultsRead::NotChecked, _, _)) => return errors::conflict(NOT_CHECKED),
         Err(e) => {
             error!(job_id = %id, error = ?e, "failed to load import rows");
             return errors::internal("failed to load import rows");
@@ -1895,18 +1959,107 @@ pub async fn error_report(
     let Some(source) = stored_source(&job).map(|s| s.source) else {
         return errors::conflict(NOT_CHECKED);
     };
+    let summary: imports::ImportSummary = job
+        .summary
+        .clone()
+        .and_then(|s| serde_json::from_value(s).ok())
+        .unwrap_or_default();
+    let wanted = match (query.group, dropped_indexes) {
+        (Some(i), _) => match summary.error_groups.get(i) {
+            Some(group) => ReportRows::Group(group.clone()),
+            None => return errors::bad_request(format!("this import has no problem {i}")),
+        },
+        (None, Some(list)) => {
+            let mut groups = Vec::with_capacity(list.len());
+            for i in list {
+                match summary.dropped.get(i) {
+                    Some(group) => groups.push(group.clone()),
+                    None => {
+                        return errors::bad_request(format!(
+                            "this import has no left-out values {i}"
+                        ))
+                    }
+                }
+            }
+            ReportRows::Dropped(groups)
+        }
+        (None, None) => ReportRows::Skipped,
+    };
     let delimiter = match source.delimiter.as_deref() {
         Some(";") => b';',
         Some("\t") => b'\t',
         _ => b',',
     };
-    match report::error_report_csv(&source.headers, delimiter, &stored.rows, &fields) {
+
+    let body = match &wanted {
+        ReportRows::Skipped => {
+            report::error_report_csv(&source.headers, delimiter, &stored.rows, &fields)
+        }
+        ReportRows::Group(group) => {
+            let lines = stored
+                .rows
+                .iter()
+                .filter(|r| r.outcome == RowOutcome::Skipped)
+                .filter(|r| {
+                    r.errors
+                        .iter()
+                        .any(|e| e.column == group.column && e.message == group.message)
+                })
+                .map(|r| report::ReportLine {
+                    row: r.row,
+                    errors: report::errors_text(&r.errors, &fields),
+                    cells: &r.cells,
+                });
+            report::report_csv(&source.headers, delimiter, lines)
+        }
+        ReportRows::Dropped(groups) => {
+            // Rows that import keep no cells; the file has them.
+            let grid = match read_job_grid(id).await {
+                Ok(grid) => grid,
+                Err(resp) => return resp,
+            };
+            let cells: std::collections::HashMap<usize, &Vec<String>> =
+                grid.rows.iter().map(|r| (r.source_row, &r.cells)).collect();
+            let kind_label =
+                |slug: &str| kinds.get(slug).cloned().unwrap_or_else(|| slug.to_string());
+            let lines: Vec<report::ReportLine> = stored
+                .rows
+                .iter()
+                .filter(|r| r.outcome != RowOutcome::Skipped)
+                .filter_map(|r| {
+                    let matched: Vec<&imports::DroppedCell> = r
+                        .dropped
+                        .iter()
+                        .filter(|d| {
+                            groups.iter().any(|g| {
+                                g.column == d.column && g.kind == d.kind && g.value == d.value
+                            })
+                        })
+                        .collect();
+                    if matched.is_empty() {
+                        return None;
+                    }
+                    Some(report::ReportLine {
+                        row: r.row,
+                        errors: report::dropped_text(&matched, &fields, kind_label),
+                        cells: cells.get(&r.row).map_or(&[][..], |c| c.as_slice()),
+                    })
+                })
+                .collect();
+            report::report_csv(&source.headers, delimiter, lines.into_iter())
+        }
+    };
+    let suffix = match wanted {
+        ReportRows::Skipped => "errors",
+        _ => "rows",
+    };
+    match body {
         Ok(body) => HttpResponse::Ok()
             .insert_header((header::CONTENT_TYPE, "text/csv; charset=utf-8"))
             .insert_header((
                 header::CONTENT_DISPOSITION,
                 format!(
-                    "attachment; filename=\"{}-errors.csv\"",
+                    "attachment; filename=\"{}-{suffix}.csv\"",
                     download_stem(&job.filename)
                 ),
             ))

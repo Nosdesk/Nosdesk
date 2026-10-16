@@ -112,16 +112,18 @@ fn second_commit_upserts_by_tag() {
         imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit 1");
     assert_eq!(first.len(), 4);
 
-    // Re-run the same CSV: every tag matches → 4 updates, 0 creates.
+    // Re-run the same CSV: every tag matches an asset the row changes
+    // nothing on → 4 unchanged, nothing written.
     let summary =
         imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run 2");
     assert_eq!(summary.would_create, 0);
-    assert_eq!(summary.would_update, 4);
+    assert_eq!(summary.would_update, 0);
+    assert_eq!(summary.unchanged, 4);
     assert!(summary.errors.is_empty());
 
     let second =
         imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit 2");
-    assert_eq!(second.len(), 4);
+    assert_eq!(second.len(), 0);
 
     // Row count unchanged: upserts, not inserts.
     #[derive(diesel::QueryableByName)]
@@ -692,7 +694,7 @@ fn an_export_imports_back_through_the_formula_guard() {
     let summary =
         imports::dry_run(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("dry-run");
     assert!(summary.errors.is_empty(), "{:?}", summary.errors);
-    assert_eq!(summary.would_update, 1);
+    assert_eq!((summary.would_update, summary.unchanged), (0, 1));
     imports::commit(&mut conn, ImportType::Assets, &parsed, &import_ctx()).expect("commit");
 
     #[derive(diesel::QueryableByName)]

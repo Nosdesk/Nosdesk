@@ -25,12 +25,12 @@ pub mod values;
 pub mod xlsx;
 
 pub use types::{
-    ApplyTo, CatalogKind, CatalogPlan, CatalogRef, CellError, CommitError, Committed, Constant,
-    DateOrder, DecimalMark, DroppedCell, DroppedGroup, ErrorGroup, FieldChange, FieldGroup,
-    FieldSpec, ImportContext, ImportMode, ImportOptions, ImportSummary, ImportType,
-    ImportedRecords, ImportedUser, Importer, MatchBy, Notice, PlannedModel, RecordId, RecordIds,
-    RowError, RowOutcome, RowPhase, RowPlan, RowResult, StoredRowResults, ValueAnswer,
-    ValueAnswers, ValueType,
+    ApplyTo, CatalogKind, CatalogPlan, CatalogRef, CellError, ChangeCount, CommitError, Committed,
+    Constant, DateOrder, DecimalMark, DroppedCell, DroppedGroup, ErrorGroup, FieldChange,
+    FieldGroup, FieldSpec, Fix, ImportContext, ImportMode, ImportOptions, ImportSummary,
+    ImportType, ImportedRecords, ImportedUser, Importer, KindCount, MatchBy, Notice, PlannedModel,
+    RecordId, RecordIds, RowError, RowOutcome, RowPhase, RowPlan, RowResult, StoredRowResults,
+    UnmappedColumn, ValueAnswer, ValueAnswers, ValueType,
 };
 
 use diesel::result::Error as DieselError;

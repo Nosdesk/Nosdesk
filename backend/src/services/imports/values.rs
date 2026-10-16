@@ -48,8 +48,8 @@ use crate::repository::imports as repo;
 use super::csv_parser::{ParsedCsv, MAX_ROWS};
 use super::mapping::{ColumnMapping, MappedGrid, MappingError, Provenance, SourceHeader};
 use super::types::{
-    DateOrder, DecimalMark, FieldSpec, ImportOptions, ImportType, RowOutcome, RowResult,
-    ValueAnswer, ValueAnswers, ValueType,
+    DateOrder, DecimalMark, FieldSpec, Fix, ImportOptions, ImportSummary, ImportType, RowOutcome,
+    RowResult, ValueAnswer, ValueAnswers, ValueType,
 };
 
 /// A value as answers are keyed by it: trimmed, lowercased, with runs of
@@ -1532,6 +1532,57 @@ fn note_model_owners(columns: &mut [ResolvedColumn], settled: &[ResolvedColumn])
         }
     }
 }
+
+/// Where each of `summary`'s error groups is fixed. A problem on a value
+/// Match values asks about (one nothing matched, or that the admin
+/// answered) is fixed there; a value matched to a choice that still fails
+/// fails for another reason. A kind attribute a new asset needs and
+/// no cell gives, and a kind nothing gives, are fixed on Map columns with a
+/// column or a constant. Anything else is fixed in the file.
+pub fn classify_fixes(
+    summary: &mut ImportSummary,
+    rows: &[RowResult],
+    resolution: &Resolution,
+    mapping: &ColumnMapping,
+) {
+    let mut asked: HashSet<(&str, usize)> = HashSet::new();
+    for column in &resolution.columns {
+        for value in &column.values {
+            if value.layer == Layer::NoMatch || value.answer.is_some() {
+                for &row in &value.rows {
+                    asked.insert((column.field.as_str(), row));
+                }
+            }
+        }
+    }
+    for group in &mut summary.error_groups {
+        let on_values = rows.iter().any(|r| {
+            r.errors.iter().any(|e| {
+                e.column == group.column
+                    && e.message == group.message
+                    && e.column
+                        .as_deref()
+                        .is_some_and(|field| asked.contains(&(field, r.row)))
+            })
+        });
+        let on_map = group.message.starts_with(REQUIRED_FOR)
+            || (group.column.as_deref() == Some("kind")
+                && group.message == KIND_REQUIRED
+                && !mapping.contains_key("kind"));
+        group.fix = Some(if on_values {
+            Fix::MatchValues
+        } else if on_map {
+            Fix::Map
+        } else {
+            Fix::Download
+        });
+    }
+}
+
+/// How the message of a kind attribute a new asset lacks begins.
+pub const REQUIRED_FOR: &str = "required for ";
+/// The message of a new asset nothing gives a kind.
+pub const KIND_REQUIRED: &str = "kind is required";
 
 /// Why rows holding `text` are held back by the admin's Skip.
 pub fn skip_message(text: &str) -> String {
