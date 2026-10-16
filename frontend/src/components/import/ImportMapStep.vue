@@ -53,6 +53,7 @@ import {
   buildMapping,
   clashingColumns,
   counts,
+  createNeeds,
   detectDateOrder,
   detectDecimal,
   freeFields,
@@ -66,6 +67,7 @@ import {
   pill,
   problems,
   requiredAttributeWarnings,
+  requiredOnCreate,
   samplesOf,
   savedFrom,
   type ConstantRow,
@@ -280,8 +282,29 @@ function headerName(index: number): string {
 }
 
 const found = computed<Problem[]>(() =>
-  problems(rows.value, props.fields, props.job.job_type, constants.value, datesUnresolved.value),
+  problems(
+    rows.value,
+    props.fields,
+    props.job.job_type,
+    constants.value,
+    datesUnresolved.value,
+    mode.value,
+  ),
 )
+
+/** Fields new records need that nothing gives, when rows that match can
+ *  update without them: a warning, not a block. */
+const createNeeded = computed(() =>
+  createNeeds(rows.value, props.fields, props.job.job_type, constants.value, mode.value),
+)
+const createNeededText = computed(() => {
+  const fields = createNeeded.value
+  const args = { fields: listHeaders(fields.map(fieldLabel), lang), count: fields.length }
+  return {
+    heading: t(`import-map-create-heading-${props.job.job_type}`, args),
+    body: t(`import-map-create-${props.job.job_type}`, args),
+  }
+})
 const tally = computed(() => counts(rows.value, found.value))
 
 const GROUP_KEYS: Record<ImportField['group'], string> = {
@@ -303,7 +326,11 @@ function optionsFor(row: MapRow): DropdownOption[] {
     const other = usedBy.get(f.id)
     if (other !== undefined) description = t('import-map-mapped-from', { header: other })
     else if (isAssets.value && f.id === 'kind') description = t('import-map-kind-required')
-    else if (f.required) description = t('import-map-required')
+    else if (f.required) {
+      description = t(
+        requiredOnCreate(f.id, props.job.job_type) ? 'import-map-required-on-create' : 'import-map-required',
+      )
+    }
     else if (f.required_for?.length) {
       description = t('import-map-required-for', { kinds: kindList(f.required_for) })
     }
@@ -464,12 +491,13 @@ function nextProblem() {
 
 /** Folded when the job opens with every column settled: a fresh job only,
  *  so coming back from Review shows the columns that were checked. */
-// A kind whose required attributes nothing gives keeps the step open, so
-// its warning is read.
+// A kind whose required attributes nothing gives, or a field new records
+// need that nothing gives, keeps the step open, so its warning is read.
 const collapsed = ref(
   props.job.mapping === null &&
     isSettled(rows.value, found.value, constants.value) &&
-    requiredWarnings.value.length === 0,
+    requiredWarnings.value.length === 0 &&
+    createNeeded.value.length === 0,
 )
 const collapsedText = computed(() => {
   const from = savedFrom(rows.value)
@@ -739,6 +767,30 @@ const linkClass =
             />
           </li>
         </ul>
+      </Callout>
+
+      <!-- Fields new records need that nothing gives: rows that match
+           update, and the check reports the rows that would create. -->
+      <Callout v-if="createNeeded.length > 0" severity="warning" data-test="import-create-needs">
+        <template #header>
+          <span class="font-medium text-primary">{{ createNeededText.heading }}</span>
+        </template>
+        <div class="px-4 py-3 flex flex-col gap-2 text-sm text-primary">
+          <p>{{ createNeededText.body }}</p>
+          <div
+            v-if="isAssets && createNeeded.includes('kind')"
+            class="max-w-xs"
+            data-test="import-kind-for-every-row"
+          >
+            <BaseDropdown
+              v-model="kindConstant"
+              :options="kinds"
+              size="sm"
+              :label="$t('import-constants-kind-label')"
+              :placeholder="$t('import-constants-kind-placeholder')"
+            />
+          </div>
+        </div>
       </Callout>
 
       <!-- Kinds whose new rows need attributes nothing gives: the check

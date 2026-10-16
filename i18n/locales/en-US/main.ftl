@@ -3640,6 +3640,7 @@ import-map-ignore = Don't import
 import-map-ignore-description = Keep the column out of the import
 import-map-required = Required
 import-map-required-for = Required on create for { $kinds }
+import-map-required-on-create = Required on create
 import-map-kind-required = Required on create, or set it for every row below
 import-map-mapped-from = Mapped from '{ $header }'
 import-map-clash = Also mapped from { $headers }. Pick one.
@@ -3672,6 +3673,16 @@ import-map-warning-required-none = { $kind } rows need { $needed }. Nothing is m
    *[other] them
    }, so new { $kind } assets will be reported on Review.
 import-map-warning-required-some = { $kind } rows need { $needed }. Nothing is mapped to { $missing }, so new { $kind } assets will be reported on Review.
+import-map-create-heading-assets = New assets need { $fields }
+import-map-create-heading-users = New people need { $fields }
+import-map-create-assets = Nothing gives { $count ->
+    [one] it
+   *[other] them
+   }, so rows that match an existing asset update it, and rows for new assets will be reported on Review.
+import-map-create-users = Nothing gives { $count ->
+    [one] it
+   *[other] them
+   }, so rows for existing members update them, and rows for new people will be reported on Review.
 import-map-empty-filter = No columns match this filter.
 import-map-change-file = Change file
 import-map-change-file-title = Discard this file?

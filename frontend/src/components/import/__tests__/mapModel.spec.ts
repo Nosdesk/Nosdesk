@@ -8,6 +8,7 @@ import {
   buildIgnored,
   buildMapping,
   counts,
+  createNeeds,
   detectDateOrder,
   detectDecimal,
   freeFields,
@@ -16,8 +17,10 @@ import {
   kindsInFile,
   matchesFilter,
   pill,
+  everyRowCreates,
   problems,
   requiredAttributeWarnings,
+  requiredOnCreate,
   savedFrom,
   type ConstantRow,
   type MapRow,
@@ -135,22 +138,23 @@ describe('problems', () => {
     ])
   })
 
-  it('blocks an uncovered required field', () => {
+  it('blocks an uncovered required field when every row creates', () => {
     const r = rows()
     r[0].target = IGNORE
-    expect(problems(r, FIELDS, 'assets', [constant('kind', 'generic')])).toEqual([
+    expect(problems(r, FIELDS, 'assets', [constant('kind', 'generic')], false, 'create_only')).toEqual([
       { kind: 'required', field: 'name' },
     ])
   })
 
   it('lets a constant with a value cover a required field', () => {
-    expect(problems(rows(), FIELDS, 'assets')).toEqual([{ kind: 'kind' }])
-    expect(problems(rows(), FIELDS, 'assets', [constant('kind', '')])).toEqual([{ kind: 'kind' }])
-    expect(problems(rows(), FIELDS, 'assets', [constant('kind', 'generic')])).toEqual([])
-    expect(problems(rows(), FIELDS, 'users')).toEqual([{ kind: 'required', field: 'kind' }])
+    const blocking = (constants: ConstantRow[] = [], r = rows()) =>
+      problems(r, FIELDS, 'assets', constants, false, 'create_only')
+    expect(blocking()).toEqual([{ kind: 'kind' }])
+    expect(blocking([constant('kind', '')])).toEqual([{ kind: 'kind' }])
+    expect(blocking([constant('kind', 'generic')])).toEqual([])
     const r = rows()
     r[2].target = 'kind'
-    expect(problems(r, FIELDS, 'assets')).toEqual([])
+    expect(blocking([], r)).toEqual([])
   })
 
   it('lets First name or Last name give a person their name', () => {
@@ -165,28 +169,91 @@ describe('problems', () => {
     r[1].target = ''
     r[2].target = ''
     r[3].target = ''
-    expect(problems(r, people, 'users')).toEqual([{ kind: 'required', field: 'name' }])
+    expect(createNeeds(r, people, 'users')).toEqual(['name'])
     r[2].target = 'first_name'
-    expect(problems(r, people, 'users')).toEqual([])
+    expect(createNeeds(r, people, 'users')).toEqual([])
     r[2].target = ''
     r[3].target = 'last_name'
-    expect(problems(r, people, 'users')).toEqual([])
+    expect(createNeeds(r, people, 'users')).toEqual([])
     // Only for people: an asset's name isn't joined.
-    expect(problems(r, [...people, field('kind')], 'assets')).toEqual([
-      { kind: 'required', field: 'name' },
-    ])
+    expect(createNeeds(r, [...people, field('kind')], 'assets')).toEqual(['name'])
   })
 
   it('lets a Model column give an asset its kind', () => {
     const r = rows()
     r[2].target = 'model'
-    expect(problems(r, FIELDS, 'assets')).toEqual([])
+    expect(problems(r, FIELDS, 'assets', [], false, 'create_only')).toEqual([])
+    expect(createNeeds(r, FIELDS, 'assets')).toEqual([])
   })
 
   it('asks about dates the samples leave open', () => {
     expect(problems(rows(), FIELDS, 'assets', [constant('kind', 'c')], true)).toEqual([
       { kind: 'dates' },
     ])
+  })
+})
+
+describe('what creating a record needs, per mode', () => {
+  // Sam's moves file: a tag and a location, no name and no kind.
+  const moves = () =>
+    initialRows(source(['asset_tag', 'location']), [
+      { index: 0, field: 'asset_tag', reason: 'exact' },
+      { index: 1, field: 'location', reason: 'exact' },
+    ], null)
+
+  it('every row creates for tickets and for assets under Only create new', () => {
+    expect(everyRowCreates('tickets', 'create_update')).toBe(true)
+    expect(everyRowCreates('assets', 'create_only')).toBe(true)
+    expect(everyRowCreates('assets', 'create_update')).toBe(false)
+    expect(everyRowCreates('assets', 'update_only')).toBe(false)
+    expect(everyRowCreates('users', 'create_update')).toBe(false)
+  })
+
+  it('a key is always required, other required fields only to create', () => {
+    expect(requiredOnCreate('name', 'assets')).toBe(true)
+    expect(requiredOnCreate('kind', 'assets')).toBe(true)
+    expect(requiredOnCreate('name', 'users')).toBe(true)
+    expect(requiredOnCreate('role', 'users')).toBe(true)
+    expect(requiredOnCreate('email', 'users')).toBe(false)
+    expect(requiredOnCreate('title', 'tickets')).toBe(false)
+  })
+
+  it('Create and update: nothing blocks, and new assets need a name and a kind', () => {
+    expect(problems(moves(), FIELDS, 'assets', [], false, 'create_update')).toEqual([])
+    expect(createNeeds(moves(), FIELDS, 'assets', [], 'create_update')).toEqual(['name', 'kind'])
+    expect(
+      createNeeds(moves(), FIELDS, 'assets', [constant('kind', 'generic')], 'create_update'),
+    ).toEqual(['name'])
+  })
+
+  it('Only update existing: no row creates, so nothing is asked for', () => {
+    expect(problems(moves(), FIELDS, 'assets', [], false, 'update_only')).toEqual([])
+    expect(createNeeds(moves(), FIELDS, 'assets', [], 'update_only')).toEqual([])
+  })
+
+  it('Only create new: every row creates, so a name and a kind block', () => {
+    expect(problems(moves(), FIELDS, 'assets', [], false, 'create_only')).toEqual([
+      { kind: 'required', field: 'name' },
+      { kind: 'kind' },
+    ])
+    expect(createNeeds(moves(), FIELDS, 'assets', [], 'create_only')).toEqual([])
+  })
+
+  it('people: the email blocks, a name and a role only warn', () => {
+    const people: ImportField[] = [field('email', true), field('name', true), field('role', true)]
+    const r = initialRows(source(['Email', 'Pronouns']), [], null)
+    expect(problems(r, people, 'users')).toEqual([{ kind: 'required', field: 'email' }])
+    r[0].target = 'email'
+    expect(problems(r, people, 'users')).toEqual([])
+    expect(createNeeds(r, people, 'users')).toEqual(['name', 'role'])
+    expect(createNeeds(r, people, 'users', [constant('role', 'user')])).toEqual(['name'])
+  })
+
+  it('tickets: every row creates, so a title blocks', () => {
+    const tickets: ImportField[] = [field('title', true)]
+    const r = initialRows(source(['Body']), [], null)
+    expect(problems(r, tickets, 'tickets')).toEqual([{ kind: 'required', field: 'title' }])
+    expect(createNeeds(r, tickets, 'tickets')).toEqual([])
   })
 })
 

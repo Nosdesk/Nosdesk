@@ -3693,6 +3693,8 @@ import-map-required = Verplicht
 # MT: pending native review (nl-NL)
 import-map-required-for = Verplicht bij aanmaken voor { $kinds }
 # MT: pending native review (nl-NL)
+import-map-required-on-create = Verplicht bij aanmaken
+# MT: pending native review (nl-NL)
 import-map-kind-required = Verplicht bij aanmaken, of stel het hieronder in voor alle rijen
 # MT: pending native review (nl-NL)
 import-map-mapped-from = Gekoppeld aan '{ $header }'
@@ -3744,6 +3746,20 @@ import-map-warning-required-none = Rijen van { $kind } hebben { $needed } nodig.
    }, dus nieuwe { $kind }-assets worden gemeld bij Controle.
 # MT: pending native review (nl-NL)
 import-map-warning-required-some = Rijen van { $kind } hebben { $needed } nodig. Er is niets gekoppeld aan { $missing }, dus nieuwe { $kind }-assets worden gemeld bij Controle.
+# MT: pending native review (nl-NL)
+import-map-create-heading-assets = Nieuwe assets hebben { $fields } nodig
+# MT: pending native review (nl-NL)
+import-map-create-heading-users = Nieuwe personen hebben { $fields } nodig
+# MT: pending native review (nl-NL)
+import-map-create-assets = Niets geeft { $count ->
+    [one] dit
+   *[other] deze
+   } op, dus rijen die bij een bestaande asset horen werken die asset bij, en rijen voor nieuwe assets worden gemeld bij Controle.
+# MT: pending native review (nl-NL)
+import-map-create-users = Niets geeft { $count ->
+    [one] dit
+   *[other] deze
+   } op, dus rijen voor bestaande leden werken die leden bij, en rijen voor nieuwe personen worden gemeld bij Controle.
 # MT: pending native review (nl-NL)
 import-map-empty-filter = Geen kolommen voldoen aan dit filter.
 # MT: pending native review (nl-NL)

@@ -3703,6 +3703,8 @@ import-map-required = Obligatoire
 # MT: pending native review (fr-FR)
 import-map-required-for = Obligatoire à la création pour { $kinds }
 # MT: pending native review (fr-FR)
+import-map-required-on-create = Obligatoire à la création
+# MT: pending native review (fr-FR)
 import-map-kind-required = Obligatoire à la création, ou définissez-le pour toutes les lignes ci-dessous
 # MT: pending native review (fr-FR)
 import-map-mapped-from = Associé à « { $header } »
@@ -3754,6 +3756,20 @@ import-map-warning-required-none = Les lignes { $kind } exigent { $needed }. Auc
    }, donc les nouveaux actifs { $kind } seront signalés à l'étape Vérification.
 # MT: pending native review (fr-FR)
 import-map-warning-required-some = Les lignes { $kind } exigent { $needed }. Aucune colonne ne correspond à { $missing }, donc les nouveaux actifs { $kind } seront signalés à l'étape Vérification.
+# MT: pending native review (fr-FR)
+import-map-create-heading-assets = Les nouveaux actifs exigent { $fields }
+# MT: pending native review (fr-FR)
+import-map-create-heading-users = Les nouvelles personnes exigent { $fields }
+# MT: pending native review (fr-FR)
+import-map-create-assets = Rien ne { $count ->
+    [one] l'indique
+   *[other] les indique
+   }, donc les lignes qui correspondent à un actif existant le mettent à jour, et les lignes des nouveaux actifs seront signalées à l'étape Vérification.
+# MT: pending native review (fr-FR)
+import-map-create-users = Rien ne { $count ->
+    [one] l'indique
+   *[other] les indique
+   }, donc les lignes des membres existants les mettent à jour, et les lignes des nouvelles personnes seront signalées à l'étape Vérification.
 # MT: pending native review (fr-FR)
 import-map-empty-filter = Aucune colonne ne correspond à ce filtre.
 # MT: pending native review (fr-FR)

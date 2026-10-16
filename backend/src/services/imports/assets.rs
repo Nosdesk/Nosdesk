@@ -743,7 +743,8 @@ impl Importer for AssetImporter {
                 }
                 Err(field_errors) => RowResult::skipped(entry.source_row, field_errors),
             };
-            plan.rows.push(identify(result, row, &ctx.options));
+            plan.rows
+                .push(identify(result, row, &lookups, &ctx.options));
         }
         if keyless > 0 {
             plan.notices.push(keyless_notice(keyless));
@@ -789,6 +790,7 @@ impl Importer for AssetImporter {
                     rows.push(identify(
                         RowResult::skipped(row_num, field_errors),
                         row,
+                        &lookups,
                         options,
                     ));
                     continue;
@@ -801,7 +803,7 @@ impl Importer for AssetImporter {
                     .with_record(RecordId::Int(asset_id));
                 result.dropped = planned.dropped;
                 result.kind = Some(planned.kind);
-                rows.push(identify(result, row, options));
+                rows.push(identify(result, row, &lookups, options));
                 continue;
             }
 
@@ -914,7 +916,7 @@ impl Importer for AssetImporter {
             }
             // Read back from the row's last write to the asset.
             result.observed_updated_at = Some(observed_timestamp(asset.updated_at));
-            rows.push(identify(result, row, options));
+            rows.push(identify(result, row, &lookups, options));
             assets.push(asset);
         }
         let created = made.links(&lookups);
@@ -1127,7 +1129,9 @@ fn update_changes(
     };
     let text = |value: Option<String>| value.filter(|v| !v.trim().is_empty());
 
-    change("name", Some(trimmed(row, "name")));
+    if let Some(name) = opt_string(row, "name") {
+        change("name", Some(name));
+    }
     change("kind", Some(writes.kind.to_string()));
     for field in ["asset_tag", "serial_number", "notes", "unit"] {
         if let Some(value) = opt_string(row, field) {
@@ -1259,17 +1263,22 @@ fn observed_timestamp(at: chrono::NaiveDateTime) -> String {
     at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string()
 }
 
-/// The row's match key and name on its result.
+/// The row's match key and name on its result: the name cell, or for a
+/// blank one the name of the asset the row matches, which it keeps.
 fn identify(
     result: RowResult,
     row: &HashMap<String, String>,
+    lookups: &Lookups,
     options: &ImportOptions,
 ) -> RowResult {
     let key = match options.key() {
         MatchBy::AssetTag | MatchBy::None => trimmed(row, "asset_tag"),
         MatchBy::SerialNumber => trimmed(row, "serial_number"),
     };
-    result.with_key(Some(key)).with_label(trimmed(row, "name"))
+    let name = opt_string(row, "name")
+        .or_else(|| matched_asset(row, lookups, options).map(|a| a.name.clone()))
+        .unwrap_or_default();
+    result.with_key(Some(key)).with_label(name)
 }
 
 /// A row with neither a tag nor a serial: nothing can match it later, so
@@ -1534,6 +1543,9 @@ const MAX_LENGTHS: &[(&str, usize)] = &[
     ("unit", 32),
 ];
 
+/// The message of a new asset with no name.
+pub const NAME_REQUIRED: &str = "name is required";
+
 /// Why a row is skipped under [`ImportMode::CreateOnly`]: its key names an
 /// asset that already exists.
 pub const ALREADY_EXISTS: &str = "already exists";
@@ -1551,10 +1563,6 @@ fn plan_row(
     let mut error =
         |column: &str, message: String| errors.push((Some(column.to_string()), message));
     let mark = options.decimal_mark();
-
-    if trimmed(row, "name").is_empty() {
-        error("name", "name is required".to_string());
-    }
 
     for (column, max) in MAX_LENGTHS {
         let len = trimmed(row, column).chars().count();
@@ -1629,6 +1637,11 @@ fn plan_row(
             return Err(vec![(Some(key_column.to_string()), message.to_string())]);
         }
         _ => {}
+    }
+    // A name is needed to create an asset; a row that matches one leaves
+    // its name as it is when the cell is blank or no column maps to it.
+    if !matched && trimmed(row, "name").is_empty() {
+        error("name", NAME_REQUIRED.to_string());
     }
     let target = if by_serial {
         serial_holder
@@ -3104,7 +3117,7 @@ fn synced_column_change(
         check_decimal(row, column, mark).is_ok_and(|v| v.is_some_and(|v| Some(v) != *current))
     };
     let changed: [(&'static str, bool); 12] = [
-        ("name", trimmed(row, "name") != asset.name.trim()),
+        ("name", kept("name", &Some(asset.name.clone()))),
         ("kind", new_kind != asset.kind),
         ("serial_number", kept("serial_number", &asset.serial_number)),
         ("manufacturer", written(&texts.maker, &asset.manufacturer)),
@@ -3268,7 +3281,7 @@ fn build_asset_update(
 ) -> AssetUpdate {
     // A blank cell leaves the column as it is (outer `None`); it never clears.
     AssetUpdate {
-        name: Some(trimmed(row, "name")),
+        name: opt_string(row, "name"),
         serial_number: opt_string(row, "serial_number").map(Some),
         manufacturer: texts.maker.clone(),
         model: texts.model.clone(),

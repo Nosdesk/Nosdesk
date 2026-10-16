@@ -687,17 +687,43 @@ describe('CsvImportView Map step', () => {
     expect(checkButton().attributes('disabled')).toBeUndefined()
   })
 
-  it('blocks an uncovered required field', async () => {
+  const modeRadios = () => wrapper!.find('[data-test="import-mode"]').findAll('[role="radio"]')
+
+  it('needs a name to create only: a warning under Create and update, a block under Only create new', async () => {
     await openMap()
     await targets()[0].setValue('__ignore__')
+    // Create and update: rows that match update, so nothing blocks.
+    expect(checkButton().attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('[data-test="import-create-needs"]').text()).toContain(
+      'import-map-create-heading-assets',
+    )
+    expect(wrapper!.text()).not.toContain('import-map-problem-required')
+
+    // Only create new: every row creates, so it blocks.
+    await modeRadios()[1].trigger('click')
     expect(checkButton().attributes('disabled')).toBeDefined()
     expect(wrapper!.text()).toContain('import-map-problem-required')
+    expect(wrapper!.find('[data-test="import-create-needs"]').exists()).toBe(false)
+
+    // Only update existing: no row creates, so nothing is asked for.
+    await modeRadios()[2].trigger('click')
+    expect(checkButton().attributes('disabled')).toBeUndefined()
+    expect(wrapper!.text()).not.toContain('import-map-problem-required')
+    expect(wrapper!.find('[data-test="import-create-needs"]').exists()).toBe(false)
   })
 
   it('sets the kind for every row when no column gives it', async () => {
     api.putMapping.mockResolvedValue(checkedJob())
     await openMap()
     await targets()[1].setValue('__ignore__')
+    // Create and update: a warning with the kind picker in it.
+    expect(checkButton().attributes('disabled')).toBeUndefined()
+    expect(
+      wrapper!.find('[data-test="import-create-needs"] [data-test="import-kind-for-every-row"]').exists(),
+    ).toBe(true)
+
+    // Only create new: the problem callout holds the picker.
+    await modeRadios()[1].trigger('click')
     expect(checkButton().attributes('disabled')).toBeDefined()
     expect(wrapper!.text()).toContain('import-map-problem-kind')
 
@@ -717,6 +743,7 @@ describe('CsvImportView Map step', () => {
       expect.objectContaining({
         constants: [{ field: 'kind', value: 'camera', apply_to: 'new' }],
         match_by: 'asset_tag',
+        mode: 'create_only',
       }),
       [1],
     )
@@ -842,6 +869,18 @@ describe('CsvImportView Map step', () => {
       await flushPromises()
       expect(wrapper!.find('[data-test="import-map-collapsed"]').exists()).toBe(false)
       expect(targets()).toHaveLength(5)
+    })
+
+    it('stays open while new assets would need a name, so the warning is read', async () => {
+      const keyOnly = settled()
+      keyOnly.suggested_mapping = [
+        { index: 0, field: null, reason: 'previous', provenance: SAVED_BY_SAM },
+        ...keyOnly.suggested_mapping!.slice(1),
+      ]
+      await openMap(keyOnly)
+      expect(wrapper!.find('[data-test="import-map-collapsed"]').exists()).toBe(false)
+      expect(wrapper!.find('[data-test="import-create-needs"]').exists()).toBe(true)
+      expect(checkButton().attributes('disabled')).toBeUndefined()
     })
 
     it('stays open coming back from Review', async () => {

@@ -1542,8 +1542,8 @@ fn note_model_owners(columns: &mut [ResolvedColumn], settled: &[ResolvedColumn])
 /// Match values asks about (one nothing matched, or that the admin
 /// answered) is fixed there; a value matched to a choice that still fails
 /// fails for another reason. A kind attribute a new asset needs and
-/// no cell gives, and a kind nothing gives, are fixed on Map columns with a
-/// column or a constant. Anything else is fixed in the file.
+/// no cell gives, and a kind, a name or a role nothing gives, are fixed on Map
+/// columns with a column or a constant. Anything else is fixed in the file.
 pub fn classify_fixes(
     summary: &mut ImportSummary,
     rows: &[RowResult],
@@ -1573,7 +1573,15 @@ pub fn classify_fixes(
         let on_map = group.message.starts_with(REQUIRED_FOR)
             || (group.column.as_deref() == Some("kind")
                 && group.message == KIND_REQUIRED
-                && !mapping.contains_key("kind"));
+                && !mapping.contains_key("kind"))
+            || (group.column.as_deref() == Some("name")
+                && group.message == super::assets::NAME_REQUIRED
+                && !["name", "first_name", "last_name"]
+                    .iter()
+                    .any(|f| mapping.contains_key(*f)))
+            || (group.column.as_deref() == Some("role")
+                && group.message == super::users::ROLE_REQUIRED
+                && !mapping.contains_key("role"));
         group.fix = Some(if on_values {
             Fix::MatchValues
         } else if on_map {
