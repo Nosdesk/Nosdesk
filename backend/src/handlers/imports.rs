@@ -475,6 +475,8 @@ enum SourceCheck {
     NotFound,
     BadRequest(String),
     Conflict(String),
+    /// Another import from the same upload brought the sheet in.
+    AlreadyImported,
 }
 
 /// Result variants for the source flow.
@@ -483,6 +485,19 @@ enum SourceOutcome {
     Ok(ImportJob, Option<Uuid>),
     NotFound,
     Conflict(String),
+    AlreadyImported,
+}
+
+/// Whether a committed import made from the same upload as `job` (the
+/// first job it was sent to, or a next sheet) already read `sheet`.
+fn sheet_already_imported(
+    conn: &mut crate::db::DbConnection,
+    job: &ImportJob,
+    sheet: &str,
+) -> Result<bool, diesel::result::Error> {
+    let root = next_sheet::root_of(job.id, job.upload_of);
+    let jobs = repo::jobs_of_upload(conn, root)?;
+    Ok(next_sheet::imported_sheets(&jobs).contains(sheet))
 }
 
 /// Read a workbook again from another sheet or header row. Allowed while
@@ -512,6 +527,9 @@ pub async fn put_source(
         if let Some(message) = source_precondition(&job) {
             return Ok(SourceCheck::Conflict(message));
         }
+        if sheet_already_imported(conn, &job, &sheet)? {
+            return Ok(SourceCheck::AlreadyImported);
+        }
         let Some(job_type) = ImportType::from_str(&job.job_type) else {
             return Ok(SourceCheck::BadRequest(format!(
                 "import job has unknown type '{}'",
@@ -538,6 +556,9 @@ pub async fn put_source(
         }
         Ok(SourceCheck::BadRequest(message)) => return errors::bad_request(message),
         Ok(SourceCheck::Conflict(message)) => return errors::conflict(message),
+        Ok(SourceCheck::AlreadyImported) => {
+            return next_sheet_refused(next_sheet::Refusal::AlreadyImported)
+        }
         Err(e) => {
             error!(job_id = %id, error = ?e, "failed to load import job");
             return errors::internal("failed to load import job");
@@ -550,6 +571,7 @@ pub async fn put_source(
         Ok(b) => b,
         Err(e) => return file_error(id, e),
     };
+    let wanted = sheet.clone();
     let choice = SheetChoice { sheet, header_row };
     let read = parse_off_worker(move || -> std::io::Result<Result<_, Refused>> {
         match xlsx::read(&bytes, Some(&choice)) {
@@ -594,6 +616,10 @@ pub async fn put_source(
         if let Some(message) = source_precondition(&job) {
             return Ok(SourceOutcome::Conflict(message));
         }
+        // A next sheet from the upload may have committed since.
+        if sheet_already_imported(conn, &job, &wanted)? {
+            return Ok(SourceOutcome::AlreadyImported);
+        }
         let replaced = stored_source(&job).and_then(|s| s.grid);
         let stored = suggest_for(conn, job_type, source, Some(new_grid))?;
         let updated = repo::update(
@@ -632,6 +658,9 @@ pub async fn put_source(
         Ok(SourceOutcome::Ok(job, _)) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
         Ok(SourceOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
         Ok(SourceOutcome::Conflict(message)) => errors::conflict(message),
+        Ok(SourceOutcome::AlreadyImported) => {
+            next_sheet_refused(next_sheet::Refusal::AlreadyImported)
+        }
         Err(e) => {
             error!(job_id = %id, error = ?e, "failed to store import source");
             errors::internal("failed to read import file")
