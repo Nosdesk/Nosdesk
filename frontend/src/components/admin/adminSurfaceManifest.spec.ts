@@ -18,10 +18,22 @@ describe('admin surface gating manifest', () => {
     expect(unclassified, `unclassified admin routes: ${unclassified.join(', ')}`).toEqual([])
   })
 
+  /** The nav route a manifest route is, or sits under. */
+  const navParent = (route: string) =>
+    navItems.find((i) => i.route === route) ?? navItems.find((i) => route.startsWith(`${i.route}/`))
+
   it('has no stale manifest entries', () => {
-    const navRoutes = new Set(navItems.map((i) => i.route))
-    const stale = Object.keys(ADMIN_SURFACE_TIER).filter((route) => !navRoutes.has(route))
+    const stale = Object.keys(ADMIN_SURFACE_TIER).filter((route) => !navParent(route))
     expect(stale, `manifest routes with no nav item: ${stale.join(', ')}`).toEqual([])
+  })
+
+  it('gives a sub-page its nav page\'s tier', () => {
+    for (const route of Object.keys(ADMIN_SURFACE_TIER)) {
+      const parent = navParent(route)
+      if (!parent || parent.route === route) continue
+      expect(ADMIN_SURFACE_TIER[route], `${route} under ${parent.route}`).toBe(ADMIN_SURFACE_TIER[parent.route])
+    }
+    expect(ADMIN_SURFACE_TIER['/admin/data-import/matches']).toBe('tenant')
   })
 
   it('flags exactly the platform surfaces as platformAdminOnly', () => {

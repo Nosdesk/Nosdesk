@@ -32,6 +32,9 @@ export const ADMIN_SURFACE_TIER: Record<string, AdminSurfaceTier> = {
   '/admin/webhooks': 'tenant',
   '/admin/plugins': 'tenant',
   '/admin/data-import': 'tenant',
+  // Sub-pages reached from a nav page, with no nav item of their own; each
+  // takes its parent's tier.
+  '/admin/data-import/matches': 'tenant',
   '/admin/ldap': 'tenant',
   '/admin/audit': 'tenant',
   '/admin/settings/branding': 'tenant',
