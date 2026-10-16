@@ -1427,6 +1427,24 @@ describe('CsvImportView Match values', () => {
     expect(cards[0].find('[data-test="import-values-matched"]').text()).toContain('import-values-matched')
   })
 
+  it('links its footer to Saved matches, and Back from there returns to Match values', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    await checkFromMap()
+    const footer = wrapper!.find('[data-test="import-values-footer"]')
+    expect(footer.text()).toContain('import-values-footer')
+    const link = footer.find('[data-test="import-values-footer-link"]')
+    expect(link.text()).toBe('import-values-footer-link')
+    expect(link.attributes('href')).toBe(
+      '/admin/data-import/matches?type=assets&from=values&job=job-1',
+    )
+
+    wrapper!.unmount()
+    api.get.mockResolvedValue(checkedJob())
+    await mountAt('/admin/data-import/csv?job=job-1&step=values')
+    expect(currentStep()).toBe('values')
+    expect(router.currentRoute.value.query).toEqual({ job: 'job-1' })
+  })
+
   it('counts live in the strip and stores the answers on Check again', async () => {
     api.values.mockResolvedValue(valuesToAnswer())
     api.putValues.mockResolvedValue(checkedJob({ updated_at: '2026-10-15T02:00:00Z' }))

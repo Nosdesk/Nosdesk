@@ -220,6 +220,13 @@ async function resume(id: string) {
     job.value = found
     selectedType.value = found.job_type
     step.value = stepForStatus(found.status)
+    // Back from Saved matches returns to Match values.
+    if (route.query.step === 'values' && found.status === 'dry_run_done') step.value = 'values'
+    if (route.query.step !== undefined) {
+      const query = { ...route.query }
+      delete query.step
+      router.replace({ query })
+    }
     if (found.status === 'failed') {
       errorMessage.value = found.error_message ?? t('import-error-generic')
     }
@@ -465,6 +472,8 @@ async function commit() {
   try {
     job.value = await importService.commit(id)
     step.value = 'done'
+    // The commit saved this import's answers.
+    queryCache.invalidateQueries({ key: ['import-answers'] })
   } catch (e) {
     const data = (e as { response?: { data?: { code?: string; job?: ImportJob } } })?.response
       ?.data
@@ -824,6 +833,7 @@ const viewImportedLabelKey = computed(() => {
           :job-id="job.id"
           :version="job.updated_at"
           :focus-field="valuesFocus"
+          :job-type="job.job_type"
           @check="checkValues"
           @back="goTo('map')"
         />

@@ -408,7 +408,73 @@ export interface ImportRowsPage {
   rows: ImportRowResult[]
 }
 
+/** What a saved match does in the workspace. */
+export type SavedOutcome =
+  | 'link'
+  | 'kept_as_text'
+  | 'left_as_is'
+  | 'left_off'
+  | 'left_unassigned'
+  | 'left_blank'
+
+/** Who saved a match, and in which import; `by` is null once the person's
+ *  account is gone. */
+export interface SavedBy {
+  by: string | null
+  by_name: string | null
+  at: string
+  job_id: string | null
+}
+
+/** One saved match: a value's spelling in a file and what it becomes. */
+export interface SavedMatch {
+  id: string
+  field: string
+  field_label: string
+  label_key?: string
+  /** Empty when the field is answered the same on every row. */
+  context: string
+  /** The context's name: a kind, a manufacturer. */
+  context_label?: string
+  text: string
+  outcome: SavedOutcome
+  /** For a link, the entry's id or key and its name. */
+  target?: string
+  label?: string
+  /** The import that saved it created the entry. */
+  created: boolean
+  saved: SavedBy
+}
+
+/** One header of the latest mapped import and where it went. */
+export interface SavedColumn {
+  header: string
+  field?: string
+  field_label?: string
+  label_key?: string
+  /** Set to Don't import. */
+  ignored: boolean
+}
+
+export interface SavedColumns {
+  job_id: string
+  by: string | null
+  by_name: string | null
+  at: string
+  rows: SavedColumn[]
+}
+
+/** The Saved matches of one import type, in field order, and the header
+ *  memory of its latest mapped import. */
+export interface SavedMatches {
+  job_type: ImportJobType
+  entries: SavedMatch[]
+  columns: SavedColumns | null
+}
+
 export const importFieldsQueryKey = (jobType: ImportJobType) => ['import-fields', jobType] as const
+export const importAnswersQueryKey = (jobType: ImportJobType) =>
+  ['import-answers', jobType] as const
 export const importValuesQueryKey = (jobId: string, updatedAt: string) =>
   ['import-values', jobId, updatedAt] as const
 export const importValuesPreviewQueryKey = (jobId: string, updatedAt: string, answersKey: string) =>
@@ -509,6 +575,27 @@ export const importService = {
   },
 
   /** The fields a column can map to, in picker order. */
+  /** The type's saved matches and header memory. */
+  async answers(jobType: ImportJobType): Promise<SavedMatches> {
+    const { data } = await apiClient.get<SavedMatches>('/admin/import/answers', {
+      params: { type: jobType },
+    })
+    return data
+  },
+
+  /** Delete one saved match. */
+  async deleteAnswer(id: string): Promise<void> {
+    await apiClient.delete(`/admin/import/answers/${id}`)
+  },
+
+  /** Delete every saved match of a type: how many went. */
+  async deleteAnswers(jobType: ImportJobType): Promise<number> {
+    const { data } = await apiClient.delete<{ deleted: number }>('/admin/import/answers', {
+      params: { type: jobType },
+    })
+    return data.deleted
+  },
+
   async fields(jobType: ImportJobType): Promise<ImportField[]> {
     const { data } = await apiClient.get<{ fields: ImportField[] }>('/admin/import/fields', {
       params: { type: jobType },

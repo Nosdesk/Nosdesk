@@ -4131,6 +4131,156 @@ import-values-bulk-unassigned = Alle { $count } niet toewijzen
 # MT: pending native review (nl-NL)
 import-values-scale-create = Alles aanmaken
 # MT: pending native review (nl-NL)
+import-values-footer = Antwoorden worden opgeslagen wanneer je op Importeren drukt en gebruikt bij de volgende { $noun }import.
+# MT: pending native review (nl-NL)
+import-values-footer-link = Opgeslagen koppelingen
+# MT: pending native review (nl-NL)
+import-matches-noun = { $type ->
+    [users] gebruikers
+    [tickets] ticket
+   *[assets] asset
+}
+# MT: pending native review (nl-NL)
+import-matches-nouns = { $type ->
+    [users] gebruikers
+    [tickets] tickets
+   *[assets] assets
+}
+# MT: pending native review (nl-NL)
+import-matches-title = Opgeslagen koppelingen
+# MT: pending native review (nl-NL)
+import-matches-subtitle = Wat een spelling in je bestand wordt in de werkruimte. Opgeslagen de eerste keer dat iemand antwoordt bij de stap Waarden, daarna gebruikt bij elke volgende import van hetzelfde type tot je hem verwijdert.
+# MT: pending native review (nl-NL)
+import-matches-back-hub = Terug naar Gegevensimport
+# MT: pending native review (nl-NL)
+import-matches-back-values = Terug naar Waarden
+# MT: pending native review (nl-NL)
+import-matches-type-label = Importtype
+# MT: pending native review (nl-NL)
+import-matches-type-option = { $type ->
+    [users] Gebruikers
+    [tickets] Tickets
+   *[assets] Assets
+} · { $count }
+# MT: pending native review (nl-NL)
+import-matches-values-title = Waarden · { $count }
+# MT: pending native review (nl-NL)
+import-matches-col-file = In je bestand
+# MT: pending native review (nl-NL)
+import-matches-col-workspace = In de werkruimte
+# MT: pending native review (nl-NL)
+import-matches-col-saved-by = Opgeslagen door
+# MT: pending native review (nl-NL)
+import-matches-becomes = wordt
+# MT: pending native review (nl-NL)
+import-matches-actions = Acties
+# MT: pending native review (nl-NL)
+import-matches-created = aangemaakt
+# MT: pending native review (nl-NL)
+import-matches-kept-as-text = Als tekst behouden
+# MT: pending native review (nl-NL)
+import-matches-left-as-is = Ongewijzigd gelaten
+# MT: pending native review (nl-NL)
+import-matches-left-off = Weggelaten
+# MT: pending native review (nl-NL)
+import-matches-left-unassigned = Niet toegewezen
+# MT: pending native review (nl-NL)
+import-matches-left-blank = Leeg gelaten
+# MT: pending native review (nl-NL)
+import-matches-no-manufacturer = Geen fabrikant
+# MT: pending native review (nl-NL)
+import-matches-saved-by = { $name }, { $date }
+# MT: pending native review (nl-NL)
+import-matches-former-member = Een voormalig lid
+# MT: pending native review (nl-NL)
+import-matches-open-import = Die import openen
+# MT: pending native review (nl-NL)
+import-matches-delete = Verwijderen
+# MT: pending native review (nl-NL)
+import-matches-delete-hint = De volgende import vraagt opnieuw naar deze waarde
+# MT: pending native review (nl-NL)
+import-matches-search = Zoek in waarden en velden
+# MT: pending native review (nl-NL)
+import-matches-search-label = Opgeslagen koppelingen doorzoeken
+# MT: pending native review (nl-NL)
+import-matches-count = { $count } opgeslagen
+# MT: pending native review (nl-NL)
+import-matches-count-filtered = { $shown } van { $total } getoond
+# MT: pending native review (nl-NL)
+import-matches-section-filtered = { $shown } van { $total }
+# MT: pending native review (nl-NL)
+import-matches-no-results = Geen opgeslagen koppeling bevat dat.
+# MT: pending native review (nl-NL)
+import-matches-delete-all = { $count ->
+    [one] De opgeslagen koppeling voor { $nouns } verwijderen
+   *[other] Alle { $count } opgeslagen koppelingen voor { $nouns } verwijderen
+}
+# MT: pending native review (nl-NL)
+import-matches-delete-all-hint = De volgende { $noun }import vraagt opnieuw naar elke waarde.
+# MT: pending native review (nl-NL)
+import-matches-delete-all-title = { $count ->
+    [one] De opgeslagen koppeling voor { $nouns } verwijderen?
+   *[other] Alle { $count } opgeslagen koppelingen voor { $nouns } verwijderen?
+}
+# MT: pending native review (nl-NL)
+import-matches-delete-all-body = De volgende { $noun }import vraagt opnieuw naar elke waarde. De kolomkoppeling van je laatste import blijft bewaard; de kaart Kolommen hieronder toont die, en de stap Kolommen van de volgende import vervangt die.
+# MT: pending native review (nl-NL)
+import-matches-delete-all-confirm = Alles verwijderen
+# MT: pending native review (nl-NL)
+import-matches-deleted-all = Verwijderd. De volgende { $noun }import vraagt opnieuw naar elke waarde.
+# MT: pending native review (nl-NL)
+import-matches-deleted-one = Verwijderd. De volgende { $noun }import vraagt opnieuw naar '{ $value }'.
+# MT: pending native review (nl-NL)
+import-matches-delete-failed = Verwijderen is mislukt. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+import-matches-empty = Nog niets opgeslagen. Wanneer een import vraagt wat een waarde of kolom in je bestand betekent, wordt het antwoord hier opgeslagen en bij de volgende import gebruikt.
+# MT: pending native review (nl-NL)
+import-matches-load-failed = Opgeslagen koppelingen konden niet worden geladen.
+# MT: pending native review (nl-NL)
+import-matches-retry = Opnieuw proberen
+# MT: pending native review (nl-NL)
+import-matches-columns-title = Kolommen · { $count }
+# MT: pending native review (nl-NL)
+import-matches-columns-title-empty = Kolommen
+# MT: pending native review (nl-NL)
+import-matches-columns-from = { $count } kolommen uit { $who }: { $mapped ->
+    [one] 1 gaat naar een veld.
+   *[other] { $mapped } gaan naar een veld.
+}
+# MT: pending native review (nl-NL)
+import-matches-columns-off = { $count } niet geïmporteerd ({ $list }).
+# MT: pending native review (nl-NL)
+import-matches-columns-replaces = De stap Kolommen van je volgende { $noun }import vervangt dit.
+# MT: pending native review (nl-NL)
+import-matches-columns-empty = Er is nog geen { $noun }import gecontroleerd. De laatste bepaalt hoe de kolomkoppen de volgende keer worden gekoppeld.
+# MT: pending native review (nl-NL)
+import-matches-who = de import van { $name } op { $date }
+# MT: pending native review (nl-NL)
+import-matches-who-unknown = een eerdere import op { $date }
+# MT: pending native review (nl-NL)
+import-matches-no-field = Geen veld
+# MT: pending native review (nl-NL)
+import-matches-show-columns = Kolommen tonen
+# MT: pending native review (nl-NL)
+import-matches-hide-columns = Kolommen verbergen
+# MT: pending native review (nl-NL)
+import-matches-manage = Beheren
+# MT: pending native review (nl-NL)
+import-matches-hub-more = en nog { $count }
+# MT: pending native review (nl-NL)
+import-matches-hub-line = { $values ->
+    [one] 1 waarde
+   *[other] { $values } waarden
+} en { $columns ->
+    [one] 1 kolom
+   *[other] { $columns } kolommen
+} voor { $nouns }, laatst uit { $who }.
+# MT: pending native review (nl-NL)
+import-matches-hub-line-values = { $values ->
+    [one] 1 waarde
+   *[other] { $values } waarden
+} voor { $nouns }.
+# MT: pending native review (nl-NL)
 import-review-values-matched = Alle waarden automatisch gekoppeld
 # MT: pending native review (nl-NL)
 import-review-values-see = Bekijken
@@ -7312,6 +7462,8 @@ admin-ldap-preview-members = { $count } leden
 admin-ldap-preview-not-found = groep niet gevonden in directory
 admin-ldap-preview-default = Iedereen anders → Lid
 route-title-admin-csv-import = CSV-import
+# MT: pending native review (nl-NL)
+route-title-admin-import-saved-matches = Opgeslagen koppelingen
 route-title-admin-backup-restore = Back-up en herstel
 route-title-group-detail = Groepsdetails
 route-title-authenticating = Bezig met authenticeren...

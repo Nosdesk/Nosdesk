@@ -3941,6 +3941,98 @@ import-values-bulk-create-groups = Create these { $count } groups
 import-values-bulk-off = Leave all { $count } off
 import-values-bulk-unassigned = Leave all { $count } unassigned
 import-values-scale-create = Create all
+# Saved matches: the Match values footer, the Saved matches page
+# (SavedMatchesView) and the hub card (SavedMatchesCard).
+import-values-footer = Answers are saved when you press Import and used on the next { $noun } import.
+import-values-footer-link = Saved matches
+import-matches-noun = { $type ->
+    [users] user
+    [tickets] ticket
+   *[assets] asset
+}
+import-matches-nouns = { $type ->
+    [users] users
+    [tickets] tickets
+   *[assets] assets
+}
+import-matches-title = Saved matches
+import-matches-subtitle = What a spelling in your file becomes in the workspace. Saved the first time someone answers on Match values, then used on every later import of the same type until you delete it.
+import-matches-back-hub = Back to Data import
+import-matches-back-values = Back to Match values
+import-matches-type-label = Import type
+import-matches-type-option = { $type ->
+    [users] Users
+    [tickets] Tickets
+   *[assets] Assets
+} · { $count }
+import-matches-values-title = Values · { $count }
+import-matches-col-file = In your file
+import-matches-col-workspace = In the workspace
+import-matches-col-saved-by = Saved by
+import-matches-becomes = becomes
+import-matches-actions = Actions
+import-matches-created = created
+import-matches-kept-as-text = Kept as text
+import-matches-left-as-is = Left as is
+import-matches-left-off = Left off
+import-matches-left-unassigned = Left unassigned
+import-matches-left-blank = Left blank
+import-matches-no-manufacturer = No manufacturer
+import-matches-saved-by = { $name }, { $date }
+import-matches-former-member = A former member
+import-matches-open-import = Open that import
+import-matches-delete = Delete
+import-matches-delete-hint = The next import asks about this value again
+import-matches-search = Search values and fields
+import-matches-search-label = Search saved matches
+import-matches-count = { $count } saved
+import-matches-count-filtered = { $shown } of { $total } shown
+import-matches-section-filtered = { $shown } of { $total }
+import-matches-no-results = No saved match contains that.
+import-matches-delete-all = { $count ->
+    [one] Delete the saved match for { $nouns }
+   *[other] Delete all { $count } saved matches for { $nouns }
+}
+import-matches-delete-all-hint = The next { $noun } import asks about every value again.
+import-matches-delete-all-title = { $count ->
+    [one] Delete the saved match for { $nouns }?
+   *[other] Delete all { $count } saved matches for { $nouns }?
+}
+import-matches-delete-all-body = The next { $noun } import will ask about every value again. Column matching from your latest import is kept; the Columns card below shows it, and the next import's Map columns step replaces it.
+import-matches-delete-all-confirm = Delete all
+import-matches-deleted-all = Deleted. The next { $noun } import will ask about every value again.
+import-matches-deleted-one = Deleted. The next { $noun } import will ask about '{ $value }' again.
+import-matches-delete-failed = Couldn't delete. Try again.
+import-matches-empty = Nothing saved yet. When an import asks what a value or column in your file means, the answer is saved here and used on the next import.
+import-matches-load-failed = Saved matches didn't load.
+import-matches-retry = Try again
+import-matches-columns-title = Columns · { $count }
+import-matches-columns-title-empty = Columns
+import-matches-columns-from = { $count } columns from { $who }: { $mapped ->
+    [one] 1 goes to a field.
+   *[other] { $mapped } go to a field.
+}
+import-matches-columns-off = { $count } not imported ({ $list }).
+import-matches-columns-replaces = Your next { $noun } import's Map columns step replaces this.
+import-matches-columns-empty = No { $noun } import has been checked yet. The latest one sets how its column headers are matched next time.
+import-matches-who = { $name }'s import on { $date }
+import-matches-who-unknown = an earlier import on { $date }
+import-matches-no-field = No field
+import-matches-show-columns = Show columns
+import-matches-hide-columns = Hide columns
+import-matches-manage = Manage
+import-matches-hub-more = and { $count } more
+import-matches-hub-line = { $values ->
+    [one] 1 value
+   *[other] { $values } values
+} and { $columns ->
+    [one] 1 column
+   *[other] { $columns } columns
+} for { $nouns }, latest from { $who }.
+import-matches-hub-line-values = { $values ->
+    [one] 1 value
+   *[other] { $values } values
+} for { $nouns }.
 import-review-values-matched = All values matched automatically
 import-review-values-see = See them
 import-review-checked = { $count ->
@@ -6953,6 +7045,7 @@ admin-ldap-preview-members = { $count } members
 admin-ldap-preview-not-found = group not found in directory
 admin-ldap-preview-default = Everyone else → Member
 route-title-admin-csv-import = CSV import
+route-title-admin-import-saved-matches = Saved matches
 route-title-admin-backup-restore = Backup and restore
 route-title-group-detail = Group details
 route-title-authenticating = Authenticating...
