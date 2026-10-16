@@ -4145,22 +4145,9 @@ import-review-updated = { $count } bijgewerkt
 # MT: pending native review (nl-NL)
 import-review-will-import = { $count } worden geïmporteerd: { $parts }.
 # MT: pending native review (nl-NL)
-import-review-all-import = Alle { $count } worden geïmporteerd: { $parts }.
-# MT: pending native review (nl-NL)
 import-review-nothing = Er wordt niets geïmporteerd.
 # MT: pending native review (nl-NL)
-import-review-skipped = { $count } overgeslagen wegens fouten.
-# MT: pending native review (nl-NL)
-import-review-tile-create = Nieuw
-# MT: pending native review (nl-NL)
-import-review-tile-update = Bijwerken
-# MT: pending native review (nl-NL)
-import-review-tile-errors = Fouten
-# MT: pending native review (nl-NL)
-import-review-tile-errors-sub = { $count ->
-    [one] 1 fout
-   *[other] { $count } fouten
-   }
+import-review-skipped = { $count } overgeslagen.
 # MT: pending native review (nl-NL)
 import-review-top-problems = Meest voorkomende problemen
 # MT: pending native review (nl-NL)
@@ -4173,10 +4160,7 @@ import-review-whole-row = Hele rij
 # MT: pending native review (nl-NL)
 import-review-col-row = Rij
 # MT: pending native review (nl-NL)
-import-review-unchanged = { $count ->
-    [one] 1 rij komt al overeen en verandert niet.
-   *[other] { $count } rijen komen al overeen en veranderen niet.
-   }
+import-review-unchanged = { $count } ongewijzigd.
 # MT: pending native review (nl-NL)
 import-review-tile-unchanged = Ongewijzigd
 # MT: pending native review (nl-NL)
@@ -4208,8 +4192,6 @@ import-review-filter-unchanged = Ongewijzigd ({ $count })
 # MT: pending native review (nl-NL)
 import-review-col-name = Naam
 # MT: pending native review (nl-NL)
-import-review-col-result = Resultaat
-# MT: pending native review (nl-NL)
 import-review-outcome-create = Nieuw
 # MT: pending native review (nl-NL)
 import-review-outcome-update = Bijgewerkt
@@ -4230,12 +4212,9 @@ import-review-rows-none = Geen rijen om te tonen.
 # MT: pending native review (nl-NL)
 import-error-report-failed = Het foutrapport kon niet worden gedownload. Probeer het opnieuw.
 # MT: pending native review (nl-NL)
-import-review-back = Terug naar kolommen
+import-review-back = Terug naar Kolommen koppelen
 # MT: pending native review (nl-NL)
-import-review-skip-reason = { $count ->
-    [one] 1 rij wordt overgeslagen
-   *[other] { $count } rijen worden overgeslagen
-   }
+import-review-skip-reason = { $count } worden overgeslagen en in het foutrapport vermeld.
 # MT: pending native review (nl-NL)
 import-review-nothing-to-import = Niets te importeren
 # MT: pending native review (nl-NL)
@@ -4251,15 +4230,223 @@ import-review-confirm-title = { $count ->
    *[other] { $count } rijen importeren?
    }
 # MT: pending native review (nl-NL)
-import-review-confirm-changes = { $type ->
-    [users] { $created } personen worden toegevoegd en { $updated } bijgewerkt.
-    [tickets] { $created } tickets worden aangemaakt.
-   *[other] { $created } activa worden aangemaakt en { $updated } bijgewerkt.
-   }
-# MT: pending native review (nl-NL)
 import-review-confirm-skipped = { $count ->
     [one] 1 rij met fouten wordt overgeslagen.
    *[other] { $count } rijen met fouten worden overgeslagen.
+   }
+# MT: pending native review (nl-NL)
+import-review-tile-new = Nieuw
+# MT: pending native review (nl-NL)
+import-review-tile-updated = Bijgewerkt
+# MT: pending native review (nl-NL)
+import-review-tile-skipped = Overgeslagen
+# MT: pending native review (nl-NL)
+import-review-col-outcome = Resultaat
+# MT: pending native review (nl-NL)
+import-review-col-detail = Details
+# MT: pending native review (nl-NL)
+import-review-col-tag = Tag
+# MT: pending native review (nl-NL)
+import-review-col-serial = Serienummer
+# MT: pending native review (nl-NL)
+import-review-col-email = E-mail
+# MT: pending native review (nl-NL)
+import-review-row-number = Rij { $row }
+# MT: pending native review (nl-NL)
+import-review-fix-values = Oplossen bij Waarden koppelen
+# MT: pending native review (nl-NL)
+import-review-fix-map = Oplossen bij Kolommen koppelen
+# MT: pending native review (nl-NL)
+import-review-download-rows = Deze rijen downloaden
+# MT: pending native review (nl-NL)
+import-review-ni-title = Niet geïmporteerd uit dit bestand
+# MT: pending native review (nl-NL)
+import-review-ni-title-count = { $count ->
+    [one] Niet geïmporteerd uit dit bestand (1 kolom)
+   *[other] Niet geïmporteerd uit dit bestand ({ $count } kolommen)
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-none = Alles in het bestand krijgt een plek.
+# MT: pending native review (nl-NL)
+import-review-ni-unmapped = { $count ->
+    [one] 1 kolom zonder gekozen veld
+   *[other] { $count } kolommen zonder gekozen veld
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-ignored = { $count ->
+    [one] 1 waarde · Niet importeren
+   *[other] { $count } waarden · Niet importeren
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-attribute-rows = { $count ->
+    [one] 1 waarde op { $kind }-rijen
+   *[other] { $count } waarden op { $kind }-rijen
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-attribute-reason = { $kind }-assets hebben geen { $header }, weggelaten
+# MT: pending native review (nl-NL)
+import-review-ni-group-rows = { $count ->
+    [one] '{ $value }' op 1 rij
+   *[other] '{ $value }' op { $count } rijen
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-group-reason = onbekende groep, weggelaten
+# MT: pending native review (nl-NL)
+import-review-ni-person-rows = { $values ->
+    [one] 1 e-mailadres
+   *[other] { $values } e-mailadressen
+   } op { $count ->
+    [one] 1 rij
+   *[other] { $count } rijen
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-person-reason = { $values ->
+    [one] geen lid, niet toegewezen
+   *[other] geen leden, niet toegewezen
+   }
+# MT: pending native review (nl-NL)
+import-review-new-title = Nieuw in uw werkruimte
+# MT: pending native review (nl-NL)
+import-review-new-manufacturers = Fabrikanten ({ $count })
+# MT: pending native review (nl-NL)
+import-review-new-models = Modellen ({ $count })
+# MT: pending native review (nl-NL)
+import-review-new-groups = Groepen ({ $count })
+# MT: pending native review (nl-NL)
+import-review-new-not-right = Klopt dit niet?
+# MT: pending native review (nl-NL)
+import-review-new-change = Wijzig de antwoorden bij Waarden koppelen
+# MT: pending native review (nl-NL)
+import-review-changes-title = Wat er verandert
+# MT: pending native review (nl-NL)
+import-review-changes-records = { $type ->
+    [users] { $count ->
+        [one] 1 gebruiker
+       *[other] { $count } gebruikers
+       }
+    [tickets] { $count ->
+        [one] 1 ticket
+       *[other] { $count } tickets
+       }
+   *[other] { $count ->
+        [one] 1 asset
+       *[other] { $count } assets
+       }
+   }
+# MT: pending native review (nl-NL)
+import-review-changes-constant = ingesteld voor elke rij
+# MT: pending native review (nl-NL)
+import-review-changes-new = Nieuw
+# MT: pending native review (nl-NL)
+import-review-changes-blanks = Lege cellen wijzigen nooit een bestaande waarde. Kolommen ingesteld op Niet importeren blijven ongemoeid.
+# MT: pending native review (nl-NL)
+import-review-empty-skipped = Geen overgeslagen rijen. Elke rij is in orde.
+# MT: pending native review (nl-NL)
+import-review-empty-new = { $type ->
+    [users] Geen nieuwe gebruikers. Elke rij kwam overeen met een bestaande gebruiker.
+    [tickets] Geen nieuwe tickets.
+   *[other] Geen nieuwe assets. Elke rij kwam overeen met een bestaande asset.
+   }
+# MT: pending native review (nl-NL)
+import-review-empty-updated = Geen updates. Elke gekoppelde rij blijft ongewijzigd.
+# MT: pending native review (nl-NL)
+import-review-detail-changes = Wijzigingen:
+# MT: pending native review (nl-NL)
+import-review-detail-none = Geen wijzigingen
+# MT: pending native review (nl-NL)
+import-review-detail-skipped = Overgeslagen:
+# MT: pending native review (nl-NL)
+import-review-detail-left-out = { $fields } weggelaten
+# MT: pending native review (nl-NL)
+import-review-blank = leeg
+# MT: pending native review (nl-NL)
+import-review-keyboard = Toetsenbord
+# MT: pending native review (nl-NL)
+import-review-keyboard-help = j en k verplaatsen de rijmarkering. De pijltjes links en rechts wijzigen het filter. Enter op een veelvoorkomend probleem voert de oplossing uit.
+# MT: pending native review (nl-NL)
+import-review-confirm-both = { $type ->
+    [users] { $created ->
+        [one] 1 persoon wordt toegevoegd en { $updated } bijgewerkt.
+       *[other] { $created } personen worden toegevoegd en { $updated } bijgewerkt.
+       }
+   *[other] { $created ->
+        [one] 1 asset wordt aangemaakt en { $updated } bijgewerkt.
+       *[other] { $created } assets worden aangemaakt en { $updated } bijgewerkt.
+       }
+   }
+# MT: pending native review (nl-NL)
+import-review-confirm-created = { $type ->
+    [users] { $count ->
+        [one] 1 persoon wordt toegevoegd.
+       *[other] { $count } personen worden toegevoegd.
+       }
+    [tickets] { $count ->
+        [one] 1 ticket wordt aangemaakt.
+       *[other] { $count } tickets worden aangemaakt.
+       }
+   *[other] { $count ->
+        [one] 1 asset wordt aangemaakt.
+       *[other] { $count } assets worden aangemaakt.
+       }
+   }
+# MT: pending native review (nl-NL)
+import-review-confirm-updated = { $type ->
+    [users] { $count ->
+        [one] 1 persoon wordt bijgewerkt.
+       *[other] { $count } personen worden bijgewerkt.
+       }
+   *[other] { $count ->
+        [one] 1 asset wordt bijgewerkt.
+       *[other] { $count } assets worden bijgewerkt.
+       }
+   }
+# MT: pending native review (nl-NL)
+import-review-confirm-unchanged = { $type ->
+    [users] { $count ->
+        [one] 1 rij komt overeen met een bestaande gebruiker en blijft ongewijzigd.
+       *[other] { $count } rijen komen overeen met bestaande gebruikers en blijven ongewijzigd.
+       }
+   *[other] { $count ->
+        [one] 1 rij komt overeen met een bestaande asset en blijft ongewijzigd.
+       *[other] { $count } rijen komen overeen met bestaande assets en blijven ongewijzigd.
+       }
+   }
+# MT: pending native review (nl-NL)
+import-review-count-manufacturers = { $count ->
+    [one] 1 fabrikant
+   *[other] { $count } fabrikanten
+   }
+# MT: pending native review (nl-NL)
+import-review-count-models = { $count ->
+    [one] 1 model
+   *[other] { $count } modellen
+   }
+# MT: pending native review (nl-NL)
+import-review-count-groups = { $count ->
+    [one] 1 groep
+   *[other] { $count } groepen
+   }
+# MT: pending native review (nl-NL)
+import-review-confirm-catalog = Worden aangemaakt: { $list }.
+# MT: pending native review (nl-NL)
+import-review-confirm-columns = { $count ->
+    [one] 1 kolom uit het bestand wordt niet geïmporteerd.
+   *[other] { $count } kolommen uit het bestand worden niet geïmporteerd.
+   }
+# MT: pending native review (nl-NL)
+import-review-confirm-webhooks = { $count ->
+    [one] Webhooks ontvangen gebeurtenissen voor 1 asset.
+   *[other] Webhooks ontvangen gebeurtenissen voor { $count } assets.
+   }
+# MT: pending native review (nl-NL)
+import-review-plan-changed-more = { $count ->
+    [one] Er is iets veranderd sinds de controle: 1 rij meer zou worden overgeslagen. Bekijk het nieuwe plan.
+   *[other] Er is iets veranderd sinds de controle: { $count } rijen meer zouden worden overgeslagen. Bekijk het nieuwe plan.
+   }
+# MT: pending native review (nl-NL)
+import-review-plan-changed-fewer = { $count ->
+    [one] Er is iets veranderd sinds de controle: 1 rij minder zou worden overgeslagen. Bekijk het nieuwe plan.
+   *[other] Er is iets veranderd sinds de controle: { $count } rijen minder zouden worden overgeslagen. Bekijk het nieuwe plan.
    }
 # MT: pending native review (nl-NL)
 import-done-heading = Import voltooid

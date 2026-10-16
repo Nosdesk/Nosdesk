@@ -49,6 +49,11 @@ vi.mock('@nosdesk/core/services/importService', () => ({
   },
 }))
 
+const hooks = vi.hoisted(() => ({ list: vi.fn() }))
+vi.mock('@nosdesk/core/services/webhookService', () => ({
+  default: { listWebhooks: (...a: unknown[]) => hooks.list(...a) },
+}))
+
 vi.mock('@/composables/useAssetKindsQuery', async () => {
   const { computed } = await import('vue')
   return {
@@ -274,6 +279,8 @@ beforeEach(() => {
   api.fields.mockResolvedValue(FIELDS)
   api.rows.mockResolvedValue(rowsPage())
   api.values.mockResolvedValue(noValues())
+  hooks.list.mockReset()
+  hooks.list.mockResolvedValue([])
   localStorage.clear()
   router = createRouter({
     history: createMemoryHistory(),
@@ -412,7 +419,7 @@ describe('CsvImportView commit guards', () => {
       'import-review-plan-changed',
     )
     expect(wrapper!.text()).not.toContain('server words')
-    expect(wrapper!.text()).toContain('import-review-tile-create7')
+    expect(wrapper!.find('[data-test="import-tile-create"]').text()).toBe('import-review-tile-new 7')
     // The rows are read again for the fresh plan.
     expect(api.rows.mock.calls.length).toBeGreaterThan(1)
   })
@@ -737,7 +744,7 @@ describe('CsvImportView Review rows', () => {
 
   it('lists skipped rows first, with their problems under the file headers', async () => {
     await openReview()
-    expect(api.rows).toHaveBeenCalledWith('job-1', { filter: 'skipped', offset: 0, limit: 50 })
+    expect(api.rows).toHaveBeenCalledWith('job-1', { filter: 'skipped', offset: 0, limit: 25 })
     const rows = wrapper!.findAll('[data-test="import-row"]')
     expect(rows).toHaveLength(2)
     expect(rows[0].text()).toContain('Cam 5')
@@ -754,7 +761,7 @@ describe('CsvImportView Review rows', () => {
     expect(radio).toBeTruthy()
     await radio!.trigger('click')
     await flushPromises()
-    expect(api.rows).toHaveBeenLastCalledWith('job-1', { filter: 'create', offset: 0, limit: 50 })
+    expect(api.rows).toHaveBeenLastCalledWith('job-1', { filter: 'create', offset: 0, limit: 25 })
   })
 
   it('pages through a long list', async () => {
@@ -762,7 +769,7 @@ describe('CsvImportView Review rows', () => {
     await openReview()
     await wrapper!.find('[data-test="import-rows-next"]').trigger('click')
     await flushPromises()
-    expect(api.rows).toHaveBeenLastCalledWith('job-1', { filter: 'skipped', offset: 50, limit: 50 })
+    expect(api.rows).toHaveBeenLastCalledWith('job-1', { filter: 'skipped', offset: 25, limit: 25 })
   })
 
   it('shows notices and downloads the error report', async () => {
@@ -798,6 +805,196 @@ describe('CsvImportView Review rows', () => {
     await mountAt('/admin/data-import/csv?job=job-1')
     expect(currentStep()).toBe('done')
     expect(wrapper!.find('[data-test="import-done-report"]').exists()).toBe(true)
+  })
+})
+
+describe('CsvImportView Review plan', () => {
+  async function openReview(job = checkedJob()) {
+    api.get.mockResolvedValue(job)
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('review')
+  }
+
+  /** A download through an anchor, with the browser's object URLs stubbed. */
+  async function download(run: () => Promise<void>) {
+    api.errorReport.mockResolvedValue({ blob: new Blob(['Row,Errors\n']), filename: 'x-rows.csv' })
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:rows'), revokeObjectURL: vi.fn() })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    try {
+      await run()
+      await flushPromises()
+    } finally {
+      click.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  }
+
+  const problemsJob = () => {
+    const base = checkedJob()
+    return checkedJob({
+      summary: {
+        ...base.summary!,
+        error_groups: [
+          { column: 'quantity', source_column: 'Qty', message: "'two' isn't a number", count: 18, fix: 'match_values' },
+          { column: 'fuel', message: 'required for Vehicle assets', count: 40, fix: 'map' },
+          { column: 'asset_tag', source_column: 'Asset #', message: "tag 'T-1' appears twice", count: 2, fix: 'download' },
+        ],
+      },
+    })
+  }
+
+  it('shows four tiles, and a tile shows its rows', async () => {
+    await openReview()
+    const tiles = wrapper!.findAll('[data-test="import-review-tiles"] button')
+    expect(tiles.map((t) => t.attributes('data-test'))).toEqual([
+      'import-tile-create',
+      'import-tile-update',
+      'import-tile-unchanged',
+      'import-tile-skipped',
+    ])
+    expect(wrapper!.find('[data-test="import-tile-skipped"]').attributes('aria-pressed')).toBe('true')
+    await wrapper!.find('[data-test="import-tile-update"]').trigger('click')
+    await flushPromises()
+    expect(api.rows).toHaveBeenLastCalledWith('job-1', { filter: 'update', offset: 0, limit: 25 })
+  })
+
+  it('opens on Updated when nothing is skipped', async () => {
+    await openReview(
+      checkedJob({
+        summary: {
+          row_count: 180,
+          would_create: 30,
+          would_update: 150,
+          unchanged: 0,
+          errors: [],
+          errors_truncated: false,
+          errors_total: 0,
+          rows_with_errors: 0,
+          error_groups: [],
+          changes: [
+            { field: 'location', source_column: 'Location', count: 142 },
+            { field: 'status', source_column: 'Status', count: 38 },
+          ],
+          kinds: [{ kind: 'camera', count: 30 }],
+        },
+      }),
+    )
+    expect(api.rows).toHaveBeenCalledWith('job-1', { filter: 'update', offset: 0, limit: 25 })
+    expect(wrapper!.findAll('[data-test="import-change"]')).toHaveLength(2)
+    expect(wrapper!.find('[data-test="import-change-kinds"]').text()).toContain('30 Camera')
+    expect(wrapper!.find('[data-test="import-problems"]').exists()).toBe(false)
+  })
+
+  it('fixes a value problem at its Match values card', async () => {
+    api.values.mockResolvedValue(valuesToAnswer())
+    await openReview(problemsJob())
+    const fix = wrapper!.find('[data-test="import-problem-0"] [data-test="import-problem-fix-values"]')
+    expect(fix.text()).toBe('import-review-fix-values')
+    await fix.trigger('click')
+    await flushPromises()
+    expect(currentStep()).toBe('values')
+    expect(wrapper!.find('[data-field="quantity"]').exists()).toBe(true)
+  })
+
+  it('runs a problem\'s fix on Enter, and goes back to Map for a missing column', async () => {
+    await openReview(problemsJob())
+    const entry = wrapper!.find('[data-test="import-problem-1"]')
+    expect(entry.attributes('data-fix')).toBe('map')
+    expect(entry.find('[data-test="import-problem-fix-map"]').exists()).toBe(true)
+    await entry.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(currentStep()).toBe('map')
+  })
+
+  it('downloads one problem\'s rows', async () => {
+    await openReview(problemsJob())
+    const entry = wrapper!.find('[data-test="import-problem-2"]')
+    expect(entry.find('[data-test="import-problem-fix-values"]').exists()).toBe(false)
+    expect(entry.find('[data-test="import-problem-fix-map"]').exists()).toBe(false)
+    await download(() => entry.find('[data-test="import-problem-download"]').trigger('click'))
+    expect(api.errorReport).toHaveBeenCalledWith('job-1', { group: 2 })
+  })
+
+  it('lists what won\'t be imported and downloads the rows that leave values out', async () => {
+    const base = checkedJob()
+    await openReview(
+      checkedJob({
+        mapping: { name: 0, kind: 1, asset_tag: 2, serial_number: 3, rego: 4 },
+        summary: {
+          ...base.summary!,
+          dropped: [
+            { column: 'rego', source_column: 'Rego', kind: 'camera', count: 3 },
+            { column: 'primary_user', source_column: 'Assigned To', kind: 'camera', value: 'a@x.co', count: 2 },
+            { column: 'primary_user', source_column: 'Assigned To', kind: 'generic', value: 'b@x.co', count: 3 },
+          ],
+          unmapped: [],
+        },
+      }),
+    )
+    expect(wrapper!.find('[data-test="import-ni-attribute"]').text()).toContain('Rego')
+    const person = wrapper!.find('[data-test="import-ni-person"]')
+    expect(person.text()).toContain('Assigned To')
+    await download(() => person.find('[data-test="import-ni-download"]').trigger('click'))
+    expect(api.errorReport).toHaveBeenCalledWith('job-1', { dropped: [1, 2] })
+  })
+
+  it('moves the row highlight with j and k outside a field', async () => {
+    await openReview()
+    const highlighted = () =>
+      wrapper!.findAll('[data-test="import-row"]').map((r) => r.attributes('data-highlight') === 'true')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }))
+    await flushPromises()
+    expect(highlighted()).toEqual([true, false])
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }))
+    await flushPromises()
+    expect(highlighted()).toEqual([false, true])
+
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', bubbles: true }))
+    await flushPromises()
+    expect(highlighted()).toEqual([false, true])
+    input.remove()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }))
+    await flushPromises()
+    expect(highlighted()).toEqual([true, false])
+  })
+
+  it('says how many more rows would be skipped when the plan changed', async () => {
+    const fresh = checkedJob({
+      updated_at: '2026-10-15T01:00:00Z',
+      summary: { ...checkedJob().summary!, rows_with_errors: 5 },
+    })
+    api.commit.mockRejectedValue({
+      response: { status: 409, data: { code: 'import_plan_changed', job: fresh } },
+    })
+    await openReview()
+    await wrapper!.find('[data-test="import-commit"]').trigger('click')
+    await wrapper!.find('[data-test="confirm-ok"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.find('[data-test="import-commit-notice"]').text()).toBe(
+      'import-review-plan-changed-more',
+    )
+  })
+
+  it('names webhooks in the confirmation when one hears asset events', async () => {
+    hooks.list.mockResolvedValue([{ enabled: true, events: ['asset.created'] }])
+    await openReview()
+    await wrapper!.find('[data-test="import-commit"]').trigger('click')
+    expect(wrapper!.find('[data-test="confirm-message"]').text()).toContain(
+      'import-review-confirm-webhooks',
+    )
+  })
+
+  it('leaves webhooks out when none hears asset events', async () => {
+    hooks.list.mockResolvedValue([{ enabled: true, events: ['ticket.created'] }])
+    await openReview()
+    await wrapper!.find('[data-test="import-commit"]').trigger('click')
+    expect(wrapper!.find('[data-test="confirm-message"]').text()).not.toContain(
+      'import-review-confirm-webhooks',
+    )
   })
 })
 

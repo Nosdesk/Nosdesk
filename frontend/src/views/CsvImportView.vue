@@ -38,10 +38,12 @@ import SectionCard from '@/components/common/SectionCard.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import { formatFileSize } from '@nosdesk/core/utils/formatFileSize'
+import webhookService from '@nosdesk/core/services/webhookService'
 import ImportMapStep from '@/components/import/ImportMapStep.vue'
 import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
 import ImportSheetPanel from '@/components/import/ImportSheetPanel.vue'
 import ImportValuesStep from '@/components/import/ImportValuesStep.vue'
+import { planDelta, webhookHearsAssets } from '@/components/import/reviewModel'
 import { cards as valueCards, needsValues } from '@/components/import/valuesModel'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import {
@@ -150,6 +152,19 @@ const valuesAllMatched = computed(
     valuesView.value.columns.length > 0 &&
     valueCards(valuesView.value, {}).length === 0,
 )
+
+/** The workspace's webhooks, for the confirmation's line about asset
+ *  events. Read on Review of an asset import. */
+const webhooksQuery = useQuery({
+  key: ['webhooks'],
+  query: () => webhookService.listWebhooks(),
+  enabled: () => step.value === 'review' && jobType.value === 'assets',
+})
+const webhooksHearAssets = computed(() => webhookHearsAssets(webhooksQuery.data.value ?? []))
+
+/** The field whose card Match values opens on: Review's "Fix at Match
+ *  values". */
+const valuesFocus = ref<string | null>(null)
 
 const STEPS = computed<Step[]>(() =>
   valuesStepShown.value
@@ -454,8 +469,14 @@ async function commit() {
       ?.data
     if (data?.code === 'import_plan_changed' && data.job) {
       // Nothing was imported; the job now holds the plan as it stands.
+      const more = planDelta(job.value?.summary ?? null, data.job.summary)
       job.value = data.job
-      commitNotice.value = t('import-review-plan-changed')
+      commitNotice.value =
+        more > 0
+          ? t('import-review-plan-changed-more', { count: more })
+          : more < 0
+            ? t('import-review-plan-changed-fewer', { count: -more })
+            : t('import-review-plan-changed')
     } else if (data?.code === 'import_commit_running' || mayStillRun(e)) {
       await waitForCommit(id)
     } else {
@@ -466,13 +487,16 @@ async function commit() {
   }
 }
 
-/** Save the error report: the skipped rows in the file's own layout. */
-async function downloadReport() {
+/** Save the error report: the skipped rows in the file's own layout, or
+ *  only one problem's rows, or the rows that leave values out. */
+async function downloadReport(only?: { group?: number; dropped?: number[] }) {
   if (!job.value || downloadingReport.value) return
   downloadingReport.value = true
   errorMessage.value = ''
   try {
-    const { blob, filename } = await importService.errorReport(job.value.id)
+    const { blob, filename } = only
+      ? await importService.errorReport(job.value.id, only)
+      : await importService.errorReport(job.value.id)
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
     link.download = filename
@@ -532,9 +556,15 @@ function canGoTo(target: Step): boolean {
 
 /** Review's "See them": Match values with every value matched. */
 function seeValues() {
+  fixValues(null)
+}
+
+/** Review's "Fix at Match values": Match values, at the field's card. */
+function fixValues(field: string | null) {
   if (busy.value) return
   errorMessage.value = ''
   commitNotice.value = ''
+  valuesFocus.value = field
   step.value = 'values'
 }
 
@@ -542,6 +572,7 @@ function goTo(target: Step) {
   if (!canGoTo(target)) return
   errorMessage.value = ''
   commitNotice.value = ''
+  if (target === 'values') valuesFocus.value = null
   step.value = target
 }
 
@@ -789,6 +820,7 @@ const viewImportedLabelKey = computed(() => {
           :checking="busy === 'check'"
           :job-id="job.id"
           :version="job.updated_at"
+          :focus-field="valuesFocus"
           @check="checkValues"
           @back="goTo('map')"
         />
@@ -804,11 +836,15 @@ const viewImportedLabelKey = computed(() => {
         v-else-if="step === 'review' && job?.summary"
         :job="job"
         :fields="fields"
+        :kinds="kindOptions"
         :committing="busy === 'commit'"
         :downloading="downloadingReport"
         :values-all-matched="valuesAllMatched"
+        :webhooks="webhooksHearAssets"
         @back="goTo('map')"
         @see-values="seeValues"
+        @fix-values="fixValues"
+        @fix-map="goTo('map')"
         @commit="commit"
         @download-report="downloadReport"
       />
