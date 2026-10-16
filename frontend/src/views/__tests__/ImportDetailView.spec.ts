@@ -5,7 +5,13 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { mountWithProviders } from '@/test/mountWithProviders'
 import type { ImportField, ImportJob } from '@nosdesk/core/services/importService'
 
-const api = vi.hoisted(() => ({ get: vi.fn(), fields: vi.fn(), rows: vi.fn(), errorReport: vi.fn() }))
+const api = vi.hoisted(() => ({
+  get: vi.fn(),
+  fields: vi.fn(),
+  rows: vi.fn(),
+  errorReport: vi.fn(),
+  previousValues: vi.fn(),
+}))
 vi.mock('@nosdesk/core/services/importService', () => ({
   importJobQueryKey: (id: string) => ['import-job', id],
   importFieldsQueryKey: (type: string) => ['import-fields', type],
@@ -14,7 +20,12 @@ vi.mock('@nosdesk/core/services/importService', () => ({
     fields: (...a: unknown[]) => api.fields(...a),
     rows: (...a: unknown[]) => api.rows(...a),
     errorReport: (...a: unknown[]) => api.errorReport(...a),
+    previousValues: (...a: unknown[]) => api.previousValues(...a),
   },
+}))
+const hooks = vi.hoisted(() => ({ list: vi.fn() }))
+vi.mock('@nosdesk/core/services/webhookService', () => ({
+  default: { listWebhooks: (...a: unknown[]) => hooks.list(...a) },
 }))
 vi.mock('@/composables/useAssetKindsQuery', async () => {
   const { computed } = await import('vue')
@@ -81,6 +92,8 @@ let router: Router
 
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset()
+  hooks.list.mockReset()
+  hooks.list.mockResolvedValue([])
   api.fields.mockResolvedValue(FIELDS)
   api.rows.mockResolvedValue({
     phase: 'committed',
@@ -140,6 +153,56 @@ describe('ImportDetailView', () => {
     expect(wrapper!.find('[data-test="import-rows"]').exists()).toBe(false)
     expect(wrapper!.find('[data-test="import-detail-report"]').exists()).toBe(false)
     expect(api.rows).not.toHaveBeenCalled()
+  })
+
+  it('offers the previous values with their help, and removal with its window', async () => {
+    await open(
+      job({
+        removal_closes_at: '2999-11-14T00:00:00Z',
+        previous_values: { rows: 2, blank_before: 3 },
+      }),
+    )
+    const previous = wrapper!.find('[data-test="import-detail-previous"]')
+    expect(previous.text()).toBe('import-previous-download')
+    expect(previous.attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('[data-test="import-detail-previous-help"]').text()).toBe('import-previous-help-blank')
+    expect(wrapper!.find('[data-test="import-what-changes"]').text()).toContain('import-review-changes-blank-before')
+    expect(wrapper!.find('[data-test="import-remove-button"]').exists()).toBe(true)
+    expect(hooks.list).toHaveBeenCalled()
+
+    api.previousValues.mockResolvedValue({ blob: new Blob(['x']), filename: 'cameras-previous-values.csv' })
+    URL.createObjectURL = vi.fn(() => 'blob:x')
+    URL.revokeObjectURL = vi.fn()
+    await previous.trigger('click')
+    await flushPromises()
+    expect(api.previousValues).toHaveBeenCalledWith('job-1')
+  })
+
+  it('has nothing to put back for an import without updates', async () => {
+    await open(job({ previous_values: { rows: 0, blank_before: 0 } }))
+    expect(wrapper!.find('[data-test="import-detail-previous"]').attributes('disabled')).toBeDefined()
+    expect(wrapper!.find('[data-test="import-detail-previous-none"]').text()).toBe('import-previous-none')
+    expect(wrapper!.find('[data-test="import-detail-previous-help"]').exists()).toBe(false)
+  })
+
+  it('shows the removal result in the state and in place of the button', async () => {
+    await open(
+      job({
+        removal_closes_at: '2999-11-14T00:00:00Z',
+        removed_at: '2026-10-15T00:00:00Z',
+        removed_by_name: 'Priya Nair',
+        remove_result: { created: 8, deleted: 7, gone: 0, deleted_ids: [], kept: [] },
+      }),
+    )
+    expect(wrapper!.find('[data-test="import-detail-state"]').text()).toBe('import-detail-state-removed')
+    expect(wrapper!.find('[data-test="import-remove-result"]').exists()).toBe(true)
+    expect(wrapper!.find('[data-test="import-remove-button"]').exists()).toBe(false)
+  })
+
+  it('says the removal window closed on an import past its 30 days', async () => {
+    await open(job({ pruned_at: '2026-11-15T00:00:00Z', removal_closes_at: '2026-11-14T00:00:00Z' }))
+    expect(wrapper!.find('[data-test="import-remove-closed"]').text()).toBe('import-remove-window-closed')
+    expect(wrapper!.find('[data-test="import-detail-previous"]').exists()).toBe(false)
   })
 
   it('sends a draft to the wizard and says an expired one is over', async () => {

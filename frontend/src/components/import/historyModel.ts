@@ -56,6 +56,7 @@ export function countsLine(t: Translate, item: ImportJobListItem): string {
   if (item.state === 'draft') {
     return item.status === 'parsed' ? t('import-history-draft-on-map') : t('import-history-draft-on-review')
   }
+  if (item.removed) return t('import-history-count-removed', { ...item.removed })
   const c = item.counts
   if (!c) return ''
   const bits: string[] = []

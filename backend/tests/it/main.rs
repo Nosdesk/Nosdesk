@@ -82,6 +82,7 @@ mod imports_history;
 mod imports_map_memory;
 mod imports_mapping;
 mod imports_people;
+mod imports_remove;
 mod imports_review;
 mod imports_rows;
 mod imports_saved_matches;

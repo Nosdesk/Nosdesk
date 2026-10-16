@@ -280,6 +280,75 @@ export interface ImportJob {
   ignored?: number[]
   options: ImportOptions | null
   answers?: ValueAnswers | null
+  /** For a committed asset import, when Remove imported assets closes:
+   *  30 days after the commit. */
+  removal_closes_at?: string | null
+  /** When Remove imported assets ran, by whom and what it did. */
+  removed_at?: string | null
+  removed_by?: string | null
+  removed_by_name?: string | null
+  remove_result?: RemoveResult | null
+  /** The previous values file's size, while the details are kept (the
+   *  job's own read, asset imports only). */
+  previous_values?: PreviousValuesCounts | null
+}
+
+/** Why an asset an import created is kept by Remove imported assets. The
+ *  first of an asset's reasons is the one shown. */
+export type KeptReason =
+  | { code: 'synced'; source: string }
+  | { code: 'disposed' }
+  | { code: 'loan' }
+  | { code: 'status_changed' }
+  | { code: 'ticket'; ticket_id: number }
+  | { code: 'media'; photos: number; files: number }
+  | { code: 'audited'; at: string }
+  | { code: 'usage' }
+  | { code: 'directory' }
+  | { code: 'referenced'; asset_id: number; name: string }
+  | { code: 'group_added' }
+  | { code: 'edited'; at: string; by?: string | null; by_name?: string | null }
+
+export interface KeptAsset {
+  id: number
+  tag?: string | null
+  name: string
+  reasons: KeptReason[]
+}
+
+/** How many catalog entries the import created would be removed when
+ *  nothing else uses them. */
+export interface RemovalCatalogCounts {
+  manufacturers: number
+  models: number
+  groups: number
+}
+
+/** What Remove imported assets would do now. */
+export interface RemovalPlan {
+  created: number
+  deletable: number
+  /** Deleted some other way since. */
+  gone: number
+  kept: KeptAsset[]
+  catalog: RemovalCatalogCounts
+  closes_at: string | null
+}
+
+/** What Remove imported assets did. */
+export interface RemoveResult {
+  created: number
+  deleted: number
+  gone: number
+  deleted_ids: number[]
+  kept: KeptAsset[]
+}
+
+export interface PreviousValuesCounts {
+  /** Updated assets in the file. */
+  rows: number
+  /** Fields that were blank before, which the file can't put back. */
+  blank_before: number
 }
 
 /** How a value matched: its entry's key or label (`exact`), the
@@ -509,6 +578,8 @@ export interface ImportJobListItem {
   pruned_at: string | null
   /** Once the job has been checked. */
   counts: ImportCounts | null
+  /** Once Remove imported assets ran: assets deleted of those created. */
+  removed?: { deleted: number; created: number } | null
 }
 
 export const importJobsQueryKey = (limit: number) => ['import-jobs', limit] as const
@@ -681,6 +752,30 @@ export const importService = {
     const disposition = String(response.headers['content-disposition'] ?? '')
     const match = /filename="([^"]+)"/.exec(disposition)
     return { blob: response.data, filename: match?.[1] ?? 'import-errors.csv' }
+  },
+
+  /** What Remove imported assets would do now: the dialog's counts and
+   *  kept list. */
+  async removalPlan(jobId: string): Promise<RemovalPlan> {
+    const { data } = await apiClient.get<RemovalPlan>(`/admin/import/${jobId}/remove-created`)
+    return data
+  },
+
+  /** Remove imported assets: the job with what it did. */
+  async removeCreated(jobId: string): Promise<ImportJob> {
+    const { data } = await apiClient.post<ImportJob>(`/admin/import/${jobId}/remove-created`)
+    return data
+  },
+
+  /** The previous values file: one row per updated asset with the values
+   *  the import replaced. */
+  async previousValues(jobId: string): Promise<{ blob: Blob; filename: string }> {
+    const response = await apiClient.get<Blob>(`/admin/import/${jobId}/previous-values`, {
+      responseType: 'blob',
+    })
+    const disposition = String(response.headers['content-disposition'] ?? '')
+    const match = /filename="([^"]+)"/.exec(disposition)
+    return { blob: response.data, filename: match?.[1] ?? 'previous-values.csv' }
   },
 
   /** Build a URL for the CSV template; trigger via anchor

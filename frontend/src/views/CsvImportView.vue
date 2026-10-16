@@ -47,6 +47,7 @@ import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
 import ImportSheetPanel from '@/components/import/ImportSheetPanel.vue'
 import ImportValuesStep from '@/components/import/ImportValuesStep.vue'
 import { detailPath, doneHeadline, reportOffered } from '@/components/import/historyModel'
+import ImportRemoveBlock from '@/components/import/ImportRemoveBlock.vue'
 import { outcomes, planDelta, webhookHearsAssets } from '@/components/import/reviewModel'
 import { cards as valueCards, needsValues } from '@/components/import/valuesModel'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
@@ -164,7 +165,7 @@ const valuesAllMatched = computed(
 const webhooksQuery = useQuery({
   key: ['webhooks'],
   query: () => webhookService.listWebhooks(),
-  enabled: () => step.value === 'review' && jobType.value === 'assets',
+  enabled: () => (step.value === 'review' || step.value === 'done') && jobType.value === 'assets',
 })
 const webhooksHearAssets = computed(() => webhookHearsAssets(webhooksQuery.data.value ?? []))
 
@@ -629,6 +630,14 @@ function goTo(target: Step) {
 
 // ---- done ----
 
+/** Remove imported assets ran: Done shows its result, and Recent imports
+ *  its count. */
+function onRemoved(updated: ImportJob) {
+  job.value = updated
+  queryCache.invalidateQueries({ key: ['import-jobs'] })
+  queryCache.invalidateQueries({ key: ['import-job', updated.id] })
+}
+
 const doneOutcomes = computed(() => (job.value?.summary ? outcomes(job.value.summary) : null))
 const headlineOnDone = computed(() => (job.value ? doneHeadline(t, job.value) : ''))
 const reportOnDone = computed(() => !!job.value && reportOffered(job.value))
@@ -947,7 +956,7 @@ function viewImported() {
           </Button>
         </div>
 
-        <!-- A10: "Remove imported assets" with its window goes here. -->
+        <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" />
 
         <p class="text-sm">
           <RouterLink :class="linkClass" to="/admin/data-import" data-test="import-done-recent">

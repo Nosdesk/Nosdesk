@@ -66,6 +66,9 @@ const props = defineProps<{
   valuesAllMatched?: boolean
   /** An enabled webhook hears about assets: the confirmation says so. */
   webhooks?: boolean
+  /** On a past import, how many fields its updates wrote that were blank
+   *  before: What changes says so, for the previous values file. */
+  blankBefore?: number
 }>()
 
 const emit = defineEmits<{
@@ -593,6 +596,9 @@ const linkClass =
       <p class="px-3 py-2 border-t border-default bg-surface-alt text-xs text-tertiary">
         {{ $t('import-review-changes-blanks') }}
         <template v-if="snapped > 0">{{ $t('import-review-notice-location-snapped', { count: snapped }) }}</template>
+        <template v-if="mode === 'detail' && (blankBefore ?? 0) > 0">
+          {{ $t('import-review-changes-blank-before', { count: blankBefore ?? 0 }) }}
+        </template>
       </p>
     </SectionCard>
 

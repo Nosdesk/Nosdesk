@@ -4315,6 +4315,112 @@ import-detail-mapping = Mapping
 import-detail-kept-30-days = Details kept for 30 days. Counts, options and the mapping stay.
 import-detail-expired = This draft wasn't imported and can't be resumed.
 import-detail-load-failed = This import didn't load.
+import-review-changes-blank-before = { $count ->
+    [one] 1 field was blank before.
+   *[other] { $count } fields were blank before.
+   }
+import-history-count-removed = { $created ->
+    [one] { $deleted } of 1 asset removed
+   *[other] { $deleted } of { $created } assets removed
+   }
+import-detail-state-removed = { $created ->
+    [one] Imported · { $deleted } of 1 asset removed
+   *[other] Imported · { $deleted } of { $created } assets removed
+   }
+import-remove-button = Remove imported assets
+import-remove-window = Only assets nobody has changed since. Until { $date }.
+import-remove-window-closed = Removal window closed { $date }.
+import-remove-load-failed = Couldn't check the imported assets. Try again.
+import-remove-failed = Removing the imported assets failed and nothing was deleted.
+import-remove-title = { $count ->
+    [one] Delete 1 asset?
+   *[other] Delete { $count } assets?
+   }
+import-remove-title-none = Nothing to delete
+import-remove-confirm = { $count ->
+    [one] Delete 1 asset
+   *[other] Delete { $count } assets
+   }
+import-remove-created = { $count ->
+    [one] This import created 1 asset.
+   *[other] This import created { $count } assets.
+   }
+import-remove-deletable = { $count ->
+    [one] 1 has not been changed since and will be deleted.
+   *[other] { $count } have not been changed since and will be deleted.
+   }
+import-remove-kept = { $count ->
+    [one] 1 has been changed since and will be kept: { $reasons }.
+   *[other] { $count } have been changed since and will be kept: { $reasons }.
+   }
+import-remove-gone = { $count ->
+    [one] 1 was already deleted.
+   *[other] { $count } were already deleted.
+   }
+import-remove-catalog = { $list } created by this import will be removed if nothing else uses them.
+import-remove-webhooks = { $count ->
+    [one] Webhooks will receive 1 asset.deleted event.
+   *[other] Webhooks will receive { $count } asset.deleted events.
+   }
+import-remove-which-kept = { $count ->
+    [one] Which one is kept
+   *[other] Which { $count } are kept
+   }
+import-remove-group-edited = { $count } edited
+import-remove-group-photos = { $count } with photos
+import-remove-group-files = { $count } with files
+import-remove-group-ticket = { $count ->
+    [one] 1 linked to a ticket
+   *[other] { $count } linked to tickets
+   }
+import-remove-group-status-changed = { $count } with a status change
+import-remove-group-loan = { $count } with a loan record
+import-remove-group-disposed = { $count } disposed
+import-remove-group-audited = { $count } audited
+import-remove-group-usage = { $count } with usage logged
+import-remove-group-group-added = { $count } added to a group
+import-remove-group-directory = { $count } in a directory group
+import-remove-group-synced = { $count } now synced
+import-remove-group-referenced = { $count } referenced by another asset
+import-remove-reason-edited = Edited on { $date }
+import-remove-reason-edited-by = Edited on { $date } by { $name }
+import-remove-reason-status-changed = Status changed since
+import-remove-reason-loan = Has a loan record
+import-remove-reason-disposed = Disposed
+import-remove-reason-photos = { $count ->
+    [one] Has 1 photo
+   *[other] Has { $count } photos
+   }
+import-remove-reason-files = { $count ->
+    [one] Has 1 file
+   *[other] Has { $count } files
+   }
+import-remove-reason-audited = Audited on { $date }
+import-remove-reason-usage = Usage logged
+import-remove-reason-group-added = Added to a group since
+import-remove-reason-ticket = Linked to ticket #{ $id }
+import-remove-reason-directory = In a directory group
+import-remove-reason-synced-intune = Now synced from Intune
+import-remove-reason-synced-entra = Now synced from Microsoft Entra
+import-remove-reason-synced-generic = Now synced from an external source
+import-remove-reason-referenced = Referenced by '{ $name }'
+import-remove-result = { $count ->
+    [one] 1 asset deleted on { $date } by { $name }.
+   *[other] { $count } assets deleted on { $date } by { $name }.
+   }
+import-remove-result-anonymous = { $count ->
+    [one] 1 asset deleted on { $date }.
+   *[other] { $count } assets deleted on { $date }.
+   }
+import-remove-result-kept = { $count } kept.
+import-previous-download = Download previous values (.csv)
+import-previous-help = Import this file to put the previous values back. A field that was blank before can't be restored this way, because blank cells never change a value.
+import-previous-help-blank = { $count ->
+    [one] Import this file to put the previous values back. A field that was blank before can't be restored this way, because blank cells never change a value; 1 such field is listed in the import's What changes card.
+   *[other] Import this file to put the previous values back. A field that was blank before can't be restored this way, because blank cells never change a value; { $count } such fields are listed in the import's What changes card.
+   }
+import-previous-none = No updates in this import
+import-previous-failed = Couldn't download the previous values.
 import-field-assets-name = Name
 import-field-assets-kind = Kind
 import-field-assets-asset-tag = Asset tag

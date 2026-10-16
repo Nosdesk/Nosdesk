@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::services::imports::history::{state_of, JobState};
+use crate::services::imports::previous::PreviousValues;
+use crate::services::imports::remove::window_closes_at;
 
 /// CSV import job. Two-phase: rows go through dry-run (parse +
 /// validate, write `summary`) before the admin commits. The
@@ -42,6 +44,12 @@ pub struct ImportJob {
     /// When the 30-day prune dropped the file and the per-row detail
     /// (`services::imports::history`).
     pub pruned_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// When Remove imported assets ran on the job; it runs once.
+    pub removed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub removed_by: Option<Uuid>,
+    /// `services::imports::remove::RemoveResult`: each created asset
+    /// deleted or kept with its reasons, and the catalog entries removed.
+    pub remove_result: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -73,6 +81,9 @@ pub struct ImportJobUpdate {
     pub row_results: Option<Option<serde_json::Value>>,
     pub answers: Option<Option<serde_json::Value>>,
     pub record_ids: Option<Option<serde_json::Value>>,
+    pub removed_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    pub removed_by: Option<Option<Uuid>>,
+    pub remove_result: Option<Option<serde_json::Value>>,
 }
 
 /// A saved match: the answer an admin gave for one source value, which the
@@ -145,6 +156,20 @@ pub struct ImportJobResponse {
     /// shows it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_name: Option<String>,
+    /// For a committed asset import, when Remove imported assets closes:
+    /// 30 days after the commit.
+    pub removal_closes_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// When Remove imported assets ran, by whom, and what it did
+    /// (`services::imports::remove::RemoveResult`).
+    pub removed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub removed_by: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub removed_by_name: Option<String>,
+    pub remove_result: Option<serde_json::Value>,
+    /// For a committed asset import whose details are kept, the size of
+    /// its previous values file; filled where a page shows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_values: Option<PreviousValues>,
 }
 
 impl From<ImportJob> for ImportJobResponse {
@@ -161,6 +186,10 @@ impl From<ImportJob> for ImportJobResponse {
         let ignored = lift("ignored");
         // Where the grid is stored stays on the server.
         lift("grid");
+        let removal_closes_at = match (job.job_type.as_str(), job.status.as_str()) {
+            ("assets", "done") => job.completed_at.map(window_closes_at),
+            _ => None,
+        };
         let state = state_of(
             &job.status,
             job.updated_at,
@@ -188,6 +217,12 @@ impl From<ImportJob> for ImportJobResponse {
             state,
             pruned_at: job.pruned_at,
             created_by_name: None,
+            removal_closes_at,
+            removed_at: job.removed_at,
+            removed_by: job.removed_by,
+            removed_by_name: None,
+            remove_result: job.remove_result,
+            previous_values: None,
         }
     }
 }
@@ -211,6 +246,16 @@ pub struct ImportJobListItem {
     pub pruned_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Outcome counts once the job has been checked.
     pub counts: Option<ImportCounts>,
+    /// Once Remove imported assets ran: how many assets it deleted of
+    /// those the import created.
+    pub removed: Option<RemovedCounts>,
+}
+
+/// "398 of 407 assets removed".
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct RemovedCounts {
+    pub deleted: i32,
+    pub created: i32,
 }
 
 /// New, Updated, Unchanged and Skipped, as the tiles count them.

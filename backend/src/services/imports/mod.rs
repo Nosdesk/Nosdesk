@@ -18,6 +18,8 @@ pub mod csv_parser;
 pub mod files;
 pub mod history;
 pub mod mapping;
+pub mod previous;
+pub mod remove;
 pub mod report;
 pub mod safe_cells;
 pub mod saved;

@@ -924,6 +924,9 @@ diesel::table! {
         answers -> Nullable<Jsonb>,
         record_ids -> Nullable<Jsonb>,
         pruned_at -> Nullable<Timestamptz>,
+        removed_at -> Nullable<Timestamptz>,
+        removed_by -> Nullable<Uuid>,
+        remove_result -> Nullable<Jsonb>,
     }
 }
 
@@ -2515,7 +2518,6 @@ diesel::joinable!(group_includes -> users (created_by));
 diesel::joinable!(group_includes -> workspaces (workspace_id));
 diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(groups -> workspaces (workspace_id));
-diesel::joinable!(import_jobs -> users (created_by));
 diesel::joinable!(import_jobs -> workspaces (workspace_id));
 diesel::joinable!(import_value_answers -> users (answered_by));
 diesel::joinable!(import_value_answers -> workspaces (workspace_id));

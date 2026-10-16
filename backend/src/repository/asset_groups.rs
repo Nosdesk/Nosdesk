@@ -97,6 +97,14 @@ pub fn archive_group(conn: &mut DbConnection, id: i32) -> QueryResult<AssetGroup
         .get_result(conn)
 }
 
+/// Delete a group outright. Its assignments go with it (the FK cascades),
+/// so callers delete only a group nothing is assigned to; Remove imported
+/// assets does, for a group its import created.
+// sync-audit-only: asset-group definitions are NOT a sync aggregate (workspace config, picker re-fetches); coverage lives in the asset_groups audit trigger
+pub fn delete_group(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
+    diesel::delete(asset_groups::table.find(id)).execute(conn)
+}
+
 // sync-audit-only: asset-group definitions are NOT a sync aggregate (workspace config, picker re-fetches). Asset↔group assignment IS sync-wired via `asset.groups_changed` in `set_groups_for_asset`
 /// Clear `archived_at`, returning a group to the picker. May fail the active-
 /// name unique index if the name was reused while archived; the caller

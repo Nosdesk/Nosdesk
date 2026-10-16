@@ -12,11 +12,12 @@
 import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useQuery } from '@pinia/colada'
+import { useQuery, useQueryCache } from '@pinia/colada'
 
 import BackButton from '@/components/common/BackButton.vue'
 import Button from '@/components/common/Button.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
+import ImportRemoveBlock from '@/components/import/ImportRemoveBlock.vue'
 import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
@@ -24,7 +25,9 @@ import {
   importFieldsQueryKey,
   importJobQueryKey,
   importService,
+  type ImportJob,
 } from '@nosdesk/core/services/importService'
+import webhookService from '@nosdesk/core/services/webhookService'
 
 import {
   STATE_KEY,
@@ -34,6 +37,8 @@ import {
   reportOffered,
   resumeTarget,
 } from '@/components/import/historyModel'
+import { previousValuesHelp, removalState } from '@/components/import/removeModel'
+import { webhookHearsAssets } from '@/components/import/reviewModel'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -64,6 +69,28 @@ const fields = computed(() => fieldsQuery.data.value ?? [])
 
 const { kinds: assetKinds } = useAssetKindsQuery()
 const kindOptions = computed(() => assetKinds.value.map((k) => ({ value: k.slug, label: k.label })))
+
+const queryCache = useQueryCache()
+
+/** The workspace's webhooks, for the removal dialog's line about asset
+ *  events. Read while removal is offered. */
+const webhooksQuery = useQuery({
+  key: ['webhooks'],
+  query: () => webhookService.listWebhooks(),
+  enabled: () => !!job.value && removalState(job.value) === 'offer',
+})
+const webhooksHearAssets = computed(() => webhookHearsAssets(webhooksQuery.data.value ?? []))
+
+/** Remove imported assets ran: the page shows its result, and Recent
+ *  imports its count. The previous values counts aren't on the removal's
+ *  answer and haven't changed. */
+function onRemoved(updated: ImportJob) {
+  queryCache.setQueryData(importJobQueryKey(updated.id), {
+    ...updated,
+    previous_values: job.value?.previous_values ?? null,
+  })
+  queryCache.invalidateQueries({ key: ['import-jobs'] })
+}
 
 const imported = computed(() => job.value?.state === 'imported')
 const kept = computed(() => !!job.value && detailsKept(job.value))
@@ -132,6 +159,44 @@ async function downloadReport(only?: { group?: number; dropped?: number[] }) {
   }
 }
 
+const previous = computed(() => (job.value?.job_type === 'assets' ? job.value.previous_values ?? null : null))
+const previousHelp = computed(() => previousValuesHelp(t, previous.value?.blank_before ?? 0))
+const downloadingPrevious = ref(false)
+
+/** Save the previous values file. */
+async function downloadPrevious() {
+  if (!job.value || downloadingPrevious.value) return
+  downloadingPrevious.value = true
+  errorMessage.value = ''
+  try {
+    const { blob, filename } = await importService.previousValues(job.value.id)
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(link.href)
+  } catch (e) {
+    const err = e as { response?: { status?: number } }
+    errorMessage.value =
+      err?.response?.status === 410 ? t('import-detail-kept-30-days') : t('import-previous-failed')
+  } finally {
+    downloadingPrevious.value = false
+  }
+}
+
+/** "Imported", or "Imported · 398 of 407 assets removed". */
+const stateLabel = computed(() => {
+  const j = job.value
+  if (!j?.state) return ''
+  const r = j.remove_result
+  if (j.state === 'imported' && r) {
+    return t('import-detail-state-removed', { deleted: r.deleted, created: r.created })
+  }
+  return t(STATE_KEY[j.state])
+})
+
 const linkClass =
   'text-accent hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded'
 </script>
@@ -154,7 +219,7 @@ const linkClass =
         <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm" data-test="import-detail-facts">
           <dt class="text-tertiary">{{ $t('import-detail-state') }}</dt>
           <dd class="text-primary" data-test="import-detail-state">
-            {{ job.state ? $t(STATE_KEY[job.state]) : '' }}
+            {{ stateLabel }}
           </dd>
           <template v-if="options">
             <dt class="text-tertiary">{{ $t('import-detail-options') }}</dt>
@@ -194,7 +259,7 @@ const linkClass =
         <template v-else-if="imported && job.summary && !kept">
           <ImportReviewStep :job="job" :fields="fields" :kinds="kindOptions" mode="counts" />
           <p class="text-sm text-tertiary" data-test="import-detail-kept">{{ $t('import-detail-kept-30-days') }}</p>
-          <!-- A10: "Removal window closed {date}." goes here. -->
+          <ImportRemoveBlock :job="job" />
         </template>
 
         <template v-else-if="imported && job.summary">
@@ -203,22 +268,41 @@ const linkClass =
             :fields="fields"
             :kinds="kindOptions"
             mode="detail"
+            :blank-before="previous?.blank_before ?? 0"
             @download-report="downloadReport"
           />
-          <div class="flex flex-wrap items-center gap-2" data-test="import-detail-actions">
-            <Button
-              v-if="reportOffered(job)"
-              variant="secondary"
-              icon="download"
-              :loading="downloading"
-              data-test="import-detail-report"
-              @click="downloadReport()"
-            >
-              {{ $t('import-review-download-report') }}
-            </Button>
-            <!-- A11: "Download previous values (.csv)" with its help line goes here. -->
+          <div class="flex flex-col gap-2">
+            <div class="flex flex-wrap items-center gap-2" data-test="import-detail-actions">
+              <Button
+                v-if="reportOffered(job)"
+                variant="secondary"
+                icon="download"
+                :loading="downloading"
+                data-test="import-detail-report"
+                @click="downloadReport()"
+              >
+                {{ $t('import-review-download-report') }}
+              </Button>
+              <Button
+                v-if="previous"
+                variant="secondary"
+                icon="download"
+                :disabled="previous.rows === 0"
+                :loading="downloadingPrevious"
+                data-test="import-detail-previous"
+                @click="downloadPrevious"
+              >
+                {{ $t('import-previous-download') }}
+              </Button>
+              <span v-if="previous && previous.rows === 0" class="text-xs text-tertiary" data-test="import-detail-previous-none">
+                {{ $t('import-previous-none') }}
+              </span>
+            </div>
+            <p v-if="previous && previous.rows > 0" class="text-xs text-tertiary" data-test="import-detail-previous-help">
+              {{ previousHelp }}
+            </p>
           </div>
-          <!-- A10: "Remove imported assets", its dialog and its result go here. -->
+          <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" />
         </template>
 
         <p class="text-sm">
