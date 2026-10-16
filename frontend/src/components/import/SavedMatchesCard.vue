@@ -83,6 +83,7 @@ function line(s: Summary): string {
     content-padding=""
     action-to="/admin/data-import/matches"
     :action-label="$t('import-matches-manage')"
+    :action-arrow="false"
     data-test="hub-saved-matches"
   >
     <template #title>{{ $t('import-matches-title') }}</template>
