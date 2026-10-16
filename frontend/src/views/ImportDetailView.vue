@@ -176,8 +176,9 @@ async function downloadReport(only?: { group?: number; dropped?: number[] }) {
     URL.revokeObjectURL(link.href)
   } catch (e) {
     const err = e as { response?: { status?: number } }
-    errorMessage.value =
-      err?.response?.status === 410 ? t('import-detail-kept-30-days') : t('import-error-report-failed')
+    if (err?.response?.status === 410) errorMessage.value = t('import-detail-kept-30-days')
+    else if (errorBody(e)?.code === 'import_file_missing') errorMessage.value = t('import-file-missing')
+    else errorMessage.value = t('import-error-report-failed')
   } finally {
     downloading.value = false
   }

@@ -145,6 +145,17 @@ describe('ImportDetailView', () => {
     expect(wrapper!.find('[data-test="import-detail-kept"]').exists()).toBe(false)
   })
 
+  it('says the file is gone when the error report needs it', async () => {
+    api.errorReport.mockRejectedValue({
+      response: { status: 409, data: { code: 'import_file_missing', error: 'English' } },
+    })
+    await open(job())
+    await wrapper!.find('[data-test="import-detail-report"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('import-file-missing')
+    expect(wrapper!.text()).not.toContain('import-error-report-failed')
+  })
+
   it('past 30 days shows counts, options and mapping, and says the details are gone', async () => {
     await open(job({ pruned_at: '2026-11-15T00:00:00Z' }))
     expect(wrapper!.find('[data-test="import-detail-kept"]').text()).toBe('import-detail-kept-30-days')

@@ -562,7 +562,10 @@ async function downloadReport(only?: { group?: number; dropped?: number[] }) {
     document.body.removeChild(link)
     URL.revokeObjectURL(link.href)
   } catch (e) {
-    errorMessage.value = apiError(e, 'import-error-report-failed')
+    errorMessage.value =
+      errorBody(e)?.code === 'import_file_missing'
+        ? t('import-file-missing')
+        : apiError(e, 'import-error-report-failed')
   } finally {
     downloadingReport.value = false
   }
