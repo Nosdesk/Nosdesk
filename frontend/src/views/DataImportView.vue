@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import Icon from '@/components/common/Icon.vue';
+import RecentImportsCard from '@/components/import/RecentImportsCard.vue';
 import SavedMatchesCard from '@/components/import/SavedMatchesCard.vue';
 import type { IconName } from '@/components/common/icons';
 
@@ -99,6 +100,8 @@ const statusBadges = computed<Record<string, { text: string; class: string }>>((
           />
         </component>
       </div>
+
+      <RecentImportsCard />
 
       <SavedMatchesCard />
 

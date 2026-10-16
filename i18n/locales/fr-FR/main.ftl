@@ -4611,14 +4611,96 @@ import-review-plan-changed-fewer = { $count ->
 # MT: pending native review (fr-FR)
 import-done-heading = Import terminé
 # MT: pending native review (fr-FR)
-import-done-body = { $count ->
-    [one] 1 ligne importée.
-   *[other] { $count } lignes importées.
+import-done-headline = { $count ->
+    [one] 1 ligne importée : { $parts }.
+   *[other] { $count } lignes importées : { $parts }.
    }
 # MT: pending native review (fr-FR)
-import-done-skipped = { $count } ignorées pour erreurs.
+import-done-created = { $type ->
+    [users] { $count ->
+        [one] 1 personne ajoutée
+       *[other] { $count } personnes ajoutées
+       }
+    [tickets] { $count ->
+        [one] 1 ticket créé
+       *[other] { $count } tickets créés
+       }
+   *[other] { $count ->
+        [one] 1 actif créé
+       *[other] { $count } actifs créés
+       }
+   }
 # MT: pending native review (fr-FR)
-import-done-new = Importer un autre fichier
+import-done-updated = { $count } mis à jour
+# MT: pending native review (fr-FR)
+import-done-nothing = Rien n'a été importé.
+# MT: pending native review (fr-FR)
+import-done-fix-hint = Corrigez les lignes dans le rapport et importez-le à nouveau. Les colonnes Row et Errors sont ignorées, et les colonnes portant les mêmes en-têtes sont de nouveau associées automatiquement.
+# MT: pending native review (fr-FR)
+import-done-imported-event = Les actifs créés affichent « Importé » dans leur historique de statut.
+# MT: pending native review (fr-FR)
+import-done-created-title = Créé dans votre espace de travail
+# MT: pending native review (fr-FR)
+import-done-view = { $type ->
+    [users] Voir ces utilisateurs
+    [tickets] Voir ces tickets
+   *[other] Voir ces actifs
+   }
+# MT: pending native review (fr-FR)
+import-done-another = Importer un autre fichier similaire
+# MT: pending native review (fr-FR)
+import-history-title = Imports récents
+# MT: pending native review (fr-FR)
+import-history-empty = Aucun import pour le moment. Votre premier import apparaîtra ici avec ses chiffres, et vous pourrez y revenir pendant 30 jours.
+# MT: pending native review (fr-FR)
+import-history-load-failed = Les imports récents ne se sont pas chargés.
+# MT: pending native review (fr-FR)
+import-history-state-draft = Brouillon
+# MT: pending native review (fr-FR)
+import-history-state-imported = Importé
+# MT: pending native review (fr-FR)
+import-history-state-expired = Expiré
+# MT: pending native review (fr-FR)
+import-history-draft-on-map = Brouillon à l'étape Colonnes
+# MT: pending native review (fr-FR)
+import-history-draft-on-review = Brouillon à l'étape Vérification
+# MT: pending native review (fr-FR)
+import-history-count-new = { $count } nouvelles
+# MT: pending native review (fr-FR)
+import-history-count-updated = { $count } mises à jour
+# MT: pending native review (fr-FR)
+import-history-count-unchanged = { $count } inchangées
+# MT: pending native review (fr-FR)
+import-history-count-skipped = { $count } ignorées
+# MT: pending native review (fr-FR)
+import-history-count-none = Rien d'importé
+# MT: pending native review (fr-FR)
+import-history-resume = Reprendre
+# MT: pending native review (fr-FR)
+import-history-view = Voir
+# MT: pending native review (fr-FR)
+import-history-cannot-resume = Reprise impossible
+# MT: pending native review (fr-FR)
+import-history-expired-resume = Ce brouillon a expiré 30 jours après sa dernière modification et ne peut pas être repris. Importez à nouveau le fichier.
+# MT: pending native review (fr-FR)
+import-history-options-constants = { $count ->
+    [one] 1 valeur définie pour chaque ligne
+   *[other] { $count } valeurs définies pour chaque ligne
+   }
+# MT: pending native review (fr-FR)
+import-detail-title = Import du { $date }
+# MT: pending native review (fr-FR)
+import-detail-state = État
+# MT: pending native review (fr-FR)
+import-detail-options = Options
+# MT: pending native review (fr-FR)
+import-detail-mapping = Correspondance
+# MT: pending native review (fr-FR)
+import-detail-kept-30-days = Détails conservés pendant 30 jours. Les chiffres, les options et la correspondance restent.
+# MT: pending native review (fr-FR)
+import-detail-expired = Ce brouillon n'a pas été importé et ne peut pas être repris.
+# MT: pending native review (fr-FR)
+import-detail-load-failed = Cet import ne s'est pas chargé.
 # MT: pending native review (fr-FR)
 import-field-assets-name = Nom
 # MT: pending native review (fr-FR)
@@ -7474,6 +7556,8 @@ admin-ldap-preview-default = Tous les autres → Membre
 route-title-admin-csv-import = Importation CSV
 # MT: pending native review (fr-FR)
 route-title-admin-import-saved-matches = Correspondances enregistrées
+# MT: pending native review (fr-FR)
+route-title-admin-import-detail = Import
 route-title-admin-backup-restore = Sauvegarde et restauration
 route-title-group-detail = Détails du groupe
 route-title-authenticating = Authentification en cours...
@@ -8513,6 +8597,10 @@ user-addresses-error-save = Échec de l'enregistrement de l'adresse
 user-addresses-error-delete = Échec de la suppression de l'adresse
 # MACHINE TRANSLATION, pending native review (native asset groups)
 assets-list-filter-groups-label = Groupe
+# MT: pending native review (fr-FR)
+assets-list-filter-import-label = Import
+# MT: pending native review (fr-FR)
+assets-list-filter-import-fallback = Un import
 assets-list-filter-groups-count =
     { $count ->
         [one] 1 actif

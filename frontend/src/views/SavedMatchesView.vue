@@ -33,6 +33,7 @@ import {
   type SavedMatches,
 } from '@nosdesk/core/services/importService'
 
+import { detailPath } from '@/components/import/historyModel'
 import { SEARCH_FROM, firstName, isDiscard, sections } from '@/components/import/matchesModel'
 
 const fluent = useFluent()
@@ -145,8 +146,9 @@ function back() {
   }
 }
 
+/** The import that saved a match: its own page. */
 function importLink(jobId: string) {
-  return { path: '/admin/data-import/csv', query: { job: jobId } }
+  return detailPath(jobId)
 }
 
 // ---- delete ----

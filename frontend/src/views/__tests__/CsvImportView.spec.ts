@@ -508,6 +508,88 @@ describe('CsvImportView resume', () => {
   })
 })
 
+describe('CsvImportView Done', () => {
+  const doneJob = (overrides: Partial<ImportJob> = {}) =>
+    checkedJob({ status: 'done', state: 'imported', records_committed: 10, ...overrides })
+
+  it('is the receipt: headline, read-only tiles, the cards and three buttons', async () => {
+    api.get.mockResolvedValue(doneJob())
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('done')
+    expect(wrapper!.find('[data-test="import-done-headline"]').text()).toBe(
+      'import-done-headline import-review-skipped',
+    )
+    expect(wrapper!.find('[data-test="import-done-fix-hint"]').exists()).toBe(true)
+    expect(wrapper!.find('[data-test="import-done-imported-event"]').exists()).toBe(true)
+    // The tiles are the record, not filters; there is no row list or plan.
+    expect(wrapper!.find('[data-test="import-tile-create"]').element.tagName).toBe('DIV')
+    expect(wrapper!.find('[data-test="import-rows"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-test="import-problems"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-test="import-commit"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-test="import-new-in-workspace"]').text()).toContain('import-done-created-title')
+    expect(api.rows).not.toHaveBeenCalled()
+
+    const actions = wrapper!.find('[data-test="import-done-actions"]')
+    expect(actions.findAll('button').map((b) => b.attributes('data-test'))).toEqual([
+      'import-done-view',
+      'import-done-report',
+      'import-done-another',
+    ])
+    expect(wrapper!.find('[data-test="import-done-recent"]').attributes('href')).toBe('/admin/data-import')
+  })
+
+  it('views the assets it created and updated', async () => {
+    api.get.mockResolvedValue(doneJob())
+    await mountAt('/admin/data-import/csv?job=job-1')
+    await wrapper!.find('[data-test="import-done-view"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/assets')
+    expect(router.currentRoute.value.query.import).toBe('job-1')
+  })
+
+  it('leaves out the fix hint and the report when every row imported whole', async () => {
+    const whole = doneJob()
+    whole.summary = { ...whole.summary!, row_count: 10, errors: [], errors_total: 0, rows_with_errors: 0, error_groups: [] }
+    api.get.mockResolvedValue(whole)
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(wrapper!.find('[data-test="import-done-fix-hint"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-test="import-done-report"]').exists()).toBe(false)
+  })
+
+  it('starts another file of the same type with the drop zone focused', async () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus')
+    api.get.mockResolvedValue(doneJob({ job_type: 'users' }))
+    await mountAt('/admin/data-import/csv?job=job-1')
+    await wrapper!.find('[data-test="import-done-another"]').trigger('click')
+    await flushPromises()
+    expect(currentStep()).toBe('start')
+    expect(router.currentRoute.value.query.job).toBeUndefined()
+    // Still users: the asset template's kind picker isn't offered.
+    expect(wrapper!.find('[data-test="import-template-kind"]').exists()).toBe(false)
+    expect(focus.mock.contexts.some((el) => (el as HTMLElement).dataset?.test === 'import-drop')).toBe(true)
+    focus.mockRestore()
+  })
+
+  it('opens a past import whose detail was removed on its own page', async () => {
+    api.get.mockResolvedValue(doneJob({ pruned_at: '2026-11-15T00:00:00Z' }))
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(router.currentRoute.value.path).toBe('/admin/data-import/imports/job-1')
+  })
+
+  it('refuses to resume an expired draft', async () => {
+    api.get.mockResolvedValue(checkedJob({ state: 'expired' }))
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('start')
+    expect(wrapper!.text()).toContain('import-history-expired-resume')
+    expect(router.currentRoute.value.query.job).toBeUndefined()
+  })
+
+  it('links Recent imports from Start', async () => {
+    await mountAt()
+    expect(wrapper!.find('[data-test="import-recent-link"]').attributes('href')).toBe('/admin/data-import')
+  })
+})
+
 describe('CsvImportView Map step', () => {
   async function openMap(job = parsedJob()) {
     api.get.mockResolvedValue(job)
@@ -1387,7 +1469,7 @@ describe('CsvImportView Change file', () => {
     api.get.mockResolvedValue(checkedJob({ status: 'done', records_committed: 10 }))
     await mountAt('/admin/data-import/csv?job=job-1')
     expect(currentStep()).toBe('done')
-    await button('import-done-new').trigger('click')
+    await button('import-done-another').trigger('click')
     await flushPromises()
     expect(api.remove).not.toHaveBeenCalled()
     expect(currentStep()).toBe('start')

@@ -9,6 +9,11 @@
  * `j` and `k` move a row highlight while focus is outside a field; Enter
  * on a Top problems entry runs its fix. The rules live in
  * `reviewModel.ts`.
+ *
+ * Done and the import detail show the same cards read-only (`mode`): no
+ * headline, problems, fixes or action bar; the catalog card is what the
+ * import created; Done leaves out the rows. A past import whose detail
+ * was removed shows its tiles only (`counts`).
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -51,7 +56,10 @@ const props = defineProps<{
   fields: ImportField[]
   /** The workspace's asset kinds, slug to label. */
   kinds?: { value: string; label: string }[]
-  committing: boolean
+  /** `review` (default) is the plan; `done` and `detail` the record;
+   *  `counts` the tiles alone. */
+  mode?: 'review' | 'done' | 'detail' | 'counts'
+  committing?: boolean
   downloading?: boolean
   /** Every value in the mapped columns matched without a question, so
    *  Match values wasn't needed. */
@@ -80,6 +88,11 @@ const list = (items: string[]) =>
   typeof Intl.ListFormat === 'function'
     ? new Intl.ListFormat(lang, { type: 'conjunction' }).format(items)
     : items.join(', ')
+
+const mode = computed(() => props.mode ?? 'review')
+const isReview = computed(() => mode.value === 'review')
+const showsRows = computed(() => mode.value === 'review' || mode.value === 'detail')
+const showsCards = computed(() => mode.value !== 'counts')
 
 const summary = computed(() => props.job.summary!)
 const o = computed(() => outcomes(summary.value))
@@ -253,6 +266,7 @@ const rowsQuery = useQuery({
   key: () => ['import-rows', props.job.id, props.job.updated_at, filter.value, offset.value],
   query: () =>
     importService.rows(props.job.id, { filter: filter.value, offset: offset.value, limit: PAGE }),
+  enabled: () => showsRows.value,
 })
 const page = computed(() => rowsQuery.data.value)
 const rows = computed<ImportRowResult[]>(() => page.value?.rows ?? [])
@@ -339,6 +353,7 @@ const root = ref<HTMLElement | null>(null)
 const showConfirm = ref(false)
 
 async function onKey(e: KeyboardEvent) {
+  if (!isReview.value) return
   if (e.key !== 'j' && e.key !== 'k') return
   if (e.metaKey || e.ctrlKey || e.altKey || showConfirm.value) return
   if (typingIn(e.target) || typingIn(document.activeElement)) return
@@ -395,21 +410,23 @@ const linkClass =
 
 <template>
   <section ref="root" class="flex flex-col gap-6" data-test="import-review">
-    <p class="text-base text-primary" aria-live="polite" data-test="import-review-headline">
+    <p v-if="isReview" class="text-base text-primary" aria-live="polite" data-test="import-review-headline">
       {{ committing ? $t('import-review-importing') : headline }}
     </p>
 
-    <!-- Tiles: the four outcomes; each shows its rows. -->
+    <!-- Tiles: the four outcomes; each shows its rows, where there are
+         rows. -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" data-test="import-review-tiles">
-      <button
+      <component
+        :is="showsRows ? 'button' : 'div'"
         v-for="tile in tiles"
         :key="tile.filter"
-        type="button"
+        :type="showsRows ? 'button' : undefined"
         class="bg-surface border rounded-lg p-4 flex flex-col gap-1 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        :class="filter === tile.filter ? 'border-accent ring-1 ring-accent' : 'border-default hover:border-strong'"
-        :aria-pressed="filter === tile.filter"
+        :class="showsRows && filter === tile.filter ? 'border-accent ring-1 ring-accent' : showsRows ? 'border-default hover:border-strong' : 'border-default'"
+        :aria-pressed="showsRows ? filter === tile.filter : undefined"
         :data-test="`import-tile-${tile.filter}`"
-        @click="filter = tile.filter"
+        @click="showsRows && (filter = tile.filter)"
       >
         <span class="text-xs uppercase tracking-wide text-tertiary">{{ $t(tile.key) }}</span>
         <span
@@ -419,11 +436,11 @@ const linkClass =
           <Icon v-if="tile.filter === 'skipped' && tile.count > 0" name="xCircle" size="md" />
           {{ fmt(tile.count) }}
         </span>
-      </button>
+      </component>
     </div>
 
     <!-- Top problems: each ends with where it is fixed. -->
-    <SectionCard v-if="problems.length > 0" content-padding="" data-test="import-problems">
+    <SectionCard v-if="isReview && problems.length > 0" content-padding="" data-test="import-problems">
       <template #title>{{ $t('import-review-top-problems') }}</template>
       <ul class="flex flex-col divide-y divide-default">
         <li
@@ -473,14 +490,14 @@ const linkClass =
       </ul>
     </SectionCard>
 
-    <Callout v-if="notices.length > 0" severity="info">
+    <Callout v-if="isReview && notices.length > 0" severity="info">
       <ul class="px-4 py-3 flex flex-col gap-1 text-sm text-secondary">
         <li v-for="(n, i) in notices" :key="i">{{ n }}</li>
       </ul>
     </Callout>
 
     <!-- Not imported from this file. -->
-    <SectionCard content-padding="" data-test="import-not-imported">
+    <SectionCard v-if="showsCards" content-padding="" data-test="import-not-imported">
       <template #title>
         {{
           notImported.columns > 0
@@ -518,8 +535,8 @@ const linkClass =
     </SectionCard>
 
     <!-- New in your workspace: catalog entries the import creates. -->
-    <SectionCard v-if="isAssets" content-padding="" data-test="import-new-in-workspace">
-      <template #title>{{ $t('import-review-new-title') }}</template>
+    <SectionCard v-if="showsCards && isAssets" content-padding="" data-test="import-new-in-workspace">
+      <template #title>{{ isReview ? $t('import-review-new-title') : $t('import-done-created-title') }}</template>
       <ul class="flex flex-col divide-y divide-default">
         <li v-for="line in catalogLines" :key="line.key" class="px-3 py-2 text-sm break-words">
           <span class="font-medium text-primary">{{ $t(line.key, { count: line.names.length }) }}</span>
@@ -527,7 +544,7 @@ const linkClass =
         </li>
       </ul>
       <div
-        v-if="createsAny"
+        v-if="isReview && createsAny"
         class="flex flex-wrap items-center gap-2 px-3 py-2 border-t border-default bg-surface-alt text-xs text-tertiary"
       >
         <span>{{ $t('import-review-new-not-right') }}</span>
@@ -543,7 +560,7 @@ const linkClass =
     </SectionCard>
 
     <p
-      v-if="valuesAllMatched && !committing"
+      v-if="isReview && valuesAllMatched && !committing"
       class="text-sm text-secondary flex flex-wrap items-center gap-x-2"
       data-test="import-review-values-matched"
     >
@@ -555,7 +572,7 @@ const linkClass =
     </p>
 
     <!-- What changes: per field, how many records an update changes. -->
-    <SectionCard v-if="showChanges" content-padding="" data-test="import-what-changes">
+    <SectionCard v-if="showsCards && showChanges" content-padding="" data-test="import-what-changes">
       <template #title>{{ $t('import-review-changes-title') }}</template>
       <ul class="flex flex-col divide-y divide-default">
         <li
@@ -580,7 +597,7 @@ const linkClass =
     </SectionCard>
 
     <!-- Rows. -->
-    <SectionCard content-padding="" data-test="import-rows">
+    <SectionCard v-if="showsRows" content-padding="" data-test="import-rows">
       <template #title>{{ $t('import-review-rows-heading') }}</template>
       <div class="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-default">
         <div class="min-w-0 max-w-full overflow-x-auto">
@@ -591,7 +608,7 @@ const linkClass =
             size="sm"
           />
         </div>
-        <Tooltip v-if="!isMobile" :text="$t('import-review-keyboard-help')">
+        <Tooltip v-if="isReview && !isMobile" :text="$t('import-review-keyboard-help')">
           <button
             type="button"
             class="ml-auto text-xs text-tertiary hover:text-secondary rounded focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
@@ -713,7 +730,7 @@ const linkClass =
     </SectionCard>
 
     <!-- Phone: the report sits above the bar, which keeps to one row. -->
-    <div v-if="hasReport" class="sm:hidden flex flex-col gap-2">
+    <div v-if="isReview && hasReport" class="sm:hidden flex flex-col gap-2">
       <p v-if="o.imported > 0 && o.skipped > 0" class="text-xs text-tertiary">{{ $t('import-review-skip-reason', { count: o.skipped }) }}</p>
       <div>
         <Button
@@ -729,7 +746,7 @@ const linkClass =
     </div>
 
     <!-- Action bar: sticky, so Import is in reach from any row. -->
-    <div class="sticky bottom-0 z-10 bg-app border-t border-default py-3 flex items-center gap-3">
+    <div v-if="isReview" class="sticky bottom-0 z-10 bg-app border-t border-default py-3 flex items-center gap-3">
       <Button variant="ghost" :disabled="committing" @click="emit('back')">
         {{ $t('import-review-back') }}
       </Button>
@@ -767,6 +784,7 @@ const linkClass =
     </div>
 
     <ConfirmModal
+      v-if="isReview"
       :show="showConfirm"
       :title="$t('import-review-confirm-title', { count: o.imported })"
       :message="confirmMessage"

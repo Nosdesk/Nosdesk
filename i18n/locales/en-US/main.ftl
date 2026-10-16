@@ -2884,6 +2884,8 @@ assets-list-filter-location-count =
        *[other] { $count } assets
     }
 assets-list-filter-groups-label = Group
+assets-list-filter-import-label = Import
+assets-list-filter-import-fallback = An import
 assets-list-filter-groups-count =
     { $count ->
         [one] 1 asset
@@ -4255,12 +4257,63 @@ import-review-plan-changed-fewer = { $count ->
    *[other] Something changed since you checked: { $count } fewer rows would be skipped. Review the new plan.
    }
 import-done-heading = Import complete
-import-done-body = { $count ->
-    [one] 1 row imported.
-   *[other] { $count } rows imported.
+import-done-headline = { $count ->
+    [one] 1 row imported: { $parts }.
+   *[other] { $count } rows imported: { $parts }.
    }
-import-done-skipped = { $count } skipped for errors.
-import-done-new = Import another file
+import-done-created = { $type ->
+    [users] { $count ->
+        [one] 1 person added
+       *[other] { $count } people added
+       }
+    [tickets] { $count ->
+        [one] 1 ticket created
+       *[other] { $count } tickets created
+       }
+   *[other] { $count ->
+        [one] 1 asset created
+       *[other] { $count } assets created
+       }
+   }
+import-done-updated = { $count } updated
+import-done-nothing = Nothing was imported.
+import-done-fix-hint = Fix the rows in the report and upload it again. The Row and Errors columns are ignored, and columns with the same headers are matched again automatically.
+import-done-imported-event = Created assets show 'Imported' in their status history.
+import-done-created-title = Created in your workspace
+import-done-view = { $type ->
+    [users] View these users
+    [tickets] View these tickets
+   *[other] View these assets
+   }
+import-done-another = Import another file like this
+import-history-title = Recent imports
+import-history-empty = No imports yet. Your first import will show here with its counts, and you can come back to it for 30 days.
+import-history-load-failed = Recent imports didn't load.
+import-history-state-draft = Draft
+import-history-state-imported = Imported
+import-history-state-expired = Expired
+import-history-draft-on-map = Draft on Map columns
+import-history-draft-on-review = Draft on Review
+import-history-count-new = { $count } new
+import-history-count-updated = { $count } updated
+import-history-count-unchanged = { $count } unchanged
+import-history-count-skipped = { $count } skipped
+import-history-count-none = Nothing imported
+import-history-resume = Resume
+import-history-view = View
+import-history-cannot-resume = Cannot resume
+import-history-expired-resume = This draft expired 30 days after its last change and can't be resumed. Upload the file again.
+import-history-options-constants = { $count ->
+    [one] 1 value set for every row
+   *[other] { $count } values set for every row
+   }
+import-detail-title = Import on { $date }
+import-detail-state = State
+import-detail-options = Options
+import-detail-mapping = Mapping
+import-detail-kept-30-days = Details kept for 30 days. Counts, options and the mapping stay.
+import-detail-expired = This draft wasn't imported and can't be resumed.
+import-detail-load-failed = This import didn't load.
 import-field-assets-name = Name
 import-field-assets-kind = Kind
 import-field-assets-asset-tag = Asset tag
@@ -7046,6 +7099,7 @@ admin-ldap-preview-not-found = group not found in directory
 admin-ldap-preview-default = Everyone else → Member
 route-title-admin-csv-import = CSV import
 route-title-admin-import-saved-matches = Saved matches
+route-title-admin-import-detail = Import
 route-title-admin-backup-restore = Backup and restore
 route-title-group-detail = Group details
 route-title-authenticating = Authenticating...

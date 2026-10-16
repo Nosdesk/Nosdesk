@@ -18,13 +18,15 @@
  *             checks the rows with them.
  *  - Review : what the dry run found, row by row, and the error report;
  *             Import commits.
- *  - Done   : the committed counts and the error report (skipped and
- *             partly imported rows).
+ *  - Done   : the receipt: the headline, the four tiles, what wasn't
+ *             imported, what it created and changed, the error report
+ *             (skipped and partly imported rows), the assets it touched,
+ *             and another file of the same type.
  *
  * The job id rides in `?job=` so a reload or a link resumes at the step
  * the job's status implies.
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryCache } from '@pinia/colada'
@@ -44,7 +46,8 @@ import ImportMapStep from '@/components/import/ImportMapStep.vue'
 import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
 import ImportSheetPanel from '@/components/import/ImportSheetPanel.vue'
 import ImportValuesStep from '@/components/import/ImportValuesStep.vue'
-import { planDelta, reportHasRows, webhookHearsAssets } from '@/components/import/reviewModel'
+import { detailPath, doneHeadline, reportOffered } from '@/components/import/historyModel'
+import { outcomes, planDelta, webhookHearsAssets } from '@/components/import/reviewModel'
 import { cards as valueCards, needsValues } from '@/components/import/valuesModel'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import {
@@ -99,6 +102,7 @@ function rememberType(type: ImportJobType) {
 const step = ref<Step>('start')
 const selectedType = ref<ImportJobType>(readLastType())
 const fileInput = ref<HTMLInputElement | null>(null)
+const dropZone = ref<HTMLButtonElement | null>(null)
 const isDragOver = ref(false)
 /** The file being read, named on the drop zone while it uploads. */
 const reading = ref<{ name: string; size: string } | null>(null)
@@ -120,7 +124,8 @@ const jobType = computed<ImportJobType>(() => job.value?.job_type ?? selectedTyp
 const fieldsQuery = useQuery({
   key: () => importFieldsQueryKey(jobType.value),
   query: () => importService.fields(jobType.value),
-  enabled: () => step.value === 'map' || step.value === 'values' || step.value === 'review',
+  enabled: () =>
+    step.value === 'map' || step.value === 'values' || step.value === 'review' || step.value === 'done',
 })
 const fields = computed(() => fieldsQuery.data.value ?? [])
 
@@ -186,6 +191,9 @@ const typeOptions = computed(() => [
 
 const stepIndex = computed(() => STEPS.value.indexOf(step.value))
 
+const linkClass =
+  'text-accent hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded'
+
 // ---- job + route ----
 
 function setJobQuery(id: string | null) {
@@ -213,6 +221,20 @@ async function resume(id: string) {
   busy.value = 'resume'
   try {
     const found = await importService.get(id)
+    // A past import whose detail is gone reads on its own page; a draft
+    // past its 30 days can't go on.
+    if (found.status === 'done' && found.pruned_at) {
+      router.replace(detailPath(found.id))
+      return
+    }
+    if (found.state === 'expired') {
+      selectedType.value = found.job_type
+      job.value = null
+      step.value = 'start'
+      errorMessage.value = t('import-history-expired-resume')
+      setJobQuery(null)
+      return
+    }
     // A job checked before column mapping existed can't go on.
     if (stepForStatus(found.status) === 'map' || stepForStatus(found.status) === 'review') {
       if (!found.source) throw new Error('job predates column mapping')
@@ -472,8 +494,9 @@ async function commit() {
   try {
     job.value = await importService.commit(id)
     step.value = 'done'
-    // The commit saved this import's answers.
+    // The commit saved this import's answers, and Recent imports has it.
     queryCache.invalidateQueries({ key: ['import-answers'] })
+    queryCache.invalidateQueries({ key: ['import-jobs'] })
   } catch (e) {
     const data = (e as { response?: { data?: { code?: string; job?: ImportJob } } })?.response
       ?.data
@@ -551,9 +574,13 @@ async function changeFile() {
   resetToStart()
 }
 
-/** Done's "Import another file": the imported job stays. */
-function startOver() {
+/** Done's "Import another file like this": Start on the same type with
+ *  the drop zone focused; the imported job stays, and the next file's Map
+ *  step matches its columns from this one. */
+async function importAnother() {
   resetToStart()
+  await nextTick()
+  dropZone.value?.focus()
 }
 
 /** Completed steps the job lets the admin go back to. */
@@ -588,17 +615,12 @@ function goTo(target: Step) {
 
 // ---- done ----
 
-const skippedOnDone = computed(() => {
-  const s = job.value?.summary
-  if (!s) return 0
-  return (
-    s.rows_with_errors ??
-    Math.max(s.row_count - (job.value?.records_committed ?? 0) - (s.unchanged ?? 0), 0)
-  )
-})
+const doneOutcomes = computed(() => (job.value?.summary ? outcomes(job.value.summary) : null))
+const headlineOnDone = computed(() => (job.value ? doneHeadline(t, job.value) : ''))
+const reportOnDone = computed(() => !!job.value && reportOffered(job.value))
 
-const reportOnDone = computed(() => reportHasRows(skippedOnDone.value, job.value?.summary))
-
+/** The records the import touched: the asset list filtered to them; users
+ *  and tickets open their lists. */
 function viewImported() {
   switch (job.value?.job_type) {
     case 'users':
@@ -608,20 +630,9 @@ function viewImported() {
       router.push('/tickets')
       return
     default:
-      router.push('/assets')
+      router.push({ path: '/assets', query: { import: job.value?.id } })
   }
 }
-
-const viewImportedLabelKey = computed(() => {
-  switch (job.value?.job_type) {
-    case 'users':
-      return 'csv-import-action-view-users'
-    case 'tickets':
-      return 'csv-import-action-view-tickets'
-    default:
-      return 'csv-import-action-view-assets'
-  }
-})
 </script>
 
 <template>
@@ -731,6 +742,7 @@ const viewImportedLabelKey = computed(() => {
                  file picker; dropping a file uploads it at once. -->
             <button
               v-else
+              ref="dropZone"
               type="button"
               class="w-full flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl px-4 py-10 min-h-[176px] text-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               :class="isDragOver
@@ -792,6 +804,12 @@ const viewImportedLabelKey = computed(() => {
             </div>
           </div>
         </SectionCard>
+
+        <p class="text-sm">
+          <RouterLink :class="linkClass" to="/admin/data-import" data-test="import-recent-link">
+            {{ $t('import-history-title') }}
+          </RouterLink>
+        </p>
       </section>
 
       <!-- Map ------------------------------------------------------------ -->
@@ -863,33 +881,65 @@ const viewImportedLabelKey = computed(() => {
       />
 
       <!-- Done ----------------------------------------------------------- -->
-      <section v-else-if="step === 'done' && job" class="flex flex-col gap-6">
+      <section v-else-if="step === 'done' && job" class="flex flex-col gap-6" data-test="import-done">
         <Callout severity="success">
           <template #header>
             <span class="font-medium text-primary">{{ $t('import-done-heading') }}</span>
           </template>
-          <p class="px-4 py-3 text-sm text-secondary">
-            {{ $t('import-done-body', { count: job.records_committed ?? 0 }) }}
-            <template v-if="skippedOnDone > 0">
-              {{ $t('import-done-skipped', { count: skippedOnDone }) }}
-            </template>
-          </p>
+          <div class="px-4 py-3 flex flex-col gap-1">
+            <p class="text-sm text-primary" data-test="import-done-headline">{{ headlineOnDone }}</p>
+            <p v-if="(doneOutcomes?.skipped ?? 0) > 0" class="text-sm text-secondary" data-test="import-done-fix-hint">
+              {{ $t('import-done-fix-hint') }}
+            </p>
+            <p
+              v-if="job.job_type === 'assets' && (doneOutcomes?.created ?? 0) > 0"
+              class="text-xs text-tertiary"
+              data-test="import-done-imported-event"
+            >
+              {{ $t('import-done-imported-event') }}
+            </p>
+          </div>
         </Callout>
-        <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
-          <Button variant="ghost" @click="startOver">{{ $t('import-done-new') }}</Button>
+
+        <!-- A13: for users, "These 7 people can't sign in yet." with Send
+             invites or the SSO wording goes here. -->
+
+        <ImportReviewStep
+          v-if="job.summary"
+          :job="job"
+          :fields="fields"
+          :kinds="kindOptions"
+          mode="done"
+          @download-report="downloadReport"
+        />
+
+        <div class="flex flex-wrap items-center gap-2" data-test="import-done-actions">
+          <Button data-test="import-done-view" @click="viewImported">
+            {{ $t('import-done-view', { type: job.job_type }) }}
+          </Button>
           <Button
             v-if="reportOnDone"
-            class="ml-auto"
             variant="secondary"
             icon="download"
             :loading="downloadingReport"
             data-test="import-done-report"
-            @click="downloadReport"
+            @click="downloadReport()"
           >
             {{ $t('import-review-download-report') }}
           </Button>
-          <Button :class="reportOnDone ? '' : 'ml-auto'" @click="viewImported">{{ $t(viewImportedLabelKey) }}</Button>
+          <!-- A12: "Import the next sheet: {sheet}" goes here. -->
+          <Button variant="secondary" data-test="import-done-another" @click="importAnother">
+            {{ $t('import-done-another') }}
+          </Button>
         </div>
+
+        <!-- A10: "Remove imported assets" with its window goes here. -->
+
+        <p class="text-sm">
+          <RouterLink :class="linkClass" to="/admin/data-import" data-test="import-done-recent">
+            {{ $t('import-history-title') }}
+          </RouterLink>
+        </p>
       </section>
     </div>
   </div>
