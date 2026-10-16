@@ -71,7 +71,7 @@ pub(crate) fn seed_kind(
 
 /// A workspace with Vehicle and Camera kinds and the member's primary
 /// email.
-fn workspace(pool: &TestPool) -> WorkspaceSeed {
+pub(crate) fn workspace(pool: &TestPool) -> WorkspaceSeed {
     let ws = import_workspace(pool);
     seed_kind(pool, &ws, "vehicle", "Vehicle", 300, vehicle_schema());
     seed_kind(pool, &ws, "camera", "Camera", 310, camera_schema());
@@ -85,7 +85,7 @@ fn workspace(pool: &TestPool) -> WorkspaceSeed {
     ws
 }
 
-fn member_email(ws: &WorkspaceSeed) -> String {
+pub(crate) fn member_email(ws: &WorkspaceSeed) -> String {
     format!("sam-{}@example.com", ws.slug)
 }
 
@@ -234,7 +234,8 @@ pub(crate) fn errors(job: &serde_json::Value) -> Vec<(u64, Option<String>, Strin
 
 /// Number, date (in the Map step's order), yes or no and option cells are
 /// typed as the row's kind types them; purchase date and primary user land
-/// in their columns; an email that names no member is a row error.
+/// in their columns; an email that names no member is left unassigned and
+/// counted.
 #[actix_web::test]
 async fn attribute_cells_are_typed_and_written() {
     let db = TestDb::new();
@@ -265,19 +266,18 @@ async fn attribute_cells_are_typed_and_written() {
         serde_json::json!({ "date_order": "dmy" }),
     )
     .await;
+    assert_eq!(errors(&job), vec![], "{job}");
+    assert_eq!(job["summary"]["would_create"], 2);
     assert_eq!(
-        errors(&job),
-        vec![(
-            3,
-            Some("primary_user".to_string()),
-            "'nobody@example.com' is not a member of this workspace".to_string()
-        )]
+        job["summary"]["dropped"],
+        serde_json::json!([{
+            "column": "primary_user",
+            "source_column": "Assigned To",
+            "kind": "vehicle",
+            "value": "nobody@example.com",
+            "count": 1
+        }])
     );
-    assert_eq!(
-        job["summary"]["errors"][0]["source_column"], "Assigned To",
-        "{job}"
-    );
-    assert_eq!(job["summary"]["would_create"], 1);
 
     let id = id_of(&job);
     commit(&pool, &ws, &id).await;
@@ -297,7 +297,8 @@ async fn attribute_cells_are_typed_and_written() {
     assert_eq!(asset.location, None);
     assert_eq!(asset.purchase_date.as_deref(), Some("2023-01-02"));
     assert_eq!(asset.primary_user, Some(ws.member_uuid.to_string()));
-    assert!(stored(&pool, "V-2").is_none());
+    let (unassigned, _) = stored(&pool, "V-2").expect("V-2 created");
+    assert_eq!(unassigned.primary_user, None);
 
     let written = rows(&pool, &ws, &id).await;
     let fields = &written[0]["fields_written"];

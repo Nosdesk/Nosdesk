@@ -93,6 +93,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route(web::put().to(crate::handlers::imports::put_values)),
     )
     .route(
+        "/admin/import/{id}/values/preview",
+        web::post().to(crate::handlers::imports::preview_values),
+    )
+    .route(
         "/admin/import/{id}/rows",
         web::get().to(crate::handlers::imports::rows),
     )
@@ -1133,15 +1137,17 @@ pub async fn commit(
             &stored,
             &grid,
         )?;
-        // The catalog entries it creates are part of the plan too.
-        let reviewed_catalog = current
+        // The catalog entries it creates are part of the plan too, and so
+        // are the values rows import without (a group left off, a person
+        // left unassigned), which an answer that no longer fits changes.
+        let reviewed_summary = current
             .summary
             .as_ref()
             .and_then(|s| serde_json::from_value::<imports::ImportSummary>(s.clone()).ok())
-            .map(|s| s.catalog)
             .unwrap_or_default();
         if !reviewed.is_some_and(|r| same_plan(&r.rows, &fresh))
-            || reviewed_catalog != summary.catalog
+            || reviewed_summary.catalog != summary.catalog
+            || reviewed_summary.dropped != summary.dropped
         {
             let updated = repo::update(
                 conn,
@@ -1230,7 +1236,7 @@ fn stored_rows(phase: RowPhase, rows: Vec<RowResult>) -> Option<serde_json::Valu
 fn stored_choices(job: &ImportJob) -> Option<(ColumnMapping, ImportOptions)> {
     let column_mapping = serde_json::from_value(job.mapping.clone()?).ok()?;
     let mut options: ImportOptions = match &job.options {
-        Some(v) => serde_json::from_value(v.clone()).ok()?,
+        Some(v) => ImportOptions::from_stored(v.clone()).ok()?,
         None => ImportOptions::default(),
     };
     // A job stored with the legacy `match_by: none` commits as create only.
@@ -1512,6 +1518,17 @@ pub async fn get_values(
         Err(resp) => return resp,
     };
     let answers = stored_answers(&loaded.job);
+    read_values(&mut tc, id, &loaded, &answers)
+}
+
+/// The values view of a loaded job under `answers`, against the rows of
+/// its last check.
+fn read_values(
+    tc: &mut TenantConn,
+    id: Uuid,
+    loaded: &ValuesJob,
+    answers: &ValueAnswers,
+) -> HttpResponse {
     let read = tc.run(|conn| {
         let resolution = values::prepare(
             conn,
@@ -1520,7 +1537,7 @@ pub async fn get_values(
             &loaded.column_mapping,
             &loaded.options,
             &loaded.mapped.grid,
-            &answers,
+            answers,
         )?;
         let checked: Vec<RowResult> = repo::row_results(conn, id)?
             .and_then(|v| serde_json::from_value::<StoredRowResults>(v).ok())
@@ -1546,6 +1563,52 @@ pub async fn get_values(
 #[serde(deny_unknown_fields)]
 pub struct ValuesRequest {
     pub answers: ValueAnswers,
+}
+
+/// The values view as `answers` would make it, without storing them or
+/// checking the rows: models are matched under the manufacturer answers
+/// given, so Match values can show the Model card for answers not yet
+/// checked. Answers that don't fit fall back as the stored ones do.
+pub async fn preview_values(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<Uuid>,
+    body: web::Json<ValuesRequest>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+    let ValuesRequest { answers } = body.into_inner();
+    let loaded = match load_values_job(&mut tc, id).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    if let Err(e) = mapping::validate_answers(&answers, &loaded.fields) {
+        return errors::bad_request(e.0);
+    }
+    let answers = rekey_answers(answers);
+    read_values(&mut tc, id, &loaded, &answers)
+}
+
+/// Answers keyed by each value as [`values::normalize_value`] gives it.
+fn rekey_answers(answers: ValueAnswers) -> ValueAnswers {
+    answers
+        .into_iter()
+        .map(|(field, contexts)| {
+            let contexts = contexts
+                .into_iter()
+                .map(|(context, values)| {
+                    let values = values
+                        .into_iter()
+                        .map(|(value, answer)| (values::normalize_value(&value), answer))
+                        .collect();
+                    (context, values)
+                })
+                .collect();
+            (field, contexts)
+        })
+        .collect()
 }
 
 /// Result variants for answering values.

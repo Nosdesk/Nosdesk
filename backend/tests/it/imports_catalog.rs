@@ -825,3 +825,82 @@ async fn a_close_manufacturer_is_guessed_and_models_follow_it() {
     let models = column(&view, "model", "sony corp.");
     assert_eq!(value(models, "FX6")["match"], "no_match");
 }
+
+async fn preview_values(
+    pool: &TestPool,
+    ws: &WorkspaceSeed,
+    id: &str,
+    answers: serde_json::Value,
+) -> serde_json::Value {
+    let (status, body) = call_import_route(
+        pool,
+        ws,
+        ws.admin_uuid,
+        TestRequest::post()
+            .uri(&format!("/api/admin/import/{id}/values/preview"))
+            .set_json(serde_json::json!({ "answers": answers })),
+    )
+    .await;
+    let view = json(&body);
+    assert_eq!(status, StatusCode::OK, "{view}");
+    view
+}
+
+/// The Model card recomputed for manufacturer answers not yet checked:
+/// models are matched under the manufacturer each answer gives the rows,
+/// can be created under a manufacturer the import creates, and need one
+/// under a manufacturer kept as text. Nothing is stored.
+#[actix_web::test]
+async fn models_are_recomputed_for_manufacturer_answers_before_the_check() {
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let (ws, _) = workspace(&pool);
+    let file = "Name,Type,Tag,Make,Model,Mount\n\
+                A,camera,G-1,Sony Corp.,FX6,\n\
+                B,camera,G-2,Sony Corp.,Venice 2,\n\
+                C,camera,G-3,,Pocket 6K,\n";
+    let job = checked(&pool, &ws, file, CAMERA_MAPPING, serde_json::json!({})).await;
+    let id = id_of(&job);
+    let view = get_values(&pool, &ws, &id).await;
+    let sony = column(&view, "model", "sony");
+    assert_eq!(sony["can_create"], true);
+    assert_eq!(value(sony, "FX6")["match"], "exact");
+    assert!(value(sony, "Venice 2").get("reason").is_none());
+    let none = column(&view, "model", "");
+    assert_eq!(none["can_create"], false);
+    assert_eq!(
+        value(none, "Pocket 6K")["reason"],
+        serde_json::json!({ "code": "needs_manufacturer" })
+    );
+
+    let make = |action: &str| serde_json::json!({ "manufacturer": { "": { "sony corp.": { "action": action } } } });
+    let kept = preview_values(&pool, &ws, &id, make("keep_text")).await;
+    let text = column(&kept, "model", "sony corp.");
+    assert_eq!(text["can_create"], false);
+    assert_eq!(value(text, "FX6")["match"], "no_match");
+    assert_eq!(
+        value(text, "Venice 2")["reason"],
+        serde_json::json!({ "code": "needs_manufacturer" })
+    );
+    assert!(kept["columns"]
+        .as_array()
+        .expect("columns")
+        .iter()
+        .all(|c| !(c["field"] == "model" && c["context"] == "sony")));
+
+    let created = preview_values(&pool, &ws, &id, make("create")).await;
+    let new = column(&created, "model", "sony corp.");
+    assert_eq!(new["can_create"], true);
+    assert!(value(new, "Venice 2").get("reason").is_none());
+
+    // A preview stores nothing.
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        TestRequest::get().uri(&format!("/api/admin/import/{id}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json(&body)["answers"], serde_json::Value::Null);
+}

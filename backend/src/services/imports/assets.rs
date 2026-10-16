@@ -642,6 +642,13 @@ impl Importer for AssetImporter {
         let Some(kind) = lookup_kind(&field.id) else {
             return Ok(None);
         };
+        if kind == LookupKind::Person {
+            return Ok(Some(vec![values::LookupContext {
+                key: String::new(),
+                label: None,
+                lookup: values::Lookup::new(kind, member_choices(conn)?),
+            }]));
+        }
         Ok(Some(Catalog::load(conn)?.lookups(kind, contexts)))
     }
 
@@ -1384,15 +1391,10 @@ fn plan_row(
             }
         },
     };
-    let primary_user = match opt_string(row, "primary_user") {
-        None => None,
-        Some(raw) => match lookups.member(&raw) {
-            Some(user) => Some(user),
-            None => {
-                error("primary_user", not_a_member(&raw));
-                None
-            }
-        },
+    let (primary_user, unassigned) = match pick_person(row, lookups, options) {
+        PersonPick::None => (None, None),
+        PersonPick::Member(user) => (Some(user), None),
+        PersonPick::Unassigned(raw) => (None, Some(raw)),
     };
 
     let tag = trimmed(row, "asset_tag");
@@ -1700,6 +1702,14 @@ fn plan_row(
     }
 
     dropped.extend(group_drops);
+    if let Some(value) = unassigned {
+        dropped.push(DroppedCell {
+            column: "primary_user".to_string(),
+            source_column: None,
+            kind: kind.clone().unwrap_or_default(),
+            value: Some(value),
+        });
+    }
 
     let synced_writes = attributes_changed || groups_change;
     match kind {
@@ -1841,12 +1851,27 @@ const KIND_FAMILY: &str = "kind";
 /// The context family models are answered per: the row's manufacturer.
 const MANUFACTURER_FAMILY: &str = "manufacturer";
 
+/// The workspace's members as a primary user's choices: by user id, named
+/// by name with the primary email beside it, which a value matches on.
+fn member_choices(conn: &mut DbConnection) -> Result<Vec<Choice>, diesel::result::Error> {
+    Ok(workspace_repo::member_directory(conn)?
+        .into_iter()
+        .map(|(user, name, email)| {
+            let mut choice = Choice::new(user.to_string(), name);
+            choice.key = Some(normalize_value(&email));
+            choice.detail = Some(email);
+            choice
+        })
+        .collect())
+}
+
 /// The catalog a field's values link to.
 fn lookup_kind(field: &str) -> Option<LookupKind> {
     match field {
         "manufacturer" => Some(LookupKind::Manufacturer),
         "model" => Some(LookupKind::Model),
         "groups" => Some(LookupKind::Group),
+        "primary_user" => Some(LookupKind::Person),
         _ => None,
     }
 }
@@ -2011,6 +2036,47 @@ fn pick_model(
             };
             (ModelPick::Text(cell), Some(message))
         }
+    }
+}
+
+/// What a row's primary user cell comes to.
+#[derive(Debug, Clone, PartialEq)]
+enum PersonPick {
+    /// Blank: nothing is written.
+    None,
+    Member(Uuid),
+    /// Left unassigned: the value names nobody here, or Match values says
+    /// so. The asset keeps the primary user it has.
+    Unassigned(String),
+}
+
+/// The row's primary user: the member Match values links the cell to,
+/// else the member it names by primary email or user id. Anything else is
+/// left unassigned and counted.
+fn pick_person(
+    row: &HashMap<String, String>,
+    lookups: &Lookups,
+    options: &ImportOptions,
+) -> PersonPick {
+    let Some(raw) = opt_string(row, "primary_user") else {
+        return PersonPick::None;
+    };
+    match lookup_answer(options, "primary_user", "", &raw) {
+        Some(ValueAnswer::Match { target }) => {
+            let linked = target
+                .as_str()
+                .and_then(|t| Uuid::parse_str(t).ok())
+                .filter(|user| lookups.member_emails.contains_key(user));
+            if let Some(user) = linked {
+                return PersonPick::Member(user);
+            }
+        }
+        Some(ValueAnswer::LeaveBlank) => return PersonPick::Unassigned(raw),
+        _ => {}
+    }
+    match lookups.member(&raw) {
+        Some(user) => PersonPick::Member(user),
+        None => PersonPick::Unassigned(raw),
     }
 }
 

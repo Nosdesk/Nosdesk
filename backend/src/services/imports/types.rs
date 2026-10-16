@@ -672,10 +672,6 @@ pub enum DecimalMark {
 pub struct ImportOptions {
     pub match_by: MatchBy,
     pub mode: ImportMode,
-    /// Read only, from jobs and clients before Match values answered
-    /// catalog values one by one; creating is an answer now
-    /// ([`ValueAnswer::Create`]), and this is ignored.
-    pub create_missing: bool,
     /// Kind slug for new assets whose kind cell is blank.
     pub default_kind: Option<String>,
     pub date_order: DateOrder,
@@ -691,6 +687,17 @@ pub struct ImportOptions {
 }
 
 impl ImportOptions {
+    /// Options as a job stores them. Jobs stored before catalog values were
+    /// answered one by one carry `create_missing`, which nothing reads now;
+    /// it is dropped here so they still load, while requests that send it
+    /// are refused.
+    pub fn from_stored(mut value: serde_json::Value) -> serde_json::Result<Self> {
+        if let Some(fields) = value.as_object_mut() {
+            fields.remove("create_missing");
+        }
+        serde_json::from_value(value)
+    }
+
     pub fn decimal_mark(&self) -> DecimalMark {
         self.decimal.unwrap_or_default()
     }
@@ -997,6 +1004,17 @@ pub trait Importer: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stored_options_drop_the_legacy_create_missing() {
+        let stored = serde_json::json!({ "create_missing": true, "mode": "create_only" });
+        let options = ImportOptions::from_stored(stored.clone()).expect("stored options load");
+        assert_eq!(options.mode, ImportMode::CreateOnly);
+        let written = serde_json::to_value(&options).expect("serialize");
+        assert!(written.get("create_missing").is_none(), "{written}");
+        // A request is read strictly.
+        assert!(serde_json::from_value::<ImportOptions>(stored).is_err());
+    }
 
     #[test]
     fn duplicate_message_names_the_rows() {

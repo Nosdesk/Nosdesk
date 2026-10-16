@@ -79,6 +79,7 @@ mod imports_catalog;
 mod imports_data_shape;
 mod imports_map_memory;
 mod imports_mapping;
+mod imports_people;
 mod imports_rows;
 mod imports_start;
 mod imports_status;
