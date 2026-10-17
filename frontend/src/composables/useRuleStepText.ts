@@ -84,8 +84,14 @@ export function useRuleStepText(options: {
       }
       case 'unassign':
         return t('ticket-actions-step-unassign')
-      case 'add_tags':
+      case 'add_tags': {
+        // A starter names its tags, some of which adding it will create.
+        const named = Array.isArray(c.tag_names) ? c.tag_names.map(String) : []
+        if (named.length > 0) {
+          return t('ticket-actions-step-add-tags', { tags: named.join(', '), count: named.length })
+        }
         return tagText('ticket-actions-step-add-tags', c.tag_ids)
+      }
       case 'remove_tags':
         return tagText('ticket-actions-step-remove-tags', c.tag_ids)
       case 'set_priority':
