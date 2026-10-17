@@ -43,6 +43,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/admin/rule-starters",
         web::get().to(crate::handlers::rules::list_starter_catalog),
     )
+    .route(
+        "/admin/rule-starters/{id}",
+        web::post().to(crate::handlers::rules::add_starter),
+    )
     .route("/rules", web::get().to(crate::handlers::rules::list_rules))
     .route(
         "/rules",
@@ -391,6 +395,38 @@ pub async fn create_rule(
     let Some(workspace_id) = actor_workspace_id(&req) else {
         return Err(ApiError::Unauthorized("Authentication required".into()));
     };
+    let created_by = actor_uuid(&req);
+    let body = body.into_inner();
+    created_response(tc.run_result(|conn| insert_rule(conn, workspace_id, created_by, body)))
+}
+
+/// Why [`insert_rule`] didn't save the rule.
+enum InsertRuleError {
+    /// The rule itself is invalid; the response says why.
+    Refused(Box<HttpResponse>),
+    Db(diesel::result::Error),
+}
+
+fn refused(resp: HttpResponse) -> InsertRuleError {
+    InsertRuleError::Refused(Box::new(resp))
+}
+
+impl From<diesel::result::Error> for InsertRuleError {
+    fn from(e: diesel::result::Error) -> Self {
+        Self::Db(e)
+    }
+}
+
+/// Validate and save a new draft rule. Shared by `create_rule` and
+/// `add_starter`, so a starter is held to the same checks as a rule
+/// written in the editor. A refusal is an `Err`, so the caller's
+/// transaction rolls back anything it wrote first.
+fn insert_rule(
+    conn: &mut crate::db::DbConnection,
+    workspace_id: i32,
+    created_by: Option<Uuid>,
+    body: CreateRuleRequest,
+) -> Result<Rule, InsertRuleError> {
     let CreateRuleRequest {
         name,
         description,
@@ -400,35 +436,38 @@ pub async fn create_rule(
         actions,
         priority,
         override_self_reference,
-    } = body.into_inner();
+    } = body;
 
     if name.trim().is_empty() {
-        return Ok(errors::bad_request_with_code(
+        return Err(refused(errors::bad_request_with_code(
             "name must not be empty",
             "RULE_VALIDATION",
-        ));
+        )));
     }
     if let Err(msg) = validate_actions(&actions) {
-        return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION"));
+        return Err(refused(errors::bad_request_with_code(
+            msg,
+            "RULE_VALIDATION",
+        )));
     }
     if trigger_kind == RuleTriggerKind::Manual && !is_empty_conditions(&conditions) {
-        return Ok(errors::bad_request_with_code(
+        return Err(refused(errors::bad_request_with_code(
             "manual rules must have an empty conditions list",
             "RULE_VALIDATION",
-        ));
+        )));
     }
 
     let reads = rules::derive_reads_set(&conditions);
     let writes = rules::derive_writes_set(&actions);
 
     if let Err(e) = check_self_referential(&reads, &writes, override_self_reference) {
-        return Ok(errors::conflict_with_code(
+        return Err(refused(errors::conflict_with_code(
             format!(
                 "rule reads and writes the same fields: {} (set override_self_reference=true to bypass)",
                 e.fields.join(", ")
             ),
             "RULE_SELF_REFERENTIAL",
-        ));
+        )));
     }
 
     let new = NewRule {
@@ -446,12 +485,17 @@ pub async fn create_rule(
         writes_set: writes,
         state: RuleState::Draft,
         priority,
-        created_by: actor_uuid(&req),
+        created_by,
     };
+    Ok(rules::create(conn, new)?)
+}
 
-    match tc.run(|conn| rules::create(conn, new)) {
+/// 201 with the new rule, or the reason it wasn't saved.
+fn created_response(result: Result<Rule, InsertRuleError>) -> Result<HttpResponse, ApiError> {
+    match result {
         Ok(rule) => Ok(HttpResponse::Created().json(RuleDto::from(rule))),
-        Err(e) => {
+        Err(InsertRuleError::Refused(resp)) => Ok(*resp),
+        Err(InsertRuleError::Db(e)) => {
             tracing::error!(error = ?e, "create_rule: repo error");
             Err(ApiError::Database(e))
         }
@@ -1065,32 +1109,103 @@ pub struct StarterRuleDto {
     pub actions: Value,
 }
 
+/// The caller's locale from `Accept-Language` (its first tag), or en.
+fn request_locale(req: &HttpRequest) -> String {
+    req.headers()
+        .get(actix_web::http::header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.split(';').next().unwrap_or(s).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "en".to_string())
+}
+
 /// `GET /api/admin/rule-starters`. Admin only. Returns the
 /// localised catalog the rules-page "Browse starters" affordance
 /// renders. Locale comes from `Accept-Language`; falls back to
 /// English when the requested locale isn't represented.
-pub async fn list_starter_catalog(req: HttpRequest) -> Result<HttpResponse, ApiError> {
-    require_workspace_role(&req, WorkspaceRole::Admin)?;
-    let locale = req
-        .headers()
-        .get(actix_web::http::header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "en".to_string());
+///
+/// Named statuses and tags are resolved in the caller's workspace (see
+/// `services::starter_catalog`). A tag step lists the ids of the named
+/// tags that exist and every name, so the dialog can name a tag that
+/// adding the starter will create.
+pub async fn list_starter_catalog(
+    req: HttpRequest,
+    mut tc: TenantConn,
+) -> Result<HttpResponse, ApiError> {
+    use crate::services::starter_catalog::{self, MissingTags, WorkspaceRefs};
 
-    let dtos: Vec<StarterRuleDto> = crate::services::starter_catalog::list()
-        .iter()
-        .map(|r| StarterRuleDto {
-            id: r.id.clone(),
-            name: r.name_for(&locale).to_string(),
-            description: r.description_for(&locale).to_string(),
-            trigger_kind: r.trigger_kind.clone(),
-            conditions: r.conditions.clone(),
-            actions: r.actions.clone(),
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    let locale = request_locale(&req);
+    let dtos = tc
+        .run(|conn| {
+            let mut refs = WorkspaceRefs::default();
+            starter_catalog::list()
+                .iter()
+                .map(|r| {
+                    Ok(StarterRuleDto {
+                        id: r.id.clone(),
+                        name: r.name_for(&locale).to_string(),
+                        description: r.description_for(&locale).to_string(),
+                        trigger_kind: r.trigger_kind.clone(),
+                        conditions: r.conditions.clone(),
+                        actions: refs.resolve_actions(conn, r, &locale, MissingTags::Name)?,
+                    })
+                })
+                .collect::<diesel::QueryResult<Vec<_>>>()
         })
-        .collect();
+        .map_err(ApiError::Database)?;
     Ok(HttpResponse::Ok().json(dtos))
+}
+
+/// `POST /api/admin/rule-starters/{id}`. Admin only. Adds a starter
+/// to the workspace as a draft manual rule, named and described in the
+/// `Accept-Language` locale, and returns it like `POST /api/rules`.
+/// Named statuses and tags resolve in the workspace, and a named tag
+/// the workspace doesn't have is created, all in one transaction with
+/// the rule. The rule goes through the same checks as one written in
+/// the editor, so a status category the workspace has no state in is
+/// refused (`RULE_VALIDATION`, "pick a status") and nothing is saved.
+pub async fn add_starter(
+    req: HttpRequest,
+    path: web::Path<String>,
+    mut tc: TenantConn,
+) -> Result<HttpResponse, ApiError> {
+    use crate::services::starter_catalog::{self, MissingTags, WorkspaceRefs};
+
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return Err(ApiError::Unauthorized("Authentication required".into()));
+    };
+    let Some(starter) = starter_catalog::find(&path.into_inner()) else {
+        return Ok(errors::not_found("Starter rule"));
+    };
+    let locale = request_locale(&req);
+    let created_by = actor_uuid(&req);
+    created_response(tc.run_result(|conn| {
+        let actions = WorkspaceRefs::default().resolve_actions(
+            conn,
+            starter,
+            &locale,
+            MissingTags::Create,
+        )?;
+        let description = starter.description_for(&locale);
+        insert_rule(
+            conn,
+            workspace_id,
+            created_by,
+            CreateRuleRequest {
+                name: starter.name_for(&locale).to_string(),
+                description: (!description.is_empty()).then(|| description.to_string()),
+                trigger_kind: RuleTriggerKind::Manual,
+                trigger_config: empty_object(),
+                conditions: starter.conditions.clone(),
+                actions,
+                priority: default_priority(),
+                override_self_reference: false,
+            },
+        )
+    }))
 }
 
 // =====================================================================

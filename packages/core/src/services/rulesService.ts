@@ -146,6 +146,18 @@ export const rulesService = {
     return data;
   },
 
+  /** POST /api/admin/rule-starters/{id}. Admin. Adds a starter as a draft
+   *  rule, named in `locale`, creating any tag it names that the workspace
+   *  doesn't have. */
+  async addStarter(id: string, locale?: string): Promise<Rule> {
+    const { data } = await apiClient.post<Rule>(
+      `/admin/rule-starters/${encodeURIComponent(id)}`,
+      undefined,
+      locale ? { headers: { 'Accept-Language': locale } } : undefined,
+    );
+    return data;
+  },
+
   /** POST /api/rules/{id}/apply. Agent. */
   async apply(ruleId: number, req: ApplyRuleRequest): Promise<ApplyRuleResponse> {
     const { data } = await apiClient.post<ApplyRuleResponse>(

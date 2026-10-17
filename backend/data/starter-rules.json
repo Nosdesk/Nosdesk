@@ -4,9 +4,9 @@
     "name_en": "Acknowledge and triage",
     "name_fr": "Accuser réception et trier",
     "name_nl": "Bevestigen en triage",
-    "description_en": "Quick acknowledgement reply to confirm the ticket reached us and set status to in-progress.",
-    "description_fr": "Réponse rapide pour confirmer la réception du ticket et passer en cours.",
-    "description_nl": "Snelle bevestiging dat het ticket is ontvangen en de status op in behandeling zetten.",
+    "description_en": "For a new ticket, so the requester knows someone has it.",
+    "description_fr": "Pour un nouveau ticket, afin que le demandeur sache que quelqu'un s'en occupe.",
+    "description_nl": "Voor een nieuw ticket, zodat de aanvrager weet dat iemand ermee bezig is.",
     "trigger_kind": "manual",
     "conditions": [],
     "actions": [
@@ -16,6 +16,12 @@
           "visibility": "public",
           "body": "Hi {{customer_name}},\n\nThanks for reaching out about ticket #{{ticket_id}}. We've seen it and are looking into it now.\n\nCheers,\n{{agent_first_name}}"
         }
+      },
+      {
+        "kind": "set_status",
+        "config": {
+          "category": "active"
+        }
       }
     ]
   },
@@ -24,9 +30,9 @@
     "name_en": "Request more information",
     "name_fr": "Demander plus d'informations",
     "name_nl": "Meer informatie vragen",
-    "description_en": "Polite ask for steps to reproduce or additional context. Keeps the ticket open.",
-    "description_fr": "Demande polie de plus de contexte ou d'étapes de reproduction. Garde le ticket ouvert.",
-    "description_nl": "Beleefd verzoek om reproductiestappen of meer context. Houdt het ticket open.",
+    "description_en": "When you need more detail from the requester before you can help.",
+    "description_fr": "Quand il vous faut plus de détails du demandeur avant de pouvoir l'aider.",
+    "description_nl": "Als je meer details van de aanvrager nodig hebt voordat je kunt helpen.",
     "trigger_kind": "manual",
     "conditions": [],
     "actions": [
@@ -44,9 +50,9 @@
     "name_en": "Resolve with summary",
     "name_fr": "Résoudre avec résumé",
     "name_nl": "Oplossen met samenvatting",
-    "description_en": "Send a wrap-up reply summarising what was done and close the ticket.",
-    "description_fr": "Envoyer une réponse de clôture résumant ce qui a été fait et clore le ticket.",
-    "description_nl": "Een afsluitend antwoord met samenvatting versturen en het ticket sluiten.",
+    "description_en": "When the work is done and the requester should hear how it was fixed.",
+    "description_fr": "Quand le travail est terminé et que le demandeur doit savoir comment le problème a été résolu.",
+    "description_nl": "Als het werk klaar is en de aanvrager moet horen hoe het is opgelost.",
     "trigger_kind": "manual",
     "conditions": [],
     "actions": [
@@ -56,6 +62,12 @@
           "visibility": "public",
           "body": "Hi {{customer_name}},\n\nWe've sorted this out. If anything else comes up, just reply to this thread and the ticket will reopen automatically.\n\nCheers,\n{{agent_first_name}}"
         }
+      },
+      {
+        "kind": "set_status",
+        "config": {
+          "category": "done"
+        }
       }
     ]
   },
@@ -63,10 +75,10 @@
     "id": "escalate-to-on-call",
     "name_en": "Escalate to on-call",
     "name_fr": "Escalader à l'astreinte",
-    "name_nl": "Escaleren naar pikettelefoon",
-    "description_en": "Add an escalated tag, drop an internal note for the next pager. No customer-facing reply.",
-    "description_fr": "Ajouter une étiquette escaladée, ajouter une note interne pour le prochain bipeur. Pas de réponse client.",
-    "description_nl": "Voeg een escalated-tag toe en laat een interne notitie achter voor de volgende pikettelefoon. Geen klantantwoord.",
+    "name_nl": "Escaleren naar dienstdoende",
+    "description_en": "When a ticket needs the on-call person. The requester sees nothing.",
+    "description_fr": "Quand un ticket requiert la personne d'astreinte. Le demandeur ne voit rien.",
+    "description_nl": "Als een ticket de dienstdoende persoon nodig heeft. De aanvrager ziet niets.",
     "trigger_kind": "manual",
     "conditions": [],
     "actions": [
@@ -76,6 +88,22 @@
           "visibility": "internal",
           "body": "Escalated by {{agent_name}}. Marked for the on-call queue."
         }
+      },
+      {
+        "kind": "add_tags",
+        "config": {
+          "tag_names": {
+            "en": [
+              "escalated"
+            ],
+            "fr": [
+              "escaladé"
+            ],
+            "nl": [
+              "geëscaleerd"
+            ]
+          }
+        }
       }
     ]
   },
@@ -84,15 +112,17 @@
     "name_en": "Bump to high priority",
     "name_fr": "Passer en priorité haute",
     "name_nl": "Verhoog naar hoge prioriteit",
-    "description_en": "Raise the ticket priority to high without sending a customer reply.",
-    "description_fr": "Augmente la priorité du ticket sans envoyer de réponse au client.",
-    "description_nl": "Verhoog de ticketprioriteit zonder een klantantwoord te sturen.",
+    "description_en": "When a ticket turns out to be more urgent than it looked.",
+    "description_fr": "Quand un ticket s'avère plus urgent qu'il n'y paraissait.",
+    "description_nl": "Als een ticket urgenter blijkt dan het leek.",
     "trigger_kind": "manual",
     "conditions": [],
     "actions": [
       {
         "kind": "set_priority",
-        "config": { "priority": "high" }
+        "config": {
+          "priority": "high"
+        }
       }
     ]
   },
@@ -101,12 +131,28 @@
     "name_en": "Tag as duplicate",
     "name_fr": "Étiqueter comme doublon",
     "name_nl": "Markeer als duplicaat",
-    "description_en": "Add a 'duplicate' tag and an internal note flagging it for review.",
-    "description_fr": "Ajoute une étiquette 'doublon' et une note interne pour révision.",
-    "description_nl": "Voegt een 'duplicaat'-tag toe en een interne notitie voor beoordeling.",
+    "description_en": "When a ticket repeats one that's already open.",
+    "description_fr": "Quand un ticket répète un ticket déjà ouvert.",
+    "description_nl": "Als een ticket een al openstaand ticket herhaalt.",
     "trigger_kind": "manual",
     "conditions": [],
     "actions": [
+      {
+        "kind": "add_tags",
+        "config": {
+          "tag_names": {
+            "en": [
+              "duplicate"
+            ],
+            "fr": [
+              "doublon"
+            ],
+            "nl": [
+              "duplicaat"
+            ]
+          }
+        }
+      },
       {
         "kind": "reply",
         "config": {
