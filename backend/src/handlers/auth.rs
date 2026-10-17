@@ -584,6 +584,47 @@ pub(crate) fn build_auth_cookie_redirect(
 const MAX_LOGIN_ATTEMPTS: u32 = 5;
 const LOCKOUT_DURATION_SECONDS: u64 = 900; // 15 minutes
 
+/// Lockout state for a sign-in key: `Some(seconds)` while locked. When Redis
+/// can't be read the sign-in is refused (503) unless ENVIRONMENT is an
+/// explicit development label, so credentials are never checked uncounted.
+pub(crate) async fn check_sign_in_lockout(
+    redis_url: &str,
+    key: &str,
+) -> Result<Option<u64>, ApiError> {
+    match RateLimiter::check_lockout(redis_url, key, MAX_LOGIN_ATTEMPTS).await {
+        Ok(locked) => Ok(locked),
+        Err(e) => {
+            error!(error = %e, "Redis error checking account lockout");
+            if crate::config_utils::assume_production() {
+                return Err(ApiError::ServiceUnavailable(
+                    "Authentication service temporarily unavailable. Please try again.".into(),
+                ));
+            }
+            // Development only: sign in without the lockout.
+            Ok(None)
+        }
+    }
+}
+
+/// Count a failed sign-in against `key`. Returns the 429 to answer with when
+/// this attempt locked the account.
+async fn record_sign_in_failure(redis_url: &str, key: &str) -> Option<HttpResponse> {
+    match RateLimiter::record_failed_attempt(redis_url, key, LOCKOUT_DURATION_SECONDS).await {
+        Ok(attempts) if attempts >= MAX_LOGIN_ATTEMPTS => Some(errors::too_many_requests(
+            format!(
+                "Account locked after too many failed attempts. Try again in {} minutes.",
+                LOCKOUT_DURATION_SECONDS / 60
+            ),
+            LOCKOUT_DURATION_SECONDS,
+        )),
+        Ok(_) => None,
+        Err(e) => {
+            warn!(error = %e, "Failed to record sign-in attempt");
+            None
+        }
+    }
+}
+
 /// True when local credential auth (password + passkey) must be refused.
 ///
 /// In hosted mode the platform OIDC is the only identity source for tenant
@@ -722,33 +763,17 @@ pub async fn login(
     let client_ip = crate::utils::client_ip::from_http_request(&request);
     let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
 
-    // Check if account is locked before any validation. Fail-closed detection:
-    // an unset/non-canonical ENVIRONMENT still denies on a Redis error below.
-    let is_production = crate::config_utils::assume_production();
-
-    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
-        Ok(Some(remaining_seconds)) => {
-            warn!(email = %login_data.email, remaining_seconds, "Login attempt on locked account");
-            record_canonical(&request, "outcome", "account_locked");
-            return Ok(errors::too_many_requests(
-                format!(
-                    "Account temporarily locked. Try again in {} minutes.",
-                    (remaining_seconds / 60) + 1
-                ),
-                remaining_seconds,
-            ));
-        }
-        Ok(None) => {} // Not locked, continue
-        Err(e) => {
-            error!(error = %e, "Redis error checking account lockout");
-            if is_production {
-                // Fail closed in production - deny login if we can't verify lockout status
-                return Err(ApiError::ServiceUnavailable(
-                    "Authentication service temporarily unavailable. Please try again.".into(),
-                ));
-            }
-            // Fail open in development for convenience
-        }
+    // Check if account is locked before any validation.
+    if let Some(remaining_seconds) = check_sign_in_lockout(&redis_url, &lockout_key).await? {
+        warn!(email = %login_data.email, remaining_seconds, "Login attempt on locked account");
+        record_canonical(&request, "outcome", "account_locked");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} minutes.",
+                (remaining_seconds / 60) + 1
+            ),
+            remaining_seconds,
+        ));
     }
 
     let mut conn = helpers::db_conn(&db_pool)?;
@@ -886,6 +911,22 @@ pub async fn mfa_login(
     login_data: web::Json<crate::models::MfaLoginRequest>,
     request: actix_web::HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
+    // The login lockout, checked before the password so a locked account
+    // answers the same either way. Wrong passwords and wrong codes both count.
+    let redis_url = get_redis_url();
+    let client_ip = crate::utils::client_ip::from_http_request(&request);
+    let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
+    if let Some(remaining_seconds) = check_sign_in_lockout(&redis_url, &lockout_key).await? {
+        record_canonical(&request, "outcome", "account_locked");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} minutes.",
+                (remaining_seconds / 60) + 1
+            ),
+            remaining_seconds,
+        ));
+    }
+
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let user = match crate::utils::login_timing::verify_credentials(
@@ -894,7 +935,12 @@ pub async fn mfa_login(
         &login_data.password,
     ) {
         Some(u) => u,
-        None => return Err(ApiError::Unauthorized("Invalid email or password".into())),
+        None => {
+            if let Some(locked) = record_sign_in_failure(&redis_url, &lockout_key).await {
+                return Ok(locked);
+            }
+            return Err(ApiError::Unauthorized("Invalid email or password".into()));
+        }
     };
 
     // Check that user actually has MFA enabled
@@ -936,6 +982,9 @@ pub async fn mfa_login(
         Err(e) => {
             mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
             record_mfa(&mut conn, false);
+            if let Some(locked) = record_sign_in_failure(&redis_url, &lockout_key).await {
+                return Ok(locked);
+            }
             return Err(ApiError::BadRequest(format!(
                 "MFA verification failed: {}",
                 e
@@ -946,12 +995,18 @@ pub async fn mfa_login(
     if !mfa_result.is_valid {
         mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
         record_mfa(&mut conn, false);
+        if let Some(locked) = record_sign_in_failure(&redis_url, &lockout_key).await {
+            return Ok(locked);
+        }
         return Err(ApiError::BadRequest("Invalid MFA token".into()));
     }
 
     // Log successful MFA attempt
     mfa::log_mfa_attempt(&user.uuid, true, "login", &request).await;
     record_mfa(&mut conn, true);
+    if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
+        warn!(error = %e, "Failed to clear login attempts after successful MFA login");
+    }
 
     complete_mfa_login(
         user,
@@ -974,27 +1029,15 @@ pub async fn recovery_login(
     let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
 
     // Check if account is locked before any validation
-    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
-        Ok(Some(remaining_seconds)) => {
-            warn!(email = %login_data.email, remaining_seconds, "Recovery login attempt on locked account");
-            return Ok(errors::too_many_requests(
-                format!(
-                    "Account temporarily locked. Try again in {} minutes.",
-                    (remaining_seconds / 60) + 1
-                ),
-                remaining_seconds,
-            ));
-        }
-        Ok(None) => {} // Not locked, continue
-        Err(e) => {
-            error!(error = %e, "Redis error checking account lockout for recovery login");
-            let is_production = crate::config_utils::assume_production();
-            if is_production {
-                return Err(ApiError::ServiceUnavailable(
-                    "Authentication service temporarily unavailable. Please try again.".into(),
-                ));
-            }
-        }
+    if let Some(remaining_seconds) = check_sign_in_lockout(&redis_url, &lockout_key).await? {
+        warn!(email = %login_data.email, remaining_seconds, "Recovery login attempt on locked account");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} minutes.",
+                (remaining_seconds / 60) + 1
+            ),
+            remaining_seconds,
+        ));
     }
 
     let mut conn = helpers::db_conn(&db_pool)?;
@@ -2021,21 +2064,15 @@ pub async fn mfa_setup_login(
     let lockout_key = RateLimiter::login_attempt_key(&email_lower, client_ip);
 
     // Check if account is locked before any validation
-    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
-        Ok(Some(remaining_seconds)) => {
-            warn!(email = %email_lower, remaining_seconds, "MFA setup attempt on locked account");
-            return Ok(errors::too_many_requests(
-                format!(
-                    "Account temporarily locked. Try again in {} seconds.",
-                    remaining_seconds
-                ),
-                remaining_seconds,
-            ));
-        }
-        Ok(None) => {} // Not locked, continue
-        Err(e) => {
-            warn!("Failed to check account lockout: {:?}", e);
-        }
+    if let Some(remaining_seconds) = check_sign_in_lockout(&redis_url, &lockout_key).await? {
+        warn!(email = %email_lower, remaining_seconds, "MFA setup attempt on locked account");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} seconds.",
+                remaining_seconds
+            ),
+            remaining_seconds,
+        ));
     }
 
     let mut conn = helpers::db_conn(&db_pool)?;
@@ -2144,21 +2181,15 @@ pub async fn mfa_enable_login(
     let lockout_key = RateLimiter::login_attempt_key(&email_lower, client_ip);
 
     // Check if account is locked before any validation
-    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
-        Ok(Some(remaining_seconds)) => {
-            warn!(email = %email_lower, remaining_seconds, "MFA enable attempt on locked account");
-            return Ok(errors::too_many_requests(
-                format!(
-                    "Account temporarily locked. Try again in {} seconds.",
-                    remaining_seconds
-                ),
-                remaining_seconds,
-            ));
-        }
-        Ok(None) => {} // Not locked, continue
-        Err(e) => {
-            warn!("Failed to check account lockout: {:?}", e);
-        }
+    if let Some(remaining_seconds) = check_sign_in_lockout(&redis_url, &lockout_key).await? {
+        warn!(email = %email_lower, remaining_seconds, "MFA enable attempt on locked account");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} seconds.",
+                remaining_seconds
+            ),
+            remaining_seconds,
+        ));
     }
 
     let mut conn = helpers::db_conn(&db_pool)?;
