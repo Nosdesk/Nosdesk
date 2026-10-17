@@ -1089,6 +1089,8 @@ admin-clear-search = Effacer la recherche
 admin-index-subtitle = Gérez vos paramètres système, intégrations et la configuration de l'espace de travail
 
 admin-nav-group-tickets = Tickets et workflow
+# Groupe « Portail d'assistance » (machine, à relire par un locuteur natif).
+admin-nav-group-help-portal = Portail d'assistance
 admin-nav-group-integrations = Intégrations
 admin-nav-group-compliance = Conformité
 admin-nav-group-appearance = Apparence et notifications
