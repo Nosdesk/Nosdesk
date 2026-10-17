@@ -1133,12 +1133,12 @@ pub async fn list_starter_catalog(
     req: HttpRequest,
     mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
-    use crate::services::starter_catalog::{self, MissingTags, WorkspaceRefs};
+    use crate::services::starter_catalog::{self, Purpose, ResolveError, WorkspaceRefs};
 
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let locale = request_locale(&req);
     let dtos = tc
-        .run(|conn| {
+        .run_result(|conn| {
             let mut refs = WorkspaceRefs::default();
             starter_catalog::list()
                 .iter()
@@ -1149,12 +1149,16 @@ pub async fn list_starter_catalog(
                         description: r.description_for(&locale).to_string(),
                         trigger_kind: r.trigger_kind.clone(),
                         conditions: r.conditions.clone(),
-                        actions: refs.resolve_actions(conn, r, &locale, MissingTags::Name)?,
+                        actions: refs.resolve_actions(conn, r, &locale, Purpose::Browse)?,
                     })
                 })
-                .collect::<diesel::QueryResult<Vec<_>>>()
+                .collect::<Result<Vec<_>, ResolveError>>()
         })
-        .map_err(ApiError::Database)?;
+        .map_err(|e| match e {
+            ResolveError::Db(e) => ApiError::Database(e),
+            // Browsing leaves a step without a status instead of refusing.
+            ResolveError::NoStatusIn(_) => ApiError::Internal("starter status unresolved".into()),
+        })?;
     Ok(HttpResponse::Ok().json(dtos))
 }
 
@@ -1164,14 +1168,15 @@ pub async fn list_starter_catalog(
 /// Named statuses and tags resolve in the workspace, and a named tag
 /// the workspace doesn't have is created, all in one transaction with
 /// the rule. The rule goes through the same checks as one written in
-/// the editor, so a status category the workspace has no state in is
-/// refused (`RULE_VALIDATION`, "pick a status") and nothing is saved.
+/// the editor. A starter that moves tickets to a status category the
+/// workspace has no state in (none, or all archived) is refused with
+/// `STARTER_STATUS_MISSING` before anything is written.
 pub async fn add_starter(
     req: HttpRequest,
     path: web::Path<String>,
     mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
-    use crate::services::starter_catalog::{self, MissingTags, WorkspaceRefs};
+    use crate::services::starter_catalog::{self, Purpose, ResolveError, WorkspaceRefs};
 
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let Some(workspace_id) = actor_workspace_id(&req) else {
@@ -1183,12 +1188,14 @@ pub async fn add_starter(
     let locale = request_locale(&req);
     let created_by = actor_uuid(&req);
     created_response(tc.run_result(|conn| {
-        let actions = WorkspaceRefs::default().resolve_actions(
-            conn,
-            starter,
-            &locale,
-            MissingTags::Create,
-        )?;
+        let actions = WorkspaceRefs::default()
+            .resolve_actions(conn, starter, &locale, Purpose::Add)
+            .map_err(|e| match e {
+                ResolveError::Db(e) => InsertRuleError::Db(e),
+                ResolveError::NoStatusIn(category) => {
+                    refused(starter_status_missing(&req, category))
+                }
+            })?;
         let description = starter.description_for(&locale);
         insert_rule(
             conn,
@@ -1206,6 +1213,27 @@ pub async fn add_starter(
             },
         )
     }))
+}
+
+/// 400 for a starter that moves tickets to `category` in a workspace with
+/// no state there, naming the category as the Workflow page does.
+fn starter_status_missing(
+    req: &HttpRequest,
+    category: crate::models::WorkflowStateCategory,
+) -> HttpResponse {
+    use crate::utils::{i18n, locale};
+
+    let locale = locale::request_locale(req);
+    let label_key = format!("workflow-category-{}", category.as_str().replace('_', "-"));
+    let label = i18n::tr(&locale, &label_key);
+    errors::bad_request_with_code(
+        i18n::tr_with(
+            &locale,
+            "backend-error-starter-status-missing",
+            &[("category", label.into())],
+        ),
+        "STARTER_STATUS_MISSING",
+    )
 }
 
 // =====================================================================

@@ -333,9 +333,19 @@ async fn adding_a_starter_saves_a_draft_with_its_steps_resolved() {
     assert!(tags_named(&setup, b, "duplicate").is_empty());
 }
 
-/// The editor refuses a status step without a status, and a starter is held
-/// to the same check: in a workspace with no state in the category, adding
-/// it is refused and nothing is saved.
+fn tag_count(pool: &TestPool, ws: &WorkspaceSeed) -> i64 {
+    let mut conn = pool.get().expect("conn");
+    tags::table
+        .filter(tags::workspace_id.eq(ws.workspace_id))
+        .count()
+        .get_result(&mut conn)
+        .expect("tags")
+}
+
+/// In a workspace with no state in a starter's status category, the browse
+/// list leaves the step without a status, and adding the starter is
+/// refused with a reason that names the category, in the caller's
+/// language. Nothing is saved.
 #[actix_web::test]
 async fn a_status_category_with_no_state_refuses_the_starter() {
     common::ensure_test_keyring();
@@ -364,11 +374,26 @@ async fn a_status_category_with_no_state_refuses_the_starter() {
         &json!({})
     );
 
+    let tags_before = tag_count(&setup, a);
     let resp = add(&pool, a, "en-US", "mark-resolved-with-summary").await;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     let body: Value = http_test::read_body_json(resp).await;
-    assert_eq!(body["code"], "RULE_VALIDATION", "{body}");
+    assert_eq!(body["code"], "STARTER_STATUS_MISSING", "{body}");
+    assert_eq!(
+        body["error"],
+        "This starter moves tickets to a status in the Done category, and your workspace \
+         doesn't have one. Add one in Workflow, then try again.",
+        "{body}"
+    );
 
+    let resp = add(&pool, a, "fr-FR", "mark-resolved-with-summary").await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: Value = http_test::read_body_json(resp).await;
+    assert_eq!(body["code"], "STARTER_STATUS_MISSING", "{body}");
+    let message = body["error"].as_str().expect("message");
+    assert!(message.contains("Terminé"), "{body}");
+
+    assert_eq!(tag_count(&setup, a), tags_before, "no tag created");
     let mut conn = setup.get().expect("conn");
     let saved: i64 = rules::table
         .filter(rules::workspace_id.eq(a.workspace_id))
@@ -376,6 +401,59 @@ async fn a_status_category_with_no_state_refuses_the_starter() {
         .get_result(&mut conn)
         .expect("rules");
     assert_eq!(saved, 0);
+}
+
+/// A starter that names a tag before a status the workspace doesn't have
+/// is refused before the tag is created, whatever order its steps are in.
+#[actix_web::test]
+async fn a_missing_status_is_refused_before_any_tag_is_created() {
+    use backend::services::starter_catalog::{Purpose, ResolveError, StarterRule, WorkspaceRefs};
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let setup = db.pool_with_size(1);
+    let pool = db.runtime_pool(2);
+    let a = &seeded.a;
+
+    in_workspace(&setup, a, |c| {
+        diesel::update(
+            workflow_states::table
+                .filter(workflow_states::workspace_id.eq(a.workspace_id))
+                .filter(workflow_states::category.eq(WorkflowStateCategory::Active)),
+        )
+        .set(workflow_states::archived_at.eq(Some(chrono::Utc::now())))
+        .execute(c)
+    });
+
+    let rule = StarterRule {
+        id: "tag-then-status".into(),
+        name_en: "Tag then status".into(),
+        name_fr: "Tag then status".into(),
+        name_nl: "Tag then status".into(),
+        description_en: String::new(),
+        description_fr: String::new(),
+        description_nl: String::new(),
+        trigger_kind: "manual".into(),
+        conditions: json!([]),
+        actions: json!([
+            { "kind": "add_tags", "config": { "tag_names": { "en": ["picked-up"] } } },
+            { "kind": "set_status", "config": { "category": "active" } },
+        ]),
+    };
+    let tags_before = tag_count(&setup, a);
+    let result = in_workspace(&pool, a, |c| {
+        Ok(WorkspaceRefs::default().resolve_actions(c, &rule, "en-US", Purpose::Add))
+    });
+    assert!(
+        matches!(
+            result,
+            Err(ResolveError::NoStatusIn(WorkflowStateCategory::Active))
+        ),
+        "{result:?}"
+    );
+    assert_eq!(tag_count(&setup, a), tags_before, "no tag created");
+    assert!(tags_named(&setup, a, "picked-up").is_empty());
 }
 
 #[actix_web::test]
