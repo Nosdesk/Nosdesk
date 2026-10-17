@@ -812,7 +812,7 @@ pub fn restore_backup_files(
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
-        let name = file.name().to_string();
+        let name = file.name()?.to_string();
 
         if name.starts_with("files/") && !name.ends_with('/') {
             let relative_path = name.strip_prefix("files/").unwrap();
