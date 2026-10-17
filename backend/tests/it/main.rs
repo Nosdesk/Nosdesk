@@ -138,7 +138,7 @@ mod profile_write_authz;
 mod project_ticket_visibility;
 mod projection_membership_role_model;
 mod push_preference_defaults;
-mod rate_limit_log_redaction;
+mod rate_limit_middleware;
 mod rebuild_search_index;
 mod recurring_tickets;
 mod reply_sent_twice;

@@ -19,6 +19,7 @@ mod common;
 use actix_web::dev::ServiceRequest;
 use actix_web::{http::StatusCode, test, App};
 use backend::config::Config;
+use backend::middleware::RequestLimiter;
 use backend::startup::{build_state, configure_app};
 
 fn test_redis() -> String {
@@ -29,15 +30,17 @@ fn test_redis() -> String {
 }
 
 /// A permissive limiter for the smoke test; the real per-IP keying is exercised
-/// elsewhere. Just needs to be a live `Limiter` so `configure_app` can register
-/// the `web::Data<Limiter>` the scopes resolve by type.
-fn limiter(redis: &str, prefix: &'static str) -> actix_limitation::Limiter {
-    actix_limitation::Limiter::builder(redis)
-        .key_by(move |_: &ServiceRequest| Some(format!("{prefix}:smoke")))
-        .limit(10_000)
-        .period(std::time::Duration::from_secs(60))
-        .build()
-        .expect("build test limiter")
+/// elsewhere. Just needs to be a live limiter so `configure_app` can register
+/// the `web::Data<RequestLimiter>` the scopes resolve by type.
+fn limiter(redis: &str, prefix: &'static str) -> RequestLimiter {
+    RequestLimiter::build(
+        prefix,
+        redis,
+        10_000,
+        std::time::Duration::from_secs(60),
+        move |_: &ServiceRequest| Some(format!("{prefix}:smoke")),
+    )
+    .expect("build test limiter")
 }
 
 #[actix_web::test]

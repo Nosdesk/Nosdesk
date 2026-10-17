@@ -494,8 +494,8 @@ pub async fn submit_guest_ticket(
     // sliding-window helper (matches auth / MFA rate limiting). Fail-open on
     // Redis errors so a misconfigured cache doesn't take down submissions —
     // this mirrors the existing helper's behavior and the app's other
-    // fail-open limiters. The baseline actix-limitation middleware still
-    // enforces the coarse per-minute cap underneath.
+    // fail-open limiters. The scope's rate-limit middleware enforces the
+    // coarse per-minute cap underneath, and fails open on Redis errors too.
     // Keyed per workspace (hosted tenants each set their own limit), and IPv6
     // by its /64.
     if let Some(ip) = client_ip(&req).map(|n| n.ip()) {
