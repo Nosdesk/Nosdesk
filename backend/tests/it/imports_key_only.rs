@@ -6,6 +6,7 @@
 //! mapping, since every row creates.
 
 use actix_web::http::StatusCode;
+use actix_web::test::TestRequest;
 use diesel::prelude::*;
 use diesel::sql_types::{Integer, Nullable, Text};
 
@@ -212,7 +213,7 @@ async fn only_update_existing_needs_no_name_or_kind() {
         vec![(
             6,
             Some("asset_tag".to_string()),
-            "not found: no asset has this tag".to_string()
+            "no asset with tag QA-I1-009".to_string()
         )]
     );
 
@@ -222,6 +223,95 @@ async fn only_update_existing_needs_no_name_or_kind() {
     assert_eq!(outcome_of(&after, "QA-I1-009"), "skipped");
     assert_moved(&pool);
     assert_eq!(stored(&pool, "QA-I1-009"), None);
+}
+
+/// Under Only update existing an unmatched row reads "no asset with tag
+/// {tag}" (or the serial equivalent), and the rows that have one group as
+/// a single problem whose download holds every one of them.
+#[actix_web::test]
+async fn unmatched_rows_name_their_key_and_group_as_one_problem() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    seed_assets(&pool, &ws);
+
+    let file = format!("{MOVES}QA-I1-011,QA i1 Room 4\n");
+    let job = checked(
+        &pool,
+        &ws,
+        &file,
+        MAPPING,
+        serde_json::json!({ "mode": "update_only" }),
+    )
+    .await;
+    assert_eq!(
+        errors(&job),
+        vec![
+            (
+                6,
+                Some("asset_tag".to_string()),
+                "no asset with tag QA-I1-009".to_string()
+            ),
+            (
+                8,
+                Some("asset_tag".to_string()),
+                "no asset with tag QA-I1-011".to_string()
+            ),
+        ]
+    );
+    let groups = job["summary"]["error_groups"].as_array().expect("groups");
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["column"], "asset_tag");
+    assert_eq!(groups[0]["message"], "no asset with this tag");
+    assert_eq!(groups[0]["count"], 2);
+    assert_eq!(groups[0]["fix"], "download");
+
+    let id = id_of(&job);
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        TestRequest::get().uri(&format!("/api/admin/import/{id}/error-report?group=0")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let report = String::from_utf8_lossy(&body).into_owned();
+    let lines: Vec<&str> = report.trim_start_matches('\u{FEFF}').lines().collect();
+    assert_eq!(lines.len(), 3, "{report}");
+    assert!(lines[1].contains("no asset with tag QA-I1-009"), "{report}");
+    assert!(lines[2].contains("no asset with tag QA-I1-011"), "{report}");
+
+    // Matched by serial number.
+    diesel::sql_query("UPDATE assets SET serial_number = 'SN-1' WHERE asset_tag = 'QA-I1-001'")
+        .execute(&mut pool.get().expect("conn"))
+        .expect("set serial");
+    let job = checked(
+        &pool,
+        &ws,
+        "serial_number,location\nSN-1,Studio C\nSN-404,Studio C\nSN-405,Studio C\n",
+        &[("serial_number", "serial_number"), ("location", "location")],
+        serde_json::json!({ "mode": "update_only", "match_by": "serial_number" }),
+    )
+    .await;
+    assert_eq!(
+        errors(&job),
+        vec![
+            (
+                3,
+                Some("serial_number".to_string()),
+                "no asset with serial number SN-404".to_string()
+            ),
+            (
+                4,
+                Some("serial_number".to_string()),
+                "no asset with serial number SN-405".to_string()
+            ),
+        ]
+    );
+    let groups = job["summary"]["error_groups"].as_array().expect("groups");
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["message"], "no asset with this serial number");
+    assert_eq!(groups[0]["count"], 2);
 }
 
 /// Only create new: every row creates, so Map refuses a file with no Name.

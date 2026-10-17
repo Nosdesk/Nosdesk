@@ -741,7 +741,7 @@ impl Importer for AssetImporter {
                     }
                     result
                 }
-                Err(field_errors) => RowResult::skipped(entry.source_row, field_errors),
+                Err(field_errors) => skipped(entry.source_row, field_errors),
             };
             plan.rows
                 .push(identify(result, row, &lookups, &ctx.options));
@@ -788,7 +788,7 @@ impl Importer for AssetImporter {
                 Ok(planned) => planned,
                 Err(field_errors) => {
                     rows.push(identify(
-                        RowResult::skipped(row_num, field_errors),
+                        skipped(row_num, field_errors),
                         row,
                         &lookups,
                         options,
@@ -1550,6 +1550,32 @@ pub const NAME_REQUIRED: &str = "name is required";
 /// asset that already exists.
 pub const ALREADY_EXISTS: &str = "already exists";
 
+/// How the reason begins for a row skipped under
+/// [`ImportMode::UpdateOnly`] because no asset has its tag: "no asset
+/// with tag TVS-0410". Rows group under [`NO_ASSET_WITH_THIS_TAG`].
+pub const NO_ASSET_WITH_TAG: &str = "no asset with tag ";
+pub const NO_ASSET_WITH_THIS_TAG: &str = "no asset with this tag";
+/// As [`NO_ASSET_WITH_TAG`], for a serial-matched import.
+pub const NO_ASSET_WITH_SERIAL: &str = "no asset with serial number ";
+pub const NO_ASSET_WITH_THIS_SERIAL: &str = "no asset with this serial number";
+/// Why a row with no key is skipped under [`ImportMode::UpdateOnly`].
+pub const NO_TAG_TO_MATCH: &str = "no asset tag to match an asset by";
+pub const NO_SERIAL_TO_MATCH: &str = "no serial number to match an asset by";
+
+/// A row skipped for `errors`, a not-found reason grouped with the other
+/// rows that have one.
+fn skipped(row: usize, errors: Vec<(Option<String>, String)>) -> RowResult {
+    let mut result = RowResult::skipped(row, errors);
+    for e in &mut result.errors {
+        if e.message.starts_with(NO_ASSET_WITH_TAG) {
+            e.group = Some(NO_ASSET_WITH_THIS_TAG.to_string());
+        } else if e.message.starts_with(NO_ASSET_WITH_SERIAL) {
+            e.group = Some(NO_ASSET_WITH_THIS_SERIAL.to_string());
+        }
+    }
+    result
+}
+
 /// Check one row. On success returns what the commit will do with it; on
 /// failure returns the per-field errors. The dry-run and the commit both
 /// call this, in file order, so they agree on every row.
@@ -1629,12 +1655,12 @@ fn plan_row(
         }
         ImportMode::UpdateOnly if !matched => {
             let message = match (by_serial, key_value.is_empty()) {
-                (false, false) => "not found: no asset has this tag",
-                (false, true) => "not found: no asset tag to match an asset by",
-                (true, false) => "not found: no asset has this serial number",
-                (true, true) => "not found: no serial number to match an asset by",
+                (false, false) => format!("{NO_ASSET_WITH_TAG}{key_value}"),
+                (false, true) => NO_TAG_TO_MATCH.to_string(),
+                (true, false) => format!("{NO_ASSET_WITH_SERIAL}{key_value}"),
+                (true, true) => NO_SERIAL_TO_MATCH.to_string(),
             };
-            return Err(vec![(Some(key_column.to_string()), message.to_string())]);
+            return Err(vec![(Some(key_column.to_string()), message)]);
         }
         _ => {}
     }
