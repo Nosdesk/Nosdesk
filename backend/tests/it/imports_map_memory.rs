@@ -422,20 +422,20 @@ async fn only_update_existing_skips_unmatched_rows() {
                 3,
                 "UPD-9".to_string(),
                 "asset_tag".to_string(),
-                "not found: no asset has this tag".to_string()
+                "no asset with tag UPD-9".to_string()
             ),
             (
                 4,
                 String::new(),
                 "asset_tag".to_string(),
-                "not found: no asset tag to match an asset by".to_string()
+                "no asset tag to match an asset by".to_string()
             ),
         ]
     );
     let (status, report) = get(&pool, &ws, &format!("/api/admin/import/{id}/error-report")).await;
     assert_eq!(status, StatusCode::OK);
     assert!(
-        report.contains("3,asset_tag: not found: no asset has this tag,New,generic,UPD-9"),
+        report.contains("3,asset_tag: no asset with tag UPD-9,New,generic,UPD-9"),
         "{report}"
     );
 

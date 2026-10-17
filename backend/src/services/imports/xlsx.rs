@@ -151,7 +151,7 @@ pub fn repack(bytes: &[u8]) -> Result<Vec<u8>, Refused> {
             if raw.encrypted() {
                 return Err(protected());
             }
-            raw.name().to_string()
+            raw.name().map_err(|_| unreadable())?.to_string()
         };
         if !part_needed(&name) || !names.insert(name.clone()) {
             continue;

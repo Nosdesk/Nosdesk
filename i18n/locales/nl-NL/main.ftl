@@ -4731,6 +4731,14 @@ import-remove-failed = Het verwijderen van de geïmporteerde assets is mislukt e
 # MT: pending native review (nl-NL)
 import-remove-already-removed = De activa die deze import heeft gemaakt, zijn al verwijderd.
 # MT: pending native review (nl-NL)
+import-remove-nothing-none-created = Deze import heeft geen assets aangemaakt, dus er is niets te verwijderen.
+# MT: pending native review (nl-NL)
+import-remove-nothing-all-gone = De assets die deze import heeft aangemaakt, zijn al verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-nothing-all-changed = Elke asset die deze import heeft aangemaakt, is sindsdien gewijzigd, dus er is niets verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-not-committed = Deze import is niet doorgevoerd, dus er is niets aangemaakt om te verwijderen.
+# MT: pending native review (nl-NL)
 import-remove-still-running = Nog bezig met verwijderen. Deze pagina wordt bijgewerkt zodra het klaar is.
 # MT: pending native review (nl-NL)
 import-remove-still-running-later = Het verwijderen duurt langer dan verwacht. Kom later terug naar deze pagina om te zien hoe het is afgelopen.

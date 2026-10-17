@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { FluentBundle, FluentResource } from '@fluent/bundle'
 
 import enUS from '../../../../../i18n/locales/en-US/main.ftl?raw'
-import { errorBody, refusalText } from '../refusals'
+import { errorBody, refusalText, removalRefusalText } from '../refusals'
 import { choiceLabel, localisesChoices } from '../choiceLabels'
 
 const t = (key: string, args?: Record<string, string | number>) =>
@@ -23,6 +23,19 @@ describe('refusals', () => {
     expect(refusalText(t, { error: 'English' })).toBe('English')
     expect(refusalText(t, {})).toBeNull()
     expect(refusalText(t, undefined)).toBeNull()
+  })
+
+  it('words a removal with nothing to delete by its reason, and an import not committed', () => {
+    const nothing = (reason: string) => ({ error: 'English', code: 'import_nothing_to_remove', args: { reason } })
+    expect(removalRefusalText(t, nothing('none_created'))).toBe('import-remove-nothing-none-created')
+    expect(removalRefusalText(t, nothing('all_gone'))).toBe('import-remove-nothing-all-gone')
+    expect(removalRefusalText(t, nothing('all_changed'))).toBe('import-remove-nothing-all-changed')
+    expect(removalRefusalText(t, nothing('later'))).toBe('English')
+    expect(removalRefusalText(t, { error: 'English', code: 'import_not_committed' })).toBe(
+      'import-remove-not-committed',
+    )
+    expect(removalRefusalText(t, { error: 'English', code: 'import_busy' })).toBeNull()
+    expect(removalRefusalText(t, undefined)).toBeNull()
   })
 
   it('reads the body of a failed request', () => {

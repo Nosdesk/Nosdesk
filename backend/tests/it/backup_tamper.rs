@@ -24,7 +24,7 @@ fn tamper_backup(path: &std::path::Path) {
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(&mut out));
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i).unwrap();
-            let name = entry.name().to_string();
+            let name = entry.name().expect("entry name").to_string();
             let mut content = Vec::new();
             entry.read_to_end(&mut content).unwrap();
 
