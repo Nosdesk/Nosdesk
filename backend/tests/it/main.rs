@@ -17,6 +17,7 @@
 mod common;
 
 mod add_requester;
+mod admin_grant_needs_owner;
 mod admin_workspace_members;
 mod analytics_breakdown_labels;
 mod analytics_kpi_summary;
