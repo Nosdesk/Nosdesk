@@ -61,6 +61,22 @@ jobs:
             exit 1
           fi
           echo "Tag $TAG matches backend version $crate."
+      # LICENSE's Licensed Work names a release of the tag's minor (1.1.1
+      # ships under "Nosdesk 1.1.0"). A new minor's release PR names it and
+      # sets its Change Date: 2029-10-29 through 1.1.x, 2030-01-01 from 1.2.0.
+      - name: Compare the tag with LICENSE's Licensed Work
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          named=$(sed -n 's/^Licensed Work: *Nosdesk \([0-9.]*\)$/\1/p' LICENSE)
+          tag=${TAG#v}
+          tag=${tag%%-*}
+          if [ "${named%.*}" != "${tag%.*}" ]; then
+            echo "::error::LICENSE names Nosdesk $named, not a ${tag%.*} release. Set its Licensed Work and Change Date in the release PR first."
+            exit 1
+          fi
+          echo "LICENSE names Nosdesk $named."
 
   codeql-gate:
     name: CodeQL gate
