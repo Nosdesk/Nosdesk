@@ -44,6 +44,18 @@ ignore = [
     # range is >=0.4.16, so our 0.4 line can never match it again. Drop
     # this entry when actix-web moves to h2 0.4.
     { id = "RUSTSEC-2026-0258", reason = "0.4 line patched to 0.4.16; no patched 0.3.x exists" },
+    # RUSTSEC-2026-0367, -0368, -0369 - zip's extract APIs
+    # (`ZipArchive::extract`, `ZipStreamReader::extract`) keep SUID/SGID
+    # bits and follow or create symlinks outside the destination. Patched in
+    # 9.0.0; our direct dependency is on 9.
+    #
+    # The remaining hit is zip 8.6, which calamine 0.36 (the .xlsx reader)
+    # requires as ^8.6. calamine reads workbook entries in memory and never
+    # extracts to disk, and nothing here calls the extract APIs. Drop these
+    # entries when calamine moves to zip 9.
+    { id = "RUSTSEC-2026-0367", reason = "extract APIs unused; zip 8.6 only via calamine" },
+    { id = "RUSTSEC-2026-0368", reason = "extract APIs unused; zip 8.6 only via calamine" },
+    { id = "RUSTSEC-2026-0369", reason = "extract APIs unused; zip 8.6 only via calamine" },
 ]
 
 [bans]
