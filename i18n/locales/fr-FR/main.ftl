@@ -4741,6 +4741,14 @@ import-remove-failed = La suppression des actifs importés a échoué et rien n'
 # MT: pending native review (fr-FR)
 import-remove-already-removed = Les actifs créés par cet import ont déjà été supprimés.
 # MT: pending native review (fr-FR)
+import-remove-nothing-none-created = Cet import n'a créé aucun actif, il n'y a donc rien à supprimer.
+# MT: pending native review (fr-FR)
+import-remove-nothing-all-gone = Les actifs créés par cet import ont déjà été supprimés.
+# MT: pending native review (fr-FR)
+import-remove-nothing-all-changed = Chaque actif créé par cet import a été modifié depuis, donc rien n'a été supprimé.
+# MT: pending native review (fr-FR)
+import-remove-not-committed = Cet import n'a pas été validé, il n'a donc rien créé à supprimer.
+# MT: pending native review (fr-FR)
 import-remove-still-running = Suppression en cours. Cette page se met à jour une fois terminée.
 # MT: pending native review (fr-FR)
 import-remove-still-running-later = La suppression prend plus de temps que prévu. Revenez sur cette page plus tard pour voir le résultat.

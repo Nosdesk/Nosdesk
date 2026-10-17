@@ -30,6 +30,7 @@ import {
   type RemovalPlan,
 } from '@nosdesk/core/services/importService'
 
+import { errorBody, removalRefusalText } from './refusals'
 import { dialogMessage, reasonLine, removalState, resultLine } from './removeModel'
 
 const props = defineProps<{
@@ -113,12 +114,17 @@ async function waitForRemoval() {
   }
 }
 
-/** A refusal that means the job moved on: say so and show it as it is. */
-async function refusedAfterChange(code: string | undefined): Promise<boolean> {
+/** A refusal: say why and show the job as it is now. `false` for a
+ *  failure that isn't one. */
+async function refused(e: unknown): Promise<boolean> {
+  const code = codeOf(e).code
+  const worded = removalRefusalText(t, errorBody(e))
   if (code === 'import_already_removed') {
     errorMessage.value = t('import-remove-already-removed')
   } else if (code === 'import_removal_window_closed') {
     errorMessage.value = t('import-remove-window-closed', { date: closesOn.value })
+  } else if (worded) {
+    errorMessage.value = worded
   } else {
     return false
   }
@@ -135,7 +141,7 @@ async function openDialog() {
     plan.value = await importService.removalPlan(props.job.id)
     showDialog.value = true
   } catch (e) {
-    if (!(await refusedAfterChange(codeOf(e).code))) errorMessage.value = t('import-remove-load-failed')
+    if (!(await refused(e))) errorMessage.value = t('import-remove-load-failed')
   } finally {
     checking.value = false
   }
@@ -151,7 +157,7 @@ async function confirm() {
     emit('removed', updated)
   } catch (e) {
     showDialog.value = false
-    if (await refusedAfterChange(codeOf(e).code)) return
+    if (await refused(e)) return
     if (mayStillRun(e)) {
       await waitForRemoval()
       return

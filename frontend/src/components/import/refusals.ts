@@ -55,3 +55,28 @@ export function refusalText(t: Translate, body: ErrorBody | undefined): string |
   if (key) return t(key, body.args ?? {})
   return typeof body.error === 'string' ? body.error : null
 }
+
+/** The wording of each reason a removal found nothing to delete. */
+const NOTHING_TO_REMOVE_KEYS: Record<string, string> = {
+  none_created: 'import-remove-nothing-none-created',
+  all_gone: 'import-remove-nothing-all-gone',
+  all_changed: 'import-remove-nothing-all-changed',
+}
+
+/** Why Remove imported assets was refused, for the refusals that leave
+ *  the job as it was: nothing to delete (by `args.reason`) or an import
+ *  that wasn't committed. `null` for any other refusal. */
+export function removalRefusalText(t: Translate, body: ErrorBody | undefined): string | null {
+  switch (body?.code) {
+    case 'import_nothing_to_remove': {
+      const reason = body.args?.reason
+      const key = typeof reason === 'string' ? NOTHING_TO_REMOVE_KEYS[reason] : undefined
+      if (key) return t(key)
+      return typeof body.error === 'string' ? body.error : null
+    }
+    case 'import_not_committed':
+      return t('import-remove-not-committed')
+    default:
+      return null
+  }
+}

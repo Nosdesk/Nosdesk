@@ -64,12 +64,14 @@ export function keptGroups(t: Translate, kept: KeptAsset[]): string {
 
 /** The dialog's body: what the import created, what goes and what stays,
  *  the catalog entries that go with them, and the webhook line when a
- *  webhook hears about assets. */
+ *  webhook hears about assets. An import that created no assets says
+ *  only that. */
 export function dialogMessage(
   t: Translate,
   plan: RemovalPlan,
   opts: { webhooks: boolean; list: (items: string[]) => string },
 ): string {
+  if (plan.created === 0) return t('import-remove-nothing-none-created')
   const parts = [t('import-remove-created', { count: plan.created })]
   if (plan.deletable > 0) parts.push(t('import-remove-deletable', { count: plan.deletable }))
   if (plan.kept.length > 0) {

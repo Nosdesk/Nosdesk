@@ -2369,7 +2369,7 @@ pub async fn error_report(
                 .filter(|r| {
                     r.errors
                         .iter()
-                        .any(|e| e.column == group.column && e.message == group.message)
+                        .any(|e| e.column == group.column && e.group_message() == group.message)
                 })
                 .map(|r| report::ReportLine {
                     row: r.row,
@@ -3030,7 +3030,54 @@ enum RemoveOutcome {
     Refused(RemovalRefusal),
     Busy,
     TypeBusy,
-    NothingToRemove,
+    NothingToRemove(NothingToRemove),
+}
+
+/// Why a removal found nothing to delete. The client words it from
+/// `args.reason`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NothingToRemove {
+    /// The import only updated assets.
+    NoneCreated,
+    /// Every asset it created was deleted some other way.
+    AllGone,
+    /// Every asset it created that still exists has been changed since.
+    AllChanged,
+}
+
+impl NothingToRemove {
+    fn of(plan: &remove::RemovalPlan) -> Self {
+        if plan.created == 0 {
+            Self::NoneCreated
+        } else if plan.gone == plan.created {
+            Self::AllGone
+        } else {
+            Self::AllChanged
+        }
+    }
+
+    fn response(self) -> HttpResponse {
+        let (reason, message) = match self {
+            Self::NoneCreated => (
+                "none_created",
+                "This import created no assets, so there is nothing to remove.",
+            ),
+            Self::AllGone => (
+                "all_gone",
+                "The assets this import created were already deleted.",
+            ),
+            Self::AllChanged => (
+                "all_changed",
+                "Every asset this import created has been changed since, so nothing was deleted.",
+            ),
+        };
+        errors::with_fields(
+            actix_web::http::StatusCode::CONFLICT,
+            "import_nothing_to_remove",
+            message,
+            serde_json::json!({ "args": { "reason": reason } }),
+        )
+    }
 }
 
 /// Remove imported assets: delete the assets the import created that
@@ -3071,7 +3118,7 @@ pub async fn remove_created(
         };
         let plan = remove::plan(conn, &rows, true)?;
         if plan.deletable == 0 {
-            return Ok(RemoveOutcome::NothingToRemove);
+            return Ok(RemoveOutcome::NothingToRemove(NothingToRemove::of(&plan)));
         }
         let outcome = remove::remove(conn, &rows, plan, &deleted)?;
         let value = serde_json::to_value(&outcome)
@@ -3109,10 +3156,7 @@ pub async fn remove_created(
             "Another import of this type is being committed. Try again when it finishes.",
             "import_type_busy",
         ),
-        Ok(RemoveOutcome::NothingToRemove) => errors::conflict_with_code(
-            "Every asset this import created has been changed since, so nothing was deleted.",
-            "import_nothing_to_remove",
-        ),
+        Ok(RemoveOutcome::NothingToRemove(why)) => why.response(),
         Err(e) => {
             error!(job_id = %id, error = ?e, "failed to remove imported assets");
             errors::internal("Removing the imported assets failed and nothing was deleted.")
