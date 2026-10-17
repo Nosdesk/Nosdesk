@@ -14,7 +14,8 @@
 //! looks it up in the caller's workspace:
 //!
 //! - `set_status` with `{"category": "done"}`: the workspace's first
-//!   state in that category, as `workflow_state_id`.
+//!   state in that category, as `workflow_state_id`. Adding a starter
+//!   whose category has no state in the workspace is refused.
 //! - `add_tags` with `{"tag_names": {"en": [...], "fr": [...], "nl": [...]}}`:
 //!   the workspace's tags with those names (any case), as `tag_ids`.
 
@@ -95,15 +96,33 @@ pub fn tag_names(config: &Value, locale: &str) -> Option<Vec<String>> {
     )
 }
 
-/// What [`WorkspaceRefs::resolve_actions`] does with a named tag the
-/// workspace doesn't have.
+/// What [`WorkspaceRefs::resolve_actions`] resolves a starter for, which
+/// decides what happens to a named status or tag the workspace doesn't
+/// have.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MissingTags {
-    /// Leave it out of `tag_ids`. The step keeps `tag_names` (every
-    /// name, in the request locale) so the browse list can name it.
-    Name,
-    /// Create it, for adding the starter to the workspace.
-    Create,
+pub enum Purpose {
+    /// The browse list. A missing tag is left out of `tag_ids`, and the
+    /// step keeps `tag_names` (every name, in the request locale) so the
+    /// list can name it. A missing status leaves the step without one.
+    Browse,
+    /// Adding the starter to the workspace. A missing tag is created. A
+    /// missing status refuses the starter before anything is written.
+    Add,
+}
+
+/// Why [`WorkspaceRefs::resolve_actions`] couldn't resolve a starter.
+#[derive(Debug)]
+pub enum ResolveError {
+    /// A status step names a category the workspace has no state in
+    /// (none, or all archived). Only when adding.
+    NoStatusIn(WorkflowStateCategory),
+    Db(diesel::result::Error),
+}
+
+impl From<diesel::result::Error> for ResolveError {
+    fn from(e: diesel::result::Error) -> Self {
+        Self::Db(e)
+    }
 }
 
 /// Looks up a starter's named statuses and tags in the pinned
@@ -115,32 +134,44 @@ pub struct WorkspaceRefs {
 }
 
 impl WorkspaceRefs {
-    /// `rule`'s steps with named statuses and tags replaced by ids. A
-    /// status category the workspace has no state in leaves the step
-    /// without one.
+    /// `rule`'s steps with named statuses and tags replaced by ids. What
+    /// happens to a status or tag the workspace doesn't have depends on
+    /// `purpose`.
     pub fn resolve_actions(
         &mut self,
         conn: &mut DbConnection,
         rule: &StarterRule,
         locale: &str,
-        missing: MissingTags,
-    ) -> diesel::QueryResult<Value> {
+        purpose: Purpose,
+    ) -> Result<Value, ResolveError> {
         let Some(actions) = rule.actions.as_array() else {
             return Ok(rule.actions.clone());
         };
-        let mut resolved = Vec::with_capacity(actions.len());
+        // Statuses first, so a starter refused for a missing one has
+        // created no tags.
+        let mut statuses = Vec::with_capacity(actions.len());
         for action in actions {
+            let status = match action.get("kind").and_then(Value::as_str) {
+                Some("set_status") => action
+                    .get("config")
+                    .and_then(status_category)
+                    .map(|category| self.status_config(conn, category, purpose))
+                    .transpose()?,
+                _ => None,
+            };
+            statuses.push(status);
+        }
+        let mut resolved = Vec::with_capacity(actions.len());
+        for (action, status) in actions.iter().zip(statuses) {
             let kind = action.get("kind").and_then(Value::as_str);
             let config = action.get("config").unwrap_or(&Value::Null);
-            let config = match kind {
-                Some("set_status") => match status_category(config) {
-                    Some(category) => self.status_config(conn, category)?,
+            let config = match (kind, status) {
+                (_, Some(status)) => status,
+                (Some("add_tags"), None) => match tag_names(config, locale) {
+                    Some(names) => self.tags_config(conn, names, purpose)?,
                     None => config.clone(),
                 },
-                Some("add_tags") => match tag_names(config, locale) {
-                    Some(names) => self.tags_config(conn, names, missing)?,
-                    None => config.clone(),
-                },
+                (Some("set_status"), None) => config.clone(),
                 _ => {
                     resolved.push(action.clone());
                     continue;
@@ -157,11 +188,15 @@ impl WorkspaceRefs {
         &mut self,
         conn: &mut DbConnection,
         category: WorkflowStateCategory,
-    ) -> diesel::QueryResult<Value> {
+        purpose: Purpose,
+    ) -> Result<Value, ResolveError> {
         match workflow_states::first_in_category(conn, category) {
             Ok(state) => Ok(json!({ "workflow_state_id": state.id })),
-            Err(diesel::result::Error::NotFound) => Ok(json!({})),
-            Err(e) => Err(e),
+            Err(diesel::result::Error::NotFound) => match purpose {
+                Purpose::Browse => Ok(json!({})),
+                Purpose::Add => Err(ResolveError::NoStatusIn(category)),
+            },
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -169,7 +204,7 @@ impl WorkspaceRefs {
         &mut self,
         conn: &mut DbConnection,
         names: Vec<String>,
-        missing: MissingTags,
+        purpose: Purpose,
     ) -> diesel::QueryResult<Value> {
         if self.tags.is_none() {
             self.tags = Some(tags::list_tags(conn, true)?);
@@ -179,7 +214,7 @@ impl WorkspaceRefs {
         for name in &names {
             let id = match find_tag(known, name) {
                 Some(id) => Some(id),
-                None if missing == MissingTags::Create => {
+                None if purpose == Purpose::Add => {
                     let tag = tags::create_tag(
                         conn,
                         NewTag {
@@ -198,9 +233,9 @@ impl WorkspaceRefs {
                 ids.push(id);
             }
         }
-        Ok(match missing {
-            MissingTags::Name => json!({ "tag_ids": ids, "tag_names": names }),
-            MissingTags::Create => json!({ "tag_ids": ids }),
+        Ok(match purpose {
+            Purpose::Browse => json!({ "tag_ids": ids, "tag_names": names }),
+            Purpose::Add => json!({ "tag_ids": ids }),
         })
     }
 }

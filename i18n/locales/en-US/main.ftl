@@ -7942,6 +7942,7 @@ admin-rules-starters-added = Added
 admin-rules-starters-toast = Added { $name } as a draft.
 admin-rules-starters-error = Couldn't add that rule.
 admin-rules-starters-error-load = Couldn't load the starter rules.
+backend-error-starter-status-missing = This starter moves tickets to a status in the { $category } category, and your workspace doesn't have one. Add one in Workflow, then try again.
 admin-rules-activity-rule-unknown = Deleted rule
 admin-rules-activity-row-by-person = Applied to ticket #{ $ticket_id } by { $name }
 admin-rules-activity-what-it-did = What it did
@@ -8005,6 +8006,8 @@ ticket-actions-step-status-unknown = Change the status
 ticket-actions-step-assign = Assign to { $name }
 ticket-actions-step-assign-unknown = Assign to a specific person
 ticket-actions-step-unassign = Remove the assignee
+# A name inside a sentence, such as a tag a rule step adds.
+rule-step-quoted-name = “{ $name }”
 ticket-actions-step-add-tags =
     { $count ->
         [one] Add the tag { $tags }

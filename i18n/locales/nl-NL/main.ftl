@@ -8570,6 +8570,8 @@ admin-rules-starters-added = Toegevoegd
 admin-rules-starters-toast = { $name } toegevoegd als concept.
 admin-rules-starters-error = Kan die regel niet toevoegen.
 admin-rules-starters-error-load = Kan de kant-en-klare regels niet laden.
+# Machine, pending native review
+backend-error-starter-status-missing = Deze kant-en-klare regel zet tickets op een status in de categorie { $category }, en je werkruimte heeft er geen. Voeg er een toe in Workflow en probeer het opnieuw.
 admin-rules-activity-rule-unknown = Verwijderde regel
 admin-rules-activity-row-by-person = Op ticket #{ $ticket_id } toegepast door { $name }
 admin-rules-activity-what-it-did = Wat de regel deed
@@ -8629,6 +8631,8 @@ ticket-actions-step-status-unknown = De status wijzigen
 ticket-actions-step-assign = Toewijzen aan { $name }
 ticket-actions-step-assign-unknown = Toewijzen aan een bepaalde persoon
 ticket-actions-step-unassign = De toegewezen persoon verwijderen
+# A name inside a sentence, such as a tag a rule step adds (machine, pending native review)
+rule-step-quoted-name = ‘{ $name }’
 ticket-actions-step-add-tags =
     { $count ->
         [one] De tag { $tags } toevoegen

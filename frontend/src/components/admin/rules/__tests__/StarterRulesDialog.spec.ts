@@ -112,4 +112,16 @@ describe('StarterRulesDialog', () => {
     expect(toastSuccess).toHaveBeenCalledWith('admin-rules-starters-toast')
     expect(push).toHaveBeenCalledWith({ name: 'admin-rules-edit', params: { id: 12 } })
   })
+
+  it("shows the server's reason when it refuses a starter", async () => {
+    const reason = 'This starter moves tickets to a status in the Done category.'
+    rules.addStarter.mockRejectedValue({
+      response: { status: 400, data: { error: reason, code: 'STARTER_STATUS_MISSING' } },
+    })
+    await open()
+    items()[0].querySelector('button')!.click()
+    await flushPromises()
+    expect(document.body.textContent).toContain(reason)
+    expect(push).not.toHaveBeenCalled()
+  })
 })

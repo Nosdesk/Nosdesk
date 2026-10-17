@@ -103,9 +103,12 @@ async function add(starter: StarterRule) {
             <p v-if="starter.description" class="text-xs text-secondary">{{ starter.description }}</p>
             <p v-if="steps(starter)" class="text-xs text-tertiary">{{ steps(starter) }}</p>
           </div>
+          <!-- The box of a small Button (padding, border width, touch floor)
+               with no border or fill, so it lines up with the Add buttons
+               and spans the card on a phone as they do. -->
           <span
             v-if="isAdded(starter)"
-            class="inline-flex flex-shrink-0 items-center gap-1 text-xs text-secondary"
+            class="flex flex-shrink-0 items-center justify-center gap-1.5 whitespace-nowrap border border-transparent px-3 py-1.5 text-xs text-secondary pointer-coarse:min-h-9"
           >
             <Icon name="check" size="xs" />
             {{ t('admin-rules-starters-added') }}

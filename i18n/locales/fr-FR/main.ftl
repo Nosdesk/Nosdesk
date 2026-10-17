@@ -8579,6 +8579,8 @@ admin-rules-starters-added = Ajoutée
 admin-rules-starters-toast = { $name } ajoutée en brouillon.
 admin-rules-starters-error = Impossible d'ajouter cette règle.
 admin-rules-starters-error-load = Impossible de charger les règles prêtes à l'emploi.
+# Machine, pending native review
+backend-error-starter-status-missing = Cette règle prête à l'emploi passe les tickets à un statut de la catégorie { $category }, et votre espace de travail n'en a aucun. Ajoutez-en un dans Workflow, puis réessayez.
 admin-rules-activity-rule-unknown = Règle supprimée
 admin-rules-activity-row-by-person = Appliquée au ticket #{ $ticket_id } par { $name }
 admin-rules-activity-what-it-did = Ce qu'elle a fait
@@ -8638,6 +8640,8 @@ ticket-actions-step-status-unknown = Changer le statut
 ticket-actions-step-assign = Assigner à { $name }
 ticket-actions-step-assign-unknown = Assigner à une personne précise
 ticket-actions-step-unassign = Retirer la personne assignée
+# A name inside a sentence, such as a tag a rule step adds (machine, pending native review)
+rule-step-quoted-name = « { $name } »
 ticket-actions-step-add-tags =
     { $count ->
         [one] Ajouter l'étiquette { $tags }
