@@ -1085,6 +1085,8 @@ admin-clear-search = Zoekopdracht wissen
 admin-index-subtitle = Beheer uw systeeminstellingen, integraties en werkruimteconfiguratie
 
 admin-nav-group-tickets = Tickets en workflow
+# Groep "Hulpportaal" (machine, pending native review)
+admin-nav-group-help-portal = Hulpportaal
 admin-nav-group-integrations = Integraties
 admin-nav-group-compliance = Naleving
 admin-nav-group-appearance = Uiterlijk en meldingen

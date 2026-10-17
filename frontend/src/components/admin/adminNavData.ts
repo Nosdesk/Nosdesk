@@ -124,6 +124,46 @@ export const adminNavGroups: AdminNavGroup[] = [
     ]
   },
   {
+    labelKey: 'admin-nav-group-help-portal',
+    items: [
+      {
+        titleKey: 'admin-nav-requester-sso-title',
+        descriptionKey: 'admin-nav-requester-sso-description',
+        icon: 'lock',
+        route: '/admin/requester-sign-in',
+        keywords: ['sso', 'single sign-on', 'requester', 'portal', 'entra', 'microsoft', 'google', 'oidc', 'sign in']
+      },
+      {
+        titleKey: 'admin-nav-guest-access-title',
+        descriptionKey: 'admin-nav-guest-access-description',
+        icon: 'user',
+        route: '/admin/guest-access',
+        keywords: ['guest', 'public', 'anonymous', 'ticket submission', 'access', 'self-service']
+      },
+      {
+        titleKey: 'admin-nav-widget-title',
+        descriptionKey: 'admin-nav-widget-description',
+        icon: 'comment',
+        route: '/admin/widget',
+        keywords: ['widget', 'embed', 'website', 'chat', 'help button', 'launcher', 'intranet']
+      },
+      {
+        titleKey: 'admin-nav-teams-title',
+        descriptionKey: 'admin-nav-teams-description',
+        icon: 'microsoft',
+        route: '/admin/teams',
+        keywords: ['teams', 'microsoft', 'microsoft 365', 'outlook', 'tab', 'app', 'entra']
+      },
+      {
+        titleKey: 'admin-nav-notices-title',
+        descriptionKey: 'admin-nav-notices-description',
+        icon: 'info',
+        route: '/admin/notices',
+        keywords: ['notice', 'known issue', 'outage', 'incident', 'banner', 'announcement', 'maintenance']
+      }
+    ]
+  },
+  {
     labelKey: 'admin-nav-group-integrations',
     items: [
       {
@@ -207,41 +247,6 @@ export const adminNavGroups: AdminNavGroup[] = [
         keywords: ['license', 'licence', 'cloud', 'relay', 'push', 'enterprise', 'plan', 'subscription', 'key'],
         platformAdminOnly: true,
         selfHostedOnly: true
-      },
-      {
-        titleKey: 'admin-nav-requester-sso-title',
-        descriptionKey: 'admin-nav-requester-sso-description',
-        icon: 'lock',
-        route: '/admin/requester-sign-in',
-        keywords: ['sso', 'single sign-on', 'requester', 'portal', 'entra', 'microsoft', 'google', 'oidc', 'sign in']
-      },
-      {
-        titleKey: 'admin-nav-widget-title',
-        descriptionKey: 'admin-nav-widget-description',
-        icon: 'comment',
-        route: '/admin/widget',
-        keywords: ['widget', 'embed', 'website', 'chat', 'help button', 'launcher', 'intranet']
-      },
-      {
-        titleKey: 'admin-nav-teams-title',
-        descriptionKey: 'admin-nav-teams-description',
-        icon: 'microsoft',
-        route: '/admin/teams',
-        keywords: ['teams', 'microsoft', 'microsoft 365', 'outlook', 'tab', 'app', 'entra']
-      },
-      {
-        titleKey: 'admin-nav-notices-title',
-        descriptionKey: 'admin-nav-notices-description',
-        icon: 'info',
-        route: '/admin/notices',
-        keywords: ['notice', 'known issue', 'outage', 'incident', 'banner', 'announcement', 'maintenance']
-      },
-      {
-        titleKey: 'admin-nav-guest-access-title',
-        descriptionKey: 'admin-nav-guest-access-description',
-        icon: 'user',
-        route: '/admin/guest-access',
-        keywords: ['guest', 'public', 'anonymous', 'ticket submission', 'access', 'self-service']
       },
       {
         titleKey: 'admin-nav-auth-providers-title',

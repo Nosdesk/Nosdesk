@@ -1141,6 +1141,7 @@ admin-clear-search = Clear search
 admin-index-subtitle = Manage your system settings, integrations, and workspace configuration
 
 admin-nav-group-tickets = Tickets & Workflow
+admin-nav-group-help-portal = Help portal
 admin-nav-group-integrations = Integrations
 admin-nav-group-compliance = Compliance
 admin-nav-group-appearance = Appearance & Notifications
