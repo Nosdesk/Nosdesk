@@ -159,6 +159,18 @@ describe('dialogMessage', () => {
     )
   })
 
+  it('says only that an import that created no assets has nothing to remove', () => {
+    expect(
+      dialogMessage(t, plan({ created: 0, deletable: 0, gone: 0, kept: [] }), { webhooks: true, list }),
+    ).toBe('This import created no assets, so there is nothing to remove.')
+  })
+
+  it('says every asset the import created was already deleted', () => {
+    expect(
+      dialogMessage(t, plan({ created: 2, deletable: 0, gone: 2, kept: [] }), { webhooks: true, list }),
+    ).toBe('This import created 2 assets. 2 were already deleted.')
+  })
+
   it('groups the kept assets by their first reason, largest first', () => {
     expect(keptGroups(t, [...linked(1), ...edited(2)])).toBe('2 edited, 1 linked to a ticket')
   })

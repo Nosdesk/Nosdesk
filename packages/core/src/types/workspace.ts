@@ -36,6 +36,18 @@ export const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
   owner: 3,
 };
 
+/** Whether a caller holding `caller` may give someone `role`, mirroring the
+ *  backend's `can_assign`: owners give any role, admins only roles below
+ *  admin, and nobody else gives roles. */
+export function canAssignWorkspaceRole(
+  caller: WorkspaceRole | null | undefined,
+  role: WorkspaceRole,
+): boolean {
+  if (caller === 'owner') return true;
+  if (caller === 'admin') return WORKSPACE_ROLE_RANK[role] < WORKSPACE_ROLE_RANK.admin;
+  return false;
+}
+
 /** Server-returned workspace summary (`WorkspaceSummary` in admin_workspaces.rs). */
 export interface Workspace {
   id: number;

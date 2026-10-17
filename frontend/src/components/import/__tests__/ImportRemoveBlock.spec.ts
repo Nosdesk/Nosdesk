@@ -102,6 +102,24 @@ describe('ImportRemoveBlock', () => {
     expect(wrapper!.find('[data-test="import-remove-window"]').text()).toBe('import-remove-window')
   })
 
+  it('offers nothing for an import that created no assets', () => {
+    const updatesOnly = job()
+    updatesOnly.summary = { ...updatesOnly.summary!, would_create: 0, would_update: 180, rows_with_errors: 0 }
+    mount(updatesOnly)
+    expect(wrapper!.find('[data-test="import-remove"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-test="import-remove-button"]').exists()).toBe(false)
+  })
+
+  it('says an import that created no assets has nothing to remove', async () => {
+    api.removalPlan.mockResolvedValue({ ...PLAN, created: 0, deletable: 0, kept: [] })
+    mount(job())
+    await wrapper!.find('[data-test="import-remove-button"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.find('[data-test="confirm-title"]').text()).toBe('import-remove-title-none')
+    expect(wrapper!.find('[data-test="confirm-message"]').text()).toBe('import-remove-nothing-none-created')
+    expect(wrapper!.find('[data-test="confirm-ok"]').attributes('disabled')).toBeDefined()
+  })
+
   it('reads the plan when pressed and asks with its counts, kept list and webhook line', async () => {
     api.removalPlan.mockResolvedValue(PLAN)
     mount(job(), true)
@@ -187,6 +205,33 @@ describe('ImportRemoveBlock', () => {
       expect(api.get).toHaveBeenCalledWith('job-1')
       expect(block().emitted('refreshed')?.[0]).toEqual([removed()])
       expect(wrapper!.text()).toContain('import-remove-already-removed')
+      expect(wrapper!.text()).not.toContain('import-remove-failed')
+    })
+
+    it.each([
+      ['none_created', 'import-remove-nothing-none-created'],
+      ['all_gone', 'import-remove-nothing-all-gone'],
+      ['all_changed', 'import-remove-nothing-all-changed'],
+    ])('words nothing to remove (%s) by its reason', async (reason, key) => {
+      api.removeCreated.mockRejectedValue({
+        response: {
+          status: 409,
+          data: { code: 'import_nothing_to_remove', error: 'English', args: { reason } },
+        },
+      })
+      api.get.mockResolvedValue(job())
+      await confirmRemoval()
+      expect(wrapper!.text()).toContain(key)
+      expect(wrapper!.text()).not.toContain('import-remove-failed')
+    })
+
+    it('says an import that was not committed has nothing to remove', async () => {
+      api.removeCreated.mockRejectedValue({
+        response: { status: 409, data: { code: 'import_not_committed', error: 'English' } },
+      })
+      api.get.mockResolvedValue(job())
+      await confirmRemoval()
+      expect(wrapper!.text()).toContain('import-remove-not-committed')
       expect(wrapper!.text()).not.toContain('import-remove-failed')
     })
 

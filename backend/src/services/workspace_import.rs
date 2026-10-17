@@ -118,7 +118,10 @@ pub fn read_archive(
 
     // Collect entry names first (the archive borrow can't span by_index calls).
     let names: Vec<String> = (0..zip.len())
-        .filter_map(|i| zip.by_index(i).ok().map(|f| f.name().to_string()))
+        .filter_map(|i| {
+            let f = zip.by_index(i).ok()?;
+            f.name().ok().map(|n| n.to_string())
+        })
         .collect();
 
     let mut tables: HashMap<String, Vec<Value>> = HashMap::new();

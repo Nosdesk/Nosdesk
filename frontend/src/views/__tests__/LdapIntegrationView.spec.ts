@@ -11,6 +11,11 @@ const api = vi.hoisted(() => ({
   hasBindPassword: false,
   put: vi.fn(),
 }))
+// The signed-in caller's workspace role.
+const caller = vi.hoisted(() => ({ role: 'owner' as string }))
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({ user: { workspace_role: caller.role } }),
+}))
 
 const AD_PRESET = {
   id: 'active_directory',
@@ -84,6 +89,7 @@ function savedAdConfig(): Record<string, unknown> {
 let wrapper: VueWrapper | null = null
 
 beforeEach(() => {
+  caller.role = 'owner'
   api.settings = null
   api.hasBindPassword = false
   api.put.mockReset()
@@ -218,5 +224,47 @@ describe('LdapIntegrationView editing a saved config', () => {
     expect(body.settings.attribute_map).toEqual(savedAdConfig().attribute_map)
     expect(body.bind_password).toBeUndefined()
     expect(body.clear_bind_password).toBe(false)
+  })
+})
+
+describe('LdapIntegrationView group role mappings', () => {
+  beforeEach(() => {
+    api.settings = {
+      ...savedAdConfig(),
+      group_config: {
+        ...(savedAdConfig().group_config as Record<string, unknown>),
+        role_mappings: [
+          { group: 'IT-Admins', role: 'admin' },
+          { group: 'Helpdesk', role: 'agent' },
+        ],
+      },
+    }
+    api.hasBindPassword = true
+  })
+
+  /** The roles each mapping rule's picker offers, in rule order. */
+  function ruleRoles() {
+    return wrapper!
+      .findAll('[data-test="dropdown"]')
+      .filter((d) => d.find('[data-value="member"]').exists())
+      .map((d) => d.findAll('button').map((b) => b.attributes('data-value')))
+  }
+
+  it('offers admin to the owner on every rule', async () => {
+    caller.role = 'owner'
+    await mountView()
+    expect(ruleRoles()).toEqual([
+      ['member', 'agent', 'admin'],
+      ['member', 'agent', 'admin'],
+    ])
+  })
+
+  it('offers an admin agent and member, keeping admin on a rule already mapped to it', async () => {
+    caller.role = 'admin'
+    await mountView()
+    expect(ruleRoles()).toEqual([
+      ['member', 'agent', 'admin'],
+      ['member', 'agent'],
+    ])
   })
 })

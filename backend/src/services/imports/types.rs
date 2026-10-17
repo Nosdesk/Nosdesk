@@ -99,8 +99,8 @@ pub struct ImportSummary {
     /// Rows with at least one error: the rows the commit skips.
     #[serde(default)]
     pub rows_with_errors: usize,
-    /// The most frequent problems: identical messages on the same column,
-    /// most rows first.
+    /// The most frequent problems: identical messages (or the shared
+    /// [`RowError::group`]) on the same column, most rows first.
     #[serde(default)]
     pub error_groups: Vec<ErrorGroup>,
     /// Things worth knowing that aren't errors.
@@ -205,6 +205,7 @@ impl ImportSummary {
             column,
             source_column: None,
             message,
+            group: None,
         });
     }
 
@@ -246,6 +247,7 @@ impl ImportSummary {
                     column: e.column.clone(),
                     source_column: e.source_column.clone(),
                     message: e.message.clone(),
+                    group: e.group.clone(),
                 });
             }
         }
@@ -269,7 +271,8 @@ impl ImportSummary {
         let mut index: std::collections::HashMap<(Option<&str>, &str), usize> =
             std::collections::HashMap::new();
         for e in &self.errors {
-            let key = (e.column.as_deref(), e.message.as_str());
+            let message = e.group.as_deref().unwrap_or(&e.message);
+            let key = (e.column.as_deref(), message);
             match index.get(&key) {
                 Some(&i) => groups[i].count += 1,
                 None => {
@@ -277,7 +280,7 @@ impl ImportSummary {
                     groups.push(ErrorGroup {
                         column: e.column.clone(),
                         source_column: e.source_column.clone(),
-                        message: e.message.clone(),
+                        message: message.to_string(),
                         count: 1,
                         fix: None,
                     });
@@ -398,6 +401,19 @@ pub struct CellError {
     #[serde(default)]
     pub source_column: Option<String>,
     pub message: String,
+    /// The problem as the rows that have it share it, when `message`
+    /// names this row's own value ("no asset with tag TVS-0410" groups
+    /// under "no asset with this tag").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+}
+
+impl CellError {
+    /// What rows with this problem group under: [`Self::group`], else
+    /// the message.
+    pub fn group_message(&self) -> &str {
+        self.group.as_deref().unwrap_or(&self.message)
+    }
 }
 
 /// The record a row matched or wrote: an integer id (assets, tickets) or
@@ -529,6 +545,7 @@ impl RowResult {
                 column,
                 source_column: None,
                 message,
+                group: None,
             })
             .collect();
         result
@@ -666,6 +683,9 @@ pub struct RowError {
     #[serde(default)]
     pub source_column: Option<String>,
     pub message: String,
+    /// As [`CellError::group`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 /// Why a commit stopped. `Row` is a write the database refused for one

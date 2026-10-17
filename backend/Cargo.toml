@@ -218,7 +218,7 @@ webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation",
 webauthn-rs-proto = "0.5"  # Protocol types for WebAuthn
 
 # Backup and restore dependencies
-zip = "8.6"                # ZIP archive creation/extraction
+zip = "9.0.4"              # ZIP archive creation and reading
 walkdir = "2.5"            # Directory walking for file backup
 sanitize-filename = "0.6"  # Filename sanitization for uploads
 
