@@ -18,6 +18,7 @@ import { nativeLogoutRedirectUri } from '@/platform/oidcScheme';
 import { transport } from '@nosdesk/core/transport';
 import { sessionGone } from '@nosdesk/core/services/session';
 import { releaseSsoAutoStart } from '@/utils/ssoAutoStart';
+import { withRateLimitRetry } from '@/utils/rateLimitRetry';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -133,7 +134,13 @@ export const useAuthStore = defineStore('auth', () => {
           logger.debug('Fetching user data...');
         }
 
-        const userData = await authService.getCurrentUser();
+        // A 429 isn't a verdict on the session: wait out what the server
+        // asked for and ask again, so the route guard never reads a busy
+        // shared IP as signed out. The login page's probe only looks, so it
+        // doesn't wait.
+        const userData = probe
+          ? await authService.getCurrentUser()
+          : await withRateLimitRetry(() => authService.getCurrentUser());
         user.value = userData;
         // /auth/me is resolved under the request's pinned workspace, so the
         // role we just got belongs to the active workspace. Record it so
@@ -163,7 +170,8 @@ export const useAuthStore = defineStore('auth', () => {
           const status = axiosError.response.status;
 
           if (status === 429) {
-            // Rate limit error - don't logout, just show error
+            // Still rate limited after waiting a full window: keep the
+            // session and show the error
             logger.warn('Rate limit exceeded. Please wait before retrying.');
             error.value = translate('auth-login-rate-limited', undefined, 'Too many requests. Please wait a moment.');
             throw err;
