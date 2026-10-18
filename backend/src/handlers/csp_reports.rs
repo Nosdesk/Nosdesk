@@ -7,8 +7,8 @@
 //!     directive. Browsers do not send credentials with these,
 //!     so the handler runs without auth.
 //!
-//!   GET /api/admin/csp-reports (admin only) — lists the most
-//!     recent aggregated violations for triage in the admin UI.
+//!   GET /api/admin/csp-reports (platform admin only): lists the
+//!     most recent aggregated violations for triage.
 //!
 //! Two report shapes are accepted on the public endpoint:
 //!
@@ -23,10 +23,10 @@
 //! internal `ParsedReport` shape before hashing and persisting.
 
 use crate::errors::ApiError;
-use crate::extractors::{PlatformConn, TenantConn};
+use crate::extractors::PlatformConn;
 #[allow(unused_imports)]
 use crate::handlers; // keep helpers reachable for tests
-use crate::models::{Claims, NewCspReport, WorkspaceRole};
+use crate::models::{Claims, NewCspReport};
 use crate::repository::csp_reports as repo;
 use crate::utils::rbac;
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
@@ -292,14 +292,17 @@ pub async fn report_violation(
     HttpResponse::NoContent().finish()
 }
 
-/// Admin: list recent aggregated violations.
+/// Platform-admin operator view: recent aggregated violations. Reports from
+/// every workspace are stored under workspace 1 (see `report_violation`), so
+/// this is gated by `require_platform_admin` rather than a workspace role and
+/// reads through the BYPASSRLS `PlatformConn`.
 pub async fn list_violations(
     req: HttpRequest,
-    mut tc: TenantConn,
+    mut pc: PlatformConn,
 ) -> Result<HttpResponse, ApiError> {
-    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
+    rbac::require_platform_admin(&req)?;
 
-    match tc.run(|conn| repo::list_recent(conn, 200)) {
+    match pc.run(|conn| repo::list_recent(conn, 200)) {
         Ok(rows) => Ok(HttpResponse::Ok().json(rows)),
         Err(e) => {
             warn!(error = ?e, "Failed to list CSP reports");
