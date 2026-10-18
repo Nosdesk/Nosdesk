@@ -62,3 +62,24 @@ describe('selfHostedOnly nav items', () => {
     expect(routes(true)).toContain('/admin/workspaces');
   });
 });
+
+describe('a hosted workspace admin', () => {
+  // An owner or admin of one Cloud workspace, with no platform role.
+  const routes = filterAdminNavGroupsForRole(adminNavGroups, {
+    isAdmin: true,
+    isAuditReviewer: false,
+    isPlatformAdmin: false,
+    isHosted: true,
+  }).flatMap(g => g.items.map(i => i.route));
+
+  it('is not offered the cross-workspace console', () => {
+    expect(routes).not.toContain('/admin/workspaces');
+  });
+
+  it('is offered none of the platform surfaces', () => {
+    const platform = Object.entries(ADMIN_SURFACE_TIER)
+      .filter(([, tier]) => tier === 'platform')
+      .map(([route]) => route);
+    expect(routes.filter(r => platform.includes(r))).toEqual([]);
+  });
+});
