@@ -75,7 +75,10 @@ pub async fn export_workspace(
         }
     };
     let mut files: Vec<(String, Vec<u8>)> = Vec::with_capacity(paths.len());
-    for p in paths {
+    for p in paths
+        .into_iter()
+        .filter(|p| crate::services::workspace_export::is_exported_file(p))
+    {
         match scoped.get_file(&p).await {
             Ok(bytes) => files.push((p, bytes)),
             Err(e) => {

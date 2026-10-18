@@ -27,7 +27,9 @@ use crate::models::{
     Claims, NewWorkspaceExportJob, WorkspaceExportJob, WorkspaceExportJobUpdate, WorkspaceRole,
 };
 use crate::repository::workspace_export_jobs as export_repo;
-use crate::services::workspace_export::{assemble_workspace_archive, collect_workspace_rows};
+use crate::services::workspace_export::{
+    assemble_workspace_archive, collect_workspace_rows, is_exported_file,
+};
 use crate::sync::actor::ActorContext;
 use crate::sync::session::with_actor_bypass_context;
 use crate::utils::rbac::require_workspace_role;
@@ -300,7 +302,7 @@ async fn run_export_inner(
         .await
         .map_err(|e| format!("list files: {e:?}"))?;
     let mut files: Vec<(String, Vec<u8>)> = Vec::with_capacity(paths.len());
-    for p in paths {
+    for p in paths.into_iter().filter(|p| is_exported_file(p)) {
         let bytes = scoped
             .get_file(&p)
             .await
