@@ -54,6 +54,7 @@ mod collab_fenced_write;
 mod collab_ownership;
 mod cross_layer_lists;
 mod cross_tenant_workspace_lookup;
+mod csp_reports_platform_only;
 mod csrf_origin_check;
 mod directory_scoping;
 mod directory_sync_workspace_scope;
