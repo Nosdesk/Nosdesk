@@ -34,3 +34,12 @@ services:
       # so that running this stack locally behaves identically to CI, which is
       # exactly the divergence that let a production-only startup guard through.
       ENVIRONMENT: development
+      # Every browser the suite opens shares one client IP, and the specs that
+      # open a page in three browsers at once make hundreds of requests a
+      # minute from it. Under the default limits (60 a minute on the public
+      # endpoints, 600 on the rest) a few such specs in a row drew 429s: a
+      # spec's own API call failed, or the app read a 429 from /api/auth/me as
+      # signed out and showed the sign-in page. Both are set to the highest
+      # value each setting accepts.
+      RATE_LIMIT_PER_MINUTE: "1000"
+      AUTH_RATE_LIMIT_PER_MINUTE: "5000"
