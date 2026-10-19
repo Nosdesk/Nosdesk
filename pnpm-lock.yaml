@@ -73,6 +73,9 @@ importers:
       jszip:
         specifier: ^3.10.2
         version: 3.10.2
+      lib0:
+        specifier: ^0.2.118
+        version: 0.2.118
       lowlight:
         specifier: ^3.3.0
         version: 3.3.0

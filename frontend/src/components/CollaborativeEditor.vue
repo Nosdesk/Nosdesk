@@ -25,6 +25,8 @@ import { EditorView } from "prosemirror-view";
 import { EditorState, Selection, type Command } from "prosemirror-state";
 import { schema } from "@/components/editor/schema";
 import { createTableGuardPlugin } from "@/components/editor/tableGuard";
+import { respondToOutdatedEditor, type OutdatedEditorPrompt } from "@/components/editor/outdatedEditor";
+import Button from "@/components/common/Button.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useMobileDetection } from "@/composables/useMobileDetection";
 import { useToolbarDock } from "@/composables/useToolbarDock";
@@ -315,6 +317,19 @@ const disconnectedLabel = computed(() => {
       return t('editor-toolbar-connection-disconnected');
   }
 });
+// The server refused the document because it needs a newer editor than this
+// build's: reload into the new build once, else ask (`outdatedEditor.ts`).
+// Shown above the content rather than in the toolbar, which read-only viewers
+// and the docked phone toolbar don't show.
+const outdatedPrompt = ref<OutdatedEditorPrompt | null>(null);
+watch(
+  () => collab.connectionRefusal[props.docId] ?? null,
+  (refusal) => {
+    outdatedPrompt.value = refusal === 'outdated' ? respondToOutdatedEditor() : null;
+  },
+  { immediate: true },
+);
+const reloadPage = () => window.location.reload();
 
 // State for connected users
 const connectedUsers = ref<{ id: string; user: AwarenessUser }[]>([]);
@@ -2381,7 +2396,7 @@ defineExpose({
             <div v-show="!toolbarDocked && connectionBadge === 'reconnecting'" class="connection-status-connecting">
                 {{ $t('editor-toolbar-connection-reconnecting') }}
             </div>
-            <div v-show="!toolbarDocked && connectionBadge === 'disconnected'" class="connection-status-disconnected">
+            <div v-show="!toolbarDocked && connectionBadge === 'disconnected' && !outdatedPrompt" class="connection-status-disconnected">
                 {{ disconnectedLabel }}
             </div>
 
@@ -2395,6 +2410,14 @@ defineExpose({
 
         <!-- Editor content with click handler -->
         <div ref="editorWrapper" class="editor-wrapper">
+            <div v-if="outdatedPrompt" class="outdated-editor-bar" role="status">
+                <span class="outdated-editor-label">
+                    {{ outdatedPrompt === 'reload' ? $t('editor-outdated-reload') : $t('editor-outdated-update-app') }}
+                </span>
+                <Button v-if="outdatedPrompt === 'reload'" type="button" variant="secondary" size="xs" class="ml-auto" @click="reloadPage">
+                    {{ $t('editor-outdated-reload-button') }}
+                </Button>
+            </div>
             <div
                 id="editor"
                 ref="editorElement"
@@ -2731,6 +2754,20 @@ defineExpose({
 
 .toolbar-inert {
     opacity: 0.5;
+}
+
+.outdated-editor-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background-color: var(--color-status-warning-bg, rgba(245, 158, 11, 0.15));
+    border-bottom: 1px solid var(--color-status-warning-border, rgba(245, 158, 11, 0.3));
+}
+
+.outdated-editor-label {
+    font-size: 0.8125rem;
+    color: var(--color-primary);
 }
 
 .revision-overlay:focus {

@@ -5064,6 +5064,10 @@ editor-toolbar-connection-disconnected = Verbinding verbroken
 editor-toolbar-connection-signed-out = Afgemeld. Meld je opnieuw aan om wijzigingen op te slaan.
 editor-toolbar-connection-no-access = Geen toegang. Wijzigingen hier worden niet opgeslagen.
 editor-toolbar-connection-gone = Verwijderd. Wijzigingen hier worden niet opgeslagen.
+# Page refused for an outdated editor (machine, pending native review)
+editor-outdated-reload = Deze pagina gebruikt een nieuwere versie van Nosdesk. Laad opnieuw om verder te bewerken.
+editor-outdated-reload-button = Opnieuw laden
+editor-outdated-update-app = Werk de Nosdesk-app bij om deze pagina te bewerken.
 editor-toolbar-user-title = { $name }
 editor-toolbar-user-title-uuid = { $name } (UUID: { $uuid })
 

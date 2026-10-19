@@ -28,13 +28,16 @@ const fake = vi.hoisted(() => {
     private onDocUpdate = (update: Uint8Array, origin: unknown) => {
       if (origin !== this) this.sent.push(update)
     }
+    /** Per-instance, as y-websocket copies its defaults. */
+    messageHandlers: unknown[] = []
     constructor(
       _url: string,
       _room: string,
       private doc: YDocLike,
-      opts: { connect?: boolean } = {},
+      opts: { connect?: boolean; params?: Record<string, string> } = {},
     ) {
       providers.push(this)
+      this.params = opts.params ?? {}
       doc.on('update', this.onDocUpdate)
       if (opts.connect !== false) this.connect()
     }
@@ -50,6 +53,8 @@ const fake = vi.hoisted(() => {
     }
     /** The token each dial went out with. */
     connectedWith: string[] = []
+    /** The query params each dial went out with. */
+    dialedParams: Record<string, string>[] = []
     /** Inside `connection-close`, while the closing socket is still attached. */
     private closing = false
     connect() {
@@ -58,6 +63,7 @@ const fake = vi.hoisted(() => {
       // re-arms `shouldConnect`; nothing is dialled yet.
       if (this.closing) return
       this.connectedWith.push(this.params.token)
+      this.dialedParams.push({ ...this.params })
       this.wsconnecting = true
       this.emit('status', [{ status: 'connecting' }])
     }
@@ -90,6 +96,7 @@ const fake = vi.hoisted(() => {
     dialScheduled() {
       if (!this.shouldConnect || this.ws) return
       this.connectedWith.push(this.params.token)
+      this.dialedParams.push({ ...this.params })
       this.wsconnecting = true
       this.emit('status', [{ status: 'connecting' }])
     }
@@ -132,9 +139,12 @@ const fake = vi.hoisted(() => {
     }
   }
 
+  /** Each database's stored updates, by name, as they are on disk. */
+  const databases = new Map<string, Uint8Array[]>()
+
   /** y-indexeddb's persistence, down to the part that matters here: its doc
    *  `update` handler writes in a transaction, which throws once the
-   *  connection is closed. */
+   *  connection is closed. Opening loads what the database holds. */
   class FakeIdb {
     /** A y-indexeddb version whose private internals moved. */
     static internalsChanged = false
@@ -142,6 +152,7 @@ const fake = vi.hoisted(() => {
     destroyed = false
     readonly connection = new FakeDb()
     _db = Promise.resolve(this.connection)
+    whenSynced: Promise<this>
     _storeUpdate = (update: Uint8Array, origin: unknown) => {
       if (origin === this) return
       if (this.connection.closed) {
@@ -151,13 +162,22 @@ const fake = vi.hoisted(() => {
         )
       }
       this.stored.push(update)
+      if (!databases.has(this.name)) databases.set(this.name, [])
+      databases.get(this.name)!.push(update)
     }
     constructor(
       readonly name: string,
       private doc: YDocLike,
     ) {
       idbs.push(this)
+      // Opening a database that doesn't exist creates it.
+      if (!databases.has(name)) databases.set(name, [])
       doc.on('update', this._storeUpdate)
+      this.whenSynced = Promise.resolve().then(async () => {
+        const Y = await import('yjs')
+        for (const update of databases.get(name) ?? []) Y.applyUpdate(doc as never, update, this)
+        return this
+      })
       if (FakeIdb.internalsChanged) delete (this as { _db?: unknown })._db
     }
     destroy() {
@@ -170,7 +190,14 @@ const fake = vi.hoisted(() => {
     }
   }
 
-  const clearDocument = vi.fn(async (_name: string) => {})
+  const clearDocument = vi.fn(async (name: string) => {
+    databases.delete(name)
+  })
+  /** A read on the database's store; fails once its connection closed. */
+  const fetchUpdates = vi.fn(async (idb: FakeIdb) => {
+    const db = await idb._db
+    if (db.closed) throw new DOMException('closed', 'InvalidStateError')
+  })
 
   /** Web Locks, with a hook for locks another tab holds. */
   class FakeLocks {
@@ -209,7 +236,7 @@ const fake = vi.hoisted(() => {
 
   const providers: FakeProvider[] = []
   const idbs: FakeIdb[] = []
-  return { FakeProvider, providers, FakeIdb, idbs, clearDocument, FakeLocks }
+  return { FakeProvider, providers, FakeIdb, idbs, databases, clearDocument, fetchUpdates, FakeLocks }
 })
 const providers = fake.providers
 const idbs = fake.idbs
@@ -217,6 +244,7 @@ vi.mock('y-websocket', () => ({ WebsocketProvider: fake.FakeProvider }))
 vi.mock('y-indexeddb', () => ({
   IndexeddbPersistence: fake.FakeIdb,
   clearDocument: fake.clearDocument,
+  fetchUpdates: fake.fetchUpdates,
 }))
 
 const token = vi.hoisted(() => ({
@@ -262,6 +290,10 @@ vi.mock('@nosdesk/core/transport', async (importOriginal) => ({
 import { useCollabSessionStore } from '@/stores/collabSession'
 import { logger } from '@nosdesk/core/utils/logger'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
+import { resetTablesAllowed, tablesAllowed } from '@/components/editor/tablesAllowed'
+import * as Y from 'yjs'
+import * as encoding from 'lib0/encoding'
+import * as decoding from 'lib0/decoding'
 
 const OPTS = { baseWsUrl: 'ws://test/collab' }
 
@@ -278,7 +310,9 @@ beforeEach(() => {
   store = useCollabSessionStore()
   providers.length = 0
   idbs.length = 0
+  fake.databases.clear()
   fake.clearDocument.mockClear()
+  resetTablesAllowed()
   token.cached = null
   token.next = null
   token.queue = []
@@ -575,6 +609,103 @@ describe('signing in again after the session was rejected', () => {
   })
 })
 
+describe('the editor schema this client declares', () => {
+  it('is on every dial, including after a refused token is replaced', async () => {
+    store.acquire('doc-a', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(providers[0].dialedParams).toEqual([{ schema: '2', token: 't' }])
+
+    // The server refused the token: a fresh one is fetched, then dialled.
+    token.next = Promise.resolve('fresh')
+    providers[0].open()
+    providers[0].serverClose(4401)
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].dialScheduled()
+
+    expect(providers[0].dialedParams).toEqual([
+      { schema: '2', token: 't' },
+      { schema: '2', token: 'fresh' },
+    ])
+  })
+
+  it('is on a dial with a token still cached, and in the params the provider starts with', () => {
+    token.cached = 'cached'
+    store.acquire('doc-a', OPTS)
+    expect(providers[0].dialedParams).toEqual([{ schema: '2', token: 'cached' }])
+  })
+})
+
+describe("the server's hello", () => {
+  /** Hand the provider a hello, as y-websocket's `readMessage` does, and
+   *  return the reply it would send (it sends one longer than a byte). */
+  function hello(accepted: number): Uint8Array {
+    const message = encoding.createEncoder()
+    encoding.writeVarUint(message, 100)
+    encoding.writeVarUint(message, accepted)
+    const decoder = decoding.createDecoder(encoding.toUint8Array(message))
+    const type = decoding.readVarUint(decoder)
+    const reply = encoding.createEncoder()
+    const handler = providers[0].messageHandlers[type] as (...args: unknown[]) => void
+    handler(reply, decoder, providers[0], true, type)
+    return encoding.toUint8Array(reply)
+  }
+
+  it('lets this client add tables when the server accepts schema 2 or later, and gets no reply', () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    expect(tablesAllowed('doc-a')).toBe(false)
+
+    expect(hello(2)).toHaveLength(0)
+    expect(tablesAllowed('doc-a')).toBe(true)
+    expect(tablesAllowed('doc-b')).toBe(false)
+  })
+
+  it('keeps tables off when the server accepts only schema 1', () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    expect(hello(1)).toHaveLength(0)
+    expect(tablesAllowed('doc-a')).toBe(false)
+  })
+
+  it('still allows tables from a later server', () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    hello(3)
+    expect(tablesAllowed('doc-a')).toBe(true)
+  })
+})
+
+describe('a note that needs a newer editor', () => {
+  it('says this client is outdated, and stops trying', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+    const connects = vi.spyOn(providers[0], 'connect')
+
+    providers[0].serverClose(4426)
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(connects).not.toHaveBeenCalled()
+    expect(store.connectionBadge['doc-a']).toBe('disconnected')
+    expect(store.connectionRefusal['doc-a']).toBe('outdated')
+  })
+
+  it('leaves every other close code as it was', () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    store.acquire('doc-b', OPTS)
+    store.acquire('doc-c', OPTS)
+    providers[0].serverClose(4403)
+    providers[1].serverClose(4404)
+    providers[2].serverClose(4429)
+    expect(store.connectionRefusal).toMatchObject({
+      'doc-a': 'no-access',
+      'doc-b': 'gone',
+      'doc-c': 'no-access',
+    })
+  })
+})
+
 describe('a note opened with no CSRF cookie while the session is still valid', () => {
   it('connects once the session is refreshed, and never says signed out', async () => {
     const { refreshSession } = await import('@nosdesk/core/services/session')
@@ -604,7 +735,10 @@ describe('a note opened with no CSRF cookie while the session is still valid', (
 // connection to it; from then on every write to it throws.
 describe("a note's local copy", () => {
   const TOUCHED = 'nosdesk:collab-idb-touched'
-  const lockName = (docId: string) => `nosdesk:collab-idb:${docId}`
+  /** A doc's database, as this client names it. */
+  const db = (docId: string) => `collab:v2:${docId}`
+  /** The lock on a database, by its name. */
+  const lockName = (name: string) => `nosdesk:collab-idb:${name}`
 
   function withLocks() {
     const locks = new fake.FakeLocks()
@@ -612,10 +746,14 @@ describe("a note's local copy", () => {
     return locks
   }
 
-  /** `count` stores in the touch map, oldest first. */
-  function seedTouched(count: number, prefix = 'ws-old-') {
-    const map: Record<string, number> = {}
-    for (let i = 0; i < count; i++) map[`${prefix}${i}`] = i + 1
+  /** `count` stores in the touch map, oldest first, named as this client
+   *  names them (or, with `legacy`, as clients before schema 2 did). */
+  function seedTouched(count: number, { prefix = 'ws-old-', legacy = false } = {}) {
+    const map = JSON.parse(localStorage.getItem(TOUCHED) ?? '{}') as Record<string, number>
+    for (let i = 0; i < count; i++) {
+      const docId = `${prefix}${i}`
+      map[legacy ? docId : db(docId)] = i + 1
+    }
     localStorage.setItem(TOUCHED, JSON.stringify(map))
   }
 
@@ -630,6 +768,7 @@ describe("a note's local copy", () => {
   afterEach(() => {
     fake.FakeIdb.internalsChanged = false
     Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
+    delete (globalThis as { indexedDB?: unknown }).indexedDB
     delete (globalThis as { isTauri?: boolean }).isTauri
     localStorage.removeItem(TOUCHED)
   })
@@ -681,32 +820,49 @@ describe("a note's local copy", () => {
   it('is not pruned while another tab has the note open', async () => {
     const locks = withLocks()
     seedTouched(50)
-    locks.heldElsewhere.add(lockName('ws-old-0'))
+    locks.heldElsewhere.add(lockName(db('ws-old-0')))
 
     store.acquire('ws-new', OPTS)
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(fake.clearDocument.mock.calls.map(([name]) => name)).toEqual(['ws-old-1'])
+    expect(fake.clearDocument.mock.calls.map(([name]) => name)).toEqual([db('ws-old-1')])
     expect(Object.keys(touched())).toHaveLength(50)
-    expect(touched()).toHaveProperty('ws-old-0')
-    expect(touched()).not.toHaveProperty('ws-old-1')
+    expect(touched()).toHaveProperty([db('ws-old-0')])
+    expect(touched()).not.toHaveProperty([db('ws-old-1')])
+  })
+
+  it('never prunes a legacy local copy that has not been merged yet', async () => {
+    withLocks()
+    // Older and more numerous than this client's own stores, so a prune by
+    // age alone would take them first.
+    seedTouched(5, { prefix: 'ws-legacy-', legacy: true })
+    for (let i = 0; i < 5; i++) fake.databases.set(`ws-legacy-${i}`, [])
+    const map = touched()
+    for (let i = 0; i < 50; i++) map[db(`ws-old-${i}`)] = 100 + i
+    localStorage.setItem(TOUCHED, JSON.stringify(map))
+
+    store.acquire('ws-new', OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(fake.clearDocument.mock.calls.map(([name]) => name)).toEqual([db('ws-old-0')])
+    for (let i = 0; i < 5; i++) expect(fake.databases.has(`ws-legacy-${i}`)).toBe(true)
   })
 
   it('holds the note open for other tabs while this tab has it, and lets go on close', async () => {
     const locks = withLocks()
     store.acquire('ws-a_ticket-1', OPTS)
     await vi.advanceTimersByTimeAsync(0)
-    expect(locks.held.get(lockName('ws-a_ticket-1'))?.mode).toBe('shared')
+    expect(locks.held.get(lockName(db('ws-a_ticket-1')))?.mode).toBe('shared')
 
     await store.closeAll()
 
-    expect(locks.held.has(lockName('ws-a_ticket-1'))).toBe(false)
+    expect(locks.held.has(lockName(db('ws-a_ticket-1')))).toBe(false)
   })
 
   it('never holds up closing notes while its lock is queued behind another tab', async () => {
     const locks = withLocks()
     // Another tab is deleting this note's store, so the lock is queued.
-    locks.held.set(lockName('ws-a_ticket-1'), { mode: 'exclusive', count: 1 })
+    locks.held.set(lockName(db('ws-a_ticket-1')), { mode: 'exclusive', count: 1 })
     store.acquire('ws-a_ticket-1', OPTS)
     await vi.advanceTimersByTimeAsync(0)
 
@@ -736,38 +892,145 @@ describe("a note's local copy", () => {
     store.acquire('ws-new', OPTS)
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(fake.clearDocument.mock.calls.map(([name]) => name)).toEqual(['ws-old-1'])
-    expect(touched()).toHaveProperty('ws-old-0')
-    expect(touched()).not.toHaveProperty('ws-old-1')
+    expect(fake.clearDocument.mock.calls.map(([name]) => name)).toEqual([db('ws-old-1')])
+    expect(touched()).toHaveProperty([db('ws-old-0')])
+    expect(touched()).not.toHaveProperty([db('ws-old-1')])
   })
 
-  it('is cleared on sign-out even while other tabs have the note open', async () => {
+  it('is cleared on sign-out even while other tabs have the note open, legacy copies too', async () => {
     const locks = withLocks()
-    seedTouched(3)
-    for (let i = 0; i < 3; i++) locks.heldElsewhere.add(lockName(`ws-old-${i}`))
+    seedTouched(2)
+    seedTouched(1, { prefix: 'ws-legacy-', legacy: true })
+    for (let i = 0; i < 2; i++) locks.heldElsewhere.add(lockName(db(`ws-old-${i}`)))
+    // A legacy copy the touch map missed.
+    ;(globalThis as { indexedDB?: unknown }).indexedDB = {
+      databases: async () => [{ name: 'ws-legacy-9' }, { name: 'unrelated' }],
+    }
 
     await purgeAllCollabDocs({ includeOpen: true })
 
     expect(fake.clearDocument.mock.calls.map(([name]) => name).sort()).toEqual([
-      'ws-old-0',
-      'ws-old-1',
-      'ws-old-2',
+      db('ws-old-0'),
+      db('ws-old-1'),
+      'ws-legacy-0',
+      'ws-legacy-9',
     ])
     expect(localStorage.getItem(TOUCHED)).toBeNull()
   })
 
-  it('is kept on a workspace switch while another tab has the note open', async () => {
+  it('is kept on a workspace switch while another tab has the note open, and so is a legacy copy', async () => {
     const locks = withLocks()
     seedTouched(3)
-    locks.heldElsewhere.add(lockName('ws-old-1'))
+    seedTouched(1, { prefix: 'ws-legacy-', legacy: true })
+    locks.heldElsewhere.add(lockName(db('ws-old-1')))
 
     await purgeAllCollabDocs({ includeOpen: false })
 
     expect(fake.clearDocument.mock.calls.map(([name]) => name).sort()).toEqual([
-      'ws-old-0',
-      'ws-old-2',
+      db('ws-old-0'),
+      db('ws-old-2'),
     ])
-    expect(Object.keys(touched())).toEqual(['ws-old-1'])
+    expect(Object.keys(touched()).sort()).toEqual([db('ws-old-1'), 'ws-legacy-0'])
+  })
+
+  // Clients before editor schema 2 named a doc's database after the bare
+  // docId. Its content (offline edits among it) moves into the new database.
+  describe('from a client before schema 2', () => {
+    const DOC = 'ws-a_ticket-1'
+
+    /** An update setting the doc's text to `text`, from another client. */
+    function edit(text: string, base?: Y.Doc): Uint8Array {
+      const doc = base ?? new Y.Doc()
+      const before = Y.encodeStateVector(doc)
+      doc.getText('t').insert(doc.getText('t').length, text)
+      return Y.encodeStateAsUpdate(doc, before)
+    }
+
+    /** A legacy database for DOC holding `updates`, in the touch map. */
+    function seedLegacy(...updates: Uint8Array[]) {
+      fake.databases.set(DOC, updates)
+      localStorage.setItem(TOUCHED, JSON.stringify({ ...touched(), [DOC]: 1 }))
+    }
+
+    async function settle() {
+      for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0)
+    }
+
+    it('is merged into the doc, stored in the new copy, sent to the server, then deleted', async () => {
+      withLocks()
+      seedLegacy(edit('offline edit'))
+
+      const { ydoc } = store.acquire(DOC, OPTS)
+      await settle()
+
+      expect(ydoc.getText('t').toString()).toBe('offline edit')
+      expect(idbs[0].name).toBe(db(DOC))
+      expect(idbs[0].stored).toHaveLength(1)
+      expect(providers[0].sent).toHaveLength(1)
+      expect(fake.clearDocument).toHaveBeenCalledWith(DOC)
+      expect(fake.databases.has(DOC)).toBe(false)
+      expect(touched()).not.toHaveProperty([DOC])
+      expect(touched()).toHaveProperty([db(DOC)])
+    })
+
+    it('is kept while an older tab holds it, and merged again, idempotently, once it lets go', async () => {
+      const locks = withLocks()
+      const older = new Y.Doc()
+      seedLegacy(edit('one', older))
+      locks.heldElsewhere.add(lockName(DOC))
+
+      const first = store.acquire(DOC, OPTS)
+      await settle()
+      expect(first.ydoc.getText('t').toString()).toBe('one')
+      expect(fake.databases.has(DOC)).toBe(true)
+
+      // The older tab writes more, then closes.
+      fake.databases.get(DOC)!.push(edit(' two', older))
+      locks.heldElsewhere.delete(lockName(DOC))
+      store.destroy(DOC)
+
+      const second = store.acquire(DOC, OPTS)
+      await settle()
+      expect(second.ydoc.getText('t').toString()).toBe('one two')
+      expect(fake.databases.has(DOC)).toBe(false)
+    })
+
+    it('is found through indexedDB.databases() when the touch map lost it', async () => {
+      withLocks()
+      fake.databases.set(DOC, [edit('found')])
+      ;(globalThis as { indexedDB?: unknown }).indexedDB = {
+        databases: async () => [{ name: DOC }],
+      }
+
+      const { ydoc } = store.acquire(DOC, OPTS)
+      await settle()
+
+      expect(ydoc.getText('t').toString()).toBe('found')
+      expect(fake.databases.has(DOC)).toBe(false)
+    })
+
+    it('is never opened, so never created, when there is none', async () => {
+      withLocks()
+      ;(globalThis as { indexedDB?: unknown }).indexedDB = { databases: async () => [] }
+
+      store.acquire(DOC, OPTS)
+      await settle()
+
+      expect(idbs.map((idb) => idb.name)).toEqual([db(DOC)])
+      expect(fake.clearDocument).not.toHaveBeenCalled()
+    })
+
+    it('is kept when the new copy is gone before the merge is stored', async () => {
+      withLocks()
+      seedLegacy(edit('offline edit'))
+      fake.fetchUpdates.mockRejectedValueOnce(new DOMException('closed', 'InvalidStateError'))
+
+      store.acquire(DOC, OPTS)
+      await settle()
+
+      expect(fake.databases.has(DOC)).toBe(true)
+      expect(touched()).toHaveProperty([DOC])
+    })
   })
 })
 

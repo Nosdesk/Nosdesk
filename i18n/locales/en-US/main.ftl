@@ -4551,6 +4551,10 @@ editor-toolbar-connection-disconnected = Disconnected
 editor-toolbar-connection-signed-out = Signed out. Sign in again to save changes.
 editor-toolbar-connection-no-access = No access. Changes here won't be saved.
 editor-toolbar-connection-gone = Deleted. Changes here won't be saved.
+# The server refused a page that needs a newer editor than this build's.
+editor-outdated-reload = This page uses a newer version of Nosdesk. Reload to keep editing.
+editor-outdated-reload-button = Reload
+editor-outdated-update-app = Update the Nosdesk app to edit this page.
 editor-toolbar-user-title = { $name }
 editor-toolbar-user-title-uuid = { $name } (UUID: { $uuid })
 
