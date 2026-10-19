@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
+import { workspacePath } from '@/router/workspaceRouting';
 import { useFluent } from 'fluent-vue';
 import AdminSidebar from '@/components/admin/AdminSidebar.vue';
 import { allAdminNavItems, isAdminRouteActive } from '@/components/admin/adminNavData';
@@ -16,7 +17,7 @@ const isIndexPage = computed(() => route.name === 'admin-index');
 
 // Current active nav item for the mobile breadcrumb
 const activeItem = computed(() => {
-  return allAdminNavItems.find(item => isAdminRouteActive(route.path, item.route));
+  return allAdminNavItems.find(item => isAdminRouteActive(workspacePath(route), item.route));
 });
 
 const activeItemTitle = computed(() =>
