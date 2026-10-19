@@ -943,6 +943,46 @@ pub fn create_documentation_revision(
     })
 }
 
+/// The first revision of a page an import wrote, with what the history
+/// shows for it ("Imported from IT-Handbook.zip"). Returns its number.
+// sync-audit-only: revision snapshots are derived versioning state, see create_documentation_revision
+pub fn create_revision_with_summary(
+    conn: &mut DbConnection,
+    page_id: i32,
+    yjs_state_vector: Vec<u8>,
+    yjs_document_content: Vec<u8>,
+    created_by: uuid::Uuid,
+    change_summary: &str,
+) -> Result<i32, Error> {
+    use crate::schema::documentation_pages::dsl as doc_dsl;
+    use crate::schema::documentation_revisions;
+
+    conn.transaction(|conn| {
+        let title: String = doc_dsl::documentation_pages
+            .find(page_id)
+            .select(doc_dsl::title)
+            .first(conn)?;
+        let latest: i32 = documentation_revisions::table
+            .filter(documentation_revisions::page_id.eq(page_id))
+            .select(diesel::dsl::max(documentation_revisions::revision_number))
+            .first::<Option<i32>>(conn)?
+            .unwrap_or(0);
+        let number = latest + 1;
+        diesel::insert_into(documentation_revisions::table)
+            .values((
+                documentation_revisions::page_id.eq(page_id),
+                documentation_revisions::revision_number.eq(number),
+                documentation_revisions::title.eq(&title),
+                documentation_revisions::yjs_document_snapshot.eq(yjs_document_content),
+                documentation_revisions::yjs_state_vector.eq(yjs_state_vector),
+                documentation_revisions::created_by.eq(created_by),
+                documentation_revisions::change_summary.eq(Some(change_summary)),
+            ))
+            .execute(conn)?;
+        Ok(number)
+    })
+}
+
 // Get all revisions for a documentation page
 pub fn get_documentation_revisions(
     conn: &mut DbConnection,

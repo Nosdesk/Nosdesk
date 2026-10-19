@@ -37,13 +37,13 @@ pub mod tree;
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub use encode::encode;
 pub use normalise::{DefaultResolver, Resolver, WikiEmbed};
 
 /// One kind of change the conversion made to the source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoteCode {
     /// A table inside a list or quote moved to after it: tables sit at the
@@ -106,10 +106,19 @@ pub enum NoteCode {
     /// A Notion database had more rows than a page shows; the first 200
     /// were kept.
     DatabaseRowsCut,
+    /// An image in the import couldn't be read, is larger than 10 MB or
+    /// isn't an image; its alt text is kept.
+    ImagesUnreadable,
+    /// An SVG image was left out: SVG can carry scripts. Its alt text is
+    /// kept.
+    SvgImagesRefused,
+    /// An image linked from the web couldn't be downloaded; its alt text is
+    /// kept.
+    WebImagesNotFetched,
 }
 
 /// Degrade counts by code. Ordered, so reports and tests are stable.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Notes(BTreeMap<NoteCode, u32>);
 

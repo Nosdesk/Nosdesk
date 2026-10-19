@@ -135,7 +135,7 @@ pub fn list_reached_map(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<
     use diesel::sql_types::{Integer, Nullable, Text};
     j::import_jobs
         .filter(j::source.is_not_null())
-        .filter(j::status.eq_any(["parsed", "dry_run_done", "committing", "done"]))
+        .filter(j::status.eq_any(["parsed", "checking", "dry_run_done", "committing", "done"]))
         .order((j::created_at.desc(), j::id.desc()))
         .limit(limit)
         .select((
@@ -226,7 +226,7 @@ pub fn prune_due(
                 .eq("done")
                 .and(j::completed_at.lt(cutoff))
                 .or(j::status
-                    .eq_any(["parsed", "dry_run_done"])
+                    .eq_any(["parsed", "checking", "dry_run_done"])
                     .and(j::updated_at.lt(cutoff))),
         )
         .order(j::updated_at.asc())
@@ -284,7 +284,7 @@ pub fn prune(
 ) -> QueryResult<usize> {
     use crate::schema::import_jobs::dsl as j;
     use crate::services::imports::history;
-    let Some((summary, source)) = j::import_jobs
+    let Some((job_type, summary, source)) = j::import_jobs
         .find(id)
         .filter(j::pruned_at.is_null())
         .filter(
@@ -292,19 +292,29 @@ pub fn prune(
                 .eq("done")
                 .and(j::completed_at.lt(cutoff))
                 .or(j::status
-                    .eq_any(["parsed", "dry_run_done"])
+                    .eq_any(["parsed", "checking", "dry_run_done"])
                     .and(j::updated_at.lt(cutoff))),
         )
-        .select((j::summary, j::source))
+        .select((j::job_type, j::summary, j::source))
         .for_no_key_update()
-        .first::<(Option<serde_json::Value>, Option<serde_json::Value>)>(conn)
+        .first::<(String, Option<serde_json::Value>, Option<serde_json::Value>)>(conn)
         .optional()?
     else {
         return Ok(0);
     };
-    let summary = history::pruned_summary(summary);
-    // A source that doesn't read is kept whole: it names the file's columns.
-    let source = history::pruned_source(source.clone()).or(source);
+    let (summary, source) = if job_type == crate::services::imports::documentation::JOB_TYPE {
+        // The tree and the counts stay; the pages' detail goes with the
+        // row results.
+        (
+            crate::services::imports::documentation::pruned_summary(summary),
+            source,
+        )
+    } else {
+        let summary = history::pruned_summary(summary);
+        // A source that doesn't read is kept whole: it names the file's
+        // columns.
+        (summary, history::pruned_source(source.clone()).or(source))
+    };
     diesel::update(j::import_jobs.find(id))
         .set((
             j::row_results.eq(None::<serde_json::Value>),
@@ -369,6 +379,7 @@ fn type_lock_key(workspace_id: i32, job_type: &str) -> (i32, i32) {
         "assets" => 1,
         "users" => 2,
         "tickets" => 3,
+        "documentation" => 4,
         _ => 0,
     };
     (TYPE_LOCK_SPACE + code, workspace_id)
@@ -491,4 +502,82 @@ pub fn delete_value_answer(conn: &mut DbConnection, id: Uuid) -> QueryResult<usi
 pub fn delete_value_answers(conn: &mut DbConnection, job_type: &str) -> QueryResult<usize> {
     use crate::schema::import_value_answers::dsl as a;
     diesel::delete(a::import_value_answers.filter(a::job_type.eq(job_type))).execute(conn)
+}
+
+/// Mark a background run on the job as alive: `updated_at` now and, when
+/// given, the pages written so far. Only while the job is still in
+/// `status`; 0 when it has moved on (finished, or reconciled as stopped).
+/// The audit trigger skips an update that changes only these two columns
+/// (`tr_audit_import_jobs_upd`), so the beats leave no audit rows.
+// sync-audit-only: admin bulk-import audit log, see create
+pub fn heartbeat(
+    conn: &mut DbConnection,
+    id: Uuid,
+    status: &str,
+    progress: Option<i32>,
+) -> QueryResult<usize> {
+    use crate::schema::import_jobs::dsl as j;
+    let now = chrono::Utc::now();
+    match progress {
+        Some(progress) => diesel::update(j::import_jobs.find(id).filter(j::status.eq(status)))
+            .set((
+                j::updated_at.eq(now),
+                j::records_committed.eq(Some(progress)),
+            ))
+            .execute(conn),
+        None => diesel::update(j::import_jobs.find(id).filter(j::status.eq(status)))
+            .set(j::updated_at.eq(now))
+            .execute(conn),
+    }
+}
+
+/// The record of every committed documentation import in the workspace
+/// (`services::imports::documentation::CommitRecord`), for spotting pages
+/// imported before.
+// sync-audit-only: read-only
+pub fn documentation_records(conn: &mut DbConnection) -> QueryResult<Vec<serde_json::Value>> {
+    use crate::schema::import_jobs::dsl as j;
+    Ok(j::import_jobs
+        .filter(j::job_type.eq(crate::services::imports::documentation::JOB_TYPE))
+        .filter(j::status.eq("done"))
+        .filter(j::record_ids.is_not_null())
+        .select(j::record_ids)
+        .load::<Option<serde_json::Value>>(conn)?
+        .into_iter()
+        .flatten()
+        .collect())
+}
+
+/// Whether a documentation import other than `except` is committing in
+/// the workspace: one runs at a time.
+// sync-audit-only: read-only
+pub fn other_documentation_commit(conn: &mut DbConnection, except: Uuid) -> QueryResult<bool> {
+    use crate::schema::import_jobs::dsl as j;
+    diesel::select(diesel::dsl::exists(
+        j::import_jobs
+            .filter(j::job_type.eq(crate::services::imports::documentation::JOB_TYPE))
+            .filter(j::status.eq("committing"))
+            .filter(j::id.ne(except)),
+    ))
+    .get_result(conn)
+}
+
+/// Documentation jobs, across every workspace, whose background check or
+/// commit hasn't marked itself alive since `cutoff`: the process running it
+/// died. At most `limit`, as (workspace, job).
+// sync-audit-only: read-only
+pub fn stalled_documentation_jobs(
+    conn: &mut DbConnection,
+    cutoff: chrono::DateTime<chrono::Utc>,
+    limit: i64,
+) -> QueryResult<Vec<(i32, Uuid)>> {
+    use crate::schema::import_jobs::dsl as j;
+    j::import_jobs
+        .filter(j::job_type.eq(crate::services::imports::documentation::JOB_TYPE))
+        .filter(j::status.eq_any(["checking", "committing"]))
+        .filter(j::updated_at.lt(cutoff))
+        .order(j::updated_at.asc())
+        .limit(limit)
+        .select((j::workspace_id, j::id))
+        .load(conn)
 }
