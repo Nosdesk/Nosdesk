@@ -25,6 +25,7 @@ import { EditorView } from "prosemirror-view";
 import { EditorState, Selection, type Command } from "prosemirror-state";
 import { schema } from "@/components/editor/schema";
 import { createTableGuardPlugin } from "@/components/editor/tableGuard";
+import { createTablePlugins, hasFinePointer } from "@/components/editor/tablePlugins";
 import { respondToOutdatedEditor, type OutdatedEditorPrompt } from "@/components/editor/outdatedEditor";
 import Button from "@/components/common/Button.vue";
 import { useAuthStore } from "@/stores/auth";
@@ -75,7 +76,6 @@ import { Schema } from "prosemirror-model";
 
 // Import individual components instead of exampleSetup
 import { dropCursor } from "prosemirror-dropcursor";
-// gapCursor removed - causes errors with empty Yjs documents in Chrome
 import {
     inputRules,
     wrappingInputRule,
@@ -845,6 +845,15 @@ const initEditor = async () => {
             throw new Error("Editor element became null during initialization");
         }
 
+        // Tab, arrows, cell selection, paste and (on pointer devices) column
+        // resizing in tables. The gap cursor comes with them. It was removed
+        // once over errors on empty Yjs documents; an editor no longer starts
+        // from an empty document (`initialEditorDoc`).
+        const tables = createTablePlugins({
+            docId: () => props.docId,
+            resizable: hasFinePointer(),
+        });
+
         editorView = new EditorView(editorElement.value, {
             // The revision overlay hides this view but leaves it mounted and
             // syncing. Editing it while it cannot be seen would be an invisible
@@ -1047,14 +1056,17 @@ const initEditor = async () => {
                         onStateChange: handleMentionStateChange,
                         onKeyDown: handleMentionKeyDown,
                     }),
+                    tables.keymap, // After lists and mentions, before baseKeymap
                     keymap(baseKeymap), // Basic key bindings
                     dropCursor(), // Shows cursor when dragging
                     createTicketDropIndicatorPlugin(), // Shows drop indicator for ticket cards
-                    // NOTE: gapCursor() removed - causes null reference errors with empty Yjs documents
                     createImageUploadPlugin(imageUploadOptions()),
                     syntaxHighlightPlugin,
                     createMentionViewPlugin(),
                     twemojiPlugin,
+                    // Last: cell selection takes mouse and arrow events the
+                    // gap cursor and column resizing have passed on.
+                    ...tables.plugins,
                 ],
             }),
             // Live view only: the revision overlay renders images via plain
