@@ -33,8 +33,16 @@ pub use normalise::{DefaultResolver, Resolver};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoteCode {
-    /// A table became a `markdown` code block holding a pipe table.
-    TablesAsText,
+    /// A table inside a list or quote moved to after it: tables sit at the
+    /// top level of a page.
+    TablesHoisted,
+    /// A table's rows were evened out: short rows padded with empty cells,
+    /// spans running past the table trimmed.
+    TableRowsPadded,
+    /// Content a table cell cannot hold became paragraphs: headings in bold,
+    /// quotes as their content, embedded pages as their title, tables as a
+    /// line per row; rules were dropped.
+    TableCellsFlattened,
     /// A task list became a bullet list with "☐ " and "☑ " items.
     ChecklistsAsBullets,
     /// Strikethrough, underline, highlight, superscript or subscript

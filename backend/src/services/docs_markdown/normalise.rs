@@ -8,7 +8,7 @@
 //!   leading code block, quote or list); a list holds at least one item.
 //! - A `blockquote` holds at least one block; an empty quote is dropped.
 //! - A `code_block` holds plain text with no marks (the IR type guarantees
-//!   it; tables and math are flattened into it as text).
+//!   it; math is flattened into it as text).
 //! - Headings hold inline content only (the IR type guarantees it); `level`
 //!   is 1 to 6.
 //! - Nesting deeper than [`MAX_DEPTH`] quotes and lists flattens into the
@@ -19,11 +19,19 @@
 //!   rest keep their text (or alt text).
 //! - An `image` has a `src`; `mention`, `ticket_link` and
 //!   `embedded_document` have their required attrs.
-//!
-//! Tables have no editor node yet, so [`table_to_code_block`] lowers them.
+//! - Tables live at the top level only: one inside a list or quote moves to
+//!   after its top-level block, and one inside a table cell becomes a
+//!   paragraph per row ("cell · cell").
+//! - A table has at least one row and its rows are the same width: short
+//!   rows are padded with empty cells, spans running past the table are
+//!   trimmed, and a table with no cells is dropped.
+//! - A cell holds `cell_block`s only (paragraphs, lists, code blocks), at
+//!   least one: headings become bold paragraphs, quotes give up their
+//!   content, embedded pages become their title, rules are dropped, and an
+//!   empty cell holds an empty paragraph.
 
 use super::ir::{
-    plain_text, Alignment, Block, Document, Image, Inline, Link, ListItem, Table, Text,
+    blocks_text, Block, Document, Image, Inline, Link, ListItem, Table, TableCell, Text,
 };
 use super::{NoteCode, Notes};
 
@@ -96,8 +104,14 @@ pub fn normalise(document: Document, resolver: &dyn Resolver, notes: &mut Notes)
         resolver,
         notes,
         flattening: false,
+        in_cell: false,
+        hoisted: Vec::new(),
     };
-    let mut blocks = normaliser.blocks(document.blocks, 0);
+    let mut blocks = Vec::with_capacity(document.blocks.len());
+    for block in document.blocks {
+        normaliser.block(block, 0, &mut blocks);
+        blocks.append(&mut normaliser.hoisted);
+    }
     if blocks.is_empty() {
         blocks.push(Block::Paragraph(Vec::new()));
     }
@@ -109,6 +123,10 @@ struct Normaliser<'a> {
     notes: &'a mut Notes,
     /// Inside content being flattened, so one too-deep branch counts once.
     flattening: bool,
+    /// Inside a table cell, where a table can only be text.
+    in_cell: bool,
+    /// Tables found inside a list or quote, to follow their top-level block.
+    hoisted: Vec<Block>,
 }
 
 impl Normaliser<'_> {
@@ -175,8 +193,90 @@ impl Normaliser<'_> {
                 }
             }
             Block::Table(table) => {
-                let lowered = table_to_code_block(table, self.notes);
-                self.block(lowered, depth, out);
+                if self.in_cell {
+                    self.notes.add(NoteCode::TableCellsFlattened);
+                    out.extend(text_paragraphs(&[Block::Table(table)]));
+                } else if let Some(table) = self.table(table) {
+                    if depth == 0 {
+                        out.push(Block::Table(table));
+                    } else {
+                        self.notes.add(NoteCode::TablesHoisted);
+                        self.hoisted.push(Block::Table(table));
+                    }
+                }
+            }
+        }
+    }
+
+    /// A table with valid cells and rows of one width; `None` when it has no
+    /// cells at all.
+    fn table(&mut self, table: Table) -> Option<Table> {
+        let outer = std::mem::replace(&mut self.in_cell, true);
+        let rows: Vec<Vec<TableCell>> = table
+            .rows
+            .into_iter()
+            .map(|row| row.into_iter().map(|cell| self.cell(cell)).collect())
+            .collect();
+        self.in_cell = outer;
+        let (rows, changed) = even_rows(rows)?;
+        if changed {
+            self.notes.add(NoteCode::TableRowsPadded);
+        }
+        Some(Table { rows })
+    }
+
+    fn cell(&mut self, cell: TableCell) -> TableCell {
+        let colspan = cell.colspan.max(1);
+        let blocks = self.blocks(cell.blocks, 0);
+        let mut content = Vec::with_capacity(blocks.len());
+        self.cell_blocks(blocks, &mut content);
+        if content.is_empty() {
+            content.push(Block::Paragraph(Vec::new()));
+        }
+        TableCell {
+            header: cell.header,
+            colspan,
+            rowspan: cell.rowspan.max(1),
+            colwidth: cell
+                .colwidth
+                .filter(|w| w.len() == colspan as usize && w.iter().all(|w| *w > 0)),
+            align: cell.align,
+            blocks: content,
+        }
+    }
+
+    /// Normalised blocks as a cell's direct children: `cell_block`s only.
+    fn cell_blocks(&mut self, blocks: Vec<Block>, out: &mut Vec<Block>) {
+        for block in blocks {
+            match block {
+                Block::Paragraph(_)
+                | Block::BulletList(_)
+                | Block::OrderedList { .. }
+                | Block::CodeBlock { .. } => out.push(block),
+                Block::Heading { content, .. } => {
+                    self.notes.add(NoteCode::TableCellsFlattened);
+                    let mut content = content;
+                    for inline in &mut content {
+                        if let Inline::Text(text) = inline {
+                            text.marks.strong = !text.marks.code;
+                        }
+                    }
+                    merge_adjacent_text(&mut content);
+                    if !content.is_empty() {
+                        out.push(Block::Paragraph(content));
+                    }
+                }
+                Block::Blockquote(inner) => {
+                    self.notes.add(NoteCode::TableCellsFlattened);
+                    self.cell_blocks(inner, out);
+                }
+                Block::HorizontalRule => self.notes.add(NoteCode::TableCellsFlattened),
+                Block::EmbeddedDocument { document_title, .. } => {
+                    self.notes.add(NoteCode::TableCellsFlattened);
+                    out.push(Block::Paragraph(vec![Inline::text(document_title)]));
+                }
+                // `block` already turned tables in a cell into paragraphs.
+                Block::Table(table) => out.extend(text_paragraphs(&[Block::Table(table)])),
             }
         }
     }
@@ -373,71 +473,71 @@ pub(crate) fn merge_adjacent_text(inlines: &mut Vec<Inline>) {
     *inlines = merged;
 }
 
-/// A table as a `markdown` code block holding a re-aligned pipe table, with
-/// inline formatting flattened to text. This is the 1.1.3 fallback until the
-/// editor has a table node; a code block that parses as exactly one table is
-/// the shape the upgrade recognises.
-pub fn table_to_code_block(table: Table, notes: &mut Notes) -> Block {
-    notes.add(NoteCode::TablesAsText);
-    let columns = table
-        .rows
-        .iter()
-        .map(Vec::len)
-        .chain([table.alignments.len(), table.head.len()])
-        .max()
-        .unwrap_or(0)
-        .max(1);
-    let cell_text = |cell: Option<&Vec<Inline>>| -> String {
-        cell.map(|c| single_line(&plain_text(c)).trim().replace('|', "\\|"))
-            .unwrap_or_default()
-    };
-    let head: Vec<String> = (0..columns).map(|i| cell_text(table.head.get(i))).collect();
-    let rows: Vec<Vec<String>> = table
-        .rows
-        .iter()
-        .map(|row| (0..columns).map(|i| cell_text(row.get(i))).collect())
-        .collect();
-    let alignment = |i: usize| table.alignments.get(i).copied().unwrap_or_default();
+/// Blocks as paragraphs of their plain text, one per line.
+fn text_paragraphs(blocks: &[Block]) -> Vec<Block> {
+    blocks_text(blocks)
+        .into_iter()
+        .map(|line| Block::Paragraph(vec![Inline::text(single_line(&line))]))
+        .collect()
+}
 
-    let mut widths = vec![3usize; columns];
-    for row in std::iter::once(&head).chain(rows.iter()) {
-        for (i, cell) in row.iter().enumerate() {
-            widths[i] = widths[i].max(cell.chars().count());
+/// Rows of one width, laid out the way prosemirror-tables' `TableMap` reads
+/// them: each cell takes the next free column, and a `rowspan` holds its
+/// columns in the rows below. Spans that run past the last row or into
+/// another cell are trimmed, and each short row gets empty cells to fill its
+/// free columns. Returns the rows and whether anything changed, or `None`
+/// when no row has a cell.
+fn even_rows(mut rows: Vec<Vec<TableCell>>) -> Option<(Vec<Vec<TableCell>>, bool)> {
+    let height = rows.len();
+    let mut taken: Vec<Vec<bool>> = vec![Vec::new(); height];
+    let is_taken = |taken: &[Vec<bool>], r: usize, c: usize| taken[r].get(c).copied() == Some(true);
+    let mut changed = false;
+    for (r, row) in rows.iter_mut().enumerate() {
+        let mut col = 0;
+        for cell in row {
+            while is_taken(&taken, r, col) {
+                col += 1;
+            }
+            let rowspan = cell
+                .rowspan
+                .min(u32::try_from(height - r).unwrap_or(u32::MAX));
+            let mut colspan = 0;
+            while colspan < cell.colspan && !is_taken(&taken, r, col + colspan as usize) {
+                colspan += 1;
+            }
+            if colspan != cell.colspan {
+                cell.colspan = colspan;
+                cell.colwidth = None;
+                changed = true;
+            }
+            if rowspan != cell.rowspan {
+                cell.rowspan = rowspan;
+                changed = true;
+            }
+            for row in taken.iter_mut().skip(r).take(rowspan as usize) {
+                let end = col + colspan as usize;
+                if row.len() < end {
+                    row.resize(end, false);
+                }
+                row[col..end].fill(true);
+            }
+            col += colspan as usize;
         }
     }
-
-    let line = |cells: &[String]| -> String {
-        let padded: Vec<String> = cells
-            .iter()
-            .enumerate()
-            .map(|(i, cell)| {
-                let gap = widths[i] - cell.chars().count();
-                let (left, right) = match alignment(i) {
-                    Alignment::Right => (gap, 0),
-                    Alignment::Center => (gap / 2, gap - gap / 2),
-                    Alignment::None | Alignment::Left => (0, gap),
-                };
-                format!("{}{}{}", " ".repeat(left), cell, " ".repeat(right))
-            })
-            .collect();
-        format!("| {} |", padded.join(" | "))
-    };
-    let rule: Vec<String> = (0..columns)
-        .map(|i| {
-            let w = widths[i];
-            match alignment(i) {
-                Alignment::None => "-".repeat(w),
-                Alignment::Left => format!(":{}", "-".repeat(w - 1)),
-                Alignment::Right => format!("{}:", "-".repeat(w - 1)),
-                Alignment::Center => format!(":{}:", "-".repeat(w - 2)),
-            }
-        })
-        .collect();
-
-    let mut lines = vec![line(&head), format!("| {} |", rule.join(" | "))];
-    lines.extend(rows.iter().map(|row| line(row)));
-    Block::CodeBlock {
-        language: Some("markdown".to_string()),
-        text: lines.join("\n"),
+    let width = taken.iter().map(Vec::len).max().unwrap_or(0);
+    if width == 0 {
+        return None;
     }
+    for (row, taken) in rows.iter_mut().zip(&taken) {
+        let free = width - taken.iter().filter(|t| **t).count();
+        if free > 0 {
+            changed = true;
+            let header = !row.is_empty() && row.iter().all(|cell| cell.header);
+            row.extend((0..free).map(|_| TableCell {
+                header,
+                ..TableCell::empty()
+            }));
+        }
+    }
+    Some((rows, changed))
 }

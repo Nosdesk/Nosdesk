@@ -5,7 +5,9 @@
 use serde_json::{json, Value};
 
 use super::encode::{decode, encode, encode_with_client_id};
-use super::ir::{Alignment, Block, Document, Image, Inline, Link, ListItem, Marks, Table, Text};
+use super::ir::{
+    Alignment, Block, Document, Image, Inline, Link, ListItem, Marks, Table, TableCell, Text,
+};
 use super::normalise::{normalise, MAX_DEPTH};
 use super::{convert, DefaultResolver, FrontMatterKind, NoteCode, Notes};
 
@@ -339,36 +341,261 @@ fn task_lists_become_bullet_lists_with_boxes() {
     assert_eq!(notes(md).count(NoteCode::ChecklistsAsBullets), 2);
 }
 
+fn th(inlines: Vec<Inline>) -> TableCell {
+    TableCell::new(true, inlines)
+}
+
+fn td(inlines: Vec<Inline>) -> TableCell {
+    TableCell::new(false, inlines)
+}
+
+fn aligned(mut cell: TableCell, align: Alignment) -> TableCell {
+    cell.align = Some(align);
+    cell
+}
+
+fn table(rows: Vec<Vec<TableCell>>) -> Block {
+    Block::Table(Table { rows })
+}
+
 #[test]
 fn gfm_tables_parse_into_the_table_node() {
-    let parsed = super::parse::parse("| A | B |\n|:--|--:|\n| **x** | y |\n| z |\n");
+    let parsed = super::parse::parse("| A | B | C |\n|:--|--:|---|\n| **x** | y |\n| z |\n");
     assert_eq!(
         parsed.document.blocks,
-        vec![Block::Table(Table {
-            alignments: vec![Alignment::Left, Alignment::Right],
-            head: vec![vec![text("A")], vec![text("B")]],
-            rows: vec![
-                vec![vec![strong("x")], vec![text("y")]],
-                vec![vec![text("z")], vec![]],
+        vec![table(vec![
+            vec![
+                aligned(th(vec![text("A")]), Alignment::Left),
+                aligned(th(vec![text("B")]), Alignment::Right),
+                th(vec![text("C")]),
             ],
-        })]
+            vec![
+                aligned(td(vec![strong("x")]), Alignment::Left),
+                aligned(td(vec![text("y")]), Alignment::Right),
+                td(vec![]),
+            ],
+            vec![
+                aligned(td(vec![text("z")]), Alignment::Left),
+                aligned(td(vec![]), Alignment::Right),
+                td(vec![]),
+            ],
+        ])]
     );
 }
 
 #[test]
-fn tables_are_kept_as_realigned_markdown_code_blocks() {
-    let md = "| Name | Count | Note |\n|:-----|------:|:----:|\n| **Alpha** | 1 | a \\| pipe |\n| Beta | 22 | `code` |\n";
+fn gfm_tables_become_table_nodes() {
+    let md = "| Name | Count | Note |\n|:-----|------:|:----:|\n| **Alpha** | 1 | a \\| pipe<br>next |\n| Beta | 22 | `a\\|b` |\n";
+    let cell = |tag: &str, align: &str, content: Value| {
+        json!({"type": tag, "attrs": {"colspan": 1, "rowspan": 1, "align": align}, "content": [
+            {"type": "paragraph", "content": content}
+        ]})
+    };
+    let plain = |s: &str| json!([{"type": "text", "text": s}]);
     assert_eq!(
-        blocks(md),
-        vec![code_block(
-            Some("markdown"),
-            "| Name  | Count |   Note    |\n\
-             | :---- | ----: | :-------: |\n\
-             | Alpha |     1 | a \\| pipe |\n\
-             | Beta  |    22 |   code    |"
-        )]
+        json(md),
+        json!({"type": "doc", "content": [{"type": "table", "content": [
+            {"type": "table_row", "content": [
+                cell("table_header", "left", plain("Name")),
+                cell("table_header", "right", plain("Count")),
+                cell("table_header", "center", plain("Note")),
+            ]},
+            {"type": "table_row", "content": [
+                cell("table_cell", "left", json!([
+                    {"type": "text", "text": "Alpha", "marks": [{"type": "strong", "attrs": {}}]}
+                ])),
+                cell("table_cell", "right", plain("1")),
+                cell("table_cell", "center", json!([
+                    {"type": "text", "text": "a | pipe"},
+                    {"type": "hard_break"},
+                    {"type": "text", "text": "next"}
+                ])),
+            ]},
+            {"type": "table_row", "content": [
+                cell("table_cell", "left", plain("Beta")),
+                cell("table_cell", "right", plain("22")),
+                cell("table_cell", "center", json!([
+                    {"type": "text", "text": "a|b", "marks": [{"type": "code", "attrs": {}}]}
+                ])),
+            ]},
+        ]}]})
     );
-    assert_eq!(notes(md).count(NoteCode::TablesAsText), 1);
+    assert!(notes(md).is_empty(), "{:?}", notes(md));
+}
+
+#[test]
+fn unaligned_columns_carry_no_align_and_empty_cells_an_empty_paragraph() {
+    assert_eq!(
+        json("| A |  |\n|---|---|\n"),
+        json!({"type": "doc", "content": [{"type": "table", "content": [
+            {"type": "table_row", "content": [
+                {"type": "table_header", "attrs": {"colspan": 1, "rowspan": 1}, "content": [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "A"}]}
+                ]},
+                {"type": "table_header", "attrs": {"colspan": 1, "rowspan": 1}, "content": [
+                    {"type": "paragraph"}
+                ]},
+            ]}
+        ]}]})
+    );
+}
+
+#[test]
+fn tables_in_lists_and_quotes_move_after_their_top_level_block() {
+    let md = "- one\n\n  | A |\n  |---|\n  | 1 |\n- two\n\n> quoted\n>\n> | B |\n> |---|\n\nafter";
+    let got = blocks(md);
+    let kinds: Vec<&str> = got
+        .iter()
+        .map(|b| match b {
+            Block::BulletList(_) => "list",
+            Block::Table(_) => "table",
+            Block::Blockquote(_) => "quote",
+            Block::Paragraph(_) => "paragraph",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, vec!["list", "table", "quote", "table", "paragraph"]);
+    let Block::BulletList(items) = &got[0] else {
+        panic!("list")
+    };
+    assert_eq!(
+        items,
+        &vec![
+            item(vec![para(vec![text("one")])]),
+            item(vec![para(vec![text("two")])])
+        ]
+    );
+    assert_eq!(notes(md).count(NoteCode::TablesHoisted), 2);
+}
+
+#[test]
+fn a_list_item_holding_only_a_table_keeps_an_empty_paragraph() {
+    let (got, notes) = normalised(vec![Block::BulletList(vec![item(vec![table(vec![
+        vec![td(vec![text("x")])],
+    ])])])]);
+    assert_eq!(
+        got,
+        vec![
+            Block::BulletList(vec![item(vec![para(vec![])])]),
+            table(vec![vec![td(vec![text("x")])]]),
+        ]
+    );
+    assert_eq!(notes.count(NoteCode::TablesHoisted), 1);
+}
+
+#[test]
+fn ragged_rows_are_padded_with_empty_cells() {
+    let (got, notes) = normalised(vec![table(vec![
+        vec![th(vec![text("A")])],
+        vec![
+            td(vec![text("1")]),
+            td(vec![text("2")]),
+            td(vec![text("3")]),
+        ],
+        vec![],
+    ])]);
+    assert_eq!(
+        got,
+        vec![table(vec![
+            vec![th(vec![text("A")]), th(vec![]), th(vec![])],
+            vec![
+                td(vec![text("1")]),
+                td(vec![text("2")]),
+                td(vec![text("3")])
+            ],
+            vec![td(vec![]), td(vec![]), td(vec![])],
+        ])]
+    );
+    assert_eq!(notes.count(NoteCode::TableRowsPadded), 1);
+}
+
+#[test]
+fn spans_are_trimmed_to_the_table_and_count_as_columns() {
+    let span = |colspan: u32, rowspan: u32| TableCell {
+        colspan,
+        rowspan,
+        colwidth: Some(vec![100; colspan as usize]),
+        ..td(vec![text("s")])
+    };
+    let (got, notes) = normalised(vec![table(vec![
+        vec![span(1, 2), td(vec![text("b")])],
+        vec![span(3, 5)],
+    ])]);
+    // The 1x2 cell holds column 0 of the second row, so the 3x5 cell starts
+    // at column 1 and is cut to the one row left; the first row is padded
+    // to the four columns that makes.
+    let trimmed = TableCell {
+        rowspan: 1,
+        ..span(3, 5)
+    };
+    assert_eq!(
+        got,
+        vec![table(vec![
+            vec![span(1, 2), td(vec![text("b")]), td(vec![]), td(vec![])],
+            vec![trimmed],
+        ])]
+    );
+    assert_eq!(notes.count(NoteCode::TableRowsPadded), 1);
+}
+
+#[test]
+fn a_table_with_no_cells_is_dropped() {
+    let (got, notes) = normalised(vec![table(vec![]), table(vec![vec![], vec![]])]);
+    assert_eq!(got, vec![para(vec![])]);
+    assert!(notes.is_empty());
+}
+
+#[test]
+fn cells_hold_only_cell_blocks() {
+    let cell = |blocks: Vec<Block>| TableCell {
+        blocks,
+        ..td(vec![])
+    };
+    let (got, notes) = normalised(vec![table(vec![vec![
+        cell(vec![
+            Block::Heading {
+                level: 2,
+                content: vec![text("Head "), code("c")],
+            },
+            Block::Blockquote(vec![para(vec![text("quoted")])]),
+            Block::HorizontalRule,
+            Block::EmbeddedDocument {
+                document_uuid: "d1".into(),
+                document_title: "Child".into(),
+            },
+            table(vec![
+                vec![td(vec![text("a")]), td(vec![text("b")])],
+                vec![td(vec![text("c")]), td(vec![])],
+            ]),
+            Block::BulletList(vec![item(vec![
+                para(vec![text("li")]),
+                table(vec![vec![td(vec![text("deep")])]]),
+            ])]),
+            code_block(None, "x"),
+        ]),
+        cell(vec![para(vec![])]),
+    ]])]);
+    assert_eq!(
+        got,
+        vec![table(vec![vec![
+            cell(vec![
+                para(vec![strong("Head "), code("c")]),
+                para(vec![text("quoted")]),
+                para(vec![text("Child")]),
+                para(vec![text("a · b")]),
+                para(vec![text("c")]),
+                Block::BulletList(vec![item(vec![
+                    para(vec![text("li")]),
+                    para(vec![text("deep")]),
+                ])]),
+                code_block(None, "x"),
+            ]),
+            cell(vec![para(vec![])]),
+        ]])]
+    );
+    // Heading, quote, rule, embed, and the two tables.
+    assert_eq!(notes.count(NoteCode::TableCellsFlattened), 6);
+    assert_eq!(notes.count(NoteCode::TablesHoisted), 0);
 }
 
 #[test]
@@ -537,20 +764,6 @@ fn an_empty_list_is_dropped() {
         },
     ]);
     assert_eq!(got, vec![para(vec![])]);
-}
-
-#[test]
-fn code_blocks_hold_plain_text_from_marked_table_cells() {
-    let (got, _) = normalised(vec![Block::Table(Table {
-        alignments: vec![],
-        head: vec![vec![
-            strong("b"),
-            Inline::HardBreak,
-            linked("l", "https://e.com", None),
-        ]],
-        rows: vec![],
-    })]);
-    assert_eq!(got, vec![code_block(Some("markdown"), "| b l |\n| --- |")]);
 }
 
 #[test]
@@ -787,6 +1000,75 @@ fn encoder_writes_every_node_type() {
             {"type": "embedded_document", "attrs": {"documentUuid": "d1", "documentTitle": "Child"}}
         ]})
     );
+}
+
+#[test]
+fn encoder_writes_table_attrs_as_y_prosemirror_does() {
+    use yrs::updates::decoder::Decode;
+    use yrs::{Any, Doc, Out, Transact, Update, WriteTxn, Xml, XmlFragment, XmlOut};
+
+    let cell = TableCell {
+        colspan: 2,
+        colwidth: Some(vec![120, 80]),
+        align: Some(Alignment::Center),
+        ..th(vec![text("wide")])
+    };
+    let document = Document {
+        blocks: vec![table(vec![vec![cell], vec![td(vec![]), td(vec![])]])],
+    };
+    let bytes = encode(&document);
+    assert_eq!(
+        decode::to_json(&bytes),
+        json!({"type": "doc", "content": [{"type": "table", "content": [
+            {"type": "table_row", "content": [
+                {"type": "table_header",
+                 "attrs": {"colspan": 2, "rowspan": 1, "colwidth": [120, 80], "align": "center"},
+                 "content": [{"type": "paragraph", "content": [{"type": "text", "text": "wide"}]}]}
+            ]},
+            {"type": "table_row", "content": [
+                {"type": "table_cell", "attrs": {"colspan": 1, "rowspan": 1}, "content": [{"type": "paragraph"}]},
+                {"type": "table_cell", "attrs": {"colspan": 1, "rowspan": 1}, "content": [{"type": "paragraph"}]}
+            ]}
+        ]}]})
+    );
+
+    // Numbers, not BigInts: y-prosemirror compares attrs with `!==`.
+    let doc = Doc::new();
+    let mut txn = doc.transact_mut();
+    txn.apply_update(Update::decode_v1(&bytes).expect("decodes"))
+        .expect("applies");
+    let fragment = txn.get_or_insert_xml_fragment("prosemirror");
+    let Some(XmlOut::Element(table)) = fragment.get(&txn, 0) else {
+        panic!("table");
+    };
+    assert!(table.attributes(&txn).next().is_none());
+    let Some(XmlOut::Element(row)) = table.get(&txn, 0) else {
+        panic!("row");
+    };
+    assert!(row.attributes(&txn).next().is_none());
+    let Some(XmlOut::Element(header)) = row.get(&txn, 0) else {
+        panic!("header");
+    };
+    assert_eq!(
+        header.get_attribute(&txn, "colspan"),
+        Some(Out::Any(Any::Number(2.0)))
+    );
+    assert_eq!(
+        header.get_attribute(&txn, "rowspan"),
+        Some(Out::Any(Any::Number(1.0)))
+    );
+    assert_eq!(
+        header.get_attribute(&txn, "colwidth"),
+        Some(Out::Any(Any::from(vec![
+            Any::Number(120.0),
+            Any::Number(80.0)
+        ])))
+    );
+    assert_eq!(
+        header.get_attribute(&txn, "align"),
+        Some(Out::Any(Any::from("center")))
+    );
+    assert_eq!(header.get_attribute(&txn, "ychange"), None);
 }
 
 /// y-prosemirror keeps one XmlText per run of adjacent text nodes; two

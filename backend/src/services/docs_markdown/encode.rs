@@ -11,6 +11,9 @@
 //!   text node. Marks are formatting attributes named after the mark, valued
 //!   with the mark's attrs: `{}` for `em`, `strong` and `code`,
 //!   `{href, title}` for `link`. An empty node has no XmlText at all.
+//! - Table cells always carry `colspan` and `rowspan` (their defaults are 1,
+//!   not null); `colwidth` is an array of numbers and `align` a string, each
+//!   only when set.
 //!
 //! The encoder does no validation; [`normalise`](super::normalise) must run
 //! first.
@@ -25,9 +28,7 @@ use yrs::{
     XmlElementRef, XmlFragment,
 };
 
-use super::ir::{Block, Document, Inline, ListItem, Marks, Text};
-use super::normalise::table_to_code_block;
-use super::Notes;
+use super::ir::{Block, Document, Inline, ListItem, Marks, Table, Text};
 
 /// The XmlFragment y-prosemirror binds the editor to.
 pub const FRAGMENT: &str = "prosemirror";
@@ -115,11 +116,33 @@ fn write_block<P: XmlFragment>(txn: &mut TransactionMut, parent: &P, block: &Blo
             el.insert_attribute(txn, "documentUuid", Any::from(document_uuid.as_str()));
             el.insert_attribute(txn, "documentTitle", Any::from(document_title.as_str()));
         }
-        // The normaliser lowers tables before encoding; this keeps a
-        // document that skipped it from carrying a node no client can build.
-        Block::Table(table) => {
-            let lowered = table_to_code_block(table.clone(), &mut Notes::default());
-            write_block(txn, parent, &lowered);
+        Block::Table(table) => write_table(txn, parent, table),
+    }
+}
+
+fn write_table<P: XmlFragment>(txn: &mut TransactionMut, parent: &P, table: &Table) {
+    let el = element(txn, parent, "table");
+    for row in &table.rows {
+        let tr = element(txn, &el, "table_row");
+        for cell in row {
+            let name = if cell.header {
+                "table_header"
+            } else {
+                "table_cell"
+            };
+            let td = element(txn, &tr, name);
+            td.insert_attribute(txn, "colspan", number(cell.colspan));
+            td.insert_attribute(txn, "rowspan", number(cell.rowspan));
+            if let Some(widths) = &cell.colwidth {
+                let widths: Vec<Any> = widths.iter().map(|w| number(*w)).collect();
+                td.insert_attribute(txn, "colwidth", Any::from(widths));
+            }
+            if let Some(align) = cell.align {
+                td.insert_attribute(txn, "align", Any::from(align.as_str()));
+            }
+            for block in &cell.blocks {
+                write_block(txn, &td, block);
+            }
         }
     }
 }
