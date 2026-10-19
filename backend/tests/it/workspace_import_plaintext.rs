@@ -128,7 +128,7 @@ fn a_plaintext_export_with_a_webhook_imports() {
         .find(|u| u["uuid"] == person.to_string())
         .expect("the member is exported");
     assert!(person_row.get("mfa_secret").is_none());
-    assert_eq!(person_row["mfa_enabled"], true);
+    assert!(person_row.get("mfa_enabled").is_none());
 
     // A ticket row without `raised_by_staff`, as an archive written before the
     // column existed carries once migrated, or one written by another tool.

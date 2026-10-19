@@ -192,6 +192,7 @@ mod workflow_state_restore;
 mod workflow_states_per_workspace;
 mod workspace_branding;
 mod workspace_export_hygiene;
+mod workspace_export_v2;
 mod workspace_file_purge;
 mod workspace_fk_cascade_lint;
 mod workspace_fk_scope_lint;

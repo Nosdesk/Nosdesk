@@ -79,12 +79,11 @@ const LEGACY_SCHEMA_POINTS: &[LegacySchemaPoint] = &[
 ];
 
 /// A release from 1.1.0 on, whose backups name their migration and digest.
-/// Read by the shipped-schema test.
-#[cfg_attr(not(test), allow(dead_code))]
+/// Read by the shipped-schema test and by [`release_at`].
 struct ReleasedSchemaPoint {
-    #[allow(dead_code)] // names the release for whoever reads the list
     release: &'static str,
     migration: &'static str,
+    #[cfg_attr(not(test), allow(dead_code))]
     prefix_sha256: &'static str,
 }
 
@@ -92,7 +91,6 @@ struct ReleasedSchemaPoint {
 /// 1.0.x points so editing or inserting a shipped migration fails CI rather
 /// than leave that release's backups unrestorable. Add the release here when
 /// it is tagged (DEVELOPMENT.md, "Releases"); 1.1.0 is the first.
-#[cfg_attr(not(test), allow(dead_code))]
 const RELEASED_SCHEMA_POINTS: &[ReleasedSchemaPoint] = &[
     ReleasedSchemaPoint {
         release: "1.1.0",
@@ -148,12 +146,42 @@ impl fmt::Display for NotRestorable {
     }
 }
 
+/// The release whose schema ends at `migration`, when one is pinned in
+/// [`RELEASED_SCHEMA_POINTS`]: the first release that shipped it, so also
+/// the one to run for an archive taken at it.
+pub fn release_at(migration: &str) -> Option<&'static str> {
+    RELEASED_SCHEMA_POINTS
+        .iter()
+        .find(|p| p.migration == migration)
+        .map(|p| p.release)
+}
+
+/// What an archive's manifest says about the schema it was taken at. Instance
+/// backups and workspace exports both record these four.
+#[derive(Debug, Clone, Copy)]
+pub struct SchemaMarker<'a> {
+    pub nosdesk_version: &'a str,
+    pub schema_hash: &'a str,
+    pub migration_version: Option<&'a str>,
+    pub schema_sha256: Option<&'a str>,
+}
+
 /// The schema point `manifest` was taken at.
 pub fn schema_point(manifest: &BackupManifest) -> Result<SchemaPoint, NotRestorable> {
-    let backup_version = || manifest.nosdesk_version.clone();
+    schema_point_of(SchemaMarker {
+        nosdesk_version: &manifest.nosdesk_version,
+        schema_hash: &manifest.schema_hash,
+        migration_version: manifest.migration_version.as_deref(),
+        schema_sha256: manifest.schema_sha256.as_deref(),
+    })
+}
+
+/// The schema point an archive with `marker` was taken at.
+pub fn schema_point_of(marker: SchemaMarker<'_>) -> Result<SchemaPoint, NotRestorable> {
+    let backup_version = || marker.nosdesk_version.to_string();
     let current = current_schema();
 
-    if let (Some(version), Some(sha256)) = (&manifest.migration_version, &manifest.schema_sha256) {
+    if let (Some(version), Some(sha256)) = (marker.migration_version, marker.schema_sha256) {
         return match MIGRATION_PREFIXES.iter().find(|p| p.version == version) {
             Some(prefix) if prefix.sha256 != sha256 => Err(NotRestorable::Unknown {
                 backup_version: backup_version(),
@@ -162,7 +190,7 @@ pub fn schema_point(manifest: &BackupManifest) -> Result<SchemaPoint, NotRestora
             Some(prefix) => Ok(SchemaPoint::Earlier {
                 migration: prefix.version,
             }),
-            None if version.as_str() > current.version => Err(NotRestorable::Newer {
+            None if version > current.version => Err(NotRestorable::Newer {
                 backup_version: backup_version(),
             }),
             None => Err(NotRestorable::Unknown {
@@ -173,12 +201,12 @@ pub fn schema_point(manifest: &BackupManifest) -> Result<SchemaPoint, NotRestora
 
     // A manifest without them: 1.0.x, or a build of this version from before
     // they were recorded (same fingerprint as this build).
-    if manifest.schema_hash == env!("NOSDESK_SCHEMA_HASH") {
+    if marker.schema_hash == env!("NOSDESK_SCHEMA_HASH") {
         return Ok(SchemaPoint::Current);
     }
     if let Some(point) = LEGACY_SCHEMA_POINTS
         .iter()
-        .find(|p| p.schema_hash == manifest.schema_hash)
+        .find(|p| p.schema_hash == marker.schema_hash)
     {
         // Only while this build's migrations up to that point are the ones
         // those releases shipped.
@@ -195,7 +223,7 @@ pub fn schema_point(manifest: &BackupManifest) -> Result<SchemaPoint, NotRestora
             })
         };
     }
-    if is_newer_release(&manifest.nosdesk_version) {
+    if is_newer_release(marker.nosdesk_version) {
         return Err(NotRestorable::Newer {
             backup_version: backup_version(),
         });
@@ -555,6 +583,13 @@ mod tests {
         assert!(matches!(schema_point(&m), Err(NotRestorable::Newer { .. })));
         let m = manifest("99.0.0", "0123456789abcdef", None);
         assert!(matches!(schema_point(&m), Err(NotRestorable::Newer { .. })));
+    }
+
+    #[test]
+    fn a_pinned_point_names_the_release_that_shipped_it() {
+        assert_eq!(release_at("20261010203343"), Some("1.1.0"));
+        assert_eq!(release_at("20261016150000"), Some("1.1.2"));
+        assert_eq!(release_at("20260618100000"), None);
     }
 
     #[test]

@@ -37,7 +37,7 @@ const PASSWORD: &str = "hygiene-password";
 const LEFT_OUT: &[&str] = &["imports/", "exports/", "temp/", "workspace-imports/"];
 
 /// One request to the platform-admin workspace export and import routes.
-async fn call_admin_route(
+pub(crate) async fn call_admin_route(
     pool: &TestPool,
     ws: &WorkspaceSeed,
     req: http_test::TestRequest,
