@@ -345,13 +345,19 @@ pub fn import_workspace(
         // Checked before anything is written, so a rejected archive leaves no
         // partial workspace behind. `workspaces` and `users` are handled
         // separately below and are legitimately present.
+        //
+        // A table the export now leaves out (an archive from before it joined
+        // `EXCLUDE_FROM_WORKSPACE_EXPORT`) is skipped, not refused.
         let allowed = crate::services::workspace_export::discover_workspace_tables(conn)?;
         let allowed: HashSet<&str> = allowed.iter().map(String::as_str).collect();
+        let skipped =
+            |t: &str| crate::services::workspace_export::EXCLUDE_FROM_WORKSPACE_EXPORT.contains(&t);
         let mut rejected: Vec<&str> = contents
             .tables
             .keys()
             .map(String::as_str)
             .filter(|t| *t != "workspaces" && *t != "users")
+            .filter(|t| !skipped(t))
             .filter(|t| !allowed.contains(t))
             .collect();
         if !rejected.is_empty() {
@@ -369,6 +375,7 @@ pub fn import_workspace(
             .tables
             .keys()
             .filter(|t| t.as_str() != "workspaces" && t.as_str() != "users")
+            .filter(|t| !skipped(t))
             .cloned()
             .collect();
         let tenant_set: HashSet<String> = tenant_tables.iter().cloned().collect();

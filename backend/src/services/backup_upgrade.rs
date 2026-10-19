@@ -93,7 +93,23 @@ struct ReleasedSchemaPoint {
 /// than leave that release's backups unrestorable. Add the release here when
 /// it is tagged (DEVELOPMENT.md, "Releases"); 1.1.0 is the first.
 #[cfg_attr(not(test), allow(dead_code))]
-const RELEASED_SCHEMA_POINTS: &[ReleasedSchemaPoint] = &[];
+const RELEASED_SCHEMA_POINTS: &[ReleasedSchemaPoint] = &[
+    ReleasedSchemaPoint {
+        release: "1.1.0",
+        migration: "20261010203343",
+        prefix_sha256: "0f41e8165880e255d6c4600de60d18946fb50669ab86a023b1bc17b410fd5e7e",
+    },
+    ReleasedSchemaPoint {
+        release: "1.1.1",
+        migration: "20261014060000",
+        prefix_sha256: "f2cb01b1505eee6a03fb9258a456fea3b321b1468ec6c9ce99e89e848c371398",
+    },
+    ReleasedSchemaPoint {
+        release: "1.1.2",
+        migration: "20261016150000",
+        prefix_sha256: "ab74d932c63a510242707663c2f73ce99c2614df9ee7da731fa1ea22ac1c1889",
+    },
+];
 
 /// Where a backup's schema sits relative to this build's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

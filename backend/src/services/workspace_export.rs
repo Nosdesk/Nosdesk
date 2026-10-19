@@ -21,7 +21,9 @@
 //!
 //! Excluded: the partitioned `audit_log` + `sync_actions` (audit trail + sync
 //! stream — high-churn, not core tenant data, and partitioned parents that
-//! complicate a scoped dump).
+//! complicate a scoped dump), export jobs, and CSV import history. Files under
+//! earlier exports, CSV import uploads, staged uploads and workspace imports
+//! stay out too ([`is_exported_file`]).
 //!
 //! Password policy mirrors the whole-DB backup: a password seals the archive
 //! (AES-256-GCM) and keeps sensitive auth fields; no password yields a plaintext
@@ -56,14 +58,35 @@ fn zip_options() -> SimpleFileOptions {
 /// format; this is the payload shape the Phase 2 import reads).
 const WORKSPACE_EXPORT_FORMAT_VERSION: u32 = 1;
 
-/// Workspace-scoped tables excluded from the export: the two partitioned,
-/// high-churn tables. They carry `workspace_id` but are the audit trail and the
-/// sync outbox, not core tenant data, and their partitioned shape complicates a
-/// scoped dump (matching the whole-DB backup's parent-only handling).
+/// Workspace-scoped tables excluded from the export, and skipped by the import
+/// when an older archive carries them. `audit_log` and `sync_actions` are the
+/// partitioned, high-churn audit trail and sync outbox, not core tenant data,
+/// and their partitioned shape complicates a scoped dump (matching the whole-DB
+/// backup's parent-only handling).
 // `workspace_export_jobs` carries a workspace_id but is operational metadata (job
 // status + storage keys), not tenant content, so it is excluded like audit_log.
-const EXCLUDE_FROM_WORKSPACE_EXPORT: &[&str] =
-    &["audit_log", "sync_actions", "workspace_export_jobs"];
+// `import_jobs` and `import_value_answers` are CSV import history and saved
+// matches: they name the source's rows, and their uuid keys are ones the import
+// can't remap.
+pub(crate) const EXCLUDE_FROM_WORKSPACE_EXPORT: &[&str] = &[
+    "audit_log",
+    "sync_actions",
+    "workspace_export_jobs",
+    "import_jobs",
+    "import_value_answers",
+];
+
+/// Storage prefixes an export leaves out: earlier exports, CSV import uploads
+/// and grids, uploads not yet attached, and workspace archives waiting to
+/// import.
+const EXCLUDE_FILES_UNDER: &[&str] = &["exports/", "imports/", "temp/", "workspace-imports/"];
+
+/// Whether the workspace file at `path` (workspace-relative) goes in an export.
+pub fn is_exported_file(path: &str) -> bool {
+    !EXCLUDE_FILES_UNDER
+        .iter()
+        .any(|prefix| path.starts_with(prefix))
+}
 
 /// The export package manifest. Carries everything the Phase 2 import needs:
 /// the workspace identity, the member user uuids referenced by tenant rows, and
@@ -609,5 +632,26 @@ mod tests {
         };
         assert_eq!(manifest.files.total_count, 2);
         assert_eq!(manifest.files.total_size_bytes, 8, "5 + 3 bytes");
+    }
+
+    #[test]
+    fn exports_leave_out_earlier_exports_imports_and_staged_uploads() {
+        for kept in [
+            "tickets/5/foo.png",
+            "assets/9/media/photo.jpg",
+            "documentation/1/image.png",
+            "importsx/keep.txt",
+        ] {
+            assert!(is_exported_file(kept), "{kept} is exported");
+        }
+        for left_out in [
+            "exports/0190.nosdesk",
+            "imports/0190/upload.csv",
+            "imports/0190/grid.1.json",
+            "temp/0190_photo.png",
+            "workspace-imports/0190.nosdesk",
+        ] {
+            assert!(!is_exported_file(left_out), "{left_out} is left out");
+        }
     }
 }
