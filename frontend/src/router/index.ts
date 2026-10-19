@@ -846,8 +846,10 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-notification-defaults' }
         },
         {
-          // Item C/W5: unified audit feed (all three substrates).
-          // Reachable by admins and the standalone audit_reviewer role.
+          // Item C/W5: unified audit feed. Workspace owners and admins
+          // read their workspace's app events and changes; platform admins
+          // and the standalone audit_reviewer role also see the
+          // instance-wide sign-in events.
           path: 'audit',
           name: 'admin-audit',
           component: () => import('../views/admin/AdminAuditView.vue'),

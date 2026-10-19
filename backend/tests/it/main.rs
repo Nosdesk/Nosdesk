@@ -37,6 +37,7 @@ mod attachment_emit_lint;
 mod audit_context_lint;
 mod audit_redaction;
 mod audit_unified;
+mod audit_workspace_access;
 mod background_run_cross_tenant_lint;
 mod background_workspace_pin;
 mod backup_basic;
