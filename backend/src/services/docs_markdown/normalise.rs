@@ -50,7 +50,55 @@ pub trait Resolver {
     fn link(&self, href: &str) -> Option<String>;
     /// The `src` an image should carry, or `None` to keep only its alt text.
     fn image(&self, src: &str) -> Option<String>;
+
+    /// Whether a mention of the user `uuid` stays a mention. Otherwise it
+    /// becomes the text "@name". Only the archive's own workspace can say
+    /// yes, and only for a user it holds.
+    fn mention(&self, _uuid: &str) -> bool {
+        false
+    }
+
+    /// The `href` a ticket link keeps, or `None` for its label as text.
+    fn ticket(&self, _ticket_id: &str, _href: &str) -> Option<String> {
+        None
+    }
+
+    /// The `documentUuid` an embedded page carries, or `None` for its title
+    /// as text.
+    fn embed(&self, _document_uuid: &str) -> Option<String> {
+        None
+    }
+
+    /// The note a link whose destination [`Resolver::link`] refused counts
+    /// under.
+    fn dropped_link_note(&self, _href: &str) -> NoteCode {
+        NoteCode::LinksDropped
+    }
+
+    /// What a wikilink embed (`![[target]]`) shows.
+    fn wiki_embed(&self, _target: &str) -> WikiEmbed {
+        WikiEmbed::Missing
+    }
 }
+
+/// What `![[target]]` names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WikiEmbed {
+    /// A page: it is embedded.
+    Page {
+        document_uuid: String,
+        document_title: String,
+    },
+    /// A file: it is an image, its `src` resolved by [`Resolver::image`].
+    Image,
+    /// Nothing the import holds: its text is kept.
+    Missing,
+}
+
+/// The prefix the parser gives a wikilink's target, so a resolver can tell
+/// `[[Note]]` from `[Note](Note)`. It starts with NUL, which Markdown can't
+/// produce (the parser replaces it), so no source text can forge one.
+pub const WIKILINK_PREFIX: &str = "\0wikilink:";
 
 /// The policy with no archive around the page: web, mail and phone links are
 /// kept; web images are kept for a later step to fetch. Relative paths,
@@ -335,7 +383,7 @@ impl Normaliser<'_> {
                         text.marks.link = self.link(&link);
                         if text.marks.link.is_none() {
                             if last_dropped.as_ref() != Some(&link) {
-                                self.notes.add(NoteCode::LinksDropped);
+                                self.notes.add(self.resolver.dropped_link_note(&link.href));
                             }
                             last_dropped = Some(link);
                         } else {

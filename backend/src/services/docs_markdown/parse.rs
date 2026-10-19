@@ -7,23 +7,31 @@
 //! (callouts, task lists, footnotes, math, definition lists, raw HTML), and
 //! it counts each of those in the notes.
 //!
-//! Raw HTML is reduced to its text here. Inline formatting tags (`<b>`,
-//! `<em>`, `<code>`, `<br>`) map to their marks and breaks; scripts, styles,
-//! frames and comments are removed with their content; anything else keeps
-//! only its text.
+//! HTML blocks are read by [`html`](super::html) into the same tree. Inline
+//! HTML is one tag at a time: formatting tags (`<b>`, `<em>`, `<code>`,
+//! `<br>`, `<a href>`) map to their marks, breaks and links, `<img>` to an
+//! image, the editor's mention and ticket link spans to their nodes when the
+//! resolver keeps them; scripts, styles, frames and comments are removed
+//! with their content; anything else keeps only its text.
+//!
+//! The resolver is consulted here only for what changes the tree's shape
+//! or needs a node's own label: mentions, ticket links, embedded pages and
+//! wikilink embeds. Link and image destinations are the normaliser's.
 
 use std::collections::HashMap;
+use std::ops::Range;
 
 use pulldown_cmark::{
     Alignment as MdAlignment, BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, LinkType,
-    MetadataBlockKind, Options, Parser, Tag, TagEnd,
+    MetadataBlockKind, OffsetIter, Options, Parser, Tag, TagEnd,
 };
 
+use super::html::{self, Container, HtmlTag};
 use super::ir::{
     Alignment, Block, Document, Image, Inline, Link, ListItem, Marks, Table, TableCell, Text,
 };
-use super::normalise::merge_adjacent_text;
-use super::{FrontMatter, FrontMatterKind, NoteCode, Notes};
+use super::normalise::{merge_adjacent_text, Resolver, WikiEmbed, WIKILINK_PREFIX};
+use super::{DefaultResolver, FrontMatter, FrontMatterKind, NoteCode, Notes};
 
 /// The parser's output, before normalising.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,14 +54,38 @@ pub fn options() -> Options {
         | Options::ENABLE_DEFINITION_LIST
 }
 
-/// Parse one Markdown page.
+/// What a source profile switches on for one page.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// Read `[[Note]]` and `![[image.png|300]]` (Obsidian).
+    pub wikilinks: bool,
+}
+
+/// Parse one Markdown page with no archive around it.
 pub fn parse(markdown: &str) -> Parsed {
+    parse_with(markdown, ParseOptions::default(), &DefaultResolver)
+}
+
+/// Parse one Markdown page, asking `resolver` about mentions, ticket links,
+/// embedded pages and wikilink embeds.
+pub fn parse_with(markdown: &str, options: ParseOptions, resolver: &dyn Resolver) -> Parsed {
+    let mut extensions = self::options();
+    if options.wikilinks {
+        extensions |= Options::ENABLE_WIKILINKS;
+    }
     let mut builder = Builder {
-        events: Parser::new_ext(markdown, options()),
+        source: markdown,
+        events: Events {
+            inner: Parser::new_ext(markdown, extensions).into_offset_iter(),
+            range: 0..0,
+        },
+        resolver,
         notes: Notes::default(),
         footnotes: Footnotes::default(),
         front_matter: None,
         task_list_seen: false,
+        open: Vec::new(),
+        after_close: None,
     };
     let mut blocks = builder.blocks(None);
     blocks.extend(builder.footnotes_section());
@@ -64,16 +96,42 @@ pub fn parse(markdown: &str) -> Parsed {
     }
 }
 
+/// Callouts and toggles an HTML block may leave open around the Markdown
+/// after it, one inside another.
+const MAX_OPEN_CONTAINERS: usize = 8;
+
 /// The heading that introduces the collected footnotes.
 const NOTES_HEADING: &str = "Notes";
 
+/// The parser's events, remembering the source range of the last one.
+struct Events<'a> {
+    inner: OffsetIter<'a>,
+    range: Range<usize>,
+}
+
+impl<'a> Iterator for Events<'a> {
+    type Item = Event<'a>;
+
+    fn next(&mut self) -> Option<Event<'a>> {
+        let (event, range) = self.inner.next()?;
+        self.range = range;
+        Some(event)
+    }
+}
+
 struct Builder<'a> {
-    events: Parser<'a>,
+    source: &'a str,
+    events: Events<'a>,
+    resolver: &'a dyn Resolver,
     notes: Notes,
     footnotes: Footnotes,
     front_matter: Option<FrontMatter>,
     /// Set when a task list marker is read; checked and reset per list.
     task_list_seen: bool,
+    /// Containers an HTML block at the top level opened and left open.
+    open: Vec<Container>,
+    /// What followed the closing tag of an open container, still to read.
+    after_close: Option<String>,
 }
 
 /// Footnotes are numbered by first reference and written out at the end.
@@ -101,12 +159,31 @@ impl Footnotes {
 impl Builder<'_> {
     /// Blocks until `end` (or the end of input). Inline content that arrives
     /// without a paragraph, as in tight list items, gets one.
+    ///
+    /// At the top level (`end` is `None`) an HTML block may open a callout or
+    /// toggle that the blocks after it fill, until an HTML block closes it.
     fn blocks(&mut self, end: Option<TagEnd>) -> Vec<Block> {
         let mut out = Vec::new();
         let mut loose = Inlines::new(true);
         while let Some(event) = self.events.next() {
             match event {
                 Event::End(e) if Some(e) == end => break,
+                Event::Start(Tag::HtmlBlock) => {
+                    loose.flush_into(&mut out);
+                    let raw = self.text_until(TagEnd::HtmlBlock);
+                    if end.is_none() {
+                        if let Some(&container) = self.open.last() {
+                            if let Some(rest) = html::after_close(&raw, container) {
+                                self.open.pop();
+                                self.after_close = Some(rest.to_string());
+                                break;
+                            }
+                        }
+                        self.top_html(&raw, &mut out);
+                    } else {
+                        self.html_blocks(&raw, &mut out);
+                    }
+                }
                 Event::Start(tag) if is_block_tag(&tag) => {
                     loose.flush_into(&mut out);
                     self.block(tag, &mut out);
@@ -117,13 +194,44 @@ impl Builder<'_> {
                 }
                 Event::Html(raw) => {
                     loose.flush_into(&mut out);
-                    out.extend(html_block(&raw, &mut self.notes));
+                    self.html_blocks(&raw, &mut out);
                 }
                 other => self.inline_event(&mut loose, other),
             }
         }
         loose.flush_into(&mut out);
         out
+    }
+
+    /// An HTML block's content.
+    fn html_blocks(&mut self, raw: &str, out: &mut Vec<Block>) {
+        out.extend(html::read_block(raw, self.resolver, &mut self.notes).blocks);
+    }
+
+    /// An HTML block at the top level. When it leaves an `<aside>` or
+    /// `<details>` open, the blocks up to its closing tag go inside.
+    fn top_html(&mut self, raw: &str, out: &mut Vec<Block>) {
+        let read = html::read_block(raw, self.resolver, &mut self.notes);
+        out.extend(read.blocks);
+        // Each open container is a level of recursion: bound it.
+        let left_open = read
+            .left_open
+            .filter(|_| self.open.len() < MAX_OPEN_CONTAINERS);
+        if let Some(container) = left_open {
+            self.open.push(container);
+            let more = self.blocks(None);
+            // Input that ends first leaves the container open: close it.
+            if self.open.last() == Some(&container) {
+                self.open.pop();
+            }
+            match (container, out.last_mut()) {
+                (Container::Aside, Some(Block::Blockquote(inner))) => inner.extend(more),
+                _ => out.extend(more),
+            }
+            if let Some(rest) = self.after_close.take() {
+                self.top_html(&rest, out);
+            }
+        }
     }
 
     fn block(&mut self, tag: Tag<'_>, out: &mut Vec<Block>) {
@@ -142,8 +250,10 @@ impl Builder<'_> {
                 });
             }
             Tag::BlockQuote(kind) => {
+                let start = self.events.range.start;
                 let inner = self.blocks(Some(TagEnd::BlockQuote(kind)));
-                out.push(self.callout(kind, inner));
+                let escaped = marker_is_escaped(&self.source[start..]);
+                out.push(self.callout(kind, inner, escaped));
             }
             Tag::CodeBlock(kind) => {
                 let language = match kind {
@@ -161,7 +271,7 @@ impl Builder<'_> {
             }
             Tag::HtmlBlock => {
                 let raw = self.text_until(TagEnd::HtmlBlock);
-                out.extend(html_block(&raw, &mut self.notes));
+                self.html_blocks(&raw, out);
             }
             Tag::List(start) => {
                 let outer = std::mem::replace(&mut self.task_list_seen, false);
@@ -268,6 +378,12 @@ impl Builder<'_> {
                     table.rows.push(row);
                 }
                 Event::Start(Tag::TableRow) => {
+                    // The parser drops cells past the header's count without
+                    // a trace; count them from the source.
+                    let source = &self.source[self.events.range.clone()];
+                    if source_cells(source) > alignments.len() {
+                        self.notes.add(NoteCode::TableCellsDropped);
+                    }
                     let row = self.table_row(TagEnd::TableRow, false, &alignments);
                     table.rows.push(row);
                 }
@@ -289,6 +405,7 @@ impl Builder<'_> {
                 Event::End(e) if e == end => break,
                 Event::Start(Tag::TableCell) => {
                     let mut inlines = Inlines::new(false);
+                    inlines.cell = true;
                     self.inlines_until(&mut inlines, TagEnd::TableCell);
                     let mut cell = TableCell::new(header, inlines.into_inlines());
                     cell.align = alignments.get(cells.len()).copied().flatten();
@@ -302,10 +419,16 @@ impl Builder<'_> {
 
     /// A quote, or a callout written as one. A GFM alert (`> [!NOTE]`) or an
     /// Obsidian callout (`> [!tip] Title`) keeps its label as a bold first
-    /// paragraph.
-    fn callout(&mut self, kind: Option<BlockQuoteKind>, mut inner: Vec<Block>) -> Block {
+    /// paragraph. A marker written escaped (`> \[!NOTE]`) is text.
+    fn callout(
+        &mut self,
+        kind: Option<BlockQuoteKind>,
+        mut inner: Vec<Block>,
+        escaped: bool,
+    ) -> Block {
         let label = match kind {
             Some(kind) => Some(alert_label(kind).to_string()),
+            None if escaped => None,
             None => take_callout_marker(&mut inner),
         };
         if let Some(label) = label {
@@ -380,10 +503,10 @@ impl Builder<'_> {
                 title,
                 ..
             }) => {
-                let href = if link_type == LinkType::Email {
-                    format!("mailto:{dest_url}")
-                } else {
-                    dest_url.to_string()
+                let href = match link_type {
+                    LinkType::Email => format!("mailto:{dest_url}"),
+                    LinkType::WikiLink { .. } => format!("{WIKILINK_PREFIX}{dest_url}"),
+                    _ => dest_url.to_string(),
                 };
                 st.links.push(Link {
                     href,
@@ -393,6 +516,11 @@ impl Builder<'_> {
             Event::End(TagEnd::Link) => {
                 st.links.pop();
             }
+            Event::Start(Tag::Image {
+                link_type: LinkType::WikiLink { has_pothole },
+                dest_url,
+                ..
+            }) => self.wiki_embed(st, &dest_url, has_pothole),
             Event::Start(Tag::Image {
                 dest_url, title, ..
             }) => {
@@ -408,7 +536,9 @@ impl Builder<'_> {
                 }
             }
             Event::End(TagEnd::Image) => {
-                if st.nested_images > 0 {
+                if let Some(embed) = st.wiki.pop() {
+                    self.end_wiki_embed(st, embed);
+                } else if st.nested_images > 0 {
                     st.nested_images -= 1;
                 } else if let Some(image) = st.image.take() {
                     st.push(Inline::Image(image));
@@ -420,6 +550,15 @@ impl Builder<'_> {
 
     /// One inline HTML tag or comment.
     fn inline_html(&mut self, st: &mut Inlines, raw: &str) {
+        // GFM unescapes `\|` in a table cell before reading anything in it,
+        // HTML included; the parser leaves it in raw HTML.
+        let unescaped;
+        let raw = if st.cell && raw.contains("\\|") {
+            unescaped = raw.replace("\\|", "|");
+            unescaped.as_str()
+        } else {
+            raw
+        };
         let Some((scanned, _)) = scan_tag(raw.trim_start()) else {
             st.text(raw);
             return;
@@ -432,11 +571,22 @@ impl Builder<'_> {
             Scanned::Tag(tag) => tag,
         };
         if st.suppressed > 0 {
-            if is_removed_with_content(&tag.name) {
+            if html::is_removed_with_content(&tag.name) {
                 if tag.closing {
                     st.suppressed -= 1;
                 } else if !tag.self_closing {
                     st.suppressed += 1;
+                }
+            }
+            return;
+        }
+        if st.label_depth > 0 {
+            // Inside a mention or ticket link span, whose label is replaced.
+            if tag.name == "span" {
+                if tag.closing {
+                    st.label_depth -= 1;
+                } else if !tag.self_closing {
+                    st.label_depth += 1;
                 }
             }
             return;
@@ -454,13 +604,53 @@ impl Builder<'_> {
             "strong" | "b" => step(&mut st.strong),
             "em" | "i" => step(&mut st.em),
             "code" | "kbd" | "samp" | "tt" => step(&mut st.code),
-            name if is_strike_like(name) => {
+            "a" if open => {
+                let attrs = html::read_tag(raw);
+                match attrs.as_ref().and_then(|t| t.attr("href")) {
+                    Some(href) => {
+                        st.links.push(Link {
+                            href: href.to_string(),
+                            title: attrs
+                                .as_ref()
+                                .and_then(|t| t.attr("title"))
+                                .and_then(non_empty),
+                        });
+                        st.html_links += 1;
+                    }
+                    None => st.html_anchors += 1,
+                }
+            }
+            "a" => {
+                // Close what an `<a>` opened, never a Markdown link.
+                if st.html_anchors > 0 {
+                    st.html_anchors -= 1;
+                } else if st.html_links > 0 {
+                    st.html_links -= 1;
+                    st.links.pop();
+                }
+            }
+            "img" => {
+                if let Some(tag) = html::read_tag(raw) {
+                    st.push(Inline::Image(Image {
+                        src: tag.attr("src").unwrap_or_default().to_string(),
+                        alt: tag.attr("alt").and_then(non_empty),
+                        title: tag.attr("title").and_then(non_empty),
+                        width: tag.attr("width").and_then(html::parse_width),
+                        align: tag.attr("data-align").and_then(image_align),
+                    }));
+                }
+            }
+            "span" if open => match html::read_tag(raw) {
+                Some(span) if span.attr("data-mention").is_some() => self.mention(st, &span),
+                Some(span) if span.attr("data-ticket-link").is_some() => self.ticket(st, &span),
+                _ => self.notes.add(NoteCode::HtmlAsText),
+            },
+            name if html::is_strike_like(name) => {
                 if open {
                     self.notes.add(NoteCode::StrikethroughRemoved);
                 }
             }
-            "img" => self.notes.add(NoteCode::ImagesDropped),
-            name if is_removed_with_content(name) => {
+            name if html::is_removed_with_content(name) => {
                 if open {
                     self.notes.add(NoteCode::HtmlRemoved);
                     if !tag.self_closing {
@@ -472,6 +662,92 @@ impl Builder<'_> {
                 if open {
                     self.notes.add(NoteCode::HtmlAsText);
                 }
+            }
+        }
+    }
+
+    /// `<span data-mention>`: the mention, or "@name". Its label is skipped
+    /// either way.
+    fn mention(&mut self, st: &mut Inlines, span: &HtmlTag) {
+        let uuid = span.attr("data-uuid").unwrap_or_default().to_string();
+        let name = span.attr("data-name").unwrap_or_default().to_string();
+        if !uuid.trim().is_empty() && !name.trim().is_empty() && self.resolver.mention(&uuid) {
+            st.push(Inline::Mention {
+                uuid,
+                name,
+                avatar_url: span
+                    .attr("data-avatar-url")
+                    .filter(|u| u.starts_with('/') && !u.starts_with("//"))
+                    .map(str::to_string),
+            });
+            st.label_depth = 1;
+        } else {
+            self.notes.add(NoteCode::MentionsAsText);
+            if name.trim().is_empty() {
+                // No name to write: the label stands in for it.
+                return;
+            }
+            st.push_plain(&format!("@{name}"));
+            st.label_depth = 1;
+        }
+    }
+
+    /// `<span data-ticket-link>`: the ticket link, or its label as text.
+    fn ticket(&mut self, st: &mut Inlines, span: &HtmlTag) {
+        let ticket_id = span.attr("data-ticket-id").unwrap_or_default().to_string();
+        let href = span.attr("data-href").unwrap_or_default();
+        match self.resolver.ticket(&ticket_id, href) {
+            Some(href) if !ticket_id.trim().is_empty() => {
+                st.push(Inline::TicketLink { ticket_id, href });
+                st.label_depth = 1;
+            }
+            _ => {
+                // The label ("Ticket #7") is read as the text it is.
+                self.notes.add(NoteCode::TicketLinksAsText);
+            }
+        }
+    }
+
+    /// `![[target]]` or `![[target|300]]`: an embedded page, an image, or
+    /// the target's text.
+    fn wiki_embed(&mut self, st: &mut Inlines, target: &str, has_pothole: bool) {
+        let embed = match self.resolver.wiki_embed(target) {
+            WikiEmbed::Page {
+                document_uuid,
+                document_title,
+            } => Wiki::Page(Block::EmbeddedDocument {
+                document_uuid,
+                document_title,
+            }),
+            WikiEmbed::Image => Wiki::Image(Image {
+                src: format!("{WIKILINK_PREFIX}{target}"),
+                ..Image::default()
+            }),
+            WikiEmbed::Missing => Wiki::Missing(target.to_string()),
+        };
+        st.wiki.push(WikiState {
+            embed,
+            has_pothole,
+            text: String::new(),
+        });
+    }
+
+    fn end_wiki_embed(&mut self, st: &mut Inlines, state: WikiState) {
+        let label = state.has_pothole.then(|| state.text.trim().to_string());
+        match state.embed {
+            Wiki::Page(block) => st.block(block),
+            Wiki::Image(mut image) => {
+                if let Some(label) = label.filter(|l| !l.is_empty()) {
+                    match wiki_image_width(&label) {
+                        Some(width) => image.width = Some(width),
+                        None => image.alt = Some(label),
+                    }
+                }
+                st.push(Inline::Image(image));
+            }
+            Wiki::Missing(target) => {
+                let text = label.filter(|l| !l.is_empty()).unwrap_or(target);
+                st.text(&text);
             }
         }
     }
@@ -521,6 +797,31 @@ struct Inlines {
     nested_images: u32,
     /// Depth inside HTML removed with its content (`<script>`, `<style>`).
     suppressed: u32,
+    /// Depth inside a mention or ticket link span whose label is replaced
+    /// by its node.
+    label_depth: u32,
+    /// `<a>` tags with no `href` open; their `</a>` closes no link.
+    html_anchors: u32,
+    /// Links opened by `<a href>`, which only `</a>` closes.
+    html_links: u32,
+    /// Wikilink embeds whose label is being read.
+    wiki: Vec<WikiState>,
+    /// In a GFM table cell.
+    cell: bool,
+}
+
+/// A wikilink embed being read.
+struct WikiState {
+    embed: Wiki,
+    has_pothole: bool,
+    /// The label after `|`.
+    text: String,
+}
+
+enum Wiki {
+    Page(Block),
+    Image(Image),
+    Missing(String),
 }
 
 impl Inlines {
@@ -536,6 +837,11 @@ impl Inlines {
             image: None,
             nested_images: 0,
             suppressed: 0,
+            label_depth: 0,
+            html_anchors: 0,
+            html_links: 0,
+            wiki: Vec::new(),
+            cell: false,
         }
     }
 
@@ -549,7 +855,13 @@ impl Inlines {
     }
 
     fn push(&mut self, inline: Inline) {
-        if self.suppressed > 0 {
+        if self.suppressed > 0 || self.label_depth > 0 {
+            return;
+        }
+        if let Some(wiki) = self.wiki.last_mut() {
+            // Inside a wikilink embed only its label text counts.
+            wiki.text
+                .push_str(&super::ir::plain_text(std::slice::from_ref(&inline)));
             return;
         }
         if self.image.is_some() {
@@ -568,6 +880,38 @@ impl Inlines {
             text: text.to_string(),
             marks,
         }));
+    }
+
+    /// Text standing in for a node: only a link around it carries over.
+    fn push_plain(&mut self, text: &str) {
+        let marks = Marks {
+            link: self.links.last().cloned(),
+            ..Marks::default()
+        };
+        self.push(Inline::Text(Text {
+            text: text.to_string(),
+            marks,
+        }));
+    }
+
+    /// A block found in inline content (an embedded page): the paragraph
+    /// splits around it where blocks are allowed. Elsewhere it is its title.
+    fn block(&mut self, block: Block) {
+        if self.suppressed > 0 || self.label_depth > 0 {
+            return;
+        }
+        if !self.can_split || self.image.is_some() {
+            if let Block::EmbeddedDocument { document_title, .. } = &block {
+                let title = document_title.clone();
+                self.text(&title);
+            }
+            return;
+        }
+        if !self.current.is_empty() {
+            self.done
+                .push(Block::Paragraph(std::mem::take(&mut self.current)));
+        }
+        self.done.push(block);
     }
 
     fn code(&mut self, text: &str) {
@@ -706,58 +1050,64 @@ fn take_callout_marker(blocks: &mut Vec<Block>) -> Option<String> {
     Some(label)
 }
 
-// Raw HTML, reduced to text.
+// Raw HTML.
 
-/// Tags removed together with everything inside them.
-fn is_removed_with_content(name: &str) -> bool {
-    matches!(
-        name,
-        "script" | "style" | "iframe" | "object" | "embed" | "template" | "noscript" | "svg"
-    )
+fn image_align(value: &str) -> Option<super::ir::ImageAlign> {
+    use super::ir::ImageAlign;
+    match value.trim().to_ascii_lowercase().as_str() {
+        "left" => Some(ImageAlign::Left),
+        "center" => Some(ImageAlign::Center),
+        "right" => Some(ImageAlign::Right),
+        _ => None,
+    }
 }
 
-/// Formatting the editor has no mark for; the text is kept.
-fn is_strike_like(name: &str) -> bool {
-    matches!(
-        name,
-        "del" | "s" | "strike" | "u" | "ins" | "mark" | "sup" | "sub"
-    )
+/// An Obsidian image size, `300` or `300x200`: the width.
+fn wiki_image_width(label: &str) -> Option<u32> {
+    let width = label.split_once('x').map(|(w, _)| w).unwrap_or(label);
+    if width.is_empty() || !width.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    if let Some((_, h)) = label.split_once('x') {
+        if h.is_empty() || !h.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+    }
+    html::parse_width(width)
 }
 
-/// Tags whose boundary separates paragraphs when an HTML block is read as
-/// text.
-fn is_paragraph_break(name: &str) -> bool {
-    matches!(
-        name,
-        "p" | "div"
-            | "br"
-            | "li"
-            | "tr"
-            | "h1"
-            | "h2"
-            | "h3"
-            | "h4"
-            | "h5"
-            | "h6"
-            | "blockquote"
-            | "pre"
-            | "table"
-            | "ul"
-            | "ol"
-            | "dl"
-            | "dt"
-            | "dd"
-            | "section"
-            | "article"
-            | "aside"
-            | "header"
-            | "footer"
-            | "details"
-            | "summary"
-            | "figure"
-            | "figcaption"
-            | "hr"
-    )
+/// Whether the quote at the start of `source` opens with an escaped `\[`,
+/// so a `[!type]` marker after it is text.
+fn marker_is_escaped(source: &str) -> bool {
+    let rest = source.trim_start_matches([' ', '\t']);
+    let rest = rest.strip_prefix('>').unwrap_or(rest);
+    let rest = rest.strip_prefix([' ', '\t']).unwrap_or(rest);
+    rest.starts_with("\\[")
+}
+
+/// The cells a GFM table row's source holds: split at each `|` that isn't
+/// escaped (code spans included, as GFM does), leading and trailing pipes
+/// not counted.
+fn source_cells(row: &str) -> usize {
+    let row = row.trim();
+    let row = row.strip_prefix('|').unwrap_or(row);
+    let mut pipes = Vec::new();
+    let mut escaped = false;
+    for (i, b) in row.bytes().enumerate() {
+        if escaped {
+            escaped = false;
+        } else if b == b'\\' {
+            escaped = true;
+        } else if b == b'|' {
+            pipes.push(i);
+        }
+    }
+    let trailing = pipes.last().is_some_and(|&i| i + 1 == row.len());
+    if trailing {
+        pipes.len()
+    } else {
+        pipes.len() + 1
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -832,81 +1182,6 @@ fn scan_tag(s: &str) -> Option<(Scanned, usize)> {
     None
 }
 
-/// An HTML block as paragraphs of its text. Block-level tags separate
-/// paragraphs; scripts, styles, frames and comments are removed.
-fn html_block(raw: &str, notes: &mut Notes) -> Vec<Block> {
-    let mut paragraphs: Vec<String> = Vec::new();
-    let mut current = String::new();
-    // The tag being removed with its content, and how deeply it is nested.
-    let mut removing: Option<(String, u32)> = None;
-    let mut i = 0;
-    while i < raw.len() {
-        let rest = &raw[i..];
-        if rest.starts_with('<') {
-            if let Some((scanned, len)) = scan_tag(rest) {
-                i += len;
-                match scanned {
-                    Scanned::Comment | Scanned::Declaration => {
-                        if removing.is_none() {
-                            notes.add(NoteCode::HtmlRemoved);
-                        }
-                    }
-                    Scanned::Tag(tag) => {
-                        if let Some((name, depth)) = removing.as_mut() {
-                            if *name == tag.name {
-                                if tag.closing {
-                                    *depth -= 1;
-                                } else if !tag.self_closing {
-                                    *depth += 1;
-                                }
-                            }
-                            if *depth == 0 {
-                                removing = None;
-                            }
-                        } else if is_removed_with_content(&tag.name) {
-                            if !tag.closing {
-                                notes.add(NoteCode::HtmlRemoved);
-                                if !tag.self_closing {
-                                    removing = Some((tag.name, 1));
-                                }
-                            }
-                        } else if tag.name == "img" {
-                            notes.add(NoteCode::ImagesDropped);
-                        } else if is_paragraph_break(&tag.name) {
-                            paragraphs.push(std::mem::take(&mut current));
-                        }
-                    }
-                }
-                continue;
-            }
-        }
-        let Some(c) = rest.chars().next() else {
-            break;
-        };
-        if removing.is_none() {
-            current.push(c);
-        }
-        i += c.len_utf8();
-    }
-    paragraphs.push(current);
-
-    let blocks: Vec<Block> = paragraphs
-        .iter()
-        .map(|p| {
-            html_escape::decode_html_entities(p)
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .filter(|p| !p.is_empty())
-        .map(|p| Block::Paragraph(vec![Inline::text(p)]))
-        .collect();
-    if !blocks.is_empty() {
-        notes.add(NoteCode::HtmlAsText);
-    }
-    blocks
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -942,28 +1217,26 @@ mod tests {
     }
 
     #[test]
-    fn html_block_keeps_text_and_removes_scripts() {
-        let mut notes = Notes::default();
-        let blocks = html_block(
-            "<div>One &amp; <b>two</b></div><script>alert(1)</script><p>Three</p><!-- c -->",
-            &mut notes,
-        );
-        assert_eq!(
-            blocks,
-            vec![
-                Block::Paragraph(vec![Inline::text("One & two")]),
-                Block::Paragraph(vec![Inline::text("Three")]),
-            ]
-        );
-        assert_eq!(notes.count(NoteCode::HtmlRemoved), 2);
-        assert_eq!(notes.count(NoteCode::HtmlAsText), 1);
+    fn source_cells_count_unescaped_pipes() {
+        assert_eq!(source_cells("| a | b |\n"), 2);
+        assert_eq!(source_cells("a | b | c"), 3);
+        assert_eq!(source_cells("| a \\| b |"), 1);
+        assert_eq!(source_cells("| `x|y` | z |"), 3);
+        assert_eq!(source_cells("|"), 1);
     }
 
     #[test]
-    fn html_block_of_only_a_comment_is_nothing() {
-        let mut notes = Notes::default();
-        assert!(html_block("<!-- hidden -->\n", &mut notes).is_empty());
-        assert_eq!(notes.count(NoteCode::HtmlRemoved), 1);
-        assert_eq!(notes.count(NoteCode::HtmlAsText), 0);
+    fn an_escaped_marker_is_seen_in_the_source() {
+        assert!(marker_is_escaped("> \\[!NOTE]\n> x"));
+        assert!(!marker_is_escaped("> [!NOTE]"));
+        assert!(!marker_is_escaped(">\n> \\[!NOTE]"));
+    }
+
+    #[test]
+    fn obsidian_sizes_are_widths() {
+        assert_eq!(wiki_image_width("300"), Some(300));
+        assert_eq!(wiki_image_width("300x200"), Some(300));
+        assert_eq!(wiki_image_width("a diagram"), None);
+        assert_eq!(wiki_image_width("x200"), None);
     }
 }

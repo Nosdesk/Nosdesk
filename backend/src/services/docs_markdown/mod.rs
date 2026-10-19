@@ -14,20 +14,33 @@
 //! What the conversion loses is never silent: [`Converted::notes`] counts each
 //! degrade by [`NoteCode`] so an import can show them before anything is
 //! written.
+//!
+//! A documentation import reads an archive through [`tree::build`]: a source
+//! profile ([`profiles`]) lays out the tree, [`front_matter`] reads each
+//! page's metadata, [`links`] resolves links, images and embeds to
+//! placeholders the commit fills in, and [`html`] reads raw HTML (including
+//! what export v2 writes as HTML) into the same tree.
 
 pub mod encode;
+pub mod front_matter;
+pub mod html;
+#[cfg(test)]
+pub(crate) mod import_tests;
 pub mod ir;
+pub mod links;
 pub mod normalise;
 pub mod parse;
+pub mod profiles;
 #[cfg(test)]
 mod tests;
+pub mod tree;
 
 use std::collections::BTreeMap;
 
 use serde::Serialize;
 
 pub use encode::encode;
-pub use normalise::{DefaultResolver, Resolver};
+pub use normalise::{DefaultResolver, Resolver, WikiEmbed};
 
 /// One kind of change the conversion made to the source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -62,6 +75,37 @@ pub enum NoteCode {
     HtmlAsText,
     /// Nesting deeper than the editor allows was flattened.
     NestingFlattened,
+    /// A GFM table row had more cells than its header; the extra cells were
+    /// dropped.
+    TableCellsDropped,
+    /// A mention became "@name": the user isn't in this workspace.
+    MentionsAsText,
+    /// A ticket link became its label: the ticket isn't in this workspace.
+    TicketLinksAsText,
+    /// An embedded page became its title: the page isn't in the import or
+    /// this workspace.
+    EmbedsAsText,
+    /// A link points at a file or page that isn't in the import; its text is
+    /// kept.
+    LinksUnresolved,
+    /// A link by name matched more than one page; it goes to the nearest.
+    LinksAmbiguous,
+    /// A link points at a file that isn't a page or an image (a PDF, a
+    /// spreadsheet); the file is left out and the link's text kept.
+    AttachmentsLeftOut,
+    /// The front matter block couldn't be read (too large, anchors or
+    /// aliases, not a map, invalid); the page is imported without it.
+    FrontMatterIgnored,
+    /// The title was longer than 255 characters and was cut.
+    TitleShortened,
+    /// The file wasn't UTF-8; some characters may be wrong.
+    NotUtf8,
+    /// Source tool syntax with no equivalent (MDX imports and JSX tags,
+    /// GitBook template tags, Obsidian comments) was removed.
+    SourceSyntaxRemoved,
+    /// A Notion database had more rows than a page shows; the first 200
+    /// were kept.
+    DatabaseRowsCut,
 }
 
 /// Degrade counts by code. Ordered, so reports and tests are stable.
@@ -120,7 +164,17 @@ pub struct Converted {
 /// Parse and normalise one Markdown page, resolving links and images with
 /// `resolver`.
 pub fn convert_with(markdown: &str, resolver: &dyn Resolver) -> Converted {
-    let parsed = parse::parse(markdown);
+    convert_page(markdown, parse::ParseOptions::default(), resolver)
+}
+
+/// [`convert_with`], with the parser extensions a source profile switches
+/// on.
+pub fn convert_page(
+    markdown: &str,
+    options: parse::ParseOptions,
+    resolver: &dyn Resolver,
+) -> Converted {
+    let parsed = parse::parse_with(markdown, options, resolver);
     let mut notes = parsed.notes;
     let document = normalise::normalise(parsed.document, resolver, &mut notes);
     Converted {
