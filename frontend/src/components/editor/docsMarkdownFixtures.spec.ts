@@ -36,7 +36,7 @@ describe('docs_markdown golden fixtures', () => {
 
   it('finds the fixtures', () => {
     expect(entries.map((f) => f.source)).toEqual(
-      expect.arrayContaining(['blocks.md', 'degrades.md', 'empty.md', 'getting-started.md']),
+      expect.arrayContaining(['blocks.md', 'degrades.md', 'empty.md', 'getting-started.md', 'tables.md']),
     )
   })
 

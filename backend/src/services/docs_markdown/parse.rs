@@ -247,25 +247,28 @@ impl Builder<'_> {
         }
     }
 
+    /// A GFM table: the head row of header cells, body rows of plain cells,
+    /// each cell aligned as its column's delimiter says.
     fn table(&mut self, alignments: &[MdAlignment]) -> Table {
-        let mut table = Table {
-            alignments: alignments
-                .iter()
-                .map(|a| match a {
-                    MdAlignment::None => Alignment::None,
-                    MdAlignment::Left => Alignment::Left,
-                    MdAlignment::Center => Alignment::Center,
-                    MdAlignment::Right => Alignment::Right,
-                })
-                .collect(),
-            ..Table::default()
-        };
+        let alignments: Vec<Option<Alignment>> = alignments
+            .iter()
+            .map(|a| match a {
+                MdAlignment::None => None,
+                MdAlignment::Left => Some(Alignment::Left),
+                MdAlignment::Center => Some(Alignment::Center),
+                MdAlignment::Right => Some(Alignment::Right),
+            })
+            .collect();
+        let mut table = Table::default();
         while let Some(event) = self.events.next() {
             match event {
                 Event::End(TagEnd::Table) => break,
-                Event::Start(Tag::TableHead) => table.head = self.table_row(TagEnd::TableHead),
+                Event::Start(Tag::TableHead) => {
+                    let row = self.table_row(TagEnd::TableHead, true, &alignments);
+                    table.rows.push(row);
+                }
                 Event::Start(Tag::TableRow) => {
-                    let row = self.table_row(TagEnd::TableRow);
+                    let row = self.table_row(TagEnd::TableRow, false, &alignments);
                     table.rows.push(row);
                 }
                 _ => {}
@@ -274,7 +277,12 @@ impl Builder<'_> {
         table
     }
 
-    fn table_row(&mut self, end: TagEnd) -> Vec<TableCell> {
+    fn table_row(
+        &mut self,
+        end: TagEnd,
+        header: bool,
+        alignments: &[Option<Alignment>],
+    ) -> Vec<TableCell> {
         let mut cells = Vec::new();
         while let Some(event) = self.events.next() {
             match event {
@@ -282,7 +290,9 @@ impl Builder<'_> {
                 Event::Start(Tag::TableCell) => {
                     let mut inlines = Inlines::new(false);
                     self.inlines_until(&mut inlines, TagEnd::TableCell);
-                    cells.push(inlines.into_inlines());
+                    let mut cell = TableCell::new(header, inlines.into_inlines());
+                    cell.align = alignments.get(cells.len()).copied().flatten();
+                    cells.push(cell);
                 }
                 _ => {}
             }

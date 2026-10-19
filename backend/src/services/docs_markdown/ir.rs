@@ -7,11 +7,8 @@
 //! holding block content, an image outside inline content, an embedded
 //! document inside a paragraph). The rest are content rules the normaliser
 //! enforces.
-//!
-//! The one node with no editor counterpart yet is [`Block::Table`]. The
-//! normaliser lowers it to a `code_block` until the editor gains a table node.
 
-/// A whole page body: the `doc` node, `block+`.
+/// A whole page body: the `doc` node, `(block | table)+`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Document {
     pub blocks: Vec<Block>,
@@ -42,7 +39,8 @@ pub enum Block {
         document_uuid: String,
         document_title: String,
     },
-    /// A table. Not a schema node yet; see the module docs.
+    /// `table`. Not in the `block` group: the schema allows tables only at
+    /// the top level, so the normaliser moves any other table there.
     Table(Table),
 }
 
@@ -52,27 +50,63 @@ pub struct ListItem {
     pub blocks: Vec<Block>,
 }
 
-/// A table: an optional header row, body rows, and a column alignment each.
-/// Cells hold inline content.
+/// `table`, `table_row+`; each row is a `table_row`,
+/// `(table_cell | table_header)*`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Table {
-    pub alignments: Vec<Alignment>,
-    /// The header row's cells; empty when the table has no header.
-    pub head: Vec<TableCell>,
     pub rows: Vec<Vec<TableCell>>,
 }
 
-/// One table cell's inline content.
-pub type TableCell = Vec<Inline>;
+/// `table_cell`, or `table_header` when `header` is set: `cell_block+`
+/// (`paragraph`, `bullet_list`, `ordered_list`, `code_block`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableCell {
+    pub header: bool,
+    /// Columns this cell spans, at least 1.
+    pub colspan: u32,
+    /// Rows this cell spans, at least 1.
+    pub rowspan: u32,
+    /// Width in px of each spanned column; `None` is unset.
+    pub colwidth: Option<Vec<u32>>,
+    pub align: Option<Alignment>,
+    pub blocks: Vec<Block>,
+}
 
-/// A table column's alignment.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+impl TableCell {
+    /// A one-by-one cell holding one paragraph.
+    pub fn new(header: bool, inlines: Vec<Inline>) -> Self {
+        TableCell {
+            header,
+            colspan: 1,
+            rowspan: 1,
+            colwidth: None,
+            align: None,
+            blocks: vec![Block::Paragraph(inlines)],
+        }
+    }
+
+    /// An empty one-by-one body cell, as padding.
+    pub fn empty() -> Self {
+        TableCell::new(false, Vec::new())
+    }
+}
+
+/// A table cell's `align` attr.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Alignment {
-    #[default]
-    None,
     Left,
     Center,
     Right,
+}
+
+impl Alignment {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Alignment::Left => "left",
+            Alignment::Center => "center",
+            Alignment::Right => "right",
+        }
+    }
 }
 
 /// The `inline` group.
@@ -204,4 +238,41 @@ pub fn plain_text(inlines: &[Inline]) -> String {
         }
     }
     out
+}
+
+/// The plain text of blocks, one line per paragraph or other text block,
+/// table rows as "cell · cell" with empty cells left out.
+pub fn blocks_text(blocks: &[Block]) -> Vec<String> {
+    let mut lines = Vec::new();
+    for block in blocks {
+        match block {
+            Block::Paragraph(inlines)
+            | Block::Heading {
+                content: inlines, ..
+            } => {
+                lines.push(plain_text(inlines));
+            }
+            Block::Blockquote(inner) => lines.extend(blocks_text(inner)),
+            Block::CodeBlock { text, .. } => lines.extend(text.lines().map(str::to_string)),
+            Block::HorizontalRule => {}
+            Block::BulletList(items) | Block::OrderedList { items, .. } => {
+                for item in items {
+                    lines.extend(blocks_text(&item.blocks));
+                }
+            }
+            Block::EmbeddedDocument { document_title, .. } => lines.push(document_title.clone()),
+            Block::Table(table) => {
+                for row in &table.rows {
+                    let cells: Vec<String> = row
+                        .iter()
+                        .map(|cell| blocks_text(&cell.blocks).join(" "))
+                        .filter(|cell| !cell.trim().is_empty())
+                        .collect();
+                    lines.push(cells.join(" · "));
+                }
+            }
+        }
+    }
+    lines.retain(|line| !line.trim().is_empty());
+    lines
 }

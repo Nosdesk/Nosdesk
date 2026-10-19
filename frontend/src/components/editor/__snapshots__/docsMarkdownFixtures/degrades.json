@@ -2,15 +2,260 @@
   "type": "doc",
   "content": [
     {
-      "type": "code_block",
+      "type": "table",
       "attrs": {
-        "ychange": null,
-        "language": "markdown"
+        "ychange": null
       },
       "content": [
         {
-          "type": "text",
-          "text": "| Name  | Count |   Note    |\n| :---- | ----: | :-------: |\n| Alpha |     1 | a \\| pipe |\n| Beta  |    22 |   code    |"
+          "type": "table_row",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "table_header",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "left",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Name"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_header",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "right",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Count"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_header",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "center",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Note"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table_row",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "left",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "strong"
+                        }
+                      ],
+                      "text": "Alpha"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "right",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "1"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "center",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "a | pipe"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table_row",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "left",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Beta"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "right",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "22"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "center",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "code"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         }
       ]
     },
