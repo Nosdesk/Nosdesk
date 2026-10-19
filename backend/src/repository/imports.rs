@@ -507,6 +507,8 @@ pub fn delete_value_answers(conn: &mut DbConnection, job_type: &str) -> QueryRes
 /// Mark a background run on the job as alive: `updated_at` now and, when
 /// given, the pages written so far. Only while the job is still in
 /// `status`; 0 when it has moved on (finished, or reconciled as stopped).
+/// The audit trigger skips an update that changes only these two columns
+/// (`tr_audit_import_jobs_upd`), so the beats leave no audit rows.
 // sync-audit-only: admin bulk-import audit log, see create
 pub fn heartbeat(
     conn: &mut DbConnection,

@@ -724,6 +724,29 @@ async fn the_prune_drops_the_files_and_page_detail() {
     let files = job_files(ws.workspace_id, &id).await;
     assert!(files.contains(&"upload.zip".to_string()), "{files:?}");
     assert!(files.iter().any(|f| f.starts_with("preview/")), "{files:?}");
+    // A downloaded web image is kept beside them until the prune.
+    {
+        use backend::utils::storage::Storage;
+        backend::utils::storage::WorkspaceScopedStorage::new(
+            crate::common::test_storage(),
+            ws.workspace_id,
+        )
+        .put_file(
+            PNG,
+            &backend::services::imports::documentation::web_key(
+                Uuid::parse_str(&id).unwrap(),
+                "https://example.com/a.png",
+                "png",
+            ),
+            "image/png",
+        )
+        .await
+        .expect("web image");
+    }
+    assert!(job_files(ws.workspace_id, &id)
+        .await
+        .iter()
+        .any(|f| f.starts_with("web/")));
 
     on_job(
         &pool,
@@ -804,4 +827,131 @@ pub(crate) fn new_collection(pool: &TestPool, ws: &WorkspaceSeed, name: &str) ->
     })
     .expect("collection")
     .id
+}
+
+/// The sweep treats a documentation job's previews and downloaded web
+/// images like any import file: kept while the job keeps them, removed once
+/// no job does or the prune has reached it.
+#[actix_web::test]
+async fn the_sweep_keeps_previews_and_web_images_only_while_the_job_does() {
+    use backend::services::imports::documentation::{preview_key, web_key};
+    use backend::services::imports::files;
+    use backend::utils::storage::{Storage, WorkspaceScopedStorage};
+
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = import_workspaces(&pool);
+    let ws = &seeded.a;
+    let kept = Uuid::parse_str(&id_of(
+        &uploaded(&pool, ws, "handbook.zip", &handbook()).await,
+    ))
+    .expect("uuid");
+
+    // Its own storage: the shared one holds other tests' fresh files.
+    let root = tempfile::tempdir().expect("tempdir");
+    let base: std::sync::Arc<dyn Storage> =
+        std::sync::Arc::new(backend::utils::storage::LocalStorage::new(
+            root.path().to_string_lossy().into_owned(),
+            "/files".into(),
+        ));
+    let storage = WorkspaceScopedStorage::new(base.clone(), ws.workspace_id);
+    let secs = (chrono::Utc::now() - chrono::Duration::days(3)).timestamp() as u64;
+    let orphan = Uuid::new_v7(uuid::Timestamp::from_unix(uuid::NoContext, secs, 0));
+    for id in [kept, orphan] {
+        storage
+            .put_file(b"{}", &preview_key(id, 0), "application/json")
+            .await
+            .expect("preview");
+        storage
+            .put_file(
+                PNG,
+                &web_key(id, "https://example.com/a.png", "png"),
+                "image/png",
+            )
+            .await
+            .expect("web image");
+    }
+
+    backend::services::scheduled_jobs::sweep_import_files_in(
+        &db.job_pool(),
+        base.clone(),
+        chrono::Utc::now() - chrono::Duration::days(1),
+    )
+    .await
+    .expect("sweep");
+    assert_eq!(
+        files::stored_jobs(&storage).await.expect("list"),
+        vec![kept]
+    );
+    assert_eq!(
+        storage
+            .list_prefix(&format!("imports/{kept}/"))
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+
+    on_job(
+        &pool,
+        ws,
+        "UPDATE import_jobs SET pruned_at = now() WHERE id = $1",
+        &kept.to_string(),
+    );
+    backend::services::scheduled_jobs::sweep_import_files_in(
+        &db.job_pool(),
+        base,
+        chrono::Utc::now() + chrono::Duration::days(1),
+    )
+    .await
+    .expect("sweep");
+    assert!(files::stored_jobs(&storage).await.expect("list").is_empty());
+}
+
+/// A background run's heartbeat (and the commit's pages-written count)
+/// leaves no audit row; any other change to the job is audited as before.
+#[actix_web::test]
+async fn heartbeats_are_not_audited() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = import_workspaces(&pool);
+    let ws = &seeded.a;
+    let id = id_of(&uploaded(&pool, ws, "handbook.zip", &handbook()).await);
+    let job = Uuid::parse_str(&id).expect("uuid");
+
+    let audited = || -> i64 {
+        #[derive(QueryableByName)]
+        struct Count {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            n: i64,
+        }
+        run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+            diesel::sql_query(
+                "SELECT count(*) AS n FROM audit_log WHERE table_name = 'import_jobs' AND pk_text = $1",
+            )
+            .bind::<diesel::sql_types::Text, _>(job.to_string())
+            .get_result::<Count>(c)
+        })
+        .expect("count")
+        .n
+    };
+    let before = audited();
+    assert!(before > 0, "the upload is audited");
+
+    for progress in [None, Some(3), Some(4)] {
+        let beat = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+            backend::repository::imports::heartbeat(c, job, "parsed", progress)
+        })
+        .expect("beat");
+        assert_eq!(beat, 1);
+    }
+    assert_eq!(audited(), before, "beats leave no audit row");
+
+    on_job(
+        &pool,
+        ws,
+        "UPDATE import_jobs SET error_message = 'x' WHERE id = $1",
+        &id,
+    );
+    assert_eq!(audited(), before + 1, "a real change is audited");
 }
