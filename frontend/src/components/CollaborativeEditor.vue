@@ -24,6 +24,7 @@ import { apiBaseUrl, collabWsBaseUrl } from "@nosdesk/core/transport";
 import { EditorView } from "prosemirror-view";
 import { EditorState, Selection, type Command } from "prosemirror-state";
 import { schema } from "@/components/editor/schema";
+import { createTableGuardPlugin } from "@/components/editor/tableGuard";
 import { useAuthStore } from "@/stores/auth";
 import { useMobileDetection } from "@/composables/useMobileDetection";
 import { useToolbarDock } from "@/composables/useToolbarDock";
@@ -846,6 +847,8 @@ const initEditor = async () => {
                         // SafePermanentUserData wrapper provides fallback values for missing users
                         permanentUserData: permanentUserData as unknown as typeof PermanentUserData.prototype
                     }),
+                    // No local table until this document's server allows them.
+                    createTableGuardPlugin(() => props.docId),
                     yCursorPlugin(provider.awareness, {
                         // Custom cursor builder that handles missing users gracefully
                         cursorBuilder: (user: AwarenessUser | undefined, _clientId: number): HTMLElement => {

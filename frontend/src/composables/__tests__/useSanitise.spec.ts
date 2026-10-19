@@ -38,3 +38,18 @@ describe('an image the editor already resolved', () => {
     expect(useSanitise().sanitiseHtml('<img src="https://tracker.example/p.gif">')).not.toContain('src=')
   })
 })
+
+describe('editor tables', () => {
+  it('keep their column widths, spans and alignment classes', () => {
+    const html =
+      '<div class="table-scroll"><table><colgroup><col width="160"><col></colgroup><tbody>' +
+      '<tr><th class="align-center"><p>Name</p></th><td colspan="2" rowspan="2"><p>VPN</p></td></tr>' +
+      '</tbody></table></div>'
+    expect(useSanitise().sanitiseHtml(html)).toBe(html)
+  })
+
+  it('still drop data attributes and inline styles on cells', () => {
+    const out = useSanitise().sanitiseHtml('<table><tbody><tr><td data-colwidth="90" style="color:red">a</td></tr></tbody></table>')
+    expect(out).toBe('<table><tbody><tr><td>a</td></tr></tbody></table>')
+  })
+})

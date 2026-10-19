@@ -1930,3 +1930,40 @@ html[data-theme="red-horizon"] body,
 @keyframes ticket-link-spin {
   to { transform: rotate(360deg); }
 }
+
+/* Editor tables at rest: pages, revisions, embeds and the portal, which
+   imports this file. Colours come from theme tokens, so dark mode follows.
+   A table wider than the column scrolls inside its wrapper, never the page;
+   widths on <col> are honoured, and columns without one share the rest. */
+.ProseMirror .table-scroll {
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.ProseMirror .table-scroll > table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0;
+}
+
+.ProseMirror .table-scroll th,
+.ProseMirror .table-scroll td {
+  border: 1px solid var(--color-default);
+  padding: 0.375rem 0.625rem;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.ProseMirror .table-scroll th {
+  background-color: var(--color-surface-alt);
+  font-weight: 600;
+}
+
+.ProseMirror .table-scroll :is(th, td) > :first-child { margin-top: 0; }
+.ProseMirror .table-scroll :is(th, td) > :last-child { margin-bottom: 0; }
+
+.ProseMirror .table-scroll .align-left { text-align: left; }
+.ProseMirror .table-scroll .align-center { text-align: center; }
+.ProseMirror .table-scroll .align-right { text-align: right; }
