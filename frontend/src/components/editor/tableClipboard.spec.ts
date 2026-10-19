@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import type { Node } from 'prosemirror-model'
@@ -13,10 +13,20 @@ import { CELL_SEPARATOR } from './tableText'
 
 // Tables pasted from the places people copy them, and cells copied out.
 
+const upload = vi.hoisted(() => vi.fn())
+vi.mock('@/services/editorImageService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/editorImageService')>()),
+  uploadEditorImage: upload,
+}))
+
 const DOC_ID = 'ws-1_doc-1'
 
 let views: EditorView[] = []
-beforeEach(() => allowTables(DOC_ID))
+beforeEach(() => {
+  allowTables(DOC_ID)
+  upload.mockReset()
+  upload.mockResolvedValue({ url: '/uploads/pasted.png', name: 'pasted.png' })
+})
 afterEach(() => {
   views.forEach((v) => v.destroy())
   views = []
@@ -154,6 +164,37 @@ describe('pasting HTML tables', () => {
       ['Host', 'Port'],
       ['db1', '5432'],
     ])
+    expect(upload).not.toHaveBeenCalled()
+  })
+
+  it('leaves a dataURL image paste without a table to the uploader, as before', () => {
+    const view = open()
+    caretInLastParagraph(view)
+    paste(view, { html: '<p>Logo <img src="data:image/png;base64,iVBORw0KGgo=" alt="logo"></p>' })
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(view.state.doc.textContent).toBe('Intro')
+  })
+
+  it('with a dataURL image in a cell, uploading the image and keeping the table', async () => {
+    const view = open()
+    caretInLastParagraph(view)
+    paste(view, {
+      html:
+        '<table><tr><th>Name</th><th>Logo</th></tr>' +
+        '<tr><td>VPN</td><td><img src="data:image/png;base64,iVBORw0KGgo=" alt="logo"></td></tr></table>',
+    })
+    expect(grid(view)).toEqual([
+      ['#Name', '#Logo'],
+      ['VPN', ''],
+    ])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(upload).toHaveBeenCalledTimes(1)
+    const sources: string[] = []
+    view.state.doc.descendants((node) => {
+      if (node.type === schema.nodes.image) sources.push(node.attrs.src as string)
+    })
+    expect(sources).toEqual(['/uploads/pasted.png'])
+    expect(grid(view)).toHaveLength(2)
   })
 
   it('from Confluence, keeping headers, spans, lists and code', () => {

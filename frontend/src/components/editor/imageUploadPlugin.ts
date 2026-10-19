@@ -412,10 +412,11 @@ export function createImageUploadPlugin(options: ImageUploadPluginOptions): Plug
         if (!clipboardData) return false;
 
         const html = clipboardData.getData('text/html');
-        // A table wins over images: Excel puts a picture of the copied range
-        // beside its table, and the table is what was meant.
-        if (/<table[\s>]/i.test(html)) return false;
-        const imageFiles = imageFilesFrom(clipboardData.files);
+        // With a table in the HTML, clipboard files are ignored: Excel puts a
+        // picture of the copied range beside its table, and the table is what
+        // was meant. dataURL images inside the HTML are still uploaded.
+        const hasTable = /<table[\s>]/i.test(html);
+        const imageFiles = hasTable ? [] : imageFilesFrom(clipboardData.files);
         const batch = imageFiles.length
           ? imageFiles.map((file) => ({ file, alt: file.name }))
           : html.includes('data:image')
@@ -423,6 +424,17 @@ export function createImageUploadPlugin(options: ImageUploadPluginOptions): Plug
             : [];
 
         if (!batch.length) return false;
+
+        if (hasTable) {
+          // The table still pastes, and `transformPasted` strips the dataURL
+          // images from it. They are uploaded at the caret once the paste has
+          // landed: an anchor taken now would sit in the block the paste
+          // replaces and be lost with it.
+          queueMicrotask(() => {
+            if (!view.isDestroyed) void uploadBatch(view, batch, view.state.selection.from, options);
+          });
+          return false;
+        }
 
         // Positions must be read synchronously, before any await.
         event.preventDefault();
