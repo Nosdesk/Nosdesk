@@ -277,9 +277,15 @@ describe.each(modes)('DocumentationIndexToolbar navigation ($mode routing)', ({ 
 
 describe('DocumentationIndexToolbar actions', () => {
   it('opens the documentation-scoped search', async () => {
+    seed({ library: 1 })
     await mountAt('/documentation')
     await wrapper!.find('[data-testid="docs-index-search"]').trigger('click')
     expect(search.openSearch).toHaveBeenCalledWith('documentation')
+  })
+
+  it('leaves search out until a page exists', async () => {
+    await mountAt('/documentation')
+    expect(wrapper!.find('[data-testid="docs-index-search"]').exists()).toBe(false)
   })
 
   it('opens the new collection modal from the band', async () => {

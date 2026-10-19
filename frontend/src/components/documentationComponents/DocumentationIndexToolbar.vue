@@ -74,6 +74,9 @@ const counts = computed(() => {
   return { library, drafts, archived, trash }
 })
 
+// Search has nothing to find until a page exists.
+const hasActivePages = computed(() => counts.value.library + counts.value.drafts > 0)
+
 const TAB_NAMES: readonly DocsIndexTab[] = [
   'documentation',
   'documentation-drafts',
@@ -260,7 +263,7 @@ defineExpose({ openCreateCollection: () => (showCreateCollection.value = true) }
 
         <div class="ml-auto flex items-center gap-2 shrink-0">
           <Button
-            v-if="!isPhone"
+            v-if="!isPhone && hasActivePages"
             size="sm"
             variant="ghost"
             icon="search"
