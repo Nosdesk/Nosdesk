@@ -410,6 +410,48 @@ pub fn skipped_on_import(name: &str) -> bool {
     table(name).is_some_and(|t| !t.class.carried())
 }
 
+/// What an import does with the TARGET workspace's rows of a table, before
+/// it loads the archive's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    /// The target's rows stay: people's rows, logs, job history.
+    Keep,
+    /// Seeded configuration: the import deletes the target's rows and loads
+    /// the archive's.
+    Replace,
+    /// Content and integrations: a target holding any row hasn't been left
+    /// untouched, and the import refuses it.
+    MustBeEmpty,
+}
+
+/// `Never` tables that are integrations or their credentials. They aren't
+/// carried, and a workspace that holds one has been set up.
+const NEVER_BUT_SET_UP: &[&str] = &["api_tokens", "channel_credentials", "inbound_addresses"];
+
+/// Content tables whose rows hang off the seeded documentation (a person
+/// starring or following the welcome page, its search embeddings). The
+/// untouched check doesn't count them, and they go with the pages an import
+/// replaces; a real page is caught as a page.
+pub const FOLLOW_SEEDED_DOCUMENTS: &[&str] = &[
+    "documentation_collection_visibility",
+    "documentation_page_embeddings",
+    "documentation_page_visibility",
+    "documentation_starred_pages",
+    "documentation_subscriptions",
+];
+
+/// The target class of the workspace table `name`. It follows the archive
+/// class, so the completeness test on [`WORKSPACE_TABLES`] covers it too. A
+/// table the policy doesn't know must be empty.
+pub fn target(name: &str) -> Target {
+    match table(name).map(|t| t.class) {
+        Some(Class::Replace) => Target::Replace,
+        Some(Class::Merge) | Some(Class::Excluded) => Target::Keep,
+        Some(Class::Never) if !NEVER_BUT_SET_UP.contains(&name) => Target::Keep,
+        Some(Class::Never) | Some(Class::Move) | None => Target::MustBeEmpty,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,6 +556,44 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// The design's examples of each target class (portability §2.3).
+    #[test]
+    fn target_classes_follow_the_design() {
+        for name in [
+            "tickets",
+            "comments",
+            "assets",
+            "webhooks",
+            "channels",
+            "api_tokens",
+            "knowledge_gaps",
+        ] {
+            assert_eq!(target(name), Target::MustBeEmpty, "{name}");
+        }
+        for name in [
+            "workflow_states",
+            "sla_policies",
+            "ticket_categories",
+            "site_settings",
+            "documentation_pages",
+        ] {
+            assert_eq!(target(name), Target::Replace, "{name}");
+        }
+        for name in [
+            "workspace_members",
+            "user_profiles",
+            "notification_preferences",
+            "workspace_export_jobs",
+            "import_jobs",
+            "audit_log",
+        ] {
+            assert_eq!(target(name), Target::Keep, "{name}");
+        }
+        for name in NEVER_BUT_SET_UP {
+            assert_eq!(table(name).map(|t| t.class), Some(Class::Never), "{name}");
         }
     }
 

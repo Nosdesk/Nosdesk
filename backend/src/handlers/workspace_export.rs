@@ -1,7 +1,8 @@
 //! Platform-admin endpoints to export and import a single workspace as a
 //! portable archive.
 //!
-//! Thin wrappers over `services::workspace_export` / `workspace_import`.
+//! Thin wrappers over `services::workspace_export`, `workspace_import` and
+//! `workspace_archive::apply`.
 //! Operator-only (`require_platform_admin`); both run through the BYPASSRLS
 //! `PlatformConn`, which they require — under the runtime `nosdesk_app` role with
 //! no workspace pin, RLS would filter the export's reads to zero rows, and the
@@ -16,6 +17,7 @@ use serde::Deserialize;
 
 use crate::errors::{self, ApiError};
 use crate::extractors::PlatformConn;
+use crate::services::workspace_archive::apply;
 use crate::utils::rbac;
 use crate::utils::storage::{process_storage, WorkspaceScopedStorage};
 
@@ -113,13 +115,18 @@ pub async fn export_workspace(
     }
 }
 
-/// `POST /api/admin/workspaces/import` — reconstruct a workspace from an uploaded
-/// export archive as a NEW workspace (fresh id, all integer keys remapped).
+/// `POST /api/admin/workspaces/import`: load an uploaded export archive.
+///
+/// With a `workspace_id` field, into that existing workspace, which must be
+/// untouched (`workspace_archive::apply`): it keeps its identity, and 409
+/// `workspace_not_empty` names what it already holds. Without one, as a NEW
+/// workspace (fresh id, all keys remapped), for an operator's region move.
 ///
 /// Multipart fields: `archive` (the file, required), `password` (optional, for a
-/// sealed archive), `regenerate_uuids` ("true" to clone into the same cell;
-/// default preserves uuids for a cross-cell region move), `slug` (optional slug
-/// override). Returns the new workspace id + import counts as JSON.
+/// sealed archive), `workspace_id` (optional target), `regenerate_uuids` ("true"
+/// to clone into the same cell; default preserves uuids for a cross-cell region
+/// move), `slug` (optional slug override, new workspace only). Returns the
+/// workspace id and import counts as JSON.
 pub async fn import_workspace(
     req: HttpRequest,
     mut pc: PlatformConn,
@@ -134,6 +141,7 @@ pub async fn import_workspace(
     let mut password: Option<String> = None;
     let mut regenerate_uuids = false;
     let mut slug_override: Option<String> = None;
+    let mut target_workspace: Option<i32> = None;
 
     // Scaling ceiling: export/import hold the whole archive in memory (peak ~3x
     // the archive size: files Vec + zip buffer + sealed buffer), because the
@@ -190,6 +198,19 @@ pub async fn import_workspace(
                     slug_override = Some(s);
                 }
             }
+            "workspace_id" => {
+                let s = String::from_utf8_lossy(&buf).trim().to_string();
+                if !s.is_empty() {
+                    match s.parse::<i32>() {
+                        Ok(id) => target_workspace = Some(id),
+                        Err(_) => {
+                            return Err(ApiError::BadRequest(
+                                "workspace_id must be a workspace's numeric id".into(),
+                            ))
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -209,12 +230,27 @@ pub async fn import_workspace(
             }
             Err(e) => return Err(ApiError::BadRequest(format!("invalid archive: {e}"))),
         };
+    let mode = crate::middleware::workspace_context::DeploymentMode::current();
+
+    if let Some(workspace_id) = target_workspace {
+        return import_into_workspace(
+            &mut pc,
+            &contents,
+            crate::services::workspace_archive::plan::ImportTarget {
+                workspace_id,
+                mode,
+                runner,
+            },
+            regenerate_uuids,
+        )
+        .await;
+    }
 
     let opts = crate::services::workspace_import::ImportOptions {
         slug_override,
         uuid_override: None,
         regenerate_uuids,
-        mode: crate::middleware::workspace_context::DeploymentMode::current(),
+        mode,
         runner,
     };
 
@@ -236,41 +272,11 @@ pub async fn import_workspace(
         Err(e) => return Err(ApiError::Database(e)),
     };
 
-    // 2. Restore files through the storage abstraction into the NEW workspace
-    //    (local or S3). Archive entries are `files/{logical}`. NOTE: the rows are
-    //    already committed above, so a failure here leaves a workspace with
-    //    partial files; the error response carries workspace_id so the operator
-    //    can clean up.
-    let scoped = WorkspaceScopedStorage::arc(process_storage(), result.workspace_id);
-    let mut files_restored = 0i64;
-    let mut files_skipped = 0i64;
-    for (name, bytes) in &contents.files {
-        let logical = name.strip_prefix("files/").unwrap_or(name);
-        // Zip-slip guard: reject `..` / absolute / backslash paths from the
-        // untrusted archive before writing (matches the whole-DB restore).
-        if logical.is_empty() || !crate::utils::storage::is_safe_storage_path(logical) {
-            log::warn!("workspace import: skipping unsafe file entry '{name}'");
-            files_skipped += 1;
-            continue;
-        }
-        if let Err(e) = scoped
-            .put_file(bytes, logical, content_type_for(logical))
-            .await
-        {
-            tracing::error!(error = ?e, files_restored, "file restore failed part way");
-            return Ok(errors::with_fields(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "RESTORE_PARTIAL",
-                format!("file restore failed after {files_restored} files"),
-                serde_json::json!({
-                    "partial": true,
-                    "workspace_id": result.workspace_id,
-                    "rows_imported": result.rows_imported,
-                    "files_restored": files_restored,
-                }),
-            ));
-        }
-        files_restored += 1;
+    // 2. Restore files into the NEW workspace. The rows are already committed,
+    //    so a failure here leaves partial files; the error carries workspace_id.
+    let files = apply::restore_files(process_storage(), result.workspace_id, &contents).await;
+    if let Some(response) = files_partial(&files, result.workspace_id, result.rows_imported) {
+        return Ok(response);
     }
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
@@ -278,28 +284,98 @@ pub async fn import_workspace(
         "slug": result.slug,
         "tables_imported": result.tables_imported,
         "rows_imported": result.rows_imported,
-        "files_restored": files_restored,
-        "files_skipped": files_skipped,
+        "files_restored": files.restored,
+        "files_skipped": files.skipped,
         "report": result.report,
     })))
 }
 
-/// Best-effort content type from a file extension, so restored images serve with
-/// a displayable type. Unknown extensions fall back to octet-stream.
-fn content_type_for(path: &str) -> &'static str {
-    match path
-        .rsplit('.')
-        .next()
-        .map(|e| e.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("svg") => "image/svg+xml",
-        Some("pdf") => "application/pdf",
-        Some("txt") => "text/plain",
-        _ => "application/octet-stream",
+/// Import into the existing workspace `target` (`apply::import_into`), then
+/// restore the archive's files into it.
+async fn import_into_workspace(
+    pc: &mut PlatformConn,
+    contents: &crate::services::workspace_import::ArchiveContents,
+    target: crate::services::workspace_archive::plan::ImportTarget,
+    regenerate_uuids: bool,
+) -> Result<HttpResponse, ApiError> {
+    let workspace_id = target.workspace_id;
+    let held = apply::held_files(process_storage(), workspace_id)
+        .await
+        .map_err(|e| ApiError::Internal(format!("listing workspace files: {e:?}")))?;
+
+    // Rows, in one transaction on PlatformConn's owner role (the import updates
+    // the workspace row and clears its seeded configuration).
+    let mut refusal: Option<apply::ApplyError> = None;
+    let options = crate::services::workspace_archive::plan::PlanOptions {
+        regenerate_row_uuids: regenerate_uuids,
+    };
+    let applied = match pc.run(|conn| {
+        apply::import_into(conn, contents, &target, options, &held).map_err(|e| {
+            let message = e.to_string();
+            refusal = Some(e);
+            diesel::result::Error::QueryBuilderError(message.into())
+        })
+    }) {
+        Ok(applied) => applied,
+        Err(e) => {
+            let Some(refusal) = refusal else {
+                return Err(ApiError::Database(e));
+            };
+            return match &refusal {
+                apply::ApplyError::NotUntouched { found } => Ok(errors::with_fields(
+                    StatusCode::CONFLICT,
+                    refusal.code(),
+                    refusal.to_string(),
+                    serde_json::json!({ "found": found }),
+                )),
+                apply::ApplyError::Busy { .. } => Ok(errors::conflict_with_code(
+                    refusal.to_string(),
+                    refusal.code(),
+                )),
+                apply::ApplyError::NoWorkspace { .. } => Ok(errors::not_found_with_code(
+                    refusal.to_string(),
+                    refusal.code(),
+                )),
+                apply::ApplyError::Refused(_) => Err(ApiError::BadRequest(refusal.to_string())),
+                _ => Err(ApiError::Internal(format!("workspace import: {refusal}"))),
+            };
+        }
+    };
+
+    // Files, after commit: idempotent puts, so a partial restore can run again.
+    let files = apply::restore_files(process_storage(), workspace_id, contents).await;
+    if let Some(response) = files_partial(&files, workspace_id, applied.rows_imported) {
+        return Ok(response);
     }
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "workspace_id": workspace_id,
+        "tables_imported": applied.tables_imported,
+        "rows_imported": applied.rows_imported,
+        "cleared": applied.cleared,
+        "data_epoch": applied.fence.epoch,
+        "files_restored": files.restored,
+        "files_skipped": files.skipped,
+        "report": applied.report,
+    })))
+}
+
+/// The response when the file restore stopped part way, if it did.
+fn files_partial(
+    files: &apply::FilesRestored,
+    workspace_id: i32,
+    rows_imported: i64,
+) -> Option<HttpResponse> {
+    files.failed.as_ref()?;
+    Some(errors::with_fields(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "RESTORE_PARTIAL",
+        format!("file restore failed after {} files", files.restored),
+        serde_json::json!({
+            "partial": true,
+            "workspace_id": workspace_id,
+            "rows_imported": rows_imported,
+            "files_restored": files.restored,
+        }),
+    ))
 }

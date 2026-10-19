@@ -1,7 +1,8 @@
 //! Workspace import: reads an export archive (see `workspace_export`) and
 //! loads it through the import plan (`workspace_archive::plan`).
 //!
-//! [`read_archive`] unseals, verifies and version-checks the archive.
+//! [`read_archive`] unseals, verifies and version-checks the archive. The
+//! import into an existing workspace is `workspace_archive::apply`.
 //! [`import_workspace`] loads it as a NEW workspace: it creates the workspace
 //! row, plans the import into it (people map, keys, collisions), then writes
 //! the plan's people and rows. Every integer and uuid key is drawn afresh and
@@ -252,9 +253,6 @@ pub struct ImportResult {
     pub report: ImportReport,
 }
 
-/// Rows per insert statement.
-const LOAD_BATCH: usize = 500;
-
 /// Import a workspace's ROWS from an already-read archive into THIS database as a
 /// new workspace. Must be called on a BYPASSRLS connection (via
 /// `with_actor_bypass_context` / `PlatformConn`). Atomic: everything runs in one
@@ -308,60 +306,17 @@ pub fn import_workspace(
             )));
         }
         let alloc = plan.allocate(conn)?;
-
-        load_rows(conn, "users", &plan.new_users(), "")?;
-        insert_primary_emails(conn, &plan)?;
-
-        let mut rows_imported = 0i64;
-        for table in plan.tables() {
-            let rows = plan.rows(table, &alloc)?;
-            let suffix = if table.skip_conflicts {
-                "ON CONFLICT DO NOTHING"
-            } else {
-                ""
-            };
-            load_rows(conn, &table.name, &rows, suffix)?;
-            rows_imported += rows.len() as i64;
-        }
+        let (tables_imported, rows_imported) =
+            crate::services::workspace_archive::apply::load(conn, &plan, &alloc)?;
 
         Ok(ImportResult {
             workspace_id,
             slug,
-            tables_imported: plan.tables().len(),
+            tables_imported,
             rows_imported,
             report: plan.report,
         })
     })
-}
-
-/// Insert `rows` into `table` in batches, through the column policy
-/// (`rows::load_statement`): only the columns the rows carry, so the rest take
-/// their defaults.
-fn load_rows(
-    conn: &mut crate::db::DbConnection,
-    table: &str,
-    rows: &[plan::Row],
-    suffix: &str,
-) -> Result<(), BackupError> {
-    if rows.is_empty() {
-        return Ok(());
-    }
-    if !table_exists_in_db(conn, table)? {
-        return Err(BackupError::CorruptedBackup(format!(
-            "archive references unknown table: {table}"
-        )));
-    }
-    for batch in rows.chunks(LOAD_BATCH) {
-        let keys: std::collections::HashSet<String> =
-            batch.iter().flat_map(|r| r.keys().cloned()).collect();
-        let query = rows::load_statement(conn, table, &keys, &[], suffix)?;
-        let payload = serde_json::to_string(batch).map_err(BackupError::JsonError)?;
-        sql_query(&query)
-            .bind::<Text, _>(payload)
-            .execute(conn)
-            .map_err(BackupError::DatabaseError)?;
-    }
-    Ok(())
 }
 
 /// Insert one archive row into `table`, omitting `id` (drawn fresh from the
@@ -437,37 +392,6 @@ fn create_target_workspace(
         BackupError::CorruptedBackup("the workspaces row did not load".to_string())
     })? as i32;
     Ok((new_id, slug))
-}
-
-/// Give each account the plan creates the primary email the archive carries
-/// for them (placeholders get none).
-///
-/// Only the address and its type come from the archive, which is untrusted:
-/// the row is unverified with no `source`, whatever the archive says, so an
-/// archive can't vouch for an address (`is_verified` is the inbound-mail
-/// impersonation guard) or tie it to a sign-in provider. The person proves it
-/// by accepting an invitation, as anyone added by an admin does.
-fn insert_primary_emails(
-    conn: &mut crate::db::DbConnection,
-    plan: &plan::ImportPlan,
-) -> Result<(), BackupError> {
-    for (owner, address, email_type) in plan.new_emails() {
-        sql_query(
-            "INSERT INTO public.user_emails \
-               (user_uuid, email, email_type, is_primary, is_verified, source, created_by, \
-                created_at, updated_at) \
-             VALUES ($1, $2, $3, true, false, NULL, \
-               (SELECT u.uuid FROM public.users u \
-                WHERE u.uuid = NULLIF(current_setting('app.actor_uuid', true), '')::uuid), \
-               now(), now())",
-        )
-        .bind::<diesel::sql_types::Uuid, _>(owner)
-        .bind::<Text, _>(address)
-        .bind::<Text, _>(email_type)
-        .execute(conn)
-        .map_err(BackupError::DatabaseError)?;
-    }
-    Ok(())
 }
 
 /// The plan refusals in `err`, if it is one.

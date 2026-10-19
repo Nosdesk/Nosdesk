@@ -252,6 +252,94 @@ pub fn update_favicon_url(
         .get_result(conn)
 }
 
+/// What a workspace keeps of its own `site_settings` when an import or a
+/// reset replaces the row. Branding images live outside the workspace's files
+/// (under its uuid) and no archive carries them, so the target keeps its own.
+/// `app_name` is kept only when asked: on hosted, provisioning names the
+/// portal after the workspace, which keeps its name.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct KeptBranding {
+    pub app_name: Option<String>,
+    pub logo_url: Option<String>,
+    pub logo_light_url: Option<String>,
+    pub favicon_url: Option<String>,
+    pub email_logo: Option<serde_json::Value>,
+    pub email_logo_light: Option<serde_json::Value>,
+}
+
+/// Read what [`restore_kept_branding`] puts back after the workspace's row is
+/// replaced. `None` when the workspace has no row. Filters by workspace, so
+/// an elevated connection reads only this one.
+pub fn kept_branding(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    keep_app_name: bool,
+) -> QueryResult<Option<KeptBranding>> {
+    type Row = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<serde_json::Value>,
+        Option<serde_json::Value>,
+    );
+    let row: Option<Row> = site_settings::table
+        .filter(site_settings::workspace_id.eq(workspace_id))
+        .select((
+            site_settings::app_name,
+            site_settings::logo_url,
+            site_settings::logo_light_url,
+            site_settings::favicon_url,
+            site_settings::email_logo,
+            site_settings::email_logo_light,
+        ))
+        .first(conn)
+        .optional()?;
+    Ok(row.map(
+        |(app_name, logo_url, logo_light_url, favicon_url, email_logo, email_logo_light)| {
+            KeptBranding {
+                app_name: keep_app_name.then_some(app_name),
+                logo_url,
+                logo_light_url,
+                favicon_url,
+                email_logo,
+                email_logo_light,
+            }
+        },
+    ))
+}
+
+// sync-audit-only: Workspace settings written by an import or reset, whose data epoch bump tells every client to start over; sync clients don't subscribe to site_settings
+/// Put [`KeptBranding`] back on the workspace's row, creating the row when the
+/// archive brought none. Explicit `workspace_id`, so it works elevated.
+pub fn restore_kept_branding(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    kept: &KeptBranding,
+) -> QueryResult<()> {
+    diesel::insert_into(site_settings::table)
+        .values(site_settings::workspace_id.eq(workspace_id))
+        .on_conflict(site_settings::workspace_id)
+        .do_nothing()
+        .execute(conn)?;
+    let target = || site_settings::table.filter(site_settings::workspace_id.eq(workspace_id));
+    diesel::update(target())
+        .set((
+            site_settings::logo_url.eq(&kept.logo_url),
+            site_settings::logo_light_url.eq(&kept.logo_light_url),
+            site_settings::favicon_url.eq(&kept.favicon_url),
+            site_settings::email_logo.eq(&kept.email_logo),
+            site_settings::email_logo_light.eq(&kept.email_logo_light),
+        ))
+        .execute(conn)?;
+    if let Some(app_name) = &kept.app_name {
+        diesel::update(target())
+            .set(site_settings::app_name.eq(app_name))
+            .execute(conn)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
