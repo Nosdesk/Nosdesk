@@ -3,6 +3,11 @@
 //! created, everything that can have touched them since, and the catalog
 //! entries it created. Every read takes a list of ids and answers in one
 //! query, so a 5,000-asset import is a dozen queries, not 60,000.
+//!
+//! The reads for Remove imported pages and Publish all
+//! (`services::imports::documentation::remove`) follow at the end: the
+//! state of the pages a documentation import created, their newest
+//! revisions, the pages added under them, and the collections it created.
 
 use std::collections::HashMap;
 
@@ -387,5 +392,166 @@ pub fn groups_in_use(conn: &mut DbConnection, ids: &[i32]) -> QueryResult<Vec<i3
         .filter(asset_group_assignments::group_id.eq_any(ids))
         .select(asset_group_assignments::group_id)
         .distinct()
+        .load(conn)
+}
+
+// ---- Remove imported pages and Publish all (documentation imports) ----
+
+/// What the untouched rule reads off a page an import created.
+#[derive(Debug, Clone, QueryableByName)]
+pub struct PageState {
+    #[diesel(sql_type = Int4)]
+    pub id: i32,
+    #[diesel(sql_type = Text)]
+    pub title: String,
+    #[diesel(sql_type = Text)]
+    pub status: String,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Int4>)]
+    pub parent_id: Option<i32>,
+    #[diesel(sql_type = Timestamptz)]
+    pub updated_at: NaiveDateTime,
+    /// SHA-256 of `yjs_document`, hex; `None` when it has none.
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub hash: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    pub created_by: Uuid,
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    pub last_edited_by: Uuid,
+    /// The collection it is in now.
+    #[diesel(sql_type = diesel::sql_types::Nullable<Int4>)]
+    pub collection_id: Option<i32>,
+}
+
+/// The pages of `ids` that still exist, Trash included, in id order. With
+/// `lock`, each row is locked `FOR UPDATE` for the rest of the
+/// transaction, before the checks: the lock also holds off a new page
+/// under one of them (its parent key is shared-locked), so nothing lands
+/// between the check and the move to Trash.
+// sync-audit-only: read-only (takes row locks, writes nothing)
+pub fn page_states(
+    conn: &mut DbConnection,
+    ids: &[i32],
+    lock: bool,
+) -> QueryResult<Vec<PageState>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let sql = format!(
+        "SELECT p.id, p.title::text AS title, p.status::text AS status, p.parent_id, p.updated_at, \
+                encode(sha256(p.yjs_document), 'hex') AS hash, p.created_by, p.last_edited_by, \
+                (SELECT cp.collection_id FROM documentation_collection_pages cp \
+                 WHERE cp.page_id = p.id LIMIT 1) AS collection_id \
+         FROM documentation_pages p WHERE p.id = ANY($1) ORDER BY p.id{}",
+        if lock { " FOR UPDATE OF p" } else { "" }
+    );
+    diesel::sql_query(sql)
+        .bind::<Array<Int4>, _>(ids)
+        .load(conn)
+}
+
+/// A page's newest revision.
+#[derive(Debug, Clone, QueryableByName)]
+pub struct NewestRevision {
+    #[diesel(sql_type = Int4)]
+    pub page_id: i32,
+    #[diesel(sql_type = Int4)]
+    pub revision_number: i32,
+    #[diesel(sql_type = Timestamptz)]
+    pub created_at: DateTime<Utc>,
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    pub created_by: Uuid,
+}
+
+/// Each page's newest revision, by page.
+// sync-audit-only: read-only
+pub fn newest_revisions(
+    conn: &mut DbConnection,
+    ids: &[i32],
+) -> QueryResult<HashMap<i32, NewestRevision>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<NewestRevision> = diesel::sql_query(
+        "SELECT DISTINCT ON (page_id) page_id, revision_number, created_at, created_by \
+         FROM documentation_revisions WHERE page_id = ANY($1) \
+         ORDER BY page_id, revision_number DESC, id DESC",
+    )
+    .bind::<Array<Int4>, _>(ids)
+    .load(conn)?;
+    Ok(rows.into_iter().map(|r| (r.page_id, r)).collect())
+}
+
+/// For each of `ids`, how many pages outside `ids` sit directly under it,
+/// Trash left out.
+// sync-audit-only: read-only
+pub fn children_outside(conn: &mut DbConnection, ids: &[i32]) -> QueryResult<HashMap<i32, i64>> {
+    use crate::models::DocumentationStatus;
+    use crate::schema::documentation_pages;
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(Option<i32>, i64)> = documentation_pages::table
+        .filter(documentation_pages::parent_id.eq_any(ids))
+        .filter(documentation_pages::id.ne_all(ids))
+        .filter(documentation_pages::status.ne(DocumentationStatus::Deleted))
+        .group_by(documentation_pages::parent_id)
+        .select((documentation_pages::parent_id, count_star()))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(parent, n)| Some((parent?, n)))
+        .collect())
+}
+
+/// A collection an import created.
+#[derive(Debug, Clone)]
+pub struct CollectionState {
+    pub id: i32,
+    pub name: String,
+}
+
+/// The collections of `ids` that still exist, in id order. With `lock`,
+/// `FOR UPDATE`: an empty one is deleted, and the lock holds off a page
+/// joining it (the join row shares its key) until then.
+// sync-audit-only: read-only (takes row locks, writes nothing)
+pub fn collection_states(
+    conn: &mut DbConnection,
+    ids: &[i32],
+    lock: bool,
+) -> QueryResult<Vec<CollectionState>> {
+    use crate::schema::documentation_collections as c;
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let query = c::table
+        .filter(c::id.eq_any(ids))
+        .order(c::id.asc())
+        .select((c::id, c::name));
+    let rows: Vec<(i32, String)> = if lock {
+        query.for_update().load(conn)?
+    } else {
+        query.load(conn)?
+    };
+    Ok(rows
+        .into_iter()
+        .map(|(id, name)| CollectionState { id, name })
+        .collect())
+}
+
+/// The pages outside Trash in each of the collections `ids`, as
+/// (collection, page).
+// sync-audit-only: read-only
+pub fn live_collection_pages(conn: &mut DbConnection, ids: &[i32]) -> QueryResult<Vec<(i32, i32)>> {
+    use crate::models::DocumentationStatus;
+    use crate::schema::{documentation_collection_pages as cp, documentation_pages as p};
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    cp::table
+        .inner_join(p::table.on(p::id.eq(cp::page_id)))
+        .filter(cp::collection_id.eq_any(ids))
+        .filter(p::status.ne(DocumentationStatus::Deleted))
+        .select((cp::collection_id, cp::page_id))
+        .order((cp::collection_id.asc(), cp::page_id.asc()))
         .load(conn)
 }
