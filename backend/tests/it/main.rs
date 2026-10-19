@@ -210,4 +210,5 @@ mod workspace_membership_gate;
 mod workspace_portal;
 mod workspace_role_resolution;
 mod workspace_scoped_keys;
+mod workspace_search_reindex;
 mod workspace_smtp_relay;

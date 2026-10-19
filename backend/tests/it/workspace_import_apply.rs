@@ -17,6 +17,7 @@ use backend::repository::site_settings::name_after_workspace;
 use backend::repository::workspaces::{
     add_membership, create_workspace, data_fence, DataFence, SeatWriteAuthority,
 };
+use backend::services::search::{SearchQuery, SearchService};
 use backend::services::seed::{seed_getting_started, seed_workspace_defaults};
 use backend::services::workspace_archive::apply::{self, ApplyError, Found};
 use backend::services::workspace_archive::plan::{ImportTarget, PlanOptions, Runner};
@@ -29,7 +30,7 @@ use crate::common::{
     insert_plain_user, insert_user, seed_two_workspaces, test_storage, TestDb, TestPool,
     WorkspaceSeed,
 };
-use crate::workspace_export_hygiene::call_admin_route;
+use crate::workspace_export_hygiene::{call_admin_route, call_admin_route_with_search};
 
 const REF: &str = "test:workspace_import_apply";
 const PASSWORD: &str = "apply-password";
@@ -744,4 +745,75 @@ async fn a_running_import_holds_off_another() {
     drop(holder);
     assert_eq!(count_in(&pool, "tickets", target.id), 0);
     import_into(&pool, &contents, &hosted_target(&target)).expect("imports once it's free");
+}
+
+/// The ticket ids `q` finds from `workspace_id`.
+fn ticket_hits(search: &SearchService, workspace_id: i32, q: &str) -> Vec<String> {
+    let query = SearchQuery {
+        q: q.to_string(),
+        limit: 50,
+        types: Some("ticket".to_string()),
+        sort: None,
+        author: None,
+    };
+    search
+        .search(&query, true, workspace_id as i64)
+        .expect("search")
+        .results
+        .into_iter()
+        .map(|r| r.id)
+        .collect()
+}
+
+/// Once the import commits, the target workspace is reindexed, so its
+/// imported tickets are found from it.
+#[actix_web::test]
+async fn an_applied_imports_tickets_are_searchable() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let src = source(&pool).await;
+    let target = provision_hosted(&pool);
+    let index_dir = tempfile::tempdir().expect("index dir");
+    let search =
+        std::sync::Arc::new(SearchService::new(index_dir.path(), &pool).expect("init search"));
+    search.reload().expect("reload");
+    let word = src.ticket_title.rsplit(' ').next().expect("title word");
+    let from_source = ticket_hits(&search, src.seed.workspace_id, word);
+    assert_eq!(from_source.len(), 1, "{from_source:?}");
+    assert!(ticket_hits(&search, target.id, word).is_empty());
+
+    let (status, body) = call_admin_route_with_search(
+        &pool,
+        &src.seed,
+        import_request(
+            &src.archive,
+            &[
+                ("password", PASSWORD),
+                ("workspace_id", &target.id.to_string()),
+                ("regenerate_uuids", "true"),
+            ],
+        ),
+        Some(search.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+
+    // The reindex runs in the background after the response.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while search.is_reindexing_workspace(target.id) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "reindex still running"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    search.reload().expect("reload");
+
+    let from_target = ticket_hits(&search, target.id, word);
+    assert_eq!(from_target.len(), 1, "{from_target:?}");
+    assert_ne!(from_target, from_source, "the target's own copy is found");
+    assert_eq!(
+        ticket_hits(&search, src.seed.workspace_id, word),
+        from_source
+    );
 }

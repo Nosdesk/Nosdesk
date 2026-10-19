@@ -343,12 +343,20 @@ pub async fn search(
     }
 }
 
+/// Which part of the index a rebuild covers.
+#[derive(Debug, serde::Deserialize)]
+pub struct RebuildScope {
+    /// Rebuild only this workspace's documents, leaving the others alone.
+    pub workspace_id: Option<i32>,
+}
+
 /// Rebuild the search index (admin only)
 ///
-/// POST /api/search/rebuild
+/// POST /api/search/rebuild, or `?workspace_id=N` for one workspace.
 pub async fn rebuild_index(
     pool: web::Data<crate::db::Pool>,
     search_service: web::Data<Arc<SearchService>>,
+    scope: web::Query<RebuildScope>,
     req: HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
     // Verify authentication and admin role
@@ -360,6 +368,10 @@ pub async fn rebuild_index(
     if !is_platform_admin(&claims) {
         warn!(user = %claims.sub, "Non-admin user attempted to rebuild search index");
         return Err(ApiError::Forbidden("Admin access required".into()));
+    }
+
+    if let Some(workspace_id) = scope.workspace_id {
+        return rebuild_workspace(search_service.get_ref().clone(), workspace_id, &req).await;
     }
 
     // Check if already rebuilding
@@ -417,6 +429,63 @@ pub async fn rebuild_index(
             error!(error = ?e, "Index rebuild failed");
             Ok(errors::internal_with_code(
                 i18n::tr(&request_locale(&req), "backend-error-search-rebuild-failed"),
+                "backend-error-search-rebuild-failed",
+            ))
+        }
+    }
+}
+
+/// Rebuild one workspace's documents (`SearchService::reindex_workspace`).
+/// Answers when the pass has committed, or 202 when a reindex of the
+/// workspace was already pending or running and covers this request.
+async fn rebuild_workspace(
+    search_service: Arc<SearchService>,
+    workspace_id: i32,
+    req: &HttpRequest,
+) -> Result<HttpResponse, ApiError> {
+    use crate::services::search::indexing_tasks::{spawn_reindex_workspace, WorkspaceReindex};
+
+    let handle = match spawn_reindex_workspace(search_service, workspace_id) {
+        WorkspaceReindex::Started(handle) => handle,
+        WorkspaceReindex::Joined => {
+            return Ok(HttpResponse::Accepted().json(json!({
+                "success": true,
+                "message": "A reindex of this workspace is already under way",
+                "workspace_id": workspace_id,
+            })))
+        }
+    };
+    match handle.await {
+        Ok(Ok(stats)) => {
+            let indexed = &stats.indexed;
+            Ok(HttpResponse::Ok().json(json!({
+                "success": true,
+                "message": "Workspace reindexed",
+                "workspace_id": workspace_id,
+                "stats": {
+                    "tickets": indexed.tickets,
+                    "comments": indexed.comments,
+                    "documentation": indexed.documentation,
+                    "attachments": indexed.attachments,
+                    "devices": indexed.devices,
+                    "users": indexed.users,
+                    "projects": indexed.projects,
+                    "total": indexed.total(),
+                    "removed": stats.removed,
+                }
+            })))
+        }
+        Ok(Err(e)) => {
+            error!(workspace_id, error = ?e, "Workspace reindex failed");
+            Ok(errors::internal_with_code(
+                i18n::tr(&request_locale(req), "backend-error-search-rebuild-failed"),
+                "backend-error-search-rebuild-failed",
+            ))
+        }
+        Err(e) => {
+            error!(workspace_id, error = ?e, "Workspace reindex task failed");
+            Ok(errors::internal_with_code(
+                i18n::tr(&request_locale(req), "backend-error-search-rebuild-failed"),
                 "backend-error-search-rebuild-failed",
             ))
         }

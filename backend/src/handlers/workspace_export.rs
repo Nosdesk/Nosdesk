@@ -14,9 +14,11 @@ use actix_web::http::StatusCode;
 use actix_web::{web, HttpRequest, HttpResponse};
 use futures::StreamExt;
 use serde::Deserialize;
+use std::sync::Arc;
 
 use crate::errors::{self, ApiError};
 use crate::extractors::PlatformConn;
+use crate::services::search::{indexing_tasks, SearchService};
 use crate::services::workspace_archive::apply;
 use crate::utils::rbac;
 use crate::utils::storage::{process_storage, WorkspaceScopedStorage};
@@ -130,6 +132,7 @@ pub async fn export_workspace(
 pub async fn import_workspace(
     req: HttpRequest,
     mut pc: PlatformConn,
+    search_service: Option<web::Data<Arc<SearchService>>>,
     mut payload: Multipart,
 ) -> Result<HttpResponse, ApiError> {
     let claims = rbac::require_platform_admin(&req)?;
@@ -242,6 +245,7 @@ pub async fn import_workspace(
                 runner,
             },
             regenerate_uuids,
+            search_service.as_ref().map(|d| d.get_ref()),
         )
         .await;
     }
@@ -272,6 +276,11 @@ pub async fn import_workspace(
         Err(e) => return Err(ApiError::Database(e)),
     };
 
+    reindex_search(
+        search_service.as_ref().map(|d| d.get_ref()),
+        result.workspace_id,
+    );
+
     // 2. Restore files into the NEW workspace. The rows are already committed,
     //    so a failure here leaves partial files; the error carries workspace_id.
     let files = apply::restore_files(process_storage(), result.workspace_id, &contents).await;
@@ -297,6 +306,7 @@ async fn import_into_workspace(
     contents: &crate::services::workspace_import::ArchiveContents,
     target: crate::services::workspace_archive::plan::ImportTarget,
     regenerate_uuids: bool,
+    search_service: Option<&Arc<SearchService>>,
 ) -> Result<HttpResponse, ApiError> {
     let workspace_id = target.workspace_id;
     let held = apply::held_files(process_storage(), workspace_id)
@@ -342,6 +352,8 @@ async fn import_into_workspace(
         }
     };
 
+    reindex_search(search_service, workspace_id);
+
     // Files, after commit: idempotent puts, so a partial restore can run again.
     let files = apply::restore_files(process_storage(), workspace_id, contents).await;
     if let Some(response) = files_partial(&files, workspace_id, applied.rows_imported) {
@@ -358,6 +370,15 @@ async fn import_into_workspace(
         "files_skipped": files.skipped,
         "report": applied.report,
     })))
+}
+
+/// Index an imported workspace's rows for search, in the background, once
+/// they are committed. The load writes them past the incremental search
+/// hooks. Other workspaces' documents are left alone.
+fn reindex_search(search_service: Option<&Arc<SearchService>>, workspace_id: i32) {
+    if let Some(search) = search_service {
+        indexing_tasks::spawn_reindex_workspace(Arc::clone(search), workspace_id);
+    }
 }
 
 /// The response when the file restore stopped part way, if it did.

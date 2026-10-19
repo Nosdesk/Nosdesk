@@ -14,6 +14,7 @@ pub mod indexing_tasks;
 pub mod schema;
 pub mod searcher;
 pub mod types;
+pub mod workspace_reindex;
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,6 +39,8 @@ pub struct SearchService {
     reader: IndexReader,
     writer: Arc<RwLock<IndexWriter>>,
     is_rebuilding: AtomicBool,
+    /// Workspaces with a reindex pending or running (`workspace_reindex`).
+    reindex_slots: workspace_reindex::ReindexSlots,
     /// Pool used by background re-index hooks to resolve a user's
     /// workspace memberships (the workspace tenancy tags on the user
     /// doc). Users are a global identity, so the membership set has to
@@ -106,6 +109,7 @@ impl SearchService {
             reader,
             writer: Arc::new(RwLock::new(writer)),
             is_rebuilding: AtomicBool::new(false),
+            reindex_slots: workspace_reindex::ReindexSlots::default(),
             pool: pool.clone(),
         };
 
@@ -647,7 +651,25 @@ impl SearchService {
         })
     }
 
+    /// Make the latest commit visible to searches now, rather than after the
+    /// reader's reload delay.
+    pub fn reload(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.reader.reload()?;
+        Ok(())
+    }
+
     // Internal helper methods
+
+    fn writer_lock(
+        &self,
+    ) -> Result<
+        std::sync::RwLockWriteGuard<'_, IndexWriter>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        self.writer
+            .write()
+            .map_err(|e| format!("Lock error: {}", e).into())
+    }
 
     fn index_document(
         &self,
