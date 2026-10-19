@@ -89,12 +89,17 @@ pub async fn export_workspace(
         }
     }
 
-    // 3. Assemble + seal (sync).
+    // 3. People's avatars, which live outside the workspace's prefix.
+    let avatars =
+        crate::services::workspace_export::read_avatars(process_storage().as_ref(), &meta).await;
+
+    // 4. Assemble + seal (sync).
     match crate::services::workspace_export::assemble_workspace_archive(
         &dumps,
         &meta,
         workspace_id,
         &files,
+        &avatars,
         password.as_deref(),
     ) {
         Ok(bytes) => Ok(HttpResponse::Ok()
@@ -196,6 +201,9 @@ pub async fn import_workspace(
     let contents =
         match crate::services::workspace_import::read_archive(&archive, password.as_deref()) {
             Ok(c) => c,
+            Err(e @ crate::services::backup::BackupError::NotImportable(_)) => {
+                return Err(ApiError::BadRequest(e.to_string()))
+            }
             Err(e) => return Err(ApiError::BadRequest(format!("invalid archive: {e}"))),
         };
 

@@ -21,7 +21,18 @@ use crate::services::backup::BackupError;
 /// JSON text, leaving out the columns the policy keeps from an unsealed
 /// archive. The row stays text end to end so `NUMERIC` precision survives.
 pub fn export_row_sql(table: &str, sealed: bool) -> String {
-    let left_out = policy::left_out(table, sealed);
+    row_sql_without(&policy::left_out(table, sealed))
+}
+
+/// [`export_row_sql`] for a workspace archive, which also leaves out the
+/// columns it never carries (`policy::left_out_of_workspace_archive`).
+pub fn workspace_export_row_sql(table: &str, sealed: bool) -> String {
+    row_sql_without(&policy::left_out_of_workspace_archive(table, sealed))
+}
+
+/// The `SELECT` expression that writes one row (aliased `t`) as JSON text
+/// without `left_out`.
+fn row_sql_without(left_out: &[&str]) -> String {
     if left_out.is_empty() {
         return "row_to_json(t)::text".to_string();
     }
@@ -237,6 +248,26 @@ mod tests {
         assert_eq!(
             export_row_sql("webhooks", false),
             "(row_to_json(t)::jsonb - 'secret' - 'headers')::text"
+        );
+    }
+
+    /// A workspace archive never carries sign-in passwords, sealed or not;
+    /// an instance backup does when sealed.
+    #[test]
+    fn a_workspace_archive_never_carries_identity_passwords() {
+        assert_eq!(
+            export_row_sql("user_auth_identities", true),
+            "row_to_json(t)::text"
+        );
+        for sealed in [true, false] {
+            assert_eq!(
+                workspace_export_row_sql("user_auth_identities", sealed),
+                "(row_to_json(t)::jsonb - 'password_hash' - 'metadata')::text"
+            );
+        }
+        assert_eq!(
+            workspace_export_row_sql("webhooks", true),
+            "row_to_json(t)::text"
         );
     }
 

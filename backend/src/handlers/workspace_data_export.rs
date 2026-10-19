@@ -28,7 +28,7 @@ use crate::models::{
 };
 use crate::repository::workspace_export_jobs as export_repo;
 use crate::services::workspace_export::{
-    assemble_workspace_archive, collect_workspace_rows, is_exported_file,
+    assemble_workspace_archive, collect_workspace_rows, is_exported_file, read_avatars,
 };
 use crate::sync::actor::ActorContext;
 use crate::sync::session::with_actor_bypass_context;
@@ -314,10 +314,23 @@ async fn run_export_inner(
         files.push((p, bytes));
     }
 
-    // 3. Assemble (sync CPU). 4. Store under the workspace-scoped prefix.
-    let archive =
-        assemble_workspace_archive(&dumps, &meta, workspace_id, &files, password.as_deref())
-            .map_err(|e| format!("assemble archive: {e}"))?;
+    // 3. People's avatars, which live outside the workspace's prefix.
+    let avatars = read_avatars(process_storage().as_ref(), &meta).await;
+    total += avatars.iter().map(|(_, bytes)| bytes.len()).sum::<usize>();
+    if total > MAX_EXPORT_BYTES {
+        return Err(too_large());
+    }
+
+    // 4. Assemble (sync CPU). 5. Store under the workspace-scoped prefix.
+    let archive = assemble_workspace_archive(
+        &dumps,
+        &meta,
+        workspace_id,
+        &files,
+        &avatars,
+        password.as_deref(),
+    )
+    .map_err(|e| format!("assemble archive: {e}"))?;
     let file_size = archive.len() as i64;
     let key = format!("exports/{job_id}.nosdesk");
     scoped

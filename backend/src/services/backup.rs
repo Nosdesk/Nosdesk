@@ -204,6 +204,8 @@ pub enum BackupError {
     ConnectionUnavailable(String),
     /// The backup's schema isn't one this build can restore.
     NotRestorable(super::backup_upgrade::NotRestorable),
+    /// A workspace export from another format or schema than this build's.
+    NotImportable(super::workspace_import::ImportRefusal),
     /// An older backup is upgraded in a scratch database built from the
     /// first migration, which takes a superuser, and the role restore runs
     /// as isn't one.
@@ -248,6 +250,7 @@ impl std::fmt::Display for BackupError {
             }
             BackupError::ConnectionUnavailable(_) => write!(f, "Database connection unavailable"),
             BackupError::NotRestorable(reason) => write!(f, "Can't restore: {reason}"),
+            BackupError::NotImportable(reason) => write!(f, "{reason}"),
             BackupError::NeedsSuperuser => write!(
                 f,
                 "Restoring a backup from an earlier Nosdesk version upgrades it in a temporary \

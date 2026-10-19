@@ -324,6 +324,55 @@ pub const INSTANCE_TABLES: &[InstanceTable] = &[
     },
 ];
 
+/// The `users` columns a workspace archive carries for each person its rows
+/// name, sealed or not. Credentials (password, MFA, recovery codes, passkeys,
+/// sign-in identities) live elsewhere or stay out, and so do the account's
+/// instance-wide settings: `platform_role`, `feature_flag_overrides`,
+/// `password_changed_at`, `microsoft_uuid`. `avatar_url` stays only when the
+/// archive carries the avatar file.
+pub const ARCHIVE_USER_COLUMNS: &[&str] = &[
+    "uuid",
+    "name",
+    "pronouns",
+    "username",
+    "created_at",
+    "deleted_at",
+    "avatar_url",
+];
+
+/// The `user_emails` columns a workspace archive carries, for each person's
+/// primary address only. Other addresses stay private to the account.
+pub const ARCHIVE_USER_EMAIL_COLUMNS: &[&str] = &[
+    "user_uuid",
+    "email",
+    "email_type",
+    "is_primary",
+    "is_verified",
+];
+
+/// Columns a workspace archive never carries, even sealed. An instance backup
+/// is restored onto the instance that made it, so a sealed one keeps them; a
+/// workspace archive moves to another instance, where they don't belong.
+const NEVER_IN_WORKSPACE_ARCHIVE: &[(&str, &[&str])] =
+    &[("user_auth_identities", &["password_hash", "metadata"])];
+
+/// The columns a workspace archive of `name` leaves out: the secrets unless
+/// sealed, and those it never carries.
+pub fn left_out_of_workspace_archive(name: &str, sealed: bool) -> Vec<&'static str> {
+    let mut columns = left_out(name, sealed);
+    for (table, never) in NEVER_IN_WORKSPACE_ARCHIVE {
+        if *table != name {
+            continue;
+        }
+        for column in *never {
+            if !columns.contains(column) {
+                columns.push(column);
+            }
+        }
+    }
+    columns
+}
+
 /// The workspace table's policy, if it has one.
 pub fn table(name: &str) -> Option<&'static Table> {
     WORKSPACE_TABLES.iter().find(|t| t.name == name)
@@ -432,6 +481,21 @@ mod tests {
     #[test]
     fn every_column_a_policy_names_exists() {
         let mut conn = setup_test_connection();
+        let projected = [
+            ("users", ARCHIVE_USER_COLUMNS),
+            ("user_emails", ARCHIVE_USER_EMAIL_COLUMNS),
+        ]
+        .into_iter()
+        .chain(NEVER_IN_WORKSPACE_ARCHIVE.iter().copied());
+        for (table, named) in projected {
+            let have = columns(&mut conn, table);
+            for column in named {
+                assert!(
+                    have.contains(*column),
+                    "{table}.{column} isn't in the schema"
+                );
+            }
+        }
         let named = WORKSPACE_TABLES
             .iter()
             .map(|t| (t.name, t.secrets))

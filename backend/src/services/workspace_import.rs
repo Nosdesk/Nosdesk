@@ -64,25 +64,93 @@ pub struct FkEdge {
     pub parent_table: String,
 }
 
-/// Whether `manifest` was exported at this build's schema. Compared by the
-/// stable SHA-256 of the migrations when the archive records it; an archive
-/// from before that falls back to `build.rs`'s older fingerprint.
-fn same_schema(manifest: &WorkspaceExportManifest) -> bool {
-    let current = crate::services::backup_upgrade::current_schema();
-    match &manifest.schema_sha256 {
-        Some(sha256) => {
-            sha256 == current.sha256
-                && manifest.migration_version.as_deref() == Some(current.version)
+/// Why an export can't be imported here. A workspace moves only between
+/// servers at the same schema, so each refusal names the Nosdesk release to
+/// run on one side or the other.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportRefusal {
+    /// Format 1 (Nosdesk 1.1.2 and earlier) carries no email addresses, so
+    /// nobody it brings could sign in.
+    FormatTooOld { export_version: String },
+    /// Made at an earlier schema than this server's, by `release`.
+    Earlier { release: String },
+    /// Made by a later Nosdesk than this server.
+    Newer { export_version: String },
+    /// Made at a schema this server doesn't know: a development build, or
+    /// migrations edited after they shipped.
+    Unknown { export_version: String },
+}
+
+impl std::fmt::Display for ImportRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let current = env!("CARGO_PKG_VERSION");
+        match self {
+            ImportRefusal::FormatTooOld { export_version } => write!(
+                f,
+                "This export was made by Nosdesk {export_version}, in an older format that \
+                 doesn't carry people's email addresses. Update the server it came from to \
+                 Nosdesk {current}, then export the workspace again."
+            ),
+            ImportRefusal::Earlier { release } => write!(
+                f,
+                "This export was made by Nosdesk {release}, and this server runs Nosdesk \
+                 {current}. Both servers need the same version: update the server it came from \
+                 to Nosdesk {current} and export again, or import it on a server running \
+                 Nosdesk {release}."
+            ),
+            ImportRefusal::Newer { export_version } => write!(
+                f,
+                "This export was made by Nosdesk {export_version}, which is newer than this \
+                 server (Nosdesk {current}). Update this server to Nosdesk {export_version}, \
+                 then import it."
+            ),
+            ImportRefusal::Unknown { export_version } => write!(
+                f,
+                "This export (Nosdesk {export_version}) has a database layout this server \
+                 doesn't recognise, as a development build's does. Export the workspace again \
+                 from a server running Nosdesk {current}."
+            ),
         }
-        None => manifest.schema_hash == env!("NOSDESK_SCHEMA_HASH"),
+    }
+}
+
+/// Whether an export with `manifest` imports here: format 2 or later, made at
+/// this build's schema (`backup_upgrade::schema_point_of`).
+pub fn check_importable(manifest: &WorkspaceExportManifest) -> Result<(), ImportRefusal> {
+    use crate::services::backup_upgrade::{self, NotRestorable, SchemaMarker, SchemaPoint};
+    use crate::services::workspace_export::WORKSPACE_EXPORT_FORMAT_VERSION;
+
+    let export_version = manifest.nosdesk_version.clone();
+    let format = manifest.workspace_export_format_version;
+    if format < WORKSPACE_EXPORT_FORMAT_VERSION {
+        return Err(ImportRefusal::FormatTooOld { export_version });
+    }
+    if format > WORKSPACE_EXPORT_FORMAT_VERSION {
+        return Err(ImportRefusal::Newer { export_version });
+    }
+    let point = backup_upgrade::schema_point_of(SchemaMarker {
+        nosdesk_version: &manifest.nosdesk_version,
+        schema_hash: &manifest.schema_hash,
+        migration_version: manifest.migration_version.as_deref(),
+        schema_sha256: manifest.schema_sha256.as_deref(),
+    });
+    match point {
+        Ok(SchemaPoint::Current) => Ok(()),
+        Ok(SchemaPoint::Earlier { migration }) => Err(ImportRefusal::Earlier {
+            release: backup_upgrade::release_at(migration)
+                .map(str::to_string)
+                .unwrap_or(export_version),
+        }),
+        Err(NotRestorable::Newer { .. }) => Err(ImportRefusal::Newer { export_version }),
+        Err(NotRestorable::Unknown { .. }) => Err(ImportRefusal::Unknown { export_version }),
     }
 }
 
 /// Read + verify an export archive from bytes. Unseals when the `NODB` envelope
 /// is present (password required), then unzips and parses the manifest, the
-/// per-table row arrays, and the file blobs. Refuses on a schema-hash or
-/// format-version mismatch — a different schema means a different FK graph /
-/// column set, so a remap would be unsafe.
+/// per-table row arrays, and the file blobs. Refuses an export from another
+/// format or schema ([`check_importable`]): a different schema means a
+/// different FK graph and column set, so a remap would be unsafe.
 pub fn read_archive(
     archive: &[u8],
     password: Option<&str>,
@@ -109,13 +177,7 @@ pub fn read_archive(
         serde_json::from_str(&s).map_err(BackupError::JsonError)?
     };
 
-    if !same_schema(&manifest) {
-        return Err(BackupError::CorruptedBackup(format!(
-            "schema mismatch: the archive was exported by Nosdesk {} at another schema; import \
-             needs a matching schema so the FK graph and columns line up",
-            manifest.nosdesk_version
-        )));
-    }
+    check_importable(&manifest).map_err(BackupError::NotImportable)?;
 
     // Collect entry names first (the archive borrow can't span by_index calls).
     let names: Vec<String> = (0..zip.len())
@@ -345,7 +407,7 @@ pub fn import_workspace(
         //
         // Checked before anything is written, so a rejected archive leaves no
         // partial workspace behind. `workspaces` and `users` are handled
-        // separately below and are legitimately present.
+        // separately below and are legitimately present, as is `user_emails`.
         //
         // A table the archive policy keeps out (an archive from before the
         // policy did) is skipped, not refused.
@@ -356,7 +418,7 @@ pub fn import_workspace(
             .tables
             .keys()
             .map(String::as_str)
-            .filter(|t| *t != "workspaces" && *t != "users")
+            .filter(|t| !is_people_or_workspace(t))
             .filter(|t| !skipped(t))
             .filter(|t| !allowed.contains(t))
             .collect();
@@ -369,12 +431,13 @@ pub fn import_workspace(
         }
 
         let (new_ws_id, slug) = create_target_workspace(conn, contents, opts)?;
-        upsert_members(conn, contents)?;
+        let created = upsert_members(conn, contents)?;
+        insert_primary_emails(conn, contents, &created)?;
 
         let tenant_tables: Vec<String> = contents
             .tables
             .keys()
-            .filter(|t| t.as_str() != "workspaces" && t.as_str() != "users")
+            .filter(|t| !is_people_or_workspace(t))
             .filter(|t| !skipped(t))
             .cloned()
             .collect();
@@ -410,6 +473,11 @@ pub fn import_workspace(
             rows_imported,
         })
     })
+}
+
+/// The archive tables the import writes itself rather than as tenant tables.
+fn is_people_or_workspace(table: &str) -> bool {
+    matches!(table, "workspaces" | "users" | "user_emails")
 }
 
 /// Insert one archive row into `table`, omitting `id` (drawn fresh from the
@@ -542,20 +610,26 @@ fn create_target_workspace(
 /// Upsert the exported member users by uuid. Users are global and referenced by
 /// uuid (never remapped), so an existing user with the same uuid is kept as-is
 /// (`ON CONFLICT (uuid) DO NOTHING`) and only genuinely new users are inserted.
+/// Returns the uuids of the users it created.
 fn upsert_members(
     conn: &mut crate::db::DbConnection,
     contents: &ArchiveContents,
-) -> Result<i64, BackupError> {
+) -> Result<HashSet<String>, BackupError> {
+    #[derive(QueryableByName)]
+    struct Created {
+        #[diesel(sql_type = Text)]
+        uuid: String,
+    }
+    let mut created = HashSet::new();
     let users = match contents.tables.get("users") {
         Some(u) => u,
-        None => return Ok(0),
+        None => return Ok(created),
     };
     if !table_exists_in_db(conn, "users")? {
         return Err(BackupError::CorruptedBackup(
             "target has no users table".to_string(),
         ));
     }
-    let mut n = 0i64;
     for user in users {
         // Security: never let an imported archive seed a platform-privileged
         // global account. New users land as the baseline `platform_role = 'user'`;
@@ -569,15 +643,85 @@ fn upsert_members(
         obj.insert("platform_role".to_string(), json!("user"));
         // The column policy applies: a plaintext archive's user without an MFA
         // secret loads without MFA.
-        let (query, payload) =
-            row_statement(conn, "users", &obj, &[], "ON CONFLICT (uuid) DO NOTHING")?;
-        sql_query(&query)
+        let (query, payload) = row_statement(
+            conn,
+            "users",
+            &obj,
+            &[],
+            "ON CONFLICT (uuid) DO NOTHING RETURNING uuid::text AS uuid",
+        )?;
+        let rows: Vec<Created> = sql_query(&query)
             .bind::<Text, _>(payload)
-            .execute(conn)
+            .load(conn)
             .map_err(BackupError::DatabaseError)?;
-        n += 1;
+        created.extend(rows.into_iter().map(|r| r.uuid));
     }
-    Ok(n)
+    Ok(created)
+}
+
+/// Give each user the import created the primary email the archive carries
+/// for them. An address another account already holds stays with it, and
+/// that person arrives without one.
+///
+/// Only the address and its type come from the archive, which is untrusted:
+/// the row is unverified with no `source`, whatever the archive says, so an
+/// archive can't vouch for an address (`is_verified` is the inbound-mail
+/// impersonation guard) or tie it to a sign-in provider. The person proves it
+/// by accepting an invitation, as anyone added by an admin does.
+fn insert_primary_emails(
+    conn: &mut crate::db::DbConnection,
+    contents: &ArchiveContents,
+    created: &HashSet<String>,
+) -> Result<(), BackupError> {
+    let Some(emails) = contents.tables.get("user_emails") else {
+        return Ok(());
+    };
+    let mut done: HashSet<&str> = HashSet::new();
+    for email in emails {
+        let obj = email.as_object().ok_or_else(|| {
+            BackupError::CorruptedBackup("user_emails row is not an object".to_string())
+        })?;
+        let Some(owner) = obj
+            .get("user_uuid")
+            .and_then(Value::as_str)
+            .filter(|uuid| created.contains(*uuid))
+        else {
+            continue;
+        };
+        let address = obj
+            .get("email")
+            .and_then(Value::as_str)
+            .map(crate::utils::normalize_email)
+            .unwrap_or_default();
+        if address.is_empty() || !done.insert(owner) {
+            continue;
+        }
+        // The two types the product writes; anything else is the default.
+        let email_type = if obj.get("email_type").and_then(Value::as_str) == Some("work") {
+            "work"
+        } else {
+            "personal"
+        };
+        let owner = uuid::Uuid::parse_str(owner).map_err(|_| {
+            BackupError::CorruptedBackup("user_emails row has an invalid user_uuid".to_string())
+        })?;
+        sql_query(
+            "INSERT INTO public.user_emails \
+               (user_uuid, email, email_type, is_primary, is_verified, source, created_by, \
+                created_at, updated_at) \
+             VALUES ($1, $2, $3, true, false, NULL, \
+               (SELECT u.uuid FROM public.users u \
+                WHERE u.uuid = NULLIF(current_setting('app.actor_uuid', true), '')::uuid), \
+               now(), now()) \
+             ON CONFLICT DO NOTHING",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(owner)
+        .bind::<Text, _>(address)
+        .bind::<Text, _>(email_type)
+        .execute(conn)
+        .map_err(BackupError::DatabaseError)?;
+    }
+    Ok(())
 }
 
 /// Insert one tenant table's rows with id remap. Parents are already imported
@@ -706,10 +850,15 @@ fn remap_insert_table(
 mod tests {
     use super::*;
 
-    fn export_manifest(schema_hash: &str, point: Option<(&str, &str)>) -> WorkspaceExportManifest {
+    fn export_manifest(
+        format: u32,
+        nosdesk_version: &str,
+        schema_hash: &str,
+        point: Option<(&str, &str)>,
+    ) -> WorkspaceExportManifest {
         WorkspaceExportManifest {
-            workspace_export_format_version: 1,
-            nosdesk_version: "1.1.0".to_string(),
+            workspace_export_format_version: format,
+            nosdesk_version: nosdesk_version.to_string(),
             schema_hash: schema_hash.to_string(),
             migration_version: point.map(|(v, _)| v.to_string()),
             schema_sha256: point.map(|(_, s)| s.to_string()),
@@ -720,35 +869,188 @@ mod tests {
             member_user_uuids: Vec::new(),
             tables: HashMap::new(),
             files: Default::default(),
+            avatars: Default::default(),
+            source_mode: "self_hosted".to_string(),
+            source_origin: None,
+            custom_domain: None,
+            sealed: false,
+            secrets: false,
         }
     }
 
-    /// Import goes by the stable SHA-256 of the migrations when the archive
-    /// carries it, whatever the toolchain-dependent fingerprint says, and
-    /// falls back to that fingerprint only for an archive without it.
+    fn prefix_at(version: &str) -> (&'static str, &'static str) {
+        let p = crate::services::backup_upgrade::MIGRATION_PREFIXES
+            .iter()
+            .find(|p| p.version == version)
+            .expect("a shipped migration point");
+        (p.version, p.sha256)
+    }
+
+    const CURRENT: &str = env!("CARGO_PKG_VERSION");
+
+    /// An export at this build's schema imports, whatever the
+    /// toolchain-dependent fingerprint says.
     #[test]
-    fn import_compares_the_stable_schema_digest() {
+    fn an_export_at_this_schema_imports() {
         let current = crate::services::backup_upgrade::current_schema();
-        let stable = Some((current.version, current.sha256));
-        assert!(same_schema(&export_manifest(
+        let m = export_manifest(
+            2,
+            CURRENT,
             "from-another-toolchain",
-            stable
-        )));
-        assert!(!same_schema(&export_manifest(
+            Some((current.version, current.sha256)),
+        );
+        assert_eq!(check_importable(&m), Ok(()));
+    }
+
+    /// Format 1 carries no emails, so even one at this schema is refused,
+    /// and the message names the release to export from.
+    #[test]
+    fn a_format_1_export_is_refused() {
+        let current = crate::services::backup_upgrade::current_schema();
+        let m = export_manifest(
+            1,
+            "1.1.2",
             env!("NOSDESK_SCHEMA_HASH"),
-            Some((current.version, "0000"))
-        )));
-        let earlier = crate::services::backup_upgrade::MIGRATION_PREFIXES
-            [crate::services::backup_upgrade::MIGRATION_PREFIXES.len() - 2];
-        assert!(!same_schema(&export_manifest(
+            Some((current.version, current.sha256)),
+        );
+        let refused = check_importable(&m).expect_err("format 1");
+        assert_eq!(
+            refused,
+            ImportRefusal::FormatTooOld {
+                export_version: "1.1.2".to_string()
+            }
+        );
+        let message = refused.to_string();
+        assert!(message.contains("older format"), "{message}");
+        assert!(
+            message.contains(&format!(
+                "Update the server it came from to Nosdesk {CURRENT}"
+            )),
+            "{message}"
+        );
+    }
+
+    /// An export from an earlier release names that release, from the
+    /// pinned schema points rather than the version the build reported.
+    #[test]
+    fn an_earlier_export_is_refused_naming_its_release() {
+        let m = export_manifest(2, "1.1.1-dev", "ignored", Some(prefix_at("20261014060000")));
+        let refused = check_importable(&m).expect_err("earlier schema");
+        assert_eq!(
+            refused,
+            ImportRefusal::Earlier {
+                release: "1.1.1".to_string()
+            }
+        );
+        let message = refused.to_string();
+        assert!(
+            message.contains("made by Nosdesk 1.1.1, and this server runs"),
+            "{message}"
+        );
+        assert!(
+            message.contains(&format!("to Nosdesk {CURRENT} and export again")),
+            "{message}"
+        );
+        assert!(
+            message.contains("on a server running Nosdesk 1.1.1"),
+            "{message}"
+        );
+
+        // A point no release pinned (a build between releases) names the
+        // version that build reported.
+        let earlier = crate::services::backup_upgrade::MIGRATION_PREFIXES[1];
+        let m = export_manifest(
+            2,
+            "1.0.9",
+            "ignored",
+            Some((earlier.version, earlier.sha256)),
+        );
+        assert_eq!(
+            check_importable(&m),
+            Err(ImportRefusal::Earlier {
+                release: "1.0.9".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn a_newer_export_is_refused_naming_its_release() {
+        let m = export_manifest(2, "99.0.0", "ignored", Some(("99990101000000", "abc")));
+        let refused = check_importable(&m).expect_err("newer schema");
+        assert_eq!(
+            refused,
+            ImportRefusal::Newer {
+                export_version: "99.0.0".to_string()
+            }
+        );
+        let message = refused.to_string();
+        assert!(
+            message.contains("Update this server to Nosdesk 99.0.0"),
+            "{message}"
+        );
+        // A later format is a later Nosdesk too.
+        let current = crate::services::backup_upgrade::current_schema();
+        let m = export_manifest(
+            3,
+            "99.0.0",
+            "ignored",
+            Some((current.version, current.sha256)),
+        );
+        assert!(matches!(
+            check_importable(&m),
+            Err(ImportRefusal::Newer { .. })
+        ));
+    }
+
+    #[test]
+    fn an_unknown_schema_is_refused() {
+        let current = crate::services::backup_upgrade::current_schema();
+        // This build's last migration with other contents: edited, or a
+        // development build.
+        let m = export_manifest(2, CURRENT, "ignored", Some((current.version, "0000")));
+        let refused = check_importable(&m).expect_err("unknown schema");
+        assert_eq!(
+            refused,
+            ImportRefusal::Unknown {
+                export_version: CURRENT.to_string()
+            }
+        );
+        let message = refused.to_string();
+        assert!(message.contains("doesn't recognise"), "{message}");
+        assert!(
+            message.contains(&format!("from a server running Nosdesk {CURRENT}")),
+            "{message}"
+        );
+    }
+
+    /// `read_archive` refuses before reading any rows, with the refusal as
+    /// the whole message.
+    #[test]
+    fn read_archive_refuses_a_format_1_export() {
+        use std::io::Write;
+        let current = crate::services::backup_upgrade::current_schema();
+        let m = export_manifest(
+            1,
+            "1.1.2",
             env!("NOSDESK_SCHEMA_HASH"),
-            Some((earlier.version, earlier.sha256))
-        )));
-        assert!(same_schema(&export_manifest(
-            env!("NOSDESK_SCHEMA_HASH"),
-            None
-        )));
-        assert!(!same_schema(&export_manifest("0123456789abcdef", None)));
+            Some((current.version, current.sha256)),
+        );
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zip.start_file("manifest.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(serde_json::to_string(&m).unwrap().as_bytes())
+            .unwrap();
+        let bytes = zip.finish().unwrap().into_inner();
+        let err = read_archive(&bytes, None)
+            .err()
+            .expect("format 1 is refused");
+        assert!(matches!(
+            err,
+            BackupError::NotImportable(ImportRefusal::FormatTooOld { .. })
+        ));
+        assert!(err
+            .to_string()
+            .starts_with("This export was made by Nosdesk 1.1.2"));
     }
 
     fn edge(child: &str, col: &str, parent: &str) -> FkEdge {

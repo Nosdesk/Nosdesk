@@ -28,6 +28,11 @@
 //! Password policy mirrors the whole-DB backup: a password seals the archive
 //! (AES-256-GCM) and keeps the policy's secret columns; no password yields a
 //! plaintext zip without them.
+//!
+//! People go as a fixed projection (`policy::ARCHIVE_USER_COLUMNS`) with their
+//! primary email (`data/user_emails.json`), sealed or not: never a password,
+//! MFA secret or sign-in identity of theirs. Their avatars, which live outside
+//! the workspace's storage prefix, go under `avatars/`.
 
 use std::collections::HashMap;
 use std::io::{Cursor, Write};
@@ -54,8 +59,13 @@ fn zip_options() -> SimpleFileOptions {
 
 /// Manifest schema version for the workspace export. Distinct from the
 /// crypto-envelope version `seal_inner_zip` stamps (that's the wire/crypto
-/// format; this is the payload shape the Phase 2 import reads).
-const WORKSPACE_EXPORT_FORMAT_VERSION: u32 = 1;
+/// format; this is the payload shape the Phase 2 import reads). Format 2 adds
+/// people's primary emails, the users projection, avatars and the source.
+pub const WORKSPACE_EXPORT_FORMAT_VERSION: u32 = 2;
+
+/// Where a person's avatar sits in storage, and where it goes in an archive.
+const AVATAR_STORAGE_PREFIX: &str = "users/avatars/";
+const AVATAR_ARCHIVE_PREFIX: &str = "avatars/";
 
 /// Storage prefixes an export leaves out: earlier exports, CSV import uploads
 /// and grids, uploads not yet attached, and workspace archives waiting to
@@ -75,6 +85,7 @@ pub fn is_exported_file(path: &str) -> bool {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkspaceExportManifest {
     pub workspace_export_format_version: u32,
+    /// The Nosdesk version that made the export.
     pub nosdesk_version: String,
     /// `build.rs`'s `DefaultHasher` fingerprint of the migrations. Read only
     /// for an archive without `schema_sha256`: its hasher can change with the
@@ -100,6 +111,24 @@ pub struct WorkspaceExportManifest {
     pub tables: HashMap<String, WorkspaceTableManifest>,
     /// Uploaded files bundled under `files/` (the workspace's `ws/{id}/` prefix).
     pub files: WorkspaceFilesManifest,
+    /// People's avatars bundled under `avatars/`.
+    #[serde(default)]
+    pub avatars: WorkspaceFilesManifest,
+    /// `self_hosted` or `hosted`: the kind of server that made the export.
+    #[serde(default)]
+    pub source_mode: String,
+    /// The workspace's public host on that server, when it has one.
+    #[serde(default)]
+    pub source_origin: Option<String>,
+    /// The workspace's custom domain there, when it had one.
+    #[serde(default)]
+    pub custom_domain: Option<String>,
+    /// Sealed with a password.
+    #[serde(default)]
+    pub sealed: bool,
+    /// Carries the policy's secret columns (only ever when sealed).
+    #[serde(default)]
+    pub secrets: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -196,12 +225,40 @@ fn dump_scoped(
     workspace_id: i32,
     include_sensitive: bool,
 ) -> Result<(String, i64), BackupError> {
+    let row_expr = rows::workspace_export_row_sql(table_name, include_sensitive);
+    dump_rows(conn, table_name, &row_expr, where_sql, workspace_id)
+}
+
+/// Dump only `columns` of `table_name`'s rows matching `where_sql` (as for
+/// [`dump_scoped`]).
+fn dump_projected(
+    conn: &mut DbConnection,
+    table_name: &str,
+    columns: &[&str],
+    where_sql: &str,
+    workspace_id: i32,
+) -> Result<(String, i64), BackupError> {
+    let fields = columns
+        .iter()
+        .map(|c| format!("'{c}', t.\"{c}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let row_expr = format!("jsonb_build_object({fields})::text");
+    dump_rows(conn, table_name, &row_expr, where_sql, workspace_id)
+}
+
+fn dump_rows(
+    conn: &mut DbConnection,
+    table_name: &str,
+    row_expr: &str,
+    where_sql: &str,
+    workspace_id: i32,
+) -> Result<(String, i64), BackupError> {
     if !table_exists_in_db(conn, table_name)? {
         return Err(BackupError::CorruptedBackup(format!(
             "Refusing to export unknown table: {table_name}"
         )));
     }
-    let row_expr = rows::export_row_sql(table_name, include_sensitive);
     let query = format!("SELECT {row_expr} AS row_text FROM {table_name} t WHERE {where_sql}");
     let rows: Vec<RowText> = sql_query(&query)
         .bind::<Integer, _>(workspace_id)
@@ -213,10 +270,17 @@ fn dump_scoped(
 
 /// Workspace identity + the member uuids, fetched up front so the export fails
 /// fast (clear error) on an unknown/deleted workspace before doing any work.
+#[derive(Default)]
 pub struct WorkspaceMeta {
     pub slug: String,
     pub uuid: String,
     pub member_user_uuids: Vec<String>,
+    pub custom_domain: Option<String>,
+    /// Storage keys (`users/avatars/...`) of the exported people's avatars,
+    /// which the caller reads ([`read_avatars`]).
+    pub avatar_keys: Vec<String>,
+    /// The rows carry the policy's secret columns.
+    pub secrets: bool,
 }
 
 /// One table's dumped rows (JSON-text array) + row count. The row collection is
@@ -237,16 +301,19 @@ fn load_workspace_meta(
         slug: String,
         #[diesel(sql_type = Text)]
         uuid: String,
+        #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+        custom_domain: Option<String>,
     }
-    let meta: MetaRow = sql_query("SELECT slug, uuid::text AS uuid FROM workspaces WHERE id = $1")
-        .bind::<Integer, _>(workspace_id)
-        .get_result(conn)
-        .map_err(|e| match e {
-            diesel::result::Error::NotFound => {
-                BackupError::CorruptedBackup(format!("workspace {workspace_id} not found"))
-            }
-            other => BackupError::DatabaseError(other),
-        })?;
+    let meta: MetaRow =
+        sql_query("SELECT slug, uuid::text AS uuid, custom_domain FROM workspaces WHERE id = $1")
+            .bind::<Integer, _>(workspace_id)
+            .get_result(conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => {
+                    BackupError::CorruptedBackup(format!("workspace {workspace_id} not found"))
+                }
+                other => BackupError::DatabaseError(other),
+            })?;
 
     #[derive(QueryableByName)]
     struct UuidRow {
@@ -268,6 +335,9 @@ fn load_workspace_meta(
         slug: meta.slug,
         uuid: meta.uuid,
         member_user_uuids: members.into_iter().map(|r| r.user_uuid).collect(),
+        custom_domain: meta.custom_domain,
+        avatar_keys: Vec::new(),
+        secrets: false,
     })
 }
 
@@ -282,7 +352,8 @@ pub fn collect_workspace_rows(
     workspace_id: i32,
     include_sensitive: bool,
 ) -> Result<(Vec<WorkspaceRowDump>, WorkspaceMeta), BackupError> {
-    let meta = load_workspace_meta(conn, workspace_id)?;
+    let mut meta = load_workspace_meta(conn, workspace_id)?;
+    meta.secrets = include_sensitive;
     let mut dumps: Vec<WorkspaceRowDump> = Vec::new();
 
     for table in discover_workspace_tables(conn)? {
@@ -322,16 +393,135 @@ pub fn collect_workspace_rows(
             "SELECT \"{col}\" FROM \"{tbl}\" WHERE workspace_id = $1 AND \"{col}\" IS NOT NULL"
         ));
     }
-    let users_where = format!("t.uuid IN ({})", union_parts.join(" UNION "));
-    let (users_json, users_count) =
-        dump_scoped(conn, "users", &users_where, workspace_id, include_sensitive)?;
+    let people = union_parts.join(" UNION ");
+    let users_where = format!("t.uuid IN ({people})");
+    let (users_json, users_count) = dump_projected(
+        conn,
+        "users",
+        policy::ARCHIVE_USER_COLUMNS,
+        &users_where,
+        workspace_id,
+    )?;
     dumps.push(WorkspaceRowDump {
         table: "users".to_string(),
         json: users_json,
         count: users_count,
     });
 
+    // Each person's primary email, so they can sign in where the workspace
+    // lands. At most one per person (`user_emails_one_primary_per_user`).
+    let (emails_json, emails_count) = dump_projected(
+        conn,
+        "user_emails",
+        policy::ARCHIVE_USER_EMAIL_COLUMNS,
+        &format!("t.is_primary AND t.user_uuid IN ({people})"),
+        workspace_id,
+    )?;
+    dumps.push(WorkspaceRowDump {
+        table: "user_emails".to_string(),
+        json: emails_json,
+        count: emails_count,
+    });
+
+    #[derive(QueryableByName)]
+    struct Avatar {
+        #[diesel(sql_type = Text)]
+        avatar_url: String,
+    }
+    let avatars: Vec<Avatar> = sql_query(format!(
+        "SELECT t.avatar_url FROM users t WHERE {users_where} AND t.avatar_url IS NOT NULL \
+         ORDER BY t.uuid"
+    ))
+    .bind::<Integer, _>(workspace_id)
+    .load(conn)
+    .map_err(BackupError::DatabaseError)?;
+    meta.avatar_keys = avatars
+        .iter()
+        .filter_map(|a| avatar_storage_key(&a.avatar_url))
+        .collect();
+    // Two people can share one avatar file; it goes in once.
+    meta.avatar_keys.sort_unstable();
+    meta.avatar_keys.dedup();
+
     Ok((dumps, meta))
+}
+
+/// The storage key of an uploaded avatar (`/uploads/users/avatars/x.webp`,
+/// as the storage layer hands out, or the bare key), or `None` for an
+/// external URL or anything that isn't one plain file under the avatars
+/// prefix.
+fn avatar_storage_key(avatar_url: &str) -> Option<String> {
+    let key = avatar_url
+        .strip_prefix("/uploads/")
+        .or_else(|| avatar_url.strip_prefix("uploads/"))
+        .unwrap_or(avatar_url)
+        .trim_start_matches('/');
+    let name = key.strip_prefix(AVATAR_STORAGE_PREFIX)?;
+    let plain = !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\'])
+        && crate::utils::storage::is_safe_storage_path(key);
+    plain.then(|| key.to_string())
+}
+
+/// Read the exported people's avatars from storage, as `(storage key,
+/// bytes)`. An avatar whose file is gone is left out, and so is its
+/// `avatar_url` ([`assemble_workspace_archive`]).
+pub async fn read_avatars(
+    storage: &dyn crate::utils::storage::Storage,
+    meta: &WorkspaceMeta,
+) -> Vec<(String, Vec<u8>)> {
+    let mut avatars = Vec::with_capacity(meta.avatar_keys.len());
+    for key in &meta.avatar_keys {
+        match storage.get_file(key).await {
+            Ok(bytes) => avatars.push((key.clone(), bytes)),
+            Err(e) => {
+                tracing::warn!(error = ?e, "workspace export: avatar not readable, left out")
+            }
+        }
+    }
+    avatars
+}
+
+/// The users dump with `avatar_url` cleared for anyone whose avatar file
+/// isn't in `carried` (storage keys).
+fn users_with_carried_avatars(
+    json: &str,
+    carried: &std::collections::HashSet<&str>,
+) -> Result<String, BackupError> {
+    let mut users: Vec<serde_json::Value> = serde_json::from_str(json)?;
+    for user in &mut users {
+        let Some(row) = user.as_object_mut() else {
+            continue;
+        };
+        let keep = row
+            .get("avatar_url")
+            .and_then(serde_json::Value::as_str)
+            .and_then(avatar_storage_key)
+            .is_some_and(|key| carried.contains(key.as_str()));
+        if !keep {
+            row.insert("avatar_url".to_string(), serde_json::Value::Null);
+        }
+    }
+    Ok(serde_json::to_string(&users)?)
+}
+
+/// The workspace's public host on this server: its canonical host on hosted,
+/// else `FRONTEND_URL`'s host.
+fn source_origin(meta: &WorkspaceMeta) -> Option<String> {
+    crate::utils::tenant_origin::canonical_host_for(
+        &meta.slug,
+        meta.custom_domain.as_deref(),
+        crate::utils::tenant_origin::tenant_domain().as_deref(),
+    )
+    .or_else(|| {
+        let frontend = std::env::var("FRONTEND_URL").ok()?;
+        url::Url::parse(frontend.trim())
+            .ok()?
+            .host_str()
+            .map(str::to_string)
+    })
 }
 
 /// The (table, column) pairs whose value is a `users.uuid` foreign key, on
@@ -383,20 +573,34 @@ pub fn assemble_workspace_archive(
     meta: &WorkspaceMeta,
     workspace_id: i32,
     files: &[(String, Vec<u8>)],
+    avatars: &[(String, Vec<u8>)],
     password: Option<&str>,
 ) -> Result<Vec<u8>, BackupError> {
     let cursor: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     let mut zip = ZipWriter::new(cursor);
 
+    let carried: std::collections::HashSet<&str> = avatars
+        .iter()
+        .filter(|(key, _)| avatar_storage_key(key).is_some())
+        .map(|(key, _)| key.as_str())
+        .collect();
+
     let mut table_manifests: HashMap<String, WorkspaceTableManifest> = HashMap::new();
     for dump in dumps {
+        let users_json;
+        let json = if dump.table == "users" {
+            users_json = users_with_carried_avatars(&dump.json, &carried)?;
+            &users_json
+        } else {
+            &dump.json
+        };
         zip.start_file(format!("data/{}.json", dump.table), zip_options())?;
-        zip.write_all(dump.json.as_bytes())?;
+        zip.write_all(json.as_bytes())?;
         table_manifests.insert(
             dump.table.clone(),
             WorkspaceTableManifest {
                 count: dump.count,
-                sha256: sha256_hex(dump.json.as_bytes()),
+                sha256: sha256_hex(json.as_bytes()),
             },
         );
     }
@@ -407,6 +611,25 @@ pub fn assemble_workspace_archive(
         zip.write_all(bytes)?;
         files_manifest.total_count += 1;
         files_manifest.total_size_bytes += bytes.len() as i64;
+    }
+
+    let mut avatars_manifest = WorkspaceFilesManifest::default();
+    let mut written = std::collections::HashSet::new();
+    for (key, bytes) in avatars {
+        let Some(name) = carried
+            .contains(key.as_str())
+            .then(|| key.strip_prefix(AVATAR_STORAGE_PREFIX))
+            .flatten()
+        else {
+            continue;
+        };
+        if !written.insert(name) {
+            continue;
+        }
+        zip.start_file(format!("{AVATAR_ARCHIVE_PREFIX}{name}"), zip_options())?;
+        zip.write_all(bytes)?;
+        avatars_manifest.total_count += 1;
+        avatars_manifest.total_size_bytes += bytes.len() as i64;
     }
 
     let manifest = WorkspaceExportManifest {
@@ -430,6 +653,17 @@ pub fn assemble_workspace_archive(
         member_user_uuids: meta.member_user_uuids.clone(),
         tables: table_manifests,
         files: files_manifest,
+        avatars: avatars_manifest,
+        source_mode: if crate::middleware::workspace_context::is_hosted() {
+            "hosted"
+        } else {
+            "self_hosted"
+        }
+        .to_string(),
+        source_origin: source_origin(meta),
+        custom_domain: meta.custom_domain.clone(),
+        sealed: password.is_some(),
+        secrets: meta.secrets && password.is_some(),
     };
     let manifest_json = serde_json::to_string_pretty(&manifest)?;
     zip.start_file("manifest.json", zip_options())?;
@@ -453,7 +687,7 @@ pub fn export_workspace(
 ) -> Result<Vec<u8>, BackupError> {
     let include_sensitive = password.is_some();
     let (dumps, meta) = collect_workspace_rows(conn, workspace_id, include_sensitive)?;
-    assemble_workspace_archive(&dumps, &meta, workspace_id, &[], password)
+    assemble_workspace_archive(&dumps, &meta, workspace_id, &[], &[], password)
 }
 
 #[cfg(test)]
@@ -555,6 +789,97 @@ mod tests {
         })
         .expect("sealed export succeeds");
         assert_eq!(&sealed[0..4], b"NODB", "password export is sealed");
+
+        // Format 2 records where it came from, and its schema point.
+        let current = crate::services::backup_upgrade::current_schema();
+        assert_eq!(manifest.workspace_export_format_version, 2);
+        assert_eq!(manifest.migration_version.as_deref(), Some(current.version));
+        assert_eq!(manifest.schema_sha256.as_deref(), Some(current.sha256));
+        assert_eq!(manifest.nosdesk_version, env!("CARGO_PKG_VERSION"));
+        assert!(matches!(
+            manifest.source_mode.as_str(),
+            "self_hosted" | "hosted"
+        ));
+        assert!(!manifest.sealed && !manifest.secrets);
+        assert!(manifest.tables.contains_key("user_emails"));
+        let sealed_manifest: WorkspaceExportManifest = {
+            let inner = crate::services::backup::unseal_inner_zip(&sealed, "test-password")
+                .expect("unseal");
+            let mut archive = zip::ZipArchive::new(std::io::Cursor::new(inner)).expect("zip");
+            let mut f = archive.by_name("manifest.json").expect("manifest");
+            let mut s = String::new();
+            f.read_to_string(&mut s).unwrap();
+            serde_json::from_str(&s).expect("manifest parses")
+        };
+        assert!(sealed_manifest.sealed && sealed_manifest.secrets);
+    }
+
+    #[test]
+    fn only_plain_uploaded_avatars_are_carried() {
+        assert_eq!(
+            avatar_storage_key("/uploads/users/avatars/0190_avatar.webp").as_deref(),
+            Some("users/avatars/0190_avatar.webp")
+        );
+        assert_eq!(
+            avatar_storage_key("users/avatars/a.png").as_deref(),
+            Some("users/avatars/a.png")
+        );
+        for other in [
+            "https://example.com/a.png",
+            "/uploads/users/banners/a.png",
+            "/uploads/users/avatars/",
+            "/uploads/users/avatars/../secrets.txt",
+            "/uploads/users/avatars/x/y.png",
+        ] {
+            assert_eq!(avatar_storage_key(other), None, "{other}");
+        }
+    }
+
+    /// A person whose avatar file isn't carried arrives without one.
+    #[test]
+    fn avatar_urls_stay_only_with_their_files() {
+        let users = r#"[
+            {"uuid": "a", "avatar_url": "/uploads/users/avatars/a.webp"},
+            {"uuid": "b", "avatar_url": "/uploads/users/avatars/b.webp"},
+            {"uuid": "c", "avatar_url": "https://example.com/c.png"},
+            {"uuid": "d", "avatar_url": null}
+        ]"#;
+        let dumps = vec![WorkspaceRowDump {
+            table: "users".to_string(),
+            json: users.to_string(),
+            count: 4,
+        }];
+        let avatars = vec![("users/avatars/a.webp".to_string(), b"webp".to_vec())];
+        let bytes =
+            assemble_workspace_archive(&dumps, &WorkspaceMeta::default(), 7, &[], &avatars, None)
+                .expect("assemble");
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("valid zip");
+        let mut read = |name: &str| {
+            let mut f = archive.by_name(name).expect(name);
+            let mut s = String::new();
+            f.read_to_string(&mut s).unwrap();
+            s
+        };
+        let users: serde_json::Value = serde_json::from_str(&read("data/users.json")).unwrap();
+        let urls: Vec<_> = users
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|u| u["avatar_url"].as_str())
+            .collect();
+        assert_eq!(
+            urls,
+            vec![Some("/uploads/users/avatars/a.webp"), None, None, None]
+        );
+        assert_eq!(read("avatars/a.webp"), "webp");
+        let manifest: WorkspaceExportManifest =
+            serde_json::from_str(&read("manifest.json")).unwrap();
+        assert_eq!(manifest.avatars.total_count, 1);
+        assert_eq!(
+            manifest.tables["users"].sha256,
+            sha256_hex(read("data/users.json").as_bytes()),
+            "the checksum covers the rewritten rows"
+        );
     }
 
     #[test]
@@ -569,14 +894,15 @@ mod tests {
         let meta = WorkspaceMeta {
             slug: "acme".to_string(),
             uuid: "00000000-0000-0000-0000-000000000001".to_string(),
-            member_user_uuids: vec![],
+            ..Default::default()
         };
         let files = vec![
             ("tickets/5/foo.png".to_string(), b"hello".to_vec()),
             ("assets/bar.pdf".to_string(), b"xyz".to_vec()),
         ];
 
-        let bytes = assemble_workspace_archive(&dumps, &meta, 7, &files, None).expect("assemble");
+        let bytes =
+            assemble_workspace_archive(&dumps, &meta, 7, &files, &[], None).expect("assemble");
         let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("valid zip");
 
         // Files land under `files/{logical}` (workspace-relative, no ws/{id}/).
