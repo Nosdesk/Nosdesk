@@ -13,7 +13,8 @@ Notifications cover mentions, assignments, and SLA breaches, and you choose whic
 You are reading a page in the Getting Started collection. Pages live in collections, and a page can belong to more than one.
 
 - Add a page with the + button in the sidebar, and drag pages to nest them
-- Type `/` in the editor for formatting commands, and `@` to mention a teammate
+- Format text from the editor toolbar, and add tables, images, and code blocks from its Insert menu
+- Type `@` in a page to mention a teammate
 - Several people can edit a page at once, and everyone sees the changes as they happen
 - Paste a ticket URL into a page to link it to that ticket
 - Collection visibility controls which groups can read a collection

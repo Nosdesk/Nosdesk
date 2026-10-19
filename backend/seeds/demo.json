@@ -137,7 +137,7 @@
     },
     {
       "title": "New starter onboarding: accounts + laptop (N. Bennett)",
-      "body_md": "New Operations Lead starting Monday. Needs:\n\n- AD account + email\n- Laptop (standard Ops build)\n- Access to the Ops shared drive and Building B systems\n- Building B door badge",
+      "body_md": "New Operations Lead starting Monday. Needs:\n\n| System | Account | Status |\n|---|---|---|\n| AD account + email | nbennett | Created |\n| Laptop (standard Ops build) | LT-0052 | Imaged and assigned |\n| Ops shared drive | nbennett | Access granted |\n| Building B systems | nbennett | Access granted |\n| Building B door badge | Facilities | Requested |",
       "category": "Support", "priority": "high", "state_category": "done",
       "requester": "sofia", "assignee": "priya", "created_days_ago": 20, "closed_hours_after": 30,
       "comments": [
