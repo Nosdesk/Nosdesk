@@ -403,6 +403,17 @@ describe('tableToMarkdown', () => {
     expect(out.text).toBe(['| Address | Notes | Up |', '| --- | ---: | :---: |', '| `10.0.0.1` | a\\|b **core** |  |'].join('\n'))
   })
 
+  it('escapes backslashes in text and pipes everywhere, leaving code backslashes literal', () => {
+    const code = schema.marks.code.create()
+    const body = tr(
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text('C:\\temp\\|x', null)])),
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text('grep a\\|b', [code])])),
+    )
+    const out = md(table(tr(th('Path'), th('Command')), body))
+    expect(out.markdown).toBe(true)
+    expect(out.text.split('\n')[2]).toBe('| C:\\\\temp\\\\\\|x | `grep a\\\\|b` |')
+  })
+
   it('falls back to HTML for a header column', () => {
     const out = md(crossHeaders())
     expect(out.markdown).toBe(false)

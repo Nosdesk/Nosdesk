@@ -630,7 +630,11 @@ function cellMarkdown(cell: ProseMirrorNode): string {
       return true
     })
   })
-  return parts.join('').replace(/\|/g, '\\|').replace(/\n/g, '<br>')
+  // GFM splits a row into cells on unescaped pipes before it parses inlines,
+  // so every pipe is written `\|`, inside code spans too. Backslashes are
+  // already escaped outside code above; inside code they stay literal, and
+  // GFM still reads `\|` there as a pipe.
+  return parts.join('').split('|').join('\\|').replace(/\n/g, '<br>')
 }
 
 function escapeHtml(text: string): string {
