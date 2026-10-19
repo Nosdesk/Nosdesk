@@ -87,6 +87,11 @@ export interface DeltaResponse {
    * The client must wipe its cache and re-bootstrap. Optional so a client
    * running against an older backend simply never sees it. */
   resync_required?: boolean
+  /** The workspace's data epoch. It changes when the workspace's data is
+   * replaced (an archive import), and the client then wipes every local cache
+   * of the workspace, collaborative documents included, and bootstraps again.
+   * Null until the data is first replaced; absent from an older backend. */
+  workspace_epoch?: string | null
   /** Current workspace capability flags, same shape as the bootstrap
    * `__meta__` flags. Carried on every delta so a warm launch that catches
    * up without re-streaming the snapshot still converges on current flags.

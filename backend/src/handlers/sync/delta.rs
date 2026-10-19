@@ -100,7 +100,16 @@ pub struct DeltaResponse {
     /// the oldest retained row may be rolled-back ids rather than pruned rows.
     /// A false positive costs one re-bootstrap; a false negative leaves the
     /// cache silently wrong, so it errs toward resyncing.
+    ///
+    /// Also set when the cursor predates the workspace's `resync_floor`: the
+    /// workspace's data was replaced (an archive import) after the cursor was
+    /// issued, so the cached rows carry ids that no longer exist.
     pub resync_required: bool,
+    /// The workspace's data epoch (`workspaces.data_epoch`), so a running
+    /// client learns of a replacement on its next poll even when SSE frames
+    /// have already moved its cursor past the floor. `None` until the data is
+    /// first replaced, or when the read failed.
+    pub workspace_epoch: Option<uuid::Uuid>,
     /// Current workspace capability flags. Carried on every delta (not just
     /// the bootstrap `__meta__`) so a warm launch that catches up via delta
     /// without re-streaming the snapshot still converges on current flags.
@@ -185,7 +194,7 @@ pub async fn delta(
     // Resolved before the early return: a client whose cursor has aged out
     // needs to know that even when it currently has no granted groups,
     // otherwise it sits on a stale cache until its permissions change.
-    let resync_required = match tc.run(|conn| oldest_retained_sync_id(conn)) {
+    let aged_out = match tc.run(oldest_retained_sync_id) {
         Ok(oldest) => cursor_predates_retention(query.from, oldest),
         Err(e) => {
             // Don't fail the poll over the horizon probe. Reporting "no resync"
@@ -195,6 +204,19 @@ pub async fn delta(
             false
         }
     };
+    // The workspace's data may have been replaced since the cursor was issued.
+    // Same failure stance as the horizon probe: an unreadable fence is no fence.
+    let fence = match tc.workspace_id() {
+        Some(ws) => tc
+            .run(|conn| crate::repository::workspaces::data_fence(conn, ws))
+            .unwrap_or_else(|e| {
+                error!(error = %e, "delta: data fence probe failed; assuming none");
+                crate::repository::workspaces::DataFence::default()
+            }),
+        None => crate::repository::workspaces::DataFence::default(),
+    };
+    let resync_required = aged_out || fence.cursor_predates(query.from);
+    let workspace_epoch = fence.epoch;
 
     // Cheap (count over a tiny table); every response carries current flags.
     let capabilities = match tc
@@ -217,6 +239,7 @@ pub async fn delta(
             last_sync_id: query.from,
             has_more: false,
             resync_required,
+            workspace_epoch,
             capabilities,
         });
     }
@@ -347,6 +370,7 @@ pub async fn delta(
         last_sync_id,
         has_more,
         resync_required,
+        workspace_epoch,
         capabilities,
     })
 }
