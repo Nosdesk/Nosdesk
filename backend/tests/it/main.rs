@@ -52,6 +52,7 @@ mod bearer_auth;
 mod closed_follows_state;
 mod collab_fenced_write;
 mod collab_ownership;
+mod collab_schema_gate;
 mod cross_layer_lists;
 mod cross_tenant_workspace_lookup;
 mod csp_reports_platform_only;
