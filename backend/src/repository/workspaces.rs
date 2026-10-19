@@ -664,6 +664,63 @@ pub fn bump_data_epoch(conn: &mut DbConnection, workspace_id: i32) -> QueryResul
     })
 }
 
+/// Advisory-lock space for workspace imports and resets ("WSIM"), apart from
+/// the CSV import locks in `repository::imports`.
+const WORKSPACE_IMPORT_LOCK_SPACE: i32 = 0x5753_494D;
+
+// sync-audit-only: takes an advisory lock, writes nothing
+/// Take, for the rest of the transaction, the lock on importing into (or
+/// resetting) the workspace, without waiting; `false` while another import or
+/// reset of it runs.
+pub fn try_lock_import(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<bool> {
+    #[derive(QueryableByName)]
+    struct Flag {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        flag: bool,
+    }
+    use diesel::sql_types::Integer;
+    diesel::sql_query("SELECT pg_try_advisory_xact_lock($1, $2) AS flag")
+        .bind::<Integer, _>(WORKSPACE_IMPORT_LOCK_SPACE)
+        .bind::<Integer, _>(workspace_id)
+        .get_result::<Flag>(conn)
+        .map(|f| f.flag)
+}
+
+/// Lock the workspace row for the rest of the transaction (`FOR UPDATE`), so
+/// writes that reference the workspace (every tenant insert takes `FOR KEY
+/// SHARE` on it through the foreign key) wait until the import commits.
+/// `None` for an unknown or archived workspace. Needs the elevated role:
+/// `nosdesk_app` can only read `workspaces`.
+pub fn lock_for_import(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+) -> QueryResult<Option<Workspace>> {
+    workspaces::table
+        .filter(workspaces::id.eq(workspace_id))
+        .filter(workspaces::archived_at.is_null())
+        .for_update()
+        .first::<Workspace>(conn)
+        .optional()
+}
+
+// sync-audit-only: workspace settings on the global `workspaces` meta-table, written by an import whose data epoch bump tells every client to start over
+/// Merge `settings` over the workspace's own (`settings || $1`): an import
+/// brings the archive's settings and keeps every other column of the row.
+/// Needs the elevated role.
+pub fn merge_settings(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    settings: &serde_json::Value,
+) -> QueryResult<usize> {
+    diesel::sql_query(
+        "UPDATE public.workspaces SET settings = settings || $2::jsonb \
+         WHERE id = $1 AND jsonb_typeof($2::jsonb) = 'object'",
+    )
+    .bind::<diesel::sql_types::Integer, _>(workspace_id)
+    .bind::<diesel::sql_types::Text, _>(settings.to_string())
+    .execute(conn)
+}
+
 /// Whether the workspace's push notifications carry rich context (`detailed`,
 /// the default) or only the generic type label (`private`, "tap to view").
 /// Read from `settings.notification_push_detail`; absent/unknown → detailed.
