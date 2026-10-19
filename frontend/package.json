@@ -42,6 +42,7 @@
     "heic2any": "^0.0.4",
     "highlight.js": "^11.12.0",
     "jszip": "^3.10.2",
+    "lib0": "^0.2.118",
     "lowlight": "^3.3.0",
     "marked": "^18.0.14",
     "pdfjs-dist": "^6.3.289",

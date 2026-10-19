@@ -3,13 +3,8 @@ import { tableNodes } from 'prosemirror-tables';
 import { assetUrl, assetPath } from '@nosdesk/core/transport';
 import type { Node as ProseMirrorNode, NodeSpec, MarkSpec, DOMOutputSpec } from 'prosemirror-model';
 
-/**
- * The document schema's version. The collaboration server holds a table of
- * the first version that knows each node type, and refuses a client below a
- * document's requirement, so an older client never receives (and deletes) a
- * node it can't build. 2 = tables.
- */
-export const EDITOR_SCHEMA_VERSION = 2;
+/** The document schema's version; see `schemaVersion.ts`. */
+export { EDITOR_SCHEMA_VERSION } from './schemaVersion';
 
 const brDOM: DOMOutputSpec = ['br'];
 

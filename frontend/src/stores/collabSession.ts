@@ -29,14 +29,23 @@
  */
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
-import { IndexeddbPersistence, clearDocument as clearIdbDocument } from 'y-indexeddb'
+import { IndexeddbPersistence, fetchUpdates } from 'y-indexeddb'
+import * as decoding from 'lib0/decoding'
 import {
-  COLLAB_IDB_TOUCH_KEY,
   canSeeOpenDocs,
+  clearCollabDocEverywhere,
   clearCollabDocIfClosed,
-  forgetTouchedDocs,
+  clearLegacyCollabDocIfClosed,
+  collabDbName,
+  forgetTouchedDbs,
   holdCollabDocLock,
+  isCollabDbName,
+  readLegacyCollabDoc,
+  touchCollabDoc,
+  touchedCollabDbs,
 } from '@/utils/collabLocalCache'
+import { EDITOR_SCHEMA_VERSION, TABLES_SCHEMA_VERSION } from '@/components/editor/schemaVersion'
+import { allowTables } from '@/components/editor/tablesAllowed'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
@@ -78,14 +87,6 @@ const MAX_SESSIONS = 8
 const MAX_IDB_DOCS = 50
 
 /**
- * localStorage key for the "last touched" timestamp per docId.
- * Persistent across reloads so the prune is meaningful across
- * sessions, not just within one tab's lifetime. Defined in the shared
- * cache util so the epoch wipe (sync lifecycle) reads the same map.
- */
-const IDB_TOUCH_KEY = COLLAB_IDB_TOUCH_KEY
-
-/**
  * Feature flag: set `localStorage['nosdesk:disable-idb-collab'] = '1'`
  * to disable local persistence at runtime. Useful when the browser's
  * IndexedDB is sandboxed (private windows on some browsers), throws
@@ -114,17 +115,47 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
 export type ConnectionBadge = 'connecting' | 'reconnecting' | 'disconnected' | null
 
 /** Why the server closed a document's connection for good. */
-export type ConnectionRefusal = 'signed-out' | 'no-access' | 'gone'
+export type ConnectionRefusal = 'signed-out' | 'no-access' | 'gone' | 'outdated'
 
 /**
  * Read the server's close code (`CollabRefusal` in
  * `handlers/collaboration.rs`): 4401 the token wasn't accepted, 4403 no
- * access, 4404 the document is gone. Any other 44xx close reads as no access.
+ * access, 4404 the document is gone, 4426 the document needs a newer editor
+ * than this client's. Any other 44xx close reads as no access.
  */
 function refusalFor(code: number | undefined): ConnectionRefusal {
   if (code === 4401) return 'signed-out'
   if (code === 4404) return 'gone'
+  if (code === 4426) return 'outdated'
   return 'no-access'
+}
+
+/**
+ * The query params every dial carries. `schema` declares the editor schema
+ * this client builds, so the server never sends it a node it would delete.
+ * y-websocket rebuilds the URL from `params` on every (re)connect, so every
+ * assignment goes through here.
+ */
+function collabParams(token?: string): Record<string, string> {
+  const params: Record<string, string> = { schema: String(EDITOR_SCHEMA_VERSION) }
+  if (token !== undefined) params.token = token
+  return params
+}
+
+/** y-websocket message type of the server's hello, sent after the first
+ *  sync to a client that declared schema 2 or later. */
+export const MESSAGE_HELLO = 100
+
+/**
+ * Handle the server's hello: a varUint, the schema it accepts from this
+ * client. Writes nothing to the encoder; y-websocket sends the encoder back
+ * to the server whenever it holds more than the message type.
+ */
+function helloHandler(docId: string): WebsocketProvider['messageHandlers'][number] {
+  return (_encoder, decoder) => {
+    const accepted = decoding.readVarUint(decoder)
+    if (accepted >= TABLES_SCHEMA_VERSION) allowTables(docId)
+  }
 }
 
 /** A first connect shows "Connecting..." only once it takes this long,
@@ -253,7 +284,7 @@ async function connectWithValidToken(provider: WebsocketProvider): Promise<void>
   link.refusal = null
   const cached = peekCollabToken()
   if (cached) {
-    provider.params = { token: cached }
+    provider.params = collabParams(cached)
     // Inside a `connection-close` the socket is still attached, so this only
     // re-arms `shouldConnect`; y-websocket's backoff timer does the reconnect.
     provider.connect()
@@ -283,7 +314,7 @@ async function connectWithValidToken(provider: WebsocketProvider): Promise<void>
   }
   if (token !== null) {
     link.tokenPending = false
-    provider.params = { token }
+    provider.params = collabParams(token)
     provider.connect()
     link.changed()
     return
@@ -488,43 +519,11 @@ if (typeof window !== 'undefined') {
 }
 
 // ---- IndexedDB LRU bookkeeping ---------------------------------
-// Tracks when each docId was last accessed so we can prune the
+// Tracks when each database was last accessed so we can prune the
 // oldest stores when their count exceeds MAX_IDB_DOCS. Survives
 // reloads (localStorage) so a long-running browser doesn't
-// accumulate hundreds of dead docs on disk.
-
-function loadTouchMap(): Map<string, number> {
-  if (typeof localStorage === 'undefined') return new Map()
-  try {
-    const raw = localStorage.getItem(IDB_TOUCH_KEY)
-    if (!raw) return new Map()
-    const parsed = JSON.parse(raw) as Record<string, number>
-    return new Map(Object.entries(parsed))
-  } catch {
-    return new Map()
-  }
-}
-
-function persistTouchMap(map: Map<string, number>): void {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(IDB_TOUCH_KEY, JSON.stringify(Object.fromEntries(map)))
-  } catch {
-    // Quota / sandboxed origins; tracking degrades to per-tab.
-  }
-}
-
-function touchDoc(docId: string): void {
-  const map = loadTouchMap()
-  map.set(docId, Date.now())
-  persistTouchMap(map)
-}
-
-function untouchDoc(docId: string): void {
-  const map = loadTouchMap()
-  if (!map.delete(docId)) return
-  persistTouchMap(map)
-}
+// accumulate hundreds of dead docs on disk. Only current databases
+// count and are pruned: a legacy one still holds edits to merge.
 
 let pruning = false
 
@@ -534,32 +533,65 @@ let pruning = false
  * tab's sessions, and other tabs' through their locks). Where the
  * browser can't say what other tabs have open, nothing is pruned; the
  * app shell has no other tabs, so there only this context's sessions
- * are skipped.
+ * are skipped. Legacy databases are never pruned.
  */
 async function pruneIdbStores(): Promise<void> {
   if (pruning || !canSeeOpenDocs()) return
-  const map = loadTouchMap()
-  let excess = map.size - MAX_IDB_DOCS
+  const stores = [...touchedCollabDbs()].filter(([name]) => isCollabDbName(name))
+  let excess = stores.length - MAX_IDB_DOCS
   if (excess <= 0) return
   pruning = true
-  const oldest = [...map.entries()]
-    .filter(([docId]) => !sessions.has(docId))
-    .sort((a, b) => a[1] - b[1])
+  const open = new Set([...sessions.keys()].map(collabDbName))
+  const oldest = stores.filter(([name]) => !open.has(name)).sort((a, b) => a[1] - b[1])
   const cleared: string[] = []
   try {
-    for (const [docId] of oldest) {
+    for (const [name] of oldest) {
       if (excess <= 0) break
+      const docId = name.slice(collabDbName('').length)
       try {
         if (!(await clearCollabDocIfClosed(docId))) continue
       } catch (err) {
         logger.warn('Collab session: clearIdbDocument during prune failed', { docId, err })
       }
-      cleared.push(docId)
+      cleared.push(name)
       excess--
     }
   } finally {
-    forgetTouchedDocs(cleared)
+    forgetTouchedDbs(cleared)
     pruning = false
+  }
+}
+
+/** Origin of the one-time merge of a legacy local copy. */
+const LEGACY_MERGE_ORIGIN = Symbol('collab-legacy-merge')
+
+/**
+ * Bring a doc's legacy local copy (named after the bare docId, from a client
+ * before editor schema 2) into this session, then delete it once no older
+ * tab holds it. Its edits reach the new local copy and the server; an older
+ * tab still writing to it is merged again on the next open, idempotently.
+ * The legacy copy is deleted only after the new one has stored the merge, so
+ * a crash between the two loses nothing.
+ */
+async function mergeLegacyLocalCopy(entry: SessionEntry, idb: IndexeddbPersistence): Promise<void> {
+  const { docId } = entry
+  const current = () => entry.idb === idb && sessions.get(docId) === entry
+  try {
+    await idb.whenSynced
+    if (!current()) return
+    const update = await readLegacyCollabDoc(docId)
+    if (update === null || !current()) return
+    Y.applyUpdate(entry.ydoc, update, LEGACY_MERGE_ORIGIN)
+    // A later transaction on the same store runs after the merge's write
+    // has committed.
+    await fetchUpdates(idb)
+    if (!current()) return
+    await clearLegacyCollabDocIfClosed(docId)
+  } catch (err) {
+    logger.warn('Collab session: merging the legacy local copy failed; it is kept for the next open', {
+      docId,
+      err,
+    })
   }
 }
 
@@ -923,8 +955,10 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     // from throwing at all.
     const provider = new WebsocketProvider(options.baseWsUrl, docId, ydoc, {
       ...options.providerParams,
+      params: { ...options.providerParams?.params, ...collabParams() },
       connect: false,
     })
+    provider.messageHandlers[MESSAGE_HELLO] = helloHandler(docId)
 
     // IndexedDB persistence: best-effort. Construction can throw
     // (private windows, sandboxed origins, quota exceeded). When
@@ -933,7 +967,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     let idb: IndexeddbPersistence | null = null
     if (isLocalPersistenceEnabled()) {
       try {
-        idb = new IndexeddbPersistence(docId, ydoc)
+        idb = new IndexeddbPersistence(collabDbName(docId), ydoc)
         if (!hasGuardableShape(idb)) {
           destroyQuietly(idb)
           idb = null
@@ -1014,8 +1048,9 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     sessions.set(docId, entry)
     enforceLruCap()
     if (idb) {
-      touchDoc(docId)
+      touchCollabDoc(docId)
       void pruneIdbStores()
+      void mergeLegacyLocalCopy(entry, idb)
     }
     refreshSnapshot()
     return { ydoc, provider, permanentUserData, isNew: true }
@@ -1083,15 +1118,15 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       } catch (err) {
         logger.warn('Collab session: idb.clearData() failed', { docId, err })
       }
-    } else {
-      try {
-        await clearIdbDocument(docId)
-      } catch (err) {
-        logger.warn('Collab session: clearIdbDocument failed', { docId, err })
-      }
+    }
+    try {
+      // Both name forms: the server deleted the doc, so a legacy copy has
+      // nothing left to merge into.
+      await clearCollabDocEverywhere(docId)
+    } catch (err) {
+      logger.warn('Collab session: clearIdbDocument failed', { docId, err })
     }
     if (entry) evict(docId)
-    untouchDoc(docId)
   }
 
   /**
