@@ -7,8 +7,9 @@
   shareable; the detail panel reads the route param and fetches
   via useKnowledgeGap.
 
-  Phase 2a only renders manual_flag signals; the layout supports
-  any signal_type so 2b/2c/2d can plug in without view changes.
+  Rows dismiss the way the notification inbox's do: a checkbox per
+  row feeds the shared floating BulkActionBar, a dismiss button sits
+  at the row's end, and every dismissal offers Undo in its toast.
 -->
 <script setup lang="ts">
 import { numberForTicketId } from '@/composables/useTicketNumberLookup'
@@ -22,10 +23,17 @@ import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import SearchableDropdown from '@/components/common/SearchableDropdown.vue'
 import Button from '@/components/common/Button.vue'
+import IconButton from '@/components/common/IconButton.vue'
+import Checkbox from '@/components/common/Checkbox.vue'
+import BulkActionBar from '@/components/common/BulkActionBar.vue'
+import { ToolbarButton } from 'reka-ui'
+import { useBulkSelection } from '@/composables/useBulkSelection'
+import { optimisticBulkAction } from '@/composables/optimisticBulkAction'
 import {
   useKnowledgeGaps,
   useKnowledgeGap,
-  useDismissGapMutation,
+  useDismissGapsMutation,
+  useReopenGapsMutation,
   useDetectClustersMutation,
   useResolveGapMutation,
   useWriteGapDocMutation,
@@ -57,8 +65,11 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 
 titleManager.setCustomTitle(t('docs-gaps-title'))
 
-// List
-const { gaps, isLoading: listLoading, refetch: refetchList } = useKnowledgeGaps()
+// List. A dismissed row leaves at once; Undo or a failed request brings it
+// back. The refetch after the request settles makes it permanent.
+const { gaps: listedGaps, isLoading: listLoading, refetch: refetchList } = useKnowledgeGaps()
+const leaving = ref<Set<number>>(new Set())
+const gaps = computed(() => listedGaps.value.filter((g) => !leaving.value.has(g.id)))
 
 // Detail — driven by the route param.
 const selectedId = computed<number | null>(() => {
@@ -83,9 +94,76 @@ watch([gaps, selectedId], ([list, current]) => {
   }
 })
 
-const dismissMutation = useDismissGapMutation()
-const isDismissing = ref(false)
+const dismissMutation = useDismissGapsMutation()
+const reopenMutation = useReopenGapsMutation()
 const toast = useToastStore()
+
+// Selection for bulk dismissal, as on the notification inbox.
+const selection = useBulkSelection({
+  items: gaps,
+  cacheKey: computed(() => 'open'),
+  totalCount: computed(() => gaps.value.length),
+})
+function toggleSelected(id: number, event: Event) {
+  selection.toggle(String(id), event as MouseEvent)
+}
+
+function setLeaving(ids: number[], on: boolean) {
+  const next = new Set(leaving.value)
+  for (const id of ids) {
+    if (on) next.add(id)
+    else next.delete(id)
+  }
+  leaving.value = next
+}
+
+/** The gap to show once `ids` leave the list: the next one below the
+ *  first of them, else the one above, else none. */
+function neighbourOf(ids: number[]): number | null {
+  const list = gaps.value
+  const first = list.findIndex((g) => ids.includes(g.id))
+  if (first < 0) return null
+  const after = list.slice(first).find((g) => !ids.includes(g.id))
+  const before = list.slice(0, first).reverse().find((g) => !ids.includes(g.id))
+  return (after ?? before)?.id ?? null
+}
+
+/** Dismiss gaps from a row, the detail pane or the selection. The rows
+ *  leave at once and the toast offers Undo. A gap that was open in the
+ *  detail pane hands over to its neighbour. */
+async function dismiss(ids: number[]) {
+  if (ids.length === 0) return
+  const showing = selectedId.value
+  const handOver = showing !== null && ids.includes(showing) ? neighbourOf(ids) : undefined
+  setLeaving(ids, true)
+  selection.clear()
+  if (handOver !== undefined) {
+    if (handOver !== null) {
+      router.replace({ name: 'documentation-gap-detail', params: { id: handOver } })
+    } else {
+      router.replace({ name: 'documentation-gaps' })
+    }
+  }
+  try {
+    await optimisticBulkAction({
+      successTitle: t('docs-gaps-dismissed-toast', { count: ids.length }),
+      errorTitle: t('docs-gaps-dismiss-failed', { count: ids.length }),
+      do: async () => {
+        await dismissMutation.mutateAsync(ids)
+      },
+      undo: async () => {
+        await reopenMutation.mutateAsync(ids)
+        setLeaving(ids, false)
+      },
+    })
+  } catch {
+    setLeaving(ids, false)
+  }
+}
+
+function dismissSelected() {
+  dismiss(selection.selectedIds.value.map(Number))
+}
 const docs = useSyncDocsStore()
 const gapTitle = useGapTitle()
 
@@ -161,17 +239,15 @@ async function runDetection() {
   detectMessage.value = null
   const result = await detectMutation.mutateAsync(undefined)
   if (result) {
-    if (result.gaps_created === 0 && result.gaps_updated === 0) {
-      detectMessage.value = t('docs-gaps-detect-no-results')
-    } else {
-      const parts: string[] = []
-      if (result.gaps_created > 0) parts.push(t('docs-gaps-detect-created', { count: result.gaps_created }))
-      if (result.gaps_updated > 0) parts.push(t('docs-gaps-detect-updated', { count: result.gaps_updated }))
-      detectMessage.value = parts.join(', ')
-    }
+    const parts: string[] = []
+    if (result.gaps_created > 0) parts.push(t('docs-gaps-detect-created', { count: result.gaps_created }))
+    if (result.gaps_updated > 0) parts.push(t('docs-gaps-detect-updated', { count: result.gaps_updated }))
+    if (result.gaps_retired > 0) parts.push(t('docs-gaps-detect-retired', { count: result.gaps_retired }))
+    detectMessage.value = parts.length > 0 ? parts.join(', ') : t('docs-gaps-detect-no-results')
     await refetchList()
   }
 }
+const detecting = computed(() => detectMutation.asyncStatus.value === 'loading')
 
 interface ClusterPayload {
   ticket_ids?: number[]
@@ -188,7 +264,11 @@ function clusterPayload(signal: KnowledgeGapSignal): ClusterPayload {
 
 interface FailedSearchPayload {
   query_sample?: string
+  /** Settled searches that found no doc. */
   count?: number
+  /** How many people ran them. Absent on signals detected before searches
+   *  carried a person. */
+  people?: number
   first_seen?: string
   last_seen?: string
 }
@@ -216,37 +296,26 @@ function stalePage(signal: KnowledgeGapSignal) {
   return pagesById.value.get(Number(signal.source_ref)) ?? null
 }
 
-/** The unit of a gap's impact_score: searches for failed-search gaps,
- *  recent tickets for stale docs, tickets otherwise. Keyed on the gap's main
- *  signal type (list response); the detail response carries the signals. */
-function impactLabel(gap: KnowledgeGap): string {
-  const kind = gap.primary_signal_type ?? gap.signals?.[0]?.signal_type
-  if (kind === 'failed_search') return t('docs-gaps-impact-searches')
-  if (kind === 'stale_doc') return t('docs-gaps-impact-recent-tickets')
-  return t('docs-gaps-impact-tickets')
+/** A gap's main signal type: from the list response, or the detail's
+ *  first signal. */
+function gapKind(gap: KnowledgeGap): KnowledgeGapSignal['signal_type'] | undefined {
+  return gap.primary_signal_type ?? gap.signals?.[0]?.signal_type
 }
 
-async function dismissCurrent() {
-  if (!selectedGap.value) return
-  isDismissing.value = true
-  try {
-    await dismissMutation.mutateAsync({ gapId: selectedGap.value.id })
-    await refetchList()
-    // Move selection to the next gap, or clear.
-    const remaining = gaps.value.filter((g) => g.id !== selectedGap.value?.id)
-    if (remaining.length > 0) {
-      router.replace({ name: 'documentation-gap-detail', params: { id: remaining[0].id } })
-    } else {
-      router.replace({ name: 'documentation-gaps' })
-    }
-  } finally {
-    isDismissing.value = false
-  }
+/** A gap's demand in its own unit ("2 searches", "5 tickets"): settled
+ *  searches that found no doc, recent tickets for a stale doc, tickets
+ *  otherwise. */
+function impactText(gap: KnowledgeGap): string {
+  const count = gap.impact_score
+  const kind = gapKind(gap)
+  if (kind === 'failed_search') return t('docs-gaps-impact-search-count', { count })
+  if (kind === 'stale_doc') return t('docs-gaps-impact-recent-ticket-count', { count })
+  return t('docs-gaps-impact-ticket-count', { count })
 }
 
 /** UI label for a signal type. Keeps copy decisions out of the
  *  template and makes 2b/2c/2d additions one line. */
-function signalLabel(signal: KnowledgeGapSignal): string {
+function signalLabel(signal: Pick<KnowledgeGapSignal, 'signal_type'>): string {
   switch (signal.signal_type) {
     case 'manual_flag':
       return t('docs-gaps-signal-manual-flag')
@@ -286,43 +355,37 @@ function signalLabel(signal: KnowledgeGapSignal): string {
         selectedId !== null ? 'hidden' : 'flex flex-1',
       ]"
     >
-      <!-- List header: title + count, plus a "Back to docs"
-           affordance only on the list view. -->
-      <div class="border-b border-default px-4 py-3 flex flex-col gap-2 flex-shrink-0">
-        <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-2 min-w-0">
-            <Icon name="warning" class="text-amber-500 flex-shrink-0" />
-            <h2 class="text-base font-semibold text-primary truncate">{{ $t('docs-gaps-heading') }}</h2>
-            <span v-if="!listLoading" class="text-xs text-tertiary bg-surface-alt px-2 py-0.5 rounded-full flex-shrink-0">
-              {{ gaps.length }}
-            </span>
+      <!-- List header: one row of chrome. Title and count, then the
+           refresh and back-to-docs actions at the end; the line under it
+           says when the queue was checked, or what a refresh found. -->
+      <div class="border-b border-default px-4 py-3 flex flex-col gap-1 flex-shrink-0">
+        <div class="flex items-center gap-2">
+          <Icon name="warning" class="text-amber-500 flex-shrink-0" />
+          <h2 class="text-base font-semibold text-primary truncate">{{ $t('docs-gaps-heading') }}</h2>
+          <span v-if="!listLoading" class="text-xs text-tertiary bg-surface-alt px-2 py-0.5 rounded-full flex-shrink-0">
+            {{ gaps.length }}
+          </span>
+          <div class="ml-auto flex items-center gap-1 flex-shrink-0">
+            <IconButton
+              icon="refresh"
+              size="sm"
+              data-testid="gaps-refresh"
+              :label="detecting ? $t('docs-gaps-refreshing') : $t('docs-gaps-refresh')"
+              :loading="detecting"
+              @click="runDetection"
+            />
+            <RouterLink
+              to="/documentation"
+              class="text-xs text-secondary hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap px-1.5 py-1 rounded-md pointer-coarse:min-h-9"
+            >
+              <Icon name="chevronRight" size="xs" class="rotate-180" />
+              {{ $t('docs-gaps-back-docs') }}
+            </RouterLink>
           </div>
-          <RouterLink
-            to="/documentation"
-            class="text-xs text-secondary hover:text-primary transition-colors flex items-center gap-1 flex-shrink-0"
-          >
-            <Icon name="chevronRight" size="xs" class="rotate-180" />
-            {{ $t('docs-gaps-back-docs') }}
-          </RouterLink>
         </div>
-        <div class="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            :disabled="detectMutation.asyncStatus.value === 'loading'"
-            class="text-2xs px-2 py-1 rounded-md bg-surface-alt hover:bg-surface-hover text-secondary hover:text-primary transition-colors disabled:opacity-50 flex items-center gap-1.5"
-            @click="runDetection"
-          >
-            <Icon name="search" size="xs" />
-            <span v-if="detectMutation.asyncStatus.value === 'loading'">{{ $t('docs-gaps-refreshing') }}&hellip;</span>
-            <span v-else>{{ $t('docs-gaps-refresh') }}</span>
-          </button>
-          <span v-if="detectMessage" class="text-2xs text-tertiary truncate">
-            {{ detectMessage }}
-          </span>
-          <span v-else class="text-2xs text-tertiary truncate">
-            {{ $t('docs-gaps-detect-schedule') }}
-          </span>
-        </div>
+        <p class="text-2xs text-tertiary" data-testid="gaps-status" aria-live="polite">
+          {{ detectMessage ?? $t('docs-gaps-detect-schedule') }}
+        </p>
       </div>
 
       <!-- Scrollable list -->
@@ -332,34 +395,81 @@ function signalLabel(signal: KnowledgeGapSignal): string {
           {{ $t('docs-gaps-empty') }}
         </div>
         <ul v-else class="divide-y divide-subtle">
-          <li v-for="gap in gaps" :key="gap.id">
+          <li
+            v-for="gap in gaps"
+            :key="gap.id"
+            data-testid="gap-row"
+            class="group flex items-start gap-3 pl-4 pr-2 py-3 hover:bg-surface-hover transition-colors"
+            :class="{
+              'bg-accent/10 hover:bg-accent/15': selection.isSelected(String(gap.id)),
+              'bg-surface-alt': selectedId === gap.id && !selection.isSelected(String(gap.id)),
+            }"
+          >
+            <Checkbox
+              :model-value="selection.isSelected(String(gap.id))"
+              size="sm"
+              class="mt-0.5"
+              :aria-label="$t('docs-gaps-aria-select', { title: gapTitle(gap) })"
+              @change="(e: Event) => toggleSelected(gap.id, e)"
+            />
             <RouterLink
               :to="{ name: 'documentation-gap-detail', params: { id: gap.id } }"
-              class="block px-4 py-3 hover:bg-surface-hover transition-colors"
-              :class="{ 'bg-surface-alt lg:bg-surface-alt': selectedId === gap.id }"
+              class="flex-1 min-w-0 flex flex-col gap-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <div class="flex items-start justify-between gap-2 mb-1">
+              <div class="flex items-start justify-between gap-2">
                 <p class="flex-1 min-w-0 text-sm text-primary font-medium truncate">
                   {{ gapTitle(gap) }}
                 </p>
-                <span
-                  class="flex-shrink-0 text-3xs px-1.5 py-0.5 rounded bg-surface text-tertiary"
-                  :title="$t('docs-gaps-impact-tooltip', { count: gap.impact_score, label: impactLabel(gap) })"
-                >
-                  {{ gap.impact_score }}&nbsp;{{ impactLabel(gap) }}
+                <span class="flex-shrink-0 text-3xs px-1.5 py-0.5 rounded bg-surface text-tertiary whitespace-nowrap">
+                  {{ impactText(gap) }}
                 </span>
               </div>
               <div class="flex items-center justify-between gap-2 text-2xs text-tertiary">
-                <span>{{ $t('docs-gaps-signal-count', { count: gap.evidence_count }) }}</span>
-                <span v-if="gap.last_evidence_at">
+                <span class="truncate">{{ gap.primary_signal_type ? signalLabel({ signal_type: gap.primary_signal_type }) : '' }}</span>
+                <span v-if="gap.last_evidence_at" class="flex-shrink-0">
                   {{ formatRelativeTime(gap.last_evidence_at) }}
                 </span>
               </div>
             </RouterLink>
+            <IconButton
+              icon="close"
+              size="xs"
+              :tooltip="false"
+              class="flex-shrink-0 opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
+              :label="$t('docs-gaps-aria-dismiss', { title: gapTitle(gap) })"
+              @click="dismiss([gap.id])"
+            />
           </li>
         </ul>
       </div>
     </aside>
+
+    <!-- Selection actions: the shared floating bar, as on the inbox. Below
+         lg it goes with the list: over a gap's detail it would offer to
+         dismiss rows that aren't on screen. -->
+    <div data-testid="gaps-bulk" :class="selectedId !== null ? 'hidden lg:contents' : 'contents'">
+    <BulkActionBar
+      :selected-count="selection.selectedCount.value"
+      :total-count="gaps.length"
+      selection-copy-key="docs-gaps-selected-count"
+      @select-all-matching="selection.toggleAllOnPage()"
+      @clear="selection.clear()"
+    >
+      <template #actions>
+        <ToolbarButton as-child>
+          <button
+            type="button"
+            data-testid="gaps-dismiss-selected"
+            class="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-surface-hover hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            @click="dismissSelected"
+          >
+            <Icon name="close" size="xs" />
+            {{ $t('docs-gaps-dismiss') }}
+          </button>
+        </ToolbarButton>
+      </template>
+    </BulkActionBar>
+    </div>
 
     <!-- Right: detail pane.
          lg+: always visible, takes remaining space.
@@ -397,10 +507,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
               </p>
               <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-tertiary">
                 <span>{{ $t('docs-gaps-status-label') }} <span class="text-secondary">{{ statusLabel(selectedGap.status) }}</span></span>
-                <span>
-                  <span class="text-secondary">{{ selectedGap.impact_score }}</span>
-                  {{ impactLabel(selectedGap) }}
-                </span>
+                <span class="text-secondary">{{ impactText(selectedGap) }}</span>
                 <span v-if="selectedGap.last_evidence_at">
                   {{ $t('docs-gaps-last-evidence', { time: formatRelativeTime(selectedGap.last_evidence_at) }) }}
                 </span>
@@ -408,9 +515,8 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             </div>
             <button
               type="button"
-              :disabled="isDismissing"
-              class="flex-shrink-0 text-xs px-3 py-1.5 rounded-md text-secondary hover:text-status-error hover:bg-status-error-muted transition-colors disabled:opacity-50"
-              @click="dismissCurrent"
+              class="flex-shrink-0 text-xs px-3 py-1.5 rounded-md text-secondary hover:text-status-error hover:bg-status-error-muted transition-colors"
+              @click="dismiss([selectedGap.id])"
             >
               {{ $t('docs-gaps-dismiss') }}
             </button>
@@ -544,6 +650,9 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                     </p>
                     <p class="text-2xs text-tertiary mt-1">
                       {{ $t('docs-gaps-failed-search-count', { count: failedSearchPayload(signal).count ?? 0 }) }}
+                      <template v-if="failedSearchPayload(signal).people !== undefined">
+                        &middot; {{ $t('docs-gaps-failed-search-people', { count: failedSearchPayload(signal).people ?? 0 }) }}
+                      </template>
                       <template v-if="failedSearchPayload(signal).first_seen && failedSearchPayload(signal).last_seen">
                         &middot; {{ $t('docs-gaps-failed-search-range', { first: formatRelativeTime(failedSearchPayload(signal).first_seen!), last: formatRelativeTime(failedSearchPayload(signal).last_seen!) }) }}
                       </template>

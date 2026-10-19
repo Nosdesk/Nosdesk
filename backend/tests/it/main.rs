@@ -100,6 +100,7 @@ mod imports_users_walk;
 mod imports_values;
 mod imports_xlsx;
 mod integration_routes_require_admin;
+mod knowledge_gap_failed_searches;
 mod knowledge_gap_hidden_pages;
 mod knowledge_gap_lifecycle;
 mod ldap_groups_in_workspace;

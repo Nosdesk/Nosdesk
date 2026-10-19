@@ -3348,19 +3348,43 @@ docs-gaps-back-docs = Documentatie
 docs-gaps-back-list = Kennislacunes
 docs-gaps-refresh = Signalen vernieuwen
 docs-gaps-refreshing = Vernieuwen
-docs-gaps-detect-no-results = Geen nieuwe clusters gevonden
+docs-gaps-detect-no-results = Niets nieuws gevonden
 docs-gaps-detect-created = { $count } nieuw
 docs-gaps-detect-updated = { $count } bijgewerkt
+# Lacunes: negeren vanuit de lijst, getelde zoekopdrachten (machine, na te kijken door moedertaalspreker).
+docs-gaps-detect-retired = { $count } opgeruimd
+docs-gaps-impact-search-count = { $count ->
+    [one] { $count } zoekopdracht
+   *[other] { $count } zoekopdrachten
+   }
+docs-gaps-impact-ticket-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+docs-gaps-impact-recent-ticket-count = { $count ->
+    [one] { $count } recent ticket
+   *[other] { $count } recente tickets
+   }
+docs-gaps-failed-search-people = { $count ->
+    [one] { $count } persoon
+   *[other] { $count } personen
+   }
+docs-gaps-selected-count = { $count ->
+    [one] { $count } lacune geselecteerd
+   *[other] { $count } lacunes geselecteerd
+   }
+docs-gaps-aria-select = { $title } selecteren
+docs-gaps-aria-dismiss = { $title } negeren
+docs-gaps-dismissed-toast = { $count ->
+    [one] Lacune genegeerd
+   *[other] { $count } lacunes genegeerd
+   }
+docs-gaps-dismiss-failed = { $count ->
+    [one] Kan de lacune niet negeren
+   *[other] Kan de lacunes niet negeren
+   }
 docs-gaps-loading = Laden
 docs-gaps-empty = Geen open kennishiaten. Markeer een ticket vanuit de zijbalk om er een toe te voegen. Groepen vergelijkbare tickets en zoekopdrachten die steeds geen document vinden verschijnen hier vanzelf.
-docs-gaps-impact-searches = zoekopdrachten
-docs-gaps-impact-recent-tickets = recente tickets
-docs-gaps-impact-tickets = tickets
-docs-gaps-impact-tooltip = { $count } { $label } die vraag naar dit document aantonen
-docs-gaps-signal-count = { $count ->
-    [one] { $count } signaal
-   *[other] { $count } signalen
-   }
 docs-gaps-select-prompt = Selecteer een lacune uit de lijst om het bewijs te bekijken.
 docs-gaps-status-label = Status:
 docs-gaps-last-evidence = Laatste bewijs: { $time }
@@ -7253,11 +7277,6 @@ dashboard-knowledge-gaps-action = Wachtrij bekijken
 dashboard-knowledge-gaps-error = Kan lacunes niet laden
 dashboard-knowledge-gaps-empty-title = Geen openstaande lacunes
 dashboard-knowledge-gaps-empty-description = Tickets die zijn gemarkeerd voor documentatie verschijnen hier.
-dashboard-knowledge-gaps-signal-count =
-    { $count ->
-        [one] 1 signaal
-       *[other] { $count } signalen
-    }
 dashboard-knowledge-gaps-impact-tickets = { $count } tickets
 dashboard-knowledge-gaps-impact-searches = { $count } zoekopdrachten
 dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets die vraag naar dit document tonen

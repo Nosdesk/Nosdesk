@@ -3358,19 +3358,43 @@ docs-gaps-back-docs = Docs
 docs-gaps-back-list = Lacunes de connaissances
 docs-gaps-refresh = Actualiser les signaux
 docs-gaps-refreshing = Actualisation
-docs-gaps-detect-no-results = Aucun nouveau groupe trouvé
+docs-gaps-detect-no-results = Rien de nouveau trouvé
 docs-gaps-detect-created = { $count } nouveau(x)
 docs-gaps-detect-updated = { $count } mis à jour
+# Lacunes : ignorer depuis la liste, recherches comptées (machine, à relire par un locuteur natif).
+docs-gaps-detect-retired = { $count } retirée(s)
+docs-gaps-impact-search-count = { $count ->
+    [one] { $count } recherche
+   *[other] { $count } recherches
+   }
+docs-gaps-impact-ticket-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+docs-gaps-impact-recent-ticket-count = { $count ->
+    [one] { $count } ticket récent
+   *[other] { $count } tickets récents
+   }
+docs-gaps-failed-search-people = { $count ->
+    [one] { $count } personne
+   *[other] { $count } personnes
+   }
+docs-gaps-selected-count = { $count ->
+    [one] { $count } lacune sélectionnée
+   *[other] { $count } lacunes sélectionnées
+   }
+docs-gaps-aria-select = Sélectionner { $title }
+docs-gaps-aria-dismiss = Ignorer { $title }
+docs-gaps-dismissed-toast = { $count ->
+    [one] Lacune ignorée
+   *[other] { $count } lacunes ignorées
+   }
+docs-gaps-dismiss-failed = { $count ->
+    [one] Impossible d'ignorer la lacune
+   *[other] Impossible d'ignorer les lacunes
+   }
 docs-gaps-loading = Chargement
 docs-gaps-empty = Aucune lacune ouverte. Signalez un ticket depuis sa barre latérale pour en ajouter une. Les groupes de tickets similaires et les recherches qui ne trouvent jamais de doc apparaissent ici d'eux-mêmes.
-docs-gaps-impact-searches = recherches
-docs-gaps-impact-recent-tickets = tickets récents
-docs-gaps-impact-tickets = tickets
-docs-gaps-impact-tooltip = { $count } { $label } indiquant la demande pour ce document
-docs-gaps-signal-count = { $count ->
-    [one] { $count } signal
-   *[other] { $count } signaux
-   }
 docs-gaps-select-prompt = Sélectionnez une lacune dans la liste pour voir ses preuves.
 docs-gaps-status-label = Statut :
 docs-gaps-last-evidence = Dernière preuve : { $time }
@@ -7263,11 +7287,6 @@ dashboard-knowledge-gaps-action = Voir la file
 dashboard-knowledge-gaps-error = Impossible de charger les lacunes
 dashboard-knowledge-gaps-empty-title = Aucune lacune ouverte
 dashboard-knowledge-gaps-empty-description = Les tickets signalés pour la documentation apparaîtront ici.
-dashboard-knowledge-gaps-signal-count =
-    { $count ->
-        [one] 1 signal
-       *[other] { $count } signaux
-    }
 dashboard-knowledge-gaps-impact-tickets = { $count } tickets
 dashboard-knowledge-gaps-impact-searches = { $count } recherches
 dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets révélant un besoin pour ce document

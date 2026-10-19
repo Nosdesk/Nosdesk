@@ -127,7 +127,9 @@ pub async fn search(
 
     let query = query.into_inner();
     // Log only when documentation was in scope. Ticket-only or
-    // device-only searches don't carry KB-demand signal.
+    // device-only searches don't carry KB-demand signal. Every request is
+    // logged with who ran it; the failed-search detector reads a person's
+    // search-as-you-type requests as one search (see search_query_log).
     let log_doc_search = match query.entity_types() {
         Some(types) => types.iter().any(|t| matches!(t, EntityType::Documentation)),
         None => true, // unscoped search includes docs
@@ -287,6 +289,7 @@ pub async fn search(
                     .count() as i32;
                 let pool = pool.clone();
                 let workspace_id = ws.workspace_id;
+                let searcher = auth.user_uuid;
                 // Off the response path: a slow log write must not
                 // delay the search response. Errors are logged but
                 // don't propagate.
@@ -313,7 +316,14 @@ pub async fn search(
                     let result = crate::sync::session::with_actor_bypass_context(
                         &mut conn,
                         &bypass_actor,
-                        |conn| search_query_log::log_query(conn, &logged_query, doc_hits),
+                        |conn| {
+                            search_query_log::log_query(
+                                conn,
+                                Some(searcher),
+                                &logged_query,
+                                doc_hits,
+                            )
+                        },
                     );
                     if let Err(e) = result {
                         warn!(error = ?e, "Search log write failed");

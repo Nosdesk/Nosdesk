@@ -2271,18 +2271,10 @@ docs-gaps-back-docs = Docs
 docs-gaps-back-list = Knowledge Gaps
 docs-gaps-refresh = Refresh signals
 docs-gaps-refreshing = Refreshing
-docs-gaps-detect-no-results = No new clusters found
+docs-gaps-detect-no-results = Nothing new found
 docs-gaps-detect-created = { $count } new
 docs-gaps-detect-updated = { $count } updated
 docs-gaps-loading = Loading
-docs-gaps-impact-searches = searches
-docs-gaps-impact-recent-tickets = recent tickets
-docs-gaps-impact-tickets = tickets
-docs-gaps-impact-tooltip = { $count } { $label } showing demand for this doc
-docs-gaps-signal-count = { $count ->
-    [one] { $count } signal
-   *[other] { $count } signals
-   }
 docs-gaps-select-prompt = Pick a gap from the list to see its evidence.
 docs-gaps-status-label = Status:
 docs-gaps-last-evidence = Last evidence: { $time }
@@ -4271,11 +4263,6 @@ dashboard-knowledge-gaps-action = View queue
 dashboard-knowledge-gaps-error = Couldn't load gaps
 dashboard-knowledge-gaps-empty-title = No open gaps
 dashboard-knowledge-gaps-empty-description = Tickets flagged for docs will pop up here.
-dashboard-knowledge-gaps-signal-count =
-    { $count ->
-        [one] 1 signal
-       *[other] { $count } signals
-    }
 dashboard-knowledge-gaps-impact-tickets = { $count } tickets
 dashboard-knowledge-gaps-impact-searches = { $count } searches
 dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets showing demand for this doc

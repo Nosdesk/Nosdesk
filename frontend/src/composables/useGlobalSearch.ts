@@ -1,4 +1,4 @@
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, effectScope, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDebouncedRef } from '@/composables/useDebouncedRef';
 import { searchService } from '@nosdesk/core/services/searchService';
@@ -150,12 +150,140 @@ function resetResults() {
   error.value = null;
 }
 
+// Whether the palette is mid `from:` token (author-picker mode). While
+// active, the candidate list owns the surface and the main search is
+// suppressed so the raw "from:sar" text never hits the index.
+const fromPromptActive = computed(
+  () => isOpen.value && !authorFilter.value && FROM_TOKEN_RE.test(query.value),
+);
+
+/**
+ * The search side effects: run a search when the debounced query, the scope,
+ * the sort or the person filter changes; look up `from:` candidates; turn a
+ * finished `in:` token into a scope. Registered once for the app, however
+ * many components call `useGlobalSearch()` (the navbar, the docs toolbar and
+ * the palette all do). Registered per call, each caller added its own
+ * watchers on the shared state, so every keystroke sent one search per
+ * mounted caller.
+ */
+let searchEffectsStarted = false;
+
+function startSearchEffects() {
+  if (searchEffectsStarted) return;
+  searchEffectsStarted = true;
+  // Detached: the effects belong to the app, not to whichever component
+  // happened to mount first.
+  effectScope(true).run(() => {
+    const performSearch = async (searchQuery: string) => {
+      if (!searchQuery.trim()) {
+        resetResults();
+        return;
+      }
+
+      isLoading.value = true;
+      error.value = null;
+
+      try {
+        const response: SearchResponse = await searchService.search({
+          q: searchQuery,
+          limit: 50,
+          types: activeTypes.value,
+          sort: sortOrder.value,
+          author: authorFilter.value?.uuid,
+        });
+
+        results.value = response.results;
+        groupedResults.value = groupResultsByType(response.results);
+        totalResults.value = response.total;
+        searchTookMs.value = response.took_ms;
+        selectedIndex.value = response.results.length > 0 ? 0 : -1;
+      } catch (err) {
+        console.error('Search error:', err);
+        error.value = translate('search-failed', undefined, 'Search failed. Please try again.');
+        results.value = [];
+        groupedResults.value = emptyGroupedResults();
+      } finally {
+        isLoading.value = false;
+      }
+    };
+
+    watch(debouncedQuery, (newQuery) => {
+      // The author picker owns the surface; don't search the raw token text.
+      if (fromPromptActive.value) return;
+      if (newQuery.trim()) {
+        performSearch(newQuery);
+      } else {
+        resetResults();
+      }
+    });
+
+    // Author autocomplete: while typing `from:<partial>`, look up matching
+    // people (reusing the user search) and offer them as candidates. Guarded
+    // against stale responses — a slower fetch for an earlier partial must
+    // not overwrite a newer one.
+    watch(query, async (raw) => {
+      const match = raw.match(FROM_TOKEN_RE);
+      if (!match || authorFilter.value) {
+        authorCandidates.value = [];
+        return;
+      }
+      const partial = match[2].trim();
+      if (!partial) {
+        // `from:` with nothing typed yet — wait for a character rather than
+        // dumping an arbitrary user list.
+        authorCandidates.value = [];
+        selectedAuthorIndex.value = 0;
+        return;
+      }
+      try {
+        const resp = await searchService.search({ q: partial, types: 'user', limit: 6 });
+        if (query.value !== raw) return; // a newer keystroke superseded this
+        authorCandidates.value = resp.results;
+        selectedAuthorIndex.value = 0;
+      } catch {
+        authorCandidates.value = [];
+      }
+    });
+
+    // Typed-operator tokenisation: `in:docs printer` → scope chip
+    // "Documentation" + query "printer". Runs on the raw (undebounced)
+    // query so the chip appears the moment the token completes; the
+    // stripped query then flows through the normal debounce. A token
+    // only converts once it's *finished* — followed by a space — never
+    // mid-word: converting eagerly at the first unambiguous prefix
+    // strands the user's remaining keystrokes in the query ("in:t" →
+    // chip, then "ickets" as search text).
+    watch(query, (raw) => {
+      const match = raw.match(/(^|\s)in:([a-zA-Z]+)\s/);
+      if (!match) return;
+      const scope = resolveScopeToken(match[2]);
+      if (!scope) return;
+      activeTypes.value = scope;
+      query.value = raw.replace(match[0], match[1]).replace(/\s{2,}/g, ' ').trimStart();
+    });
+
+    // Re-run the search whenever a filter or the sort axis changes — scope
+    // chip, sort toggle, or person chip. Each narrows/re-orders an existing
+    // query, so we go back to the index rather than re-sorting the current
+    // (truncated) page. With no query text there's nothing to run, so we fall
+    // back to the prompt; any chips stay visible, ready for a query.
+    watch([activeTypes, sortOrder, authorFilter], () => {
+      if (query.value.trim()) {
+        performSearch(query.value);
+      } else {
+        resetResults();
+      }
+    });
+  });
+}
+
 /**
  * Composable for global search functionality.
  * Uses shared state so all components see the same search state.
  */
 export function useGlobalSearch() {
   const router = useRouter();
+  startSearchEffects();
 
   // The flat list backing keyboard navigation and selection. It must
   // match what's on screen top-to-bottom, which differs by sort:
@@ -172,114 +300,6 @@ export function useGlobalSearch() {
       flat.push(...groupedResults.value[key]);
     }
     return flat;
-  });
-
-  const performSearch = async (searchQuery: string) => {
-    if (!searchQuery.trim()) {
-      resetResults();
-      return;
-    }
-
-    isLoading.value = true;
-    error.value = null;
-
-    try {
-      const response: SearchResponse = await searchService.search({
-        q: searchQuery,
-        limit: 50,
-        types: activeTypes.value,
-        sort: sortOrder.value,
-        author: authorFilter.value?.uuid,
-      });
-
-      results.value = response.results;
-      groupedResults.value = groupResultsByType(response.results);
-      totalResults.value = response.total;
-      searchTookMs.value = response.took_ms;
-      selectedIndex.value = response.results.length > 0 ? 0 : -1;
-    } catch (err) {
-      console.error('Search error:', err);
-      error.value = translate('search-failed', undefined, 'Search failed. Please try again.');
-      results.value = [];
-      groupedResults.value = emptyGroupedResults();
-    } finally {
-      isLoading.value = false;
-    }
-  };
-
-  // Whether the palette is mid `from:` token (author-picker mode). While
-  // active, the candidate list owns the surface and the main search is
-  // suppressed so the raw "from:sar" text never hits the index.
-  const fromPromptActive = computed(
-    () => isOpen.value && !authorFilter.value && FROM_TOKEN_RE.test(query.value),
-  );
-
-  watch(debouncedQuery, (newQuery) => {
-    // The author picker owns the surface; don't search the raw token text.
-    if (fromPromptActive.value) return;
-    if (newQuery.trim()) {
-      performSearch(newQuery);
-    } else {
-      resetResults();
-    }
-  });
-
-  // Author autocomplete: while typing `from:<partial>`, look up matching
-  // people (reusing the user search) and offer them as candidates. Guarded
-  // against stale responses — a slower fetch for an earlier partial must
-  // not overwrite a newer one.
-  watch(query, async (raw) => {
-    const match = raw.match(FROM_TOKEN_RE);
-    if (!match || authorFilter.value) {
-      authorCandidates.value = [];
-      return;
-    }
-    const partial = match[2].trim();
-    if (!partial) {
-      // `from:` with nothing typed yet — wait for a character rather than
-      // dumping an arbitrary user list.
-      authorCandidates.value = [];
-      selectedAuthorIndex.value = 0;
-      return;
-    }
-    try {
-      const resp = await searchService.search({ q: partial, types: 'user', limit: 6 });
-      if (query.value !== raw) return; // a newer keystroke superseded this
-      authorCandidates.value = resp.results;
-      selectedAuthorIndex.value = 0;
-    } catch {
-      authorCandidates.value = [];
-    }
-  });
-
-  // Typed-operator tokenisation: `in:docs printer` → scope chip
-  // "Documentation" + query "printer". Runs on the raw (undebounced)
-  // query so the chip appears the moment the token completes; the
-  // stripped query then flows through the normal debounce. A token
-  // only converts once it's *finished* — followed by a space — never
-  // mid-word: converting eagerly at the first unambiguous prefix
-  // strands the user's remaining keystrokes in the query ("in:t" →
-  // chip, then "ickets" as search text).
-  watch(query, (raw) => {
-    const match = raw.match(/(^|\s)in:([a-zA-Z]+)\s/);
-    if (!match) return;
-    const scope = resolveScopeToken(match[2]);
-    if (!scope) return;
-    activeTypes.value = scope;
-    query.value = raw.replace(match[0], match[1]).replace(/\s{2,}/g, ' ').trimStart();
-  });
-
-  // Re-run the search whenever a filter or the sort axis changes — scope
-  // chip, sort toggle, or person chip. Each narrows/re-orders an existing
-  // query, so we go back to the index rather than re-sorting the current
-  // (truncated) page. With no query text there's nothing to run, so we fall
-  // back to the prompt; any chips stay visible, ready for a query.
-  watch([activeTypes, sortOrder, authorFilter], () => {
-    if (query.value.trim()) {
-      performSearch(query.value);
-    } else {
-      resetResults();
-    }
   });
 
   const resetAuthor = () => {

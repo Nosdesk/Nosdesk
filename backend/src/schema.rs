@@ -1555,6 +1555,7 @@ diesel::table! {
         result_count -> Int4,
         searched_at -> Timestamptz,
         workspace_id -> Int4,
+        user_uuid -> Nullable<Uuid>,
     }
 }
 
@@ -2560,6 +2561,7 @@ diesel::joinable!(rules -> users (created_by));
 diesel::joinable!(rules -> workspaces (workspace_id));
 diesel::joinable!(saved_views -> users (created_by));
 diesel::joinable!(saved_views -> workspaces (workspace_id));
+diesel::joinable!(search_query_log -> users (user_uuid));
 diesel::joinable!(search_query_log -> workspaces (workspace_id));
 diesel::joinable!(security_events -> users (user_uuid));
 diesel::joinable!(site_settings -> users (updated_by));
